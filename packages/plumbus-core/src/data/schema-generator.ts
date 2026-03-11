@@ -1,13 +1,13 @@
 import {
-    boolean,
-    index,
-    integer,
-    jsonb,
-    pgTable,
-    text,
-    timestamp,
-    uuid,
-    type PgTableWithColumns,
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  type PgTableWithColumns,
 } from 'drizzle-orm/pg-core';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';

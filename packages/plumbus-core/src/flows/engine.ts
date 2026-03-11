@@ -10,11 +10,11 @@ import type { AuthContext } from '../types/security.js';
 import type { FlowRegistry } from './registry.js';
 import { flowExecutionsTable } from './schema.js';
 import {
-    FlowStatus,
-    StepStatus,
-    assertTransition,
-    isTerminal,
-    type StepHistoryEntry,
+  FlowStatus,
+  StepStatus,
+  assertTransition,
+  isTerminal,
+  type StepHistoryEntry,
 } from './state-machine.js';
 import { buildHistoryEntry, executeStep, type StepExecutorDeps } from './step-executor.js';
 

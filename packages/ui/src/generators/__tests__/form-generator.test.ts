@@ -2,10 +2,10 @@ import type { CapabilityContract } from 'plumbus-core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-    extractFieldHint,
-    extractFormHints,
-    generateFormHintsCode,
-    generateFormHintsModule,
+  extractFieldHint,
+  extractFormHints,
+  generateFormHintsCode,
+  generateFormHintsModule,
 } from '../form-generator.js';
 
 // ── Fixtures ──
