@@ -71,7 +71,7 @@ describe('plumbus generate', () => {
 
   describe('generateAll', () => {
     it('generates all artifacts for empty capability list', () => {
-      const tmpDir = '/tmp/plumbus-test-gen-' + Date.now();
+      const tmpDir = `/tmp/plumbus-test-gen-${Date.now()}`;
       const generated = generateAll([], tmpDir);
       expect(generated).toContain('clients/api.ts');
       expect(generated).toContain('clients/hooks.ts');

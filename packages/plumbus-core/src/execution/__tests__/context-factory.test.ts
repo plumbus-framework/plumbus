@@ -84,7 +84,7 @@ describe('createExecutionContext', () => {
       config: { appName: 'test-app' },
     });
 
-    expect(ctx.config['appName']).toBe('test-app');
+    expect(ctx.config.appName).toBe('test-app');
   });
 
   it('provides security service with hasRole/hasScope', () => {

@@ -1,4 +1,9 @@
-// ── AI Module Barrel Export ──
+// ── AI Module ──
+// AI runtime: provider adapters (OpenAI, Anthropic), prompt registry, output
+// validation, cost tracking, security scanning, explainability, and RAG pipeline.
+// Used by ctx.ai in capability handlers.
+//
+// Key exports: createAIService, createRAGPipeline, PromptRegistry, checkPromptSecurity
 
 // Provider adapters
 export {

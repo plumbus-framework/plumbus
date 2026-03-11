@@ -67,9 +67,16 @@ src/<module>/
 ## Adding New Features
 
 - **New module**: create `src/<module>/index.ts` + `__tests__/` + re-export from `src/index.ts`
-- **New CLI command**: `src/cli/commands/<name>.ts` with `register<Name>Command()`, register in `cli.ts`
+- **New CLI command**: `src/cli/commands/<name>.ts` with `register<Name>Command()`, add export to `commands/index.ts`, register in `cli.ts`
 - **New define function**: `src/define/define<Primitive>.ts` + types in `src/types/` + validate with Zod + freeze output
 - **New governance rule**: add to `src/governance/rules/`, register in `rules/index.ts` — advisory only
+
+## Barrel Structure
+
+- Each module has an `index.ts` barrel with a doc comment explaining the module’s purpose
+- `src/index.ts` is split into **TIER 1** (SDK surface) and **TIER 2** (CLI/tooling internals)
+- `src/cli/commands/index.ts` exports all `register*Command()` functions
+- When adding exports to `src/index.ts`, place them in the correct tier
 
 ## Key Design Decisions
 
@@ -84,7 +91,7 @@ src/<module>/
 For architecture, SDK reference, and design rationale, read files under `docs/`:
 
 - `docs/architecture/` — system overview, execution lifecycle, diagrams
-- `docs/core-concepts/` — capabilities, entities, flows, events, prompts
+- `docs/core-concepts/` — capabilities, entities, flows, events, prompts, governance
 - `docs/sdk-reference/` — define functions, execution context, data layer, configuration
 - `docs/cli/` — all CLI commands and options
 - `docs/security/` — security model, auth, tenant isolation
@@ -112,6 +119,15 @@ After making changes, update the corresponding documentation in `docs/`. **This 
 - **Suppress for entire file**: `// biome-ignore-all lint/ruleName: reason` (at top of file)
 - Do **not** use ESLint, Prettier, or any other linter/formatter — Biome replaces all of them
 - Biome rule names differ from ESLint (e.g. `noNonNullAssertion` not `@typescript-eslint/no-non-null-assertion`)
+
+### Zero-Tolerance Lint Policy
+
+- **All lint rules are errors** — `pnpm lint` must produce zero errors and zero warnings
+- **`noExplicitAny`**: turned **off** — `any` is allowed where needed (test mocks, Zod generics, FFI)
+- **`noConsole`**: turned **off** — `console.*` is used intentionally in CLI and logger code
+- **`noNonNullAssertion`**: **error** — never use `!` postfix; prefer optional chaining (`?.`), nullish coalescing (`??`), or explicit guards
+- **`noUnusedVariables`**: **error** — no dead code
+- **No new warnings allowed** — every PR must pass `pnpm lint` cleanly
 
 ## Files You Should Not Edit
 

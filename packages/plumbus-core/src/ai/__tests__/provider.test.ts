@@ -76,7 +76,8 @@ describe('AI Provider Adapters', () => {
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
       await adapter.complete({ prompt: 'Hello', system: 'Be nice' });
 
-      const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body);
       expect(body.messages).toHaveLength(2);
       expect(body.messages[0].role).toBe('system');
 

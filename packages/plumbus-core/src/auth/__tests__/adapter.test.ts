@@ -40,11 +40,11 @@ describe('createJwtAdapter', () => {
     const result = await adapter.authenticate(`Bearer ${token}`);
 
     expect(result).not.toBeNull();
-    expect(result!.userId).toBe('user-42');
-    expect(result!.roles).toEqual(['admin', 'editor']);
-    expect(result!.scopes).toEqual(['read', 'write']);
-    expect(result!.tenantId).toBe('t-1');
-    expect(result!.provider).toBe('jwt');
+    expect(result?.userId).toBe('user-42');
+    expect(result?.roles).toEqual(['admin', 'editor']);
+    expect(result?.scopes).toEqual(['read', 'write']);
+    expect(result?.tenantId).toBe('t-1');
+    expect(result?.provider).toBe('jwt');
   });
 
   it('handles space-separated scopes', async () => {
@@ -55,7 +55,7 @@ describe('createJwtAdapter', () => {
     });
 
     const result = await adapter.authenticate(`Bearer ${token}`);
-    expect(result!.scopes).toEqual(['read', 'write', 'delete']);
+    expect(result?.scopes).toEqual(['read', 'write', 'delete']);
   });
 
   it('handles comma-separated roles', async () => {
@@ -66,7 +66,7 @@ describe('createJwtAdapter', () => {
     });
 
     const result = await adapter.authenticate(`Bearer ${token}`);
-    expect(result!.roles).toEqual(['admin', 'editor']);
+    expect(result?.roles).toEqual(['admin', 'editor']);
   });
 
   it('returns null for expired tokens', async () => {
@@ -143,9 +143,9 @@ describe('createJwtAdapter', () => {
     });
 
     const result = await customAdapter.authenticate(`Bearer ${token}`);
-    expect(result!.userId).toBe('custom-user');
-    expect(result!.roles).toEqual(['superadmin']);
-    expect(result!.tenantId).toBe('org-99');
+    expect(result?.userId).toBe('custom-user');
+    expect(result?.roles).toEqual(['superadmin']);
+    expect(result?.tenantId).toBe('org-99');
   });
 
   it('sets authenticatedAt from iat claim', async () => {
@@ -157,6 +157,6 @@ describe('createJwtAdapter', () => {
     });
 
     const result = await adapter.authenticate(`Bearer ${token}`);
-    expect(result!.authenticatedAt).toEqual(new Date(iat * 1000));
+    expect(result?.authenticatedAt).toEqual(new Date(iat * 1000));
   });
 });

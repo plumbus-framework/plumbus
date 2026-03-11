@@ -23,8 +23,8 @@ export function isPlumbusError(value: unknown): value is PlumbusError {
   if (typeof value !== 'object' || value === null) return false;
   const obj = value as Record<string, unknown>;
   return (
-    typeof obj['code'] === 'string' &&
-    typeof obj['message'] === 'string' &&
-    Object.values(ErrorCode).includes(obj['code'] as ErrorCode)
+    typeof obj.code === 'string' &&
+    typeof obj.message === 'string' &&
+    Object.values(ErrorCode).includes(obj.code as ErrorCode)
   );
 }

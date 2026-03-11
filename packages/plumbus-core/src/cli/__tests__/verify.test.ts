@@ -40,8 +40,8 @@ describe('plumbus verify', () => {
     it('flags capabilities without access policies', () => {
       const signals = ruleCapabilityAccessPolicy([mockCap()]);
       expect(signals).toHaveLength(1);
-      expect(signals[0]!.severity).toBe(GovernanceSeverity.High);
-      expect(signals[0]!.rule).toBe('security.capability-access-policy');
+      expect(signals[0]?.severity).toBe(GovernanceSeverity.High);
+      expect(signals[0]?.rule).toBe('security.capability-access-policy');
     });
 
     it('passes capabilities with roles', () => {
@@ -68,7 +68,7 @@ describe('plumbus verify', () => {
         }),
       ]);
       expect(signals).toHaveLength(1);
-      expect(signals[0]!.rule).toBe('architecture.excessive-effects');
+      expect(signals[0]?.rule).toBe('architecture.excessive-effects');
     });
 
     it('passes capabilities with reasonable effects', () => {
@@ -88,7 +88,7 @@ describe('plumbus verify', () => {
         }),
       ]);
       expect(signals).toHaveLength(1);
-      expect(signals[0]!.rule).toBe('privacy.missing-field-classification');
+      expect(signals[0]?.rule).toBe('privacy.missing-field-classification');
     });
 
     it('passes classified fields', () => {
@@ -117,7 +117,7 @@ describe('plumbus verify', () => {
         }),
       ]);
       expect(signals).toHaveLength(1);
-      expect(signals[0]!.rule).toBe('privacy.sensitive-field-unencrypted');
+      expect(signals[0]?.rule).toBe('privacy.sensitive-field-unencrypted');
     });
 
     it('passes encrypted sensitive fields', () => {
@@ -139,7 +139,7 @@ describe('plumbus verify', () => {
     it('flags entities without tenant isolation', () => {
       const signals = ruleEntityTenantIsolation([mockEntity()]);
       expect(signals).toHaveLength(1);
-      expect(signals[0]!.severity).toBe(GovernanceSeverity.Info);
+      expect(signals[0]?.severity).toBe(GovernanceSeverity.Info);
     });
 
     it('passes tenant-scoped entities', () => {

@@ -103,7 +103,7 @@ describe('plumbus certify policy', () => {
         }),
       ],
     );
-    expect(report.recommendations!.length).toBeGreaterThan(0);
+    expect(report.recommendations?.length).toBeGreaterThan(0);
   });
 
   it('evaluates HIPAA policy with masking rule', () => {

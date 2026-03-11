@@ -1,6 +1,9 @@
-// ── Plumbus Testing Framework ──
-// Public API for testing Plumbus applications.
-// Import via: import { ... } from "plumbus-core/testing"
+// ── Testing Module ──
+// Test utilities for Plumbus applications: mock context factory, capability runner,
+// flow simulator, security assertion helpers, governance test helpers, and scaffolding.
+// Use createTestContext() for a fully-mocked ExecutionContext.
+//
+// Key exports: createTestContext, runCapability, simulateFlow, assertAccessDenied
 
 // ── Context & Mock Factories ──
 export {

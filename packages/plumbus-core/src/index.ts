@@ -1,7 +1,27 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Plumbus Core — Public API
+//
+// This barrel is organized into two tiers:
+//
+//   TIER 1 — SDK Surface (for building applications)
+//     Types, define*() functions, field constructors, execution engine,
+//     data layer, auth, events, flows, AI runtime, config, observability.
+//
+//   TIER 2 — Tooling & CLI Internals (for framework tooling)
+//     CLI commands, scaffolding templates, doctor checks, governance rules,
+//     policy certification, agent briefs, code generators.
+//
+// When adding new exports, place them in the correct tier.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ┌────────────────────────────────────────────────────────────────────────┐
+// │ TIER 1 — SDK Surface                                                  │
+// └────────────────────────────────────────────────────────────────────────┘
+
 // ── Types (re-export everything) ──
 export * from './types/index.js';
 
-// ── Define Functions (SDK surface) ──
+// ── Define Functions ──
 export { defineCapability } from './define/defineCapability.js';
 export { defineEntity } from './define/defineEntity.js';
 export { defineEvent } from './define/defineEvent.js';
@@ -50,7 +70,7 @@ export type { AuthAdapter, JwtAdapterConfig, JwtClaimMapping } from './auth/inde
 export { auditRecords, createAuditService } from './audit/index.js';
 export type { AuditServiceConfig } from './audit/index.js';
 
-// ── API ──
+// ── API (HTTP route generation) ──
 export { registerAllRoutes, registerCapabilityRoute } from './api/index.js';
 export type { RouteGeneratorConfig } from './api/index.js';
 
@@ -161,116 +181,6 @@ export type {
   VectorStore,
 } from './ai/index.js';
 
-// ── CLI ──
-export {
-  // Templates
-  capabilityTemplate,
-  capabilityTestTemplate,
-  checkAppStructure,
-  checkConfig,
-  checkNodeVersion,
-  checkPackageJson,
-  checkPlumbusCore,
-  checkPostgreSQL,
-  checkRedis,
-  checkTypeScript,
-  createCli,
-  entityTemplate,
-  // Policy certification
-  evaluatePolicy,
-  eventTemplate,
-  flowTemplate,
-  generateAgentsMd,
-  // Code generation
-  generateAll,
-  // Agent briefs
-  generateCapabilityBrief,
-  generateClientFunction,
-  // Agent wiring
-  generateCopilotInstructions,
-  generateCursorCapabilityRule,
-  generateCursorRule,
-  generateEntityBrief,
-  generateManifestEntry,
-  generateOpenApiPath,
-  generateProjectBrief,
-  generateProjectBriefFromResources,
-  // Project scaffolding
-  generateProjectStructure,
-  generateReactHook,
-  promptTemplate,
-  ruleCapabilityAccessPolicy,
-  ruleCapabilityEffects,
-  ruleEncryptedSensitiveFields,
-  ruleEntityFieldClassification,
-  ruleEntityTenantIsolation,
-  // Dev
-  runDev,
-  // Doctor
-  runDoctorChecks,
-  runFullDoctorChecks,
-  // Governance
-  runGovernanceRules,
-  startDevServer,
-  toCamelCase,
-  // Utilities
-  toKebabCase,
-  toPascalCase,
-  writeAgentFiles,
-} from './cli/index.js';
-export type {
-  AgentFormat,
-  CreateOptions,
-  DevOptions,
-  DoctorCheck,
-  InitOptions,
-  PolicyContext,
-  PolicyRule,
-} from './cli/index.js';
-
-// ── Governance ──
-export {
-  aiRules,
-  applyOverrides,
-  architectureRules,
-  builtInProfiles,
-  createGovernanceRuleEngine,
-  createOverrideStore,
-  evaluatePolicyProfile,
-  formatPolicyReport,
-  generateAllPolicyReports,
-  generatePolicyReport,
-  ruleCapabilityMissingAccessPolicy as govRuleCapabilityMissingAccessPolicy,
-  ruleEntityTenantIsolation as govRuleEntityTenantIsolation,
-  privacyRules,
-  ruleAIWithoutExplanation,
-  ruleCrossTenantDataAccess,
-  ruleEntityMissingDescription,
-  ruleExcessiveAIUsage,
-  ruleExcessiveDataRetention,
-  ruleExcessiveEffects,
-  ruleExcessiveFlowBranching,
-  ruleExcessiveFlowSteps,
-  ruleMissingAuditConfig,
-  ruleMissingFieldClassification,
-  ruleOverlyPermissiveRoles,
-  rulePersonalDataInLogs,
-  ruleSensitiveFieldUnencrypted,
-  securityRules,
-} from './governance/index.js';
-export type {
-  GovernanceResult,
-  GovernanceRule,
-  GovernanceRuleEngine,
-  OverrideEntry,
-  OverrideStore,
-  PolicyProfileDefinition,
-  PolicyProfileRule,
-  ReportOptions,
-  RuleCategory,
-  SystemInventory,
-} from './governance/index.js';
-
 // ── Explanation ──
 export { createExplanationTracker } from './explanation/index.js';
 export type {
@@ -329,3 +239,122 @@ export type {
 // ── Config Loader ──
 export { loadConfig, validateConfig } from './config/index.js';
 export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
+
+// ┌────────────────────────────────────────────────────────────────────────┐
+// │ TIER 2 — Tooling & CLI Internals                                      │
+// │                                                                        │
+// │ CLI commands, scaffolding templates, doctor checks, governance rules,  │
+// │ policy certification, agent briefs, and code generators.               │
+// │ These are used by the `plumbus` CLI and framework tooling, not by      │
+// │ application code.                                                      │
+// └────────────────────────────────────────────────────────────────────────┘
+
+// ── CLI (entry point + scaffolding + code generation) ──
+export {
+  // Scaffolding templates
+  capabilityTemplate,
+  capabilityTestTemplate,
+  // Doctor checks
+  checkAppStructure,
+  checkConfig,
+  checkNodeVersion,
+  checkPackageJson,
+  checkPlumbusCore,
+  checkPostgreSQL,
+  checkRedis,
+  checkTypeScript,
+  createCli,
+  entityTemplate,
+  // Policy certification (plumbus certify)
+  evaluatePolicy,
+  eventTemplate,
+  flowTemplate,
+  // Agent wiring (plumbus init)
+  generateAgentsMd,
+  // Code generation
+  generateAll,
+  // Agent briefs
+  generateCapabilityBrief,
+  generateClientFunction,
+  generateCopilotInstructions,
+  generateCursorCapabilityRule,
+  generateCursorRule,
+  generateEntityBrief,
+  generateManifestEntry,
+  generateOpenApiPath,
+  generateProjectBrief,
+  generateProjectBriefFromResources,
+  // Project scaffolding
+  generateProjectStructure,
+  generateReactHook,
+  promptTemplate,
+  // CLI verify rules
+  ruleCapabilityAccessPolicy,
+  ruleCapabilityEffects,
+  ruleEncryptedSensitiveFields,
+  ruleEntityFieldClassification,
+  ruleEntityTenantIsolation,
+  // Dev server
+  runDev,
+  runDoctorChecks,
+  runFullDoctorChecks,
+  runGovernanceRules,
+  startDevServer,
+  // Utilities
+  toCamelCase,
+  toKebabCase,
+  toPascalCase,
+  writeAgentFiles,
+} from './cli/index.js';
+export type {
+  AgentFormat,
+  CreateOptions,
+  DevOptions,
+  DoctorCheck,
+  InitOptions,
+  PolicyContext,
+  PolicyRule,
+} from './cli/index.js';
+
+// ── Governance Engine (advisory governance rules + policy reports) ──
+export {
+  aiRules,
+  applyOverrides,
+  architectureRules,
+  builtInProfiles,
+  createGovernanceRuleEngine,
+  createOverrideStore,
+  evaluatePolicyProfile,
+  formatPolicyReport,
+  generateAllPolicyReports,
+  generatePolicyReport,
+  ruleCapabilityMissingAccessPolicy as govRuleCapabilityMissingAccessPolicy,
+  ruleEntityTenantIsolation as govRuleEntityTenantIsolation,
+  privacyRules,
+  ruleAIWithoutExplanation,
+  ruleCrossTenantDataAccess,
+  ruleEntityMissingDescription,
+  ruleExcessiveAIUsage,
+  ruleExcessiveDataRetention,
+  ruleExcessiveEffects,
+  ruleExcessiveFlowBranching,
+  ruleExcessiveFlowSteps,
+  ruleMissingAuditConfig,
+  ruleMissingFieldClassification,
+  ruleOverlyPermissiveRoles,
+  rulePersonalDataInLogs,
+  ruleSensitiveFieldUnencrypted,
+  securityRules,
+} from './governance/index.js';
+export type {
+  GovernanceResult,
+  GovernanceRule,
+  GovernanceRuleEngine,
+  OverrideEntry,
+  OverrideStore,
+  PolicyProfileDefinition,
+  PolicyProfileRule,
+  ReportOptions,
+  RuleCategory,
+  SystemInventory,
+} from './governance/index.js';

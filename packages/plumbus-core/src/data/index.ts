@@ -1,3 +1,9 @@
+// ── Data Layer Module ──
+// Persistence: entity registry, repository factory, Drizzle schema generation,
+// and database migrations. Used by ctx.data in capability handlers.
+//
+// Key exports: createRepository, EntityRegistry, generateDrizzleSchema, applyMigrations
+
 export {
   applyMigrations,
   collectSchemas,

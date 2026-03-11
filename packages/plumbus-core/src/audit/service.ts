@@ -18,13 +18,13 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
 
   return {
     async record(eventType: string, metadata?: Record<string, unknown>): Promise<void> {
-      const outcome = (metadata?.['outcome'] as string) ?? 'success';
-      const maskedFields = (metadata?.['_maskedFields'] as string[]) ?? undefined;
+      const outcome = (metadata?.outcome as string) ?? 'success';
+      const maskedFields = (metadata?._maskedFields as string[]) ?? undefined;
 
       // Strip internal meta keys from stored metadata
       const storedMetadata = metadata ? { ...metadata } : undefined;
       if (storedMetadata) {
-        delete storedMetadata['_maskedFields'];
+        delete storedMetadata._maskedFields;
       }
 
       await db.insert(auditRecords).values({

@@ -5,8 +5,8 @@ describe('Document Chunking', () => {
   it('returns single chunk for short text', () => {
     const chunks = chunkDocument('Hello world');
     expect(chunks).toHaveLength(1);
-    expect(chunks[0]!.content).toBe('Hello world');
-    expect(chunks[0]!.index).toBe(0);
+    expect(chunks[0]?.content).toBe('Hello world');
+    expect(chunks[0]?.index).toBe(0);
   });
 
   it('splits long text into overlapping chunks', () => {
@@ -15,10 +15,10 @@ describe('Document Chunking', () => {
 
     expect(chunks.length).toBeGreaterThan(1);
     // First chunk should be maxChunkSize
-    expect(chunks[0]!.content.length).toBe(1000);
+    expect(chunks[0]?.content.length).toBe(1000);
     // Chunks should have sequential indexes
     for (let i = 0; i < chunks.length; i++) {
-      expect(chunks[i]!.index).toBe(i);
+      expect(chunks[i]?.index).toBe(i);
     }
   });
 
@@ -39,8 +39,8 @@ describe('Document Chunking', () => {
 
     // Should merge all into one chunk since all fit
     expect(chunks).toHaveLength(1);
-    expect(chunks[0]!.content).toContain('A');
-    expect(chunks[0]!.content).toContain('C');
+    expect(chunks[0]?.content).toContain('A');
+    expect(chunks[0]?.content).toContain('C');
   });
 
   it('splits paragraphs that exceed maxChunkSize', () => {

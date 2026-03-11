@@ -119,7 +119,7 @@ describe('executeCapability', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('internal');
-      expect(result.error.metadata?.['message']).toBe('Database connection lost');
+      expect(result.error.metadata?.message).toBe('Database connection lost');
     }
   });
 

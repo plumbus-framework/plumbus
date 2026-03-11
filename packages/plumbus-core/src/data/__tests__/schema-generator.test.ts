@@ -39,14 +39,14 @@ describe('generateDrizzleSchema', () => {
     const table = generateDrizzleSchema(entity);
     const cols = getTableColumns(table);
 
-    expect(cols['id']).toBeDefined();
-    expect(cols['label']).toBeDefined();
-    expect(cols['count']).toBeDefined();
-    expect(cols['active']).toBeDefined();
-    expect(cols['createdAt']).toBeDefined();
-    expect(cols['meta']).toBeDefined();
-    expect(cols['status']).toBeDefined();
-    expect(cols['orgId']).toBeDefined();
+    expect(cols.id).toBeDefined();
+    expect(cols.label).toBeDefined();
+    expect(cols.count).toBeDefined();
+    expect(cols.active).toBeDefined();
+    expect(cols.createdAt).toBeDefined();
+    expect(cols.meta).toBeDefined();
+    expect(cols.status).toBeDefined();
+    expect(cols.orgId).toBeDefined();
   });
 
   it('auto-adds createdAt and updatedAt when not in fields', () => {
@@ -59,8 +59,8 @@ describe('generateDrizzleSchema', () => {
     const table = generateDrizzleSchema(entity);
     const cols = getTableColumns(table);
 
-    expect(cols['createdAt']).toBeDefined();
-    expect(cols['updatedAt']).toBeDefined();
+    expect(cols.createdAt).toBeDefined();
+    expect(cols.updatedAt).toBeDefined();
   });
 
   it('does not duplicate createdAt if already in fields', () => {
@@ -72,23 +72,23 @@ describe('generateDrizzleSchema', () => {
     });
     const table = generateDrizzleSchema(entity);
     const cols = getTableColumns(table);
-    expect(cols['createdAt']).toBeDefined();
+    expect(cols.createdAt).toBeDefined();
     // updatedAt still auto-added
-    expect(cols['updatedAt']).toBeDefined();
+    expect(cols.updatedAt).toBeDefined();
   });
 
   it('adds tenantId column for tenantScoped entities', () => {
     const entity = makeEntity({ tenantScoped: true });
     const table = generateDrizzleSchema(entity);
     const cols = getTableColumns(table);
-    expect(cols['tenantId']).toBeDefined();
+    expect(cols.tenantId).toBeDefined();
   });
 
   it('does not add tenantId for non-tenantScoped entities', () => {
     const entity = makeEntity({ tenantScoped: false });
     const table = generateDrizzleSchema(entity);
     const cols = getTableColumns(table);
-    expect(cols['tenantId']).toBeUndefined();
+    expect(cols.tenantId).toBeUndefined();
   });
 
   it('handles empty indexes gracefully', () => {

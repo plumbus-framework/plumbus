@@ -15,12 +15,12 @@
       "recommended": true,
       "correctness": {
         "noUnusedImports": "error",
-        "noUnusedVariables": "warn"
+        "noUnusedVariables": "error"
       },
       "suspicious": {
-        "noExplicitAny": "warn",
+        "noExplicitAny": "off",
         "noDebugger": "error",
-        "noConsole": "warn",
+        "noConsole": "off",
         "noVar": "error",
         "noThenProperty": "off"
       },
@@ -29,7 +29,7 @@
         "useNodejsImportProtocol": "error",
         "useConsistentArrayType": "error",
         "noEnum": "error",
-        "noNonNullAssertion": "warn"
+        "noNonNullAssertion": "error"
       },
       "complexity": {
         "noForEach": "off"

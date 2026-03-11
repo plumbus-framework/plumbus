@@ -38,9 +38,9 @@ describe('Cost Tracker', () => {
 
       const records = tracker.getRecords();
       expect(records).toHaveLength(1);
-      expect(records[0]!.model).toBe('gpt-4o');
-      expect(records[0]!.id).toBeDefined();
-      expect(records[0]!.timestamp).toBeInstanceOf(Date);
+      expect(records[0]?.model).toBe('gpt-4o');
+      expect(records[0]?.id).toBeDefined();
+      expect(records[0]?.timestamp).toBeInstanceOf(Date);
     });
 
     it('tracks daily usage', () => {

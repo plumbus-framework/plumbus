@@ -96,8 +96,9 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
         });
 
         for (let j = 0; j < batch.length; j++) {
-          const chunk = batch[j]!;
-          const emb = embeddingResponse.embeddings[j]!;
+          const chunk = batch[j];
+          const emb = embeddingResponse.embeddings[j];
+          if (!chunk || !emb) continue;
           storedChunks.push({
             id: crypto.randomUUID(),
             documentId: input.documentId,
@@ -127,7 +128,8 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
         texts: [query.query],
         model: config.embeddingModel,
       });
-      const queryEmbedding = embeddingResponse.embeddings[0]!;
+      const queryEmbedding = embeddingResponse.embeddings[0];
+      if (!queryEmbedding) return [];
 
       // 2. Search vector store
       const results = await vectorStore.search(queryEmbedding, {
@@ -175,8 +177,8 @@ export function createInMemoryVectorStore(): VectorStore {
     let magA = 0;
     let magB = 0;
     for (let i = 0; i < a.length; i++) {
-      const ai = a[i]!;
-      const bi = b[i]!;
+      const ai = a[i] ?? 0;
+      const bi = b[i] ?? 0;
       dot += ai * bi;
       magA += ai * ai;
       magB += bi * bi;
@@ -211,7 +213,7 @@ export function createInMemoryVectorStore(): VectorStore {
     async deleteByDocumentId(documentId: string) {
       const idxs: number[] = [];
       for (let i = chunks.length - 1; i >= 0; i--) {
-        if (chunks[i]!.documentId === documentId) idxs.push(i);
+        if (chunks[i]?.documentId === documentId) idxs.push(i);
       }
       for (const idx of idxs) {
         chunks.splice(idx, 1);

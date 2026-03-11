@@ -10,11 +10,11 @@ import type { AuthContext } from '../types/security.js';
 import type { FlowRegistry } from './registry.js';
 import { flowExecutionsTable } from './schema.js';
 import {
-  FlowStatus,
-  StepStatus,
-  assertTransition,
-  isTerminal,
-  type StepHistoryEntry,
+    FlowStatus,
+    StepStatus,
+    assertTransition,
+    isTerminal,
+    type StepHistoryEntry,
 } from './state-machine.js';
 import { buildHistoryEntry, executeStep, type StepExecutorDeps } from './step-executor.js';
 
@@ -451,7 +451,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
 function getNextStepName(steps: FlowStep[], currentStepName: string): string | undefined {
   const idx = steps.findIndex((s) => s.name === currentStepName);
   if (idx === -1 || idx >= steps.length - 1) return undefined;
-  return steps[idx + 1]!.name;
+  return steps[idx + 1]?.name;
 }
 
 /**

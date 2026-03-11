@@ -4,10 +4,10 @@
 
 import { FlowStatus, StepStatus, type StepHistoryEntry } from '../flows/state-machine.js';
 import {
-  buildHistoryEntry,
-  executeStep,
-  type StepExecutorDeps,
-  type StepResult,
+    buildHistoryEntry,
+    executeStep,
+    type StepExecutorDeps,
+    type StepResult,
 } from '../flows/step-executor.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { FlowDefinition, FlowStep } from '../types/flow.js';
@@ -66,16 +66,13 @@ export async function simulateFlow(
     executeCapability:
       options?.stepDeps?.executeCapability ??
       (async (name) => {
-        if (options?.capabilityResults?.[name]) {
-          return options.capabilityResults[name]!;
-        }
-        return { success: true, data: {} };
+        return options?.capabilityResults?.[name] ?? { success: true, data: {} };
       }),
     evaluateCondition:
       options?.stepDeps?.evaluateCondition ??
       ((expression) => {
         if (options?.conditionResults?.[expression] !== undefined) {
-          return options.conditionResults[expression]!;
+          return options.conditionResults[expression] ?? true;
         }
         return true;
       }),
@@ -96,7 +93,8 @@ export async function simulateFlow(
   let currentStepIndex = 0;
 
   while (currentStepIndex < flow.steps.length && executedCount < maxSteps) {
-    const step = flow.steps[currentStepIndex]!;
+    const step = flow.steps[currentStepIndex];
+    if (!step) break;
     executedCount++;
 
     const startedAt = ctx.time.now();

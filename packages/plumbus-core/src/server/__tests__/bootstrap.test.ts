@@ -4,10 +4,12 @@ import type { LoggerService } from '../../types/context.js';
 
 // ── Mocks ──
 
+type AnyFn = (...args: any[]) => any;
+
 vi.mock('fastify', () => {
-  const routes = new Map<string, Function>();
+  const routes = new Map<string, AnyFn>();
   const app = {
-    get: vi.fn((path: string, handler: Function) => {
+    get: vi.fn((path: string, handler: AnyFn) => {
       routes.set(path, handler);
     }),
     post: vi.fn(),
@@ -149,11 +151,11 @@ describe('Server Bootstrap', () => {
   describe('/health handler', () => {
     it('returns status ok with environment and capability count', async () => {
       const server = createServer(makeServerConfig());
-      const routes = (server.app as any)._routes as Map<string, Function>;
+      const routes = (server.app as any)._routes as Map<string, AnyFn>;
       const healthHandler = routes.get('/health');
       expect(healthHandler).toBeDefined();
 
-      const response = await healthHandler!();
+      const response = await healthHandler?.();
       expect(response).toMatchObject({
         status: 'ok',
         environment: 'development',
@@ -172,9 +174,9 @@ describe('Server Bootstrap', () => {
         handler: async () => ({}),
       } as any);
       const server = createServer(makeServerConfig({ capabilities: caps }));
-      const routes = (server.app as any)._routes as Map<string, Function>;
+      const routes = (server.app as any)._routes as Map<string, AnyFn>;
       const healthHandler = routes.get('/health');
-      const response = await healthHandler!();
+      const response = await healthHandler?.();
       expect(response.capabilities).toBe(1);
     });
   });
@@ -185,10 +187,10 @@ describe('Server Bootstrap', () => {
         execute: vi.fn(async () => [{ '?column?': 1 }]),
       };
       const server = createServer(makeServerConfig({ db: db as any }));
-      const routes = (server.app as any)._routes as Map<string, Function>;
+      const routes = (server.app as any)._routes as Map<string, AnyFn>;
       const readyHandler = routes.get('/ready');
 
-      const response = await readyHandler!({}, { status: vi.fn().mockReturnThis() });
+      const response = await readyHandler?.({}, { status: vi.fn().mockReturnThis() });
       expect(response).toEqual({ status: 'ready' });
     });
 
@@ -200,10 +202,10 @@ describe('Server Bootstrap', () => {
       };
       const reply = { status: vi.fn().mockReturnThis() };
       const server = createServer(makeServerConfig({ db: db as any }));
-      const routes = (server.app as any)._routes as Map<string, Function>;
+      const routes = (server.app as any)._routes as Map<string, AnyFn>;
       const readyHandler = routes.get('/ready');
 
-      const response = await readyHandler!({}, reply);
+      const response = await readyHandler?.({}, reply);
       expect(reply.status).toHaveBeenCalledWith(503);
       expect(response).toEqual({ status: 'not_ready', reason: 'database unavailable' });
     });

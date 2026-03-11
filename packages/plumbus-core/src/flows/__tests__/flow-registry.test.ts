@@ -57,7 +57,7 @@ describe('FlowRegistry', () => {
     reg.register(makeFlow('b', 'orders', { trigger: 'order.updated' }));
     reg.register(makeFlow('c', 'orders'));
     expect(reg.getByTriggerEvent('order.created')).toHaveLength(1);
-    expect(reg.getByTriggerEvent('order.created')[0]!.name).toBe('a');
+    expect(reg.getByTriggerEvent('order.created')[0]?.name).toBe('a');
     expect(reg.getByTriggerEvent('nothing')).toHaveLength(0);
   });
 
@@ -66,7 +66,7 @@ describe('FlowRegistry', () => {
     reg.register(makeFlow('a', 'orders', { schedule: 'every:60m' }));
     reg.register(makeFlow('b', 'orders'));
     expect(reg.getScheduled()).toHaveLength(1);
-    expect(reg.getScheduled()[0]!.name).toBe('a');
+    expect(reg.getScheduled()[0]?.name).toBe('a');
   });
 
   it('discoverFlows() returns empty array for non-existent directory', async () => {

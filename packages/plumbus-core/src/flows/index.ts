@@ -1,3 +1,10 @@
+// ── Flows Module ──
+// Multi-step workflow engine: state machine, step executor, flow engine,
+// triggers, scheduler, dead-letter handling, and flow service (ctx.flow).
+// Supports capability steps, conditionals, delays, waits, parallel, and event-emit steps.
+//
+// Key exports: createFlowEngine, createFlowService, FlowRegistry, simulateFlow (in testing)
+
 // ── Flow Registry ──
 export { FlowRegistry } from './registry.js';
 

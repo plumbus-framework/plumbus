@@ -176,8 +176,8 @@ describe('Policy Report Generator', () => {
       capabilities: [mockCap()], // no access policy
     });
     const report = generatePolicyReport(PolicyProfile.PciDss, inv);
-    expect(report.recommendations!.length).toBeGreaterThan(0);
-    expect(report.recommendations!.some((r) => r.includes('access-control-required'))).toBe(true);
+    expect(report.recommendations?.length).toBeGreaterThan(0);
+    expect(report.recommendations?.some((r) => r.includes('access-control-required'))).toBe(true);
   });
 
   it('includes overrides in report', () => {
@@ -190,7 +190,7 @@ describe('Policy Report Generator', () => {
         timestamp: new Date(),
       },
     ]);
-    expect(report.overrides!.length).toBeGreaterThan(0);
+    expect(report.overrides?.length).toBeGreaterThan(0);
   });
 
   it('formats report as human-readable text', () => {

@@ -175,7 +175,7 @@ describe('ExplanationTracker', () => {
       tracker.recordAuthorization({ capability: 'test', actor: 'u1', decision: 'allow' });
       // Audit is called synchronously (fire-and-forget)
       expect(auditLog).toHaveLength(1);
-      expect(auditLog[0]!.eventType).toBe('explanation.authorization');
+      expect(auditLog[0]?.eventType).toBe('explanation.authorization');
     });
   });
 });

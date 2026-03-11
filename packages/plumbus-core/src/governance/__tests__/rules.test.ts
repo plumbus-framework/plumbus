@@ -157,7 +157,7 @@ describe('Security Rules', () => {
       emptyInventory({ capabilities: [mockCap()] }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.severity).toBe(GovernanceSeverity.High);
+    expect(signals[0]?.severity).toBe(GovernanceSeverity.High);
   });
 
   it('passes capabilities with access policies', () => {
@@ -172,7 +172,7 @@ describe('Security Rules', () => {
       emptyInventory({ capabilities: [mockCap({ access: { roles: ['*'] } })] }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('security.overly-permissive-roles');
+    expect(signals[0]?.rule).toBe('security.overly-permissive-roles');
   });
 
   it('flags cross-tenant data access', () => {
@@ -188,7 +188,7 @@ describe('Security Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('security.cross-tenant-data-access');
+    expect(signals[0]?.rule).toBe('security.cross-tenant-data-access');
   });
 
   it('flags entities without tenant isolation', () => {
@@ -196,7 +196,7 @@ describe('Security Rules', () => {
       emptyInventory({ entities: [mockEntity()] }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.severity).toBe(GovernanceSeverity.Info);
+    expect(signals[0]?.severity).toBe(GovernanceSeverity.Info);
   });
 });
 
@@ -219,7 +219,7 @@ describe('Privacy Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.severity).toBe(GovernanceSeverity.High);
+    expect(signals[0]?.severity).toBe(GovernanceSeverity.High);
   });
 
   it('passes encrypted sensitive fields', () => {
@@ -259,7 +259,7 @@ describe('Privacy Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('privacy.personal-data-in-logs');
+    expect(signals[0]?.rule).toBe('privacy.personal-data-in-logs');
   });
 
   it('flags missing classification on sensitive-looking fields', () => {
@@ -293,7 +293,7 @@ describe('Privacy Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('privacy.excessive-data-retention');
+    expect(signals[0]?.rule).toBe('privacy.excessive-data-retention');
   });
 
   it('passes entities with retention policies', () => {
@@ -327,7 +327,7 @@ describe('Architecture Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('architecture.excessive-effects');
+    expect(signals[0]?.rule).toBe('architecture.excessive-effects');
   });
 
   it('passes capabilities with reasonable effects', () => {
@@ -352,7 +352,7 @@ describe('Architecture Rules', () => {
       emptyInventory({ flows: [mockFlow({ steps })] }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('architecture.excessive-flow-branching');
+    expect(signals[0]?.rule).toBe('architecture.excessive-flow-branching');
   });
 
   it('flags flows with excessive steps', () => {
@@ -380,7 +380,7 @@ describe('Architecture Rules', () => {
       emptyInventory({ entities: [mockEntity()] }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('architecture.entity-missing-description');
+    expect(signals[0]?.rule).toBe('architecture.entity-missing-description');
   });
 });
 
@@ -394,7 +394,7 @@ describe('AI Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('ai.prompt-missing-output-schema');
+    expect(signals[0]?.rule).toBe('ai.prompt-missing-output-schema');
   });
 
   it('flags prompts without model config', () => {
@@ -411,7 +411,7 @@ describe('AI Rules', () => {
       }),
     );
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('ai.missing-explanation');
+    expect(signals[0]?.rule).toBe('ai.missing-explanation');
   });
 
   it('passes AI capabilities with explanation enabled', () => {
@@ -437,7 +437,7 @@ describe('AI Rules', () => {
     );
     const signals = ruleExcessiveAIUsage.evaluate(emptyInventory({ capabilities: caps }));
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.rule).toBe('ai.excessive-usage');
+    expect(signals[0]?.rule).toBe('ai.excessive-usage');
   });
 
   it('passes with reasonable AI usage ratio', () => {

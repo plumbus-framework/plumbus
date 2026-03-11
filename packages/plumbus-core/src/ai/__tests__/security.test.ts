@@ -35,8 +35,8 @@ describe('AI Security Boundaries', () => {
     );
     expect(result.safe).toBe(false);
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]!.field).toBe('salary');
-    expect(result.warnings[0]!.classification).toBe('sensitive');
+    expect(result.warnings[0]?.field).toBe('salary');
+    expect(result.warnings[0]?.classification).toBe('sensitive');
   });
 
   it('redacts highly_sensitive fields', () => {
@@ -46,8 +46,8 @@ describe('AI Security Boundaries', () => {
     );
     expect(result.safe).toBe(false);
     expect(result.redactedInput).toBeDefined();
-    expect(result.redactedInput!.ssn).toBe('[REDACTED]');
-    expect(result.redactedInput!.name).toBe('Alice');
+    expect(result.redactedInput?.ssn).toBe('[REDACTED]');
+    expect(result.redactedInput?.name).toBe('Alice');
   });
 
   it('handles custom warn and redact thresholds', () => {
@@ -59,8 +59,8 @@ describe('AI Security Boundaries', () => {
     const result = checkPromptSecurity({ email: 'a@b.com', salary: 50000 }, config);
     expect(result.warnings).toHaveLength(2); // email (personal) + salary (sensitive)
     expect(result.redactedInput).toBeDefined();
-    expect(result.redactedInput!.salary).toBe('[REDACTED]');
-    expect(result.redactedInput!.email).toBe('a@b.com'); // personal < sensitive redact threshold
+    expect(result.redactedInput?.salary).toBe('[REDACTED]');
+    expect(result.redactedInput?.email).toBe('a@b.com'); // personal < sensitive redact threshold
   });
 
   it('returns safe with no entities configured', () => {
@@ -82,7 +82,7 @@ describe('AI Security Boundaries', () => {
       { entities: entities2, warnThreshold: 'sensitive' },
     );
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]!.classification).toBe('sensitive');
+    expect(result.warnings[0]?.classification).toBe('sensitive');
   });
 
   it('detects sensitive fields in nested objects', () => {
@@ -92,8 +92,8 @@ describe('AI Security Boundaries', () => {
     );
     expect(result.safe).toBe(false);
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]!.field).toBe('user.ssn');
-    expect(result.warnings[0]!.classification).toBe('highly_sensitive');
+    expect(result.warnings[0]?.field).toBe('user.ssn');
+    expect(result.warnings[0]?.classification).toBe('highly_sensitive');
   });
 
   it('redacts sensitive fields in nested objects', () => {
@@ -102,8 +102,8 @@ describe('AI Security Boundaries', () => {
       { entities, redactThreshold: 'highly_sensitive' },
     );
     expect(result.redactedInput).toBeDefined();
-    expect((result.redactedInput!.user as Record<string, unknown>).ssn).toBe('[REDACTED]');
-    expect((result.redactedInput!.user as Record<string, unknown>).name).toBe('Alice');
+    expect((result.redactedInput?.user as Record<string, unknown>).ssn).toBe('[REDACTED]');
+    expect((result.redactedInput?.user as Record<string, unknown>).name).toBe('Alice');
   });
 
   it('detects sensitive fields at multiple nesting levels', () => {

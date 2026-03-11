@@ -1,4 +1,9 @@
-// ── CLI Module Barrel ──
+// ── CLI Module ──
+// CLI entry point and all subcommands: scaffolding (create, capability, entity,
+// flow, event, prompt), code generation, dev server, doctor checks, governance
+// verification, policy certification, agent wiring, and RAG ingestion.
+//
+// Key exports: createCli, generateProjectStructure, generateAll, runDoctorChecks
 
 export { createCli } from './cli.js';
 

@@ -1,4 +1,10 @@
-// ── Governance barrel export ──
+// ── Governance Module ──
+// Advisory governance: rule engine, built-in rules (security, privacy, architecture, AI),
+// override management, policy profiles (SOC2, GDPR, HIPAA, etc.), and compliance reports.
+// Advisory only — warnings never hard-block.
+//
+// Key exports: createGovernanceRuleEngine, securityRules, privacyRules, generatePolicyReport
+
 export { applyOverrides, createOverrideStore } from './overrides.js';
 export type { OverrideEntry, OverrideStore } from './overrides.js';
 

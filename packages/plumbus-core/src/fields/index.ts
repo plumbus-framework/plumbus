@@ -1,3 +1,9 @@
+// ── Fields Module ──
+// Field constructor factory for entity definitions.
+// Provides field.string(), field.number(), field.enum(), field.relation(), etc.
+//
+// Key exports: field (namespace object with typed constructors)
+
 import type { FieldClassification, RelationType } from '../types/enums.js';
 import type {
   BaseFieldOptions,

@@ -97,15 +97,15 @@ describe('simulateFlow', () => {
     const result = await simulateFlow(simpleFlow(), { value: 'test' });
     expect(result.status).toBe(FlowStatus.Completed);
     expect(result.history).toHaveLength(2);
-    expect(result.history[0]!.step).toBe('step1');
-    expect(result.history[1]!.step).toBe('step2');
+    expect(result.history[0]?.step).toBe('step1');
+    expect(result.history[1]?.step).toBe('step2');
   });
 
   it('records step results by name', async () => {
     const result = await simulateFlow(simpleFlow(), { value: 'test' });
     expect(result.stepResults.get('step1')).toBeDefined();
     expect(result.stepResults.get('step2')).toBeDefined();
-    expect(result.stepResults.get('step1')!.status).toBe(StepStatus.Completed);
+    expect(result.stepResults.get('step1')?.status).toBe(StepStatus.Completed);
   });
 
   it('fails flow when a capability step fails', async () => {
@@ -164,7 +164,7 @@ describe('simulateFlow', () => {
     const result = await simulateFlow(waitFlow(), {});
     expect(result.status).toBe(FlowStatus.Waiting);
     expect(result.history).toHaveLength(2); // step1 + waitForApproval
-    expect(result.history[1]!.step).toBe('waitForApproval');
+    expect(result.history[1]?.step).toBe('waitForApproval');
   });
 
   it('executes parallel branches', async () => {

@@ -99,7 +99,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         : { text: params.prompt };
 
       // Check if we have a schema to validate against
-      const promptDef = hasPromptDef ? promptRegistry!.get(params.prompt) : undefined;
+      const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
 
       const request: ProviderRequest = {
         prompt:

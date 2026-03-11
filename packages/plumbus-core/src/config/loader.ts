@@ -25,8 +25,8 @@ export function loadConfig(options?: ConfigLoadOptions): PlumbusConfig {
   const env = options?.env ?? process.env;
 
   const environment = (options?.environment ??
-    env['PLUMBUS_ENV'] ??
-    env['NODE_ENV'] ??
+    env.PLUMBUS_ENV ??
+    env.NODE_ENV ??
     'development') as Environment;
 
   return {
@@ -57,16 +57,13 @@ function loadDatabaseConfig(
       : { host: 'localhost', port: 5432, database: 'plumbus', user: 'plumbus', password: '' };
 
   return {
-    host: env['DATABASE_HOST'] ?? env['PGHOST'] ?? defaults.host,
-    port: parseInt(env['DATABASE_PORT'] ?? env['PGPORT'] ?? String(defaults.port), 10),
-    database: env['DATABASE_NAME'] ?? env['PGDATABASE'] ?? defaults.database,
-    user: env['DATABASE_USER'] ?? env['PGUSER'] ?? defaults.user,
-    password: env['DATABASE_PASSWORD'] ?? env['PGPASSWORD'] ?? defaults.password,
-    ssl: env['DATABASE_SSL'] === 'true' || environment === 'production',
-    poolSize: parseInt(
-      env['DATABASE_POOL_SIZE'] ?? (environment === 'production' ? '20' : '5'),
-      10,
-    ),
+    host: env.DATABASE_HOST ?? env.PGHOST ?? defaults.host,
+    port: parseInt(env.DATABASE_PORT ?? env.PGPORT ?? String(defaults.port), 10),
+    database: env.DATABASE_NAME ?? env.PGDATABASE ?? defaults.database,
+    user: env.DATABASE_USER ?? env.PGUSER ?? defaults.user,
+    password: env.DATABASE_PASSWORD ?? env.PGPASSWORD ?? defaults.password,
+    ssl: env.DATABASE_SSL === 'true' || environment === 'production',
+    poolSize: parseInt(env.DATABASE_POOL_SIZE ?? (environment === 'production' ? '20' : '5'), 10),
   };
 }
 
@@ -77,28 +74,28 @@ function loadQueueConfig(
   environment: Environment,
 ): QueueConfig {
   return {
-    host: env['QUEUE_HOST'] ?? env['REDIS_HOST'] ?? 'localhost',
-    port: parseInt(env['QUEUE_PORT'] ?? env['REDIS_PORT'] ?? '6379', 10),
-    password: env['QUEUE_PASSWORD'] ?? env['REDIS_PASSWORD'] ?? undefined,
-    prefix: env['QUEUE_PREFIX'] ?? `plumbus:${environment}`,
+    host: env.QUEUE_HOST ?? env.REDIS_HOST ?? 'localhost',
+    port: parseInt(env.QUEUE_PORT ?? env.REDIS_PORT ?? '6379', 10),
+    password: env.QUEUE_PASSWORD ?? env.REDIS_PASSWORD ?? undefined,
+    prefix: env.QUEUE_PREFIX ?? `plumbus:${environment}`,
   };
 }
 
 // ── AI Config ──
 
 function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig | undefined {
-  const provider = env['AI_PROVIDER'];
-  const apiKey = env['AI_API_KEY'];
+  const provider = env.AI_PROVIDER;
+  const apiKey = env.AI_API_KEY;
 
   if (!provider || !apiKey) return undefined;
 
   return {
     provider,
     apiKey,
-    model: env['AI_MODEL'] ?? undefined,
-    baseUrl: env['AI_BASE_URL'] ?? undefined,
-    maxTokensPerRequest: env['AI_MAX_TOKENS'] ? parseInt(env['AI_MAX_TOKENS'], 10) : undefined,
-    dailyCostLimit: env['AI_DAILY_COST_LIMIT'] ? parseFloat(env['AI_DAILY_COST_LIMIT']) : undefined,
+    model: env.AI_MODEL ?? undefined,
+    baseUrl: env.AI_BASE_URL ?? undefined,
+    maxTokensPerRequest: env.AI_MAX_TOKENS ? parseInt(env.AI_MAX_TOKENS, 10) : undefined,
+    dailyCostLimit: env.AI_DAILY_COST_LIMIT ? parseFloat(env.AI_DAILY_COST_LIMIT) : undefined,
   };
 }
 
@@ -109,19 +106,18 @@ function loadAuthConfig(
   environment: Environment,
 ): AuthAdapterConfig {
   return {
-    provider: env['AUTH_PROVIDER'] ?? 'jwt',
-    issuer: env['AUTH_ISSUER'] ?? undefined,
-    audience: env['AUTH_AUDIENCE'] ?? undefined,
-    jwksUri: env['AUTH_JWKS_URI'] ?? undefined,
-    secret:
-      env['AUTH_SECRET'] ?? (environment === 'development' ? 'development-secret' : undefined),
+    provider: env.AUTH_PROVIDER ?? 'jwt',
+    issuer: env.AUTH_ISSUER ?? undefined,
+    audience: env.AUTH_AUDIENCE ?? undefined,
+    jwksUri: env.AUTH_JWKS_URI ?? undefined,
+    secret: env.AUTH_SECRET ?? (environment === 'development' ? 'development-secret' : undefined),
   };
 }
 
 // ── Compliance Profiles ──
 
 function loadComplianceProfiles(env: Record<string, string | undefined>): string[] | undefined {
-  const raw = env['PLUMBUS_COMPLIANCE_PROFILES'];
+  const raw = env.PLUMBUS_COMPLIANCE_PROFILES;
   if (!raw) return undefined;
   return raw
     .split(',')

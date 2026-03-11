@@ -1,3 +1,8 @@
+// ── Types Module ──
+// All TypeScript types and interfaces for the Plumbus framework.
+// Organized by domain: enums, fields, capability, flow, entity, event,
+// context (ExecutionContext + service interfaces), security, governance, etc.
+
 // ── Enums & Constants ──
 export {
   BackoffStrategy,

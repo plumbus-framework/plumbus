@@ -64,7 +64,7 @@ describe('PromptRegistry', () => {
 
   it('returns empty array when discovering from non-existent directory', async () => {
     const registry = new PromptRegistry();
-    const found = await registry.discoverPrompts('/tmp/plumbus-nonexistent-' + Date.now());
+    const found = await registry.discoverPrompts(`/tmp/plumbus-nonexistent-${Date.now()}`);
     expect(found).toEqual([]);
   });
 });

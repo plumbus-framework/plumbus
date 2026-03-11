@@ -78,8 +78,8 @@ describe('OverrideStore', () => {
     ]);
     const serialized = store.serialize();
     expect(serialized).toHaveLength(1);
-    expect(serialized[0]!.rule).toBe('test');
-    expect(serialized[0]!.timestamp).toBe('2024-01-01T00:00:00.000Z');
+    expect(serialized[0]?.rule).toBe('test');
+    expect(serialized[0]?.timestamp).toBe('2024-01-01T00:00:00.000Z');
   });
 
   it('hasOverride checks scope', () => {
@@ -122,7 +122,7 @@ describe('applyOverrides', () => {
     ]);
     expect(effective).toHaveLength(2);
     expect(overridden).toHaveLength(1);
-    expect(overridden[0]!.rule).toBe('rule-a');
+    expect(overridden[0]?.rule).toBe('rule-a');
   });
 
   it('handles multiple overrides', () => {
@@ -132,6 +132,6 @@ describe('applyOverrides', () => {
     ]);
     expect(effective).toHaveLength(1);
     expect(overridden).toHaveLength(2);
-    expect(effective[0]!.rule).toBe('rule-b');
+    expect(effective[0]?.rule).toBe('rule-b');
   });
 });

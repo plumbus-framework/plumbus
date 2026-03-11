@@ -86,19 +86,19 @@ export class ConsumerRegistry {
  */
 function matchesVersion(version: string, constraint: string): boolean {
   const v = parseInt(version, 10);
-  if (isNaN(v)) return version === constraint;
+  if (Number.isNaN(v)) return version === constraint;
 
   const geMatch = constraint.match(/^>=(\d+)$/);
-  if (geMatch) return v >= parseInt(geMatch[1]!, 10);
+  if (geMatch?.[1]) return v >= parseInt(geMatch[1], 10);
 
   const leMatch = constraint.match(/^<=(\d+)$/);
-  if (leMatch) return v <= parseInt(leMatch[1]!, 10);
+  if (leMatch?.[1]) return v <= parseInt(leMatch[1], 10);
 
   const gtMatch = constraint.match(/^>(\d+)$/);
-  if (gtMatch) return v > parseInt(gtMatch[1]!, 10);
+  if (gtMatch?.[1]) return v > parseInt(gtMatch[1], 10);
 
   const ltMatch = constraint.match(/^<(\d+)$/);
-  if (ltMatch) return v < parseInt(ltMatch[1]!, 10);
+  if (ltMatch?.[1]) return v < parseInt(ltMatch[1], 10);
 
   return version === constraint;
 }

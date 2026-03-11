@@ -25,7 +25,7 @@ describe('InMemoryQueue', () => {
 
     await queue.publish(makeEnvelope());
     expect(received).toHaveLength(1);
-    expect(received[0]!.id).toBe('evt-1');
+    expect(received[0]?.id).toBe('evt-1');
   });
 
   it('delivers to multiple subscribers', async () => {

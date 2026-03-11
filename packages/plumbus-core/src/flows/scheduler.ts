@@ -145,8 +145,8 @@ export function computeNextRun(cron: string, from: Date): Date {
   // Parse simple interval patterns like "every:60m", "every:24h", "every:1d"
   const match = cron.match(/^every:(\d+)([mhd])$/);
   if (match) {
-    const value = parseInt(match[1]!, 10);
-    const unit = match[2]!;
+    const value = parseInt(match[1] ?? '', 10);
+    const unit = match[2] ?? 'm';
     const ms =
       unit === 'm' ? value * 60_000 : unit === 'h' ? value * 3_600_000 : value * 86_400_000;
     return new Date(from.getTime() + ms);
@@ -226,7 +226,7 @@ function parseCronField(
     // Star with optional step: */N or *
     const starStep = resolved.match(/^\*\/(\d+)$/);
     if (starStep) {
-      const step = parseInt(starStep[1]!, 10);
+      const step = parseInt(starStep[1] ?? '', 10);
       if (step <= 0) return null;
       for (let i = min; i <= max; i += step) values.add(i);
       continue;
@@ -239,8 +239,8 @@ function parseCronField(
     // Range with optional step: N-M/S or N-M
     const rangeStep = resolved.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
     if (rangeStep) {
-      const start = parseInt(rangeStep[1]!, 10);
-      const end = parseInt(rangeStep[2]!, 10);
+      const start = parseInt(rangeStep[1] ?? '', 10);
+      const end = parseInt(rangeStep[2] ?? '', 10);
       const step = rangeStep[3] ? parseInt(rangeStep[3], 10) : 1;
       if (start < min || end > max || step <= 0) return null;
       for (let i = start; i <= end; i += step) values.add(i);
@@ -249,7 +249,7 @@ function parseCronField(
 
     // Single value
     const num = parseInt(resolved, 10);
-    if (isNaN(num) || num < min || num > max) return null;
+    if (Number.isNaN(num) || num < min || num > max) return null;
     values.add(num);
   }
 

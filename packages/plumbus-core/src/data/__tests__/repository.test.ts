@@ -123,7 +123,7 @@ describe('createRepository', () => {
     await repo.create({ title: 'Test' } as any);
     // Verify values() was called with tenantId injected
     const valuesCall = db._chainable.values.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(valuesCall?.['tenantId']).toBe('t-42');
+    expect(valuesCall?.tenantId).toBe('t-42');
   });
 
   it('throws when tenant-scoped entity used without tenantId', async () => {

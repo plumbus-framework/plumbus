@@ -1,3 +1,10 @@
+// ── Events Module ──
+// Async event system: registry, emitter, consumer registry, outbox pattern,
+// idempotency, queues (in-memory + Redis), dispatcher, and worker.
+// Implements at-least-once delivery via the outbox pattern.
+//
+// Key exports: createEventEmitter, EventRegistry, ConsumerRegistry, createOutboxDispatcher
+
 // ── Event Registry ──
 export { EventRegistry } from './registry.js';
 

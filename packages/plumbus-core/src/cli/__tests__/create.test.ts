@@ -24,28 +24,28 @@ describe('plumbus create', () => {
 
   it('uses kebab-case for app name in package.json', () => {
     const files = generateProjectStructure('MyAwesomeApp', {});
-    const pkg = JSON.parse(files.get('package.json')!);
+    const pkg = JSON.parse(files.get('package.json') ?? '{}');
     expect(pkg.name).toBe('my-awesome-app');
   });
 
   it('includes AI provider config when specified', () => {
     const opts: CreateOptions = { ai: 'anthropic' };
     const files = generateProjectStructure('App', opts);
-    const config = files.get('config/app.config.ts')!;
+    const config = files.get('config/app.config.ts') ?? '';
     expect(config).toContain('anthropic');
   });
 
   it('includes compliance profiles when specified', () => {
     const opts: CreateOptions = { compliance: 'gdpr,soc2' };
     const files = generateProjectStructure('App', opts);
-    const config = files.get('config/app.config.ts')!;
+    const config = files.get('config/app.config.ts') ?? '';
     expect(config).toContain('gdpr');
     expect(config).toContain('soc2');
   });
 
   it('includes database name from app name', () => {
     const files = generateProjectStructure('OrderService', {});
-    const config = files.get('config/app.config.ts')!;
+    const config = files.get('config/app.config.ts') ?? '';
     expect(config).toContain('order-service');
   });
 });

@@ -1,13 +1,13 @@
 import {
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-  type PgTableWithColumns,
+    boolean,
+    index,
+    integer,
+    jsonb,
+    pgTable,
+    text,
+    timestamp,
+    uuid,
+    type PgTableWithColumns,
 } from 'drizzle-orm/pg-core';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
@@ -28,16 +28,16 @@ export function generateDrizzleSchema(entity: EntityDefinition): PgTableWithColu
   }
 
   // Auto-add tenantId for tenant-scoped entities
-  if (entity.tenantScoped && !entity.fields['tenantId']) {
-    columns['tenantId'] = text('tenant_id').notNull();
+  if (entity.tenantScoped && !entity.fields.tenantId) {
+    columns.tenantId = text('tenant_id').notNull();
   }
 
   // Auto-add timestamps
-  if (!entity.fields['createdAt']) {
-    columns['createdAt'] = timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
+  if (!entity.fields.createdAt) {
+    columns.createdAt = timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
   }
-  if (!entity.fields['updatedAt']) {
-    columns['updatedAt'] = timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
+  if (!entity.fields.updatedAt) {
+    columns.updatedAt = timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
   }
 
   // Use 3-arg form: pgTable(name, columns, (table) => indexes)
@@ -46,7 +46,8 @@ export function generateDrizzleSchema(entity: EntityDefinition): PgTableWithColu
 
     if (entity.indexes) {
       for (let i = 0; i < entity.indexes.length; i++) {
-        const idxFields: string[] = entity.indexes[i]!;
+        const idxFields: string[] | undefined = entity.indexes[i];
+        if (!idxFields) continue;
         const idxName = `${tableName}_${idxFields.map(camelToSnake).join('_')}_idx`;
 
         const cols = idxFields.map((f: string) => (table as any)[f]).filter(Boolean);
@@ -59,7 +60,7 @@ export function generateDrizzleSchema(entity: EntityDefinition): PgTableWithColu
 
     // Auto-index tenantId for tenant-scoped entities
     if (entity.tenantScoped) {
-      const tenantCol = (table as any)['tenantId'];
+      const tenantCol = (table as any).tenantId;
       if (tenantCol) {
         const tenantIdx = `${tableName}_tenant_id_idx`;
         indexes.push(index(tenantIdx).on(tenantCol));

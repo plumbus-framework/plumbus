@@ -156,12 +156,12 @@ describe('Config Loader', () => {
         },
       });
       expect(config.ai).toBeDefined();
-      expect(config.ai!.provider).toBe('openai');
-      expect(config.ai!.apiKey).toBe('sk-test');
-      expect(config.ai!.model).toBe('gpt-4');
-      expect(config.ai!.baseUrl).toBe('https://api.openai.com');
-      expect(config.ai!.maxTokensPerRequest).toBe(4096);
-      expect(config.ai!.dailyCostLimit).toBe(10.5);
+      expect(config.ai?.provider).toBe('openai');
+      expect(config.ai?.apiKey).toBe('sk-test');
+      expect(config.ai?.model).toBe('gpt-4');
+      expect(config.ai?.baseUrl).toBe('https://api.openai.com');
+      expect(config.ai?.maxTokensPerRequest).toBe(4096);
+      expect(config.ai?.dailyCostLimit).toBe(10.5);
     });
 
     it('returns undefined for AI when only provider set (no key)', () => {

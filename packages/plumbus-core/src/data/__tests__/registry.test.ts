@@ -62,7 +62,7 @@ describe('EntityRegistry', () => {
 
     const dataService = registry.createDataService({ db: mockDb, auth });
     expect(Object.keys(dataService)).toEqual(['Order', 'Item']);
-    expect(dataService['Order']).toBeDefined();
-    expect(dataService['Item']).toBeDefined();
+    expect(dataService.Order).toBeDefined();
+    expect(dataService.Item).toBeDefined();
   });
 });

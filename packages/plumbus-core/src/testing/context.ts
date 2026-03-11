@@ -5,16 +5,16 @@ import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { AuditService } from '../types/audit.js';
 import type {
-  AIDocument,
-  AIService,
-  DataService,
-  EventService,
-  ExecutionContext,
-  FlowExecution,
-  FlowService,
-  LoggerService,
-  Repository,
-  TimeService,
+    AIDocument,
+    AIService,
+    DataService,
+    EventService,
+    ExecutionContext,
+    FlowExecution,
+    FlowService,
+    LoggerService,
+    Repository,
+    TimeService,
 } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 
@@ -32,10 +32,10 @@ export interface TestAuthOptions {
 /** Create a test AuthContext with sensible defaults */
 export function createTestAuth(options?: TestAuthOptions): AuthContext {
   return {
-    userId: 'userId' in (options ?? {}) ? options!.userId : 'test-user',
+    userId: options && 'userId' in options ? options.userId : 'test-user',
     roles: options?.roles ?? ['user'],
     scopes: options?.scopes ?? [],
-    tenantId: 'tenantId' in (options ?? {}) ? options!.tenantId : 'test-tenant',
+    tenantId: options && 'tenantId' in options ? options.tenantId : 'test-tenant',
     provider: options?.provider ?? 'test',
     sessionId: options?.sessionId,
   };

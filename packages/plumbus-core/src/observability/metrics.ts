@@ -47,10 +47,11 @@ export function createMetricsRegistry(): MetricsRegistry {
 
   return {
     counter(name: string, help: string): Counter {
-      if (!counters.has(name)) {
-        counters.set(name, { help, values: new Map() });
+      let entry = counters.get(name);
+      if (!entry) {
+        entry = { help, values: new Map() };
+        counters.set(name, entry);
       }
-      const entry = counters.get(name)!;
       return {
         inc(labels?: MetricLabels, value = 1) {
           const key = labelKey(labels);
@@ -63,10 +64,11 @@ export function createMetricsRegistry(): MetricsRegistry {
     },
 
     histogram(name: string, help: string): Histogram {
-      if (!histograms.has(name)) {
-        histograms.set(name, { help, values: new Map() });
+      let entry = histograms.get(name);
+      if (!entry) {
+        entry = { help, values: new Map() };
+        histograms.set(name, entry);
       }
-      const entry = histograms.get(name)!;
       return {
         observe(value: number, labels?: MetricLabels) {
           const key = labelKey(labels);
@@ -413,7 +415,7 @@ export function formatTraceparent(ctx: W3CTraceContext): string {
 export function extractTraceFromHeaders(
   headers: Record<string, string | string[] | undefined>,
 ): W3CTraceContext | null {
-  const headerValue = headers['traceparent'] ?? headers['Traceparent'] ?? headers['TRACEPARENT'];
+  const headerValue = headers.traceparent ?? headers.Traceparent ?? headers.TRACEPARENT;
   if (!headerValue) return null;
   const value = Array.isArray(headerValue) ? headerValue[0] : headerValue;
   if (!value) return null;

@@ -64,7 +64,7 @@ describe('AI Service (ctx.ai)', () => {
 
     it('uses prompt registry when available', async () => {
       const { service, promptRegistry, provider } = setupService({ promptRegistry: true });
-      promptRegistry!.register(
+      promptRegistry?.register(
         definePrompt({
           name: 'greet',
           description: 'Say hello to {{name}}',
@@ -86,8 +86,8 @@ describe('AI Service (ctx.ai)', () => {
       const { service, costTracker } = setupService({ costTracker: true });
       await service.generate({ prompt: 'test', input: {} });
 
-      expect(costTracker!.getRecords()).toHaveLength(1);
-      expect(costTracker!.getRecords()[0]!.operation).toBe('generate');
+      expect(costTracker?.getRecords()).toHaveLength(1);
+      expect(costTracker?.getRecords()[0]?.operation).toBe('generate');
     });
   });
 

@@ -286,9 +286,9 @@ describe('createTestData', () => {
       users: [{ id: '1', name: 'Alice' }],
       orders: [{ id: 'o1', total: 100 }],
     });
-    const user = await data.users!.findById('1');
+    const user = await data.users?.findById('1');
     expect((user as any).name).toBe('Alice');
-    const order = await data.orders!.findById('o1');
+    const order = await data.orders?.findById('o1');
     expect((order as any).total).toBe(100);
   });
 
@@ -297,7 +297,7 @@ describe('createTestData', () => {
     // Access a non-existent entity — should auto-create
     const newRepo = data.widgets;
     expect(newRepo).toBeDefined();
-    const all = await newRepo!.findMany();
+    const all = await newRepo?.findMany();
     expect(all).toEqual([]);
   });
 
@@ -357,7 +357,7 @@ describe('createTestContext', () => {
     const ctx = createTestContext({
       data: { users: [{ id: '1', name: 'Alice' }] },
     });
-    const user = await ctx.data.users!.findById('1');
+    const user = await ctx.data.users?.findById('1');
     expect((user as any).name).toBe('Alice');
   });
 

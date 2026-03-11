@@ -2,6 +2,26 @@
 
 The `plumbus` CLI provides commands for scaffolding, development, governance, migrations, and AI agent integration.
 
+## Commands at a Glance
+
+| Command | Purpose |
+|---------|---------|
+| `plumbus create` | Scaffold a new Plumbus application |
+| `plumbus init` | Generate AI agent wiring files |
+| `plumbus dev` | Start development server with hot reload |
+| `plumbus doctor` | Check environment readiness |
+| `plumbus generate` | Generate API clients, hooks, OpenAPI specs |
+| `plumbus capability new` | Scaffold a new capability |
+| `plumbus flow new` | Scaffold a new flow |
+| `plumbus entity new` | Scaffold a new entity |
+| `plumbus event new` | Scaffold a new event |
+| `plumbus prompt new` | Scaffold a new prompt |
+| `plumbus verify` | Run governance rules |
+| `plumbus certify` | Run compliance profile assessment |
+| `plumbus migrate` | Database migration commands |
+| `plumbus rag ingest` | Ingest documents into RAG vector store |
+| `plumbus agent` | AI agent brief and sync commands |
+
 ## Installation
 
 ```bash

@@ -17,7 +17,7 @@ export interface DoctorOptions {
 
 /** Check Node.js version */
 export function checkNodeVersion(): DoctorCheck {
-  const version = process.versions['node'] ?? '';
+  const version = process.versions.node ?? '';
   const major = parseInt(version.split('.')[0] ?? '0', 10);
   if (major >= 20) {
     return { name: 'node', status: 'ok', message: `Node.js v${version}` };

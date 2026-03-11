@@ -36,7 +36,7 @@ export function createRepository<T = Record<string, unknown>>(
     if (!auth.tenantId) {
       throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
     }
-    const tenantCol = (table as any)['tenantId'];
+    const tenantCol = (table as any).tenantId;
     if (!tenantCol) return undefined;
     return eq(tenantCol, auth.tenantId);
   }
@@ -44,7 +44,7 @@ export function createRepository<T = Record<string, unknown>>(
   /** Filter out soft-deleted records when soft-delete is enabled */
   function softDeleteFilter(): SQL | undefined {
     if (!softDelete || !hasDeletedAt) return undefined;
-    return isNull((table as any)['deletedAt']);
+    return isNull((table as any).deletedAt);
   }
 
   function maskData(data: Record<string, unknown>): Record<string, unknown> {
@@ -69,7 +69,7 @@ export function createRepository<T = Record<string, unknown>>(
   return {
     async findById(id: string): Promise<T | null> {
       const conditions: SQL[] = [];
-      const idCol = (table as any)['id'];
+      const idCol = (table as any).id;
       if (idCol) {
         conditions.push(eq(idCol, id));
       }
@@ -93,7 +93,7 @@ export function createRepository<T = Record<string, unknown>>(
         if (!auth.tenantId) {
           throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
         }
-        record['tenantId'] = auth.tenantId;
+        record.tenantId = auth.tenantId;
       }
 
       const rows = await db.insert(table).values(record).returning();
@@ -104,7 +104,7 @@ export function createRepository<T = Record<string, unknown>>(
 
     async update(id: string, updates: Partial<T>): Promise<T> {
       const conditions: SQL[] = [];
-      const idCol = (table as any)['id'];
+      const idCol = (table as any).id;
       if (idCol) {
         conditions.push(eq(idCol, id));
       }
@@ -127,7 +127,7 @@ export function createRepository<T = Record<string, unknown>>(
 
     async delete(id: string): Promise<void> {
       const conditions: SQL[] = [];
-      const idCol = (table as any)['id'];
+      const idCol = (table as any).id;
       if (idCol) {
         conditions.push(eq(idCol, id));
       }

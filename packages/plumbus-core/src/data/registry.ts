@@ -76,7 +76,8 @@ export class EntityRegistry {
     const dataService: Record<string, Repository> = {};
 
     for (const [name, entity] of this.entities) {
-      const table = this.tables.get(name)!;
+      const table = this.tables.get(name);
+      if (!table) continue;
       dataService[name] = createRepository({
         entity,
         table,

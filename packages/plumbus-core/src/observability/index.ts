@@ -1,3 +1,9 @@
+// ── Observability Module ──
+// Structured logging, metrics (counters, histograms), and distributed tracing
+// (W3C Trace Context). Provides ctx.logger and trace propagation.
+//
+// Key exports: createStructuredLogger, createPlumbusMetrics, createTracer
+
 export {
   createChildSpan,
   createMetricsRegistry,

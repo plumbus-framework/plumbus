@@ -59,9 +59,9 @@ describe('RAG Pipeline', () => {
       });
 
       expect(results.length).toBeGreaterThanOrEqual(1);
-      expect(results[0]!.content).toContain('TypeScript');
-      expect(results[0]!.source).toBe('ts.md');
-      expect(typeof results[0]!.score).toBe('number');
+      expect(results[0]?.content).toContain('TypeScript');
+      expect(results[0]?.source).toBe('ts.md');
+      expect(typeof results[0]?.score).toBe('number');
     });
 
     it('isolates results by tenant', async () => {
@@ -128,9 +128,9 @@ describe('In-Memory Vector Store', () => {
 
     const results = await store.search([1, 0, 0], { limit: 10, minScore: 0 });
 
-    expect(results[0]!.content).toBe('similar');
-    expect(results[0]!.score).toBeCloseTo(1.0);
-    expect(results[1]!.score).toBeCloseTo(0.0);
+    expect(results[0]?.content).toBe('similar');
+    expect(results[0]?.score).toBeCloseTo(1.0);
+    expect(results[1]?.score).toBeCloseTo(0.0);
   });
 
   it('filters by minScore', async () => {
