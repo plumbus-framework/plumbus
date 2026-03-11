@@ -1,0 +1,56 @@
+{
+  "name": "plumbus-core",
+  "version": "0.1.0",
+  "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "plumbus": "./bin/plumbus.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "instructions"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "vitest run --config vitest.config.browser.ts",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "plumbus",
+    "framework",
+    "contract-driven",
+    "ai-native"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "drizzle-orm": "^0.45.1",
+    "fastify": "^5.8.2",
+    "postgres": "^3.4.8",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "@vitest/browser": "^3.0.0",
+    "drizzle-kit": "^0.31.9",
+    "playwright": "^1.52.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
