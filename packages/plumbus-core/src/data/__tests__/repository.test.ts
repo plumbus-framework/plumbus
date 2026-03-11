@@ -1,18 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
-import { field } from "../../fields/index.js";
-import type { AuditService } from "../../types/audit.js";
-import type { EntityDefinition } from "../../types/entity.js";
-import type { AuthContext } from "../../types/security.js";
-import { createRepository } from "../repository.js";
-import { generateDrizzleSchema } from "../schema-generator.js";
+import { describe, expect, it, vi } from 'vitest';
+import { field } from '../../fields/index.js';
+import type { AuditService } from '../../types/audit.js';
+import type { EntityDefinition } from '../../types/entity.js';
+import type { AuthContext } from '../../types/security.js';
+import { createRepository } from '../repository.js';
+import { generateDrizzleSchema } from '../schema-generator.js';
 
 function makeEntity(overrides: Partial<EntityDefinition> = {}): EntityDefinition {
   return {
-    name: "Document",
+    name: 'Document',
     fields: {
       id: field.id(),
       title: field.string({ required: true }),
-      secret: field.string({ classification: "sensitive" }),
+      secret: field.string({ classification: 'sensitive' }),
       token: field.string({ maskedInLogs: true }),
     },
     ...overrides,
@@ -21,18 +21,18 @@ function makeEntity(overrides: Partial<EntityDefinition> = {}): EntityDefinition
 
 function makeAuth(overrides: Partial<AuthContext> = {}): AuthContext {
   return {
-    userId: "user-1",
-    roles: ["admin"],
+    userId: 'user-1',
+    roles: ['admin'],
     scopes: [],
-    provider: "test",
-    tenantId: "tenant-1",
+    provider: 'test',
+    tenantId: 'tenant-1',
     ...overrides,
   };
 }
 
 // Mock Drizzle database that captures calls
 function makeMockDb() {
-  const returnRows = [{ id: "row-1", title: "Test", secret: "s3cret", token: "tok" }];
+  const returnRows = [{ id: 'row-1', title: 'Test', secret: 's3cret', token: 'tok' }];
 
   const chainable = {
     from: vi.fn().mockReturnThis(),
@@ -53,8 +53,8 @@ function makeMockDb() {
   };
 }
 
-describe("createRepository", () => {
-  it("creates a repository with expected methods", () => {
+describe('createRepository', () => {
+  it('creates a repository with expected methods', () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -66,14 +66,14 @@ describe("createRepository", () => {
       auth: makeAuth(),
     });
 
-    expect(repo.findById).toBeTypeOf("function");
-    expect(repo.create).toBeTypeOf("function");
-    expect(repo.update).toBeTypeOf("function");
-    expect(repo.delete).toBeTypeOf("function");
-    expect(repo.findMany).toBeTypeOf("function");
+    expect(repo.findById).toBeTypeOf('function');
+    expect(repo.create).toBeTypeOf('function');
+    expect(repo.update).toBeTypeOf('function');
+    expect(repo.delete).toBeTypeOf('function');
+    expect(repo.findMany).toBeTypeOf('function');
   });
 
-  it("findById queries the database", async () => {
+  it('findById queries the database', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -85,12 +85,12 @@ describe("createRepository", () => {
       auth: makeAuth(),
     });
 
-    const result = await repo.findById("row-1");
+    const result = await repo.findById('row-1');
     expect(result).toEqual(db._rows[0]);
     expect(db.select).toHaveBeenCalled();
   });
 
-  it("create inserts and returns the row", async () => {
+  it('create inserts and returns the row', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -102,16 +102,16 @@ describe("createRepository", () => {
       auth: makeAuth(),
     });
 
-    const result = await repo.create({ title: "New" } as any);
+    const result = await repo.create({ title: 'New' } as any);
     expect(result).toEqual(db._rows[0]);
     expect(db.insert).toHaveBeenCalled();
   });
 
-  it("create injects tenantId for tenant-scoped entities", async () => {
+  it('create injects tenantId for tenant-scoped entities', async () => {
     const entity = makeEntity({ tenantScoped: true });
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
-    const auth = makeAuth({ tenantId: "t-42" });
+    const auth = makeAuth({ tenantId: 't-42' });
 
     const repo = createRepository({
       entity,
@@ -120,13 +120,13 @@ describe("createRepository", () => {
       auth,
     });
 
-    await repo.create({ title: "Test" } as any);
+    await repo.create({ title: 'Test' } as any);
     // Verify values() was called with tenantId injected
     const valuesCall = db._chainable.values.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(valuesCall?.["tenantId"]).toBe("t-42");
+    expect(valuesCall?.['tenantId']).toBe('t-42');
   });
 
-  it("throws when tenant-scoped entity used without tenantId", async () => {
+  it('throws when tenant-scoped entity used without tenantId', async () => {
     const entity = makeEntity({ tenantScoped: true });
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -139,12 +139,10 @@ describe("createRepository", () => {
       auth,
     });
 
-    await expect(repo.create({ title: "X" } as any)).rejects.toThrow(
-      "requires auth.tenantId",
-    );
+    await expect(repo.create({ title: 'X' } as any)).rejects.toThrow('requires auth.tenantId');
   });
 
-  it("update calls db.update with set and where", async () => {
+  it('update calls db.update with set and where', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -156,12 +154,12 @@ describe("createRepository", () => {
       auth: makeAuth(),
     });
 
-    const result = await repo.update("row-1", { title: "Updated" } as any);
+    const result = await repo.update('row-1', { title: 'Updated' } as any);
     expect(result).toEqual(db._rows[0]);
     expect(db.update).toHaveBeenCalled();
   });
 
-  it("delete calls db.delete with where", async () => {
+  it('delete calls db.delete with where', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -173,11 +171,11 @@ describe("createRepository", () => {
       auth: makeAuth(),
     });
 
-    await repo.delete("row-1");
+    await repo.delete('row-1');
     expect(db.delete).toHaveBeenCalled();
   });
 
-  it("findMany returns all rows", async () => {
+  it('findMany returns all rows', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -195,7 +193,7 @@ describe("createRepository", () => {
     expect(results).toEqual(db._rows);
   });
 
-  it("audit service records mutations with masked fields", async () => {
+  it('audit service records mutations with masked fields', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -209,20 +207,20 @@ describe("createRepository", () => {
       audit,
     });
 
-    await repo.create({ title: "Audited", secret: "password", token: "abc" } as any);
+    await repo.create({ title: 'Audited', secret: 'password', token: 'abc' } as any);
 
     expect(audit.record).toHaveBeenCalledWith(
-      "Document.create",
+      'Document.create',
       expect.objectContaining({
-        title: "Audited",
-        secret: "***",      // masked due to classification=sensitive
-        token: "***",        // masked due to maskedInLogs=true
-        _maskedFields: ["secret", "token"],
+        title: 'Audited',
+        secret: '***', // masked due to classification=sensitive
+        token: '***', // masked due to maskedInLogs=true
+        _maskedFields: ['secret', 'token'],
       }),
     );
   });
 
-  it("does not call audit when no audit service provided", async () => {
+  it('does not call audit when no audit service provided', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);
     const db = makeMockDb();
@@ -235,6 +233,6 @@ describe("createRepository", () => {
     });
 
     // Should not throw
-    await repo.create({ title: "No audit" } as any);
+    await repo.create({ title: 'No audit' } as any);
   });
 });

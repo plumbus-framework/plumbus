@@ -1,7 +1,7 @@
 // ── Resource Templates ──
 // Code templates for scaffolding new resources
 
-import { toCamelCase, toPascalCase } from "../utils.js";
+import { toCamelCase, toPascalCase } from '../utils.js';
 
 export function capabilityTemplate(name: string, kind: string, domain: string): string {
   const pascal = toPascalCase(name);

@@ -16,7 +16,10 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | Install deps | `pnpm install` |
 | Build all | `pnpm build` |
 | Test all | `pnpm test` |
-| Typecheck / Lint | `pnpm typecheck` (no separate linter) |
+| Typecheck | `pnpm typecheck` |
+| Lint | `pnpm lint` |
+| Format | `pnpm format` |
+| Format (check) | `pnpm format:check` |
 | Dev (watch) | `pnpm dev` |
 | Test single file | `cd packages/plumbus-core && npx vitest run src/<module>/__tests__/<name>.test.ts` |
 | Browser tests | `cd packages/plumbus-core && pnpm test:browser` |
@@ -74,7 +77,7 @@ src/<module>/
 - **Deny-by-default security**: no matching access policy = denial
 - **Advisory governance**: warnings only, never hard blocks
 - **Outbox pattern**: events written in same transaction, dispatched async (at-least-once)
-- **No linter/formatter**: `tsc --noEmit` is the only code quality gate
+- **Biome**: Biome for linting and formatting. `tsc --noEmit` remains the type-checking gate
 
 ## Detailed Documentation
 
@@ -97,6 +100,18 @@ After making changes, update the corresponding documentation in `docs/`. **This 
 ## Keeping Agent Files in Sync
 
 `AGENTS.md` and `CLAUDE.md` must stay identical. When editing one, always apply the same change to the other.
+
+## Linting & Formatting
+
+- **Tool**: [Biome](https://biomejs.dev/) — single tool for both linting and formatting
+- **Config**: `biome.json` at repo root
+- **Lint**: `pnpm lint` (or `npx biome lint ./src` in a package)
+- **Format**: `pnpm format` (or `npx biome format --write ./src` in a package)
+- **Check format**: `pnpm format:check`
+- **Suppress a rule inline**: `// biome-ignore lint/ruleName: reason`
+- **Suppress for entire file**: `// biome-ignore-all lint/ruleName: reason` (at top of file)
+- Do **not** use ESLint, Prettier, or any other linter/formatter — Biome replaces all of them
+- Biome rule names differ from ESLint (e.g. `noNonNullAssertion` not `@typescript-eslint/no-non-null-assertion`)
 
 ## Files You Should Not Edit
 

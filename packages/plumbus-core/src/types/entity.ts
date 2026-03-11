@@ -1,4 +1,4 @@
-import type { FieldDescriptor } from "./fields.js";
+import type { FieldDescriptor } from './fields.js';
 
 // ── Entity Retention ──
 export interface EntityRetention {

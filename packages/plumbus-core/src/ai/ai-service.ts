@@ -2,17 +2,17 @@
 // Full ctx.ai implementation: generate, extract, classify, retrieve
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
 
-import { z } from "zod";
-import type { AIDocument, AIService } from "../types/context.js";
-import type { CostTracker } from "./cost-tracker.js";
-import { estimateCost } from "./cost-tracker.js";
-import type { AIExplainabilityTracker } from "./explainability.js";
-import type { PromptRegistry } from "./prompt-registry.js";
-import type { AIProviderAdapter, ProviderRequest } from "./provider.js";
-import type { RAGPipeline } from "./rag/pipeline.js";
-import type { AISecurityConfig } from "./security.js";
-import { checkPromptSecurity } from "./security.js";
-import { generateWithValidation, type ValidationRetryConfig } from "./validation.js";
+import { z } from 'zod';
+import type { AIDocument, AIService } from '../types/context.js';
+import type { CostTracker } from './cost-tracker.js';
+import { estimateCost } from './cost-tracker.js';
+import type { AIExplainabilityTracker } from './explainability.js';
+import type { PromptRegistry } from './prompt-registry.js';
+import type { AIProviderAdapter, ProviderRequest } from './provider.js';
+import type { RAGPipeline } from './rag/pipeline.js';
+import type { AISecurityConfig } from './security.js';
+import { checkPromptSecurity } from './security.js';
+import { generateWithValidation, type ValidationRetryConfig } from './validation.js';
 
 // ── AI Service Config ──
 export interface AIServiceConfig {
@@ -33,14 +33,7 @@ export interface AIServiceConfig {
 }
 
 export function createAIService(config: AIServiceConfig): AIService {
-  const {
-    provider,
-    promptRegistry,
-    costTracker,
-    ragPipeline,
-    explainability,
-    security,
-  } = config;
+  const { provider, promptRegistry, costTracker, ragPipeline, explainability, security } = config;
 
   function checkBudget(estimatedTokens?: number): void {
     if (!costTracker) return;
@@ -53,7 +46,10 @@ export function createAIService(config: AIServiceConfig): AIService {
     }
   }
 
-  function buildPromptText(promptName: string, input: Record<string, unknown>): {
+  function buildPromptText(
+    promptName: string,
+    input: Record<string, unknown>,
+  ): {
     text: string;
     model?: string;
     temperature?: number;
@@ -90,9 +86,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       const start = performance.now();
 
       // Security check
-      const securityResult = security
-        ? checkPromptSecurity(params.input, security)
-        : undefined;
+      const securityResult = security ? checkPromptSecurity(params.input, security) : undefined;
       const inputForAI = securityResult?.redactedInput ?? params.input;
 
       // Budget pre-check
@@ -108,9 +102,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       const promptDef = hasPromptDef ? promptRegistry!.get(params.prompt) : undefined;
 
       const request: ProviderRequest = {
-        prompt: Object.keys(inputForAI).length > 0
-          ? `${promptInfo.text}\n\nInput: ${JSON.stringify(inputForAI)}`
-          : promptInfo.text,
+        prompt:
+          Object.keys(inputForAI).length > 0
+            ? `${promptInfo.text}\n\nInput: ${JSON.stringify(inputForAI)}`
+            : promptInfo.text,
         model: promptInfo.model ?? config.defaultModel,
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,
@@ -119,7 +114,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       let result: unknown;
       let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
       let validationAttempts = 1;
-      let validationPassed = true;
+      const validationPassed = true;
 
       if (promptDef) {
         // Use validated generation
@@ -146,7 +141,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         costTracker.record({
           model: promptInfo.model ?? config.defaultModel ?? provider.name,
           promptName: hasPromptDef ? params.prompt : undefined,
-          operation: "generate",
+          operation: 'generate',
           usage: totalUsage,
           estimatedCost: estimateCost(
             promptInfo.model ?? config.defaultModel ?? provider.name,
@@ -161,7 +156,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Explainability
       if (explainability) {
         explainability.record({
-          operation: "generate",
+          operation: 'generate',
           promptName: hasPromptDef ? params.prompt : undefined,
           model: promptInfo.model ?? config.defaultModel,
           input: params.input,
@@ -187,12 +182,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       checkBudget();
 
       const systemPrompt =
-        "Extract structured data from the following text. Return valid JSON matching the required schema.";
+        'Extract structured data from the following text. Return valid JSON matching the required schema.';
       const request: ProviderRequest = {
         system: systemPrompt,
         prompt: params.text,
         model: config.defaultModel,
-        responseFormat: "json",
+        responseFormat: 'json',
       };
 
       const validated = await generateWithValidation(
@@ -207,12 +202,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (costTracker) {
         costTracker.record({
           model: config.defaultModel ?? provider.name,
-          operation: "extract",
+          operation: 'extract',
           usage: validated.usage,
-          estimatedCost: estimateCost(
-            config.defaultModel ?? provider.name,
-            validated.usage,
-          ),
+          estimatedCost: estimateCost(config.defaultModel ?? provider.name, validated.usage),
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -221,7 +213,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       if (explainability) {
         explainability.record({
-          operation: "extract",
+          operation: 'extract',
           model: config.defaultModel,
           input: { text: params.text },
           output: validated.data,
@@ -242,21 +234,16 @@ export function createAIService(config: AIServiceConfig): AIService {
       checkBudget();
 
       const systemPrompt =
-        "Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.";
+        'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
       const request: ProviderRequest = {
         system: systemPrompt,
         prompt: `Labels: ${JSON.stringify(params.labels)}\n\nText: ${params.text}`,
         model: config.defaultModel,
-        responseFormat: "json",
+        responseFormat: 'json',
       };
 
       const schema = z.array(z.string());
-      const validated = await generateWithValidation(
-        provider,
-        request,
-        schema,
-        config.validation,
-      );
+      const validated = await generateWithValidation(provider, request, schema, config.validation);
 
       const latencyMs = performance.now() - start;
 
@@ -266,12 +253,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (costTracker) {
         costTracker.record({
           model: config.defaultModel ?? provider.name,
-          operation: "classify",
+          operation: 'classify',
           usage: validated.usage,
-          estimatedCost: estimateCost(
-            config.defaultModel ?? provider.name,
-            validated.usage,
-          ),
+          estimatedCost: estimateCost(config.defaultModel ?? provider.name, validated.usage),
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -280,7 +264,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       if (explainability) {
         explainability.record({
-          operation: "classify",
+          operation: 'classify',
           model: config.defaultModel,
           input: { labels: params.labels, text: params.text },
           output: result,
@@ -297,7 +281,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
     async retrieve(params: { query: string }): Promise<AIDocument[]> {
       if (!ragPipeline) {
-        throw new Error("RAG pipeline not configured — cannot perform retrieval");
+        throw new Error('RAG pipeline not configured — cannot perform retrieval');
       }
 
       const start = performance.now();
@@ -313,7 +297,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       if (explainability) {
         explainability.record({
-          operation: "retrieve",
+          operation: 'retrieve',
           input: { query: params.query },
           output: results,
           retrievalSources: results,

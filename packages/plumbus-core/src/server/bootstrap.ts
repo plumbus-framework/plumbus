@@ -2,27 +2,24 @@
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
 
-import { sql } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { FastifyInstance } from "fastify";
-import Fastify from "fastify";
-import type { RouteGeneratorConfig } from "../api/route-generator.js";
-import { registerAllRoutes } from "../api/route-generator.js";
-import { createAuditService } from "../audit/service.js";
-import type { AuthAdapter } from "../auth/adapter.js";
-import { createJwtAdapter } from "../auth/adapter.js";
-import { EntityRegistry } from "../data/registry.js";
-import { ConsumerRegistry } from "../events/consumer-registry.js";
-import { EventRegistry } from "../events/registry.js";
-import { CapabilityRegistry } from "../execution/capability-registry.js";
-import type { ContextDependencies } from "../execution/context-factory.js";
-import { FlowRegistry } from "../flows/registry.js";
-import type { PlumbusConfig } from "../types/config.js";
-import type {
-    DataService,
-    LoggerService,
-} from "../types/context.js";
-import type { AuthContext } from "../types/security.js";
+import { sql } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { FastifyInstance } from 'fastify';
+import Fastify from 'fastify';
+import type { RouteGeneratorConfig } from '../api/route-generator.js';
+import { registerAllRoutes } from '../api/route-generator.js';
+import { createAuditService } from '../audit/service.js';
+import type { AuthAdapter } from '../auth/adapter.js';
+import { createJwtAdapter } from '../auth/adapter.js';
+import type { EntityRegistry } from '../data/registry.js';
+import type { ConsumerRegistry } from '../events/consumer-registry.js';
+import type { EventRegistry } from '../events/registry.js';
+import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import type { ContextDependencies } from '../execution/context-factory.js';
+import type { FlowRegistry } from '../flows/registry.js';
+import type { PlumbusConfig } from '../types/config.js';
+import type { DataService, LoggerService } from '../types/context.js';
+import type { AuthContext } from '../types/security.js';
 
 // ── Server Config ──
 
@@ -68,52 +65,59 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     events,
     consumers,
     flows,
-    host = "0.0.0.0",
+    host = '0.0.0.0',
     port = 3000,
   } = serverConfig;
 
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
 
   // Auth adapter
-  if (!config.auth.secret && config.environment === "production") {
+  if (!config.auth.secret && config.environment === 'production') {
     throw new Error(
-      "auth.secret is required in production — refusing to start with no secret configured",
+      'auth.secret is required in production — refusing to start with no secret configured',
     );
   }
   if (!config.auth.secret) {
-    logger.warn("No auth.secret configured — using insecure development fallback. Do NOT use in production.");
+    logger.warn(
+      'No auth.secret configured — using insecure development fallback. Do NOT use in production.',
+    );
   }
-  const authAdapter = serverConfig.authAdapter ?? createJwtAdapter({
-    secret: config.auth.secret ?? "development-secret",
-    issuer: config.auth.issuer,
-    audience: config.auth.audience,
-  });
+  const authAdapter =
+    serverConfig.authAdapter ??
+    createJwtAdapter({
+      secret: config.auth.secret ?? 'development-secret',
+      issuer: config.auth.issuer,
+      audience: config.auth.audience,
+    });
 
   // Fastify instance
   const app = Fastify({
-    logger: config.environment !== "production" ? {
-      level: config.environment === "development" ? "debug" : "info",
-    } : {
-      level: "info",
-    },
+    logger:
+      config.environment !== 'production'
+        ? {
+            level: config.environment === 'development' ? 'debug' : 'info',
+          }
+        : {
+            level: 'info',
+          },
   });
 
   // Health check endpoint
-  app.get("/health", async () => ({
-    status: "ok",
+  app.get('/health', async () => ({
+    status: 'ok',
     environment: config.environment,
     timestamp: new Date().toISOString(),
     capabilities: capabilities.getAll().length,
   }));
 
   // Readiness check (verifies DB is reachable)
-  app.get("/ready", async (_req, reply) => {
+  app.get('/ready', async (_req, reply) => {
     try {
       await db.execute(sql`SELECT 1`);
-      return { status: "ready" };
+      return { status: 'ready' };
     } catch {
       reply.status(503);
-      return { status: "not_ready", reason: "database unavailable" };
+      return { status: 'not_ready', reason: 'database unavailable' };
     }
   });
 
@@ -143,13 +147,19 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   // Event consumers, flow triggers, and entity repositories are
   // wired by the caller — the server only handles HTTP route generation.
   if (events.getAll().length > 0) {
-    logger.info(`${events.getAll().length} events registered (consumer wiring is caller responsibility)`);
+    logger.info(
+      `${events.getAll().length} events registered (consumer wiring is caller responsibility)`,
+    );
   }
   if (consumers.getAll().length > 0) {
-    logger.info(`${consumers.getAll().length} event consumers registered (wiring is caller responsibility)`);
+    logger.info(
+      `${consumers.getAll().length} event consumers registered (wiring is caller responsibility)`,
+    );
   }
   if (flows.getAll().length > 0) {
-    logger.info(`${flows.getAll().length} flows registered (trigger/scheduler wiring is caller responsibility)`);
+    logger.info(
+      `${flows.getAll().length} flows registered (trigger/scheduler wiring is caller responsibility)`,
+    );
   }
   if (entities.getAllEntities().length > 0) {
     logger.info(`${entities.getAllEntities().length} entities registered`);
@@ -163,9 +173,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       return address;
     },
     async stop() {
-      logger.info("Shutting down Plumbus server...");
+      logger.info('Shutting down Plumbus server...');
       await app.close();
-      logger.info("Server stopped");
+      logger.info('Server stopped');
     },
   };
 }
@@ -176,16 +186,16 @@ function createConsoleLogger(env: string): LoggerService {
   const prefix = `[plumbus:${env}]`;
   return {
     debug(message, metadata) {
-      console.debug(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
+      console.debug(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : '');
     },
     info(message, metadata) {
-      console.info(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
+      console.info(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : '');
     },
     warn(message, metadata) {
-      console.warn(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
+      console.warn(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : '');
     },
     error(message, metadata) {
-      console.error(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
+      console.error(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : '');
     },
   };
 }

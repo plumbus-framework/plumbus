@@ -2,13 +2,13 @@
 // Assertion utilities for testing authorization, tenant isolation,
 // access policies, and field masking.
 
-import type { z } from "zod";
-import { evaluateAccess } from "../execution/authorization.js";
-import type { CapabilityResult } from "../execution/capability-executor.js";
-import type { CapabilityContract } from "../types/capability.js";
-import type { AccessPolicy, AuthContext } from "../types/security.js";
-import { createTestAuth, type TestContextOptions } from "./context.js";
-import { runCapability } from "./run-capability.js";
+import type { z } from 'zod';
+import { evaluateAccess } from '../execution/authorization.js';
+import type { CapabilityResult } from '../execution/capability-executor.js';
+import type { CapabilityContract } from '../types/capability.js';
+import type { AccessPolicy, AuthContext } from '../types/security.js';
+import { createTestAuth, type TestContextOptions } from './context.js';
+import { runCapability } from './run-capability.js';
 
 // ── Access Policy Assertions ──
 
@@ -18,30 +18,24 @@ export interface AccessTestResult {
 }
 
 /** Assert that a given auth context IS allowed by an access policy */
-export function assertAccessAllowed(
-  policy: AccessPolicy | undefined,
-  auth: AuthContext,
-): void {
+export function assertAccessAllowed(policy: AccessPolicy | undefined, auth: AuthContext): void {
   const result = evaluateAccess(policy, auth);
   if (!result.allowed) {
     throw new Error(
       `Expected access to be ALLOWED but was DENIED.\n` +
-      `  Reason: ${result.reason}\n` +
-      `  Auth: userId=${auth.userId}, roles=[${auth.roles.join(",")}], tenantId=${auth.tenantId}`,
+        `  Reason: ${result.reason}\n` +
+        `  Auth: userId=${auth.userId}, roles=[${auth.roles.join(',')}], tenantId=${auth.tenantId}`,
     );
   }
 }
 
 /** Assert that a given auth context IS denied by an access policy */
-export function assertAccessDenied(
-  policy: AccessPolicy | undefined,
-  auth: AuthContext,
-): void {
+export function assertAccessDenied(policy: AccessPolicy | undefined, auth: AuthContext): void {
   const result = evaluateAccess(policy, auth);
   if (result.allowed) {
     throw new Error(
       `Expected access to be DENIED but was ALLOWED.\n` +
-      `  Auth: userId=${auth.userId}, roles=[${auth.roles.join(",")}], tenantId=${auth.tenantId}`,
+        `  Auth: userId=${auth.userId}, roles=[${auth.roles.join(',')}], tenantId=${auth.tenantId}`,
     );
   }
 }
@@ -62,11 +56,9 @@ export async function assertCapabilityDenied<
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
   const result = await runCapability(capability, input, options);
   if (result.success) {
-    throw new Error(
-      `Expected capability "${capability.name}" to DENY access but it SUCCEEDED`,
-    );
+    throw new Error(`Expected capability "${capability.name}" to DENY access but it SUCCEEDED`);
   }
-  if (result.error.code !== "forbidden") {
+  if (result.error.code !== 'forbidden') {
     throw new Error(
       `Expected "forbidden" error but got "${result.error.code}": ${result.error.message}`,
     );
@@ -87,7 +79,7 @@ export async function assertCapabilityAllowed<
   options?: TestContextOptions,
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
   const result = await runCapability(capability, input, options);
-  if (!result.success && result.error.code === "forbidden") {
+  if (!result.success && result.error.code === 'forbidden') {
     throw new Error(
       `Expected capability "${capability.name}" to ALLOW access but got forbidden: ${result.error.message}`,
     );
@@ -112,12 +104,12 @@ export async function assertTenantIsolation<
 ): Promise<{ sameTenantResult: CapabilityResult; crossTenantResult: CapabilityResult }> {
   const sameTenantResult = await runCapability(capability, input, {
     ...options,
-    auth: { ...options?.auth, tenantId, roles: ["admin"] },
+    auth: { ...options?.auth, tenantId, roles: ['admin'] },
   });
 
   const crossTenantResult = await runCapability(capability, input, {
     ...options,
-    auth: { ...options?.auth, tenantId: `other-${tenantId}`, roles: ["admin"] },
+    auth: { ...options?.auth, tenantId: `other-${tenantId}`, roles: ['admin'] },
   });
 
   return { sameTenantResult, crossTenantResult };
@@ -128,9 +120,9 @@ export async function assertTenantIsolation<
 /** Assert a capability result is a validation error */
 export function assertValidationError(result: CapabilityResult): void {
   if (result.success) {
-    throw new Error("Expected validation error but capability succeeded");
+    throw new Error('Expected validation error but capability succeeded');
   }
-  if (result.error.code !== "validation") {
+  if (result.error.code !== 'validation') {
     throw new Error(
       `Expected "validation" error but got "${result.error.code}": ${result.error.message}`,
     );
@@ -138,10 +130,7 @@ export function assertValidationError(result: CapabilityResult): void {
 }
 
 /** Assert a capability result is a specific error code */
-export function assertPlumbusError(
-  result: CapabilityResult,
-  expectedCode: string,
-): void {
+export function assertPlumbusError(result: CapabilityResult, expectedCode: string): void {
   if (result.success) {
     throw new Error(`Expected "${expectedCode}" error but capability succeeded`);
   }
@@ -161,7 +150,7 @@ export function unauthenticated(): AuthContext {
 
 /** Create an admin auth context */
 export function adminAuth(tenantId?: string): AuthContext {
-  return createTestAuth({ userId: "admin-user", roles: ["admin"], tenantId });
+  return createTestAuth({ userId: 'admin-user', roles: ['admin'], tenantId });
 }
 
 /** Create a service account auth context */
@@ -169,6 +158,6 @@ export function serviceAccountAuth(accountId: string): AuthContext {
   return createTestAuth({
     userId: accountId,
     roles: [],
-    provider: "service-account",
+    provider: 'service-account',
   });
 }

@@ -1,7 +1,7 @@
 // ── AI Cost Tracking & Budget Enforcement ──
 // Records per-request token usage, estimated cost, and enforces limits
 
-import type { TokenUsage } from "./provider.js";
+import type { TokenUsage } from './provider.js';
 
 // ── Cost Record ──
 export interface AICostRecord {
@@ -9,7 +9,7 @@ export interface AICostRecord {
   timestamp: Date;
   model: string;
   promptName?: string;
-  operation: "generate" | "extract" | "classify" | "embed";
+  operation: 'generate' | 'extract' | 'classify' | 'embed';
   usage: TokenUsage;
   estimatedCost: number;
   latencyMs: number;
@@ -29,11 +29,8 @@ export interface BudgetConfig {
 
 // ── Cost Tracker ──
 export interface CostTracker {
-  record(entry: Omit<AICostRecord, "id" | "timestamp">): void;
-  checkBudget(config: {
-    tenantId?: string;
-    estimatedTokens?: number;
-  }): BudgetCheckResult;
+  record(entry: Omit<AICostRecord, 'id' | 'timestamp'>): void;
+  checkBudget(config: { tenantId?: string; estimatedTokens?: number }): BudgetCheckResult;
   getDailyUsage(tenantId?: string): DailyUsage;
   getRecords(): AICostRecord[];
 }
@@ -51,11 +48,11 @@ export interface DailyUsage {
 
 // ── Default cost rates per 1M tokens (approximate) ──
 const DEFAULT_COST_RATES: Record<string, { input: number; output: number }> = {
-  "gpt-4o": { input: 2.5, output: 10 },
-  "gpt-4o-mini": { input: 0.15, output: 0.6 },
-  "gpt-4-turbo": { input: 10, output: 30 },
-  "claude-sonnet-4-20250514": { input: 3, output: 15 },
-  "claude-3-5-haiku-20241022": { input: 0.8, output: 4 },
+  'gpt-4o': { input: 2.5, output: 10 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'gpt-4-turbo': { input: 10, output: 30 },
+  'claude-sonnet-4-20250514': { input: 3, output: 15 },
+  'claude-3-5-haiku-20241022': { input: 0.8, output: 4 },
 };
 
 export function estimateCost(model: string, usage: TokenUsage): number {

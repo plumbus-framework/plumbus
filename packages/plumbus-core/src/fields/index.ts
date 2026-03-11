@@ -1,15 +1,15 @@
-import type { FieldClassification, RelationType } from "../types/enums.js";
+import type { FieldClassification, RelationType } from '../types/enums.js';
 import type {
-    BaseFieldOptions,
-    BooleanFieldDescriptor,
-    EnumFieldDescriptor,
-    IdFieldDescriptor,
-    JsonFieldDescriptor,
-    NumberFieldDescriptor,
-    RelationFieldDescriptor,
-    StringFieldDescriptor,
-    TimestampFieldDescriptor,
-} from "../types/fields.js";
+  BaseFieldOptions,
+  BooleanFieldDescriptor,
+  EnumFieldDescriptor,
+  IdFieldDescriptor,
+  JsonFieldDescriptor,
+  NumberFieldDescriptor,
+  RelationFieldDescriptor,
+  StringFieldDescriptor,
+  TimestampFieldDescriptor,
+} from '../types/fields.js';
 
 function opts(o?: BaseFieldOptions): BaseFieldOptions {
   return o ?? {};
@@ -17,37 +17,34 @@ function opts(o?: BaseFieldOptions): BaseFieldOptions {
 
 export const field = {
   id(options?: BaseFieldOptions): IdFieldDescriptor {
-    return { type: "id", options: opts(options) };
+    return { type: 'id', options: opts(options) };
   },
 
   string(options?: BaseFieldOptions): StringFieldDescriptor {
-    return { type: "string", options: opts(options) };
+    return { type: 'string', options: opts(options) };
   },
 
   number(options?: BaseFieldOptions): NumberFieldDescriptor {
-    return { type: "number", options: opts(options) };
+    return { type: 'number', options: opts(options) };
   },
 
   boolean(options?: BaseFieldOptions): BooleanFieldDescriptor {
-    return { type: "boolean", options: opts(options) };
+    return { type: 'boolean', options: opts(options) };
   },
 
   timestamp(options?: BaseFieldOptions): TimestampFieldDescriptor {
-    return { type: "timestamp", options: opts(options) };
+    return { type: 'timestamp', options: opts(options) };
   },
 
   json(options?: BaseFieldOptions): JsonFieldDescriptor {
-    return { type: "json", options: opts(options) };
+    return { type: 'json', options: opts(options) };
   },
 
-  enum(
-    values: readonly string[],
-    options?: BaseFieldOptions,
-  ): EnumFieldDescriptor {
+  enum(values: readonly string[], options?: BaseFieldOptions): EnumFieldDescriptor {
     if (!values || values.length === 0) {
-      throw new Error("Enum field requires at least one value");
+      throw new Error('Enum field requires at least one value');
     }
-    return { type: "enum", values, options: opts(options) };
+    return { type: 'enum', values, options: opts(options) };
   },
 
   relation(config: {
@@ -56,10 +53,10 @@ export const field = {
     classification?: FieldClassification;
   }): RelationFieldDescriptor {
     if (!config.entity) {
-      throw new Error("Relation field requires an entity name");
+      throw new Error('Relation field requires an entity name');
     }
     return {
-      type: "relation",
+      type: 'relation',
       entity: config.entity,
       relationType: config.type,
       options: {

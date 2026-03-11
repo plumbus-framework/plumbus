@@ -1,15 +1,15 @@
-import type { ExecutionContext } from "../types/context.js";
-import { FlowStepType } from "../types/enums.js";
+import type { ExecutionContext } from '../types/context.js';
+import { FlowStepType } from '../types/enums.js';
 import type {
-    CapabilityStep,
-    ConditionalStep,
-    DelayStep,
-    EventEmitStep,
-    FlowStep,
-    ParallelStep,
-    WaitStep,
-} from "../types/flow.js";
-import { StepStatus, type StepHistoryEntry } from "./state-machine.js";
+  CapabilityStep,
+  ConditionalStep,
+  DelayStep,
+  EventEmitStep,
+  FlowStep,
+  ParallelStep,
+  WaitStep,
+} from '../types/flow.js';
+import { StepStatus, type StepHistoryEntry } from './state-machine.js';
 
 export interface StepResult {
   status: StepStatus;
@@ -80,9 +80,10 @@ async function executeCapabilityStep(
     }
     return {
       status: StepStatus.Failed,
-      error: typeof result.error === "object" && result.error !== null
-        ? JSON.stringify(result.error)
-        : String(result.error),
+      error:
+        typeof result.error === 'object' && result.error !== null
+          ? JSON.stringify(result.error)
+          : String(result.error),
     };
   } catch (err) {
     return {

@@ -1,7 +1,7 @@
-import type { z } from "zod";
-import type { AuditService } from "./audit.js";
-import type { ErrorService } from "./errors.js";
-import type { AuthContext } from "./security.js";
+import type { z } from 'zod';
+import type { AuditService } from './audit.js';
+import type { ErrorService } from './errors.js';
+import type { AuthContext } from './security.js';
 
 // ── Repository (per-entity data access) ──
 export interface Repository<T = unknown> {
@@ -45,20 +45,11 @@ export interface AIDocument {
 
 // ── AI Service ──
 export interface AIService {
-  generate(config: {
-    prompt: string;
-    input: Record<string, unknown>;
-  }): Promise<unknown>;
+  generate(config: { prompt: string; input: Record<string, unknown> }): Promise<unknown>;
 
-  extract(config: {
-    schema: z.ZodTypeAny;
-    text: string;
-  }): Promise<unknown>;
+  extract(config: { schema: z.ZodTypeAny; text: string }): Promise<unknown>;
 
-  classify(config: {
-    labels: string[];
-    text: string;
-  }): Promise<string[]>;
+  classify(config: { labels: string[]; text: string }): Promise<string[]>;
 
   retrieve(config: { query: string }): Promise<AIDocument[]>;
 }

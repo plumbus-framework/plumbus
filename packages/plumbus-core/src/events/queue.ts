@@ -1,4 +1,4 @@
-import type { EventEnvelope } from "../types/event.js";
+import type { EventEnvelope } from '../types/event.js';
 
 /**
  * Abstract queue interface for publishing and consuming event envelopes.
@@ -25,7 +25,7 @@ export function createInMemoryQueue(): EventQueue {
 
   return {
     async publish(envelope: EventEnvelope): Promise<void> {
-      if (closed) throw new Error("Queue is closed");
+      if (closed) throw new Error('Queue is closed');
       for (const handler of subscribers) {
         const p = handler(envelope).catch(() => {
           /* delivery errors handled by worker */
@@ -35,7 +35,7 @@ export function createInMemoryQueue(): EventQueue {
     },
 
     subscribe(handler: (envelope: EventEnvelope) => Promise<void>): () => void {
-      if (closed) throw new Error("Queue is closed");
+      if (closed) throw new Error('Queue is closed');
       subscribers.push(handler);
       return () => {
         const idx = subscribers.indexOf(handler);
@@ -99,7 +99,7 @@ export function createRedisQueue(
   client: RedisClient,
   config?: Partial<RedisQueueConfig>,
 ): EventQueue {
-  const prefix = config?.prefix ?? "plumbus:events";
+  const prefix = config?.prefix ?? 'plumbus:events';
   const pollIntervalMs = config?.pollIntervalMs ?? 1000;
   const queueKey = `${prefix}:pending`;
   const processingKey = `${prefix}:processing`;
@@ -129,17 +129,15 @@ export function createRedisQueue(
 
       const envelope = JSON.parse(raw) as EventEnvelope;
       // Restore Date object
-      if (typeof envelope.occurredAt === "string") {
+      if (typeof envelope.occurredAt === 'string') {
         envelope.occurredAt = new Date(envelope.occurredAt);
       }
 
       // Deliver to all subscribers
-      const results = await Promise.allSettled(
-        subscribers.map((handler) => handler(envelope)),
-      );
+      const results = await Promise.allSettled(subscribers.map((handler) => handler(envelope)));
 
       // If at least one subscriber succeeded, acknowledge the message
-      const anySuccess = results.some((r) => r.status === "fulfilled");
+      const anySuccess = results.some((r) => r.status === 'fulfilled');
       if (anySuccess) {
         await client.lrem(processingKey, 1, raw);
       }
@@ -159,13 +157,13 @@ export function createRedisQueue(
 
   return {
     async publish(envelope: EventEnvelope): Promise<void> {
-      if (closed) throw new Error("Queue is closed");
+      if (closed) throw new Error('Queue is closed');
       const serialized = JSON.stringify(envelope);
       await client.lpush(queueKey, serialized);
     },
 
     subscribe(handler: (envelope: EventEnvelope) => Promise<void>): () => void {
-      if (closed) throw new Error("Queue is closed");
+      if (closed) throw new Error('Queue is closed');
       subscribers.push(handler);
       startPolling();
       return () => {

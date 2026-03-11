@@ -1,9 +1,9 @@
 // ── RAG Pipeline ──
 // Ingestion, embedding, storage, and retrieval
 
-import type { AIDocument } from "../../types/context.js";
-import type { AIProviderAdapter } from "../provider.js";
-import { chunkDocument, type ChunkConfig, type DocumentChunk } from "./chunking.js";
+import type { AIDocument } from '../../types/context.js';
+import type { AIProviderAdapter } from '../provider.js';
+import { chunkDocument, type ChunkConfig, type DocumentChunk } from './chunking.js';
 
 // ── Ingestion Input ──
 export interface IngestDocumentInput {
@@ -49,12 +49,15 @@ export interface RetrievalQuery {
 // ── Vector Store Interface ──
 export interface VectorStore {
   insert(chunks: StoredChunk[]): Promise<void>;
-  search(embedding: number[], options: {
-    tenantId?: string;
-    maxClassification?: string;
-    limit: number;
-    minScore: number;
-  }): Promise<Array<StoredChunk & { score: number }>>;
+  search(
+    embedding: number[],
+    options: {
+      tenantId?: string;
+      maxClassification?: string;
+      limit: number;
+      minScore: number;
+    },
+  ): Promise<Array<StoredChunk & { score: number }>>;
   deleteByDocumentId(documentId: string): Promise<void>;
 }
 

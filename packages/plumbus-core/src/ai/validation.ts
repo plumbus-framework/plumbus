@@ -1,8 +1,8 @@
 // ── Output Validation with Retry ──
 // Validates AI responses against Zod schemas, retries on mismatch
 
-import type { z } from "zod";
-import type { AIProviderAdapter, ProviderRequest, ProviderResponse } from "./provider.js";
+import type { z } from 'zod';
+import type { AIProviderAdapter, ProviderRequest, ProviderResponse } from './provider.js';
 
 export interface ValidationRetryConfig {
   /** Max retries on validation failure (default 2) */
@@ -35,7 +35,7 @@ export async function generateWithValidation<T>(
     const response: ProviderResponse = await provider.complete({
       ...request,
       prompt: currentPrompt,
-      responseFormat: "json",
+      responseFormat: 'json',
     });
 
     totalUsage = {

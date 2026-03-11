@@ -28,7 +28,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.config.browser.ts",
-    "lint": "tsc --noEmit",
+    "lint": "biome lint ./src",
+    "format": "biome format --write ./src",
+    "format:check": "biome format ./src",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

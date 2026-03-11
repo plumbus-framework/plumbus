@@ -1,10 +1,10 @@
-import { eq, lte } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { LoggerService } from "../types/context.js";
-import type { AuthContext } from "../types/security.js";
-import type { createFlowEngine } from "./engine.js";
-import { FlowRegistry } from "./registry.js";
-import { flowSchedulesTable } from "./schema.js";
+import { eq, lte } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { LoggerService } from '../types/context.js';
+import type { AuthContext } from '../types/security.js';
+import type { createFlowEngine } from './engine.js';
+import type { FlowRegistry } from './registry.js';
+import { flowSchedulesTable } from './schema.js';
 
 export interface SchedulerConfig {
   db: PostgresJsDatabase;
@@ -29,10 +29,10 @@ export function createFlowScheduler(config: SchedulerConfig) {
   let running = false;
 
   const systemAuth: AuthContext = {
-    userId: "system-scheduler",
-    roles: ["system"],
+    userId: 'system-scheduler',
+    roles: ['system'],
     scopes: [],
-    provider: "scheduler",
+    provider: 'scheduler',
   };
 
   /**
@@ -148,9 +148,7 @@ export function computeNextRun(cron: string, from: Date): Date {
     const value = parseInt(match[1]!, 10);
     const unit = match[2]!;
     const ms =
-      unit === "m" ? value * 60_000 :
-      unit === "h" ? value * 3_600_000 :
-      value * 86_400_000;
+      unit === 'm' ? value * 60_000 : unit === 'h' ? value * 3_600_000 : value * 86_400_000;
     return new Date(from.getTime() + ms);
   }
 
@@ -170,12 +168,28 @@ export function computeNextRun(cron: string, from: Date): Date {
 // ── Cron Parser ──
 
 const DAY_NAMES: Record<string, number> = {
-  SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6,
+  SUN: 0,
+  MON: 1,
+  TUE: 2,
+  WED: 3,
+  THU: 4,
+  FRI: 5,
+  SAT: 6,
 };
 
 const MONTH_NAMES: Record<string, number> = {
-  JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
-  JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
+  JAN: 1,
+  FEB: 2,
+  MAR: 3,
+  APR: 4,
+  MAY: 5,
+  JUN: 6,
+  JUL: 7,
+  AUG: 8,
+  SEP: 9,
+  OCT: 10,
+  NOV: 11,
+  DEC: 12,
 };
 
 interface CronField {
@@ -190,10 +204,15 @@ interface ParsedCron {
   dayOfWeek: CronField;
 }
 
-function parseCronField(field: string, min: number, max: number, names?: Record<string, number>): CronField | null {
+function parseCronField(
+  field: string,
+  min: number,
+  max: number,
+  names?: Record<string, number>,
+): CronField | null {
   const values = new Set<number>();
 
-  for (const part of field.split(",")) {
+  for (const part of field.split(',')) {
     const trimmed = part.trim().toUpperCase();
 
     // Resolve named constants
@@ -212,7 +231,7 @@ function parseCronField(field: string, min: number, max: number, names?: Record<
       for (let i = min; i <= max; i += step) values.add(i);
       continue;
     }
-    if (resolved === "*") {
+    if (resolved === '*') {
       for (let i = min; i <= max; i++) values.add(i);
       continue;
     }
@@ -258,10 +277,10 @@ function findNextCronMatch(cron: ParsedCron, from: Date): Date {
   const maxIterations = 366 * 24 * 60; // ~1 year in minutes
   for (let i = 0; i < maxIterations; i++) {
     const mo = candidate.getMonth() + 1; // 1-12
-    const dom = candidate.getDate();     // 1-31
-    const dow = candidate.getDay();      // 0-6
-    const hr = candidate.getHours();     // 0-23
-    const mn = candidate.getMinutes();   // 0-59
+    const dom = candidate.getDate(); // 1-31
+    const dow = candidate.getDay(); // 0-6
+    const hr = candidate.getHours(); // 0-23
+    const mn = candidate.getMinutes(); // 0-59
 
     if (
       cron.month.values.has(mo) &&

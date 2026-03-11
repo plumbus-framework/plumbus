@@ -1,11 +1,9 @@
-import type { EventEnvelope } from "../types/event.js";
+import type { EventEnvelope } from '../types/event.js';
 
 /**
  * A consumer function that handles a delivered event.
  */
-export type EventConsumerHandler = (
-  envelope: EventEnvelope,
-) => Promise<void>;
+export type EventConsumerHandler = (envelope: EventEnvelope) => Promise<void>;
 
 export interface EventConsumer {
   /** Unique identifier for this consumer (used for idempotency tracking) */
@@ -33,9 +31,7 @@ export class ConsumerRegistry {
    */
   register(consumer: EventConsumer): void {
     if (this.consumersById.has(consumer.id)) {
-      throw new Error(
-        `Event consumer "${consumer.id}" is already registered`,
-      );
+      throw new Error(`Event consumer "${consumer.id}" is already registered`);
     }
     this.consumersById.set(consumer.id, consumer);
 

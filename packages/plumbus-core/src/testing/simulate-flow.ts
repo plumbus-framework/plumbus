@@ -2,16 +2,16 @@
 // Simulate flow execution in-memory without requiring a database or queue.
 // Walks through steps sequentially, tracking state and step history.
 
-import { FlowStatus, StepStatus, type StepHistoryEntry } from "../flows/state-machine.js";
+import { FlowStatus, StepStatus, type StepHistoryEntry } from '../flows/state-machine.js';
 import {
-    buildHistoryEntry,
-    executeStep,
-    type StepExecutorDeps,
-    type StepResult,
-} from "../flows/step-executor.js";
-import type { ExecutionContext } from "../types/context.js";
-import type { FlowDefinition, FlowStep } from "../types/flow.js";
-import { createTestContext, type TestContextOptions } from "./context.js";
+  buildHistoryEntry,
+  executeStep,
+  type StepExecutorDeps,
+  type StepResult,
+} from '../flows/step-executor.js';
+import type { ExecutionContext } from '../types/context.js';
+import type { FlowDefinition, FlowStep } from '../types/flow.js';
+import { createTestContext, type TestContextOptions } from './context.js';
 
 // ── Simulation Result ──
 
@@ -63,18 +63,22 @@ export async function simulateFlow(
 
   // Build step deps with configurable results
   const stepDeps: StepExecutorDeps = {
-    executeCapability: options?.stepDeps?.executeCapability ?? (async (name) => {
-      if (options?.capabilityResults?.[name]) {
-        return options.capabilityResults[name]!;
-      }
-      return { success: true, data: {} };
-    }),
-    evaluateCondition: options?.stepDeps?.evaluateCondition ?? ((expression) => {
-      if (options?.conditionResults?.[expression] !== undefined) {
-        return options.conditionResults[expression]!;
-      }
-      return true;
-    }),
+    executeCapability:
+      options?.stepDeps?.executeCapability ??
+      (async (name) => {
+        if (options?.capabilityResults?.[name]) {
+          return options.capabilityResults[name]!;
+        }
+        return { success: true, data: {} };
+      }),
+    evaluateCondition:
+      options?.stepDeps?.evaluateCondition ??
+      ((expression) => {
+        if (options?.conditionResults?.[expression] !== undefined) {
+          return options.conditionResults[expression]!;
+        }
+        return true;
+      }),
   };
 
   // Build step lookup
@@ -85,7 +89,7 @@ export async function simulateFlow(
 
   const history: StepHistoryEntry[] = [];
   const stepResults = new Map<string, StepResult>();
-  let state = input;
+  const state = input;
   let executedCount = 0;
 
   // Start with the first step

@@ -2,16 +2,16 @@
 // Helpers for end-to-end testing with Vitest Browser Mode.
 // Provides server lifecycle management and HTTP client helpers.
 
-import { EntityRegistry } from "../data/registry.js";
-import { ConsumerRegistry } from "../events/consumer-registry.js";
-import { EventRegistry } from "../events/registry.js";
-import { CapabilityRegistry } from "../execution/capability-registry.js";
-import { FlowRegistry } from "../flows/registry.js";
-import { createServer, type PlumbusServer } from "../server/bootstrap.js";
-import type { CapabilityContract } from "../types/capability.js";
-import type { PlumbusConfig } from "../types/config.js";
-import type { LoggerService } from "../types/context.js";
-import type { AuthContext } from "../types/security.js";
+import { EntityRegistry } from '../data/registry.js';
+import { ConsumerRegistry } from '../events/consumer-registry.js';
+import { EventRegistry } from '../events/registry.js';
+import { CapabilityRegistry } from '../execution/capability-registry.js';
+import { FlowRegistry } from '../flows/registry.js';
+import { createServer, type PlumbusServer } from '../server/bootstrap.js';
+import type { CapabilityContract } from '../types/capability.js';
+import type { PlumbusConfig } from '../types/config.js';
+import type { LoggerService } from '../types/context.js';
+import type { AuthContext } from '../types/security.js';
 
 // ── E2E Config ──
 
@@ -63,11 +63,11 @@ function createDbStub(): any {
 
 function defaultTestConfig(overrides?: Partial<PlumbusConfig>): PlumbusConfig {
   return {
-    appName: "e2e-test-app",
-    environment: "production",
+    appName: 'e2e-test-app',
+    environment: 'production',
     port: 0,
-    database: { connectionString: "postgresql://test:test@localhost:5432/test" },
-    auth: { secret: "e2e-test-secret", providers: [] },
+    database: { connectionString: 'postgresql://test:test@localhost:5432/test' },
+    auth: { secret: 'e2e-test-secret', providers: [] },
     ...overrides,
   } as PlumbusConfig;
 }
@@ -96,9 +96,7 @@ function defaultTestConfig(overrides?: Partial<PlumbusConfig>): PlumbusConfig {
  * });
  * ```
  */
-export async function createE2EServer(
-  options?: E2EServerOptions,
-): Promise<E2EServerContext> {
+export async function createE2EServer(options?: E2EServerOptions): Promise<E2EServerContext> {
   const capabilities = new CapabilityRegistry();
   if (options?.capabilities) {
     for (const cap of options.capabilities) {
@@ -117,7 +115,7 @@ export async function createE2EServer(
     events: new EventRegistry(),
     consumers: new ConsumerRegistry(),
     flows: new FlowRegistry(),
-    host: "127.0.0.1",
+    host: '127.0.0.1',
     port,
     logger: silentLogger(),
   });
@@ -125,7 +123,7 @@ export async function createE2EServer(
   const address = await server.start();
 
   // Parse host:port from the Fastify address string
-  const baseUrl = address.startsWith("http") ? address : `http://${address}`;
+  const baseUrl = address.startsWith('http') ? address : `http://${address}`;
 
   return {
     server,
@@ -134,9 +132,9 @@ export async function createE2EServer(
       await server.stop();
     },
     async fetch(path: string, init?: RequestInit) {
-      const url = `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+      const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
       return globalThis.fetch(url, {
-        headers: { "content-type": "application/json", ...init?.headers },
+        headers: { 'content-type': 'application/json', ...init?.headers },
         ...init,
       });
     },
@@ -153,9 +151,9 @@ export async function createE2EServer(
 export function createTestBearerHeader(auth?: Partial<AuthContext>): { authorization: string } {
   // Create a minimal JWT-style token for test auth adapters
   const payload = {
-    sub: auth?.userId ?? "e2e-user",
-    roles: auth?.roles ?? ["user"],
-    tenantId: auth?.tenantId ?? "e2e-tenant",
+    sub: auth?.userId ?? 'e2e-user',
+    roles: auth?.roles ?? ['user'],
+    tenantId: auth?.tenantId ?? 'e2e-tenant',
   };
   const encoded = btoa(JSON.stringify(payload));
   return { authorization: `Bearer test.${encoded}.sig` };

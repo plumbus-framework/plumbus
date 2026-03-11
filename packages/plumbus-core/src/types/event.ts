@@ -1,9 +1,7 @@
-import type { z } from "zod";
+import type { z } from 'zod';
 
 // ── Event Definition ──
-export interface EventDefinition<
-  TPayload extends z.ZodTypeAny = z.ZodTypeAny,
-> {
+export interface EventDefinition<TPayload extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string;
   description?: string;
   domain?: string;

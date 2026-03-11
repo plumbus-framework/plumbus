@@ -2,7 +2,7 @@
 // Generates a Next.js project scaffold with Plumbus auth integration,
 // generated client imports, and example pages wired to capabilities.
 
-import type { CapabilityContract } from "plumbus-core";
+import type { CapabilityContract } from 'plumbus-core';
 
 export interface NextjsTemplateConfig {
   /** Application name */
@@ -20,7 +20,10 @@ function toPascalCase(str: string): string {
 }
 
 function toKebabCase(str: string): string {
-  return str.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").toLowerCase();
+  return str
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase();
 }
 
 // ── File Generators ──
@@ -33,68 +36,74 @@ export interface GeneratedFile {
 /** Generate package.json for the Next.js project */
 export function generatePackageJson(config: NextjsTemplateConfig): GeneratedFile {
   const name = toKebabCase(config.appName);
-  const content = JSON.stringify({
-    name,
-    version: "0.1.0",
-    private: true,
-    scripts: {
-      dev: "next dev",
-      build: "next build",
-      start: "next start",
+  const content = JSON.stringify(
+    {
+      name,
+      version: '0.1.0',
+      private: true,
+      scripts: {
+        dev: 'next dev',
+        build: 'next build',
+        start: 'next start',
+      },
+      dependencies: {
+        next: '^14.0.0',
+        react: '^18.2.0',
+        'react-dom': '^18.2.0',
+      },
+      devDependencies: {
+        typescript: '^5.0.0',
+        '@types/react': '^18.2.0',
+        '@types/react-dom': '^18.2.0',
+      },
     },
-    dependencies: {
-      next: "^14.0.0",
-      react: "^18.2.0",
-      "react-dom": "^18.2.0",
-    },
-    devDependencies: {
-      typescript: "^5.0.0",
-      "@types/react": "^18.2.0",
-      "@types/react-dom": "^18.2.0",
-    },
-  }, null, 2);
+    null,
+    2,
+  );
 
-  return { path: "package.json", content };
+  return { path: 'package.json', content };
 }
 
 /** Generate tsconfig.json */
 export function generateTsConfig(): GeneratedFile {
-  const content = JSON.stringify({
-    compilerOptions: {
-      target: "ES2017",
-      lib: ["dom", "dom.iterable", "esnext"],
-      allowJs: true,
-      skipLibCheck: true,
-      strict: true,
-      noEmit: true,
-      esModuleInterop: true,
-      module: "esnext",
-      moduleResolution: "bundler",
-      resolveJsonModule: true,
-      isolatedModules: true,
-      jsx: "preserve",
-      incremental: true,
-      paths: { "@/*": ["./*"] },
+  const content = JSON.stringify(
+    {
+      compilerOptions: {
+        target: 'ES2017',
+        lib: ['dom', 'dom.iterable', 'esnext'],
+        allowJs: true,
+        skipLibCheck: true,
+        strict: true,
+        noEmit: true,
+        esModuleInterop: true,
+        module: 'esnext',
+        moduleResolution: 'bundler',
+        resolveJsonModule: true,
+        isolatedModules: true,
+        jsx: 'preserve',
+        incremental: true,
+        paths: { '@/*': ['./*'] },
+      },
+      include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'],
+      exclude: ['node_modules'],
     },
-    include: ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-    exclude: ["node_modules"],
-  }, null, 2);
+    null,
+    2,
+  );
 
-  return { path: "tsconfig.json", content };
+  return { path: 'tsconfig.json', content };
 }
 
 /** Generate the layout component */
 export function generateLayout(config: NextjsTemplateConfig): GeneratedFile {
   const auth = config.auth !== false;
 
-  const authImport = auth
-    ? `import { AuthProvider } from "./components/AuthProvider";\n`
-    : "";
-  const authWrapOpen = auth ? "        <AuthProvider>\n" : "";
-  const authWrapClose = auth ? "        </AuthProvider>\n" : "";
+  const authImport = auth ? `import { AuthProvider } from "./components/AuthProvider";\n` : '';
+  const authWrapOpen = auth ? '        <AuthProvider>\n' : '';
+  const authWrapClose = auth ? '        </AuthProvider>\n' : '';
 
   return {
-    path: "app/layout.tsx",
+    path: 'app/layout.tsx',
     content: `import type { Metadata } from "next";
 ${authImport}
 export const metadata: Metadata = {
@@ -118,7 +127,7 @@ ${authWrapClose}      </body>
 /** Generate the home page */
 export function generateHomePage(config: NextjsTemplateConfig): GeneratedFile {
   return {
-    path: "app/page.tsx",
+    path: 'app/page.tsx',
     content: `export default function Home() {
   return (
     <main>
@@ -136,7 +145,7 @@ export function generateCapabilityPage(cap: CapabilityContract): GeneratedFile {
   const pascal = toPascalCase(cap.name);
   const slug = toKebabCase(cap.name);
 
-  if (cap.kind === "query") {
+  if (cap.kind === 'query') {
     return {
       path: `app/${slug}/page.tsx`,
       content: `"use client";
@@ -201,7 +210,7 @@ export default function ${pascal}Page() {
 /** Generate AuthProvider component */
 export function generateAuthProvider(): GeneratedFile {
   return {
-    path: "components/AuthProvider.tsx",
+    path: 'components/AuthProvider.tsx',
     content: `"use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
@@ -257,26 +266,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function generatePlaceholderFiles(): GeneratedFile[] {
   return [
     {
-      path: "generated/.gitkeep",
-      content: "",
+      path: 'generated/.gitkeep',
+      content: '',
     },
     {
-      path: "hooks/.gitkeep",
-      content: "",
+      path: 'hooks/.gitkeep',
+      content: '',
     },
   ];
 }
 
 /** Generate .env.local template with Plumbus-specific variables */
 export function generateEnvLocal(config: NextjsTemplateConfig): GeneratedFile {
-  const baseUrl = config.apiBaseUrl ?? "http://localhost:3000";
+  const baseUrl = config.apiBaseUrl ?? 'http://localhost:3000';
   return {
-    path: ".env.local",
+    path: '.env.local',
     content: `# Plumbus API
 NEXT_PUBLIC_API_BASE_URL=${baseUrl}
 
 # Auth
-NEXT_PUBLIC_AUTH_ENABLED=${config.auth !== false ? "true" : "false"}
+NEXT_PUBLIC_AUTH_ENABLED=${config.auth !== false ? 'true' : 'false'}
 AUTH_SECRET=change-me-in-production
 
 # Database (if using Next.js API routes with direct DB access)
@@ -288,7 +297,7 @@ AUTH_SECRET=change-me-in-production
 /** Generate a global error boundary component */
 export function generateErrorBoundary(): GeneratedFile {
   return {
-    path: "app/error.tsx",
+    path: 'app/error.tsx',
     content: `"use client";
 
 import { useEffect } from "react";
@@ -319,7 +328,7 @@ export default function ErrorBoundary({
 /** Generate a global loading component */
 export function generateLoadingComponent(): GeneratedFile {
   return {
-    path: "app/loading.tsx",
+    path: 'app/loading.tsx',
     content: `export default function Loading() {
   return (
     <main>
@@ -335,8 +344,9 @@ export function generateLoadingComponent(): GeneratedFile {
 
 /** Generate Next.js middleware for auth token forwarding */
 export function generateMiddleware(config: NextjsTemplateConfig): GeneratedFile {
-  const protectedPaths = config.auth !== false
-    ? `
+  const protectedPaths =
+    config.auth !== false
+      ? `
   // Protect routes that require authentication
   const protectedPaths = ["/dashboard", "/settings", "/api/protected"];
   const isProtected = protectedPaths.some((p) => request.nextUrl.pathname.startsWith(p));
@@ -348,10 +358,10 @@ export function generateMiddleware(config: NextjsTemplateConfig): GeneratedFile 
     }
   }
 `
-    : "";
+      : '';
 
   return {
-    path: "middleware.ts",
+    path: 'middleware.ts',
     content: `import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -371,9 +381,9 @@ export const config = {
 
 /** Generate API route helper for proxying to the Plumbus backend */
 export function generateApiRouteHelper(config: NextjsTemplateConfig): GeneratedFile {
-  const baseUrl = config.apiBaseUrl ?? "http://localhost:3000";
+  const baseUrl = config.apiBaseUrl ?? 'http://localhost:3000';
   return {
-    path: "app/api/plumbus/[...path]/route.ts",
+    path: 'app/api/plumbus/[...path]/route.ts',
     content: `import { NextRequest, NextResponse } from "next/server";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "${baseUrl}";

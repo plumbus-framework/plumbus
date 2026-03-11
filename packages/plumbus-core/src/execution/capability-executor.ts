@@ -1,9 +1,9 @@
-import type { z } from "zod";
-import { isPlumbusError } from "../errors/index.js";
-import type { CapabilityContract } from "../types/capability.js";
-import type { ExecutionContext } from "../types/context.js";
-import type { PlumbusError } from "../types/errors.js";
-import { evaluateAccess } from "./authorization.js";
+import type { z } from 'zod';
+import { isPlumbusError } from '../errors/index.js';
+import type { CapabilityContract } from '../types/capability.js';
+import type { ExecutionContext } from '../types/context.js';
+import type { PlumbusError } from '../types/errors.js';
+import { evaluateAccess } from './authorization.js';
 
 export interface ExecutionResult<T = unknown> {
   success: true;
@@ -15,9 +15,7 @@ export interface ExecutionFailure {
   error: PlumbusError;
 }
 
-export type CapabilityResult<T = unknown> =
-  | ExecutionResult<T>
-  | ExecutionFailure;
+export type CapabilityResult<T = unknown> = ExecutionResult<T> | ExecutionFailure;
 
 /**
  * Execute a capability through the full pipeline:
@@ -27,10 +25,7 @@ export type CapabilityResult<T = unknown> =
  * 4. Validate output
  * 5. Record audit
  */
-export async function executeCapability<
-  TInput extends z.ZodTypeAny,
-  TOutput extends z.ZodTypeAny,
->(
+export async function executeCapability<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
   capability: CapabilityContract<TInput, TOutput>,
   ctx: ExecutionContext,
   rawInput: unknown,
@@ -38,11 +33,11 @@ export async function executeCapability<
   // 1. Validate input against schema
   const inputResult = capability.input.safeParse(rawInput);
   if (!inputResult.success) {
-    const error = ctx.errors.validation("Invalid input", {
+    const error = ctx.errors.validation('Invalid input', {
       capability: capability.name,
       issues: inputResult.error.issues,
     });
-    await recordAudit(ctx, capability, "failure", { error });
+    await recordAudit(ctx, capability, 'failure', { error });
     return { success: false, error };
   }
 
@@ -51,11 +46,10 @@ export async function executeCapability<
   // 2. Evaluate access policy (deny-by-default)
   const authResult = evaluateAccess(capability.access, ctx.auth);
   if (!authResult.allowed) {
-    const error = ctx.errors.forbidden(
-      authResult.reason ?? "Access denied",
-      { capability: capability.name },
-    );
-    await recordAudit(ctx, capability, "denied", { error });
+    const error = ctx.errors.forbidden(authResult.reason ?? 'Access denied', {
+      capability: capability.name,
+    });
+    await recordAudit(ctx, capability, 'denied', { error });
     return { success: false, error };
   }
 
@@ -66,37 +60,36 @@ export async function executeCapability<
   } catch (err) {
     // If the handler threw a PlumbusError, surface it directly
     if (isPlumbusError(err)) {
-      await recordAudit(ctx, capability, "failure", { error: err });
+      await recordAudit(ctx, capability, 'failure', { error: err });
       return { success: false, error: err };
     }
-    const error = ctx.errors.internal("Capability execution failed", {
+    const error = ctx.errors.internal('Capability execution failed', {
       capability: capability.name,
       message: err instanceof Error ? err.message : String(err),
     });
     ctx.logger.error(`Capability "${capability.name}" threw an error`, {
       error: err instanceof Error ? err.message : String(err),
     });
-    await recordAudit(ctx, capability, "failure", { error });
+    await recordAudit(ctx, capability, 'failure', { error });
     return { success: false, error };
   }
 
   // 4. Validate output against schema
   const outputResult = capability.output.safeParse(rawOutput);
   if (!outputResult.success) {
-    const error = ctx.errors.internal("Invalid output from capability", {
+    const error = ctx.errors.internal('Invalid output from capability', {
       capability: capability.name,
       issues: outputResult.error.issues,
     });
-    ctx.logger.error(
-      `Capability "${capability.name}" returned invalid output`,
-      { issues: outputResult.error.issues },
-    );
-    await recordAudit(ctx, capability, "failure", { error });
+    ctx.logger.error(`Capability "${capability.name}" returned invalid output`, {
+      issues: outputResult.error.issues,
+    });
+    await recordAudit(ctx, capability, 'failure', { error });
     return { success: false, error };
   }
 
   // 5. Record success audit
-  await recordAudit(ctx, capability, "success");
+  await recordAudit(ctx, capability, 'success');
 
   return { success: true, data: outputResult.data as z.infer<TOutput> };
 }
@@ -104,7 +97,7 @@ export async function executeCapability<
 async function recordAudit(
   ctx: ExecutionContext,
   capability: CapabilityContract<any, any>,
-  outcome: "success" | "failure" | "denied",
+  outcome: 'success' | 'failure' | 'denied',
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   // Skip if audit is explicitly disabled for this capability

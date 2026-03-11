@@ -2,7 +2,7 @@
 // Provides metric counters, histograms, structured logger factory,
 // and tracing context propagation for the Plumbus runtime.
 
-import type { LoggerService } from "../types/context.js";
+import type { LoggerService } from '../types/context.js';
 
 // ── Metrics ──
 
@@ -30,15 +30,20 @@ export interface MetricsRegistry {
 
 /** Key for label lookup in maps */
 function labelKey(labels?: MetricLabels): string {
-  if (!labels) return "";
-  return Object.entries(labels).sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}="${v}"`).join(",");
+  if (!labels) return '';
+  return Object.entries(labels)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(',');
 }
 
 /** Create an in-memory metrics registry (Prometheus-style) */
 export function createMetricsRegistry(): MetricsRegistry {
   const counters = new Map<string, { help: string; values: Map<string, number> }>();
-  const histograms = new Map<string, { help: string; values: Map<string, { count: number; sum: number }> }>();
+  const histograms = new Map<
+    string,
+    { help: string; values: Map<string, { count: number; sum: number }> }
+  >();
 
   return {
     counter(name: string, help: string): Counter {
@@ -86,7 +91,7 @@ export function createMetricsRegistry(): MetricsRegistry {
         lines.push(`# HELP ${name} ${entry.help}`);
         lines.push(`# TYPE ${name} counter`);
         for (const [key, value] of entry.values) {
-          const labels = key ? `{${key}}` : "";
+          const labels = key ? `{${key}}` : '';
           lines.push(`${name}${labels} ${value}`);
         }
       }
@@ -95,13 +100,13 @@ export function createMetricsRegistry(): MetricsRegistry {
         lines.push(`# HELP ${name} ${entry.help}`);
         lines.push(`# TYPE ${name} histogram`);
         for (const [key, value] of entry.values) {
-          const labels = key ? `{${key}}` : "";
+          const labels = key ? `{${key}}` : '';
           lines.push(`${name}_count${labels} ${value.count}`);
           lines.push(`${name}_sum${labels} ${value.sum}`);
         }
       }
 
-      return lines.join("\n");
+      return lines.join('\n');
     },
   };
 }
@@ -130,20 +135,29 @@ export interface PlumbusMetrics {
 export function createPlumbusMetrics(registry?: MetricsRegistry): PlumbusMetrics {
   const reg = registry ?? createMetricsRegistry();
   return {
-    requestDuration: reg.histogram("plumbus_request_duration_ms", "HTTP request duration in milliseconds"),
-    requestTotal: reg.counter("plumbus_request_total", "Total HTTP requests"),
-    requestErrors: reg.counter("plumbus_request_errors_total", "Total HTTP request errors"),
-    capabilityDuration: reg.histogram("plumbus_capability_duration_ms", "Capability execution duration in milliseconds"),
-    capabilityTotal: reg.counter("plumbus_capability_total", "Total capability executions"),
-    eventEmitted: reg.counter("plumbus_event_emitted_total", "Total events emitted"),
-    eventDelivered: reg.counter("plumbus_event_delivered_total", "Total events delivered"),
-    eventFailed: reg.counter("plumbus_event_failed_total", "Total event delivery failures"),
-    flowStarted: reg.counter("plumbus_flow_started_total", "Total flows started"),
-    flowCompleted: reg.counter("plumbus_flow_completed_total", "Total flows completed"),
-    flowFailed: reg.counter("plumbus_flow_failed_total", "Total flows failed"),
-    aiRequestDuration: reg.histogram("plumbus_ai_request_duration_ms", "AI request duration in milliseconds"),
-    aiRequestTotal: reg.counter("plumbus_ai_request_total", "Total AI requests"),
-    queueDepth: reg.counter("plumbus_queue_depth", "Current queue depth"),
+    requestDuration: reg.histogram(
+      'plumbus_request_duration_ms',
+      'HTTP request duration in milliseconds',
+    ),
+    requestTotal: reg.counter('plumbus_request_total', 'Total HTTP requests'),
+    requestErrors: reg.counter('plumbus_request_errors_total', 'Total HTTP request errors'),
+    capabilityDuration: reg.histogram(
+      'plumbus_capability_duration_ms',
+      'Capability execution duration in milliseconds',
+    ),
+    capabilityTotal: reg.counter('plumbus_capability_total', 'Total capability executions'),
+    eventEmitted: reg.counter('plumbus_event_emitted_total', 'Total events emitted'),
+    eventDelivered: reg.counter('plumbus_event_delivered_total', 'Total events delivered'),
+    eventFailed: reg.counter('plumbus_event_failed_total', 'Total event delivery failures'),
+    flowStarted: reg.counter('plumbus_flow_started_total', 'Total flows started'),
+    flowCompleted: reg.counter('plumbus_flow_completed_total', 'Total flows completed'),
+    flowFailed: reg.counter('plumbus_flow_failed_total', 'Total flows failed'),
+    aiRequestDuration: reg.histogram(
+      'plumbus_ai_request_duration_ms',
+      'AI request duration in milliseconds',
+    ),
+    aiRequestTotal: reg.counter('plumbus_ai_request_total', 'Total AI requests'),
+    queueDepth: reg.counter('plumbus_queue_depth', 'Current queue depth'),
     registry: reg,
   };
 }
@@ -151,7 +165,7 @@ export function createPlumbusMetrics(registry?: MetricsRegistry): PlumbusMetrics
 // ── Structured Logger Factory ──
 
 export interface StructuredLogEntry {
-  level: "info" | "warn" | "error" | "debug";
+  level: 'info' | 'warn' | 'error' | 'debug';
   message: string;
   timestamp: string;
   correlationId?: string;
@@ -171,7 +185,7 @@ export interface StructuredLoggerConfig {
   /** Actor ID for audit trail */
   actorId?: string;
   /** Minimum log level to emit (default: "info") */
-  minLevel?: "debug" | "info" | "warn" | "error";
+  minLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
 
 const LOG_LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -184,9 +198,13 @@ export function createStructuredLogger(config?: StructuredLoggerConfig): LoggerS
     tenantId: config?.tenantId,
     actorId: config?.actorId,
   };
-  const minLevel = LOG_LEVEL_ORDER[config?.minLevel ?? "info"];
+  const minLevel = LOG_LEVEL_ORDER[config?.minLevel ?? 'info'];
 
-  function emit(level: StructuredLogEntry["level"], message: string, metadata?: Record<string, unknown>): void {
+  function emit(
+    level: StructuredLogEntry['level'],
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): void {
     if (LOG_LEVEL_ORDER[level] < minLevel) return;
 
     const entry: StructuredLogEntry = {
@@ -199,17 +217,23 @@ export function createStructuredLogger(config?: StructuredLoggerConfig): LoggerS
 
     const line = JSON.stringify(entry);
     switch (level) {
-      case "error": console.error(line); break;
-      case "warn": console.warn(line); break;
-      default: console.info(line); break;
+      case 'error':
+        console.error(line);
+        break;
+      case 'warn':
+        console.warn(line);
+        break;
+      default:
+        console.info(line);
+        break;
     }
   }
 
   return {
-    debug: (message, metadata) => emit("debug", message, metadata),
-    info: (message, metadata) => emit("info", message, metadata),
-    warn: (message, metadata) => emit("warn", message, metadata),
-    error: (message, metadata) => emit("error", message, metadata),
+    debug: (message, metadata) => emit('debug', message, metadata),
+    info: (message, metadata) => emit('info', message, metadata),
+    warn: (message, metadata) => emit('warn', message, metadata),
+    error: (message, metadata) => emit('error', message, metadata),
   };
 }
 
@@ -254,8 +278,8 @@ export function createChildSpan(parent: TraceContext): TraceContext {
 
 // ── OpenTelemetry-Compatible Distributed Tracing ──
 
-export type SpanKind = "internal" | "server" | "client" | "producer" | "consumer";
-export type SpanStatusCode = "unset" | "ok" | "error";
+export type SpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer';
+export type SpanStatusCode = 'unset' | 'ok' | 'error';
 
 export interface SpanOptions {
   kind?: SpanKind;
@@ -308,9 +332,9 @@ export function createTracer(traceId?: string, exporter?: SpanExporter): Tracer 
         spanId: generateSpanId(),
         parentSpanId: options?.parentSpanId,
         name,
-        kind: options?.kind ?? "internal",
+        kind: options?.kind ?? 'internal',
         startTime: Date.now(),
-        status: "unset",
+        status: 'unset',
         attributes: { ...options?.attributes },
 
         setAttribute(key: string, value: string | number | boolean) {
@@ -318,18 +342,18 @@ export function createTracer(traceId?: string, exporter?: SpanExporter): Tracer 
         },
 
         recordError(error: Error) {
-          span.status = "error";
+          span.status = 'error';
           span.statusMessage = error.message;
-          span.attributes["error.type"] = error.name;
-          span.attributes["error.message"] = error.message;
+          span.attributes['error.type'] = error.name;
+          span.attributes['error.message'] = error.message;
           if (error.stack) {
-            span.attributes["error.stack"] = error.stack;
+            span.attributes['error.stack'] = error.stack;
           }
         },
 
         end() {
           span.endTime = Date.now();
-          if (span.status === "unset") span.status = "ok";
+          if (span.status === 'unset') span.status = 'ok';
           finishedSpans.push(span);
         },
       };
@@ -363,12 +387,13 @@ export interface W3CTraceContext {
 export function parseTraceparent(header: string): W3CTraceContext | null {
   // Format: version-traceId-parentId-traceFlags
   // e.g., "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-  const parts = header.trim().split("-");
+  const parts = header.trim().split('-');
   if (parts.length !== 4) return null;
 
   const [version, traceId, parentId, flags] = parts;
   if (!version || !traceId || !parentId || !flags) return null;
-  if (version.length !== 2 || traceId.length !== 32 || parentId.length !== 16 || flags.length !== 2) return null;
+  if (version.length !== 2 || traceId.length !== 32 || parentId.length !== 16 || flags.length !== 2)
+    return null;
   if (!/^[0-9a-f]+$/i.test(traceId) || !/^[0-9a-f]+$/i.test(parentId)) return null;
 
   return {
@@ -381,15 +406,14 @@ export function parseTraceparent(header: string): W3CTraceContext | null {
 
 /** Format a trace context as a W3C traceparent header value */
 export function formatTraceparent(ctx: W3CTraceContext): string {
-  return `${ctx.version}-${ctx.traceId}-${ctx.parentId}-${ctx.traceFlags.toString(16).padStart(2, "0")}`;
+  return `${ctx.version}-${ctx.traceId}-${ctx.parentId}-${ctx.traceFlags.toString(16).padStart(2, '0')}`;
 }
 
 /** Extract trace context from HTTP headers (case-insensitive lookup) */
-export function extractTraceFromHeaders(headers: Record<string, string | string[] | undefined>): W3CTraceContext | null {
-  const headerValue =
-    headers["traceparent"] ??
-    headers["Traceparent"] ??
-    headers["TRACEPARENT"];
+export function extractTraceFromHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): W3CTraceContext | null {
+  const headerValue = headers['traceparent'] ?? headers['Traceparent'] ?? headers['TRACEPARENT'];
   if (!headerValue) return null;
   const value = Array.isArray(headerValue) ? headerValue[0] : headerValue;
   if (!value) return null;
@@ -397,7 +421,10 @@ export function extractTraceFromHeaders(headers: Record<string, string | string[
 }
 
 /** Inject trace context into HTTP headers for propagation */
-export function injectTraceHeaders(ctx: W3CTraceContext, headers: Record<string, string>): Record<string, string> {
+export function injectTraceHeaders(
+  ctx: W3CTraceContext,
+  headers: Record<string, string>,
+): Record<string, string> {
   return {
     ...headers,
     traceparent: formatTraceparent(ctx),

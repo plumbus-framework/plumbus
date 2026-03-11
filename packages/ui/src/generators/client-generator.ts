@@ -2,7 +2,7 @@
 // Generates typed fetch-based API clients, React hooks, and flow trigger functions
 // from capability contracts and flow definitions.
 
-import type { CapabilityContract } from "plumbus-core";
+import type { CapabilityContract } from 'plumbus-core';
 
 // ── Generated Client Types ──
 
@@ -16,7 +16,10 @@ export interface ClientGeneratorConfig {
 // ── Helpers ──
 
 function toKebabCase(str: string): string {
-  return str.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").toLowerCase();
+  return str
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase();
 }
 
 function toPascalCase(str: string): string {
@@ -29,7 +32,7 @@ function toCamelCase(str: string): string {
 }
 
 function httpMethod(kind: string): string {
-  return kind === "query" ? "GET" : "POST";
+  return kind === 'query' ? 'GET' : 'POST';
 }
 
 function capabilityPath(domain: string, name: string): string {
@@ -48,28 +51,32 @@ export type ${pascal}Output = Record<string, unknown>;`;
 // ── Client Function Generator ──
 
 /** Generate a typed fetch-based API client function */
-export function generateTypedClient(cap: CapabilityContract, config?: ClientGeneratorConfig): string {
+export function generateTypedClient(
+  cap: CapabilityContract,
+  config?: ClientGeneratorConfig,
+): string {
   const fnName = toCamelCase(cap.name);
   const pascal = toPascalCase(cap.name);
   const method = httpMethod(cap.kind);
   const urlPath = capabilityPath(cap.domain, cap.name);
-  const base = config?.baseUrl ?? "";
+  const base = config?.baseUrl ?? '';
 
   const jsdoc = config?.includeJsDoc
     ? `/** ${cap.description ?? `${cap.kind} — ${cap.name}`} */\n`
-    : "";
+    : '';
 
-  const queryParams = method === "GET"
-    ? `\n  const params = new URLSearchParams();
+  const queryParams =
+    method === 'GET'
+      ? `\n  const params = new URLSearchParams();
   for (const [k, v] of Object.entries(input)) {
     if (v !== undefined && v !== null) params.set(k, String(v));
   }
   const qs = params.toString();
   const url = qs ? \`${base}${urlPath}?\${qs}\` : "${base}${urlPath}";`
-    : "";
+      : '';
 
-  const fetchUrl = method === "GET" ? "url" : `"${base}${urlPath}"`;
-  const fetchBody = method === "GET" ? "" : `\n    body: JSON.stringify(input),`;
+  const fetchUrl = method === 'GET' ? 'url' : `"${base}${urlPath}"`;
+  const fetchBody = method === 'GET' ? '' : `\n    body: JSON.stringify(input),`;
 
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}Input,
@@ -101,7 +108,7 @@ export function generateQueryHook(cap: CapabilityContract, config?: ClientGenera
   const pascal = toPascalCase(cap.name);
   const jsdoc = config?.includeJsDoc
     ? `/** Hook for ${cap.description ?? cap.name} (query) */\n`
-    : "";
+    : '';
 
   return `${jsdoc}export function ${hookName}(input: ${pascal}Input) {
   const [data, setData] = useState<${pascal}Output | null>(null);
@@ -123,13 +130,16 @@ export function generateQueryHook(cap: CapabilityContract, config?: ClientGenera
 }
 
 /** Generate a React hook for a mutation capability (action/job) */
-export function generateMutationHook(cap: CapabilityContract, config?: ClientGeneratorConfig): string {
+export function generateMutationHook(
+  cap: CapabilityContract,
+  config?: ClientGeneratorConfig,
+): string {
   const hookName = `use${toPascalCase(cap.name)}`;
   const fnName = toCamelCase(cap.name);
   const pascal = toPascalCase(cap.name);
   const jsdoc = config?.includeJsDoc
     ? `/** Hook for ${cap.description ?? cap.name} (${cap.kind}) */\n`
-    : "";
+    : '';
 
   return `${jsdoc}export function ${hookName}() {
   const [loading, setLoading] = useState(false);
@@ -160,9 +170,7 @@ export function generateMutationHook(cap: CapabilityContract, config?: ClientGen
 
 /** Generate the appropriate hook based on capability kind */
 export function generateReactHook(cap: CapabilityContract, config?: ClientGeneratorConfig): string {
-  return cap.kind === "query"
-    ? generateQueryHook(cap, config)
-    : generateMutationHook(cap, config);
+  return cap.kind === 'query' ? generateQueryHook(cap, config) : generateMutationHook(cap, config);
 }
 
 // ── Flow Trigger Generator ──
@@ -174,16 +182,17 @@ export interface FlowTriggerInput {
 }
 
 /** Generate a flow trigger function */
-export function generateFlowTrigger(flow: FlowTriggerInput, config?: ClientGeneratorConfig): string {
+export function generateFlowTrigger(
+  flow: FlowTriggerInput,
+  config?: ClientGeneratorConfig,
+): string {
   const fnName = `start${toPascalCase(flow.name)}`;
   const pascal = toPascalCase(flow.name);
-  const base = config?.baseUrl ?? "";
-  const domain = flow.domain ?? "flows";
+  const base = config?.baseUrl ?? '';
+  const domain = flow.domain ?? 'flows';
   const urlPath = `/api/${domain}/${toKebabCase(flow.name)}/start`;
 
-  const jsdoc = config?.includeJsDoc
-    ? `/** Start flow: ${flow.description ?? flow.name} */\n`
-    : "";
+  const jsdoc = config?.includeJsDoc ? `/** Start flow: ${flow.description ?? flow.name} */\n` : '';
 
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}FlowInput,
@@ -230,35 +239,35 @@ export function generateClientModule(
   config?: ClientGeneratorConfig,
 ): string {
   const lines: string[] = [
-    "// Auto-generated by @plumbus/ui — do not edit",
-    "",
+    '// Auto-generated by @plumbus/ui — do not edit',
+    '',
     generateErrorTypes(),
-    "",
+    '',
   ];
 
   // Type definitions
   for (const cap of capabilities) {
     lines.push(generateCapabilityTypes(cap));
-    lines.push("");
+    lines.push('');
   }
   for (const flow of flows) {
     lines.push(`export type ${toPascalCase(flow.name)}FlowInput = Record<string, unknown>;`);
-    lines.push("");
+    lines.push('');
   }
 
   // Client functions
   for (const cap of capabilities) {
     lines.push(generateTypedClient(cap, config));
-    lines.push("");
+    lines.push('');
   }
 
   // Flow triggers
   for (const flow of flows) {
     lines.push(generateFlowTrigger(flow, config));
-    lines.push("");
+    lines.push('');
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 /** Generate a React hooks module from capabilities */
@@ -267,9 +276,9 @@ export function generateHooksModule(
   config?: ClientGeneratorConfig,
 ): string {
   const lines: string[] = [
-    "// Auto-generated by @plumbus/ui — do not edit",
+    '// Auto-generated by @plumbus/ui — do not edit',
     'import { useState, useEffect } from "react";',
-    "",
+    '',
   ];
 
   // Import types from client
@@ -278,12 +287,12 @@ export function generateHooksModule(
     lines.push(`import type { ${pascal}Input, ${pascal}Output } from "./client.js";`);
     lines.push(`import { ${toCamelCase(cap.name)} } from "./client.js";`);
   }
-  lines.push("");
+  lines.push('');
 
   for (const cap of capabilities) {
     lines.push(generateReactHook(cap, config));
-    lines.push("");
+    lines.push('');
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }

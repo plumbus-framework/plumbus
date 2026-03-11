@@ -1,7 +1,7 @@
-import type { z } from "zod";
-import type { ExecutionContext } from "./context.js";
-import type { CapabilityKind } from "./enums.js";
-import type { AccessPolicy } from "./security.js";
+import type { z } from 'zod';
+import type { ExecutionContext } from './context.js';
+import type { CapabilityKind } from './enums.js';
+import type { AccessPolicy } from './security.js';
 
 // ── Capability Effects ──
 export interface CapabilityEffects {
@@ -47,8 +47,5 @@ export interface CapabilityContract<
   audit?: CapabilityAuditConfig;
   explanation?: CapabilityExplanationConfig;
 
-  handler: (
-    ctx: ExecutionContext,
-    input: z.infer<TInput>,
-  ) => Promise<z.infer<TOutput>>;
+  handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

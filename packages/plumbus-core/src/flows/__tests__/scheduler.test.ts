@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import type { LoggerService } from "../../types/context.js";
-import { FlowRegistry } from "../registry.js";
-import { computeNextRun, createFlowScheduler } from "../scheduler.js";
+import { describe, expect, it, vi } from 'vitest';
+import type { LoggerService } from '../../types/context.js';
+import { FlowRegistry } from '../registry.js';
+import { computeNextRun, createFlowScheduler } from '../scheduler.js';
 
 function mockDb(dueSchedules: any[] = []) {
   return {
@@ -24,8 +24,8 @@ function mockDb(dueSchedules: any[] = []) {
 function mockEngine(succeeds = true) {
   return {
     start: succeeds
-      ? vi.fn().mockResolvedValue({ id: "exec-1", flowName: "test", status: "created" })
-      : vi.fn().mockRejectedValue(new Error("engine failure")),
+      ? vi.fn().mockResolvedValue({ id: 'exec-1', flowName: 'test', status: 'created' })
+      : vi.fn().mockRejectedValue(new Error('engine failure')),
     runNext: vi.fn(),
     resume: vi.fn(),
     cancel: vi.fn(),
@@ -33,12 +33,10 @@ function mockEngine(succeeds = true) {
   };
 }
 
-describe("FlowScheduler", () => {
-  it("polls and triggers due schedules", async () => {
+describe('FlowScheduler', () => {
+  it('polls and triggers due schedules', async () => {
     const engine = mockEngine();
-    const db = mockDb([
-      { id: "s1", flowName: "daily-report", cron: "every:24h", enabled: true },
-    ]);
+    const db = mockDb([{ id: 's1', flowName: 'daily-report', cron: 'every:24h', enabled: true }]);
     const scheduler = createFlowScheduler({
       db,
       registry: new FlowRegistry(),
@@ -47,14 +45,12 @@ describe("FlowScheduler", () => {
 
     const triggered = await scheduler.poll();
     expect(triggered).toBe(1);
-    expect(engine.start).toHaveBeenCalledWith("daily-report", {}, expect.any(Object));
+    expect(engine.start).toHaveBeenCalledWith('daily-report', {}, expect.any(Object));
   });
 
-  it("skips disabled schedules", async () => {
+  it('skips disabled schedules', async () => {
     const engine = mockEngine();
-    const db = mockDb([
-      { id: "s1", flowName: "disabled-flow", cron: "every:1h", enabled: false },
-    ]);
+    const db = mockDb([{ id: 's1', flowName: 'disabled-flow', cron: 'every:1h', enabled: false }]);
     const scheduler = createFlowScheduler({
       db,
       registry: new FlowRegistry(),
@@ -66,7 +62,7 @@ describe("FlowScheduler", () => {
     expect(engine.start).not.toHaveBeenCalled();
   });
 
-  it("logs errors on failed flow starts instead of swallowing them", async () => {
+  it('logs errors on failed flow starts instead of swallowing them', async () => {
     const engine = mockEngine(false);
     const logger: LoggerService = {
       debug: vi.fn(),
@@ -74,9 +70,7 @@ describe("FlowScheduler", () => {
       warn: vi.fn(),
       error: vi.fn(),
     };
-    const db = mockDb([
-      { id: "s1", flowName: "broken-flow", cron: "every:1h", enabled: true },
-    ]);
+    const db = mockDb([{ id: 's1', flowName: 'broken-flow', cron: 'every:1h', enabled: true }]);
     const scheduler = createFlowScheduler({
       db,
       registry: new FlowRegistry(),
@@ -89,13 +83,13 @@ describe("FlowScheduler", () => {
     expect(logger.error).toHaveBeenCalledWith(
       'Scheduler failed to start flow "broken-flow"',
       expect.objectContaining({
-        flowName: "broken-flow",
-        error: "engine failure",
+        flowName: 'broken-flow',
+        error: 'engine failure',
       }),
     );
   });
 
-  it("starts and stops the polling timer", () => {
+  it('starts and stops the polling timer', () => {
     const scheduler = createFlowScheduler({
       db: mockDb(),
       registry: new FlowRegistry(),
@@ -109,7 +103,7 @@ describe("FlowScheduler", () => {
     expect(scheduler.isRunning).toBe(false);
   });
 
-  it("does not start twice", () => {
+  it('does not start twice', () => {
     const scheduler = createFlowScheduler({
       db: mockDb(),
       registry: new FlowRegistry(),
@@ -123,22 +117,22 @@ describe("FlowScheduler", () => {
   });
 });
 
-describe("computeNextRun", () => {
-  it("computes next run for minute interval", () => {
-    const from = new Date("2025-01-01T00:00:00Z");
-    const next = computeNextRun("every:30m", from);
+describe('computeNextRun', () => {
+  it('computes next run for minute interval', () => {
+    const from = new Date('2025-01-01T00:00:00Z');
+    const next = computeNextRun('every:30m', from);
     expect(next.getTime() - from.getTime()).toBe(30 * 60_000);
   });
 
-  it("computes next run for hour interval", () => {
-    const from = new Date("2025-01-01T00:00:00Z");
-    const next = computeNextRun("every:2h", from);
+  it('computes next run for hour interval', () => {
+    const from = new Date('2025-01-01T00:00:00Z');
+    const next = computeNextRun('every:2h', from);
     expect(next.getTime() - from.getTime()).toBe(2 * 3_600_000);
   });
 
-  it("computes next run for day interval", () => {
-    const from = new Date("2025-01-01T00:00:00Z");
-    const next = computeNextRun("every:1d", from);
+  it('computes next run for day interval', () => {
+    const from = new Date('2025-01-01T00:00:00Z');
+    const next = computeNextRun('every:1d', from);
     expect(next.getTime() - from.getTime()).toBe(86_400_000);
   });
 });

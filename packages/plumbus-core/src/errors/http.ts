@@ -1,5 +1,5 @@
-import type { ErrorCode } from "../types/enums.js";
-import type { PlumbusError } from "../types/errors.js";
+import type { ErrorCode } from '../types/enums.js';
+import type { PlumbusError } from '../types/errors.js';
 
 /**
  * Map PlumbusError codes to HTTP status codes.

@@ -1,12 +1,17 @@
 // ── plumbus rag ingest ──
 // Invoke RAG ingestion pipeline from CLI
 
-import type { Command } from "commander";
-import * as fs from "node:fs";
-import { createInMemoryVectorStore, createRAGPipeline, type AIProviderAdapter, type VectorStore } from "../../ai/index.js";
-import { createOpenAIAdapter } from "../../ai/provider.js";
-import { loadConfig } from "../../config/loader.js";
-import { info, error as logError, resolvePath, success, warn } from "../utils.js";
+import type { Command } from 'commander';
+import * as fs from 'node:fs';
+import {
+  createInMemoryVectorStore,
+  createRAGPipeline,
+  type AIProviderAdapter,
+  type VectorStore,
+} from '../../ai/index.js';
+import { createOpenAIAdapter } from '../../ai/provider.js';
+import { loadConfig } from '../../config/loader.js';
+import { info, error as logError, resolvePath, success, warn } from '../utils.js';
 
 export interface RagIngestOptions {
   source?: string;
@@ -17,7 +22,7 @@ export interface RagIngestOptions {
 
 /** Read file content for ingestion */
 export function readDocumentContent(filePath: string): string {
-  return fs.readFileSync(filePath, "utf-8");
+  return fs.readFileSync(filePath, 'utf-8');
 }
 
 /** Validate that a path exists and is a file */
@@ -26,15 +31,15 @@ export function validateFilePath(filePath: string): boolean {
 }
 
 export function registerRagCommand(program: Command): void {
-  const cmd = program.command("rag").description("RAG pipeline management");
+  const cmd = program.command('rag').description('RAG pipeline management');
 
   cmd
-    .command("ingest <path>")
-    .description("Ingest documents into the RAG pipeline")
-    .option("--source <source>", "Source label for the document")
-    .option("--tenant-id <tenantId>", "Tenant ID for isolation")
-    .option("--classification <level>", "Data classification level")
-    .option("--json", "Output as JSON")
+    .command('ingest <path>')
+    .description('Ingest documents into the RAG pipeline')
+    .option('--source <source>', 'Source label for the document')
+    .option('--tenant-id <tenantId>', 'Tenant ID for isolation')
+    .option('--classification <level>', 'Data classification level')
+    .option('--json', 'Output as JSON')
     .action(async (docPath: string, opts: RagIngestOptions) => {
       const resolved = resolvePath(docPath);
 
@@ -58,7 +63,7 @@ export function registerRagCommand(program: Command): void {
         if (config.ai?.apiKey) {
           provider = createOpenAIAdapter({
             apiKey: config.ai.apiKey,
-            model: config.ai.model ?? "text-embedding-3-small",
+            model: config.ai.model ?? 'text-embedding-3-small',
           });
         }
 
@@ -82,7 +87,7 @@ export function registerRagCommand(program: Command): void {
             chunkCount: result.chunkCount,
             tenantId: opts.tenantId,
             classification: opts.classification,
-            status: "ingested",
+            status: 'ingested',
           };
 
           if (opts.json) {
@@ -92,14 +97,16 @@ export function registerRagCommand(program: Command): void {
             info(`Document ID: ${result.documentId}`);
           }
         } else {
-          warn("AI provider not configured (missing ai.apiKey in config). Falling back to queued mode.");
+          warn(
+            'AI provider not configured (missing ai.apiKey in config). Falling back to queued mode.',
+          );
           const output = {
             documentId,
             source,
             contentLength: content.length,
             tenantId: opts.tenantId,
             classification: opts.classification,
-            status: "queued",
+            status: 'queued',
           };
 
           if (opts.json) {

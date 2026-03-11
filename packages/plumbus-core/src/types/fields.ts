@@ -1,4 +1,4 @@
-import type { FieldClassification, RelationType } from "./enums.js";
+import type { FieldClassification, RelationType } from './enums.js';
 
 // ── Base Field Options ──
 export interface BaseFieldOptions {
@@ -13,43 +13,43 @@ export interface BaseFieldOptions {
 
 // ── Specific Field Descriptors ──
 export interface IdFieldDescriptor {
-  type: "id";
+  type: 'id';
   options: BaseFieldOptions;
 }
 
 export interface StringFieldDescriptor {
-  type: "string";
+  type: 'string';
   options: BaseFieldOptions;
 }
 
 export interface NumberFieldDescriptor {
-  type: "number";
+  type: 'number';
   options: BaseFieldOptions;
 }
 
 export interface BooleanFieldDescriptor {
-  type: "boolean";
+  type: 'boolean';
   options: BaseFieldOptions;
 }
 
 export interface TimestampFieldDescriptor {
-  type: "timestamp";
+  type: 'timestamp';
   options: BaseFieldOptions;
 }
 
 export interface JsonFieldDescriptor {
-  type: "json";
+  type: 'json';
   options: BaseFieldOptions;
 }
 
 export interface EnumFieldDescriptor {
-  type: "enum";
+  type: 'enum';
   values: readonly string[];
   options: BaseFieldOptions;
 }
 
 export interface RelationFieldDescriptor {
-  type: "relation";
+  type: 'relation';
   entity: string;
   relationType: RelationType;
   options: BaseFieldOptions;

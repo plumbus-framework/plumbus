@@ -1,8 +1,8 @@
 // ── AI Security Boundaries ──
 // Detect classified fields in prompt inputs, warn or redact sensitive data
 
-import type { EntityDefinition } from "../types/entity.js";
-import type { FieldClassification } from "../types/enums.js";
+import type { EntityDefinition } from '../types/entity.js';
+import type { FieldClassification } from '../types/enums.js';
 
 // ── Security Check Result ──
 export interface SecurityCheckResult {
@@ -20,11 +20,11 @@ export interface SecurityWarning {
 
 // ── Classification thresholds ──
 const CLASSIFICATION_ORDER: FieldClassification[] = [
-  "public",
-  "internal",
-  "personal",
-  "sensitive",
-  "highly_sensitive",
+  'public',
+  'internal',
+  'personal',
+  'sensitive',
+  'highly_sensitive',
 ];
 
 export interface AISecurityConfig {
@@ -69,8 +69,8 @@ export function checkPromptSecurity(
   input: Record<string, unknown>,
   config?: AISecurityConfig,
 ): SecurityCheckResult {
-  const warnLevel = classificationLevel(config?.warnThreshold ?? "sensitive");
-  const redactLevel = classificationLevel(config?.redactThreshold ?? "highly_sensitive");
+  const warnLevel = classificationLevel(config?.warnThreshold ?? 'sensitive');
+  const redactLevel = classificationLevel(config?.redactThreshold ?? 'highly_sensitive');
   const entities = config?.entities ?? [];
 
   const fieldMap = buildFieldClassificationMap(entities);
@@ -78,7 +78,11 @@ export function checkPromptSecurity(
   const redactedInput = structuredClone(input);
   let needsRedaction = false;
 
-  function scanObject(obj: Record<string, unknown>, redactTarget: Record<string, unknown>, path: string): void {
+  function scanObject(
+    obj: Record<string, unknown>,
+    redactTarget: Record<string, unknown>,
+    path: string,
+  ): void {
     for (const key of Object.keys(obj)) {
       const fieldInfo = fieldMap.get(key);
       const fullPath = path ? `${path}.${key}` : key;
@@ -96,20 +100,24 @@ export function checkPromptSecurity(
         }
 
         if (level >= redactLevel) {
-          redactTarget[key] = "[REDACTED]";
+          redactTarget[key] = '[REDACTED]';
           needsRedaction = true;
         }
       }
 
       // Recurse into nested objects
       const value = obj[key];
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-        scanObject(value as Record<string, unknown>, redactTarget[key] as Record<string, unknown>, fullPath);
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        scanObject(
+          value as Record<string, unknown>,
+          redactTarget[key] as Record<string, unknown>,
+          fullPath,
+        );
       }
     }
   }
 
-  scanObject(input, redactedInput, "");
+  scanObject(input, redactedInput, '');
 
   return {
     safe: warnings.length === 0,
