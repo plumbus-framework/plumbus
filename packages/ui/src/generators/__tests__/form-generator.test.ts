@@ -2,10 +2,10 @@ import type { CapabilityContract } from 'plumbus-core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  extractFieldHint,
-  extractFormHints,
-  generateFormHintsCode,
-  generateFormHintsModule,
+    extractFieldHint,
+    extractFormHints,
+    generateFormHintsCode,
+    generateFormHintsModule,
 } from '../form-generator.js';
 
 // ── Fixtures ──
@@ -168,9 +168,9 @@ describe('extractFormHints', () => {
       }),
     );
     const hints = extractFormHints(cap);
-    expect(hints.fields[0]!.name).toBe('alpha');
-    expect(hints.fields[1]!.name).toBe('beta');
-    expect(hints.fields[2]!.name).toBe('gamma');
+    expect(hints.fields[0]?.name).toBe('alpha');
+    expect(hints.fields[1]?.name).toBe('beta');
+    expect(hints.fields[2]?.name).toBe('gamma');
   });
 
   it('handles complex nested schemas', () => {
