@@ -139,6 +139,7 @@ import { defineFlow } from "plumbus-core";
 export const refundApproval = defineFlow({
   name: "refundApproval",
   domain: "billing",
+  description: "Route refund requests through validation and approval",
   trigger: { type: "event", event: "refund.requested" },
   steps: [
     { name: "validate", capability: "validateRefund" },
@@ -182,6 +183,7 @@ import { z } from "zod";
 
 export const classifyTicket = definePrompt({
   name: "classifyTicket",
+  description: "Classify support tickets by category, priority, and sentiment",
   model: "gpt-4o-mini",
   input: z.object({ ticketText: z.string() }),
   output: z.object({
@@ -367,7 +369,7 @@ When working with Plumbus, read these files for SDK reference:
 
 ```bash
 # Clone the repository
-git clone https://github.com/plumbus/plumbus.git
+git clone https://github.com/plumbus-framework/plumbus.git
 cd plumbus
 
 # Install dependencies
