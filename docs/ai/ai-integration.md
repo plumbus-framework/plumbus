@@ -288,8 +288,8 @@ Each AI invocation records:
 
 | Control | Description |
 |---------|-------------|
-| PII Detection | Scans input for personal data patterns |
-| Classification Gate | Blocks `highly_sensitive` data from AI |
+| PII Detection | Scans input recursively for personal data patterns, including nested objects |
+| Classification Gate | Blocks `highly_sensitive` data from AI (recursive scanning) |
 | Scope Verification | Caller needs appropriate AI scopes |
 | Model Restriction | Prompts specify allowed models |
 | Budget Enforcement | Daily cost limits prevent runaway spending |

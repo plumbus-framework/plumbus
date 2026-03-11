@@ -62,6 +62,7 @@ function buildFieldClassificationMap(
 
 /**
  * Check prompt input values against known field classifications.
+ * Recursively scans nested objects for sensitive fields.
  * Returns warnings for sensitive data and optionally redacts.
  */
 export function checkPromptSecurity(
@@ -74,29 +75,41 @@ export function checkPromptSecurity(
 
   const fieldMap = buildFieldClassificationMap(entities);
   const warnings: SecurityWarning[] = [];
-  const redactedInput = { ...input };
+  const redactedInput = structuredClone(input);
   let needsRedaction = false;
 
-  for (const key of Object.keys(input)) {
-    const fieldInfo = fieldMap.get(key);
-    if (!fieldInfo) continue;
+  function scanObject(obj: Record<string, unknown>, redactTarget: Record<string, unknown>, path: string): void {
+    for (const key of Object.keys(obj)) {
+      const fieldInfo = fieldMap.get(key);
+      const fullPath = path ? `${path}.${key}` : key;
 
-    const level = classificationLevel(fieldInfo.classification);
+      if (fieldInfo) {
+        const level = classificationLevel(fieldInfo.classification);
 
-    if (level >= warnLevel) {
-      warnings.push({
-        field: key,
-        classification: fieldInfo.classification,
-        entity: fieldInfo.entity,
-        message: `Field "${key}" has classification "${fieldInfo.classification}" (from entity "${fieldInfo.entity}") — included in AI prompt input`,
-      });
-    }
+        if (level >= warnLevel) {
+          warnings.push({
+            field: fullPath,
+            classification: fieldInfo.classification,
+            entity: fieldInfo.entity,
+            message: `Field "${fullPath}" has classification "${fieldInfo.classification}" (from entity "${fieldInfo.entity}") — included in AI prompt input`,
+          });
+        }
 
-    if (level >= redactLevel) {
-      redactedInput[key] = "[REDACTED]";
-      needsRedaction = true;
+        if (level >= redactLevel) {
+          redactTarget[key] = "[REDACTED]";
+          needsRedaction = true;
+        }
+      }
+
+      // Recurse into nested objects
+      const value = obj[key];
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        scanObject(value as Record<string, unknown>, redactTarget[key] as Record<string, unknown>, fullPath);
+      }
     }
   }
+
+  scanObject(input, redactedInput, "");
 
   return {
     safe: warnings.length === 0,

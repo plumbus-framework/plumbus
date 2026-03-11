@@ -1,5 +1,6 @@
 import { eq, lte } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { LoggerService } from "../types/context.js";
 import type { AuthContext } from "../types/security.js";
 import type { createFlowEngine } from "./engine.js";
 import { FlowRegistry } from "./registry.js";
@@ -9,6 +10,8 @@ export interface SchedulerConfig {
   db: PostgresJsDatabase;
   registry: FlowRegistry;
   engine: ReturnType<typeof createFlowEngine>;
+  /** Optional logger for error reporting */
+  logger?: LoggerService;
   /** Poll interval in milliseconds (default: 60000 = 1 min) */
   pollIntervalMs?: number;
 }
@@ -21,7 +24,7 @@ export interface SchedulerConfig {
  * a proper cron parser library (e.g., cron-parser) for nextRunAt computation.
  */
 export function createFlowScheduler(config: SchedulerConfig) {
-  const { db, registry, engine, pollIntervalMs = 60_000 } = config;
+  const { db, registry, engine, logger, pollIntervalMs = 60_000 } = config;
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
 
@@ -74,7 +77,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
 
     let triggered = 0;
     for (const schedule of dueSchedules) {
-      if (schedule.enabled !== "true") continue;
+      if (!schedule.enabled) continue;
 
       try {
         await engine.start(schedule.flowName, {}, systemAuth);
@@ -87,8 +90,13 @@ export function createFlowScheduler(config: SchedulerConfig) {
           })
           .where(eq(flowSchedulesTable.id, schedule.id));
         triggered++;
-      } catch {
-        // Skip failed starts — they'll be retried next poll
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger?.error(`Scheduler failed to start flow "${schedule.flowName}"`, {
+          flowName: schedule.flowName,
+          scheduleId: schedule.id,
+          error: message,
+        });
       }
     }
 

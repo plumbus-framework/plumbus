@@ -202,6 +202,7 @@ describe("Server Bootstrap", () => {
   describe("custom logger", () => {
     it("uses provided custom logger", () => {
       const customLogger: LoggerService = {
+        debug: vi.fn(),
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),
@@ -234,6 +235,32 @@ describe("Server Bootstrap", () => {
       );
       expect(server).toBeDefined();
       expect(server.app).toBeDefined();
+    });
+
+    it("throws when no auth secret is provided in production", () => {
+      expect(() =>
+        createServer(
+          makeServerConfig({
+            config: makeConfig({
+              environment: "production",
+              auth: { provider: "jwt" },
+            }),
+          }),
+        ),
+      ).toThrow("auth.secret is required in production");
+    });
+
+    it("does not throw in development when no auth secret is provided", () => {
+      expect(() =>
+        createServer(
+          makeServerConfig({
+            config: makeConfig({
+              environment: "development",
+              auth: { provider: "jwt" },
+            }),
+          }),
+        ),
+      ).not.toThrow();
     });
   });
 });

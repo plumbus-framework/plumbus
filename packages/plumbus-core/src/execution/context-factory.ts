@@ -60,6 +60,9 @@ const noopAI: AIService = {
 };
 
 const consoleLogger: LoggerService = {
+  debug(message, metadata) {
+    console.debug(message, metadata ?? "");
+  },
   info(message, metadata) {
     console.info(message, metadata ?? "");
   },

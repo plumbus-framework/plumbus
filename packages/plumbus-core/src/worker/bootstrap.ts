@@ -184,6 +184,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 function createWorkerLogger(): LoggerService {
   const prefix = "[plumbus:worker]";
   return {
+    debug(message, metadata) {
+      console.debug(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
+    },
     info(message, metadata) {
       console.info(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
     },

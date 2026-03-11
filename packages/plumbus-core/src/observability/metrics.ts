@@ -206,6 +206,7 @@ export function createStructuredLogger(config?: StructuredLoggerConfig): LoggerS
   }
 
   return {
+    debug: (message, metadata) => emit("debug", message, metadata),
     info: (message, metadata) => emit("info", message, metadata),
     warn: (message, metadata) => emit("warn", message, metadata),
     error: (message, metadata) => emit("error", message, metadata),

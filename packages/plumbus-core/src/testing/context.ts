@@ -153,15 +153,16 @@ export function mockAI(responses?: AIResponse): AIService {
 // ── Mock Logger ──
 
 export interface MockLoggerService extends LoggerService {
-  readonly logs: Array<{ level: "info" | "warn" | "error"; message: string; metadata?: Record<string, unknown> }>;
+  readonly logs: Array<{ level: "debug" | "info" | "warn" | "error"; message: string; metadata?: Record<string, unknown> }>;
   clear(): void;
 }
 
 /** Create a mock logger that captures all log entries silently */
 export function mockLogger(): MockLoggerService {
-  const logs: Array<{ level: "info" | "warn" | "error"; message: string; metadata?: Record<string, unknown> }> = [];
+  const logs: Array<{ level: "debug" | "info" | "warn" | "error"; message: string; metadata?: Record<string, unknown> }> = [];
   return {
     logs,
+    debug(message, metadata) { logs.push({ level: "debug", message, metadata }); },
     info(message, metadata) { logs.push({ level: "info", message, metadata }); },
     warn(message, metadata) { logs.push({ level: "warn", message, metadata }); },
     error(message, metadata) { logs.push({ level: "error", message, metadata }); },

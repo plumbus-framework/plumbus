@@ -41,6 +41,7 @@ export interface E2EServerContext {
 
 function silentLogger(): LoggerService {
   return {
+    debug() {},
     info() {},
     warn() {},
     error() {},

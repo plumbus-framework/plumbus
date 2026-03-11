@@ -174,7 +174,7 @@ describe("FlowEngine", () => {
       currentStep: null,
       stepHistory: [],
       state: null,
-      retryCount: "0",
+      retryCount: 0,
     });
     const db = mockDb(rows);
     db.select = vi.fn().mockReturnValue({

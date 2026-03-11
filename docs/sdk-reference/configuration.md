@@ -191,6 +191,10 @@ interface ServerConfig {
 }
 ```
 
+> **Production requirement:** `auth.secret` must be set when `environment` is `"production"`. The server will throw on startup if no secret is configured in production. In development/staging, a fallback secret is used with a warning.
+
+The server wires capability routes automatically. Event consumers, flow triggers, and entity repositories are the caller's responsibility to wire into the application lifecycle.
+
 ```typescript
 import { createServer } from "plumbus-core";
 

@@ -2,6 +2,7 @@
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
 
+import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
@@ -63,6 +64,10 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     config,
     db,
     capabilities,
+    entities,
+    events,
+    consumers,
+    flows,
     host = "0.0.0.0",
     port = 3000,
   } = serverConfig;
@@ -70,6 +75,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
 
   // Auth adapter
+  if (!config.auth.secret && config.environment === "production") {
+    throw new Error(
+      "auth.secret is required in production — refusing to start with no secret configured",
+    );
+  }
+  if (!config.auth.secret) {
+    logger.warn("No auth.secret configured — using insecure development fallback. Do NOT use in production.");
+  }
   const authAdapter = serverConfig.authAdapter ?? createJwtAdapter({
     secret: config.auth.secret ?? "development-secret",
     issuer: config.auth.issuer,
@@ -96,7 +109,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   // Readiness check (verifies DB is reachable)
   app.get("/ready", async (_req, reply) => {
     try {
-      await db.execute({ sql: "SELECT 1", params: [] } as any);
+      await db.execute(sql`SELECT 1`);
       return { status: "ready" };
     } catch {
       reply.status(503);
@@ -126,6 +139,22 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
   logger.info(`Registered ${capabilities.getAll().length} capability routes`);
 
+  // Log registration status for other registries.
+  // Event consumers, flow triggers, and entity repositories are
+  // wired by the caller — the server only handles HTTP route generation.
+  if (events.getAll().length > 0) {
+    logger.info(`${events.getAll().length} events registered (consumer wiring is caller responsibility)`);
+  }
+  if (consumers.getAll().length > 0) {
+    logger.info(`${consumers.getAll().length} event consumers registered (wiring is caller responsibility)`);
+  }
+  if (flows.getAll().length > 0) {
+    logger.info(`${flows.getAll().length} flows registered (trigger/scheduler wiring is caller responsibility)`);
+  }
+  if (entities.getAllEntities().length > 0) {
+    logger.info(`${entities.getAllEntities().length} entities registered`);
+  }
+
   return {
     app,
     async start() {
@@ -146,6 +175,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 function createConsoleLogger(env: string): LoggerService {
   const prefix = `[plumbus:${env}]`;
   return {
+    debug(message, metadata) {
+      console.debug(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
+    },
     info(message, metadata) {
       console.info(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : "");
     },

@@ -93,4 +93,36 @@ describe("AI Security Boundaries", () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]!.classification).toBe("sensitive");
   });
+
+  it("detects sensitive fields in nested objects", () => {
+    const result = checkPromptSecurity(
+      { user: { ssn: "123-45-6789", name: "Alice" } },
+      { entities },
+    );
+    expect(result.safe).toBe(false);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]!.field).toBe("user.ssn");
+    expect(result.warnings[0]!.classification).toBe("highly_sensitive");
+  });
+
+  it("redacts sensitive fields in nested objects", () => {
+    const result = checkPromptSecurity(
+      { user: { ssn: "123-45-6789", name: "Alice" } },
+      { entities, redactThreshold: "highly_sensitive" },
+    );
+    expect(result.redactedInput).toBeDefined();
+    expect((result.redactedInput!.user as Record<string, unknown>).ssn).toBe("[REDACTED]");
+    expect((result.redactedInput!.user as Record<string, unknown>).name).toBe("Alice");
+  });
+
+  it("detects sensitive fields at multiple nesting levels", () => {
+    const result = checkPromptSecurity(
+      { salary: 50000, details: { user: { ssn: "123-45-6789" } } },
+      { entities, warnThreshold: "sensitive" },
+    );
+    expect(result.warnings).toHaveLength(2);
+    const fields = result.warnings.map((w) => w.field);
+    expect(fields).toContain("salary");
+    expect(fields).toContain("details.user.ssn");
+  });
 });

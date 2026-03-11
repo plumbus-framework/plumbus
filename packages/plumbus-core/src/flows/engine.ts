@@ -39,7 +39,7 @@ interface FlowExecutionRow {
   state: unknown;
   currentStep: string | null;
   stepHistory: unknown;
-  retryCount: string;
+  retryCount: number;
   lastError: string | null;
   actor: string;
   tenantId: string | null;
@@ -48,6 +48,18 @@ interface FlowExecutionRow {
   createdAt: Date;
   updatedAt: Date;
   completedAt: Date | null;
+}
+
+/** Type-safe partial update payload for flow executions. */
+interface FlowExecutionUpdate {
+  status?: string;
+  input?: unknown;
+  state?: unknown;
+  currentStep?: string | null;
+  stepHistory?: StepHistoryEntry[];
+  retryCount?: number;
+  lastError?: string | null;
+  completedAt?: Date | null;
 }
 
 /**
@@ -87,8 +99,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       flowName,
       domain: flow.domain,
       status: FlowStatus.Created,
-      input: parseResult.data as any,
-      state: initialState as any,
+      input: parseResult.data as Record<string, unknown>,
+      state: initialState as Record<string, unknown> | null,
       currentStep: flow.steps[0]?.name ?? null,
       stepHistory: [],
       actor: auth.userId ?? "system",
@@ -223,15 +235,23 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
       const branchResults = await Promise.allSettled(
         branchSteps.map(async (branchStep) => {
+          const startedAtBranch = new Date();
           const branchResult = await executeStep(branchStep, flowCtx, row.state, stepDeps);
-          const branchEntry = buildHistoryEntry(branchStep.name, branchResult, new Date(), new Date());
-          history.push(branchEntry);
-          return branchResult;
+          const completedAtBranch = new Date();
+          const branchEntry = buildHistoryEntry(branchStep.name, branchResult, startedAtBranch, completedAtBranch);
+          return { result: branchResult, entry: branchEntry };
         }),
       );
 
+      // Merge all branch history entries after all branches have settled
+      for (const settled of branchResults) {
+        if (settled.status === "fulfilled") {
+          history.push(settled.value.entry);
+        }
+      }
+
       const anyFailed = branchResults.some(
-        (r) => r.status === "rejected" || (r.status === "fulfilled" && r.value.status === StepStatus.Failed),
+        (r) => r.status === "rejected" || (r.status === "fulfilled" && r.value.result.status === StepStatus.Failed),
       );
 
       if (anyFailed) {
@@ -367,14 +387,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
     history: StepHistoryEntry[],
     error?: string,
   ): Promise<FlowExecution> {
-    const retryCount = parseInt(row.retryCount, 10) + 1;
+    const retryCount = row.retryCount + 1;
     const maxRetries = flow.retry?.attempts ?? 0;
 
     if (retryCount <= maxRetries) {
       // Retry: keep current step, increment counter
       await updateExecution(executionId, {
         stepHistory: history,
-        retryCount: String(retryCount),
+        retryCount,
         lastError: error ?? null,
       });
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Running };
@@ -417,11 +437,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
   async function updateExecution(
     id: string,
-    updates: Record<string, unknown>,
+    updates: FlowExecutionUpdate,
   ): Promise<void> {
     await db
       .update(flowExecutionsTable)
-      .set({ ...updates, updatedAt: new Date() } as any)
+      .set({ ...updates, updatedAt: new Date() })
       .where(eq(flowExecutionsTable.id, id));
   }
 

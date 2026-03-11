@@ -1,5 +1,7 @@
 import {
+    boolean,
     index,
+    integer,
     jsonb,
     pgTable,
     text,
@@ -24,7 +26,7 @@ export const flowExecutionsTable = pgTable(
     currentStep: text("current_step"),
     stepHistory: jsonb("step_history").notNull().default("[]"),
     // Array of { step, status, startedAt, completedAt, error? }
-    retryCount: text("retry_count").notNull().default("0"),
+    retryCount: integer("retry_count").notNull().default(0),
     lastError: text("last_error"),
     actor: text("actor").notNull(),
     tenantId: text("tenant_id"),
@@ -52,7 +54,7 @@ export const flowDeadLetterTable = pgTable("flow_dead_letter", {
   state: jsonb("state"),
   stepHistory: jsonb("step_history"),
   lastError: text("last_error"),
-  retryCount: text("retry_count").notNull(),
+  retryCount: integer("retry_count").notNull(),
   failedAt: timestamp("failed_at", { withTimezone: true }).defaultNow().notNull(),
   metadata: jsonb("metadata"),
 });
@@ -68,7 +70,7 @@ export const flowSchedulesTable = pgTable(
     cron: text("cron").notNull(),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
-    enabled: text("enabled").notNull().default("true"),
+    enabled: boolean("enabled").notNull().default(true),
   },
   (table) => [
     index("flow_schedules_next_run_idx").on(table.nextRunAt),
