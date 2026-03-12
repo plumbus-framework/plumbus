@@ -127,7 +127,10 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
-function verifyJwtHs256(token: string, secret: string): { payload: Record<string, unknown> } | null {
+function verifyJwtHs256(
+  token: string,
+  secret: string,
+): { payload: Record<string, unknown> } | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
 

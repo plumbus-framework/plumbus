@@ -73,10 +73,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
   // Auth adapter
   if (!config.auth.secret && config.environment !== 'development') {
-    throw new Error('auth.secret is required outside development — refusing to start with no secret');
+    throw new Error(
+      'auth.secret is required outside development — refusing to start with no secret',
+    );
   }
   if (!config.auth.secret) {
-    logger.warn('No auth.secret configured — using insecure development fallback. Do NOT use in production.');
+    logger.warn(
+      'No auth.secret configured — using insecure development fallback. Do NOT use in production.',
+    );
   }
   const authAdapter =
     serverConfig.authAdapter ??

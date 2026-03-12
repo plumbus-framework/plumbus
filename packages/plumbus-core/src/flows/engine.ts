@@ -177,7 +177,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     const step = flow.steps.find((s) => s.name === currentStepName);
     if (!step) {
-      await failFlow(executionId, row.flowName, `Step "${currentStepName}" not found in flow definition`);
+      await failFlow(
+        executionId,
+        row.flowName,
+        `Step "${currentStepName}" not found in flow definition`,
+      );
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
     }
 
@@ -280,7 +284,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
       );
 
       if (anyFailed) {
-        return handleStepFailure(executionId, row, flow, history, 'One or more parallel branches failed');
+        return handleStepFailure(
+          executionId,
+          row,
+          flow,
+          history,
+          'One or more parallel branches failed',
+        );
       }
 
       const nextStep = getNextStepName(flow.steps, currentStepName);
@@ -409,7 +419,9 @@ export function createFlowEngine(config: FlowEngineConfig) {
     if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
     if (isTerminal(row.status as FlowStatus)) {
-      throw new Error(`Cannot cancel flow "${executionId}" — already in terminal state "${row.status}"`);
+      throw new Error(
+        `Cannot cancel flow "${executionId}" — already in terminal state "${row.status}"`,
+      );
     }
 
     assertTransition(row.status as FlowStatus, FlowStatus.Cancelled);
@@ -529,7 +541,9 @@ function parseDurationToMs(duration: string): number {
   const trimmed = duration.trim().toLowerCase();
   const match = trimmed.match(/^(\d+)(ms|s|m|h|d)$/);
   if (!match) {
-    throw new Error(`Invalid delay duration "${duration}". Expected formats like "30s", "5m", "1h".`);
+    throw new Error(
+      `Invalid delay duration "${duration}". Expected formats like "30s", "5m", "1h".`,
+    );
   }
 
   const [, valueRaw, unit] = match;

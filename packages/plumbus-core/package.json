@@ -48,6 +48,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",
     "drizzle-kit": "^0.31.9",
