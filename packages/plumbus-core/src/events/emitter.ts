@@ -1,11 +1,11 @@
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { randomUUID } from "node:crypto";
-import type { AuditService } from "../types/audit.js";
-import type { EventService } from "../types/context.js";
-import type { EventEnvelope } from "../types/event.js";
-import type { AuthContext } from "../types/security.js";
-import { outboxTable } from "./outbox.js";
-import { EventRegistry } from "./registry.js";
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { randomUUID } from 'node:crypto';
+import type { AuditService } from '../types/audit.js';
+import type { EventService } from '../types/context.js';
+import type { EventEnvelope } from '../types/event.js';
+import type { AuthContext } from '../types/security.js';
+import { outboxTable } from './outbox.js';
+import type { EventRegistry } from './registry.js';
 
 export interface EventEmitterConfig {
   db: PostgresJsDatabase;
@@ -33,9 +33,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
       if (eventDef) {
         const parseResult = eventDef.payload.safeParse(payload);
         if (!parseResult.success) {
-          throw new Error(
-            `Event "${eventName}": invalid payload — ${parseResult.error.message}`,
-          );
+          throw new Error(`Event "${eventName}": invalid payload — ${parseResult.error.message}`);
         }
       }
 
@@ -43,9 +41,9 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
       const envelope: EventEnvelope = {
         id: randomUUID(),
         eventType: eventName,
-        version: eventDef?.version ?? "1",
+        version: eventDef?.version ?? '1',
         occurredAt: new Date(),
-        actor: auth.userId ?? "anonymous",
+        actor: auth.userId ?? 'anonymous',
         tenantId: auth.tenantId,
         correlationId: correlationId ?? randomUUID(),
         causationId,
@@ -63,7 +61,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
         correlationId: envelope.correlationId,
         causationId: envelope.causationId ?? null,
         occurredAt: envelope.occurredAt,
-        status: "pending",
+        status: 'pending',
       });
 
       // 4. Record audit
@@ -73,7 +71,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
           eventType: eventName,
           actor: envelope.actor,
           tenantId: envelope.tenantId,
-          outcome: "success",
+          outcome: 'success',
         });
       }
     },

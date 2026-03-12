@@ -2,10 +2,10 @@
 // Attach explanation metadata to: flow branching decisions, authorization decisions,
 // AI invocations, governance warnings. Store alongside audit records. Queryable.
 
-import type { AuditService } from "../types/audit.js";
+import type { AuditService } from '../types/audit.js';
 
 // ── Explanation Types ──
-export type ExplanationType = "authorization" | "flow-branch" | "ai-invocation" | "governance";
+export type ExplanationType = 'authorization' | 'flow-branch' | 'ai-invocation' | 'governance';
 
 export interface ExplanationRecord {
   id: string;
@@ -26,7 +26,7 @@ export interface AuthorizationExplanation {
   capability: string;
   actor: string;
   tenantId?: string;
-  decision: "allow" | "deny";
+  decision: 'allow' | 'deny';
   matchedRoles?: string[];
   matchedScopes?: string[];
   deniedReason?: string;
@@ -140,12 +140,12 @@ export function createExplanationTracker(config?: ExplanationTrackerConfig): Exp
   return {
     recordAuthorization(explanation) {
       return addRecord(
-        "authorization",
+        'authorization',
         `capability:${explanation.capability}`,
         explanation.decision,
-        explanation.decision === "allow"
-          ? `Matched roles: [${explanation.matchedRoles?.join(", ") ?? "none"}], scopes: [${explanation.matchedScopes?.join(", ") ?? "none"}]`
-          : `Denied: ${explanation.deniedReason ?? "no matching roles or scopes"}`,
+        explanation.decision === 'allow'
+          ? `Matched roles: [${explanation.matchedRoles?.join(', ') ?? 'none'}], scopes: [${explanation.matchedScopes?.join(', ') ?? 'none'}]`
+          : `Denied: ${explanation.deniedReason ?? 'no matching roles or scopes'}`,
         {
           actor: explanation.actor,
           tenantId: explanation.tenantId,
@@ -161,7 +161,7 @@ export function createExplanationTracker(config?: ExplanationTrackerConfig): Exp
 
     recordFlowBranch(explanation) {
       return addRecord(
-        "flow-branch",
+        'flow-branch',
         `flow:${explanation.flowName}`,
         `branch:${explanation.branchTaken}`,
         `Condition "${explanation.condition}" evaluated to ${explanation.evaluatedTo} — took branch "${explanation.branchTaken}"`,
@@ -178,16 +178,16 @@ export function createExplanationTracker(config?: ExplanationTrackerConfig): Exp
 
     recordAIInvocation(explanation) {
       return addRecord(
-        "ai-invocation",
+        'ai-invocation',
         explanation.promptName ? `prompt:${explanation.promptName}` : `ai:${explanation.operation}`,
         explanation.operation,
-        `AI ${explanation.operation}${explanation.model ? ` using ${explanation.model}` : ""}${explanation.retrievalSources?.length ? ` with ${explanation.retrievalSources.length} retrieval sources` : ""}`,
+        `AI ${explanation.operation}${explanation.model ? ` using ${explanation.model}` : ''}${explanation.retrievalSources?.length ? ` with ${explanation.retrievalSources.length} retrieval sources` : ''}`,
         {
           promptName: explanation.promptName,
           operation: explanation.operation,
           model: explanation.model,
         },
-        explanation.validationResult?.passed ? "validated" : "unvalidated",
+        explanation.validationResult?.passed ? 'validated' : 'unvalidated',
         {
           retrievalSources: explanation.retrievalSources,
           tokenUsage: explanation.tokenUsage,
@@ -198,9 +198,9 @@ export function createExplanationTracker(config?: ExplanationTrackerConfig): Exp
 
     recordGovernance(explanation) {
       return addRecord(
-        "governance",
+        'governance',
         explanation.affectedComponent,
-        explanation.overridden ? "overridden" : explanation.severity,
+        explanation.overridden ? 'overridden' : explanation.severity,
         explanation.overridden
           ? `Rule "${explanation.rule}" overridden: ${explanation.overrideJustification}`
           : `Rule "${explanation.rule}" produced ${explanation.severity} signal`,
@@ -209,7 +209,7 @@ export function createExplanationTracker(config?: ExplanationTrackerConfig): Exp
           severity: explanation.severity,
           affectedComponent: explanation.affectedComponent,
         },
-        explanation.overridden ? "overridden" : "active",
+        explanation.overridden ? 'overridden' : 'active',
         { overrideJustification: explanation.overrideJustification },
       );
     },

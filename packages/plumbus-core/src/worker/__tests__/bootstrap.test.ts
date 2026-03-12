@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EventQueue } from "../../events/queue.js";
-import type { StepExecutorDeps } from "../../flows/step-executor.js";
-import type { AuditService } from "../../types/audit.js";
-import type { PlumbusConfig } from "../../types/config.js";
-import type { LoggerService } from "../../types/context.js";
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EventQueue } from '../../events/queue.js';
+import type { StepExecutorDeps } from '../../flows/step-executor.js';
+import type { AuditService } from '../../types/audit.js';
+import type { PlumbusConfig } from '../../types/config.js';
+import type { LoggerService } from '../../types/context.js';
 
 // ── Mocks ──
 
@@ -23,48 +23,48 @@ const mockScheduler = {
   isRunning: false,
 };
 
-vi.mock("../../events/dispatcher.js", () => ({
+vi.mock('../../events/dispatcher.js', () => ({
   createOutboxDispatcher: vi.fn(() => mockDispatcher),
 }));
 
-vi.mock("../../events/worker.js", () => ({
+vi.mock('../../events/worker.js', () => ({
   createEventWorker: vi.fn(() => mockEventWorker),
 }));
 
-vi.mock("../../flows/engine.js", () => ({
+vi.mock('../../flows/engine.js', () => ({
   createFlowEngine: vi.fn(() => mockFlowEngine),
 }));
 
-vi.mock("../../flows/scheduler.js", () => ({
+vi.mock('../../flows/scheduler.js', () => ({
   createFlowScheduler: vi.fn(() => mockScheduler),
 }));
 
-vi.mock("../../events/idempotency.js", () => ({
+vi.mock('../../events/idempotency.js', () => ({
   createIdempotencyService: vi.fn(() => ({
     check: vi.fn(async () => false),
     record: vi.fn(async () => {}),
   })),
 }));
 
-import { ConsumerRegistry } from "../../events/consumer-registry.js";
-import { FlowRegistry } from "../../flows/registry.js";
-import type { WorkerPoolConfig } from "../bootstrap.js";
-import { createWorkerPool } from "../bootstrap.js";
+import { ConsumerRegistry } from '../../events/consumer-registry.js';
+import { FlowRegistry } from '../../flows/registry.js';
+import type { WorkerPoolConfig } from '../bootstrap.js';
+import { createWorkerPool } from '../bootstrap.js';
 
 // ── Helpers ──
 
 function makeConfig(): PlumbusConfig {
   return {
-    environment: "development",
+    environment: 'development',
     database: {
-      host: "localhost",
+      host: 'localhost',
       port: 5432,
-      database: "plumbus_dev",
-      user: "postgres",
-      password: "postgres",
+      database: 'plumbus_dev',
+      user: 'postgres',
+      password: 'postgres',
     },
-    queue: { host: "localhost", port: 6379, prefix: "plumbus:dev" },
-    auth: { provider: "jwt", secret: "test-secret" },
+    queue: { host: 'localhost', port: 6379, prefix: 'plumbus:dev' },
+    auth: { provider: 'jwt', secret: 'test-secret' },
   };
 }
 
@@ -97,54 +97,54 @@ function makePoolConfig(overrides?: Partial<WorkerPoolConfig>): WorkerPoolConfig
 
 // ── Tests ──
 
-describe("Worker Bootstrap", () => {
+describe('Worker Bootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe("createWorkerPool", () => {
-    it("returns a WorkerPool with start, stop, and isRunning", () => {
+  describe('createWorkerPool', () => {
+    it('returns a WorkerPool with start, stop, and isRunning', () => {
       const pool = createWorkerPool(makePoolConfig());
-      expect(pool).toHaveProperty("start");
-      expect(pool).toHaveProperty("stop");
-      expect(pool).toHaveProperty("isRunning");
-      expect(typeof pool.start).toBe("function");
-      expect(typeof pool.stop).toBe("function");
+      expect(pool).toHaveProperty('start');
+      expect(pool).toHaveProperty('stop');
+      expect(pool).toHaveProperty('isRunning');
+      expect(typeof pool.start).toBe('function');
+      expect(typeof pool.stop).toBe('function');
     });
 
-    it("isRunning is false initially", () => {
+    it('isRunning is false initially', () => {
       const pool = createWorkerPool(makePoolConfig());
       expect(pool.isRunning).toBe(false);
     });
   });
 
-  describe("start()", () => {
-    it("sets isRunning to true", async () => {
+  describe('start()', () => {
+    it('sets isRunning to true', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       expect(pool.isRunning).toBe(true);
     });
 
-    it("syncs schedules before starting scheduler", async () => {
+    it('syncs schedules before starting scheduler', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       expect(mockScheduler.syncSchedules).toHaveBeenCalled();
       expect(mockScheduler.start).toHaveBeenCalled();
     });
 
-    it("starts dispatcher", async () => {
+    it('starts dispatcher', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       expect(mockDispatcher.start).toHaveBeenCalled();
     });
 
-    it("starts event worker", async () => {
+    it('starts event worker', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       expect(mockEventWorker.start).toHaveBeenCalled();
     });
 
-    it("is idempotent — calling start twice does not double-start", async () => {
+    it('is idempotent — calling start twice does not double-start', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       await pool.start();
@@ -153,15 +153,15 @@ describe("Worker Bootstrap", () => {
     });
   });
 
-  describe("stop()", () => {
-    it("sets isRunning to false", async () => {
+  describe('stop()', () => {
+    it('sets isRunning to false', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       await pool.stop();
       expect(pool.isRunning).toBe(false);
     });
 
-    it("stops all workers", async () => {
+    it('stops all workers', async () => {
       const pool = createWorkerPool(makePoolConfig());
       await pool.start();
       await pool.stop();
@@ -170,7 +170,7 @@ describe("Worker Bootstrap", () => {
       expect(mockEventWorker.stop).toHaveBeenCalled();
     });
 
-    it("closes the queue on stop", async () => {
+    it('closes the queue on stop', async () => {
       const queue = makeQueue();
       const pool = createWorkerPool(makePoolConfig({ queue }));
       await pool.start();
@@ -178,7 +178,7 @@ describe("Worker Bootstrap", () => {
       expect(queue.close).toHaveBeenCalled();
     });
 
-    it("is idempotent — calling stop when not running does nothing", async () => {
+    it('is idempotent — calling stop when not running does nothing', async () => {
       const queue = makeQueue();
       const pool = createWorkerPool(makePoolConfig({ queue }));
       await pool.stop();
@@ -186,32 +186,34 @@ describe("Worker Bootstrap", () => {
     });
   });
 
-  describe("enable flags", () => {
-    it("does not start dispatcher when enableDispatcher is false", async () => {
+  describe('enable flags', () => {
+    it('does not start dispatcher when enableDispatcher is false', async () => {
       const pool = createWorkerPool(makePoolConfig({ enableDispatcher: false }));
       await pool.start();
       expect(mockDispatcher.start).not.toHaveBeenCalled();
     });
 
-    it("does not start event worker when enableEventWorker is false", async () => {
+    it('does not start event worker when enableEventWorker is false', async () => {
       const pool = createWorkerPool(makePoolConfig({ enableEventWorker: false }));
       await pool.start();
       expect(mockEventWorker.start).not.toHaveBeenCalled();
     });
 
-    it("does not start scheduler when enableScheduler is false", async () => {
+    it('does not start scheduler when enableScheduler is false', async () => {
       const pool = createWorkerPool(makePoolConfig({ enableScheduler: false }));
       await pool.start();
       expect(mockScheduler.syncSchedules).not.toHaveBeenCalled();
       expect(mockScheduler.start).not.toHaveBeenCalled();
     });
 
-    it("does not stop disabled workers on stop", async () => {
-      const pool = createWorkerPool(makePoolConfig({
-        enableDispatcher: false,
-        enableEventWorker: false,
-        enableScheduler: false,
-      }));
+    it('does not stop disabled workers on stop', async () => {
+      const pool = createWorkerPool(
+        makePoolConfig({
+          enableDispatcher: false,
+          enableEventWorker: false,
+          enableScheduler: false,
+        }),
+      );
       await pool.start();
       await pool.stop();
       expect(mockDispatcher.stop).not.toHaveBeenCalled();
@@ -220,21 +222,22 @@ describe("Worker Bootstrap", () => {
     });
   });
 
-  describe("custom logger", () => {
-    it("uses provided logger", async () => {
+  describe('custom logger', () => {
+    it('uses provided logger', async () => {
       const logger: LoggerService = {
+        debug: vi.fn(),
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),
       };
       const pool = createWorkerPool(makePoolConfig({ logger }));
       await pool.start();
-      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("Worker pool started"));
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Worker pool started'));
     });
   });
 
-  describe("custom audit service", () => {
-    it("accepts an audit service without error", () => {
+  describe('custom audit service', () => {
+    it('accepts an audit service without error', () => {
       const audit: AuditService = {
         record: vi.fn(async () => {}),
       };

@@ -1,9 +1,9 @@
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { EventEnvelope } from "../types/event.js";
-import { ConsumerRegistry } from "./consumer-registry.js";
-import type { IdempotencyService } from "./idempotency.js";
-import { deadLetterTable } from "./outbox.js";
-import type { EventQueue } from "./queue.js";
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { EventEnvelope } from '../types/event.js';
+import type { ConsumerRegistry } from './consumer-registry.js';
+import type { IdempotencyService } from './idempotency.js';
+import { deadLetterTable } from './outbox.js';
+import type { EventQueue } from './queue.js';
 
 export interface WorkerConfig {
   db: PostgresJsDatabase;
@@ -40,7 +40,7 @@ export function createEventWorker(config: WorkerConfig) {
 
   /** Compute exponential backoff with jitter */
   function computeRetryDelay(attempt: number): number {
-    const base = Math.min(retryBackoffBaseMs * Math.pow(2, attempt), retryBackoffMaxMs);
+    const base = Math.min(retryBackoffBaseMs * 2 ** attempt, retryBackoffMaxMs);
     // Add jitter: random value between 0 and base
     return base + Math.floor(Math.random() * base * 0.5);
   }
@@ -50,19 +50,13 @@ export function createEventWorker(config: WorkerConfig) {
   }
 
   async function deliver(envelope: EventEnvelope): Promise<void> {
-    const matched = consumers.getConsumers(
-      envelope.eventType,
-      envelope.version,
-    );
+    const matched = consumers.getConsumers(envelope.eventType, envelope.version);
 
     for (const consumer of matched) {
       const maxRetries = consumer.maxRetries ?? defaultMaxRetries;
 
       // Idempotency guard
-      const alreadyProcessed = await idempotency.isProcessed(
-        envelope.id,
-        consumer.id,
-      );
+      const alreadyProcessed = await idempotency.isProcessed(envelope.id, consumer.id);
       if (alreadyProcessed) continue;
 
       let lastError: string | undefined;
@@ -91,7 +85,7 @@ export function createEventWorker(config: WorkerConfig) {
           eventType: envelope.eventType,
           payload: envelope.payload as any,
           consumerId: consumer.id,
-          lastError: lastError ?? "Unknown error",
+          lastError: lastError ?? 'Unknown error',
           retryCount: String(attempt),
           metadata: {
             correlationId: envelope.correlationId,

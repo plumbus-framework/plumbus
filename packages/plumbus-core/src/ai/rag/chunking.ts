@@ -7,7 +7,7 @@ export interface ChunkConfig {
   /** Overlap between chunks in characters (default: 200) */
   overlap?: number;
   /** Chunking strategy */
-  strategy?: "size" | "paragraph";
+  strategy?: 'size' | 'paragraph';
 }
 
 export interface DocumentChunk {
@@ -20,9 +20,9 @@ export interface DocumentChunk {
  * Split text into overlapping chunks
  */
 export function chunkDocument(text: string, config?: ChunkConfig): DocumentChunk[] {
-  const strategy = config?.strategy ?? "size";
+  const strategy = config?.strategy ?? 'size';
 
-  if (strategy === "paragraph") {
+  if (strategy === 'paragraph') {
     return chunkByParagraph(text, config);
   }
   return chunkBySize(text, config);
@@ -60,7 +60,7 @@ function chunkByParagraph(text: string, config?: ChunkConfig): DocumentChunk[] {
   const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
   const chunks: DocumentChunk[] = [];
 
-  let current = "";
+  let current = '';
   let idx = 0;
 
   for (const para of paragraphs) {
@@ -69,7 +69,7 @@ function chunkByParagraph(text: string, config?: ChunkConfig): DocumentChunk[] {
       idx++;
       current = para;
     } else {
-      current += (current ? "\n\n" : "") + para;
+      current += (current ? '\n\n' : '') + para;
     }
   }
 

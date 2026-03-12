@@ -13,6 +13,10 @@
       "dependsOn": ["build"]
     },
     "lint": {},
+    "format": {
+      "cache": false
+    },
+    "format:check": {},
     "typecheck": {
       "dependsOn": ["^build"]
     }

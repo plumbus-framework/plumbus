@@ -2,9 +2,14 @@
 // Define policy rule sets for compliance frameworks: PCI DSS, GDPR, SOC2, HIPAA, internal baseline.
 // Each profile contains rules that evaluate against the system inventory.
 
-import { FieldClassification, GovernanceSeverity, PolicyProfile, RuleStatus } from "../types/enums.js";
-import type { GovernanceOverride, RuleEvaluation } from "../types/governance.js";
-import type { SystemInventory } from "./rule-engine.js";
+import {
+  FieldClassification,
+  GovernanceSeverity,
+  PolicyProfile,
+  RuleStatus,
+} from '../types/enums.js';
+import type { GovernanceOverride, RuleEvaluation } from '../types/governance.js';
+import type { SystemInventory } from './rule-engine.js';
 
 // ── Policy Rule ──
 export interface PolicyProfileRule {
@@ -25,10 +30,10 @@ export interface PolicyProfileDefinition {
 // ── Common Rules (shared across profiles) ──
 
 const ruleAccessControlRequired: PolicyProfileRule = {
-  name: "access-control-required",
+  name: 'access-control-required',
   severity: GovernanceSeverity.High,
-  description: "All capabilities must have access policies",
-  remediation: "Add access policies to all capabilities",
+  description: 'All capabilities must have access policies',
+  remediation: 'Add access policies to all capabilities',
   evaluate(inventory) {
     return inventory.capabilities.every(
       (c) => c.access && (c.access.roles?.length || c.access.scopes?.length || c.access.public),
@@ -39,10 +44,10 @@ const ruleAccessControlRequired: PolicyProfileRule = {
 };
 
 const ruleTenantIsolation: PolicyProfileRule = {
-  name: "tenant-isolation",
+  name: 'tenant-isolation',
   severity: GovernanceSeverity.High,
-  description: "All data entities must enforce tenant isolation",
-  remediation: "Set tenantScoped: true on all entities",
+  description: 'All data entities must enforce tenant isolation',
+  remediation: 'Set tenantScoped: true on all entities',
   evaluate(inventory) {
     if (inventory.entities.length === 0) return RuleStatus.Pass;
     return inventory.entities.every((e) => e.tenantScoped) ? RuleStatus.Pass : RuleStatus.Partial;
@@ -50,12 +55,14 @@ const ruleTenantIsolation: PolicyProfileRule = {
 };
 
 const ruleAuditLogging: PolicyProfileRule = {
-  name: "audit-logging",
+  name: 'audit-logging',
   severity: GovernanceSeverity.High,
-  description: "All action/job capabilities must have audit enabled",
-  remediation: "Enable audit settings on action and job capabilities",
+  description: 'All action/job capabilities must have audit enabled',
+  remediation: 'Enable audit settings on action and job capabilities',
   evaluate(inventory) {
-    const actionCaps = inventory.capabilities.filter((c) => c.kind === "action" || c.kind === "job");
+    const actionCaps = inventory.capabilities.filter(
+      (c) => c.kind === 'action' || c.kind === 'job',
+    );
     if (actionCaps.length === 0) return RuleStatus.Pass;
     return actionCaps.every((c) => c.audit?.enabled !== false) ? RuleStatus.Pass : RuleStatus.Fail;
   },
@@ -64,10 +71,10 @@ const ruleAuditLogging: PolicyProfileRule = {
 // ── PCI DSS ──
 
 const pciEncryptionRequired: PolicyProfileRule = {
-  name: "pci-encryption-required",
+  name: 'pci-encryption-required',
   severity: GovernanceSeverity.High,
-  description: "Sensitive and highly_sensitive fields must be encrypted",
-  remediation: "Add encrypted: true to all sensitive/highly_sensitive fields",
+  description: 'Sensitive and highly_sensitive fields must be encrypted',
+  remediation: 'Add encrypted: true to all sensitive/highly_sensitive fields',
   evaluate(inventory) {
     for (const entity of inventory.entities) {
       for (const field of Object.values(entity.fields)) {
@@ -87,10 +94,10 @@ const pciEncryptionRequired: PolicyProfileRule = {
 // ── GDPR ──
 
 const gdprDataClassification: PolicyProfileRule = {
-  name: "gdpr-data-classification",
+  name: 'gdpr-data-classification',
   severity: GovernanceSeverity.High,
-  description: "All personal data fields must have classification metadata",
-  remediation: "Add classification to fields containing personal data",
+  description: 'All personal data fields must have classification metadata',
+  remediation: 'Add classification to fields containing personal data',
   evaluate(inventory) {
     for (const entity of inventory.entities) {
       for (const field of Object.values(entity.fields)) {
@@ -102,10 +109,10 @@ const gdprDataClassification: PolicyProfileRule = {
 };
 
 const gdprRetentionPolicy: PolicyProfileRule = {
-  name: "gdpr-retention-policy",
+  name: 'gdpr-retention-policy',
   severity: GovernanceSeverity.Warning,
-  description: "Entities with personal data should define retention policies",
-  remediation: "Add retention configuration to entities with personal data",
+  description: 'Entities with personal data should define retention policies',
+  remediation: 'Add retention configuration to entities with personal data',
   evaluate(inventory) {
     const entitiesWithPersonal = inventory.entities.filter((e) =>
       Object.values(e.fields).some(
@@ -120,10 +127,10 @@ const gdprRetentionPolicy: PolicyProfileRule = {
 };
 
 const gdprDataMinimization: PolicyProfileRule = {
-  name: "gdpr-data-minimization",
+  name: 'gdpr-data-minimization',
   severity: GovernanceSeverity.Info,
-  description: "Capabilities should not expose unnecessary personal data fields",
-  remediation: "Review capability outputs to exclude unnecessary personal data",
+  description: 'Capabilities should not expose unnecessary personal data fields',
+  remediation: 'Review capability outputs to exclude unnecessary personal data',
   evaluate(inventory) {
     // Passes if all capabilities with AI usage have explanation enabled (proxy for data governance awareness)
     const aiCaps = inventory.capabilities.filter((c) => c.effects.ai);
@@ -135,10 +142,10 @@ const gdprDataMinimization: PolicyProfileRule = {
 // ── SOC2 ──
 
 const soc2ComprehensiveAudit: PolicyProfileRule = {
-  name: "soc2-comprehensive-audit",
+  name: 'soc2-comprehensive-audit',
   severity: GovernanceSeverity.High,
-  description: "All capabilities must have audit trails enabled",
-  remediation: "Enable audit on all capabilities",
+  description: 'All capabilities must have audit trails enabled',
+  remediation: 'Enable audit on all capabilities',
   evaluate(inventory) {
     if (inventory.capabilities.length === 0) return RuleStatus.Pass;
     return inventory.capabilities.every((c) => c.audit?.enabled !== false)
@@ -148,10 +155,10 @@ const soc2ComprehensiveAudit: PolicyProfileRule = {
 };
 
 const soc2ChangeManagement: PolicyProfileRule = {
-  name: "soc2-change-management",
+  name: 'soc2-change-management',
   severity: GovernanceSeverity.Warning,
-  description: "All capabilities should declare their effects for change tracking",
-  remediation: "Ensure all capabilities declare complete effects (data, events, external)",
+  description: 'All capabilities should declare their effects for change tracking',
+  remediation: 'Ensure all capabilities declare complete effects (data, events, external)',
   evaluate(inventory) {
     return inventory.capabilities.every((c) => c.effects) ? RuleStatus.Pass : RuleStatus.Partial;
   },
@@ -160,10 +167,10 @@ const soc2ChangeManagement: PolicyProfileRule = {
 // ── HIPAA ──
 
 const hipaaPhiEncryption: PolicyProfileRule = {
-  name: "hipaa-phi-encryption",
+  name: 'hipaa-phi-encryption',
   severity: GovernanceSeverity.High,
-  description: "All personal and sensitive fields must be encrypted (PHI protection)",
-  remediation: "Encrypt all fields classified as personal, sensitive, or highly_sensitive",
+  description: 'All personal and sensitive fields must be encrypted (PHI protection)',
+  remediation: 'Encrypt all fields classified as personal, sensitive, or highly_sensitive',
   evaluate(inventory) {
     const protectedClassifications: FieldClassification[] = [
       FieldClassification.Personal,
@@ -186,10 +193,10 @@ const hipaaPhiEncryption: PolicyProfileRule = {
 };
 
 const hipaaFieldMasking: PolicyProfileRule = {
-  name: "hipaa-field-masking",
+  name: 'hipaa-field-masking',
   severity: GovernanceSeverity.High,
-  description: "Sensitive fields must be masked in logs",
-  remediation: "Add maskedInLogs: true to sensitive fields",
+  description: 'Sensitive fields must be masked in logs',
+  remediation: 'Add maskedInLogs: true to sensitive fields',
   evaluate(inventory) {
     for (const entity of inventory.entities) {
       for (const field of Object.values(entity.fields)) {
@@ -207,10 +214,10 @@ const hipaaFieldMasking: PolicyProfileRule = {
 };
 
 const hipaaAccessControls: PolicyProfileRule = {
-  name: "hipaa-access-controls",
+  name: 'hipaa-access-controls',
   severity: GovernanceSeverity.High,
-  description: "All capabilities accessing patient data must use role-based access control",
-  remediation: "Add specific roles to capabilities that access patient/health data",
+  description: 'All capabilities accessing patient data must use role-based access control',
+  remediation: 'Add specific roles to capabilities that access patient/health data',
   evaluate(inventory) {
     return inventory.capabilities
       .filter((c) => c.access?.tenantScoped)
@@ -223,10 +230,10 @@ const hipaaAccessControls: PolicyProfileRule = {
 // ── Internal Security Baseline ──
 
 const internalFieldEncryption: PolicyProfileRule = {
-  name: "internal-field-encryption",
+  name: 'internal-field-encryption',
   severity: GovernanceSeverity.Warning,
-  description: "Highly sensitive fields should be encrypted",
-  remediation: "Add encrypted: true to highly_sensitive fields",
+  description: 'Highly sensitive fields should be encrypted',
+  remediation: 'Add encrypted: true to highly_sensitive fields',
   evaluate(inventory) {
     for (const entity of inventory.entities) {
       for (const field of Object.values(entity.fields)) {
@@ -247,12 +254,17 @@ const internalFieldEncryption: PolicyProfileRule = {
 export const builtInProfiles: Record<string, PolicyProfileDefinition> = {
   [PolicyProfile.PciDss]: {
     name: PolicyProfile.PciDss,
-    description: "Payment Card Industry Data Security Standard",
-    rules: [ruleAccessControlRequired, ruleTenantIsolation, ruleAuditLogging, pciEncryptionRequired],
+    description: 'Payment Card Industry Data Security Standard',
+    rules: [
+      ruleAccessControlRequired,
+      ruleTenantIsolation,
+      ruleAuditLogging,
+      pciEncryptionRequired,
+    ],
   },
   [PolicyProfile.Gdpr]: {
     name: PolicyProfile.Gdpr,
-    description: "General Data Protection Regulation",
+    description: 'General Data Protection Regulation',
     rules: [
       ruleAccessControlRequired,
       ruleTenantIsolation,
@@ -264,12 +276,18 @@ export const builtInProfiles: Record<string, PolicyProfileDefinition> = {
   },
   [PolicyProfile.Soc2]: {
     name: PolicyProfile.Soc2,
-    description: "Service Organization Control 2",
-    rules: [ruleAccessControlRequired, ruleTenantIsolation, ruleAuditLogging, soc2ComprehensiveAudit, soc2ChangeManagement],
+    description: 'Service Organization Control 2',
+    rules: [
+      ruleAccessControlRequired,
+      ruleTenantIsolation,
+      ruleAuditLogging,
+      soc2ComprehensiveAudit,
+      soc2ChangeManagement,
+    ],
   },
   [PolicyProfile.Hipaa]: {
     name: PolicyProfile.Hipaa,
-    description: "Health Insurance Portability and Accountability Act",
+    description: 'Health Insurance Portability and Accountability Act',
     rules: [
       ruleAccessControlRequired,
       ruleTenantIsolation,
@@ -281,8 +299,13 @@ export const builtInProfiles: Record<string, PolicyProfileDefinition> = {
   },
   [PolicyProfile.InternalSecurityBaseline]: {
     name: PolicyProfile.InternalSecurityBaseline,
-    description: "Organization internal security baseline",
-    rules: [ruleAccessControlRequired, ruleTenantIsolation, ruleAuditLogging, internalFieldEncryption],
+    description: 'Organization internal security baseline',
+    rules: [
+      ruleAccessControlRequired,
+      ruleTenantIsolation,
+      ruleAuditLogging,
+      internalFieldEncryption,
+    ],
   },
 };
 
@@ -293,7 +316,11 @@ export function evaluatePolicyProfile(
   overrides: GovernanceOverride[] = [],
 ): { results: RuleEvaluation[]; score: number } {
   const profile = builtInProfiles[profileName];
-  const rules = profile?.rules ?? [ruleAccessControlRequired, ruleTenantIsolation, ruleAuditLogging];
+  const rules = profile?.rules ?? [
+    ruleAccessControlRequired,
+    ruleTenantIsolation,
+    ruleAuditLogging,
+  ];
 
   const results: RuleEvaluation[] = rules.map((rule) => {
     const overridden = overrides.some((o) => o.rule === rule.name);

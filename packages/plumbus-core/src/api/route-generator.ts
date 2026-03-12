@@ -1,23 +1,19 @@
-import type {
-    FastifyInstance,
-    FastifyReply,
-    FastifyRequest,
-} from "fastify";
-import type { AuthAdapter } from "../auth/adapter.js";
-import { errorToHttpResponse } from "../errors/http.js";
-import type { EventQueue } from "../events/queue.js";
-import { executeCapability } from "../execution/capability-executor.js";
-import type { ContextDependencies } from "../execution/context-factory.js";
-import { createExecutionContext } from "../execution/context-factory.js";
-import type { CapabilityContract } from "../types/capability.js";
-import type { ExecutionContext } from "../types/context.js";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { AuthAdapter } from '../auth/adapter.js';
+import { errorToHttpResponse } from '../errors/http.js';
+import type { EventQueue } from '../events/queue.js';
+import { executeCapability } from '../execution/capability-executor.js';
+import type { ContextDependencies } from '../execution/context-factory.js';
+import { createExecutionContext } from '../execution/context-factory.js';
+import type { CapabilityContract } from '../types/capability.js';
+import type { ExecutionContext } from '../types/context.js';
 
 export interface RouteGeneratorConfig {
   /** Auth adapter for extracting identity from requests */
   authAdapter: AuthAdapter;
   /** Factory to build base context dependencies for each request */
   createDependencies: (
-    auth: NonNullable<Awaited<ReturnType<AuthAdapter["authenticate"]>>>,
+    auth: NonNullable<Awaited<ReturnType<AuthAdapter['authenticate']>>>,
   ) => ContextDependencies;
   /** Optional queue for dispatching async job capabilities */
   jobQueue?: EventQueue;
@@ -34,15 +30,12 @@ export function registerCapabilityRoute(
   config: RouteGeneratorConfig,
 ): void {
   // Event handlers are internal-only, no HTTP route
-  if (capability.kind === "eventHandler") return;
+  if (capability.kind === 'eventHandler') return;
 
-  const method = capability.kind === "query" ? "GET" : "POST";
+  const method = capability.kind === 'query' ? 'GET' : 'POST';
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}`;
 
-  const handler = async (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ): Promise<void> => {
+  const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     // 1. Authenticate
     const authHeader = request.headers.authorization;
     const auth = await config.authAdapter.authenticate(authHeader);
@@ -52,7 +45,7 @@ export function registerCapabilityRoute(
       userId: undefined,
       roles: [],
       scopes: [],
-      provider: "anonymous",
+      provider: 'anonymous',
     };
 
     // 2. Build execution context
@@ -60,23 +53,22 @@ export function registerCapabilityRoute(
     const ctx: ExecutionContext = createExecutionContext(deps);
 
     // 3. Extract input (query params for GET, body for POST)
-    const input =
-      method === "GET" ? request.query : request.body;
+    const input = method === 'GET' ? request.query : request.body;
 
     // 4. Execute capability (jobs dispatched async via queue if available)
-    if (capability.kind === "job" && config.jobQueue) {
+    if (capability.kind === 'job' && config.jobQueue) {
       const jobId = crypto.randomUUID();
       await config.jobQueue.publish({
         id: jobId,
         eventType: `job.${capability.domain}.${capability.name}`,
-        version: "1",
+        version: '1',
         occurredAt: new Date(),
-        actor: ctx.auth.userId ?? "anonymous",
+        actor: ctx.auth.userId ?? 'anonymous',
         tenantId: ctx.auth.tenantId,
         correlationId: jobId,
         payload: input as Record<string, unknown>,
       });
-      reply.status(202).send({ data: { jobId, status: "accepted" } });
+      reply.status(202).send({ data: { jobId, status: 'accepted' } });
       return;
     }
 
@@ -90,7 +82,7 @@ export function registerCapabilityRoute(
     }
   };
 
-  if (method === "GET") {
+  if (method === 'GET') {
     app.get(path, handler);
   } else {
     app.post(path, handler);
@@ -112,7 +104,7 @@ export function registerAllRoutes(
 
 function toKebabCase(str: string): string {
   return str
-    .replace(/([A-Z])/g, "-$1")
+    .replace(/([A-Z])/g, '-$1')
     .toLowerCase()
-    .replace(/^-/, "");
+    .replace(/^-/, '');
 }

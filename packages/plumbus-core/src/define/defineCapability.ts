@@ -1,13 +1,10 @@
-import { z } from "zod";
-import type { CapabilityContract } from "../types/capability.js";
-import type { ExecutionContext } from "../types/context.js";
-import type { CapabilityKind } from "../types/enums.js";
-import type { AccessPolicy } from "../types/security.js";
+import { z } from 'zod';
+import type { CapabilityContract } from '../types/capability.js';
+import type { ExecutionContext } from '../types/context.js';
+import type { CapabilityKind } from '../types/enums.js';
+import type { AccessPolicy } from '../types/security.js';
 
-interface DefineCapabilityInput<
-  TInput extends z.ZodTypeAny,
-  TOutput extends z.ZodTypeAny,
-> {
+interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny> {
   name: string;
   kind: CapabilityKind;
   domain: string;
@@ -38,24 +35,20 @@ interface DefineCapabilityInput<
     summary?: string;
   };
 
-  handler: (
-    ctx: ExecutionContext,
-    input: z.infer<TInput>,
-  ) => Promise<z.infer<TOutput>>;
+  handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
 
-export function defineCapability<
-  TInput extends z.ZodTypeAny,
-  TOutput extends z.ZodTypeAny,
->(config: DefineCapabilityInput<TInput, TOutput>): CapabilityContract<TInput, TOutput> {
+export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
+  config: DefineCapabilityInput<TInput, TOutput>,
+): CapabilityContract<TInput, TOutput> {
   if (!config.name) {
-    throw new Error("Capability name is required");
+    throw new Error('Capability name is required');
   }
   if (!config.kind) {
-    throw new Error("Capability kind is required");
+    throw new Error('Capability kind is required');
   }
   if (!config.domain) {
-    throw new Error("Capability domain is required");
+    throw new Error('Capability domain is required');
   }
   if (!(config.input instanceof z.ZodType)) {
     throw new Error(`Capability "${config.name}": input must be a Zod schema`);
@@ -66,7 +59,7 @@ export function defineCapability<
   if (!config.effects) {
     throw new Error(`Capability "${config.name}": effects declaration is required`);
   }
-  if (typeof config.handler !== "function") {
+  if (typeof config.handler !== 'function') {
     throw new Error(`Capability "${config.name}": handler function is required`);
   }
 

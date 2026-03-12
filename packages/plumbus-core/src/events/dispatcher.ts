@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { EventEnvelope } from "../types/event.js";
-import { deadLetterTable, outboxTable } from "./outbox.js";
-import type { EventQueue } from "./queue.js";
+import { eq } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { EventEnvelope } from '../types/event.js';
+import { deadLetterTable, outboxTable } from './outbox.js';
+import type { EventQueue } from './queue.js';
 
 export interface DispatcherConfig {
   db: PostgresJsDatabase;
@@ -39,7 +39,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
 
   /** Compute exponential backoff delay: min(base * 2^attempt, max) */
   function computeBackoff(attempt: number): number {
-    return Math.min(backoffBaseMs * Math.pow(2, attempt), backoffMaxMs);
+    return Math.min(backoffBaseMs * 2 ** attempt, backoffMaxMs);
   }
 
   async function poll(): Promise<number> {
@@ -48,7 +48,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     const rows = await db
       .select()
       .from(outboxTable)
-      .where(eq(outboxTable.status, "pending"))
+      .where(eq(outboxTable.status, 'pending'))
       .limit(batchSize)
       .orderBy(outboxTable.occurredAt);
 
@@ -56,17 +56,20 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     const failedRows = await db
       .select()
       .from(outboxTable)
-      .where(eq(outboxTable.status, "retry"))
+      .where(eq(outboxTable.status, 'retry'))
       .limit(batchSize)
       .orderBy(outboxTable.occurredAt);
 
-    const allRows = [...rows, ...failedRows.filter((r) => {
-      const retryCount = parseInt(r.retryCount, 10);
-      if (retryCount >= maxRetries) return false;
-      const backoffMs = computeBackoff(retryCount);
-      const lastAttempt = r.dispatchedAt ?? r.occurredAt;
-      return now.getTime() - lastAttempt.getTime() >= backoffMs;
-    })];
+    const allRows = [
+      ...rows,
+      ...failedRows.filter((r) => {
+        const retryCount = parseInt(r.retryCount, 10);
+        if (retryCount >= maxRetries) return false;
+        const backoffMs = computeBackoff(retryCount);
+        const lastAttempt = r.dispatchedAt ?? r.occurredAt;
+        return now.getTime() - lastAttempt.getTime() >= backoffMs;
+      }),
+    ];
 
     let dispatched = 0;
     for (const row of allRows) {
@@ -86,7 +89,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         await queue.publish(envelope);
         await db
           .update(outboxTable)
-          .set({ status: "dispatched", dispatchedAt: new Date() })
+          .set({ status: 'dispatched', dispatchedAt: new Date() })
           .where(eq(outboxTable.id, row.id));
         dispatched++;
       } catch (err) {
@@ -111,14 +114,14 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           });
           await db
             .update(outboxTable)
-            .set({ status: "dead_lettered", retryCount: String(retryCount), lastError: errorMsg })
+            .set({ status: 'dead_lettered', retryCount: String(retryCount), lastError: errorMsg })
             .where(eq(outboxTable.id, row.id));
         } else {
           // Mark for retry with backoff
           await db
             .update(outboxTable)
             .set({
-              status: "retry",
+              status: 'retry',
               retryCount: String(retryCount),
               lastError: errorMsg,
               dispatchedAt: new Date(), // used as last attempt timestamp for backoff

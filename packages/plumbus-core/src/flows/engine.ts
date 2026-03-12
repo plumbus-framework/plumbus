@@ -1,26 +1,22 @@
-import { eq } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { randomUUID } from "node:crypto";
-import type { EventQueue } from "../events/queue.js";
-import type { AuditService } from "../types/audit.js";
-import type { ExecutionContext, FlowExecution } from "../types/context.js";
-import { BackoffStrategy } from "../types/enums.js";
-import type { FlowDefinition, FlowStep } from "../types/flow.js";
-import type { AuthContext } from "../types/security.js";
-import { FlowRegistry } from "./registry.js";
-import { flowExecutionsTable } from "./schema.js";
+import { eq } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { randomUUID } from 'node:crypto';
+import type { EventQueue } from '../events/queue.js';
+import type { AuditService } from '../types/audit.js';
+import type { ExecutionContext, FlowExecution } from '../types/context.js';
+import { BackoffStrategy } from '../types/enums.js';
+import type { FlowDefinition, FlowStep } from '../types/flow.js';
+import type { AuthContext } from '../types/security.js';
+import type { FlowRegistry } from './registry.js';
+import { flowExecutionsTable } from './schema.js';
 import {
-    FlowStatus,
-    StepStatus,
-    assertTransition,
-    isTerminal,
-    type StepHistoryEntry,
-} from "./state-machine.js";
-import {
-    buildHistoryEntry,
-    executeStep,
-    type StepExecutorDeps,
-} from "./step-executor.js";
+  FlowStatus,
+  StepStatus,
+  assertTransition,
+  isTerminal,
+  type StepHistoryEntry,
+} from './state-machine.js';
+import { buildHistoryEntry, executeStep, type StepExecutorDeps } from './step-executor.js';
 
 export interface FlowEngineConfig {
   db: PostgresJsDatabase;
@@ -39,7 +35,7 @@ interface FlowExecutionRow {
   state: unknown;
   currentStep: string | null;
   stepHistory: unknown;
-  retryCount: string;
+  retryCount: number;
   lastError: string | null;
   actor: string;
   tenantId: string | null;
@@ -48,6 +44,18 @@ interface FlowExecutionRow {
   createdAt: Date;
   updatedAt: Date;
   completedAt: Date | null;
+}
+
+/** Type-safe partial update payload for flow executions. */
+interface FlowExecutionUpdate {
+  status?: string;
+  input?: unknown;
+  state?: unknown;
+  currentStep?: string | null;
+  stepHistory?: StepHistoryEntry[];
+  retryCount?: number;
+  lastError?: string | null;
+  completedAt?: Date | null;
 }
 
 /**
@@ -74,9 +82,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // Validate input
     const parseResult = flow.input.safeParse(input);
     if (!parseResult.success) {
-      throw new Error(
-        `Flow "${flowName}": invalid input — ${parseResult.error.message}`,
-      );
+      throw new Error(`Flow "${flowName}": invalid input — ${parseResult.error.message}`);
     }
 
     const executionId = randomUUID();
@@ -87,11 +93,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
       flowName,
       domain: flow.domain,
       status: FlowStatus.Created,
-      input: parseResult.data as any,
-      state: initialState as any,
+      input: parseResult.data as Record<string, unknown>,
+      state: initialState as Record<string, unknown> | null,
       currentStep: flow.steps[0]?.name ?? null,
       stepHistory: [],
-      actor: auth.userId ?? "system",
+      actor: auth.userId ?? 'system',
       tenantId: auth.tenantId ?? null,
       correlationId: opts?.correlationId ?? null,
       triggerEventId: opts?.triggerEventId ?? null,
@@ -103,7 +109,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
         flowName,
         actor: auth.userId,
         tenantId: auth.tenantId,
-        outcome: "success",
+        outcome: 'success',
       });
     }
 
@@ -118,10 +124,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Run the next step(s) for a flow execution.
    * This is designed to be called by a worker process.
    */
-  async function runNext(
-    executionId: string,
-    ctx: ExecutionContext,
-  ): Promise<FlowExecution> {
+  async function runNext(executionId: string, ctx: ExecutionContext): Promise<FlowExecution> {
     const rows = await db
       .select()
       .from(flowExecutionsTable)
@@ -158,7 +161,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     const step = flow.steps.find((s) => s.name === currentStepName);
     if (!step) {
-      await failFlow(executionId, row.flowName, `Step "${currentStepName}" not found in flow definition`);
+      await failFlow(
+        executionId,
+        row.flowName,
+        `Step "${currentStepName}" not found in flow definition`,
+      );
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
     }
 
@@ -176,7 +183,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const completedAt = new Date();
 
     const historyEntry = buildHistoryEntry(currentStepName, result, startedAt, completedAt);
-    const history = Array.isArray(row.stepHistory) ? row.stepHistory as StepHistoryEntry[] : [];
+    const history = Array.isArray(row.stepHistory) ? (row.stepHistory as StepHistoryEntry[]) : [];
     history.push(historyEntry);
 
     if (audit) {
@@ -223,19 +230,40 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
       const branchResults = await Promise.allSettled(
         branchSteps.map(async (branchStep) => {
+          const startedAtBranch = new Date();
           const branchResult = await executeStep(branchStep, flowCtx, row.state, stepDeps);
-          const branchEntry = buildHistoryEntry(branchStep.name, branchResult, new Date(), new Date());
-          history.push(branchEntry);
-          return branchResult;
+          const completedAtBranch = new Date();
+          const branchEntry = buildHistoryEntry(
+            branchStep.name,
+            branchResult,
+            startedAtBranch,
+            completedAtBranch,
+          );
+          return { result: branchResult, entry: branchEntry };
         }),
       );
 
+      // Merge all branch history entries after all branches have settled
+      for (const settled of branchResults) {
+        if (settled.status === 'fulfilled') {
+          history.push(settled.value.entry);
+        }
+      }
+
       const anyFailed = branchResults.some(
-        (r) => r.status === "rejected" || (r.status === "fulfilled" && r.value.status === StepStatus.Failed),
+        (r) =>
+          r.status === 'rejected' ||
+          (r.status === 'fulfilled' && r.value.result.status === StepStatus.Failed),
       );
 
       if (anyFailed) {
-        return handleStepFailure(executionId, row, flow, history, "One or more parallel branches failed");
+        return handleStepFailure(
+          executionId,
+          row,
+          flow,
+          history,
+          'One or more parallel branches failed',
+        );
       }
 
       const nextStep = getNextStepName(flow.steps, currentStepName);
@@ -277,10 +305,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   /**
    * Resume a waiting flow (e.g., after an event arrives or approval granted).
    */
-  async function resume(
-    executionId: string,
-    signal?: unknown,
-  ): Promise<void> {
+  async function resume(executionId: string, signal?: unknown): Promise<void> {
     const rows = await db
       .select()
       .from(flowExecutionsTable)
@@ -291,16 +316,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
     if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
     if (row.status !== FlowStatus.Waiting) {
-      throw new Error(
-        `Cannot resume flow "${executionId}" — current status is "${row.status}"`,
-      );
+      throw new Error(`Cannot resume flow "${executionId}" — current status is "${row.status}"`);
     }
 
     const flow = registry.get(row.flowName);
     if (!flow) throw new Error(`Flow "${row.flowName}" not registered`);
 
     // Advance past the wait/delay step
-    const nextStep = getNextStepName(flow.steps, row.currentStep ?? "");
+    const nextStep = getNextStepName(flow.steps, row.currentStep ?? '');
 
     await updateExecution(executionId, {
       status: FlowStatus.Running,
@@ -367,14 +390,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
     history: StepHistoryEntry[],
     error?: string,
   ): Promise<FlowExecution> {
-    const retryCount = parseInt(row.retryCount, 10) + 1;
+    const retryCount = row.retryCount + 1;
     const maxRetries = flow.retry?.attempts ?? 0;
 
     if (retryCount <= maxRetries) {
       // Retry: keep current step, increment counter
       await updateExecution(executionId, {
         stepHistory: history,
-        retryCount: String(retryCount),
+        retryCount,
         lastError: error ?? null,
       });
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Running };
@@ -396,14 +419,10 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
   }
 
-  async function failFlow(
-    executionId: string,
-    flowName: string,
-    error?: string,
-  ): Promise<void> {
+  async function failFlow(executionId: string, flowName: string, error?: string): Promise<void> {
     await updateExecution(executionId, {
       status: FlowStatus.Failed,
-      lastError: error ?? "Unknown error",
+      lastError: error ?? 'Unknown error',
       completedAt: new Date(),
     });
     if (audit) {
@@ -415,13 +434,10 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
   }
 
-  async function updateExecution(
-    id: string,
-    updates: Record<string, unknown>,
-  ): Promise<void> {
+  async function updateExecution(id: string, updates: FlowExecutionUpdate): Promise<void> {
     await db
       .update(flowExecutionsTable)
-      .set({ ...updates, updatedAt: new Date() } as any)
+      .set({ ...updates, updatedAt: new Date() })
       .where(eq(flowExecutionsTable.id, id));
   }
 
@@ -432,25 +448,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
  * Get the next step name in a linear flow sequence.
  * Returns undefined if we're at the last step.
  */
-function getNextStepName(
-  steps: FlowStep[],
-  currentStepName: string,
-): string | undefined {
+function getNextStepName(steps: FlowStep[], currentStepName: string): string | undefined {
   const idx = steps.findIndex((s) => s.name === currentStepName);
   if (idx === -1 || idx >= steps.length - 1) return undefined;
-  return steps[idx + 1]!.name;
+  return steps[idx + 1]?.name;
 }
 
 /**
  * Compute a retry delay in milliseconds given the retry policy.
  */
-export function computeRetryDelay(
-  retryCount: number,
-  backoff: string,
-  baseDelayMs = 1000,
-): number {
+export function computeRetryDelay(retryCount: number, backoff: string, baseDelayMs = 1000): number {
   if (backoff === BackoffStrategy.Exponential) {
-    return baseDelayMs * Math.pow(2, retryCount - 1);
+    return baseDelayMs * 2 ** (retryCount - 1);
   }
   return baseDelayMs; // fixed
 }

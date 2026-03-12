@@ -1,7 +1,7 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { pathToFileURL } from "node:url";
-import type { FlowDefinition } from "../types/flow.js";
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type { FlowDefinition } from '../types/flow.js';
 
 /**
  * Registry that holds all discovered/registered flow definitions,
@@ -91,15 +91,15 @@ export class FlowRegistry {
         continue;
       }
       if (
-        !(entry.name.endsWith(".ts") || entry.name.endsWith(".js")) ||
-        entry.name.endsWith(".d.ts") ||
-        entry.name.endsWith(".test.ts") ||
-        entry.name.endsWith(".test.js")
+        !(entry.name.endsWith('.ts') || entry.name.endsWith('.js')) ||
+        entry.name.endsWith('.d.ts') ||
+        entry.name.endsWith('.test.ts') ||
+        entry.name.endsWith('.test.js')
       ) {
         continue;
       }
       const fileUrl = pathToFileURL(fullPath).href;
-      const mod = await import(fileUrl) as Record<string, unknown>;
+      const mod = (await import(fileUrl)) as Record<string, unknown>;
 
       for (const exported of Object.values(mod)) {
         if (isFlowDefinition(exported) && !this.has(exported.name)) {
@@ -114,12 +114,12 @@ export class FlowRegistry {
 
 function isFlowDefinition(value: unknown): value is FlowDefinition {
   return (
-    typeof value === "object" &&
+    typeof value === 'object' &&
     value !== null &&
-    "name" in value &&
-    "domain" in value &&
-    "input" in value &&
-    "steps" in value &&
+    'name' in value &&
+    'domain' in value &&
+    'input' in value &&
+    'steps' in value &&
     Array.isArray((value as any).steps)
   );
 }

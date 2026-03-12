@@ -2,15 +2,15 @@
 // Record per AI invocation: prompt used, retrieval sources, response metadata, validation results
 // Links to audit trail for traceability
 
-import type { AuditService } from "../types/audit.js";
-import type { AIDocument } from "../types/context.js";
-import type { TokenUsage } from "./provider.js";
+import type { AuditService } from '../types/audit.js';
+import type { AIDocument } from '../types/context.js';
+import type { TokenUsage } from './provider.js';
 
 // ── AI Invocation Record ──
 export interface AIInvocationRecord {
   id: string;
   timestamp: Date;
-  operation: "generate" | "extract" | "classify" | "retrieve";
+  operation: 'generate' | 'extract' | 'classify' | 'retrieve';
   promptName?: string;
   model?: string;
   input: Record<string, unknown>;
@@ -34,7 +34,7 @@ export interface AIInvocationRecord {
 
 // ── Explainability Tracker ──
 export interface AIExplainabilityTracker {
-  record(invocation: Omit<AIInvocationRecord, "id" | "timestamp">): AIInvocationRecord;
+  record(invocation: Omit<AIInvocationRecord, 'id' | 'timestamp'>): AIInvocationRecord;
   getRecords(): AIInvocationRecord[];
   getByPrompt(promptName: string): AIInvocationRecord[];
 }
@@ -46,7 +46,9 @@ export interface ExplainabilityConfig {
   actor?: string;
 }
 
-export function createExplainabilityTracker(config?: ExplainabilityConfig): AIExplainabilityTracker {
+export function createExplainabilityTracker(
+  config?: ExplainabilityConfig,
+): AIExplainabilityTracker {
   const records: AIInvocationRecord[] = [];
 
   return {
@@ -61,7 +63,7 @@ export function createExplainabilityTracker(config?: ExplainabilityConfig): AIEx
       // Link to audit trail if configured
       if (config?.audit) {
         config.audit.record(`ai.${invocation.operation}`, {
-          actor: invocation.actor ?? config.actor ?? "system",
+          actor: invocation.actor ?? config.actor ?? 'system',
           promptName: invocation.promptName,
           model: invocation.model,
           usage: invocation.usage,
@@ -69,7 +71,7 @@ export function createExplainabilityTracker(config?: ExplainabilityConfig): AIEx
           validationAttempts: invocation.validation?.attempts,
           securityWarningCount: invocation.securityWarnings?.length ?? 0,
           latencyMs: invocation.latencyMs,
-          outcome: invocation.validation?.passed !== false ? "success" : "failure",
+          outcome: invocation.validation?.passed !== false ? 'success' : 'failure',
         });
       }
 

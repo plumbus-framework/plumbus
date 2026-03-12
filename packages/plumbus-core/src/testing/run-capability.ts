@@ -2,14 +2,11 @@
 // Execute a capability in an isolated test environment without requiring
 // a real server, auth middleware, or database.
 
-import type { z } from "zod";
-import {
-    executeCapability,
-    type CapabilityResult,
-} from "../execution/capability-executor.js";
-import type { CapabilityContract } from "../types/capability.js";
-import type { ExecutionContext } from "../types/context.js";
-import { createTestContext, type TestContextOptions } from "./context.js";
+import type { z } from 'zod';
+import { executeCapability, type CapabilityResult } from '../execution/capability-executor.js';
+import type { CapabilityContract } from '../types/capability.js';
+import type { ExecutionContext } from '../types/context.js';
+import { createTestContext, type TestContextOptions } from './context.js';
 
 export interface RunCapabilityOptions extends TestContextOptions {
   /** Provide a pre-built context instead of building one from options */
@@ -25,10 +22,7 @@ export interface RunCapabilityOptions extends TestContextOptions {
  * if (result.success) expect(result.data).toEqual(...);
  * ```
  */
-export async function runCapability<
-  TInput extends z.ZodTypeAny,
-  TOutput extends z.ZodTypeAny,
->(
+export async function runCapability<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
   capability: CapabilityContract<TInput, TOutput>,
   input: unknown,
   options?: RunCapabilityOptions,

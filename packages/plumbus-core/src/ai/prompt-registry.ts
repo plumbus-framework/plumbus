@@ -1,10 +1,10 @@
 // ── Prompt Registry ──
 // Auto-discover and register prompt definitions, index by name/domain
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { pathToFileURL } from "node:url";
-import type { PromptDefinition } from "../types/prompt.js";
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type { PromptDefinition } from '../types/prompt.js';
 
 export class PromptRegistry {
   private prompts = new Map<string, PromptDefinition>();
@@ -45,14 +45,20 @@ export class PromptRegistry {
     const discovered: string[] = [];
     if (!fs.existsSync(dir)) return discovered;
 
-    const files = fs.readdirSync(dir).filter(
-      (f) => (f.endsWith(".ts") || f.endsWith(".js")) && !f.endsWith(".d.ts") && !f.endsWith(".test.ts") && !f.endsWith(".test.js"),
-    );
+    const files = fs
+      .readdirSync(dir)
+      .filter(
+        (f) =>
+          (f.endsWith('.ts') || f.endsWith('.js')) &&
+          !f.endsWith('.d.ts') &&
+          !f.endsWith('.test.ts') &&
+          !f.endsWith('.test.js'),
+      );
 
     for (const file of files) {
       const filePath = path.join(dir, file);
       const fileUrl = pathToFileURL(filePath).href;
-      const mod = await import(fileUrl) as Record<string, unknown>;
+      const mod = (await import(fileUrl)) as Record<string, unknown>;
 
       for (const exported of Object.values(mod)) {
         if (isPromptDefinition(exported)) {
@@ -69,11 +75,11 @@ export class PromptRegistry {
 
 function isPromptDefinition(value: unknown): value is PromptDefinition {
   return (
-    typeof value === "object" &&
+    typeof value === 'object' &&
     value !== null &&
-    "name" in value &&
-    "input" in value &&
-    "output" in value &&
-    typeof (value as any).name === "string"
+    'name' in value &&
+    'input' in value &&
+    'output' in value &&
+    typeof (value as any).name === 'string'
   );
 }

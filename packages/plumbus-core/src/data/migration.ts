@@ -1,8 +1,8 @@
-import type { PgTableWithColumns } from "drizzle-orm/pg-core";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
-import type { EntityDefinition } from "../types/entity.js";
-import { generateDrizzleSchema } from "./schema-generator.js";
+import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import type { EntityDefinition } from '../types/entity.js';
+import { generateDrizzleSchema } from './schema-generator.js';
 
 export interface MigrationConfig {
   db: PostgresJsDatabase;
@@ -50,23 +50,23 @@ export interface MigrationRecord {
  */
 export async function rollbackLastMigration(config: MigrationConfig): Promise<{
   rolledBack: string | null;
-  status: "rolled_back" | "no_migrations";
+  status: 'rolled_back' | 'no_migrations';
 }> {
   const db = config.db;
 
   // Check if migrations table exists and get the last applied migration
-  const rows = await db.execute({
+  const rows = (await db.execute({
     sql: `SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1`,
     params: [],
-  } as any) as unknown as Array<{ hash: string; created_at: number }>;
+  } as any)) as unknown as Array<{ hash: string; created_at: number }>;
 
   if (!rows || (Array.isArray(rows) && rows.length === 0)) {
-    return { rolledBack: null, status: "no_migrations" };
+    return { rolledBack: null, status: 'no_migrations' };
   }
 
   const lastMigration = Array.isArray(rows) ? rows[0] : null;
   if (!lastMigration) {
-    return { rolledBack: null, status: "no_migrations" };
+    return { rolledBack: null, status: 'no_migrations' };
   }
 
   const migrationHash = lastMigration.hash;
@@ -77,5 +77,5 @@ export async function rollbackLastMigration(config: MigrationConfig): Promise<{
     params: [migrationHash],
   } as any);
 
-  return { rolledBack: migrationHash, status: "rolled_back" };
+  return { rolledBack: migrationHash, status: 'rolled_back' };
 }

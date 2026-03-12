@@ -14,7 +14,7 @@ export interface ProviderRequest {
   /** Max tokens for response */
   maxTokens?: number;
   /** Response format hint */
-  responseFormat?: "text" | "json";
+  responseFormat?: 'text' | 'json';
 }
 
 // ── Provider Response ──
@@ -34,7 +34,7 @@ export interface TokenUsage {
 
 // ── Streaming ──
 export interface ProviderStreamEvent {
-  type: "content_delta" | "usage" | "done" | "error";
+  type: 'content_delta' | 'usage' | 'done' | 'error';
   /** Incremental text chunk (for content_delta) */
   delta?: string;
   /** Token usage (for usage / done events) */
@@ -81,19 +81,19 @@ export interface OpenAIAdapterConfig {
 }
 
 export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdapter {
-  const defaultModel = config.model ?? "gpt-4o";
-  const defaultEmbeddingModel = config.embeddingModel ?? "text-embedding-3-small";
-  const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
+  const defaultModel = config.model ?? 'gpt-4o';
+  const defaultEmbeddingModel = config.embeddingModel ?? 'text-embedding-3-small';
+  const baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
 
   return {
-    name: "openai",
+    name: 'openai',
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       const messages: Array<{ role: string; content: string }> = [];
       if (request.system) {
-        messages.push({ role: "system", content: request.system });
+        messages.push({ role: 'system', content: request.system });
       }
-      messages.push({ role: "user", content: request.prompt });
+      messages.push({ role: 'user', content: request.prompt });
 
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
@@ -101,14 +101,14 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         temperature: request.temperature ?? 0.7,
       };
       if (request.maxTokens) body.max_tokens = request.maxTokens;
-      if (request.responseFormat === "json") {
-        body.response_format = { type: "json_object" };
+      if (request.responseFormat === 'json') {
+        body.response_format = { type: 'json_object' };
       }
 
       const resp = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify(body),
@@ -126,7 +126,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       };
 
       const choice = data.choices[0];
-      if (!choice) throw new Error("OpenAI returned no choices");
+      if (!choice) throw new Error('OpenAI returned no choices');
       return {
         content: choice.message.content,
         model: data.model,
@@ -142,9 +142,9 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
       const messages: Array<{ role: string; content: string }> = [];
       if (request.system) {
-        messages.push({ role: "system", content: request.system });
+        messages.push({ role: 'system', content: request.system });
       }
-      messages.push({ role: "user", content: request.prompt });
+      messages.push({ role: 'user', content: request.prompt });
 
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
@@ -154,14 +154,14 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream_options: { include_usage: true },
       };
       if (request.maxTokens) body.max_tokens = request.maxTokens;
-      if (request.responseFormat === "json") {
-        body.response_format = { type: "json_object" };
+      if (request.responseFormat === 'json') {
+        body.response_format = { type: 'json_object' };
       }
 
       const resp = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify(body),
@@ -169,7 +169,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
       if (!resp.ok) {
         const text = await resp.text();
-        yield { type: "error", error: `OpenAI API error (${resp.status}): ${text}` };
+        yield { type: 'error', error: `OpenAI API error (${resp.status}): ${text}` };
         return;
       }
 
@@ -183,9 +183,9 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       };
 
       const resp = await fetch(`${baseUrl}/embeddings`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify(body),
@@ -219,27 +219,27 @@ export interface AnthropicAdapterConfig {
 }
 
 export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProviderAdapter {
-  const defaultModel = config.model ?? "claude-sonnet-4-20250514";
-  const baseUrl = config.baseUrl ?? "https://api.anthropic.com/v1";
+  const defaultModel = config.model ?? 'claude-sonnet-4-20250514';
+  const baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
 
   return {
-    name: "anthropic",
+    name: 'anthropic',
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
-        messages: [{ role: "user", content: request.prompt }],
+        messages: [{ role: 'user', content: request.prompt }],
         max_tokens: request.maxTokens ?? 4096,
         temperature: request.temperature ?? 0.7,
       };
       if (request.system) body.system = request.system;
 
       const resp = await fetch(`${baseUrl}/messages`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
       });
@@ -257,9 +257,9 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       };
 
       const text = data.content
-        .filter((c) => c.type === "text")
+        .filter((c) => c.type === 'text')
         .map((c) => c.text)
-        .join("");
+        .join('');
 
       return {
         content: text,
@@ -276,7 +276,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
-        messages: [{ role: "user", content: request.prompt }],
+        messages: [{ role: 'user', content: request.prompt }],
         max_tokens: request.maxTokens ?? 4096,
         temperature: request.temperature ?? 0.7,
         stream: true,
@@ -284,18 +284,18 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       if (request.system) body.system = request.system;
 
       const resp = await fetch(`${baseUrl}/messages`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
       });
 
       if (!resp.ok) {
         const text = await resp.text();
-        yield { type: "error", error: `Anthropic API error (${resp.status}): ${text}` };
+        yield { type: 'error', error: `Anthropic API error (${resp.status}): ${text}` };
         return;
       }
 
@@ -306,7 +306,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       // Anthropic doesn't have a public embedding API
       // Users should pair with an embedding-capable provider for RAG
       throw new Error(
-        "Anthropic does not provide an embedding API. Use an OpenAI-compatible provider for embeddings.",
+        'Anthropic does not provide an embedding API. Use an OpenAI-compatible provider for embeddings.',
       );
     },
   };
@@ -316,16 +316,19 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
 
 type SSEChunkParser = (eventType: string, data: string) => ProviderStreamEvent | null;
 
-async function* parseSSEStream(resp: Response, parseChunk: SSEChunkParser): AsyncIterable<ProviderStreamEvent> {
+async function* parseSSEStream(
+  resp: Response,
+  parseChunk: SSEChunkParser,
+): AsyncIterable<ProviderStreamEvent> {
   if (!resp.body) {
-    yield { type: "error", error: "No response body for streaming" };
+    yield { type: 'error', error: 'No response body for streaming' };
     return;
   }
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
-  let currentEvent = "";
+  let buffer = '';
+  let currentEvent = '';
 
   try {
     while (true) {
@@ -333,25 +336,24 @@ async function* parseSSEStream(resp: Response, parseChunk: SSEChunkParser): Asyn
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop()!; // Keep incomplete line in buffer
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? ''; // Keep incomplete line in buffer
 
       for (const line of lines) {
-        if (line.startsWith("event: ")) {
+        if (line.startsWith('event: ')) {
           currentEvent = line.slice(7).trim();
           continue;
         }
 
-        if (line.startsWith("data: ")) {
+        if (line.startsWith('data: ')) {
           const data = line.slice(6);
-          if (data === "[DONE]") {
-            yield { type: "done" };
+          if (data === '[DONE]') {
+            yield { type: 'done' };
             return;
           }
 
           const event = parseChunk(currentEvent, data);
           if (event) yield event;
-          continue;
         }
       }
     }
@@ -368,9 +370,12 @@ function parseOpenAISSEChunk(_eventType: string, data: string): ProviderStreamEv
     };
 
     // Usage-only chunk (sent when stream_options.include_usage is true)
-    if (parsed.usage && (!parsed.choices || parsed.choices.length === 0 || !parsed.choices[0]?.delta?.content)) {
+    if (
+      parsed.usage &&
+      (!parsed.choices || parsed.choices.length === 0 || !parsed.choices[0]?.delta?.content)
+    ) {
       return {
-        type: "usage",
+        type: 'usage',
         usage: {
           inputTokens: parsed.usage.prompt_tokens,
           outputTokens: parsed.usage.completion_tokens,
@@ -383,11 +388,11 @@ function parseOpenAISSEChunk(_eventType: string, data: string): ProviderStreamEv
     if (!choice) return null;
 
     if (choice.finish_reason) {
-      return { type: "done", finishReason: choice.finish_reason };
+      return { type: 'done', finishReason: choice.finish_reason };
     }
 
     if (choice.delta?.content) {
-      return { type: "content_delta", delta: choice.delta.content };
+      return { type: 'content_delta', delta: choice.delta.content };
     }
 
     return null;
@@ -401,29 +406,36 @@ function parseAnthropicSSEChunk(eventType: string, data: string): ProviderStream
     const parsed = JSON.parse(data) as Record<string, unknown>;
 
     switch (eventType) {
-      case "content_block_delta": {
+      case 'content_block_delta': {
         const delta = parsed.delta as { type?: string; text?: string } | undefined;
-        if (delta?.type === "text_delta" && delta.text) {
-          return { type: "content_delta", delta: delta.text };
+        if (delta?.type === 'text_delta' && delta.text) {
+          return { type: 'content_delta', delta: delta.text };
         }
         return null;
       }
-      case "message_delta": {
+      case 'message_delta': {
         const delta = parsed.delta as { stop_reason?: string } | undefined;
         const usage = parsed.usage as { output_tokens?: number } | undefined;
         return {
-          type: "done",
-          finishReason: delta?.stop_reason ?? "end_turn",
-          usage: usage?.output_tokens != null
-            ? { inputTokens: 0, outputTokens: usage.output_tokens, totalTokens: usage.output_tokens }
-            : undefined,
+          type: 'done',
+          finishReason: delta?.stop_reason ?? 'end_turn',
+          usage:
+            usage?.output_tokens != null
+              ? {
+                  inputTokens: 0,
+                  outputTokens: usage.output_tokens,
+                  totalTokens: usage.output_tokens,
+                }
+              : undefined,
         };
       }
-      case "message_start": {
-        const message = parsed.message as { usage?: { input_tokens: number; output_tokens: number } } | undefined;
+      case 'message_start': {
+        const message = parsed.message as
+          | { usage?: { input_tokens: number; output_tokens: number } }
+          | undefined;
         if (message?.usage) {
           return {
-            type: "usage",
+            type: 'usage',
             usage: {
               inputTokens: message.usage.input_tokens,
               outputTokens: message.usage.output_tokens,

@@ -1,16 +1,13 @@
-import { eq } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { flowDeadLetterTable, flowExecutionsTable } from "./schema.js";
-import { FlowStatus } from "./state-machine.js";
+import { eq } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { flowDeadLetterTable, flowExecutionsTable } from './schema.js';
+import { FlowStatus } from './state-machine.js';
 
 /**
  * Moves failed flow executions to the dead-letter table.
  * Call this after a flow has exhausted retries and entered Failed status.
  */
-export async function deadLetterFlow(
-  db: PostgresJsDatabase,
-  executionId: string,
-): Promise<void> {
+export async function deadLetterFlow(db: PostgresJsDatabase, executionId: string): Promise<void> {
   const rows = await db
     .select()
     .from(flowExecutionsTable)
@@ -49,10 +46,7 @@ export async function deadLetterFlow(
  * Scans for failed flow executions and moves them to dead-letter.
  * Returns the number of executions moved.
  */
-export async function sweepFailedFlows(
-  db: PostgresJsDatabase,
-  limit = 100,
-): Promise<number> {
+export async function sweepFailedFlows(db: PostgresJsDatabase, limit = 100): Promise<number> {
   const failedRows = await db
     .select({ id: flowExecutionsTable.id })
     .from(flowExecutionsTable)

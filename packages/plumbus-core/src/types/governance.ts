@@ -1,4 +1,4 @@
-import type { GovernanceSeverity, PolicyProfile, RuleStatus } from "./enums.js";
+import type { GovernanceSeverity, PolicyProfile, RuleStatus } from './enums.js';
 
 // ── Governance Signal ──
 export interface GovernanceSignal {

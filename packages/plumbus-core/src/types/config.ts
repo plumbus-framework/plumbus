@@ -1,4 +1,4 @@
-import type { PolicyProfile } from "./enums.js";
+import type { PolicyProfile } from './enums.js';
 
 // ── Database Config ──
 export interface DatabaseConfig {
@@ -39,7 +39,7 @@ export interface AuthAdapterConfig {
 }
 
 // ── Environment ──
-export type Environment = "development" | "staging" | "production";
+export type Environment = 'development' | 'staging' | 'production';
 
 // ── Plumbus Config ──
 export interface PlumbusConfig {

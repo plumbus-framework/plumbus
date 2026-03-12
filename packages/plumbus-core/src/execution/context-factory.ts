@@ -1,17 +1,17 @@
-import { createErrorService } from "../errors/index.js";
-import type { AuditService } from "../types/audit.js";
+import { createErrorService } from '../errors/index.js';
+import type { AuditService } from '../types/audit.js';
 import type {
-    AIService,
-    ConfigService,
-    DataService,
-    EventService,
-    ExecutionContext,
-    FlowService,
-    LoggerService,
-    SecurityService,
-    TimeService,
-} from "../types/context.js";
-import type { AuthContext } from "../types/security.js";
+  AIService,
+  ConfigService,
+  DataService,
+  EventService,
+  ExecutionContext,
+  FlowService,
+  LoggerService,
+  SecurityService,
+  TimeService,
+} from '../types/context.js';
+import type { AuthContext } from '../types/security.js';
 
 export interface ContextDependencies {
   auth: AuthContext;
@@ -35,39 +35,42 @@ const noopEvents: EventService = {
 
 const noopFlows: FlowService = {
   async start() {
-    return { id: "", flowName: "", status: "not_started" };
+    return { id: '', flowName: '', status: 'not_started' };
   },
   async resume() {},
   async cancel() {},
   async status() {
-    return { id: "", flowName: "", status: "unknown" };
+    return { id: '', flowName: '', status: 'unknown' };
   },
 };
 
 const noopAI: AIService = {
   async generate() {
-    throw new Error("AI service not configured");
+    throw new Error('AI service not configured');
   },
   async extract() {
-    throw new Error("AI service not configured");
+    throw new Error('AI service not configured');
   },
   async classify() {
-    throw new Error("AI service not configured");
+    throw new Error('AI service not configured');
   },
   async retrieve() {
-    throw new Error("AI service not configured");
+    throw new Error('AI service not configured');
   },
 };
 
 const consoleLogger: LoggerService = {
+  debug(message, metadata) {
+    console.debug(message, metadata ?? '');
+  },
   info(message, metadata) {
-    console.info(message, metadata ?? "");
+    console.info(message, metadata ?? '');
   },
   warn(message, metadata) {
-    console.warn(message, metadata ?? "");
+    console.warn(message, metadata ?? '');
   },
   error(message, metadata) {
-    console.error(message, metadata ?? "");
+    console.error(message, metadata ?? '');
   },
 };
 
@@ -93,12 +96,14 @@ function createSecurityService(auth: AuthContext): SecurityService {
     },
     requireRole(role: string): void {
       if (!auth.roles.includes(role)) {
-        throw Object.assign(new Error(`Forbidden: requires role "${role}"`), { code: "forbidden" });
+        throw Object.assign(new Error(`Forbidden: requires role "${role}"`), { code: 'forbidden' });
       }
     },
     requireScope(scope: string): void {
       if (!auth.scopes.includes(scope)) {
-        throw Object.assign(new Error(`Forbidden: requires scope "${scope}"`), { code: "forbidden" });
+        throw Object.assign(new Error(`Forbidden: requires scope "${scope}"`), {
+          code: 'forbidden',
+        });
       }
     },
   };
@@ -108,9 +113,7 @@ function createSecurityService(auth: AuthContext): SecurityService {
  * Build an ExecutionContext from the provided dependencies.
  * Missing optional services are replaced with safe defaults/stubs.
  */
-export function createExecutionContext(
-  deps: ContextDependencies,
-): ExecutionContext {
+export function createExecutionContext(deps: ContextDependencies): ExecutionContext {
   return {
     auth: deps.auth,
     data: deps.data,

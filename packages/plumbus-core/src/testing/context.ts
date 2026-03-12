@@ -1,22 +1,22 @@
 // ── Test Context Builder ──
 // Factory for building test-friendly ExecutionContexts with mock services.
 
-import type { ContextDependencies } from "../execution/context-factory.js";
-import { createExecutionContext } from "../execution/context-factory.js";
-import type { AuditService } from "../types/audit.js";
+import type { ContextDependencies } from '../execution/context-factory.js';
+import { createExecutionContext } from '../execution/context-factory.js';
+import type { AuditService } from '../types/audit.js';
 import type {
-    AIDocument,
-    AIService,
-    DataService,
-    EventService,
-    ExecutionContext,
-    FlowExecution,
-    FlowService,
-    LoggerService,
-    Repository,
-    TimeService,
-} from "../types/context.js";
-import type { AuthContext } from "../types/security.js";
+  AIDocument,
+  AIService,
+  DataService,
+  EventService,
+  ExecutionContext,
+  FlowExecution,
+  FlowService,
+  LoggerService,
+  Repository,
+  TimeService,
+} from '../types/context.js';
+import type { AuthContext } from '../types/security.js';
 
 // ── Test Auth Builder ──
 
@@ -32,11 +32,11 @@ export interface TestAuthOptions {
 /** Create a test AuthContext with sensible defaults */
 export function createTestAuth(options?: TestAuthOptions): AuthContext {
   return {
-    userId: "userId" in (options ?? {}) ? options!.userId : "test-user",
-    roles: options?.roles ?? ["user"],
+    userId: options && 'userId' in options ? options.userId : 'test-user',
+    roles: options?.roles ?? ['user'],
     scopes: options?.scopes ?? [],
-    tenantId: "tenantId" in (options ?? {}) ? options!.tenantId : "test-tenant",
-    provider: options?.provider ?? "test",
+    tenantId: options && 'tenantId' in options ? options.tenantId : 'test-tenant',
+    provider: options?.provider ?? 'test',
     sessionId: options?.sessionId,
   };
 }
@@ -104,14 +104,14 @@ export function mockFlows(): MockFlowService {
     started,
     async start(flowName, input) {
       counter++;
-      const exec: FlowExecution = { id: `flow-exec-${counter}`, flowName, status: "running" };
+      const exec: FlowExecution = { id: `flow-exec-${counter}`, flowName, status: 'running' };
       started.push({ flowName, input });
       return exec;
     },
     async resume() {},
     async cancel() {},
     async status(executionId) {
-      return { id: executionId, flowName: "unknown", status: "unknown" };
+      return { id: executionId, flowName: 'unknown', status: 'unknown' };
     },
     clear() {
       started.length = 0;
@@ -133,7 +133,7 @@ export function mockAI(responses?: AIResponse): AIService {
   return {
     async generate() {
       if (responses?.generate !== undefined) return responses.generate;
-      return { text: "mock-ai-response" };
+      return { text: 'mock-ai-response' };
     },
     async extract() {
       if (responses?.extract !== undefined) return responses.extract;
@@ -141,7 +141,7 @@ export function mockAI(responses?: AIResponse): AIService {
     },
     async classify() {
       if (responses?.classify !== undefined) return responses.classify;
-      return ["default"];
+      return ['default'];
     },
     async retrieve() {
       if (responses?.retrieve !== undefined) return responses.retrieve;
@@ -153,28 +153,47 @@ export function mockAI(responses?: AIResponse): AIService {
 // ── Mock Logger ──
 
 export interface MockLoggerService extends LoggerService {
-  readonly logs: Array<{ level: "info" | "warn" | "error"; message: string; metadata?: Record<string, unknown> }>;
+  readonly logs: Array<{
+    level: 'debug' | 'info' | 'warn' | 'error';
+    message: string;
+    metadata?: Record<string, unknown>;
+  }>;
   clear(): void;
 }
 
 /** Create a mock logger that captures all log entries silently */
 export function mockLogger(): MockLoggerService {
-  const logs: Array<{ level: "info" | "warn" | "error"; message: string; metadata?: Record<string, unknown> }> = [];
+  const logs: Array<{
+    level: 'debug' | 'info' | 'warn' | 'error';
+    message: string;
+    metadata?: Record<string, unknown>;
+  }> = [];
   return {
     logs,
-    info(message, metadata) { logs.push({ level: "info", message, metadata }); },
-    warn(message, metadata) { logs.push({ level: "warn", message, metadata }); },
-    error(message, metadata) { logs.push({ level: "error", message, metadata }); },
-    clear() { logs.length = 0; },
+    debug(message, metadata) {
+      logs.push({ level: 'debug', message, metadata });
+    },
+    info(message, metadata) {
+      logs.push({ level: 'info', message, metadata });
+    },
+    warn(message, metadata) {
+      logs.push({ level: 'warn', message, metadata });
+    },
+    error(message, metadata) {
+      logs.push({ level: 'error', message, metadata });
+    },
+    clear() {
+      logs.length = 0;
+    },
   };
 }
 
 // ── In-Memory Repository ──
 
 /** Create an in-memory repository for testing entity operations */
-export function createInMemoryRepository<T extends Record<string, unknown> = Record<string, unknown>>(
-  initialData?: T[],
-): Repository<T> {
+export function createInMemoryRepository<
+  T extends Record<string, unknown> = Record<string, unknown>,
+>(initialData?: T[]): Repository<T> {
   const store = new Map<string, T>();
   let idCounter = 0;
   if (initialData) {
@@ -217,9 +236,7 @@ export function createInMemoryRepository<T extends Record<string, unknown> = Rec
 // ── Test Data Service ──
 
 /** Create a test DataService from a map of entity name → initial records */
-export function createTestData(
-  entities?: Record<string, Record<string, unknown>[]>,
-): DataService {
+export function createTestData(entities?: Record<string, Record<string, unknown>[]>): DataService {
   const data: DataService = {};
   if (entities) {
     for (const [name, records] of Object.entries(entities)) {
@@ -228,7 +245,7 @@ export function createTestData(
   }
   return new Proxy(data, {
     get(target, prop) {
-      if (typeof prop !== "string") return undefined;
+      if (typeof prop !== 'string') return undefined;
       if (!target[prop]) {
         target[prop] = createInMemoryRepository();
       }
@@ -241,7 +258,7 @@ export function createTestData(
 
 /** Create a time service that returns a fixed date (useful for deterministic tests) */
 export function fixedTime(date?: Date): TimeService {
-  const fixed = date ?? new Date("2025-01-01T00:00:00Z");
+  const fixed = date ?? new Date('2025-01-01T00:00:00Z');
   return { now: () => fixed };
 }
 
@@ -265,14 +282,12 @@ export interface TestContextOptions {
  */
 export function createTestContext(options?: TestContextOptions): ExecutionContext {
   const aiService: AIService =
-    options?.ai && typeof (options.ai as AIService).generate === "function"
+    options?.ai && typeof (options.ai as AIService).generate === 'function'
       ? (options.ai as AIService)
       : mockAI(options?.ai as AIResponse | undefined);
 
   const timeService: TimeService =
-    options?.time instanceof Date
-      ? fixedTime(options.time)
-      : (options?.time ?? fixedTime());
+    options?.time instanceof Date ? fixedTime(options.time) : (options?.time ?? fixedTime());
 
   const deps: ContextDependencies = {
     auth: createTestAuth(options?.auth),

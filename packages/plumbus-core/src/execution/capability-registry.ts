@@ -1,4 +1,4 @@
-import type { CapabilityContract } from "../types/capability.js";
+import type { CapabilityContract } from '../types/capability.js';
 
 /**
  * Registry that holds all discovered/registered capabilities,
@@ -12,9 +12,7 @@ export class CapabilityRegistry {
    */
   register(capability: CapabilityContract): void {
     if (this.capabilities.has(capability.name)) {
-      throw new Error(
-        `Capability "${capability.name}" is already registered`,
-      );
+      throw new Error(`Capability "${capability.name}" is already registered`);
     }
     this.capabilities.set(capability.name, capability);
   }

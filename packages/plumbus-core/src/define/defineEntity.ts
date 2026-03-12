@@ -1,5 +1,5 @@
-import type { EntityDefinition, EntityRetention } from "../types/entity.js";
-import type { FieldDescriptor } from "../types/fields.js";
+import type { EntityDefinition, EntityRetention } from '../types/entity.js';
+import type { FieldDescriptor } from '../types/fields.js';
 
 interface DefineEntityInput {
   name: string;
@@ -16,7 +16,7 @@ interface DefineEntityInput {
 
 export function defineEntity(config: DefineEntityInput): EntityDefinition {
   if (!config.name) {
-    throw new Error("Entity name is required");
+    throw new Error('Entity name is required');
   }
   if (!config.fields || Object.keys(config.fields).length === 0) {
     throw new Error(`Entity "${config.name}": at least one field is required`);
@@ -28,9 +28,7 @@ export function defineEntity(config: DefineEntityInput): EntityDefinition {
     for (const idx of config.indexes) {
       for (const col of idx) {
         if (!fieldNames.has(col)) {
-          throw new Error(
-            `Entity "${config.name}": index references unknown field "${col}"`,
-          );
+          throw new Error(`Entity "${config.name}": index references unknown field "${col}"`);
         }
       }
     }

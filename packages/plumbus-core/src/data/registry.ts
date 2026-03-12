@@ -1,11 +1,11 @@
-import type { PgTableWithColumns } from "drizzle-orm/pg-core";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type { AuditService } from "../types/audit.js";
-import type { DataService, Repository } from "../types/context.js";
-import type { EntityDefinition } from "../types/entity.js";
-import type { AuthContext } from "../types/security.js";
-import { createRepository } from "./repository.js";
-import { generateDrizzleSchema } from "./schema-generator.js";
+import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { AuditService } from '../types/audit.js';
+import type { DataService, Repository } from '../types/context.js';
+import type { EntityDefinition } from '../types/entity.js';
+import type { AuthContext } from '../types/security.js';
+import { createRepository } from './repository.js';
+import { generateDrizzleSchema } from './schema-generator.js';
 
 /**
  * EntityRegistry holds all registered entities, their Drizzle schemas,
@@ -76,7 +76,8 @@ export class EntityRegistry {
     const dataService: Record<string, Repository> = {};
 
     for (const [name, entity] of this.entities) {
-      const table = this.tables.get(name)!;
+      const table = this.tables.get(name);
+      if (!table) continue;
       dataService[name] = createRepository({
         entity,
         table,

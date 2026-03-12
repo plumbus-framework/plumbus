@@ -1,7 +1,7 @@
-import type { EventEnvelope } from "../types/event.js";
-import type { AuthContext } from "../types/security.js";
-import type { createFlowEngine } from "./engine.js";
-import { FlowRegistry } from "./registry.js";
+import type { EventEnvelope } from '../types/event.js';
+import type { AuthContext } from '../types/security.js';
+import type { createFlowEngine } from './engine.js';
+import type { FlowRegistry } from './registry.js';
 
 /**
  * Creates event-to-flow trigger integration.
@@ -27,7 +27,7 @@ export function createFlowTriggerHandler(config: {
       tenantId: envelope.tenantId,
       roles: [],
       scopes: [],
-      provider: "event-trigger",
+      provider: 'event-trigger',
     };
 
     let started = 0;

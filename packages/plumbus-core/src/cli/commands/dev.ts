@@ -2,16 +2,16 @@
 // Development server command: starts API server + workers
 // with auto-reload awareness and dev-friendly defaults.
 
-import type { Command } from "commander";
-import { loadConfig, validateConfig } from "../../config/loader.js";
-import { EntityRegistry } from "../../data/registry.js";
-import { ConsumerRegistry } from "../../events/consumer-registry.js";
-import { EventRegistry } from "../../events/registry.js";
-import { CapabilityRegistry } from "../../execution/capability-registry.js";
-import { FlowRegistry } from "../../flows/registry.js";
-import type { PlumbusServer } from "../../server/bootstrap.js";
-import { createServer } from "../../server/bootstrap.js";
-import { info, error as logError, warn } from "../utils.js";
+import type { Command } from 'commander';
+import { loadConfig, validateConfig } from '../../config/loader.js';
+import { EntityRegistry } from '../../data/registry.js';
+import { ConsumerRegistry } from '../../events/consumer-registry.js';
+import { EventRegistry } from '../../events/registry.js';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { FlowRegistry } from '../../flows/registry.js';
+import type { PlumbusServer } from '../../server/bootstrap.js';
+import { createServer } from '../../server/bootstrap.js';
+import { info, error as logError, warn } from '../utils.js';
 
 export interface DevOptions {
   port?: string;
@@ -36,15 +36,15 @@ export function runDev(options: DevOptions): {
   validation: ReturnType<typeof validateConfig>;
   serverUrl: string;
 } {
-  const config = loadConfig({ environment: "development" });
+  const config = loadConfig({ environment: 'development' });
   const validation = validateConfig(config);
 
-  const port = parseInt(options.port ?? "3000", 10);
-  const host = options.host ?? "localhost";
+  const port = parseInt(options.port ?? '3000', 10);
+  const host = options.host ?? 'localhost';
   const serverUrl = `http://${host}:${port}`;
 
   if (!options.json) {
-    info("Plumbus Development Server");
+    info('Plumbus Development Server');
     info(`Environment: ${config.environment}`);
     info(`Server URL: ${serverUrl}`);
     info(`Database: ${config.database.host}:${config.database.port}/${config.database.database}`);
@@ -53,11 +53,11 @@ export function runDev(options: DevOptions): {
     if (config.ai) {
       info(`AI Provider: ${config.ai.provider}`);
     } else {
-      warn("AI provider not configured (set AI_PROVIDER and AI_API_KEY)");
+      warn('AI provider not configured (set AI_PROVIDER and AI_API_KEY)');
     }
 
     if (validation.errors.length > 0) {
-      logError("Config errors:");
+      logError('Config errors:');
       for (const err of validation.errors) {
         logError(`  - ${err}`);
       }
@@ -70,7 +70,7 @@ export function runDev(options: DevOptions): {
     }
 
     if (validation.valid) {
-      info("Config valid — ready to start");
+      info('Config valid — ready to start');
     }
   }
 
@@ -89,11 +89,11 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
   const { config, validation, serverUrl } = runDev(options);
 
   if (!validation.valid) {
-    throw new Error(`Config validation failed: ${validation.errors.join(", ")}`);
+    throw new Error(`Config validation failed: ${validation.errors.join(', ')}`);
   }
 
-  const port = parseInt(options.port ?? "3000", 10);
-  const host = options.host ?? "0.0.0.0";
+  const port = parseInt(options.port ?? '3000', 10);
+  const host = options.host ?? '0.0.0.0';
 
   // Create server with empty registries (user mounts capabilities via project code)
   const server = createServer({
@@ -113,45 +113,53 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    info("Graceful shutdown initiated...");
+    info('Graceful shutdown initiated...');
     await server.stop();
-    info("Server stopped");
+    info('Server stopped');
   };
 
-  const onSignal = () => { void shutdown(); };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
+  const onSignal = () => {
+    void shutdown();
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
 
   // Start listening
   const address = await server.start();
   info(`Server listening on ${address}`);
   info(`Health check: ${serverUrl}/health`);
-  info("Press Ctrl+C to stop");
+  info('Press Ctrl+C to stop');
 
   return { server, shutdown };
 }
 
 export function registerDevCommand(program: Command): void {
   program
-    .command("dev")
-    .description("Start development server with hot-reload")
-    .option("-p, --port <port>", "Server port", "3000")
-    .option("-H, --host <host>", "Server host", "localhost")
-    .option("--json", "Output JSON")
+    .command('dev')
+    .description('Start development server with hot-reload')
+    .option('-p, --port <port>', 'Server port', '3000')
+    .option('-H, --host <host>', 'Server host', 'localhost')
+    .option('--json', 'Output JSON')
     .action(async (opts: DevOptions) => {
       const result = runDev(opts);
 
       if (opts.json) {
-        console.log(JSON.stringify({
-          config: {
-            environment: result.config.environment,
-            database: `${result.config.database.host}:${result.config.database.port}/${result.config.database.database}`,
-            queue: `${result.config.queue.host}:${result.config.queue.port}`,
-            ai: result.config.ai?.provider ?? null,
-          },
-          validation: result.validation,
-          serverUrl: result.serverUrl,
-        }, null, 2));
+        console.log(
+          JSON.stringify(
+            {
+              config: {
+                environment: result.config.environment,
+                database: `${result.config.database.host}:${result.config.database.port}/${result.config.database.database}`,
+                queue: `${result.config.queue.host}:${result.config.queue.port}`,
+                ai: result.config.ai?.provider ?? null,
+              },
+              validation: result.validation,
+              serverUrl: result.serverUrl,
+            },
+            null,
+            2,
+          ),
+        );
         return;
       }
 
@@ -161,7 +169,7 @@ export function registerDevCommand(program: Command): void {
           await startDevServer(opts);
         } catch (err) {
           logError(`Failed to start server: ${err instanceof Error ? err.message : String(err)}`);
-          info("Ensure the database is running and config is correct.");
+          info('Ensure the database is running and config is correct.');
         }
       }
     });

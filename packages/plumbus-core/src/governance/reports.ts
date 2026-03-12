@@ -2,9 +2,9 @@
 // Evaluates all rules in a policy profile, produces structured report with
 // compatibility score, per-rule results, override list, and remediation recommendations.
 
-import type { GovernanceOverride, PolicyReport, RuleEvaluation } from "../types/governance.js";
-import { builtInProfiles, evaluatePolicyProfile } from "./policies.js";
-import type { SystemInventory } from "./rule-engine.js";
+import type { GovernanceOverride, PolicyReport, RuleEvaluation } from '../types/governance.js';
+import { builtInProfiles, evaluatePolicyProfile } from './policies.js';
+import type { SystemInventory } from './rule-engine.js';
 
 // ── Report Options ──
 export interface ReportOptions {
@@ -26,18 +26,24 @@ export function generatePolicyReport(
   const recommendations: string[] = [];
   if (options.includeRemediation !== false) {
     for (const result of results) {
-      if (result.status === "fail" || result.status === "partial") {
+      if (result.status === 'fail' || result.status === 'partial') {
         if (result.remediation) {
           recommendations.push(`[${result.rule}] ${result.remediation}`);
         }
       }
-      if (options.includeOverriddenRecommendations && result.status === "override" && result.remediation) {
+      if (
+        options.includeOverriddenRecommendations &&
+        result.status === 'override' &&
+        result.remediation
+      ) {
         recommendations.push(`[${result.rule}] (overridden) ${result.remediation}`);
       }
     }
   }
 
-  const appliedOverrides = overrides.filter((o) => results.some((r) => r.rule === o.rule && r.status === "override"));
+  const appliedOverrides = overrides.filter((o) =>
+    results.some((r) => r.rule === o.rule && r.status === 'override'),
+  );
 
   return {
     policy: profileName,
@@ -66,44 +72,44 @@ export function formatPolicyReport(report: PolicyReport): string {
   lines.push(`Policy: ${report.policy}`);
   lines.push(`Compatibility Score: ${report.compatibilityScore}%`);
   lines.push(`Evaluated: ${report.timestamp.toISOString()}`);
-  lines.push("");
-  lines.push("Results:");
+  lines.push('');
+  lines.push('Results:');
 
   for (const result of report.results) {
     const icon = formatStatusIcon(result.status);
-    lines.push(`  ${icon} ${result.rule}: ${result.description ?? ""} [${result.status}]`);
+    lines.push(`  ${icon} ${result.rule}: ${result.description ?? ''} [${result.status}]`);
   }
 
   if (report.overrides && report.overrides.length > 0) {
-    lines.push("");
-    lines.push("Overrides:");
+    lines.push('');
+    lines.push('Overrides:');
     for (const override of report.overrides) {
       lines.push(`  - ${override.rule}: ${override.justification} (by ${override.author})`);
     }
   }
 
   if (report.recommendations && report.recommendations.length > 0) {
-    lines.push("");
-    lines.push("Recommendations:");
+    lines.push('');
+    lines.push('Recommendations:');
     for (const rec of report.recommendations) {
       lines.push(`  - ${rec}`);
     }
   }
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
-function formatStatusIcon(status: RuleEvaluation["status"]): string {
+function formatStatusIcon(status: RuleEvaluation['status']): string {
   switch (status) {
-    case "pass":
-      return "✓";
-    case "partial":
-      return "~";
-    case "fail":
-      return "✗";
-    case "override":
-      return "⊘";
+    case 'pass':
+      return '✓';
+    case 'partial':
+      return '~';
+    case 'fail':
+      return '✗';
+    case 'override':
+      return '⊘';
     default:
-      return "?";
+      return '?';
   }
 }

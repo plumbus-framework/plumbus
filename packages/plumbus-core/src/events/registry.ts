@@ -1,4 +1,4 @@
-import type { EventDefinition } from "../types/event.js";
+import type { EventDefinition } from '../types/event.js';
 
 /**
  * Registry that holds all discovered/registered event definitions,

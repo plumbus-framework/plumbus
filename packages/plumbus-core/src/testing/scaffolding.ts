@@ -2,7 +2,7 @@
 // Generates test files for capabilities, flows, entities, and events
 // that use the plumbus-core/testing utilities.
 
-import { toCamelCase, toPascalCase } from "../cli/utils.js";
+import { toCamelCase, toPascalCase } from '../cli/utils.js';
 
 /**
  * Generate a capability test file using the testing framework.
@@ -10,7 +10,7 @@ import { toCamelCase, toPascalCase } from "../cli/utils.js";
 export function generateCapabilityTest(
   name: string,
   _domain: string,
-  _kind: string = "action",
+  _kind: string = 'action',
 ): string {
   const pascal = toPascalCase(name);
   const camel = toCamelCase(name);

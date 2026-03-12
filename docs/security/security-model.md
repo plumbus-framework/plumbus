@@ -177,11 +177,11 @@ ctx.ai.generate()
        │
        ▼
 ┌──────────────────┐
-│ PII Detection    │ ← Scan input for personal data
+│ PII Detection    │ ← Scan input recursively for personal data
 └──────┬───────────┘
        │
 ┌──────▼───────────┐
-│ Classification   │ ← Block highly_sensitive data
+│ Classification   │ ← Block highly_sensitive data (recursive)
 │ Check            │
 └──────┬───────────┘
        │

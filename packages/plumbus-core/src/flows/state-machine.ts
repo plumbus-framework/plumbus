@@ -4,22 +4,22 @@
  */
 
 export const FlowStatus = {
-  Created: "created",
-  Running: "running",
-  Waiting: "waiting",
-  Completed: "completed",
-  Failed: "failed",
-  Cancelled: "cancelled",
+  Created: 'created',
+  Running: 'running',
+  Waiting: 'waiting',
+  Completed: 'completed',
+  Failed: 'failed',
+  Cancelled: 'cancelled',
 } as const;
 
 export type FlowStatus = (typeof FlowStatus)[keyof typeof FlowStatus];
 
 export const StepStatus = {
-  Pending: "pending",
-  Running: "running",
-  Completed: "completed",
-  Failed: "failed",
-  Skipped: "skipped",
+  Pending: 'pending',
+  Running: 'running',
+  Completed: 'completed',
+  Failed: 'failed',
+  Skipped: 'skipped',
 } as const;
 
 export type StepStatus = (typeof StepStatus)[keyof typeof StepStatus];
@@ -59,9 +59,7 @@ export function isValidTransition(from: FlowStatus, to: FlowStatus): boolean {
  */
 export function assertTransition(from: FlowStatus, to: FlowStatus): void {
   if (!isValidTransition(from, to)) {
-    throw new Error(
-      `Invalid flow status transition: "${from}" → "${to}"`,
-    );
+    throw new Error(`Invalid flow status transition: "${from}" → "${to}"`);
   }
 }
 

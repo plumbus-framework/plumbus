@@ -1,4 +1,4 @@
-import type { AccessPolicy, AuthContext } from "../types/security.js";
+import type { AccessPolicy, AuthContext } from '../types/security.js';
 
 export interface AuthorizationResult {
   allowed: boolean;
@@ -15,7 +15,7 @@ export function evaluateAccess(
 ): AuthorizationResult {
   // No policy → deny by default
   if (!policy) {
-    return { allowed: false, reason: "No access policy defined" };
+    return { allowed: false, reason: 'No access policy defined' };
   }
 
   // Public capabilities are always allowed
@@ -25,7 +25,7 @@ export function evaluateAccess(
 
   // Must be authenticated (have a userId)
   if (!auth.userId) {
-    return { allowed: false, reason: "Authentication required" };
+    return { allowed: false, reason: 'Authentication required' };
   }
 
   // Service account check — if the caller is a recognized service account, allow
@@ -37,7 +37,7 @@ export function evaluateAccess(
 
   // Tenant scope enforcement
   if (policy.tenantScoped && !auth.tenantId) {
-    return { allowed: false, reason: "Tenant context required" };
+    return { allowed: false, reason: 'Tenant context required' };
   }
 
   // Role check — caller must have at least one required role
@@ -46,20 +46,18 @@ export function evaluateAccess(
     if (!hasRole) {
       return {
         allowed: false,
-        reason: `Required roles: ${policy.roles.join(", ")}`,
+        reason: `Required roles: ${policy.roles.join(', ')}`,
       };
     }
   }
 
   // Scope check — caller must have all required scopes
   if (policy.scopes && policy.scopes.length > 0) {
-    const missingScopes = policy.scopes.filter(
-      (s) => !auth.scopes.includes(s),
-    );
+    const missingScopes = policy.scopes.filter((s) => !auth.scopes.includes(s));
     if (missingScopes.length > 0) {
       return {
         allowed: false,
-        reason: `Missing scopes: ${missingScopes.join(", ")}`,
+        reason: `Missing scopes: ${missingScopes.join(', ')}`,
       };
     }
   }

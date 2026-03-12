@@ -267,6 +267,7 @@ Structured logging with metadata:
 
 ```typescript
 interface LoggerService {
+  debug(message: string, metadata?: Record<string, unknown>): void;
   info(message: string, metadata?: Record<string, unknown>): void;
   warn(message: string, metadata?: Record<string, unknown>): void;
   error(message: string, metadata?: Record<string, unknown>): void;
@@ -275,6 +276,7 @@ interface LoggerService {
 
 ```typescript
 handler: async (ctx, input) => {
+  ctx.logger.debug("Entering handler", { orderId: input.orderId });
   ctx.logger.info("Processing order", { orderId: input.orderId });
   ctx.logger.warn("Inventory low", { productId: input.productId, remaining: 2 });
   ctx.logger.error("Payment failed", { error: err.message });

@@ -2,7 +2,7 @@
 // Developers override governance warnings with structured justifications.
 // Overrides are stored as structured data and recorded in governance metadata.
 
-import type { GovernanceOverride, GovernanceSignal } from "../types/governance.js";
+import type { GovernanceOverride, GovernanceSignal } from '../types/governance.js';
 
 // ── Override File Entry (for YAML/JSON storage in app/compliance/overrides/) ──
 export interface OverrideEntry {

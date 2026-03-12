@@ -2,16 +2,16 @@
 // Evaluates rules against system metadata (entities, capabilities, flows, events, prompts, AI config)
 // Each rule produces GovernanceSignals
 
-import type { CapabilityContract } from "../types/capability.js";
-import type { EntityDefinition } from "../types/entity.js";
-import type { GovernanceSeverity } from "../types/enums.js";
-import type { EventDefinition } from "../types/event.js";
-import type { FlowDefinition } from "../types/flow.js";
-import type { GovernanceOverride, GovernanceSignal } from "../types/governance.js";
-import type { PromptDefinition } from "../types/prompt.js";
+import type { CapabilityContract } from '../types/capability.js';
+import type { EntityDefinition } from '../types/entity.js';
+import type { GovernanceSeverity } from '../types/enums.js';
+import type { EventDefinition } from '../types/event.js';
+import type { FlowDefinition } from '../types/flow.js';
+import type { GovernanceOverride, GovernanceSignal } from '../types/governance.js';
+import type { PromptDefinition } from '../types/prompt.js';
 
 // ── Rule Category ──
-export type RuleCategory = "security" | "privacy" | "architecture" | "ai";
+export type RuleCategory = 'security' | 'privacy' | 'architecture' | 'ai';
 
 // ── System Inventory — everything the engine evaluates ──
 export interface SystemInventory {
@@ -111,9 +111,9 @@ export function createGovernanceRuleEngine(): GovernanceRuleEngine {
         effective,
         summary: {
           total: allSignals.length,
-          high: effective.filter((s) => s.severity === "high").length,
-          warning: effective.filter((s) => s.severity === "warning").length,
-          info: effective.filter((s) => s.severity === "info").length,
+          high: effective.filter((s) => s.severity === 'high').length,
+          warning: effective.filter((s) => s.severity === 'warning').length,
+          info: effective.filter((s) => s.severity === 'info').length,
           overridden: allSignals.length - effective.length,
         },
       };

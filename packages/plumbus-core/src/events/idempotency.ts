@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { idempotencyTable } from "./outbox.js";
+import { and, eq } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { idempotencyTable } from './outbox.js';
 
 export interface IdempotencyService {
   /** Returns true if this event has already been processed by this consumer */
@@ -13,19 +13,14 @@ export interface IdempotencyService {
  * Creates an idempotency service backed by the event_idempotency table.
  * Used by the delivery worker to prevent duplicate event processing.
  */
-export function createIdempotencyService(
-  db: PostgresJsDatabase,
-): IdempotencyService {
+export function createIdempotencyService(db: PostgresJsDatabase): IdempotencyService {
   return {
     async isProcessed(eventId: string, consumerId: string): Promise<boolean> {
       const rows = await db
         .select({ id: idempotencyTable.id })
         .from(idempotencyTable)
         .where(
-          and(
-            eq(idempotencyTable.eventId, eventId),
-            eq(idempotencyTable.consumerId, consumerId),
-          ),
+          and(eq(idempotencyTable.eventId, eventId), eq(idempotencyTable.consumerId, consumerId)),
         )
         .limit(1);
       return rows.length > 0;
