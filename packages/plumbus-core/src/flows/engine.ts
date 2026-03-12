@@ -532,8 +532,11 @@ function parseDurationToMs(duration: string): number {
     throw new Error(`Invalid delay duration "${duration}". Expected formats like "30s", "5m", "1h".`);
   }
 
-  const value = parseInt(match[1]!, 10);
-  const unit = match[2]!;
+  const [, valueRaw, unit] = match;
+  if (!valueRaw || !unit) {
+    throw new Error(`Invalid delay duration "${duration}".`);
+  }
+  const value = parseInt(valueRaw, 10);
 
   if (unit === 'ms') return value;
   if (unit === 's') return value * 1000;
