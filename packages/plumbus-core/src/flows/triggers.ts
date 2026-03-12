@@ -39,7 +39,8 @@ export function createFlowTriggerHandler(config: {
       started++;
     }
 
-    return started;
+    const resumed = await engine.resumeWaitingByEvent(envelope.eventType, envelope.payload);
+    return started + resumed;
   }
 
   return { handleEvent };

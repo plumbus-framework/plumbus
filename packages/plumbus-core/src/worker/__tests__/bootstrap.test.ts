@@ -12,6 +12,8 @@ const mockEventWorker = { start: vi.fn(), stop: vi.fn(), deliver: vi.fn(), isRun
 const mockFlowEngine = {
   start: vi.fn(async () => ({})),
   runNext: vi.fn(async () => ({})),
+  listRunnable: vi.fn(async () => []),
+  resumeWaitingByEvent: vi.fn(async () => 0),
   resume: vi.fn(async () => {}),
   cancel: vi.fn(async () => {}),
 };

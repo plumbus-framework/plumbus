@@ -1,11 +1,12 @@
+import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { createJwtAdapter } from '../adapter.js';
 
 // Helper: create a fake JWT (header.payload.signature) with base64url-encoded payload
-function fakeJwt(payload: Record<string, unknown>): string {
+function fakeJwt(payload: Record<string, unknown>, secret = 'test-secret'): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = 'fake-signature';
+  const sig = createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
   return `${header}.${body}.${sig}`;
 }
 
@@ -84,11 +85,14 @@ describe('createJwtAdapter', () => {
       secret: 's',
       issuer: 'my-app',
     });
-    const token = fakeJwt({
-      sub: 'u1',
-      iss: 'wrong-issuer',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
+    const token = fakeJwt(
+      {
+        sub: 'u1',
+        iss: 'wrong-issuer',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      's',
+    );
 
     const result = await strictAdapter.authenticate(`Bearer ${token}`);
     expect(result).toBeNull();
@@ -99,11 +103,14 @@ describe('createJwtAdapter', () => {
       secret: 's',
       issuer: 'my-app',
     });
-    const token = fakeJwt({
-      sub: 'u1',
-      iss: 'my-app',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
+    const token = fakeJwt(
+      {
+        sub: 'u1',
+        iss: 'my-app',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      's',
+    );
 
     const result = await strictAdapter.authenticate(`Bearer ${token}`);
     expect(result).not.toBeNull();
@@ -114,11 +121,14 @@ describe('createJwtAdapter', () => {
       secret: 's',
       audience: 'api',
     });
-    const token = fakeJwt({
-      sub: 'u1',
-      aud: 'other-service',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
+    const token = fakeJwt(
+      {
+        sub: 'u1',
+        aud: 'other-service',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      's',
+    );
 
     const result = await audAdapter.authenticate(`Bearer ${token}`);
     expect(result).toBeNull();
@@ -134,13 +144,16 @@ describe('createJwtAdapter', () => {
         tenantId: 'org_id',
       },
     });
-    const token = fakeJwt({
-      user_id: 'custom-user',
-      permissions: ['superadmin'],
-      grants: 'all',
-      org_id: 'org-99',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
+    const token = fakeJwt(
+      {
+        user_id: 'custom-user',
+        permissions: ['superadmin'],
+        grants: 'all',
+        org_id: 'org-99',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      's',
+    );
 
     const result = await customAdapter.authenticate(`Bearer ${token}`);
     expect(result?.userId).toBe('custom-user');

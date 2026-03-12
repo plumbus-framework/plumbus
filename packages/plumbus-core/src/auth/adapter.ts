@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { AuthContext } from '../types/security.js';
 
 /**
@@ -44,9 +45,7 @@ const defaultClaimMapping: JwtClaimMapping = {
  * JWT-based auth adapter. Decodes and validates JWT tokens,
  * mapping claims to an AuthContext.
  *
- * Uses a simple base64url decode — for production, integrate
- * a proper JWT library (jose, jsonwebtoken) for full signature verification.
- * This provides the adapter contract + claim mapping logic.
+ * Supports HMAC-SHA256 (HS256) signed JWTs.
  */
 export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
   const mapping = { ...defaultClaimMapping, ...config.claimMapping };
@@ -58,8 +57,9 @@ export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
       const token = extractBearerToken(authorizationHeader);
       if (!token) return null;
 
-      const payload = decodeJwtPayload(token);
-      if (!payload) return null;
+      const verified = verifyJwtHs256(token, config.secret);
+      if (!verified) return null;
+      const { payload } = verified;
 
       // Validate issuer if configured
       if (config.issuer && payload.iss !== config.issuer) {
@@ -125,4 +125,37 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function verifyJwtHs256(token: string, secret: string): { payload: Record<string, unknown> } | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  if (!encodedHeader || !encodedPayload || !encodedSignature) return null;
+
+  let header: Record<string, unknown>;
+  try {
+    header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf-8')) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return null;
+  }
+
+  if (header.alg !== 'HS256') {
+    return null;
+  }
+
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const expected = createHmac('sha256', secret).update(signingInput).digest();
+  const actual = Buffer.from(encodedSignature, 'base64url');
+
+  if (expected.length !== actual.length) return null;
+  if (!timingSafeEqual(expected, actual)) return null;
+
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
+  return { payload };
 }

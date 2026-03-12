@@ -16,7 +16,7 @@ export const outboxTable = pgTable(
     correlationId: text('correlation_id').notNull(),
     causationId: text('causation_id'),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
-    status: text('status').notNull().default('pending'), // pending | dispatched | failed
+    status: text('status').notNull().default('pending'), // pending | processing | retry | dispatched | dead_lettered
     dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
     retryCount: text('retry_count').notNull().default('0'),
     lastError: text('last_error'),

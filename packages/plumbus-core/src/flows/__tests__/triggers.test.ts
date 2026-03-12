@@ -25,6 +25,7 @@ describe('FlowTriggerHandler', () => {
         started.push({ name, input, auth, opts });
         return { id: 'exec-1', flowName: name, status: 'created' };
       }),
+      resumeWaitingByEvent: vi.fn().mockResolvedValue(0),
     } as any;
 
     const handler = createFlowTriggerHandler({ registry, engine });
@@ -51,7 +52,10 @@ describe('FlowTriggerHandler', () => {
 
   it('returns 0 when no flows match', async () => {
     const registry = new FlowRegistry();
-    const engine = { start: vi.fn() } as any;
+    const engine = {
+      start: vi.fn(),
+      resumeWaitingByEvent: vi.fn().mockResolvedValue(0),
+    } as any;
     const handler = createFlowTriggerHandler({ registry, engine });
 
     const envelope: EventEnvelope = {
@@ -92,6 +96,7 @@ describe('FlowTriggerHandler', () => {
 
     const engine = {
       start: vi.fn().mockResolvedValue({ id: 'x', flowName: 'x', status: 'created' }),
+      resumeWaitingByEvent: vi.fn().mockResolvedValue(0),
     } as any;
 
     const handler = createFlowTriggerHandler({ registry, engine });

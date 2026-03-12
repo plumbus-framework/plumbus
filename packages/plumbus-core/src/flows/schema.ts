@@ -28,6 +28,8 @@ export const flowExecutionsTable = pgTable(
     // Array of { step, status, startedAt, completedAt, error? }
     retryCount: integer('retry_count').notNull().default(0),
     lastError: text('last_error'),
+    waitingForEvent: text('waiting_for_event'),
+    wakeAt: timestamp('wake_at', { withTimezone: true }),
     actor: text('actor').notNull(),
     tenantId: text('tenant_id'),
     correlationId: text('correlation_id'),
@@ -38,6 +40,7 @@ export const flowExecutionsTable = pgTable(
   },
   (table) => [
     index('flow_exec_status_idx').on(table.status),
+    index('flow_exec_wake_at_idx').on(table.wakeAt),
     index('flow_exec_flow_name_idx').on(table.flowName),
     index('flow_exec_tenant_idx').on(table.tenantId),
   ],
@@ -48,13 +51,13 @@ export const flowExecutionsTable = pgTable(
  */
 export const flowDeadLetterTable = pgTable('flow_dead_letter', {
   id: uuid('id').defaultRandom().primaryKey(),
-  executionId: text('execution_id').notNull(),
+  executionId: text('execution_id').notNull().unique(),
   flowName: text('flow_name').notNull(),
   input: jsonb('input').notNull(),
   state: jsonb('state'),
   stepHistory: jsonb('step_history'),
   lastError: text('last_error'),
-  retryCount: integer('retry_count').notNull(),
+  retryCount: integer('retry_count').notNull().default(0),
   failedAt: timestamp('failed_at', { withTimezone: true }).defaultNow().notNull(),
   metadata: jsonb('metadata'),
 });
