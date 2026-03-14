@@ -28,6 +28,7 @@ Every capability handler receives `ctx` — the scoped runtime context:
 | `ctx.logger` | Structured logging — info, warn, error |
 | `ctx.time` | Time utilities — `ctx.time.now()` |
 | `ctx.config` | Read-only application configuration |
+| `ctx.security` | Security service — policy evaluation and access enforcement |
 
 ## How Subsystems Connect
 
@@ -61,3 +62,25 @@ config/
   app.config.ts       # PlumbusConfig
   ai.config.ts        # AI provider configuration
 ```
+
+## Framework-Provided Dependencies
+
+The framework provides common dependencies — **consumer apps must NOT install them separately**. Import through the framework's subpath exports:
+
+| Dependency | Import from | Usage |
+|-----------|-------------|-------|
+| **Zod** | `plumbus-core/zod` | `import { z } from "plumbus-core/zod"` |
+| **Vitest** | `plumbus-core/testing` | `import { describe, it, expect } from "plumbus-core/testing"` |
+| **Playwright** | `plumbus-core/testing` | `import { chromium } from "plumbus-core/testing"` |
+| **Vitest Config** | `plumbus-core/vitest` | `import { defineConfig } from "plumbus-core/vitest"` |
+
+**CRITICAL**: Never add `zod`, `vitest`, `playwright`, or `@playwright/test` to a consumer app's `package.json`. They are provided by `plumbus-core`.
+
+### CLI Commands
+
+| Task | Command |
+|------|---------|
+| Run tests | `plumbus test` |
+| Watch mode | `plumbus test --watch` |
+| Run e2e tests | `plumbus test --config frontend/e2e/vitest.config.e2e.ts` |
+| Dev server | `plumbus dev` |

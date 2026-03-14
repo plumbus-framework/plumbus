@@ -39,7 +39,30 @@ export const refundApproval = defineFlow({
 | `delay` | Pause for a fixed duration | `duration` (e.g., `"24h"`, `"5m"`) |
 | `parallel` | Run multiple steps concurrently | `branches` (step names) |
 | `eventEmit` | Emit a framework event | `event` (event type) |
+### Conditional Syntax
 
+The `if` field accepts a JavaScript-like expression string. You can reference the flow `input` and `state` directly:
+
+```ts
+// Simple comparison against input
+{ type: "conditional", name: "checkAmount", if: "input.amount > 100", then: "managerApproval", else: "autoApprove" }
+
+// Reference flow state
+{ type: "conditional", name: "checkApproval", if: "state.approved", then: "processRefund", else: "escalate" }
+
+// Logical operators
+{ type: "conditional", name: "checkBoth", if: "input.amount > 100 && state.retryCount < 3", then: "retry", else: "fail" }
+```
+
+The `then` and `else` values reference step **names** within the same flow. Execution jumps to the named step.
+
+### Parallel Branches
+
+```ts
+{ type: "parallel", name: "notifyAll", branches: ["sendEmail", "sendSms", "logAudit"] }
+```
+
+All branches execute concurrently. The flow waits for **all** branches to complete before advancing. If any branch fails, the entire parallel step fails.
 ## State Management
 
 Flows maintain a `state` object persisted across steps. Each step can read and modify state through the flow execution context.

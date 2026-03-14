@@ -2,6 +2,8 @@
 
 Plumbus provides a complete testing toolkit exported from `plumbus-core/testing`. Every testing utility is designed to work with Vitest.
 
+**Important**: Vitest, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
+
 ## Setup
 
 ```typescript

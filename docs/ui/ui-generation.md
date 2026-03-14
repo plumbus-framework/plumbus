@@ -1,6 +1,6 @@
 # UI Code Generation
 
-The `@plumbus/ui` package generates type-safe frontend code from Plumbus capability and entity definitions — API clients, React hooks, authentication wrappers, and form configurations.
+The `@plumbus/ui` package generates type-safe frontend code from Plumbus capability and flow definitions — API clients, React hooks, authentication helpers, form metadata, and Next.js scaffolds.
 
 ## Overview
 
@@ -25,29 +25,45 @@ Plumbus Definitions                    Generated Code
                                    └──────────────────┘
 ```
 
-## Generating Client Code
+## CLI Workflow
+
+Use the Plumbus CLI for UI generation:
+
+```bash
+plumbus ui generate
+plumbus ui nextjs frontend
+```
+
+`plumbus ui generate` writes UI modules to `.plumbus/generated/ui/` by default:
+
+```
+.plumbus/generated/ui/
+├── client.ts
+├── hooks.ts
+├── auth.ts
+└── form-hints.ts
+```
+
+`plumbus ui nextjs frontend` scaffolds a Next.js app and also writes generated modules into `frontend/generated/`.
+
+## Core Artifact Generation
 
 ```bash
 plumbus generate
 ```
 
-This produces files under `generated/`:
+This produces framework-derived artifacts under `.plumbus/generated/`:
 
 ```
-generated/
-├── client/
-│   ├── getUser.ts           # API client function
-│   ├── createUser.ts
-│   └── ...
-├── hooks/
-│   ├── useGetUser.ts        # React query hook
-│   ├── useCreateUser.ts     # React mutation hook
-│   └── ...
-├── auth/
-│   └── withAuth.ts          # Auth wrappers
-└── forms/
-    └── userForm.ts          # Form field hints
+.plumbus/generated/
+├── clients/
+│   ├── api.ts
+│   └── hooks.ts
+├── openapi.json
+└── manifest.json
 ```
+
+These outputs are intended as contract artifacts. For frontend-ready source files, use `plumbus ui generate`.
 
 ## API Client Functions
 
@@ -191,10 +207,11 @@ The `@plumbus/ui` package includes a Next.js App Router template:
 import { generateNextjsTemplate } from "@plumbus/ui";
 
 const template = generateNextjsTemplate({
-  capabilities: [getUser, createUser, listUsers],
-  entities: [User],
-  auth: { provider: "clerk" },
+  appName: "My App",
+  auth: true,
+  apiBaseUrl: "http://localhost:3000",
 });
+[getUser, createUser, listUsers]);
 ```
 
 Generates:

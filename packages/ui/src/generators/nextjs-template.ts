@@ -82,7 +82,9 @@ export function generateTsConfig(): GeneratedFile {
         isolatedModules: true,
         jsx: 'preserve',
         incremental: true,
-        paths: { '@/*': ['./*'] },
+        paths: {
+          '@/*': ['./*'],
+        },
       },
       include: ['next-env.d.ts', '**/*.ts', '**/*.tsx'],
       exclude: ['node_modules'],
@@ -98,7 +100,7 @@ export function generateTsConfig(): GeneratedFile {
 export function generateLayout(config: NextjsTemplateConfig): GeneratedFile {
   const auth = config.auth !== false;
 
-  const authImport = auth ? `import { AuthProvider } from "./components/AuthProvider";\n` : '';
+  const authImport = auth ? `import { AuthProvider } from "../components/AuthProvider";\n` : '';
   const authWrapOpen = auth ? '        <AuthProvider>\n' : '';
   const authWrapClose = auth ? '        </AuthProvider>\n' : '';
 

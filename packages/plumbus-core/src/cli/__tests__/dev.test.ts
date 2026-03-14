@@ -1,5 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { runDev } from '../commands/dev.js';
+
+// Mock discoverResources before importing dev module
+vi.mock('../discover.js', () => ({
+  discoverResources: vi.fn(async () => ({
+    capabilities: [
+      {
+        name: 'testCap',
+        kind: 'query',
+        domain: 'test',
+        handler: async () => ({}),
+        effects: { data: [], events: [], external: [], ai: false },
+        input: { parse: (v: unknown) => v },
+        output: { parse: (v: unknown) => v },
+        access: { roles: ['admin'] },
+      },
+    ],
+    entities: [],
+    flows: [],
+    events: [],
+    prompts: [],
+  })),
+}));
+
+// Mock server bootstrap
+vi.mock('../../server/bootstrap.js', () => ({
+  createServer: vi.fn(() => ({
+    app: {},
+    start: vi.fn(async () => 'http://0.0.0.0:3000'),
+    stop: vi.fn(async () => {}),
+  })),
+}));
+
+import { createServer } from '../../server/bootstrap.js';
+import { runDev, startDevServer } from '../commands/dev.js';
+import { discoverResources } from '../discover.js';
 
 // ── Tests ──
 
@@ -88,6 +122,33 @@ describe('CLI dev command', () => {
       // warn() uses console.log with ⚠ prefix
       const calls = (console.log as any).mock.calls.map((c: any[]) => c[0]);
       expect(calls.some((msg: string) => msg.includes('AI provider not configured'))).toBe(true);
+    });
+  });
+
+  describe('startDevServer', () => {
+    beforeEach(() => {
+      vi.mocked(createServer).mockClear();
+      vi.mocked(discoverResources).mockClear();
+    });
+
+    it('calls discoverResources to auto-discover app primitives', async () => {
+      await startDevServer({ db: {} });
+      expect(discoverResources).toHaveBeenCalled();
+    });
+
+    it('passes discovered capabilities to createServer', async () => {
+      await startDevServer({ db: {} });
+      expect(createServer).toHaveBeenCalled();
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.capabilities.getAll()).toHaveLength(1);
+      expect(serverConfig.capabilities.getAll()[0].name).toBe('testCap');
+    });
+
+    it('uses provided db when given', async () => {
+      const mockDb = { execute: vi.fn() };
+      await startDevServer({ db: mockDb });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.db).toBe(mockDb);
     });
   });
 });

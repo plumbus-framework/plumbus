@@ -25,8 +25,10 @@ plumbus init
 ┌─────────────────────────────────────────────────────────────┐
 │ Reads instruction files from:                               │
 │ node_modules/plumbus-core/instructions/                     │
+│ node_modules/@plumbus/ui/instructions/                      │
 │                                                             │
 │  framework.md     ← Core patterns and conventions           │
+│  nextjs-template.md ← Frontend scaffolding guidance         │
 │  capabilities.md  ← How to write capabilities               │
 │  entities.md      ← How to define entities                  │
 │  events.md        ← How to define and emit events           │
@@ -87,6 +89,7 @@ After initialization, your AI agent understands:
 | **Governance** | Built-in rules, compliance profiles, overrides |
 | **Testing** | `runCapability()`, `simulateFlow()`, `mockAI()`, security asserts |
 | **Patterns** | Common implementation patterns and idioms |
+| **UI Generation** | How to generate clients, hooks, auth helpers, form hints, and Next.js scaffolds |
 
 ## Manual Setup
 
@@ -180,6 +183,13 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/plumbus-core/instructions/governance.md` | Governance rules |
 | `node_modules/plumbus-core/instructions/testing.md` | Testing utilities |
 | `node_modules/plumbus-core/instructions/patterns.md` | Code patterns |
+| `node_modules/@plumbus/ui/instructions/framework.md` | UI generation overview |
+| `node_modules/@plumbus/ui/instructions/client-generator.md` | Client and hook generation |
+| `node_modules/@plumbus/ui/instructions/auth-generator.md` | Frontend auth helpers |
+| `node_modules/@plumbus/ui/instructions/form-generator.md` | Form metadata extraction |
+| `node_modules/@plumbus/ui/instructions/nextjs-template.md` | Next.js scaffold generation |
+| `node_modules/@plumbus/ui/instructions/testing.md` | Frontend testing guidance |
+| `node_modules/@plumbus/ui/instructions/patterns.md` | UI generation patterns |
 
 ## Verifying Agent Setup
 

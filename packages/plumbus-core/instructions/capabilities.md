@@ -28,6 +28,8 @@ export const getUser = defineCapability({
 
   audit: { event: "user.fetched", includeInput: ["userId"] },
 
+  explanation: { enabled: true, summary: "Fetches user profile data" },
+
   handler: async (ctx, input) => {
     const user = await ctx.data.User.findById(input.userId);
     if (!user) throw ctx.errors.notFound("User not found");
@@ -109,6 +111,19 @@ Every capability must declare its side effects in the `effects` field:
 
 Effects are used by governance rules to analyze the system.
 
+## Explanation Tracking
+
+Capabilities that use AI (`effects.ai: true`) should enable explanation tracking:
+
+```ts
+explanation: {
+  enabled: true,    // Enable AI explanation tracking
+  summary: "...",   // Human-readable description of AI usage
+},
+```
+
+The governance rule `ruleAIWithoutExplanation` warns when a capability has `effects.ai: true` but doesn't set `explanation.enabled: true`.
+
 ## Error Handling
 
 Use `ctx.errors` to throw structured errors:
@@ -122,3 +137,35 @@ throw ctx.errors.internal("Payment provider unavailable");
 ```
 
 These map to HTTP status codes: 400, 404, 403, 409, 500.
+
+These are the **only** structured error types. If you need a custom error, use `ctx.errors.internal()` with a descriptive message.
+
+## Job Capabilities
+
+Capabilities with `kind: "job"` are for long-running operations. They return immediately with a job handle, and the work executes asynchronously.
+
+```ts
+export const generateReport = defineCapability({
+  name: "generateReport",
+  kind: "job",
+  domain: "reports",
+
+  input: z.object({ reportType: z.string(), dateRange: z.object({ from: z.string(), to: z.string() }) }),
+  output: z.object({ reportId: z.string(), estimatedDuration: z.number() }),
+
+  access: { roles: ["admin", "analyst"], tenantScoped: true },
+  effects: { data: ["Report"], events: ["report.generated"], external: [], ai: true },
+
+  handler: async (ctx, input) => {
+    const report = await ctx.data.Report.create({
+      type: input.reportType,
+      status: "queued",
+      dateFrom: input.dateRange.from,
+      dateTo: input.dateRange.to,
+    });
+    return { reportId: report.id, estimatedDuration: 120 };
+  },
+});
+```
+
+Job capabilities are exposed as `POST` endpoints that return `202 Accepted` with the job output. The framework provides job status tracking and progress monitoring automatically.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlumbusConfig } from '../../types/config.js';
-import { loadConfig, validateConfig } from '../loader.js';
+import { loadConfig, loadPromptOverrides, validateConfig } from '../loader.js';
 
 // ── Tests ──
 
@@ -88,6 +88,33 @@ describe('Config Loader', () => {
         },
       });
       expect(config.database.host).toBe('primary');
+    });
+
+    it('supports DB_* env var aliases (scaffold-generated)', () => {
+      const config = loadConfig({
+        env: {
+          DB_HOST: 'db.scaffold.com',
+          DB_PORT: '5435',
+          DB_NAME: 'scaffold_db',
+          DB_USER: 'scaffolduser',
+          DB_PASSWORD: 'scaffoldpass',
+        },
+      });
+      expect(config.database.host).toBe('db.scaffold.com');
+      expect(config.database.port).toBe(5435);
+      expect(config.database.database).toBe('scaffold_db');
+      expect(config.database.user).toBe('scaffolduser');
+      expect(config.database.password).toBe('scaffoldpass');
+    });
+
+    it('prefers DATABASE_* over DB_* aliases', () => {
+      const config = loadConfig({
+        env: {
+          DATABASE_HOST: 'full-form',
+          DB_HOST: 'short-form',
+        },
+      });
+      expect(config.database.host).toBe('full-form');
     });
 
     it('enables SSL in production by default', () => {
@@ -358,6 +385,152 @@ describe('Config Loader', () => {
       );
       expect(result.valid).toBe(false);
       expect(result.errors.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe('loadPromptOverrides', () => {
+    it('should return undefined when no PROMPT_ env vars exist', () => {
+      const result = loadPromptOverrides({});
+      expect(result).toBeUndefined();
+    });
+
+    it('should parse PROMPT_{NAME}_MODEL env var', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_MODEL: 'claude-sonnet-4-20250514',
+      });
+      expect(result).toEqual({
+        writer: { model: 'claude-sonnet-4-20250514' },
+      });
+    });
+
+    it('should parse PROMPT_{NAME}_PROVIDER env var', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_PROVIDER: 'anthropic',
+      });
+      expect(result).toEqual({
+        writer: { provider: 'anthropic' },
+      });
+    });
+
+    it('should parse PROMPT_{NAME}_TEMPERATURE env var', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_TEMPERATURE: '0.7',
+      });
+      expect(result).toEqual({
+        writer: { temperature: 0.7 },
+      });
+    });
+
+    it('should parse PROMPT_{NAME}_MAX_TOKENS env var', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_MAX_TOKENS: '4096',
+      });
+      expect(result).toEqual({
+        writer: { maxTokens: 4096 },
+      });
+    });
+
+    it('should combine multiple fields for same prompt', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_PROVIDER: 'anthropic',
+        PROMPT_WRITER_MODEL: 'claude-sonnet-4-20250514',
+        PROMPT_WRITER_TEMPERATURE: '0.5',
+        PROMPT_WRITER_MAX_TOKENS: '2048',
+      });
+      expect(result).toEqual({
+        writer: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          temperature: 0.5,
+          maxTokens: 2048,
+        },
+      });
+    });
+
+    it('should handle multiple prompt overrides', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_MODEL: 'gpt-4o',
+        PROMPT_ANALYZER_MODEL: 'claude-sonnet-4-20250514',
+        PROMPT_ANALYZER_PROVIDER: 'anthropic',
+      });
+      expect(result).toEqual({
+        writer: { model: 'gpt-4o' },
+        analyzer: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+      });
+    });
+
+    it('should handle multi-word prompt names with underscores', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITE_CHAPTER_MODEL: 'gpt-4o-mini',
+      });
+      expect(result).toEqual({
+        write_chapter: { model: 'gpt-4o-mini' },
+      });
+    });
+
+    it('should ignore non-PROMPT_ env vars', () => {
+      const result = loadPromptOverrides({
+        AI_DEFAULT_MODEL: 'gpt-4o',
+        DATABASE_URL: 'postgres://localhost',
+        PROMPT_WRITER_MODEL: 'gpt-4o',
+      });
+      expect(result).toEqual({
+        writer: { model: 'gpt-4o' },
+      });
+    });
+
+    it('should lowercase the prompt name key', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_MODEL: 'gpt-4o',
+      });
+      expect(Object.keys(result!)).toEqual(['writer']);
+    });
+  });
+
+  describe('loadConfig with multi-provider and prompt overrides', () => {
+    it('should include defaultModel from AI_DEFAULT_MODEL', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_DEFAULT_MODEL: 'gpt-4o-mini',
+          AI_OPENAI_API_KEY: 'sk-test',
+        },
+      });
+      expect(config.aiProviders?.defaultModel).toBe('gpt-4o-mini');
+    });
+
+    it('should include prompt overrides from PROMPT_ env vars', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_OPENAI_API_KEY: 'sk-test',
+          PROMPT_WRITER_MODEL: 'claude-sonnet-4-20250514',
+          PROMPT_WRITER_PROVIDER: 'anthropic',
+        },
+      });
+      expect(config.aiProviders?.promptOverrides).toEqual({
+        writer: { model: 'claude-sonnet-4-20250514', provider: 'anthropic' },
+      });
+    });
+
+    it('should include both defaultModel and promptOverrides together', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_DEFAULT_MODEL: 'gpt-4o',
+          AI_OPENAI_API_KEY: 'sk-test',
+          AI_ANTHROPIC_API_KEY: 'sk-ant-test',
+          PROMPT_ANALYZER_PROVIDER: 'anthropic',
+          PROMPT_ANALYZER_MODEL: 'claude-sonnet-4-20250514',
+        },
+      });
+      expect(config.aiProviders?.defaultModel).toBe('gpt-4o');
+      expect(config.aiProviders?.promptOverrides).toEqual({
+        analyzer: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+      });
     });
   });
 });

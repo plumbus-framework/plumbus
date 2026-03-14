@@ -24,6 +24,19 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | Test single file | `cd packages/plumbus-core && npx vitest run src/<module>/__tests__/<name>.test.ts` |
 | Browser tests | `cd packages/plumbus-core && pnpm test:browser` |
 
+## Consumer App Dependency Policy
+
+`plumbus-core` provides these packages to consumer apps through subpath exports. Consumers must **never** add them to their own `package.json`:
+
+| Package | Consumer imports from | Provided by |
+|---------|----------------------|-------------|
+| zod | `plumbus-core/zod` | `dependencies` |
+| vitest | `vitest` (at runtime) | `dependencies` |
+| vitest config | `plumbus-core/vitest` | `dependencies` |
+| playwright | `plumbus-core/testing` | `dependencies` |
+
+Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command resolves vitest from within the framework.
+
 ## Coding Conventions
 
 - **ESM only** — all imports require `.js` extensions (Node16 module resolution)

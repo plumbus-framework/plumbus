@@ -1,5 +1,15 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { ModelConfig, PromptDefinition } from '../types/prompt.js';
+
+function isZodSchema(value: unknown): value is z.ZodTypeAny {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_def' in value &&
+    'safeParse' in value &&
+    typeof (value as Record<string, unknown>).safeParse === 'function'
+  );
+}
 
 interface DefinePromptInput<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny> {
   name: string;
@@ -19,10 +29,10 @@ export function definePrompt<TInput extends z.ZodTypeAny, TOutput extends z.ZodT
   if (!config.name) {
     throw new Error('Prompt name is required');
   }
-  if (!(config.input instanceof z.ZodType)) {
+  if (!isZodSchema(config.input)) {
     throw new Error(`Prompt "${config.name}": input must be a Zod schema`);
   }
-  if (!(config.output instanceof z.ZodType)) {
+  if (!isZodSchema(config.output)) {
     throw new Error(`Prompt "${config.name}": output must be a Zod schema`);
   }
 

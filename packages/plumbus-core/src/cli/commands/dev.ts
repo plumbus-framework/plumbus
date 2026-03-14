@@ -11,6 +11,7 @@ import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
 import type { PlumbusServer } from '../../server/bootstrap.js';
 import { createServer } from '../../server/bootstrap.js';
+import { discoverResources } from '../discover.js';
 import { info, error as logError, warn } from '../utils.js';
 
 export interface DevOptions {
@@ -20,16 +21,14 @@ export interface DevOptions {
 }
 
 /**
- * Run the development server.
+ * Run the development server config validation (sync).
  *
  * This:
  * 1. Loads config from env variables with dev defaults
  * 2. Validates the config
- * 3. Creates and starts the Fastify server with empty registries
- * 4. Registers SIGINT/SIGTERM handlers for graceful shutdown
+ * 3. Prints server info
  *
- * Returns a promise that resolves with the server info, or can be
- * called synchronously (config-only mode) for testing.
+ * Returns config and validation result. Call startDevServer() to start the actual server.
  */
 export function runDev(options: DevOptions): {
   config: ReturnType<typeof loadConfig>;
@@ -79,8 +78,8 @@ export function runDev(options: DevOptions): {
 
 /**
  * Start the actual development server (async).
- * Creates a Fastify server with empty registries and listens on the configured port.
- * Sets up graceful shutdown on SIGINT/SIGTERM.
+ * Discovers resources from app/, populates registries, connects to DB,
+ * and starts the Fastify server. Sets up graceful shutdown on SIGINT/SIGTERM.
  */
 export async function startDevServer(options: DevOptions & { db?: unknown }): Promise<{
   server: PlumbusServer;
@@ -95,15 +94,59 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
   const port = parseInt(options.port ?? '3000', 10);
   const host = options.host ?? '0.0.0.0';
 
-  // Create server with empty registries (user mounts capabilities via project code)
+  // Auto-discover resources from app/ directory
+  info('Discovering resources from app/ ...');
+  const resources = await discoverResources();
+  info(
+    `Found ${resources.capabilities.length} capabilities, ${resources.entities.length} entities, ` +
+      `${resources.flows.length} flows, ${resources.events.length} events, ${resources.prompts.length} prompts`,
+  );
+
+  // Populate registries
+  const capabilities = new CapabilityRegistry();
+  capabilities.registerAll(resources.capabilities);
+
+  const entities = new EntityRegistry();
+  entities.registerAll(resources.entities);
+
+  const events = new EventRegistry();
+  events.registerAll(resources.events);
+
+  const flows = new FlowRegistry();
+  flows.registerAll(resources.flows);
+
+  const consumers = new ConsumerRegistry();
+
+  // Connect to database (caller can override via options.db)
+  let db = options.db;
+  if (!db) {
+    try {
+      const { drizzle } = await import('drizzle-orm/postgres-js');
+      const postgres = (await import('postgres')).default;
+      const sql = postgres({
+        host: config.database.host,
+        port: config.database.port,
+        database: config.database.database,
+        username: config.database.user,
+        password: config.database.password,
+      });
+      db = drizzle(sql);
+      info('Database connected');
+    } catch (err) {
+      throw new Error(
+        `Database connection failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   const server = createServer({
     config,
-    db: options.db as any, // Caller provides DB connection
-    capabilities: new CapabilityRegistry(),
-    entities: new EntityRegistry(),
-    events: new EventRegistry(),
-    consumers: new ConsumerRegistry(),
-    flows: new FlowRegistry(),
+    db: db as any,
+    capabilities,
+    entities,
+    events,
+    consumers,
+    flows,
     host,
     port,
   });

@@ -19,14 +19,15 @@ export const summarizeTicket = definePrompt({
     sentiment: z.enum(["positive", "neutral", "negative"]),
   }),
 
+  // provider and model are resolved from config/env at runtime — only set tuning params here
   model: {
-    provider: "openai",
-    name: "gpt-4",
     temperature: 0.3,
     maxTokens: 500,
   },
 });
 ```
+
+Prompts should NOT hardcode `provider` or model `name`. These are resolved at runtime through the configuration chain (see below). Only set `temperature` and `maxTokens` in the prompt definition.
 
 ## `ctx.ai` Operations
 
@@ -79,7 +80,101 @@ All AI responses are validated against the prompt's output Zod schema. On failur
 
 ## Cost Tracking
 
-Every AI invocation records: model used, input/output token counts, estimated cost, latency, and prompt name. Budget limits (per-request, daily, per-tenant) can be enforced via configuration.
+Every AI invocation records: model used, input/output token counts, latency, and prompt name. Token counts come directly from provider responses and are always accurate.
+
+**Actual costs** are fetched from provider usage APIs — the framework never guesses or hardcodes pricing. Use `createUsageAPIClient()` to configure OpenAI and Anthropic billing API access:
+
+```ts
+import { createUsageAPIClient, createCostTracker } from "plumbus-core";
+
+const openaiUsage = createUsageAPIClient({
+  provider: "openai",
+  apiKey: process.env.AI_OPENAI_API_KEY,
+});
+
+const anthropicUsage = createUsageAPIClient({
+  provider: "anthropic",
+  apiKey: process.env.AI_ANTHROPIC_API_KEY,
+});
+
+const costTracker = createCostTracker(budgetConfig, [openaiUsage, anthropicUsage]);
+
+// Fetch actual costs from billing APIs
+const result = await costTracker.syncCosts();
+if (!result.synced) {
+  console.warn("Cost sync failed:", result.error);
+}
+```
+
+If the usage API is not configured or unavailable, `cost` on each record is `null` and dollar-based budget limits cannot be enforced. Token-based budget limits always work.
+
+Budget limits (per-request token limit, daily cost limit, per-tenant daily limit) are enforced via `BudgetConfig`.
+
+## Configuration via Environment Variables
+
+Use `loadConfig()` from `plumbus-core` in your `config/app.config.ts` — it reads AI provider settings from env vars automatically.
+
+### Single Provider
+
+```bash
+AI_PROVIDER=openai
+AI_API_KEY=sk-...
+AI_BASE_URL=https://custom-endpoint.com/v1   # optional, omit for default
+AI_MODEL=gpt-4o-mini
+```
+
+### Multi-Provider
+
+Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Providers are discovered from `AI_{NAME}_API_KEY` patterns:
+
+```bash
+AI_DEFAULT_PROVIDER=openai
+
+AI_OPENAI_API_KEY=sk-...
+AI_OPENAI_BASE_URL=https://custom-openai.com/v1   # optional
+AI_OPENAI_MODEL=gpt-4o-mini
+
+AI_ANTHROPIC_API_KEY=sk-ant-...
+AI_ANTHROPIC_BASE_URL=https://custom-anthropic.com  # optional
+AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
+```
+
+Each prompt's `model.provider` routes to the named provider; prompts without a provider field use `defaultProvider`.
+
+### Default Model
+
+Set a global fallback model that all prompts use unless overridden:
+
+```bash
+AI_DEFAULT_MODEL=gpt-4o
+```
+
+### Per-Prompt Overrides
+
+Override model, provider, temperature, or maxTokens for any specific prompt via env vars:
+
+```bash
+# Format: PROMPT_{NAME}_{FIELD}
+# Name = prompt name with dots → underscores, UPPERCASED
+# Fields: PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS
+
+# Route "writer.write_chapter" to Anthropic:
+PROMPT_WRITER_WRITE_CHAPTER_PROVIDER=anthropic
+PROMPT_WRITER_WRITE_CHAPTER_MODEL=claude-sonnet-4-20250514
+
+# Use a cheaper model for metadata extraction:
+PROMPT_INTERVIEW_EXTRACT_METADATA_MODEL=gpt-4o-mini
+```
+
+### Model Resolution Chain
+
+When a prompt is invoked, the model is resolved in this order:
+
+1. **Per-prompt env override** (`PROMPT_{NAME}_MODEL`) — highest priority
+2. **Prompt definition** (`model.name` in `definePrompt`) — if set
+3. **Default model** (`AI_DEFAULT_MODEL`) — global fallback
+
+Provider resolution follows the same chain: per-prompt override → prompt definition → `AI_DEFAULT_PROVIDER`.
 
 ## Security
 

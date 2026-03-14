@@ -6,6 +6,9 @@ import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
+import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
+import { createCostTracker } from '../ai/cost-tracker.js';
+import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
 import { createAuditService } from '../audit/service.js';
@@ -18,7 +21,7 @@ import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { PlumbusConfig } from '../types/config.js';
-import type { DataService, LoggerService } from '../types/context.js';
+import type { AIService, LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 
 // ── Server Config ──
@@ -121,16 +124,49 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     }
   });
 
+  // AI service wiring
+  let aiService: AIService | undefined;
+
+  if (config.aiProviders) {
+    // Multi-provider setup
+    const providerAdapters: Record<string, ReturnType<typeof createProviderAdapter>> = {};
+    for (const [name, provCfg] of Object.entries(config.aiProviders.providers)) {
+      providerAdapters[name] = createProviderAdapter(name, provCfg);
+    }
+    const costTracker = createCostTracker({
+      maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
+      dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
+    });
+    aiService = createAIService({
+      providers: providerAdapters,
+      defaultProvider: config.aiProviders.defaultProvider,
+      costTracker,
+    });
+    logger.info(
+      `AI service configured with ${Object.keys(providerAdapters).length} providers (default: ${config.aiProviders.defaultProvider})`,
+    );
+  } else if (config.ai) {
+    // Single-provider setup (legacy)
+    const adapter = createProviderAdapter(config.ai.provider, config.ai);
+    const costTracker = createCostTracker({
+      maxTokensPerRequest: config.ai.maxTokensPerRequest,
+      dailyCostLimit: config.ai.dailyCostLimit,
+    });
+    aiService = createAIService(singleProviderConfig(adapter, { costTracker }));
+    logger.info(`AI service configured with single provider: ${config.ai.provider}`);
+  }
+
   // Route generator config
   const routeConfig: RouteGeneratorConfig = {
     authAdapter,
     createDependencies: (auth: AuthContext): ContextDependencies => {
-      const data: DataService = {};
       const audit = createAuditService({ db, auth });
+      const data = entities.createDataService({ db, auth, audit });
 
       return {
         auth,
         data,
+        ai: aiService,
         audit,
         logger,
         config: config as unknown as Record<string, unknown>,

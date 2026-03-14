@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { AuthContext } from '../types/security.js';
 
 /**
@@ -41,12 +42,8 @@ const defaultClaimMapping: JwtClaimMapping = {
 };
 
 /**
- * JWT-based auth adapter. Decodes and validates JWT tokens,
- * mapping claims to an AuthContext.
- *
- * Uses a simple base64url decode — for production, integrate
- * a proper JWT library (jose, jsonwebtoken) for full signature verification.
- * This provides the adapter contract + claim mapping logic.
+ * JWT-based auth adapter. Decodes, verifies HMAC-SHA256 signatures,
+ * and validates JWT tokens, mapping claims to an AuthContext.
  */
 export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
   const mapping = { ...defaultClaimMapping, ...config.claimMapping };
@@ -57,6 +54,9 @@ export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
 
       const token = extractBearerToken(authorizationHeader);
       if (!token) return null;
+
+      // Verify HMAC-SHA256 signature before trusting payload
+      if (!verifyJwtSignature(token, config.secret)) return null;
 
       const payload = decodeJwtPayload(token);
       if (!payload) return null;
@@ -125,4 +125,78 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function verifyJwtSignature(token: string, secret: string): boolean {
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+
+  const header = parts[0];
+  const payload = parts[1];
+  const signature = parts[2];
+  if (!header || !payload || !signature) return false;
+
+  try {
+    const expected = createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64url');
+    // Constant-time comparison to prevent timing attacks
+    if (expected.length !== signature.length) return false;
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+// ── JWT Signing ──
+
+export interface SignJwtOptions {
+  /** Secret key for HMAC-SHA256 signing */
+  secret: string;
+  /** Subject (userId) */
+  sub: string;
+  /** Roles */
+  roles?: string[];
+  /** Scopes */
+  scopes?: string[];
+  /** Tenant ID */
+  tenantId?: string;
+  /** Token expiration in seconds (default: 86400 = 24h) */
+  expiresIn?: number;
+  /** Issuer */
+  issuer?: string;
+  /** Additional claims */
+  claims?: Record<string, unknown>;
+}
+
+/**
+ * Sign a JWT token using HMAC-SHA256.
+ * Returns the signed token string (header.payload.signature).
+ */
+export function signJwt(options: SignJwtOptions): string {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + (options.expiresIn ?? 86400);
+
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload: Record<string, unknown> = {
+    sub: options.sub,
+    iat: now,
+    exp,
+    ...options.claims,
+  };
+
+  if (options.roles?.length) payload.roles = options.roles;
+  if (options.scopes?.length) payload.scope = options.scopes.join(' ');
+  if (options.tenantId) payload.tenant_id = options.tenantId;
+  if (options.issuer) payload.iss = options.issuer;
+
+  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = createHmac('sha256', options.secret)
+    .update(`${headerB64}.${payloadB64}`)
+    .digest('base64url');
+
+  return `${headerB64}.${payloadB64}.${signature}`;
 }
