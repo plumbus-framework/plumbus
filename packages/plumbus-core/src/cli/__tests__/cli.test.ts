@@ -20,10 +20,12 @@ describe('CLI', () => {
     expect(commandNames).toContain('prompt');
     expect(commandNames).toContain('generate');
     expect(commandNames).toContain('migrate');
+    expect(commandNames).toContain('db');
     expect(commandNames).toContain('verify');
     expect(commandNames).toContain('certify');
     expect(commandNames).toContain('agent');
     expect(commandNames).toContain('rag');
+    expect(commandNames).toContain('ui');
     expect(commandNames).toContain('doctor');
   });
 });

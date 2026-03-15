@@ -119,6 +119,61 @@ const docs = await ctx.ai.retrieve({
 
 ## AI Providers
 
+### Multi-Provider Setup
+
+Plumbus supports multiple AI providers simultaneously. Each prompt can specify which provider to use via `model.provider`; prompts without a provider field use the configured default.
+
+```typescript
+import { createAIService, createProviderAdapter } from "plumbus-core";
+
+const service = createAIService({
+  providers: {
+    openai: createProviderAdapter("openai", { apiKey: "sk-..." }),
+    anthropic: createProviderAdapter("anthropic", { apiKey: "ant-..." }),
+    ollama: createProviderAdapter("ollama", {
+      apiKey: "",
+      baseUrl: "http://localhost:11434/v1",
+    }),
+  },
+  defaultProvider: "openai",
+});
+```
+
+Then in prompt definitions:
+
+```typescript
+const writeBio = definePrompt({
+  name: "writeBio",
+  description: "Write a biography for {{name}}",
+  input: z.object({ name: z.string() }),
+  output: z.object({ biography: z.string() }),
+  model: { provider: "anthropic", name: "claude-sonnet-4-20250514", temperature: 0.7 },
+});
+
+const extractFacts = definePrompt({
+  name: "extractFacts",
+  description: "Extract facts from text",
+  input: z.object({ text: z.string() }),
+  output: z.object({ facts: z.array(z.string()) }),
+  model: { provider: "openai", name: "gpt-4o-mini", temperature: 0.1 },
+});
+```
+
+The `extract()` and `classify()` convenience methods always use the default provider.
+
+### Single Provider (Legacy)
+
+For single-provider setups, use `singleProviderConfig()`:
+
+```typescript
+import { createAIService, singleProviderConfig, createOpenAIAdapter } from "plumbus-core";
+
+const service = createAIService(singleProviderConfig(
+  createOpenAIAdapter({ apiKey: "sk-..." }),
+  { defaultModel: "gpt-4o-mini" },
+));
+```
+
 ### OpenAI
 
 ```typescript
@@ -126,7 +181,7 @@ import { createOpenAIAdapter } from "plumbus-core";
 
 const openai = createOpenAIAdapter({
   apiKey: process.env["OPENAI_API_KEY"]!,
-  defaultModel: "gpt-4o-mini",
+  model: "gpt-4o-mini",
   baseUrl: "https://api.openai.com/v1",  // optional
 });
 ```
@@ -138,7 +193,21 @@ import { createAnthropicAdapter } from "plumbus-core";
 
 const anthropic = createAnthropicAdapter({
   apiKey: process.env["ANTHROPIC_API_KEY"]!,
-  defaultModel: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-4-20250514",
+});
+```
+
+### OpenAI-Compatible (Ollama, Azure, etc.)
+
+Unknown provider names use the OpenAI-compatible adapter:
+
+```typescript
+import { createProviderAdapter } from "plumbus-core";
+
+const ollama = createProviderAdapter("ollama", {
+  apiKey: "",
+  baseUrl: "http://localhost:11434/v1",
+  model: "llama3",
 });
 ```
 
@@ -196,6 +265,7 @@ if (!check.allowed) {
 
 Cost records include:
 - Prompt name
+- Provider name
 - Model used
 - Input/output token counts
 - Dollar cost

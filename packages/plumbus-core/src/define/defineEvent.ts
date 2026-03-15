@@ -1,5 +1,15 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { EventDefinition } from '../types/event.js';
+
+function isZodSchema(value: unknown): value is z.ZodTypeAny {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_def' in value &&
+    'safeParse' in value &&
+    typeof (value as Record<string, unknown>).safeParse === 'function'
+  );
+}
 
 interface DefineEventInput<TPayload extends z.ZodTypeAny> {
   name: string;
@@ -17,7 +27,7 @@ export function defineEvent<TPayload extends z.ZodTypeAny>(
   if (!config.name) {
     throw new Error('Event name is required');
   }
-  if (!(config.payload instanceof z.ZodType)) {
+  if (!isZodSchema(config.payload)) {
     throw new Error(`Event "${config.name}": payload must be a Zod schema`);
   }
 

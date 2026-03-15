@@ -89,6 +89,10 @@ function mapFieldToColumn(colName: string, descriptor: FieldDescriptor): any {
       break;
     case 'timestamp':
       col = timestamp(colName, { withTimezone: true });
+      // createdAt / updatedAt get defaultNow() so inserts can omit them
+      if (colName === 'created_at' || colName === 'updated_at') {
+        col = col.defaultNow();
+      }
       break;
     case 'json':
       col = jsonb(colName);

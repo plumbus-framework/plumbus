@@ -1,8 +1,19 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { CapabilityKind } from '../types/enums.js';
 import type { AccessPolicy } from '../types/security.js';
+
+/** Duck-type check for Zod schemas (works across different Zod instances) */
+function isZodSchema(value: unknown): value is z.ZodTypeAny {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_def' in value &&
+    'safeParse' in value &&
+    typeof (value as Record<string, unknown>).safeParse === 'function'
+  );
+}
 
 interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny> {
   name: string;
@@ -50,10 +61,10 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   if (!config.domain) {
     throw new Error('Capability domain is required');
   }
-  if (!(config.input instanceof z.ZodType)) {
+  if (!isZodSchema(config.input)) {
     throw new Error(`Capability "${config.name}": input must be a Zod schema`);
   }
-  if (!(config.output instanceof z.ZodType)) {
+  if (!isZodSchema(config.output)) {
     throw new Error(`Capability "${config.name}": output must be a Zod schema`);
   }
   if (!config.effects) {

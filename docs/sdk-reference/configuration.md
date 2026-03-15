@@ -9,7 +9,8 @@ interface PlumbusConfig {
   environment: "development" | "staging" | "production";
   database: DatabaseConfig;
   queue: QueueConfig;
-  ai?: AIProviderConfig;
+  ai?: AIProviderConfig;               // Single provider (legacy)
+  aiProviders?: AIProvidersConfig;      // Multi-provider (takes precedence)
   auth: AuthAdapterConfig;
   complianceProfiles?: string[];
 }
@@ -63,6 +64,8 @@ QUEUE_PREFIX=plumbus
 
 ## AI Provider Configuration
 
+### Single Provider (Legacy)
+
 ```typescript
 interface AIProviderConfig {
   provider: string;        // "openai" | "anthropic"
@@ -84,6 +87,74 @@ AI_BASE_URL=
 AI_MAX_TOKENS=4096
 AI_DAILY_COST_LIMIT=50
 ```
+
+### Multi-Provider
+
+Register multiple AI providers and route prompts to the appropriate one.
+
+```typescript
+interface AIProvidersConfig {
+  defaultProvider: string;
+  defaultModel?: string;
+  providers: Record<string, AIProviderConfig>;
+  promptOverrides?: Record<string, PromptModelOverride>;
+}
+
+interface PromptModelOverride {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+```
+
+Environment variables follow the pattern `AI_{PROVIDER}_*`:
+
+```bash
+AI_DEFAULT_PROVIDER=openai
+AI_DEFAULT_MODEL=gpt-4o          # fallback model for all prompts
+
+# OpenAI
+AI_OPENAI_API_KEY=sk-...
+AI_OPENAI_MODEL=gpt-4o-mini
+AI_OPENAI_BASE_URL=             # optional — custom endpoint
+
+# Anthropic
+AI_ANTHROPIC_API_KEY=ant-...
+AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
+AI_ANTHROPIC_BASE_URL=           # optional — custom endpoint
+
+# Ollama (OpenAI-compatible)
+AI_OLLAMA_API_KEY=
+AI_OLLAMA_MODEL=llama3
+AI_OLLAMA_BASE_URL=http://localhost:11434/v1
+```
+
+### Per-Prompt Overrides
+
+Override model, provider, temperature, or maxTokens for any specific prompt via env vars:
+
+```bash
+# Format: PROMPT_{NAME}_{FIELD}
+# Name = prompt name with dots replaced by underscores, UPPERCASED
+# Fields: PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS
+
+PROMPT_WRITER_WRITE_CHAPTER_PROVIDER=anthropic
+PROMPT_WRITER_WRITE_CHAPTER_MODEL=claude-sonnet-4-20250514
+PROMPT_INTERVIEW_EXTRACT_METADATA_MODEL=gpt-4o-mini
+```
+
+### Model Resolution Chain
+
+When a prompt is invoked, model and provider are resolved in this order:
+
+1. **Per-prompt env override** (`PROMPT_{NAME}_MODEL`) — highest priority
+2. **Prompt definition** (`model.name` in `definePrompt`) — if set
+3. **Default model** (`AI_DEFAULT_MODEL`) — global fallback
+
+Provider resolution: per-prompt override → prompt definition → `AI_DEFAULT_PROVIDER`.
+
+When `aiProviders` is configured in `PlumbusConfig`, it takes precedence over the legacy single `ai` field.
 
 ## Auth Configuration
 
@@ -170,6 +241,14 @@ export default {
     model: "gpt-4o-mini",
     dailyCostLimit: 10,
   },
+  // Or use multi-provider:
+  // aiProviders: {
+  //   defaultProvider: "openai",
+  //   providers: {
+  //     openai: { apiKey: process.env["OPENAI_API_KEY"]!, model: "gpt-4o-mini" },
+  //     anthropic: { apiKey: process.env["ANTHROPIC_API_KEY"]!, model: "claude-sonnet-4-20250514" },
+  //   },
+  // },
   complianceProfiles: ["SOC2", "GDPR"],
 };
 ```

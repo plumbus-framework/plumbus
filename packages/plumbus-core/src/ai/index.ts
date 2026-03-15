@@ -5,10 +5,32 @@
 //
 // Key exports: createAIService, createRAGPipeline, PromptRegistry, checkPromptSecurity
 
+// AI Service
+export { createAIService, singleProviderConfig, type AIServiceConfig } from './ai-service.js';
+// Cost tracking
+export {
+  createCostTracker,
+  type AICostRecord,
+  type BudgetCheckResult,
+  type BudgetConfig,
+  type CostTracker,
+  type DailyUsage,
+  type UsageSyncResult,
+} from './cost-tracker.js';
+// Explainability
+export {
+  createExplainabilityTracker,
+  type AIExplainabilityTracker,
+  type AIInvocationRecord,
+  type ExplainabilityConfig,
+} from './explainability.js';
+// Prompt registry
+export { PromptRegistry } from './prompt-registry.js';
 // Provider adapters
 export {
   createAnthropicAdapter,
   createOpenAIAdapter,
+  createProviderAdapter,
   type AIProviderAdapter,
   type AnthropicAdapterConfig,
   type EmbeddingRequest,
@@ -19,47 +41,6 @@ export {
   type ProviderStreamEvent,
   type TokenUsage,
 } from './provider.js';
-
-// Prompt registry
-export { PromptRegistry } from './prompt-registry.js';
-
-// AI Service
-export { createAIService, type AIServiceConfig } from './ai-service.js';
-
-// Output validation
-export {
-  generateWithValidation,
-  type ValidatedResponse,
-  type ValidationRetryConfig,
-} from './validation.js';
-
-// Cost tracking
-export {
-  createCostTracker,
-  estimateCost,
-  type AICostRecord,
-  type BudgetCheckResult,
-  type BudgetConfig,
-  type CostTracker,
-  type DailyUsage,
-} from './cost-tracker.js';
-
-// Security
-export {
-  checkPromptSecurity,
-  type AISecurityConfig,
-  type SecurityCheckResult,
-  type SecurityWarning,
-} from './security.js';
-
-// Explainability
-export {
-  createExplainabilityTracker,
-  type AIExplainabilityTracker,
-  type AIInvocationRecord,
-  type ExplainabilityConfig,
-} from './explainability.js';
-
 // RAG pipeline
 export {
   chunkDocument,
@@ -76,3 +57,25 @@ export {
   type StoredChunk,
   type VectorStore,
 } from './rag/index.js';
+// Security
+export {
+  checkPromptSecurity,
+  type AISecurityConfig,
+  type SecurityCheckResult,
+  type SecurityWarning,
+} from './security.js';
+// Usage API Client
+export {
+  createUsageAPIClient,
+  UsageAPIError,
+  type UsageAPIClient,
+  type UsageClientConfig,
+  type UsageData,
+  type UsageEntry,
+} from './usage-client.js';
+// Output validation
+export {
+  generateWithValidation,
+  type ValidatedResponse,
+  type ValidationRetryConfig,
+} from './validation.js';
