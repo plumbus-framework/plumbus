@@ -3,6 +3,7 @@
 // with auto-reload awareness and dev-friendly defaults.
 
 import type { Command } from 'commander';
+import { PromptRegistry } from '../../ai/prompt-registry.js';
 import { loadConfig, validateConfig } from '../../config/loader.js';
 import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
@@ -117,6 +118,11 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
 
   const consumers = new ConsumerRegistry();
 
+  const promptRegistry = new PromptRegistry();
+  for (const prompt of resources.prompts) {
+    promptRegistry.register(prompt);
+  }
+
   // Connect to database (caller can override via options.db)
   let db = options.db;
   if (!db) {
@@ -147,6 +153,7 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
     events,
     consumers,
     flows,
+    promptRegistry,
     host,
     port,
   });

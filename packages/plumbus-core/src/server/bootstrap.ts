@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
+import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
@@ -37,6 +38,8 @@ export interface ServerConfig {
   events: EventRegistry;
   consumers: ConsumerRegistry;
   flows: FlowRegistry;
+  /** Optional prompt registry for AI schema validation */
+  promptRegistry?: PromptRegistry;
   /** Optional custom auth adapter (default: JWT from config) */
   authAdapter?: AuthAdapter;
   /** Optional custom logger */
@@ -141,6 +144,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       providers: providerAdapters,
       defaultProvider: config.aiProviders.defaultProvider,
       costTracker,
+      promptRegistry: serverConfig.promptRegistry,
     });
     logger.info(
       `AI service configured with ${Object.keys(providerAdapters).length} providers (default: ${config.aiProviders.defaultProvider})`,
@@ -152,7 +156,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       maxTokensPerRequest: config.ai.maxTokensPerRequest,
       dailyCostLimit: config.ai.dailyCostLimit,
     });
-    aiService = createAIService(singleProviderConfig(adapter, { costTracker }));
+    aiService = createAIService(
+      singleProviderConfig(adapter, { costTracker, promptRegistry: serverConfig.promptRegistry }),
+    );
     logger.info(`AI service configured with single provider: ${config.ai.provider}`);
   }
 
