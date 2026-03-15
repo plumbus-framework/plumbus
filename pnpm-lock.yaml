@@ -38,6 +38,9 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(tsx@4.21.0)
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -54,9 +57,6 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(tsx@4.21.0)
 
   packages/ui:
     dependencies:
