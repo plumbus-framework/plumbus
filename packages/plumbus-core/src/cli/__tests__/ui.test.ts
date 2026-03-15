@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import {
+  generateE2EVitestConfig,
   generateNextjsAppFiles,
   generateUiModuleFiles,
   type UiGeneratorModule,
@@ -71,5 +72,12 @@ describe('plumbus ui helpers', () => {
     expect(paths).toContain('generated/hooks.ts');
     expect(paths).toContain('generated/auth.ts');
     expect(paths).toContain('generated/form-hints.ts');
+  });
+
+  it('generates an E2E Vitest config without external imports', () => {
+    const config = generateE2EVitestConfig('http://localhost:3001');
+
+    expect(config).toContain('export default {');
+    expect(config).not.toContain('vitest/config');
   });
 });

@@ -90,7 +90,7 @@ function zodSchemaToTypeString(schema: unknown, indent = ''): string {
         const shape = (def.shape as () => Record<string, unknown>)();
         const entries = Object.entries(shape);
         if (entries.length === 0) return 'Record<string, unknown>';
-        const innerIndent = `${`${`${}  `;
+        const innerIndent = `${indent}  `;
         const fields = entries.map(([key, fieldSchema]) => {
           const optional = isFieldOptional(fieldSchema);
           const innerType = zodSchemaToTypeString(unwrapWrappers(fieldSchema), innerIndent);

@@ -1,10 +1,10 @@
 // ── plumbus ui ──
 // Generate frontend-facing source files and scaffolds via @plumbus/ui.
 
-import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Command } from 'commander';
 import {
   type E2EActionDescriptor,
   type E2EPageDescriptor,
@@ -171,10 +171,8 @@ function parsePageSource(source: string, route: string): E2EPageDescriptor | nul
   return { route, pageName, actions, queries };
 }
 
-function generateE2EVitestConfig(baseUrl: string): string {
-  return `import { defineConfig } from "vitest/config";
-
-export default defineConfig({
+export function generateE2EVitestConfig(baseUrl: string): string {
+  return `export default {
   test: {
     include: ["**/*.e2e.ts"],
     testTimeout: 30_000,
@@ -184,7 +182,7 @@ export default defineConfig({
       forks: { singleFork: true },
     },
   },
-});
+};
 
 // E2E_BASE_URL default: ${baseUrl}
 `;
@@ -446,7 +444,7 @@ export function registerUiCommand(program: Command): void {
 
         info(`\nE2E tests generated in ${path.relative(process.cwd(), outRoot)}`);
         info(
-          `Run with: npx vitest run --config ${path.relative(process.cwd(), path.join(outRoot, 'vitest.config.e2e.ts'))}`,
+          `Run with: plumbus e2e --config ${path.relative(process.cwd(), path.join(outRoot, 'vitest.config.e2e.ts'))}`,
         );
       },
     );

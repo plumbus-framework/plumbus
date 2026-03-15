@@ -365,7 +365,15 @@ plumbus test --watch            # Watch mode
 plumbus test --config <path>    # Custom vitest config
 ```
 
-All arguments are forwarded to vitest. The framework resolves vitest from `plumbus-core`'s dependencies and sets up module resolution so consumer configs and test files can import from `vitest`, `plumbus-core/vitest`, and `plumbus-core/testing` without a direct vitest dependency.
+All arguments are forwarded to vitest after Plumbus normalizes the invocation for consumer apps. If you pass only options such as `--config`, Plumbus still runs Vitest in single-run mode by prepending `run`. When the config path matches an E2E config such as `frontend/e2e/vitest.config.e2e.ts`, Plumbus also adds `--configLoader runner` automatically so browser configs load correctly without a direct Vitest install in the app.
+
+For browser suites:
+
+```bash
+plumbus e2e
+plumbus e2e --config frontend/e2e/vitest.config.e2e.ts
+plumbus test --config frontend/e2e/vitest.config.e2e.ts
+```
 
 ---
 

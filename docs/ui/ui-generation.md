@@ -100,18 +100,38 @@ const created = await createUser({ name: "Alice", email: "alice@test.com" });
 
 ## React Hooks
 
-### useQuery (for queries)
+### Query hooks (for queries)
 
 ```typescript
-// generated/hooks/useGetUser.ts
-import { useQuery } from "@tanstack/react-query";
-import { getUser } from "../client/getUser.js";
+// generated/hooks.ts
+import { useEffect, useState } from "react";
+import { getUser } from "./client";
 
 export function useGetUser(input: { userId: string }) {
-  return useQuery({
-    queryKey: ["getUser", input],
-    queryFn: () => getUser(input),
-  });
+  const [data, setData] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getUser(input)
+      .then((result) => {
+        if (!cancelled) setData(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [JSON.stringify(input)]);
+
+  return { data, loading, error };
 }
 ```
 
@@ -119,30 +139,49 @@ Usage:
 
 ```tsx
 function UserProfile({ userId }: { userId: string }) {
-  const { data, isLoading, error } = useGetUser({ userId });
+  const { data, loading, error } = useGetUser({ userId });
 
-  if (isLoading) return <div>Loading...</div>;
+  if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
 
   return <div>{data.name}</div>;
 }
 ```
 
-### useMutation (for actions)
+### Mutation hooks (for actions)
 
 ```typescript
-// generated/hooks/useCreateUser.ts
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createUser } from "../client/createUser.js";
+// generated/hooks.ts
+import { useState } from "react";
+import { createUser } from "./client";
 
 export function useCreateUser() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: createUser,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["getUser"] });
-    },
-  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [data, setData] = useState<{ userId: string } | null>(null);
+
+  const mutate = async (input: { name: string; email: string }) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await createUser(input);
+      setData(result);
+      return result;
+    } catch (err) {
+      const nextError = err instanceof Error ? err : new Error(String(err));
+      setError(nextError);
+      throw nextError;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reset = () => {
+    setData(null);
+    setError(null);
+  };
+
+  return { mutate, data, loading, error, reset };
 }
 ```
 
