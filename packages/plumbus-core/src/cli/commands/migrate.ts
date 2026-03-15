@@ -123,7 +123,7 @@ export function registerMigrateCommand(program: Command): void {
         let prevSnapshot: any = null;
         let prevId: string | undefined;
         if (snapshotFiles.length > 0) {
-          const lastSnapshotFile = snapshotFiles[snapshotFiles.length - 1]!;
+          const lastSnapshotFile = snapshotFiles[snapshotFiles.length - 1];
           prevSnapshot = JSON.parse(fs.readFileSync(path.join(metaDir, lastSnapshotFile), 'utf-8'));
           prevId = prevSnapshot.prevId ?? prevSnapshot.id;
         }

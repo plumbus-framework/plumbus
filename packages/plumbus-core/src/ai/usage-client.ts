@@ -100,8 +100,8 @@ function createAnthropicUsageClient(config: UsageClientConfig): UsageAPIClient {
       const endDate = params.endDate.toISOString().split('T')[0];
 
       const url = new URL('/v1/usage', baseUrl);
-      url.searchParams.set('start_date', startDate!);
-      url.searchParams.set('end_date', endDate!);
+      url.searchParams.set('start_date', startDate ?? '');
+      url.searchParams.set('end_date', endDate ?? '');
 
       const response = await fetch(url.toString(), {
         headers: {

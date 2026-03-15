@@ -61,7 +61,7 @@ describe('Usage API Client', () => {
       const result = await client.fetchUsage({ startDate: start, endDate: end });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
-      const [url, options] = fetchSpy.mock.calls[0]!;
+      const [url, options] = fetchSpy.mock.calls[0] ?? [];
       expect(String(url)).toContain('/v1/organization/usage/completions');
       expect((options as RequestInit).headers).toEqual(
         expect.objectContaining({ Authorization: 'Bearer sk-test-key' }),
@@ -123,7 +123,7 @@ describe('Usage API Client', () => {
       const result = await client.fetchUsage({ startDate: start, endDate: end });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
-      const [url, options] = fetchSpy.mock.calls[0]!;
+      const [url, options] = fetchSpy.mock.calls[0] ?? [];
       expect(String(url)).toContain('/v1/usage');
       expect((options as RequestInit).headers).toEqual(
         expect.objectContaining({ 'x-api-key': 'sk-ant-test' }),

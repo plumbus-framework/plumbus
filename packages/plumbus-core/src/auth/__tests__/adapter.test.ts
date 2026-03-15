@@ -200,7 +200,9 @@ describe('signJwt', () => {
 
   it('includes sub claim', () => {
     const token = signJwt({ secret: 'test', sub: 'user-1' });
-    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf-8'));
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf-8'),
+    );
     expect(payload.sub).toBe('user-1');
   });
 
@@ -211,7 +213,9 @@ describe('signJwt', () => {
       roles: ['admin', 'user'],
       scopes: ['read', 'write'],
     });
-    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf-8'));
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf-8'),
+    );
     expect(payload.roles).toEqual(['admin', 'user']);
     expect(payload.scope).toBe('read write');
   });
@@ -222,13 +226,17 @@ describe('signJwt', () => {
       sub: 'user-1',
       tenantId: 'tenant-42',
     });
-    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf-8'));
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf-8'),
+    );
     expect(payload.tenant_id).toBe('tenant-42');
   });
 
   it('sets expiration', () => {
     const token = signJwt({ secret: 'test', sub: 'user-1', expiresIn: 3600 });
-    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf-8'));
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf-8'),
+    );
     expect(payload.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
   });
 

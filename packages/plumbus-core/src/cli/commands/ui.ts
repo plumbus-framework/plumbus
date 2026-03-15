@@ -1,10 +1,10 @@
 // ── plumbus ui ──
 // Generate frontend-facing source files and scaffolds via @plumbus/ui.
 
+import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Command } from 'commander';
 import {
   type E2EActionDescriptor,
   type E2EPageDescriptor,
@@ -118,7 +118,7 @@ function scanPagesRecursive(dir: string, routePrefix: string, out: E2EPageDescri
 
 function parsePageSource(source: string, route: string): E2EPageDescriptor | null {
   // Extract ActionPanel usages
-  const actionPanelRegex = /<ActionPanel\s[^]*?\/>/gs;
+  const actionPanelRegex = /<ActionPanel\s[\s\S]*?\/>/gs;
   const panels = [...source.matchAll(actionPanelRegex)];
   if (panels.length === 0) {
     // Page might still be worth testing if it has headings
@@ -144,7 +144,7 @@ function parsePageSource(source: string, route: string): E2EPageDescriptor | nul
       const varMatch = source.match(varRegex);
       if (varMatch?.[1]) {
         const nameMatches = [...varMatch[1].matchAll(/name:\s*"([^"]+)"/g)];
-        fields = nameMatches.map((m) => m[1]!);
+        fields = nameMatches.map((m) => m[1] ?? '');
       }
     }
 

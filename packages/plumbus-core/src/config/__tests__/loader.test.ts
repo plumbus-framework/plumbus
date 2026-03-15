@@ -483,7 +483,7 @@ describe('Config Loader', () => {
       const result = loadPromptOverrides({
         PROMPT_WRITER_MODEL: 'gpt-4o',
       });
-      expect(Object.keys(result!)).toEqual(['writer']);
+      expect(Object.keys(result ?? {})).toEqual(['writer']);
     });
   });
 
