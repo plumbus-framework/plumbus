@@ -110,7 +110,7 @@ const code = generateClientModule(
   [{ name: "orderFulfillment", domain: "orders" }],
   { baseUrl: "/api", includeJsDoc: true },
 );
-// Write to: generated/client.ts
+// Output: .plumbus/generated/ui/client.ts (written by CLI)
 ```
 
 Output order: error types → capability types → flow types → client functions → flow triggers.
@@ -121,11 +121,11 @@ Produces a React hooks file that imports from the client module:
 
 ```ts
 const code = generateHooksModule([getUser, createUser]);
-// Write to: generated/hooks.ts
+// Output: .plumbus/generated/ui/hooks.ts (written by CLI)
 ```
 
 - Auto-imports `useState`, `useEffect` from React.
-- Auto-imports types and functions from `./client.js`.
+- Auto-imports types and functions from `./client`.
 
 ## URL Routing Convention
 

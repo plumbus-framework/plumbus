@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../../types/capability.js';
@@ -6,6 +9,8 @@ import { generateProjectStructure } from '../create.js';
 import { checkNodeVersion } from '../doctor.js';
 import { generateClientFunction, generateReactHook } from '../generate.js';
 import { generateCopilotInstructions } from '../init.js';
+import { discoverSeedFiles } from '../seed.js';
+import { generateUiModuleFiles } from '../ui.js';
 import { ruleCapabilityAccessPolicy, ruleCapabilityEffects } from '../verify.js';
 
 // ── Helpers ──
@@ -98,12 +103,38 @@ describe('generateCopilotInstructions', () => {
 
     expect(content).toContain('Plumbus');
     expect(content).toContain('capabilities');
+    expect(content).toContain('@plumbus/ui');
   });
 
   it('generates inline variant', () => {
     const content = generateCopilotInstructions(true);
 
     expect(content).toContain('Plumbus');
+  });
+});
+
+describe('generateUiModuleFiles', () => {
+  it('returns file entries for generated UI modules', () => {
+    const cap = makeCapability();
+    const files = generateUiModuleFiles(
+      [cap],
+      [],
+      {
+        generateClientModule: () => 'client',
+        generateHooksModule: () => 'hooks',
+        generateAuthModule: () => 'auth',
+        generateFormHintsModule: () => 'forms',
+        generateNextjsTemplate: () => [],
+      },
+      {},
+    );
+
+    expect(files.map((file) => file.path)).toEqual([
+      'client.ts',
+      'hooks.ts',
+      'auth.ts',
+      'form-hints.ts',
+    ]);
   });
 });
 
@@ -147,5 +178,48 @@ describe('ruleCapabilityEffects', () => {
 
     expect(signals).toHaveLength(1);
     expect(signals[0]?.rule).toContain('excessive-effects');
+  });
+});
+
+// ── seed.ts ──
+
+describe('discoverSeedFiles', () => {
+  it('returns empty array for non-existent directory', () => {
+    const result = discoverSeedFiles('/non/existent/path');
+
+    expect(result).toEqual([]);
+  });
+
+  it('discovers .ts seed files and sorts them', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-seed-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, '002-data.ts'), '');
+      fs.writeFileSync(path.join(tmpDir, '001-users.ts'), '');
+      fs.writeFileSync(path.join(tmpDir, 'README.md'), '');
+
+      const result = discoverSeedFiles(tmpDir);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toContain('001-users.ts');
+      expect(result[1]).toContain('002-data.ts');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('excludes .d.ts and .test.ts files', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-seed-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'seed.ts'), '');
+      fs.writeFileSync(path.join(tmpDir, 'seed.d.ts'), '');
+      fs.writeFileSync(path.join(tmpDir, 'seed.test.ts'), '');
+
+      const result = discoverSeedFiles(tmpDir);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toContain('seed.ts');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
   });
 });

@@ -18,135 +18,6 @@
 // │ TIER 1 — SDK Surface                                                  │
 // └────────────────────────────────────────────────────────────────────────┘
 
-// ── Types (re-export everything) ──
-export * from './types/index.js';
-
-// ── Define Functions ──
-export { defineCapability } from './define/defineCapability.js';
-export { defineEntity } from './define/defineEntity.js';
-export { defineEvent } from './define/defineEvent.js';
-export { defineFlow } from './define/defineFlow.js';
-export { definePrompt } from './define/definePrompt.js';
-
-// ── Field Constructors ──
-export { field } from './fields/index.js';
-
-// ── Error Utilities ──
-export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
-export { createErrorService, isPlumbusError } from './errors/index.js';
-
-// ── Data Layer ──
-export {
-  EntityRegistry,
-  applyMigrations,
-  collectSchemas,
-  createRepository,
-  generateDrizzleSchema,
-  generateSchemas,
-  rollbackLastMigration,
-} from './data/index.js';
-export type { MigrationConfig, MigrationRecord, RepositoryOptions } from './data/index.js';
-
-// ── Execution Engine ──
-export {
-  CapabilityRegistry,
-  createExecutionContext,
-  evaluateAccess,
-  executeCapability,
-} from './execution/index.js';
-export type {
-  AuthorizationResult,
-  CapabilityResult,
-  ContextDependencies,
-  ExecutionFailure,
-  ExecutionResult,
-} from './execution/index.js';
-
-// ── Auth ──
-export { createJwtAdapter } from './auth/index.js';
-export type { AuthAdapter, JwtAdapterConfig, JwtClaimMapping } from './auth/index.js';
-
-// ── Audit ──
-export { auditRecords, createAuditService } from './audit/index.js';
-export type { AuditServiceConfig } from './audit/index.js';
-
-// ── API (HTTP route generation) ──
-export { registerAllRoutes, registerCapabilityRoute } from './api/index.js';
-export type { RouteGeneratorConfig } from './api/index.js';
-
-// ── Events ──
-export {
-  ConsumerRegistry,
-  EventRegistry,
-  createEventEmitter,
-  createEventWorker,
-  createIdempotencyService,
-  createInMemoryQueue,
-  createOutboxDispatcher,
-  createRedisQueue,
-  deadLetterTable,
-  idempotencyTable,
-  outboxTable,
-} from './events/index.js';
-export type {
-  DispatcherConfig,
-  EventConsumer,
-  EventConsumerHandler,
-  EventEmitterConfig,
-  EventQueue,
-  IdempotencyService,
-  RedisClient,
-  RedisQueueConfig,
-  WorkerConfig,
-} from './events/index.js';
-
-// ── Flows ──
-export {
-  FlowRegistry,
-  FlowStatus,
-  StepStatus,
-  assertTransition,
-  buildHistoryEntry,
-  computeNextRun,
-  computeRetryDelay,
-  createFlowEngine,
-  createFlowScheduler,
-  createFlowService,
-  createFlowTriggerHandler,
-  deadLetterFlow,
-  executeStep,
-  flowDeadLetterTable,
-  flowExecutionsTable,
-  flowSchedulesTable,
-  isTerminal,
-  isValidTransition,
-  sweepFailedFlows,
-} from './flows/index.js';
-export type {
-  FlowEngineConfig,
-  SchedulerConfig,
-  StepExecutorDeps,
-  StepHistoryEntry,
-  StepResult,
-} from './flows/index.js';
-
-// ── AI Runtime ──
-export {
-  PromptRegistry,
-  checkPromptSecurity,
-  chunkDocument,
-  createAIService,
-  createAnthropicAdapter,
-  createCostTracker,
-  createExplainabilityTracker,
-  createInMemoryVectorStore,
-  createOpenAIAdapter,
-  createRAGPipeline,
-  documentChunksTable,
-  documentsTable,
-  estimateCost,
-  generateWithValidation,
-} from './ai/index.js';
 export type {
   AICostRecord,
   AIExplainabilityTracker,
@@ -176,13 +47,131 @@ export type {
   SecurityWarning,
   StoredChunk,
   TokenUsage,
+  UsageAPIClient,
+  UsageClientConfig,
+  UsageData,
+  UsageEntry,
+  UsageSyncResult,
   ValidatedResponse,
   ValidationRetryConfig,
   VectorStore,
 } from './ai/index.js';
-
-// ── Explanation ──
-export { createExplanationTracker } from './explanation/index.js';
+// ── AI Runtime ──
+export {
+  PromptRegistry,
+  UsageAPIError,
+  checkPromptSecurity,
+  chunkDocument,
+  createAIService,
+  createAnthropicAdapter,
+  createCostTracker,
+  createExplainabilityTracker,
+  createInMemoryVectorStore,
+  createOpenAIAdapter,
+  createProviderAdapter,
+  createRAGPipeline,
+  createUsageAPIClient,
+  documentChunksTable,
+  documentsTable,
+  generateWithValidation,
+  singleProviderConfig,
+} from './ai/index.js';
+export type { RouteGeneratorConfig } from './api/index.js';
+// ── API (HTTP route generation) ──
+export { registerAllRoutes, registerCapabilityRoute } from './api/index.js';
+export type { AuditServiceConfig } from './audit/index.js';
+// ── Audit ──
+export { auditRecords, createAuditService } from './audit/index.js';
+export type {
+  AuthAdapter,
+  JwtAdapterConfig,
+  JwtClaimMapping,
+  OidcAdapterConfig,
+  OidcJwk,
+  PasswordHashOptions,
+  SamlAdapterConfig,
+  ScimEmail,
+  ScimError,
+  ScimListResponse,
+  ScimService,
+  ScimServiceConfig,
+  ScimUser,
+  ScimUserRepository,
+  ScimUserResource,
+  SignJwtOptions,
+} from './auth/index.js';
+// ── Auth ──
+export {
+  createJwtAdapter,
+  createOidcAdapter,
+  createSamlAdapter,
+  createScimService,
+  hashPassword,
+  signJwt,
+  verifyPassword,
+} from './auth/index.js';
+export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
+// ── Config Loader ──
+export { loadConfig, validateConfig } from './config/index.js';
+export type { MigrationConfig, MigrationRecord, RepositoryOptions } from './data/index.js';
+// ── Data Layer ──
+export {
+  EntityRegistry,
+  applyMigrations,
+  collectSchemas,
+  createRepository,
+  generateDrizzleSchema,
+  generateSchemas,
+  rollbackLastMigration,
+} from './data/index.js';
+// ── Define Functions ──
+export { defineCapability } from './define/defineCapability.js';
+export { defineEntity } from './define/defineEntity.js';
+export { defineEvent } from './define/defineEvent.js';
+export { defineFlow } from './define/defineFlow.js';
+export { definePrompt } from './define/definePrompt.js';
+// ── Error Utilities ──
+export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
+export { createErrorService, isPlumbusError } from './errors/index.js';
+export type {
+  DispatcherConfig,
+  EventConsumer,
+  EventConsumerHandler,
+  EventEmitterConfig,
+  EventQueue,
+  IdempotencyService,
+  RedisClient,
+  RedisQueueConfig,
+  WorkerConfig,
+} from './events/index.js';
+// ── Events ──
+export {
+  ConsumerRegistry,
+  EventRegistry,
+  createEventEmitter,
+  createEventWorker,
+  createIdempotencyService,
+  createInMemoryQueue,
+  createOutboxDispatcher,
+  createRedisQueue,
+  deadLetterTable,
+  idempotencyTable,
+  outboxTable,
+} from './events/index.js';
+export type {
+  AuthorizationResult,
+  CapabilityResult,
+  ContextDependencies,
+  ExecutionFailure,
+  ExecutionResult,
+} from './execution/index.js';
+// ── Execution Engine ──
+export {
+  CapabilityRegistry,
+  createExecutionContext,
+  evaluateAccess,
+  executeCapability,
+} from './execution/index.js';
 export type {
   AIInvocationExplanation,
   AuthorizationExplanation,
@@ -194,30 +183,39 @@ export type {
   FlowBranchExplanation,
   GovernanceExplanation,
 } from './explanation/index.js';
-
-// ── Server Bootstrap ──
-export { createServer } from './server/index.js';
-export type { PlumbusServer, ServerConfig } from './server/index.js';
-
-// ── Worker Bootstrap ──
-export { createWorkerPool } from './worker/index.js';
-export type { WorkerPool, WorkerPoolConfig } from './worker/index.js';
-
-// ── Observability ──
+// ── Explanation ──
+export { createExplanationTracker } from './explanation/index.js';
+// ── Field Constructors ──
+export { field } from './fields/index.js';
+export type {
+  FlowEngineConfig,
+  SchedulerConfig,
+  StepExecutorDeps,
+  StepHistoryEntry,
+  StepResult,
+} from './flows/index.js';
+// ── Flows ──
 export {
-  createChildSpan,
-  createMetricsRegistry,
-  createPlumbusMetrics,
-  createStructuredLogger,
-  createTraceContext,
-  createTracer,
-  extractTraceFromHeaders,
-  formatTraceparent,
-  generateSpanId,
-  generateTraceId,
-  injectTraceHeaders,
-  parseTraceparent,
-} from './observability/index.js';
+  FlowRegistry,
+  FlowStatus,
+  StepStatus,
+  assertTransition,
+  buildHistoryEntry,
+  computeNextRun,
+  computeRetryDelay,
+  createFlowEngine,
+  createFlowScheduler,
+  createFlowService,
+  createFlowTriggerHandler,
+  deadLetterFlow,
+  executeStep,
+  flowDeadLetterTable,
+  flowExecutionsTable,
+  flowSchedulesTable,
+  isTerminal,
+  isValidTransition,
+  sweepFailedFlows,
+} from './flows/index.js';
 export type {
   Counter,
   Histogram,
@@ -235,10 +233,29 @@ export type {
   Tracer,
   W3CTraceContext,
 } from './observability/index.js';
-
-// ── Config Loader ──
-export { loadConfig, validateConfig } from './config/index.js';
-export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
+// ── Observability ──
+export {
+  createChildSpan,
+  createMetricsRegistry,
+  createPlumbusMetrics,
+  createStructuredLogger,
+  createTraceContext,
+  createTracer,
+  extractTraceFromHeaders,
+  formatTraceparent,
+  generateSpanId,
+  generateTraceId,
+  injectTraceHeaders,
+  parseTraceparent,
+} from './observability/index.js';
+export type { PlumbusServer, ServerConfig } from './server/index.js';
+// ── Server Bootstrap ──
+export { createServer } from './server/index.js';
+// ── Types (re-export everything) ──
+export * from './types/index.js';
+export type { WorkerPool, WorkerPoolConfig } from './worker/index.js';
+// ── Worker Bootstrap ──
+export { createWorkerPool } from './worker/index.js';
 
 // ┌────────────────────────────────────────────────────────────────────────┐
 // │ TIER 2 — Tooling & CLI Internals                                      │
@@ -249,6 +266,15 @@ export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.j
 // │ application code.                                                      │
 // └────────────────────────────────────────────────────────────────────────┘
 
+export type {
+  AgentFormat,
+  CreateOptions,
+  DevOptions,
+  DoctorCheck,
+  InitOptions,
+  PolicyContext,
+  PolicyRule,
+} from './cli/index.js';
 // ── CLI (entry point + scaffolding + code generation) ──
 export {
   // Scaffolding templates
@@ -307,15 +333,17 @@ export {
   writeAgentFiles,
 } from './cli/index.js';
 export type {
-  AgentFormat,
-  CreateOptions,
-  DevOptions,
-  DoctorCheck,
-  InitOptions,
-  PolicyContext,
-  PolicyRule,
-} from './cli/index.js';
-
+  GovernanceResult,
+  GovernanceRule,
+  GovernanceRuleEngine,
+  OverrideEntry,
+  OverrideStore,
+  PolicyProfileDefinition,
+  PolicyProfileRule,
+  ReportOptions,
+  RuleCategory,
+  SystemInventory,
+} from './governance/index.js';
 // ── Governance Engine (advisory governance rules + policy reports) ──
 export {
   aiRules,
@@ -345,16 +373,4 @@ export {
   rulePersonalDataInLogs,
   ruleSensitiveFieldUnencrypted,
   securityRules,
-} from './governance/index.js';
-export type {
-  GovernanceResult,
-  GovernanceRule,
-  GovernanceRuleEngine,
-  OverrideEntry,
-  OverrideStore,
-  PolicyProfileDefinition,
-  PolicyProfileRule,
-  ReportOptions,
-  RuleCategory,
-  SystemInventory,
 } from './governance/index.js';

@@ -97,6 +97,34 @@ export const ${toCamelCase(name)}Flow = defineFlow({
 `;
 }
 
+export function flowTestTemplate(name: string, _domain: string): string {
+  return `import { describe, it, expect } from "vitest";
+import { simulateFlow } from "plumbus-core/testing";
+import { ${toCamelCase(name)}Flow } from "../flow.js";
+
+describe("${toPascalCase(name)} Flow", () => {
+  it("completes all steps successfully", async () => {
+    const result = await simulateFlow(${toCamelCase(name)}Flow, {
+      // TODO: provide valid flow input
+    });
+    expect(result.status).toBe("completed");
+    expect(result.history.length).toBeGreaterThan(0);
+  });
+
+  it("handles step failure", async () => {
+    const result = await simulateFlow(${toCamelCase(name)}Flow, {
+      // TODO: provide valid flow input
+    }, {
+      capabilityResults: {
+        // TODO: map step name → failure
+      },
+    });
+    expect(result.status).toBe("failed");
+  });
+});
+`;
+}
+
 export function eventTemplate(name: string): string {
   return `import { defineEvent } from "plumbus-core";
 import { z } from "zod";

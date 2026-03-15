@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  type AIProviderAdapter,
   createAnthropicAdapter,
   createOpenAIAdapter,
-  type AIProviderAdapter,
+  createProviderAdapter,
 } from '../provider.js';
 
 // ── Helper: create a mock provider ──
@@ -161,6 +162,31 @@ describe('AI Provider Adapters', () => {
       await expect(adapter.embed({ texts: ['hello'] })).rejects.toThrow(
         'Anthropic does not provide an embedding API',
       );
+    });
+  });
+
+  describe('createProviderAdapter', () => {
+    it('creates an OpenAI adapter for "openai"', () => {
+      const adapter = createProviderAdapter('openai', { provider: 'openai', apiKey: 'sk-test' });
+      expect(adapter.name).toBe('openai');
+    });
+
+    it('creates an Anthropic adapter for "anthropic"', () => {
+      const adapter = createProviderAdapter('anthropic', {
+        provider: 'anthropic',
+        apiKey: 'ant-test',
+      });
+      expect(adapter.name).toBe('anthropic');
+    });
+
+    it('falls back to OpenAI-compat adapter for unknown providers', () => {
+      const adapter = createProviderAdapter('ollama', {
+        provider: 'ollama',
+        apiKey: '',
+        baseUrl: 'http://localhost:11434/v1',
+      });
+      // Unknown providers use OpenAI-compatible adapter
+      expect(adapter.name).toBe('openai');
     });
   });
 });

@@ -4,5 +4,10 @@
 //
 // Key exports: loadConfig, validateConfig
 
-export { loadConfig, validateConfig } from './loader.js';
+export {
+  loadConfig,
+  loadMultiProviderConfig,
+  loadPromptOverrides,
+  validateConfig,
+} from './loader.js';
 export type { ConfigLoadOptions, ConfigValidationResult } from './loader.js';

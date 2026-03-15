@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { definePrompt } from '../../define/definePrompt.js';
-import { createAIService } from '../ai-service.js';
+import { createAIService, singleProviderConfig } from '../ai-service.js';
 import { createCostTracker } from '../cost-tracker.js';
 import { createExplainabilityTracker } from '../explainability.js';
 import { PromptRegistry } from '../prompt-registry.js';
+import type { AIProviderAdapter } from '../provider.js';
 import { createInMemoryVectorStore, createRAGPipeline } from '../rag/pipeline.js';
 import { createMockProvider } from './provider.test.js';
 
@@ -39,14 +40,15 @@ describe('AI Service (ctx.ai)', () => {
       ragPipeline = createRAGPipeline({ provider, vectorStore });
     }
 
-    const service = createAIService({
-      provider,
-      promptRegistry,
-      costTracker,
-      ragPipeline,
-      defaultModel: 'mock-model',
-      budget: { tenantId: 't1', actor: 'user1' },
-    });
+    const service = createAIService(
+      singleProviderConfig(provider, {
+        promptRegistry,
+        costTracker,
+        ragPipeline,
+        defaultModel: 'mock-model',
+        budget: { tenantId: 't1', actor: 'user1' },
+      }),
+    );
 
     return { service, provider, promptRegistry, costTracker, explainability };
   }
@@ -102,7 +104,7 @@ describe('AI Service (ctx.ai)', () => {
         })),
       });
 
-      const service = createAIService({ provider });
+      const service = createAIService(singleProviderConfig(provider));
       const schema = z.object({ name: z.string(), age: z.number() });
       const result = await service.extract({ schema, text: 'Alice is 30 years old' });
 
@@ -121,7 +123,7 @@ describe('AI Service (ctx.ai)', () => {
         })),
       });
 
-      const service = createAIService({ provider });
+      const service = createAIService(singleProviderConfig(provider));
       const result = await service.classify({
         labels: ['urgent', 'billing', 'support'],
         text: 'My payment failed and I need help now!',
@@ -140,7 +142,7 @@ describe('AI Service (ctx.ai)', () => {
         })),
       });
 
-      const service = createAIService({ provider });
+      const service = createAIService(singleProviderConfig(provider));
       const result = await service.classify({
         labels: ['urgent', 'billing'],
         text: 'test',
@@ -172,22 +174,276 @@ describe('AI Service (ctx.ai)', () => {
       const costTracker = createCostTracker({ dailyCostLimit: 0.001 });
       costTracker.record({
         model: 'gpt-4o',
+        provider: 'mock',
         operation: 'generate',
         usage: { inputTokens: 1000, outputTokens: 500, totalTokens: 1500 },
-        estimatedCost: 0.001,
+        cost: 0.001,
         latencyMs: 200,
       });
 
       const provider = createMockProvider();
-      const service = createAIService({
-        provider,
-        costTracker,
-        budget: { tenantId: 't1' },
-      });
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          costTracker,
+          budget: { tenantId: 't1' },
+        }),
+      );
 
       await expect(service.generate({ prompt: 'test', input: {} })).rejects.toThrow(
         'AI budget exceeded',
       );
+    });
+  });
+
+  describe('multi-provider routing', () => {
+    function createNamedProvider(name: string, content = '{"result":"ok"}'): AIProviderAdapter {
+      return createMockProvider({
+        name,
+        complete: vi.fn(async () => ({
+          content,
+          model: `${name}-model`,
+          usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+          finishReason: 'stop',
+        })),
+      });
+    }
+
+    it('routes to the prompt-specified provider', async () => {
+      const openai = createNamedProvider('openai', '{"result":"from-openai"}');
+      const anthropic = createNamedProvider('anthropic', '{"result":"from-anthropic"}');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'claude-sonnet', provider: 'anthropic' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai, anthropic },
+        defaultProvider: 'openai',
+        promptRegistry,
+      });
+
+      await service.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+
+      expect(anthropic.complete).toHaveBeenCalled();
+      expect(openai.complete).not.toHaveBeenCalled();
+    });
+
+    it('falls back to default provider when prompt has no provider', async () => {
+      const openai = createNamedProvider('openai');
+      const anthropic = createNamedProvider('anthropic');
+
+      const service = createAIService({
+        providers: { openai, anthropic },
+        defaultProvider: 'openai',
+      });
+
+      await service.generate({ prompt: 'raw prompt', input: {} });
+
+      expect(openai.complete).toHaveBeenCalled();
+      expect(anthropic.complete).not.toHaveBeenCalled();
+    });
+
+    it('throws when prompt specifies an unknown provider', async () => {
+      const openai = createNamedProvider('openai');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'failing',
+          description: 'This will fail',
+          input: z.object({}),
+          output: z.object({ result: z.string() }),
+          model: { name: 'some-model', provider: 'nonexistent' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+      });
+
+      await expect(service.generate({ prompt: 'failing', input: {} })).rejects.toThrow(
+        'AI provider "nonexistent" not configured',
+      );
+    });
+
+    it('records provider name in cost tracker entries', async () => {
+      const anthropic = createNamedProvider('anthropic');
+      const costTracker = createCostTracker();
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'tracked',
+          description: 'Tracked prompt',
+          input: z.object({}),
+          output: z.object({ result: z.string() }),
+          model: { name: 'claude-sonnet', provider: 'anthropic' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { anthropic },
+        defaultProvider: 'anthropic',
+        promptRegistry,
+        costTracker,
+      });
+
+      await service.generate({ prompt: 'tracked', input: {} });
+
+      const records = costTracker.getRecords();
+      expect(records).toHaveLength(1);
+      expect(records[0]?.provider).toBe('anthropic');
+    });
+
+    it('extract and classify use default provider', async () => {
+      const openai = createNamedProvider('openai', '{"name":"Alice","age":30}');
+      const anthropic = createNamedProvider('anthropic');
+
+      const service = createAIService({
+        providers: { openai, anthropic },
+        defaultProvider: 'openai',
+      });
+
+      const schema = z.object({ name: z.string(), age: z.number() });
+      await service.extract({ schema, text: 'Alice is 30' });
+
+      expect(openai.complete).toHaveBeenCalled();
+      expect(anthropic.complete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('prompt override resolution', () => {
+    function createNamedProvider(name: string, content = '{"result":"ok"}'): AIProviderAdapter {
+      return createMockProvider({
+        name,
+        complete: vi.fn(async () => ({
+          content,
+          model: `${name}-model`,
+          usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+          finishReason: 'stop',
+        })),
+      });
+    }
+
+    it('uses promptOverrides to route to a different provider', async () => {
+      const openai = createNamedProvider('openai');
+      const anthropic = createNamedProvider('anthropic', '{"result":"from-anthropic"}');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'gpt-4o', provider: 'openai' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai, anthropic },
+        defaultProvider: 'openai',
+        promptRegistry,
+        promptOverrides: {
+          'write-bio': { provider: 'anthropic', model: 'claude-sonnet' },
+        },
+      });
+
+      await service.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+
+      expect(anthropic.complete).toHaveBeenCalled();
+      expect(openai.complete).not.toHaveBeenCalled();
+    });
+
+    it('uses promptOverrides model over prompt-defined model', async () => {
+      const openai = createNamedProvider('openai');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'gpt-4o', provider: 'openai' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+        promptOverrides: {
+          'write-bio': { model: 'gpt-4o-mini' },
+        },
+      });
+
+      await service.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.model).toBe('gpt-4o-mini');
+    });
+
+    it('falls back to defaultModel when neither override nor prompt defines model', async () => {
+      const openai = createNamedProvider('openai');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'simple',
+          description: 'A simple prompt',
+          input: z.object({}),
+          output: z.object({ result: z.string() }),
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+        defaultModel: 'gpt-4o-mini',
+      });
+
+      await service.generate({ prompt: 'simple', input: {} });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.model).toBe('gpt-4o-mini');
+    });
+
+    it('uses prompt model when no override is specified', async () => {
+      const openai = createNamedProvider('openai');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'gpt-4o', provider: 'openai' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+        defaultModel: 'fallback-model',
+      });
+
+      await service.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.model).toBe('gpt-4o');
     });
   });
 });

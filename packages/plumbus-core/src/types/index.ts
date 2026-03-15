@@ -3,50 +3,8 @@
 // Organized by domain: enums, fields, capability, flow, entity, event,
 // context (ExecutionContext + service interfaces), security, governance, etc.
 
-// ── Enums & Constants ──
-export {
-  BackoffStrategy,
-  CapabilityKind,
-  ErrorCode,
-  FieldClassification,
-  FlowStepType,
-  GovernanceSeverity,
-  PolicyProfile,
-  RelationType,
-  RuleStatus,
-} from './enums.js';
-
-// ── Field Types ──
-export type {
-  BaseFieldOptions,
-  BooleanFieldDescriptor,
-  EnumFieldDescriptor,
-  FieldDescriptor,
-  IdFieldDescriptor,
-  JsonFieldDescriptor,
-  NumberFieldDescriptor,
-  RelationFieldDescriptor,
-  StringFieldDescriptor,
-  TimestampFieldDescriptor,
-} from './fields.js';
-
-// ── Security ──
-export type { AccessPolicy, AuthContext } from './security.js';
-
-// ── Errors ──
-export type { ErrorService, PlumbusError } from './errors.js';
-
 // ── Audit ──
 export type { AuditRecord, AuditService } from './audit.js';
-
-// ── Governance ──
-export type {
-  GovernanceOverride,
-  GovernanceSignal,
-  PolicyReport,
-  RuleEvaluation,
-} from './governance.js';
-
 // ── Capability ──
 export type {
   CapabilityAuditConfig,
@@ -54,31 +12,17 @@ export type {
   CapabilityEffects,
   CapabilityExplanationConfig,
 } from './capability.js';
-
-// ── Flow ──
+// ── Config ──
 export type {
-  CapabilityStep,
-  ConditionalStep,
-  DelayStep,
-  EventEmitStep,
-  FlowDefinition,
-  FlowRetryPolicy,
-  FlowSchedule,
-  FlowStep,
-  FlowTrigger,
-  ParallelStep,
-  WaitStep,
-} from './flow.js';
-
-// ── Entity ──
-export type { EntityDefinition, EntityRetention } from './entity.js';
-
-// ── Event ──
-export type { EventDefinition, EventEnvelope } from './event.js';
-
-// ── Prompt ──
-export type { ModelConfig, PromptDefinition } from './prompt.js';
-
+  AIProviderConfig,
+  AIProvidersConfig,
+  AuthAdapterConfig,
+  DatabaseConfig,
+  Environment,
+  PlumbusConfig,
+  PromptModelOverride,
+  QueueConfig,
+} from './config.js';
 // ── Context ──
 export type {
   AIDocument,
@@ -94,13 +38,59 @@ export type {
   SecurityService,
   TimeService,
 } from './context.js';
-
-// ── Config ──
+// ── Entity ──
+export type { EntityDefinition, EntityRetention } from './entity.js';
+// ── Enums & Constants ──
+export {
+  BackoffStrategy,
+  CapabilityKind,
+  ErrorCode,
+  FieldClassification,
+  FlowStepType,
+  GovernanceSeverity,
+  PolicyProfile,
+  RelationType,
+  RuleStatus,
+} from './enums.js';
+// ── Errors ──
+export type { ErrorService, PlumbusError } from './errors.js';
+// ── Event ──
+export type { EventDefinition, EventEnvelope } from './event.js';
+// ── Field Types ──
 export type {
-  AIProviderConfig,
-  AuthAdapterConfig,
-  DatabaseConfig,
-  Environment,
-  PlumbusConfig,
-  QueueConfig,
-} from './config.js';
+  BaseFieldOptions,
+  BooleanFieldDescriptor,
+  EnumFieldDescriptor,
+  FieldDescriptor,
+  IdFieldDescriptor,
+  JsonFieldDescriptor,
+  NumberFieldDescriptor,
+  RelationFieldDescriptor,
+  StringFieldDescriptor,
+  TimestampFieldDescriptor,
+} from './fields.js';
+// ── Flow ──
+export type {
+  CapabilityStep,
+  ConditionalStep,
+  DelayStep,
+  EventEmitStep,
+  FlowDefinition,
+  FlowRetryPolicy,
+  FlowSchedule,
+  FlowStep,
+  FlowTrigger,
+  ParallelStep,
+  WaitStep,
+} from './flow.js';
+// ── Governance ──
+export type {
+  GovernanceOverride,
+  GovernanceSignal,
+  PolicyReport,
+  RuleEvaluation,
+} from './governance.js';
+// ── Prompt ──
+export type { ModelConfig, PromptDefinition } from './prompt.js';
+// ── Security ──
+export type { AccessPolicy, AuthContext } from './security.js';

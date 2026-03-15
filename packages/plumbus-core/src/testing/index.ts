@@ -5,6 +5,23 @@
 //
 // Key exports: createTestContext, runCapability, simulateFlow, assertAccessDenied
 
+export type { Browser, BrowserContext, Page } from 'playwright';
+// ── Playwright Re-export ──
+// Consumer apps get playwright through the framework — no separate install needed.
+export { chromium, firefox, webkit } from 'playwright';
+// ── Vitest Re-export ──
+// Consumer apps get vitest through the framework — no separate install needed.
+// Test files: import { describe, it, expect } from "plumbus-core/testing";
+export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+export type {
+  AIResponse,
+  MockAuditService,
+  MockEventService,
+  MockFlowService,
+  MockLoggerService,
+  TestAuthOptions,
+  TestContextOptions,
+} from './context.js';
 // ── Context & Mock Factories ──
 export {
   createInMemoryRepository,
@@ -18,27 +35,37 @@ export {
   mockFlows,
   mockLogger,
 } from './context.js';
-export type {
-  AIResponse,
-  MockAuditService,
-  MockEventService,
-  MockFlowService,
-  MockLoggerService,
-  TestAuthOptions,
-  TestContextOptions,
-} from './context.js';
+export type { E2EServerContext, E2EServerOptions } from './e2e.js';
+// ── E2E / Browser Test Utilities ──
+export { createE2EServer, createTestBearerHeader } from './e2e.js';
 
+// ── Governance Test Helpers ──
+export {
+  assertGovernanceSignals,
+  assertMaxSeverity,
+  assertNoGovernanceSignal,
+  assertOverridesApplied,
+  assertPolicyCompliance,
+  assertPolicyNonCompliance,
+  emptyInventory,
+  evaluateGovernance,
+} from './governance.js';
+export type { RunCapabilityOptions } from './run-capability.js';
 // ── Capability Test Runner ──
 export { runCapability } from './run-capability.js';
-export type { RunCapabilityOptions } from './run-capability.js';
-
-// ── Flow Simulator ──
-export { simulateFlow } from './simulate-flow.js';
 export type {
-  FlowSimulationResult,
-  SimulateFlowOptions,
-} from './simulate-flow.js';
-
+  E2EActionDescriptor,
+  E2EPageDescriptor,
+  E2EQueryDescriptor,
+} from './scaffolding.js';
+// ── Test Scaffolding Generator ──
+export {
+  generateCapabilityTest,
+  generateE2ETest,
+  generateFlowTest,
+  generateGovernanceTest,
+  generateSecurityTest,
+} from './scaffolding.js';
 // ── Security Test Helpers ──
 export {
   adminAuth,
@@ -52,27 +79,9 @@ export {
   serviceAccountAuth,
   unauthenticated,
 } from './security.js';
-
-// ── Governance Test Helpers ──
-export {
-  assertGovernanceSignals,
-  assertMaxSeverity,
-  assertNoGovernanceSignal,
-  assertOverridesApplied,
-  assertPolicyCompliance,
-  assertPolicyNonCompliance,
-  emptyInventory,
-  evaluateGovernance,
-} from './governance.js';
-
-// ── Test Scaffolding Generator ──
-export {
-  generateCapabilityTest,
-  generateFlowTest,
-  generateGovernanceTest,
-  generateSecurityTest,
-} from './scaffolding.js';
-
-// ── E2E / Browser Test Utilities ──
-export { createE2EServer, createTestBearerHeader } from './e2e.js';
-export type { E2EServerContext, E2EServerOptions } from './e2e.js';
+export type {
+  FlowSimulationResult,
+  SimulateFlowOptions,
+} from './simulate-flow.js';
+// ── Flow Simulator ──
+export { simulateFlow } from './simulate-flow.js';

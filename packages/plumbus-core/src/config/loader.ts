@@ -4,10 +4,12 @@
 
 import type {
   AIProviderConfig,
+  AIProvidersConfig,
   AuthAdapterConfig,
   DatabaseConfig,
   Environment,
   PlumbusConfig,
+  PromptModelOverride,
   QueueConfig,
 } from '../types/config.js';
 
@@ -34,6 +36,7 @@ export function loadConfig(options?: ConfigLoadOptions): PlumbusConfig {
     database: loadDatabaseConfig(env, environment),
     queue: loadQueueConfig(env, environment),
     ai: loadAIConfig(env),
+    aiProviders: loadMultiProviderConfig(env),
     auth: loadAuthConfig(env, environment),
     complianceProfiles: loadComplianceProfiles(env),
   };
@@ -57,11 +60,11 @@ function loadDatabaseConfig(
       : { host: 'localhost', port: 5432, database: 'plumbus', user: 'plumbus', password: '' };
 
   return {
-    host: env.DATABASE_HOST ?? env.PGHOST ?? defaults.host,
-    port: parseInt(env.DATABASE_PORT ?? env.PGPORT ?? String(defaults.port), 10),
-    database: env.DATABASE_NAME ?? env.PGDATABASE ?? defaults.database,
-    user: env.DATABASE_USER ?? env.PGUSER ?? defaults.user,
-    password: env.DATABASE_PASSWORD ?? env.PGPASSWORD ?? defaults.password,
+    host: env.DATABASE_HOST ?? env.DB_HOST ?? env.PGHOST ?? defaults.host,
+    port: parseInt(env.DATABASE_PORT ?? env.DB_PORT ?? env.PGPORT ?? String(defaults.port), 10),
+    database: env.DATABASE_NAME ?? env.DB_NAME ?? env.PGDATABASE ?? defaults.database,
+    user: env.DATABASE_USER ?? env.DB_USER ?? env.PGUSER ?? defaults.user,
+    password: env.DATABASE_PASSWORD ?? env.DB_PASSWORD ?? env.PGPASSWORD ?? defaults.password,
     ssl: env.DATABASE_SSL === 'true' || environment === 'production',
     poolSize: parseInt(env.DATABASE_POOL_SIZE ?? (environment === 'production' ? '20' : '5'), 10),
   };
@@ -97,6 +100,88 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
     maxTokensPerRequest: env.AI_MAX_TOKENS ? parseInt(env.AI_MAX_TOKENS, 10) : undefined,
     dailyCostLimit: env.AI_DAILY_COST_LIMIT ? parseFloat(env.AI_DAILY_COST_LIMIT) : undefined,
   };
+}
+
+// ── Multi-Provider AI Config ──
+
+/** Scan for AI_{PROVIDER}_* env vars and build AIProvidersConfig */
+export function loadMultiProviderConfig(
+  env: Record<string, string | undefined>,
+): AIProvidersConfig | undefined {
+  const defaultProvider = env.AI_DEFAULT_PROVIDER;
+  if (!defaultProvider) return undefined;
+
+  // Scan for AI_{NAME}_API_KEY patterns
+  const providerNames = new Set<string>();
+  for (const key of Object.keys(env)) {
+    const match = /^AI_([A-Z][A-Z0-9_]*)_API_KEY$/.exec(key);
+    if (match?.[1] != null) {
+      providerNames.add(match[1].toLowerCase());
+    }
+  }
+
+  if (providerNames.size === 0) return undefined;
+
+  const providers: Record<string, AIProviderConfig> = {};
+  for (const name of providerNames) {
+    const prefix = `AI_${name.toUpperCase()}_`;
+    const apiKey = env[`${prefix}API_KEY`];
+    if (apiKey == null) continue;
+
+    const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
+    const dailyCostRaw = env[`${prefix}DAILY_COST_LIMIT`];
+
+    providers[name] = {
+      provider: name,
+      apiKey,
+      model: env[`${prefix}MODEL`] ?? undefined,
+      baseUrl: env[`${prefix}BASE_URL`] ?? undefined,
+      maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
+      dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
+    };
+  }
+
+  if (Object.keys(providers).length === 0) return undefined;
+
+  return {
+    defaultProvider,
+    defaultModel: env.AI_DEFAULT_MODEL ?? undefined,
+    providers,
+    promptOverrides: loadPromptOverrides(env),
+  };
+}
+
+// \u2500\u2500 Prompt Model Overrides \u2500\u2500
+
+/** Scan for PROMPT_{NAME}_* env vars and build per-prompt model overrides */
+export function loadPromptOverrides(
+  env: Record<string, string | undefined>,
+): Record<string, PromptModelOverride> | undefined {
+  const overrides: Record<string, PromptModelOverride> = {};
+
+  // Scan for PROMPT_{NAME}_PROVIDER or PROMPT_{NAME}_MODEL patterns
+  const promptNames = new Set<string>();
+  for (const key of Object.keys(env)) {
+    const match = /^PROMPT_([A-Z][A-Z0-9_]*)_(PROVIDER|MODEL|TEMPERATURE|MAX_TOKENS)$/.exec(key);
+    if (match?.[1] != null) {
+      promptNames.add(match[1].toLowerCase());
+    }
+  }
+
+  for (const name of promptNames) {
+    const prefix = `PROMPT_${name.toUpperCase()}_`;
+    const tempRaw = env[`${prefix}TEMPERATURE`];
+    const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
+
+    overrides[name] = {
+      provider: env[`${prefix}PROVIDER`] ?? undefined,
+      model: env[`${prefix}MODEL`] ?? undefined,
+      temperature: tempRaw != null ? parseFloat(tempRaw) : undefined,
+      maxTokens: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
+    };
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
 // ── Auth Config ──

@@ -42,10 +42,8 @@ const defaultClaimMapping: JwtClaimMapping = {
 };
 
 /**
- * JWT-based auth adapter. Decodes and validates JWT tokens,
- * mapping claims to an AuthContext.
- *
- * Supports HMAC-SHA256 (HS256) signed JWTs.
+ * JWT-based auth adapter. Decodes, verifies HMAC-SHA256 signatures,
+ * and validates JWT tokens, mapping claims to an AuthContext.
  */
 export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
   const mapping = { ...defaultClaimMapping, ...config.claimMapping };
@@ -161,4 +159,55 @@ function verifyJwtHs256(
   const payload = decodeJwtPayload(token);
   if (!payload) return null;
   return { payload };
+}
+
+// ── JWT Signing ──
+
+export interface SignJwtOptions {
+  /** Secret key for HMAC-SHA256 signing */
+  secret: string;
+  /** Subject (userId) */
+  sub: string;
+  /** Roles */
+  roles?: string[];
+  /** Scopes */
+  scopes?: string[];
+  /** Tenant ID */
+  tenantId?: string;
+  /** Token expiration in seconds (default: 86400 = 24h) */
+  expiresIn?: number;
+  /** Issuer */
+  issuer?: string;
+  /** Additional claims */
+  claims?: Record<string, unknown>;
+}
+
+/**
+ * Sign a JWT token using HMAC-SHA256.
+ * Returns the signed token string (header.payload.signature).
+ */
+export function signJwt(options: SignJwtOptions): string {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + (options.expiresIn ?? 86400);
+
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload: Record<string, unknown> = {
+    sub: options.sub,
+    iat: now,
+    exp,
+    ...options.claims,
+  };
+
+  if (options.roles?.length) payload.roles = options.roles;
+  if (options.scopes?.length) payload.scope = options.scopes.join(' ');
+  if (options.tenantId) payload.tenant_id = options.tenantId;
+  if (options.issuer) payload.iss = options.issuer;
+
+  const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = createHmac('sha256', options.secret)
+    .update(`${headerB64}.${payloadB64}`)
+    .digest('base64url');
+
+  return `${headerB64}.${payloadB64}.${signature}`;
 }

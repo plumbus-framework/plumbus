@@ -13,6 +13,7 @@ export interface AIInvocationRecord {
   operation: 'generate' | 'extract' | 'classify' | 'retrieve';
   promptName?: string;
   model?: string;
+  provider?: string;
   input: Record<string, unknown>;
   output: unknown;
   usage?: TokenUsage;

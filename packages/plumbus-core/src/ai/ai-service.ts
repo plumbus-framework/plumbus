@@ -5,7 +5,6 @@
 import { z } from 'zod';
 import type { AIDocument, AIService } from '../types/context.js';
 import type { CostTracker } from './cost-tracker.js';
-import { estimateCost } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import type { AIProviderAdapter, ProviderRequest } from './provider.js';
@@ -16,7 +15,10 @@ import { generateWithValidation, type ValidationRetryConfig } from './validation
 
 // ── AI Service Config ──
 export interface AIServiceConfig {
-  provider: AIProviderAdapter;
+  /** Multiple provider adapters keyed by name (e.g. "openai", "anthropic") */
+  providers: Record<string, AIProviderAdapter>;
+  /** Which provider to use when a prompt doesn't specify one */
+  defaultProvider: string;
   promptRegistry?: PromptRegistry;
   costTracker?: CostTracker;
   ragPipeline?: RAGPipeline;
@@ -24,16 +26,49 @@ export interface AIServiceConfig {
   security?: AISecurityConfig;
   validation?: ValidationRetryConfig;
   /** Default model name */
-  defaultModel?: string;
-  /** Budget enforcement settings */
+  defaultModel?: string /** Per-prompt model/provider overrides from config/env */;
+  promptOverrides?: Record<
+    string,
+    { provider?: string; model?: string; temperature?: number; maxTokens?: number }
+  > /** Budget enforcement settings */;
   budget?: {
     tenantId?: string;
     actor?: string;
   };
 }
 
+/** Convenience: create config from a single provider (backward compat) */
+export function singleProviderConfig(
+  provider: AIProviderAdapter,
+  rest?: Omit<AIServiceConfig, 'providers' | 'defaultProvider'>,
+): AIServiceConfig {
+  return {
+    providers: { [provider.name]: provider },
+    defaultProvider: provider.name,
+    ...rest,
+  };
+}
+
 export function createAIService(config: AIServiceConfig): AIService {
-  const { provider, promptRegistry, costTracker, ragPipeline, explainability, security } = config;
+  const {
+    providers,
+    defaultProvider,
+    promptRegistry,
+    costTracker,
+    ragPipeline,
+    explainability,
+    security,
+  } = config;
+
+  function resolveProvider(providerName?: string): AIProviderAdapter {
+    const name = providerName ?? defaultProvider;
+    const adapter = providers[name];
+    if (!adapter) {
+      const available = Object.keys(providers).join(', ');
+      throw new Error(`AI provider "${name}" not configured. Available: ${available}`);
+    }
+    return adapter;
+  }
 
   function checkBudget(estimatedTokens?: number): void {
     if (!costTracker) return;
@@ -52,6 +87,7 @@ export function createAIService(config: AIServiceConfig): AIService {
   ): {
     text: string;
     model?: string;
+    provider?: string;
     temperature?: number;
     maxTokens?: number;
   } {
@@ -73,11 +109,17 @@ export function createAIService(config: AIServiceConfig): AIService {
       text = text.replaceAll(`{{${key}}}`, String(value));
     }
 
+    // Resolution chain: config/env override → prompt-level → defaults
+    // Look up override by prompt name (dots replaced with underscores for env var matching)
+    const overrideKey = promptName.toLowerCase().replaceAll('.', '_');
+    const override = config.promptOverrides?.[overrideKey] ?? config.promptOverrides?.[promptName];
+
     return {
       text,
-      model: def.model?.name,
-      temperature: def.model?.temperature,
-      maxTokens: def.model?.maxTokens,
+      model: override?.model ?? def.model?.name ?? config.defaultModel,
+      provider: override?.provider ?? def.model?.provider,
+      temperature: override?.temperature ?? def.model?.temperature,
+      maxTokens: override?.maxTokens ?? def.model?.maxTokens,
     };
   }
 
@@ -97,6 +139,11 @@ export function createAIService(config: AIServiceConfig): AIService {
       const promptInfo = hasPromptDef
         ? buildPromptText(params.prompt, inputForAI)
         : { text: params.prompt };
+
+      // Resolve provider: prompt-level > default
+      const activeProvider = resolveProvider(
+        'provider' in promptInfo ? promptInfo.provider : undefined,
+      );
 
       // Check if we have a schema to validate against
       const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
@@ -119,7 +166,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (promptDef) {
         // Use validated generation
         const validated = await generateWithValidation(
-          provider,
+          activeProvider,
           request,
           promptDef.output,
           config.validation,
@@ -129,7 +176,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         validationAttempts = validated.attempts;
       } else {
         // Raw generation
-        const response = await provider.complete(request);
+        const response = await activeProvider.complete(request);
         result = response.content;
         totalUsage = response.usage;
       }
@@ -139,14 +186,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Track cost
       if (costTracker) {
         costTracker.record({
-          model: promptInfo.model ?? config.defaultModel ?? provider.name,
+          model: promptInfo.model ?? config.defaultModel ?? activeProvider.name,
+          provider: activeProvider.name,
           promptName: hasPromptDef ? params.prompt : undefined,
           operation: 'generate',
           usage: totalUsage,
-          estimatedCost: estimateCost(
-            promptInfo.model ?? config.defaultModel ?? provider.name,
-            totalUsage,
-          ),
+          cost: null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -159,6 +204,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           operation: 'generate',
           promptName: hasPromptDef ? params.prompt : undefined,
           model: promptInfo.model ?? config.defaultModel,
+          provider: activeProvider.name,
           input: params.input,
           output: result,
           usage: totalUsage,
@@ -181,6 +227,9 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       checkBudget();
 
+      // extract uses default provider (no prompt-level routing)
+      const activeProvider = resolveProvider();
+
       const systemPrompt =
         'Extract structured data from the following text. Return valid JSON matching the required schema.';
       const request: ProviderRequest = {
@@ -191,7 +240,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       };
 
       const validated = await generateWithValidation(
-        provider,
+        activeProvider,
         request,
         params.schema,
         config.validation,
@@ -201,10 +250,11 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       if (costTracker) {
         costTracker.record({
-          model: config.defaultModel ?? provider.name,
+          model: config.defaultModel ?? activeProvider.name,
+          provider: activeProvider.name,
           operation: 'extract',
           usage: validated.usage,
-          estimatedCost: estimateCost(config.defaultModel ?? provider.name, validated.usage),
+          cost: null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -215,6 +265,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         explainability.record({
           operation: 'extract',
           model: config.defaultModel,
+          provider: activeProvider.name,
           input: { text: params.text },
           output: validated.data,
           usage: validated.usage,
@@ -233,6 +284,9 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       checkBudget();
 
+      // classify uses default provider (no prompt-level routing)
+      const activeProvider = resolveProvider();
+
       const systemPrompt =
         'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
       const request: ProviderRequest = {
@@ -243,7 +297,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       };
 
       const schema = z.array(z.string());
-      const validated = await generateWithValidation(provider, request, schema, config.validation);
+      const validated = await generateWithValidation(
+        activeProvider,
+        request,
+        schema,
+        config.validation,
+      );
 
       const latencyMs = performance.now() - start;
 
@@ -252,10 +311,11 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       if (costTracker) {
         costTracker.record({
-          model: config.defaultModel ?? provider.name,
+          model: config.defaultModel ?? activeProvider.name,
+          provider: activeProvider.name,
           operation: 'classify',
           usage: validated.usage,
-          estimatedCost: estimateCost(config.defaultModel ?? provider.name, validated.usage),
+          cost: null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -266,6 +326,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         explainability.record({
           operation: 'classify',
           model: config.defaultModel,
+          provider: activeProvider.name,
           input: { labels: params.labels, text: params.text },
           output: result,
           usage: validated.usage,

@@ -11,7 +11,7 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "instructions"],
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
