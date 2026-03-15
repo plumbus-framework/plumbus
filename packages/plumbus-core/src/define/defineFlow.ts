@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 import type {
   FlowDefinition,
   FlowRetryPolicy,
@@ -6,6 +6,16 @@ import type {
   FlowStep,
   FlowTrigger,
 } from '../types/flow.js';
+
+function isZodSchema(value: unknown): value is z.ZodTypeAny {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_def' in value &&
+    'safeParse' in value &&
+    typeof (value as Record<string, unknown>).safeParse === 'function'
+  );
+}
 
 interface DefineFlowInput<TInput extends z.ZodTypeAny, TState extends z.ZodTypeAny> {
   name: string;
@@ -31,7 +41,7 @@ export function defineFlow<TInput extends z.ZodTypeAny, TState extends z.ZodType
   if (!config.domain) {
     throw new Error('Flow domain is required');
   }
-  if (!(config.input instanceof z.ZodType)) {
+  if (!isZodSchema(config.input)) {
     throw new Error(`Flow "${config.name}": input must be a Zod schema`);
   }
   if (!Array.isArray(config.steps) || config.steps.length === 0) {

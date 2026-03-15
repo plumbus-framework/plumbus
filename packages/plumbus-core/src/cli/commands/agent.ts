@@ -179,7 +179,7 @@ export function registerAgentCommand(program: Command): void {
       success('Updated .plumbus/briefs/project.md');
 
       // Re-run init to update agent config files
-      writeAgentFiles(projectRoot, ['copilot', 'cursor', 'agents-md'], false);
+      writeAgentFiles(projectRoot, ['copilot', 'cursor', 'agents-md'], false, false);
       success('Updated agent configuration files');
     });
 }

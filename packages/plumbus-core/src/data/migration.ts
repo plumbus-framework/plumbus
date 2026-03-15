@@ -1,6 +1,7 @@
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { auditRecords } from '../audit/schema.js';
 import type { EntityDefinition } from '../types/entity.js';
 import { generateDrizzleSchema } from './schema-generator.js';
 
@@ -19,7 +20,8 @@ export async function applyMigrations(config: MigrationConfig): Promise<void> {
 }
 
 /**
- * Collect all Drizzle table schemas from entity definitions.
+ * Collect all Drizzle table schemas from entity definitions,
+ * plus framework-internal tables (e.g. audit_records).
  * Used by drizzle-kit config to introspect the schema for migration generation.
  */
 export function collectSchemas(
@@ -29,6 +31,8 @@ export function collectSchemas(
   for (const entity of entities) {
     schemas[entity.name] = generateDrizzleSchema(entity);
   }
+  // Framework-internal tables
+  schemas.__audit_records = auditRecords as unknown as PgTableWithColumns<any>;
   return schemas;
 }
 

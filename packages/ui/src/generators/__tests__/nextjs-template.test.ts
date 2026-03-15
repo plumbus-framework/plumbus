@@ -128,6 +128,11 @@ describe('generateCapabilityPage', () => {
     expect(file.content).toContain('Loading...');
   });
 
+  it('imports hooks from @/generated/ path', () => {
+    const file = generateCapabilityPage(makeQueryCap());
+    expect(file.content).toContain('from "@/generated/hooks"');
+  });
+
   it('generates an action page with form', () => {
     const file = generateCapabilityPage(makeActionCap());
     expect(file.path).toBe('app/approve-refund/page.tsx');

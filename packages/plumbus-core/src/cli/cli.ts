@@ -7,8 +7,10 @@ import {
   registerCapabilityCommand,
   registerCertifyCommand,
   registerCreateCommand,
+  registerDbCommand,
   registerDevCommand,
   registerDoctorCommand,
+  registerE2ECommand,
   registerEntityCommand,
   registerEventCommand,
   registerFlowCommand,
@@ -17,6 +19,9 @@ import {
   registerMigrateCommand,
   registerPromptCommand,
   registerRagCommand,
+  registerSeedCommand,
+  registerTestCommand,
+  registerUiCommand,
   registerVerifyCommand,
 } from './commands/index.js';
 
@@ -37,12 +42,17 @@ export function createCli(): Command {
   registerPromptCommand(program);
   registerGenerateCommand(program);
   registerMigrateCommand(program);
+  registerDbCommand(program);
   registerVerifyCommand(program);
   registerCertifyCommand(program);
   registerAgentCommand(program);
   registerRagCommand(program);
+  registerSeedCommand(program);
+  registerUiCommand(program);
   registerDoctorCommand(program);
   registerDevCommand(program);
+  registerTestCommand(program);
+  registerE2ECommand(program);
 
   return program;
 }

@@ -1,17 +1,22 @@
 // ── AI Cost Tracking & Budget Enforcement ──
-// Records per-request token usage, estimated cost, and enforces limits
+// Records per-request token usage and enforces limits.
+// Actual cost data comes from provider usage APIs — no hardcoded rates.
 
 import type { TokenUsage } from './provider.js';
+import type { UsageAPIClient, UsageData } from './usage-client.js';
+import { UsageAPIError } from './usage-client.js';
 
 // ── Cost Record ──
 export interface AICostRecord {
   id: string;
   timestamp: Date;
   model: string;
+  provider: string;
   promptName?: string;
   operation: 'generate' | 'extract' | 'classify' | 'embed';
   usage: TokenUsage;
-  estimatedCost: number;
+  /** Actual cost from provider API, or null if API unavailable */
+  cost: number | null;
   latencyMs: number;
   tenantId?: string;
   actor?: string;
@@ -33,6 +38,8 @@ export interface CostTracker {
   checkBudget(config: { tenantId?: string; estimatedTokens?: number }): BudgetCheckResult;
   getDailyUsage(tenantId?: string): DailyUsage;
   getRecords(): AICostRecord[];
+  /** Fetch actual costs from provider usage APIs and update records */
+  syncCosts?(): Promise<UsageSyncResult>;
 }
 
 export interface BudgetCheckResult {
@@ -43,24 +50,21 @@ export interface BudgetCheckResult {
 export interface DailyUsage {
   totalTokens: number;
   totalCost: number;
+  /** Whether cost data is available from provider APIs */
+  costAvailable: boolean;
   requestCount: number;
 }
 
-// ── Default cost rates per 1M tokens (approximate) ──
-const DEFAULT_COST_RATES: Record<string, { input: number; output: number }> = {
-  'gpt-4o': { input: 2.5, output: 10 },
-  'gpt-4o-mini': { input: 0.15, output: 0.6 },
-  'gpt-4-turbo': { input: 10, output: 30 },
-  'claude-sonnet-4-20250514': { input: 3, output: 15 },
-  'claude-3-5-haiku-20241022': { input: 0.8, output: 4 },
-};
-
-export function estimateCost(model: string, usage: TokenUsage): number {
-  const rate = DEFAULT_COST_RATES[model] ?? { input: 5, output: 15 };
-  return (usage.inputTokens * rate.input + usage.outputTokens * rate.output) / 1_000_000;
+export interface UsageSyncResult {
+  synced: boolean;
+  totalCost?: number;
+  error?: string;
 }
 
-export function createCostTracker(budget?: BudgetConfig): CostTracker {
+export function createCostTracker(
+  budget?: BudgetConfig,
+  usageClients?: UsageAPIClient[],
+): CostTracker {
   const records: AICostRecord[] = [];
 
   function getTodayRecords(tenantId?: string): AICostRecord[] {
@@ -71,6 +75,18 @@ export function createCostTracker(budget?: BudgetConfig): CostTracker {
       if (tenantId && r.tenantId !== tenantId) return false;
       return true;
     });
+  }
+
+  function sumCost(recs: AICostRecord[]): { total: number; available: boolean } {
+    let total = 0;
+    let available = false;
+    for (const r of recs) {
+      if (r.cost != null) {
+        total += r.cost;
+        available = true;
+      }
+    }
+    return { total, available };
   }
 
   return {
@@ -94,22 +110,36 @@ export function createCostTracker(budget?: BudgetConfig): CostTracker {
 
       if (budget?.dailyCostLimit) {
         const daily = getTodayRecords();
-        const totalCost = daily.reduce((sum, r) => sum + r.estimatedCost, 0);
-        if (totalCost >= budget.dailyCostLimit) {
+        const { total, available } = sumCost(daily);
+        if (!available) {
+          return {
+            allowed: true,
+            reason:
+              'Cost data unavailable — usage API not configured. Dollar-based budget cannot be enforced.',
+          };
+        }
+        if (total >= budget.dailyCostLimit) {
           return {
             allowed: false,
-            reason: `Daily cost limit reached ($${totalCost.toFixed(4)} / $${budget.dailyCostLimit})`,
+            reason: `Daily cost limit reached ($${total.toFixed(4)} / $${budget.dailyCostLimit})`,
           };
         }
       }
 
       if (budget?.perTenantDailyLimit && config.tenantId) {
         const tenantDaily = getTodayRecords(config.tenantId);
-        const tenantCost = tenantDaily.reduce((sum, r) => sum + r.estimatedCost, 0);
-        if (tenantCost >= budget.perTenantDailyLimit) {
+        const { total, available } = sumCost(tenantDaily);
+        if (!available) {
+          return {
+            allowed: true,
+            reason:
+              'Cost data unavailable — usage API not configured. Tenant budget cannot be enforced.',
+          };
+        }
+        if (total >= budget.perTenantDailyLimit) {
           return {
             allowed: false,
-            reason: `Tenant daily cost limit reached ($${tenantCost.toFixed(4)} / $${budget.perTenantDailyLimit})`,
+            reason: `Tenant daily cost limit reached ($${total.toFixed(4)} / $${budget.perTenantDailyLimit})`,
           };
         }
       }
@@ -119,15 +149,40 @@ export function createCostTracker(budget?: BudgetConfig): CostTracker {
 
     getDailyUsage(tenantId) {
       const daily = getTodayRecords(tenantId);
+      const { total, available } = sumCost(daily);
       return {
         totalTokens: daily.reduce((sum, r) => sum + r.usage.totalTokens, 0),
-        totalCost: daily.reduce((sum, r) => sum + r.estimatedCost, 0),
+        totalCost: total,
+        costAvailable: available,
         requestCount: daily.length,
       };
     },
 
     getRecords() {
       return [...records];
+    },
+
+    async syncCosts() {
+      if (!usageClients?.length) {
+        return { synced: false, error: 'No usage API clients configured' };
+      }
+
+      try {
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        let totalCostFromAPIs = 0;
+
+        for (const client of usageClients) {
+          const usage: UsageData = await client.fetchUsage({ startDate: startOfDay, endDate: now });
+          totalCostFromAPIs += usage.totalCost;
+        }
+
+        return { synced: true, totalCost: totalCostFromAPIs };
+      } catch (err) {
+        const message =
+          err instanceof UsageAPIError ? err.message : 'Unknown error fetching usage data';
+        return { synced: false, error: message };
+      }
     },
   };
 }

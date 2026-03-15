@@ -39,13 +39,122 @@ function capabilityPath(domain: string, name: string): string {
   return `/api/${domain}/${toKebabCase(name)}`;
 }
 
+// ── Zod Schema → TypeScript Type String ──
+
+function getZodTypeName(schema: unknown): string {
+  if (schema && typeof schema === 'object' && '_def' in schema) {
+    const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+    if (typeof def.typeName === 'string') return def.typeName;
+  }
+  return 'ZodUnknown';
+}
+
+function getZodDef(schema: unknown): Record<string, unknown> | null {
+  if (schema && typeof schema === 'object' && '_def' in schema) {
+    return (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  }
+  return null;
+}
+
+function zodSchemaToTypeString(schema: unknown, indent = ''): string {
+  const def = getZodDef(schema);
+  if (!def) return 'unknown';
+
+  const typeName = typeof def.typeName === 'string' ? def.typeName : 'ZodUnknown';
+
+  switch (typeName) {
+    case 'ZodString':
+      return 'string';
+    case 'ZodNumber':
+    case 'ZodBigInt':
+      return 'number';
+    case 'ZodBoolean':
+      return 'boolean';
+    case 'ZodDate':
+      return 'string';
+    case 'ZodLiteral':
+      return typeof def.value === 'string' ? `"${def.value}"` : String(def.value);
+    case 'ZodEnum':
+      if (Array.isArray(def.values)) {
+        return (def.values as string[]).map((v) => `"${v}"`).join(' | ');
+      }
+      return 'string';
+    case 'ZodNativeEnum':
+      return 'string';
+    case 'ZodArray': {
+      const inner = zodSchemaToTypeString(def.type, indent);
+      return inner.includes('|') || inner.includes('{') ? `Array<${inner}>` : `${inner}[]`;
+    }
+    case 'ZodObject': {
+      if (typeof def.shape === 'function') {
+        const shape = (def.shape as () => Record<string, unknown>)();
+        const entries = Object.entries(shape);
+        if (entries.length === 0) return 'Record<string, unknown>';
+        const innerIndent = `${indent}  `;
+        const fields = entries.map(([key, fieldSchema]) => {
+          const optional = isFieldOptional(fieldSchema);
+          const innerType = zodSchemaToTypeString(unwrapWrappers(fieldSchema), innerIndent);
+          const nullable = getZodTypeName(fieldSchema) === 'ZodNullable';
+          const typeStr = nullable ? `${innerType} | null` : innerType;
+          return `${innerIndent}${key}${optional ? '?' : ''}: ${typeStr};`;
+        });
+        return `{\n${fields.join('\n')}\n${indent}}`;
+      }
+      return 'Record<string, unknown>';
+    }
+    case 'ZodRecord': {
+      const valueType = def.valueType ? zodSchemaToTypeString(def.valueType, indent) : 'unknown';
+      return `Record<string, ${valueType}>`;
+    }
+    case 'ZodOptional':
+      return zodSchemaToTypeString(def.innerType, indent);
+    case 'ZodNullable': {
+      const inner = zodSchemaToTypeString(def.innerType, indent);
+      return `${inner} | null`;
+    }
+    case 'ZodDefault':
+      return zodSchemaToTypeString(def.innerType, indent);
+    case 'ZodUnion': {
+      if (Array.isArray(def.options)) {
+        return (def.options as unknown[]).map((o) => zodSchemaToTypeString(o, indent)).join(' | ');
+      }
+      return 'unknown';
+    }
+    case 'ZodAny':
+      return 'unknown';
+    default:
+      return 'unknown';
+  }
+}
+
+function isFieldOptional(schema: unknown): boolean {
+  const def = getZodDef(schema);
+  if (!def) return false;
+  const tn = typeof def.typeName === 'string' ? def.typeName : '';
+  if (tn === 'ZodOptional' || tn === 'ZodDefault') return true;
+  if (tn === 'ZodNullable' && def.innerType) return isFieldOptional(def.innerType);
+  return false;
+}
+
+function unwrapWrappers(schema: unknown): unknown {
+  const def = getZodDef(schema);
+  if (!def) return schema;
+  const tn = typeof def.typeName === 'string' ? def.typeName : '';
+  if (tn === 'ZodOptional' || tn === 'ZodDefault' || tn === 'ZodNullable') {
+    return unwrapWrappers(def.innerType);
+  }
+  return schema;
+}
+
 // ── Type Generators ──
 
-/** Generate TypeScript type placeholders for a capability's input/output */
+/** Generate TypeScript types from a capability's Zod input/output schemas */
 export function generateCapabilityTypes(cap: CapabilityContract): string {
   const pascal = toPascalCase(cap.name);
-  return `export type ${pascal}Input = Record<string, unknown>;
-export type ${pascal}Output = Record<string, unknown>;`;
+  const inputType = zodSchemaToTypeString(cap.input);
+  const outputType = zodSchemaToTypeString(cap.output);
+  return `export type ${pascal}Input = ${inputType};
+export type ${pascal}Output = ${outputType};`;
 }
 
 // ── Client Function Generator ──
@@ -284,8 +393,8 @@ export function generateHooksModule(
   // Import types from client
   for (const cap of capabilities) {
     const pascal = toPascalCase(cap.name);
-    lines.push(`import type { ${pascal}Input, ${pascal}Output } from "./client.js";`);
-    lines.push(`import { ${toCamelCase(cap.name)} } from "./client.js";`);
+    lines.push(`import type { ${pascal}Input, ${pascal}Output } from "./client";`);
+    lines.push(`import { ${toCamelCase(cap.name)} } from "./client";`);
   }
   lines.push('');
 

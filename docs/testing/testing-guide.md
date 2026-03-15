@@ -2,6 +2,8 @@
 
 Plumbus provides a complete testing toolkit exported from `plumbus-core/testing`. Every testing utility is designed to work with Vitest.
 
+**Important**: Vitest, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
+
 ## Setup
 
 ```typescript
@@ -314,6 +316,8 @@ expect(user?.name).toBe("Alice");
 
 ## E2E Testing
 
+For generated browser configs, prefer an import-free `vitest.config.e2e.ts` that exports a plain object. This keeps consumer apps runnable through the framework wrapper without requiring a direct `vitest` install just to resolve `vitest/config` from the app workspace.
+
 ### createE2EServer
 
 Boot a full Plumbus server for integration tests:
@@ -380,6 +384,12 @@ const govTest = generateGovernanceTest("orders");
 ```bash
 # Run all tests
 pnpm test
+
+# Run browser E2E from a consumer app with an already running frontend
+plumbus test --config frontend/e2e/vitest.config.e2e.ts
+
+# Let the framework manage the frontend server lifecycle for browser E2E
+plumbus e2e
 
 # Run specific test file
 pnpm vitest run path/to/test.test.ts

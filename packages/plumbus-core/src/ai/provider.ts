@@ -1,6 +1,8 @@
 // ── AI Provider Adapter Interface ──
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
+import type { AIProviderConfig } from '../types/config.js';
+
 // ── Provider Request ──
 export interface ProviderRequest {
   /** System prompt / instructions */
@@ -450,5 +452,29 @@ function parseAnthropicSSEChunk(eventType: string, data: string): ProviderStream
     }
   } catch {
     return null;
+  }
+}
+
+// ── Provider Factory ──
+
+/** Create a provider adapter by name from a provider config entry */
+export function createProviderAdapter(
+  name: string,
+  providerConfig: AIProviderConfig,
+): AIProviderAdapter {
+  const cfg = {
+    apiKey: providerConfig.apiKey,
+    model: providerConfig.model,
+    baseUrl: providerConfig.baseUrl,
+  };
+
+  switch (name) {
+    case 'openai':
+      return createOpenAIAdapter(cfg);
+    case 'anthropic':
+      return createAnthropicAdapter(cfg);
+    default:
+      // Unknown providers: try OpenAI-compat adapter (covers Ollama, Azure, etc.)
+      return createOpenAIAdapter(cfg);
   }
 }

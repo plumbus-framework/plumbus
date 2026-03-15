@@ -3,6 +3,7 @@
 // defineEvent, definePrompt exports and returns them.
 
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CapabilityContract } from '../types/capability.js';
@@ -118,21 +119,40 @@ export async function discoverResources(
 ): Promise<DiscoveredResources> {
   const appDir = path.join(appRoot, 'app');
 
-  const [capExports, entityExports, flowExports, eventExports, promptExports] = await Promise.all([
-    scanDir(path.join(appDir, 'capabilities')),
-    scanDir(path.join(appDir, 'entities')),
-    scanDir(path.join(appDir, 'flows')),
-    scanDir(path.join(appDir, 'events')),
-    scanDir(path.join(appDir, 'prompts')),
-  ]);
+  // Register tsx to allow importing TypeScript files from consumer projects.
+  // Use createRequire to resolve tsx from the framework's own node_modules,
+  // since it may not be installed in the consumer project.
+  let unregister: (() => void) | undefined;
+  try {
+    const require = createRequire(import.meta.url);
+    const tsxPath = require.resolve('tsx/esm/api');
+    const tsx = await import(pathToFileURL(tsxPath).href);
+    unregister = tsx.register();
+  } catch {
+    // tsx not available; only .js files will be importable
+  }
 
-  return {
-    capabilities: capExports.filter(isCapability),
-    entities: entityExports.filter(isEntity),
-    flows: flowExports.filter(isFlow),
-    events: eventExports.filter(isEvent),
-    prompts: promptExports.filter(isPrompt),
-  };
+  try {
+    const [capExports, entityExports, flowExports, eventExports, promptExports] = await Promise.all(
+      [
+        scanDir(path.join(appDir, 'capabilities')),
+        scanDir(path.join(appDir, 'entities')),
+        scanDir(path.join(appDir, 'flows')),
+        scanDir(path.join(appDir, 'events')),
+        scanDir(path.join(appDir, 'prompts')),
+      ],
+    );
+
+    return {
+      capabilities: capExports.filter(isCapability),
+      entities: entityExports.filter(isEntity),
+      flows: flowExports.filter(isFlow),
+      events: eventExports.filter(isEvent),
+      prompts: promptExports.filter(isPrompt),
+    };
+  } finally {
+    unregister?.();
+  }
 }
 
 /**

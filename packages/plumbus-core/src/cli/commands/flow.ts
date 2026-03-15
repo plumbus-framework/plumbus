@@ -3,7 +3,7 @@
 
 import type { Command } from 'commander';
 import * as path from 'node:path';
-import { flowTemplate } from '../templates/resources.js';
+import { flowTemplate, flowTestTemplate } from '../templates/resources.js';
 import { error, exists, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 
 export function registerFlowCommand(program: Command): void {
@@ -24,6 +24,7 @@ export function registerFlowCommand(program: Command): void {
       }
 
       writeFile(path.join(baseDir, 'flow.ts'), flowTemplate(name, domain));
+      writeFile(path.join(baseDir, 'tests', `${kebab}.test.ts`), flowTestTemplate(name, domain));
 
       success(`Created flow: app/flows/${domain}/${kebab}/`);
     });

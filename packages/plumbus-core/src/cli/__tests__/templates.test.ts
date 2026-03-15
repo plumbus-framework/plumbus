@@ -5,6 +5,7 @@ import {
   entityTemplate,
   eventTemplate,
   flowTemplate,
+  flowTestTemplate,
   promptTemplate,
 } from '../templates/resources.js';
 
@@ -38,6 +39,13 @@ describe('Resource templates', () => {
     expect(result).toContain('name: "refund-approval"');
     expect(result).toContain('domain: "billing"');
     expect(result).toContain('steps:');
+  });
+
+  it('generates flow test template', () => {
+    const result = flowTestTemplate('refund-approval', 'billing');
+    expect(result).toContain('RefundApproval Flow');
+    expect(result).toContain('simulateFlow');
+    expect(result).toContain('refundApprovalFlow');
   });
 
   it('generates event template', () => {
