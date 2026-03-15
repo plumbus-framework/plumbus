@@ -78,9 +78,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
 
   // Auth adapter
-  if (!config.auth.secret && config.environment === 'production') {
+  if (!config.auth.secret && config.environment !== 'development') {
     throw new Error(
-      'auth.secret is required in production — refusing to start with no secret configured',
+      'auth.secret is required outside development — refusing to start with no secret',
     );
   }
   if (!config.auth.secret) {

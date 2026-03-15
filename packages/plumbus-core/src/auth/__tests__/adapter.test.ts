@@ -16,7 +16,9 @@ function signedJwt(secret: string, payload: Record<string, unknown>): string {
 function fakeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = 'fake-signature';
+  const sig = createHmac('sha256', 'not-the-real-secret')
+    .update(`${header}.${body}`)
+    .digest('base64url');
   return `${header}.${body}.${sig}`;
 }
 

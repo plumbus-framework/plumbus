@@ -55,11 +55,9 @@ export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
       const token = extractBearerToken(authorizationHeader);
       if (!token) return null;
 
-      // Verify HMAC-SHA256 signature before trusting payload
-      if (!verifyJwtSignature(token, config.secret)) return null;
-
-      const payload = decodeJwtPayload(token);
-      if (!payload) return null;
+      const verified = verifyJwtHs256(token, config.secret);
+      if (!verified) return null;
+      const { payload } = verified;
 
       // Validate issuer if configured
       if (config.issuer && payload.iss !== config.issuer) {
@@ -127,27 +125,40 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
-function verifyJwtSignature(token: string, secret: string): boolean {
+function verifyJwtHs256(
+  token: string,
+  secret: string,
+): { payload: Record<string, unknown> } | null {
   const parts = token.split('.');
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return null;
 
-  const header = parts[0];
-  const payload = parts[1];
-  const signature = parts[2];
-  if (!header || !payload || !signature) return false;
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  if (!encodedHeader || !encodedPayload || !encodedSignature) return null;
 
+  let header: Record<string, unknown>;
   try {
-    const expected = createHmac('sha256', secret)
-      .update(`${header}.${payload}`)
-      .digest('base64url');
-    // Constant-time comparison to prevent timing attacks
-    if (expected.length !== signature.length) return false;
-    const a = Buffer.from(expected);
-    const b = Buffer.from(signature);
-    return timingSafeEqual(a, b);
+    header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf-8')) as Record<
+      string,
+      unknown
+    >;
   } catch {
-    return false;
+    return null;
   }
+
+  if (header.alg !== 'HS256') {
+    return null;
+  }
+
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const expected = createHmac('sha256', secret).update(signingInput).digest();
+  const actual = Buffer.from(encodedSignature, 'base64url');
+
+  if (expected.length !== actual.length) return null;
+  if (!timingSafeEqual(expected, actual)) return null;
+
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
+  return { payload };
 }
 
 // ── JWT Signing ──

@@ -23,23 +23,26 @@ export async function deadLetterFlow(db: PostgresJsDatabase, executionId: string
     );
   }
 
-  await db.insert(flowDeadLetterTable).values({
-    executionId: row.id,
-    flowName: row.flowName,
-    input: row.input as any,
-    state: row.state as any,
-    stepHistory: row.stepHistory as any,
-    lastError: row.lastError,
-    retryCount: row.retryCount,
-    metadata: {
-      actor: row.actor,
-      tenantId: row.tenantId,
-      correlationId: row.correlationId,
-      triggerEventId: row.triggerEventId,
-      createdAt: row.createdAt?.toISOString(),
-      failedAt: row.completedAt?.toISOString(),
-    },
-  });
+  await db
+    .insert(flowDeadLetterTable)
+    .values({
+      executionId: row.id,
+      flowName: row.flowName,
+      input: row.input as any,
+      state: row.state as any,
+      stepHistory: row.stepHistory as any,
+      lastError: row.lastError,
+      retryCount: row.retryCount,
+      metadata: {
+        actor: row.actor,
+        tenantId: row.tenantId,
+        correlationId: row.correlationId,
+        triggerEventId: row.triggerEventId,
+        createdAt: row.createdAt?.toISOString(),
+        failedAt: row.completedAt?.toISOString(),
+      },
+    })
+    .onConflictDoNothing({ target: flowDeadLetterTable.executionId });
 }
 
 /**

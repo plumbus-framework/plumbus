@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
 import type { EventQueue } from '../events/queue.js';
@@ -37,6 +37,8 @@ interface FlowExecutionRow {
   stepHistory: unknown;
   retryCount: number;
   lastError: string | null;
+  waitingForEvent: string | null;
+  wakeAt: Date | null;
   actor: string;
   tenantId: string | null;
   correlationId: string | null;
@@ -55,6 +57,8 @@ interface FlowExecutionUpdate {
   stepHistory?: StepHistoryEntry[];
   retryCount?: number;
   lastError?: string | null;
+  waitingForEvent?: string | null;
+  wakeAt?: Date | null;
   completedAt?: Date | null;
 }
 
@@ -101,7 +105,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       tenantId: auth.tenantId ?? null,
       correlationId: opts?.correlationId ?? null,
       triggerEventId: opts?.triggerEventId ?? null,
-    });
+    } satisfies typeof flowExecutionsTable.$inferInsert);
 
     if (audit) {
       await audit.record(`flow.started.${flowName}`, {
@@ -145,10 +149,22 @@ export function createFlowEngine(config: FlowEngineConfig) {
       throw new Error(`Flow "${row.flowName}" is not registered`);
     }
 
+    // Do not auto-run event waits, and do not run delayed waits until due.
+    if (row.status === FlowStatus.Waiting && row.waitingForEvent) {
+      return { id: row.id, flowName: row.flowName, status: FlowStatus.Waiting };
+    }
+    if (row.status === FlowStatus.Waiting && row.wakeAt && row.wakeAt.getTime() > Date.now()) {
+      return { id: row.id, flowName: row.flowName, status: FlowStatus.Waiting };
+    }
+
     // Transition to running
     if (row.status === FlowStatus.Created || row.status === FlowStatus.Waiting) {
       assertTransition(row.status as FlowStatus, FlowStatus.Running);
-      await updateExecution(executionId, { status: FlowStatus.Running });
+      await updateExecution(executionId, {
+        status: FlowStatus.Running,
+        waitingForEvent: null,
+        wakeAt: null,
+      });
     }
 
     // Find current step
@@ -207,6 +223,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
         status: FlowStatus.Waiting,
         stepHistory: history,
         currentStep: currentStepName, // stay on current step until resumed
+        waitingForEvent: result.waitEvent,
+        wakeAt: null,
       });
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Waiting };
     }
@@ -214,10 +232,24 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // Delay step — schedule next step after duration
     if (result.delayDuration) {
       const nextStep = getNextStepName(flow.steps, currentStepName);
+      let delayMs: number;
+      try {
+        delayMs = parseDurationToMs(result.delayDuration);
+      } catch (err) {
+        return handleStepFailure(
+          executionId,
+          row,
+          flow,
+          history,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
       await updateExecution(executionId, {
         status: FlowStatus.Waiting,
         stepHistory: history,
         currentStep: nextStep,
+        waitingForEvent: null,
+        wakeAt: new Date(Date.now() + delayMs),
       });
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Waiting };
     }
@@ -230,30 +262,25 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
       const branchResults = await Promise.allSettled(
         branchSteps.map(async (branchStep) => {
-          const startedAtBranch = new Date();
+          const branchStart = new Date();
           const branchResult = await executeStep(branchStep, flowCtx, row.state, stepDeps);
-          const completedAtBranch = new Date();
-          const branchEntry = buildHistoryEntry(
-            branchStep.name,
-            branchResult,
-            startedAtBranch,
-            completedAtBranch,
-          );
-          return { result: branchResult, entry: branchEntry };
+          const branchEnd = new Date();
+          return { branchStep, branchResult, branchStart, branchEnd };
         }),
       );
 
-      // Merge all branch history entries after all branches have settled
+      // Merge branch history entries after all branches complete (avoids concurrent mutation)
       for (const settled of branchResults) {
         if (settled.status === 'fulfilled') {
-          history.push(settled.value.entry);
+          const { branchStep, branchResult, branchStart, branchEnd } = settled.value;
+          history.push(buildHistoryEntry(branchStep.name, branchResult, branchStart, branchEnd));
         }
       }
 
       const anyFailed = branchResults.some(
         (r) =>
           r.status === 'rejected' ||
-          (r.status === 'fulfilled' && r.value.result.status === StepStatus.Failed),
+          (r.status === 'fulfilled' && r.value.branchResult.status === StepStatus.Failed),
       );
 
       if (anyFailed) {
@@ -329,7 +356,53 @@ export function createFlowEngine(config: FlowEngineConfig) {
       status: FlowStatus.Running,
       currentStep: nextStep,
       state: signal !== undefined ? signal : row.state,
+      waitingForEvent: null,
+      wakeAt: null,
     });
+  }
+
+  /**
+   * Resume all flows waiting on a specific event type.
+   * Returns the number of executions resumed.
+   */
+  async function resumeWaitingByEvent(eventType: string, signal?: unknown): Promise<number> {
+    const rows = await db
+      .select({ id: flowExecutionsTable.id })
+      .from(flowExecutionsTable)
+      .where(
+        and(
+          eq(flowExecutionsTable.status, FlowStatus.Waiting),
+          eq(flowExecutionsTable.waitingForEvent, eventType),
+        ),
+      );
+
+    for (const row of rows) {
+      await resume(row.id, signal);
+    }
+    return rows.length;
+  }
+
+  /**
+   * Returns execution IDs that should be processed now.
+   */
+  async function listRunnable(limit = 50): Promise<string[]> {
+    const now = new Date();
+    const rows = await db
+      .select({ id: flowExecutionsTable.id })
+      .from(flowExecutionsTable)
+      .where(
+        or(
+          inArray(flowExecutionsTable.status, [FlowStatus.Created, FlowStatus.Running]),
+          and(
+            eq(flowExecutionsTable.status, FlowStatus.Waiting),
+            isNull(flowExecutionsTable.waitingForEvent),
+            lte(flowExecutionsTable.wakeAt, now),
+          ),
+        ),
+      )
+      .limit(limit);
+
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -441,7 +514,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       .where(eq(flowExecutionsTable.id, id));
   }
 
-  return { start, runNext, resume, cancel, status };
+  return { start, runNext, resume, resumeWaitingByEvent, listRunnable, cancel, status };
 }
 
 /**
@@ -462,4 +535,26 @@ export function computeRetryDelay(retryCount: number, backoff: string, baseDelay
     return baseDelayMs * 2 ** (retryCount - 1);
   }
   return baseDelayMs; // fixed
+}
+
+function parseDurationToMs(duration: string): number {
+  const trimmed = duration.trim().toLowerCase();
+  const match = trimmed.match(/^(\d+)(ms|s|m|h|d)$/);
+  if (!match) {
+    throw new Error(
+      `Invalid delay duration "${duration}". Expected formats like "30s", "5m", "1h".`,
+    );
+  }
+
+  const [, valueRaw, unit] = match;
+  if (!valueRaw || !unit) {
+    throw new Error(`Invalid delay duration "${duration}".`);
+  }
+  const value = parseInt(valueRaw, 10);
+
+  if (unit === 'ms') return value;
+  if (unit === 's') return value * 1000;
+  if (unit === 'm') return value * 60_000;
+  if (unit === 'h') return value * 3_600_000;
+  return value * 86_400_000;
 }

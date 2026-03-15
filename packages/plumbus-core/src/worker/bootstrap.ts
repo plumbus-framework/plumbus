@@ -11,6 +11,7 @@ import { createIdempotencyService } from '../events/idempotency.js';
 import type { EventQueue } from '../events/queue.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
+import { createExecutionContext } from '../execution/context-factory.js';
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine } from '../flows/engine.js';
 import type { FlowRegistry } from '../flows/registry.js';
@@ -44,12 +45,16 @@ export interface WorkerPoolConfig {
   outboxPollIntervalMs?: number;
   /** Scheduler poll interval ms (default: 60000) */
   schedulerPollIntervalMs?: number;
+  /** Flow execution poll interval ms (default: 1000) */
+  flowPollIntervalMs?: number;
   /** Whether to start the outbox dispatcher (default: true) */
   enableDispatcher?: boolean;
   /** Whether to start the event worker (default: true) */
   enableEventWorker?: boolean;
   /** Whether to start the flow scheduler (default: true) */
   enableScheduler?: boolean;
+  /** Whether to run flow execution worker loop (default: true) */
+  enableFlowRunner?: boolean;
 }
 
 // ── Worker Pool Instance ──
@@ -74,9 +79,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     audit,
     outboxPollIntervalMs = 1000,
     schedulerPollIntervalMs = 60_000,
+    flowPollIntervalMs = 1000,
     enableDispatcher = true,
     enableEventWorker = true,
     enableScheduler = true,
+    enableFlowRunner = true,
   } = poolConfig;
 
   const logger = poolConfig.logger ?? createWorkerLogger();
@@ -117,6 +124,43 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     pollIntervalMs: schedulerPollIntervalMs,
   };
   const scheduler = enableScheduler ? createFlowScheduler(schedulerConfig) : null;
+  let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;
+  let flowRunnerPolling = false;
+
+  async function runFlowCycle(): Promise<void> {
+    if (!enableFlowRunner || flowRunnerPolling) return;
+    flowRunnerPolling = true;
+    try {
+      const runnable = await flowEngine.listRunnable(50);
+      if (runnable.length === 0) return;
+
+      const baseCtx = createExecutionContext({
+        auth: {
+          userId: 'system-flow-runner',
+          roles: ['system'],
+          scopes: [],
+          provider: 'worker',
+        },
+        data: {},
+        audit,
+        logger,
+        config: poolConfig.config as unknown as Record<string, unknown>,
+      });
+
+      for (const executionId of runnable) {
+        try {
+          await flowEngine.runNext(executionId, baseCtx);
+        } catch (err) {
+          logger.error('Flow execution run failed', {
+            executionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } finally {
+      flowRunnerPolling = false;
+    }
+  }
 
   let running = false;
 
@@ -131,6 +175,14 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         logger.info(`Synced ${synced} flow schedules`);
         scheduler.start();
         logger.info('Flow scheduler started');
+      }
+
+      if (enableFlowRunner) {
+        flowRunnerTimer = setInterval(() => {
+          void runFlowCycle();
+        }, flowPollIntervalMs);
+        void runFlowCycle();
+        logger.info('Flow execution runner started');
       }
 
       if (dispatcher) {
@@ -154,6 +206,12 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       if (scheduler) {
         scheduler.stop();
         logger.info('Flow scheduler stopped');
+      }
+
+      if (flowRunnerTimer) {
+        clearInterval(flowRunnerTimer);
+        flowRunnerTimer = null;
+        logger.info('Flow execution runner stopped');
       }
 
       if (dispatcher) {

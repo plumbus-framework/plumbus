@@ -30,7 +30,21 @@ function mockDb(rows: any[]) {
   const updateSet = vi.fn().mockImplementation((values: any) => ({
     where: vi.fn().mockImplementation(() => {
       updates.push(values);
+      if (values.status === 'processing') {
+        return {
+          returning: vi.fn().mockImplementation(() => Promise.resolve([{ id: 'row-1' }])),
+        };
+      }
       return Promise.resolve();
+    }),
+    returning: vi.fn().mockImplementation(() => {
+      updates.push(values);
+      return {
+        where: vi.fn().mockImplementation(() => {
+          updates.push(values);
+          return Promise.resolve([{ id: 'row-1' }]);
+        }),
+      };
     }),
   }));
 
@@ -75,9 +89,10 @@ describe('OutboxDispatcher', () => {
     const dispatcher = createOutboxDispatcher({ db, queue });
     await dispatcher.poll();
 
-    expect(db._updates).toHaveLength(1);
-    expect(db._updates[0].status).toBe('dispatched');
-    expect(db._updates[0].dispatchedAt).toBeInstanceOf(Date);
+    expect(db._updates.some((u: any) => u.status === 'processing')).toBe(true);
+    const dispatchedUpdate = db._updates.find((u: any) => u.status === 'dispatched');
+    expect(dispatchedUpdate).toBeDefined();
+    expect(dispatchedUpdate.dispatchedAt).toBeInstanceOf(Date);
   });
 
   it('marks row as failed when queue.publish throws', async () => {
@@ -92,10 +107,10 @@ describe('OutboxDispatcher', () => {
     const count = await dispatcher.poll();
 
     expect(count).toBe(0);
-    expect(db._updates).toHaveLength(1);
-    expect(db._updates[0].status).toBe('retry');
-    expect(db._updates[0].lastError).toBe('queue down');
-    expect(db._updates[0].retryCount).toBe('1');
+    const retryUpdate = db._updates.find((u: any) => u.status === 'retry');
+    expect(retryUpdate).toBeDefined();
+    expect(retryUpdate.lastError).toBe('queue down');
+    expect(retryUpdate.retryCount).toBe('1');
   });
 
   it('dead-letters row after max retries exhausted', async () => {

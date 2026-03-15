@@ -259,7 +259,7 @@ describe('Server Bootstrap', () => {
             }),
           }),
         ),
-      ).toThrow('auth.secret is required in production');
+      ).toThrow('auth.secret is required outside development');
     });
 
     it('does not throw in development when no auth secret is provided', () => {
