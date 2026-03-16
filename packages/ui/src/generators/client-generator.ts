@@ -2,7 +2,7 @@
 // Generates typed fetch-based API clients, React hooks, and flow trigger functions
 // from capability contracts and flow definitions.
 
-import type { CapabilityContract } from 'plumbus-core';
+import type { CapabilityContract } from '@plumbus/core';
 
 // ── Generated Client Types ──
 

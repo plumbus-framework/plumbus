@@ -5,7 +5,7 @@ Events represent **domain facts** — things that have happened in the system. T
 ## Defining an Event
 
 ```typescript
-import { defineEvent } from "plumbus-core";
+import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 export const orderPlaced = defineEvent({
@@ -161,7 +161,7 @@ The idempotency service uses a dedicated database table to track processed event
 ### In-Memory Queue
 
 ```typescript
-import { createInMemoryQueue } from "plumbus-core";
+import { createInMemoryQueue } from "@plumbus/core";
 
 const queue = createInMemoryQueue();
 ```
@@ -171,7 +171,7 @@ Best for: development, testing, single-instance deployments.
 ### Redis Queue
 
 ```typescript
-import { createRedisQueue } from "plumbus-core";
+import { createRedisQueue } from "@plumbus/core";
 
 const queue = createRedisQueue({
   host: "localhost",

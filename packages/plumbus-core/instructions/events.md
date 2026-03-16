@@ -5,7 +5,7 @@ Events represent domain facts that have occurred. They are emitted by capabiliti
 ## Defining an Event
 
 ```ts
-import { defineEvent } from "plumbus-core";
+import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 export const orderPlaced = defineEvent({

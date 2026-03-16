@@ -5,7 +5,7 @@ Plumbus provides structured AI interactions through prompts and the `ctx.ai` ser
 ## Defining a Prompt
 
 ```ts
-import { definePrompt } from "plumbus-core";
+import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 export const summarizeTicket = definePrompt({
@@ -85,7 +85,7 @@ Every AI invocation records: model used, input/output token counts, latency, and
 **Actual costs** are fetched from provider usage APIs — the framework never guesses or hardcodes pricing. Use `createUsageAPIClient()` to configure OpenAI and Anthropic billing API access:
 
 ```ts
-import { createUsageAPIClient, createCostTracker } from "plumbus-core";
+import { createUsageAPIClient, createCostTracker } from "@plumbus/core";
 
 const openaiUsage = createUsageAPIClient({
   provider: "openai",
@@ -112,7 +112,7 @@ Budget limits (per-request token limit, daily cost limit, per-tenant daily limit
 
 ## Configuration via Environment Variables
 
-Use `loadConfig()` from `plumbus-core` in your `config/app.config.ts` — it reads AI provider settings from env vars automatically.
+Use `loadConfig()` from `@plumbus/core` in your `config/app.config.ts` — it reads AI provider settings from env vars automatically.
 
 ### Single Provider
 

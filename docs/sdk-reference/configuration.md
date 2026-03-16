@@ -181,7 +181,7 @@ AUTH_SECRET=
 ## Loading Configuration
 
 ```typescript
-import { loadConfig, validateConfig } from "plumbus-core";
+import { loadConfig, validateConfig } from "@plumbus/core";
 
 // Load from environment
 const config = loadConfig();
@@ -275,7 +275,7 @@ interface ServerConfig {
 The server wires capability routes automatically. Event consumers, flow triggers, and entity repositories are the caller's responsibility to wire into the application lifecycle.
 
 ```typescript
-import { createServer } from "plumbus-core";
+import { createServer } from "@plumbus/core";
 
 const server = await createServer({
   port: 3000,
@@ -303,7 +303,7 @@ interface WorkerPoolConfig {
 ```
 
 ```typescript
-import { createWorkerPool } from "plumbus-core";
+import { createWorkerPool } from "@plumbus/core";
 
 const pool = await createWorkerPool({
   concurrency: 10,

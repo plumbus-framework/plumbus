@@ -1,4 +1,4 @@
-import type { CapabilityContract } from 'plumbus-core';
+import type { CapabilityContract } from '@plumbus/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { FlowTriggerInput } from '../client-generator.js';

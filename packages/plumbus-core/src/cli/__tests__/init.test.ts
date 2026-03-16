@@ -16,9 +16,9 @@ describe('plumbus init', () => {
     it('generates reference-mode instructions', () => {
       const content = generateCopilotInstructions(false);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('node_modules/plumbus-core/instructions/framework.md');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/framework.md');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/framework.md');
-      expect(content).toContain('node_modules/plumbus-core/instructions/capabilities.md');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/capabilities.md');
       expect(content).toContain('Edit Zones');
       expect(content).toContain('plumbus ui generate');
     });
@@ -28,7 +28,7 @@ describe('plumbus init', () => {
       expect(content).toContain('Plumbus Framework');
       expect(content).toContain('framework and UI instruction files');
       // Should not reference node_modules in SDK Reference section
-      expect(content).not.toContain('node_modules/plumbus-core/instructions/');
+      expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
     });
   });
 
@@ -38,7 +38,7 @@ describe('plumbus init', () => {
       expect(content).toContain('---');
       expect(content).toContain('description:');
       expect(content).toContain('globs: app/**');
-      expect(content).toContain('node_modules/plumbus-core/instructions/');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/');
     });
 
@@ -55,7 +55,7 @@ describe('plumbus init', () => {
       expect(content).toContain('AGENTS.md');
       expect(content).toContain('Directory Structure');
       expect(content).toContain('Edit Zones');
-      expect(content).toContain('node_modules/plumbus-core/instructions/');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/');
     });
 
@@ -63,7 +63,7 @@ describe('plumbus init', () => {
       const content = generateAgentsMd(true);
       expect(content).toContain('framework and UI instruction files');
       // Should not reference node_modules in SDK Reference section
-      expect(content).not.toContain('node_modules/plumbus-core/instructions/');
+      expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
     });
   });
 

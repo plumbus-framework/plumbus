@@ -24,7 +24,7 @@ plumbus init
        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Reads instruction files from:                               │
-│ node_modules/plumbus-core/instructions/                     │
+│ node_modules/@plumbus/core/instructions/                     │
 │ node_modules/@plumbus/ui/instructions/                      │
 │                                                             │
 │  framework.md     ← Core patterns and conventions           │
@@ -105,7 +105,7 @@ Create `.github/copilot-instructions.md`:
 This project uses the Plumbus framework. Follow these conventions:
 
 ## Capabilities
-- Use `defineCapability()` from `plumbus-core`
+- Use `defineCapability()` from `@plumbus/core`
 - Kinds: query (GET), action (POST), job (async), eventHandler
 - Always declare `access` and `effects`
 - Use `ctx.data`, `ctx.events`, `ctx.ai` in handlers
@@ -116,12 +116,12 @@ This project uses the Plumbus framework. Follow these conventions:
 - Use `tenantScoped: true` for multi-tenant data
 
 ## Testing
-- Import from `plumbus-core/testing`
+- Import from `@plumbus/core/testing`
 - Use `runCapability()` for unit tests
 - Use `simulateFlow()` for flow tests
 - Always test security with `assertAccessDenied()`
 
-See node_modules/plumbus-core/instructions/ for full details.
+See node_modules/@plumbus/core/instructions/ for full details.
 ```
 
 ### Cursor
@@ -137,10 +137,10 @@ globs: ["**/*.ts"]
 # Plumbus Framework
 
 Use `defineCapability()`, `defineEntity()`, `defineEvent()`, `defineFlow()`,
-`definePrompt()` from `plumbus-core`.
+`definePrompt()` from `@plumbus/core`.
 
-Always declare access policies. Use `plumbus-core/testing` for tests.
-See `node_modules/plumbus-core/instructions/` for complete guidelines.
+Always declare access policies. Use `@plumbus/core/testing` for tests.
+See `node_modules/@plumbus/core/instructions/` for complete guidelines.
 ```
 
 ## Project Briefs
@@ -173,16 +173,16 @@ This embeds the full instruction content directly into the wiring file instead o
 
 | Path | Content |
 |------|---------|
-| `node_modules/plumbus-core/instructions/framework.md` | Core framework patterns |
-| `node_modules/plumbus-core/instructions/capabilities.md` | Capability development |
-| `node_modules/plumbus-core/instructions/entities.md` | Entity definitions |
-| `node_modules/plumbus-core/instructions/events.md` | Event system |
-| `node_modules/plumbus-core/instructions/flows.md` | Flow orchestration |
-| `node_modules/plumbus-core/instructions/ai.md` | AI integration |
-| `node_modules/plumbus-core/instructions/security.md` | Security model |
-| `node_modules/plumbus-core/instructions/governance.md` | Governance rules |
-| `node_modules/plumbus-core/instructions/testing.md` | Testing utilities |
-| `node_modules/plumbus-core/instructions/patterns.md` | Code patterns |
+| `node_modules/@plumbus/core/instructions/framework.md` | Core framework patterns |
+| `node_modules/@plumbus/core/instructions/capabilities.md` | Capability development |
+| `node_modules/@plumbus/core/instructions/entities.md` | Entity definitions |
+| `node_modules/@plumbus/core/instructions/events.md` | Event system |
+| `node_modules/@plumbus/core/instructions/flows.md` | Flow orchestration |
+| `node_modules/@plumbus/core/instructions/ai.md` | AI integration |
+| `node_modules/@plumbus/core/instructions/security.md` | Security model |
+| `node_modules/@plumbus/core/instructions/governance.md` | Governance rules |
+| `node_modules/@plumbus/core/instructions/testing.md` | Testing utilities |
+| `node_modules/@plumbus/core/instructions/patterns.md` | Code patterns |
 | `node_modules/@plumbus/ui/instructions/framework.md` | UI generation overview |
 | `node_modules/@plumbus/ui/instructions/client-generator.md` | Client and hook generation |
 | `node_modules/@plumbus/ui/instructions/auth-generator.md` | Frontend auth helpers |
@@ -205,7 +205,7 @@ The doctor command checks whether agent wiring files exist and are properly conf
 
 1. Run `plumbus init --agent <your-agent>` to regenerate wiring files
 2. Restart your editor to reload agent context
-3. Check that `plumbus-core` is installed with `plumbus doctor`
+3. Check that `@plumbus/core` is installed with `plumbus doctor`
 
 ### Agent generates incorrect code
 
@@ -216,7 +216,7 @@ The doctor command checks whether agent wiring files exist and are properly conf
 ### Instructions are stale after upgrade
 
 ```bash
-npm update plumbus-core
+npm update @plumbus/core
 plumbus init --agent <your-agent>
 ```
 

@@ -65,7 +65,7 @@ Built-in profiles: `SOC2`, `GDPR`, `HIPAA`, `ISO27001`, `PCI_DSS`.
 Developers may acknowledge governance warnings with explicit overrides:
 
 ```typescript
-import { createOverrideStore } from 'plumbus-core';
+import { createOverrideStore } from '@plumbus/core';
 
 const overrides = createOverrideStore();
 overrides.add({
@@ -83,7 +83,7 @@ Overrides are recorded and appear in policy reports, ensuring deviations remain 
 The rule engine evaluates registered rules against the full system inventory (capabilities, entities, events, flows, prompts):
 
 ```typescript
-import { createGovernanceRuleEngine, securityRules, privacyRules } from 'plumbus-core';
+import { createGovernanceRuleEngine, securityRules, privacyRules } from '@plumbus/core';
 
 const engine = createGovernanceRuleEngine();
 engine.registerRules([...securityRules, ...privacyRules]);
@@ -106,7 +106,7 @@ const result = engine.evaluate(inventory);
 Generate compliance reports showing pass/fail/override status:
 
 ```typescript
-import { generatePolicyReport, formatPolicyReport } from 'plumbus-core';
+import { generatePolicyReport, formatPolicyReport } from '@plumbus/core';
 
 const report = generatePolicyReport('SOC2', inventory, overrides);
 console.log(formatPolicyReport(report));

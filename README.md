@@ -57,7 +57,7 @@ The framework provides:
 
 ```bash
 # Install the CLI globally
-pnpm add -g plumbus-core
+pnpm add -g @plumbus/core
 
 # Scaffold a new project
 plumbus create my-app --auth jwt --ai openai --compliance GDPR
@@ -75,7 +75,7 @@ plumbus dev
 ### Install in an Existing Project
 
 ```bash
-pnpm add plumbus-core zod
+pnpm add @plumbus/core zod
 pnpm add -D typescript vitest @types/node
 ```
 
@@ -88,7 +88,7 @@ pnpm add -D typescript vitest @types/node
 Capabilities are the **atomic units of business logic**. Every HTTP route, background job, and event handler is a capability:
 
 ```typescript
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const getUser = defineCapability({
@@ -113,7 +113,7 @@ export const getUser = defineCapability({
 Entities define your data models with field-level classification:
 
 ```typescript
-import { defineEntity, field } from "plumbus-core";
+import { defineEntity, field } from "@plumbus/core";
 
 export const User = defineEntity({
   name: "User",
@@ -134,7 +134,7 @@ export const User = defineEntity({
 Flows orchestrate capabilities into multi-step workflows:
 
 ```typescript
-import { defineFlow } from "plumbus-core";
+import { defineFlow } from "@plumbus/core";
 
 export const refundApproval = defineFlow({
   name: "refundApproval",
@@ -163,7 +163,7 @@ export const refundApproval = defineFlow({
 Events represent domain facts:
 
 ```typescript
-import { defineEvent } from "plumbus-core";
+import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 export const orderPlaced = defineEvent({
@@ -178,7 +178,7 @@ export const orderPlaced = defineEvent({
 Prompts provide structured AI interactions:
 
 ```typescript
-import { definePrompt } from "plumbus-core";
+import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 export const classifyTicket = definePrompt({
@@ -295,10 +295,10 @@ Plumbus is designed to work seamlessly with AI coding agents (GitHub Copilot, Cu
 
 ### How Agents Discover Framework Knowledge
 
-The framework ships with comprehensive instruction files inside the `plumbus-core` package:
+The framework ships with comprehensive instruction files inside the `@plumbus/core` package:
 
 ```
-node_modules/plumbus-core/instructions/
+node_modules/@plumbus/core/instructions/
 ├── framework.md      # Core abstractions, execution context, project structure
 ├── capabilities.md   # Capability definitions, handlers, effects, access policies
 ├── entities.md       # Entity fields, classifications, relations, repositories
@@ -344,14 +344,14 @@ If you're configuring an agent manually, point it to the instruction files:
 ```markdown
 # In your agent instructions:
 When working with Plumbus, read these files for SDK reference:
-- node_modules/plumbus-core/instructions/framework.md
-- node_modules/plumbus-core/instructions/capabilities.md
-- node_modules/plumbus-core/instructions/entities.md
-- node_modules/plumbus-core/instructions/flows.md
-- node_modules/plumbus-core/instructions/events.md
-- node_modules/plumbus-core/instructions/ai.md
-- node_modules/plumbus-core/instructions/security.md
-- node_modules/plumbus-core/instructions/testing.md
+- node_modules/@plumbus/core/instructions/framework.md
+- node_modules/@plumbus/core/instructions/capabilities.md
+- node_modules/@plumbus/core/instructions/entities.md
+- node_modules/@plumbus/core/instructions/flows.md
+- node_modules/@plumbus/core/instructions/events.md
+- node_modules/@plumbus/core/instructions/ai.md
+- node_modules/@plumbus/core/instructions/security.md
+- node_modules/@plumbus/core/instructions/testing.md
 ```
 
 ---
@@ -360,7 +360,7 @@ When working with Plumbus, read these files for SDK reference:
 
 | Package | Description |
 |---------|-------------|
-| [`plumbus-core`](packages/plumbus-core/) | Core framework — types, SDK, runtime, execution engine, CLI, test utilities |
+| [`@plumbus/core`](packages/plumbus-core/) | Core framework — types, SDK, runtime, execution engine, CLI, test utilities |
 | [`@plumbus/ui`](packages/ui/) | UI code generation — typed clients, React hooks, auth helpers, Next.js scaffolds |
 
 ---
@@ -390,7 +390,7 @@ pnpm build
 ```
 plumbus/
 ├── packages/
-│   ├── plumbus-core/          # Core framework package
+│   ├── @plumbus/core/          # Core framework package
 │   │   ├── src/               # 120+ source files
 │   │   ├── instructions/      # 10 AI agent instruction files
 │   │   └── package.json

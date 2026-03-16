@@ -5,7 +5,7 @@ An entity is a data model definition with field classifications, relations, and 
 ## Defining an Entity
 
 ```ts
-import { defineEntity, field } from "plumbus-core";
+import { defineEntity, field } from "@plumbus/core";
 
 export const User = defineEntity({
   name: "User",

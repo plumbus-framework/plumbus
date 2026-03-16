@@ -59,14 +59,14 @@ Plumbus is a **layered, contract-driven application framework**. Application beh
 │                    @plumbus/ui                       │
 │  Client generators, React hooks, Next.js scaffolds  │
 │         ┌──────────────────────────────┐            │
-│         │      plumbus-core            │            │
+│         │      @plumbus/core            │            │
 │         │  (workspace dependency)      │            │
 │         └──────────┬───────────────────┘            │
 └────────────────────┼────────────────────────────────┘
                      │ imports CapabilityContract type
                      │
 ┌────────────────────▼────────────────────────────────┐
-│                   plumbus-core                       │
+│                   @plumbus/core                       │
 │                                                      │
 │  ┌────────┐ ┌──────┐ ┌────────┐ ┌───────┐ ┌──────┐ │
 │  │ Types  │ │Define│ │Execution│ │ Events│ │Flows │ │

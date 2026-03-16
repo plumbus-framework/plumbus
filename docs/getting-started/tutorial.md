@@ -27,7 +27,7 @@ This tutorial walks through building a complete feature — a support ticket sys
 
 ```typescript
 // app/entities/ticket.entity.ts
-import { defineEntity, field } from "plumbus-core";
+import { defineEntity, field } from "@plumbus/core";
 
 export const Ticket = defineEntity({
   name: "Ticket",
@@ -52,7 +52,7 @@ export const Ticket = defineEntity({
 
 ```typescript
 // app/events/ticket-created.event.ts
-import { defineEvent } from "plumbus-core";
+import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 export const ticketCreated = defineEvent({
@@ -70,7 +70,7 @@ export const ticketCreated = defineEvent({
 
 ```typescript
 // app/prompts/classify-ticket.prompt.ts
-import { definePrompt } from "plumbus-core";
+import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 export const classifyTicket = definePrompt({
@@ -95,7 +95,7 @@ export const classifyTicket = definePrompt({
 
 ```typescript
 // app/capabilities/support/create-ticket/capability.ts
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const createTicket = defineCapability({
@@ -139,7 +139,7 @@ export const createTicket = defineCapability({
 
 ```typescript
 // app/capabilities/support/classify-ticket/capability.ts
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const classifyTicketHandler = defineCapability({
@@ -186,7 +186,7 @@ export const classifyTicketHandler = defineCapability({
 
 ```typescript
 // app/flows/support/ticket-triage/flow.ts
-import { defineFlow } from "plumbus-core";
+import { defineFlow } from "@plumbus/core";
 
 export const ticketTriage = defineFlow({
   name: "ticketTriage",
@@ -214,7 +214,7 @@ export const ticketTriage = defineFlow({
 
 ```typescript
 // app/capabilities/support/create-ticket/tests/create-ticket.test.ts
-import { runCapability, createTestContext, mockAI } from "plumbus-core/testing";
+import { runCapability, createTestContext, mockAI } from "@plumbus/core/testing";
 import { expect, describe, it } from "vitest";
 
 describe("createTicket", () => {

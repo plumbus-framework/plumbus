@@ -5,7 +5,7 @@ Prompts provide **structured AI interactions** with typed input/output, output v
 ## Defining a Prompt
 
 ```typescript
-import { definePrompt } from "plumbus-core";
+import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 export const summarizeTicket = definePrompt({
@@ -127,7 +127,7 @@ Plumbus supports pluggable AI providers:
 ### OpenAI
 
 ```typescript
-import { createOpenAIAdapter } from "plumbus-core";
+import { createOpenAIAdapter } from "@plumbus/core";
 
 const provider = createOpenAIAdapter({
   apiKey: process.env["OPENAI_API_KEY"]!,
@@ -138,7 +138,7 @@ const provider = createOpenAIAdapter({
 ### Anthropic
 
 ```typescript
-import { createAnthropicAdapter } from "plumbus-core";
+import { createAnthropicAdapter } from "@plumbus/core";
 
 const provider = createAnthropicAdapter({
   apiKey: process.env["ANTHROPIC_API_KEY"]!,
@@ -151,7 +151,7 @@ const provider = createAnthropicAdapter({
 Every AI call is tracked:
 
 ```typescript
-import { createCostTracker } from "plumbus-core";
+import { createCostTracker } from "@plumbus/core";
 
 const tracker = createCostTracker({
   dailyBudget: 50.00,  // $50/day limit
@@ -170,7 +170,7 @@ if (!check.allowed) {
 AI outputs are validated against the Zod schema defined in the prompt. If validation fails, the framework can retry with a refined prompt:
 
 ```typescript
-import { generateWithValidation } from "plumbus-core";
+import { generateWithValidation } from "@plumbus/core";
 
 const result = await generateWithValidation({
   provider,

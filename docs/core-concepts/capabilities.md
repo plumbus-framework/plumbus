@@ -5,7 +5,7 @@ Capabilities are the **atomic units of business logic** in Plumbus. Every operat
 ## Anatomy of a Capability
 
 ```typescript
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const approveRefund = defineCapability({

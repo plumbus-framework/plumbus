@@ -359,7 +359,7 @@ handler: async (ctx, input) => {
 ### Production
 
 ```typescript
-import { createExecutionContext } from "plumbus-core";
+import { createExecutionContext } from "@plumbus/core";
 
 const ctx = createExecutionContext({
   auth: authContext,
@@ -377,7 +377,7 @@ const ctx = createExecutionContext({
 ### Testing
 
 ```typescript
-import { createTestContext } from "plumbus-core/testing";
+import { createTestContext } from "@plumbus/core/testing";
 
 const ctx = createTestContext({
   auth: { userId: "user-1", roles: ["admin"], tenantId: "t-1" },

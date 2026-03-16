@@ -13,7 +13,7 @@
 ## Install the CLI
 
 ```bash
-pnpm add -g plumbus-core
+pnpm add -g @plumbus/core
 ```
 
 This installs the `plumbus` CLI binary globally.
@@ -59,7 +59,7 @@ The doctor command checks:
 ✅ TypeScript    v5.7.3
 ✅ pnpm          v10.32.0
 ✅ package.json  found
-✅ plumbus-core  installed
+✅ @plumbus/core  installed
 ✅ PostgreSQL    connected (localhost:5432)
 ✅ Redis         connected (localhost:6379)
 ```
@@ -68,7 +68,7 @@ The doctor command checks:
 
 ```bash
 # Add core dependency
-pnpm add plumbus-core zod
+pnpm add @plumbus/core zod
 
 # Add dev dependencies
 pnpm add -D typescript vitest @types/node
@@ -103,7 +103,7 @@ pnpm add @plumbus/ui
 
 ```typescript
 // config/app.config.ts
-import type { PlumbusConfig } from "plumbus-core";
+import type { PlumbusConfig } from "@plumbus/core";
 
 export const config: PlumbusConfig = {
   environment: "development",

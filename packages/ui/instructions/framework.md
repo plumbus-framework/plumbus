@@ -1,6 +1,6 @@
 # @plumbus/ui — UI Code Generation Framework
 
-`@plumbus/ui` is the frontend code generation layer for the Plumbus framework. It reads capability contracts, flow definitions, and auth configuration from `plumbus-core` and produces ready-to-use TypeScript/React source files — typed API clients, React hooks, auth modules, form metadata, and full Next.js project scaffolds.
+`@plumbus/ui` is the frontend code generation layer for the Plumbus framework. It reads capability contracts, flow definitions, and auth configuration from `@plumbus/core` and produces ready-to-use TypeScript/React source files — typed API clients, React hooks, auth modules, form metadata, and full Next.js project scaffolds.
 
 ## Purpose
 
@@ -34,7 +34,7 @@ packages/ui/
 | Concept | Description |
 |---------|-------------|
 | **Generator** | A function that takes a contract/config and returns a string of TypeScript/TSX source code |
-| **CapabilityContract** | Imported from `plumbus-core` — defines name, domain, kind, input/output schemas, access |
+| **CapabilityContract** | Imported from `@plumbus/core` — defines name, domain, kind, input/output schemas, access |
 | **Module generator** | Combines multiple generators into a single file with proper imports |
 | **GeneratedFile** | `{ path: string; content: string }` — represents a file to write to disk |
 
@@ -47,9 +47,9 @@ packages/ui/
 | **Form** | `CapabilityContract` (with Zod input schema) | Field metadata (type, label, validation, options) |
 | **Next.js** | `NextjsTemplateConfig`, capabilities | Full project: package.json, layout, pages, middleware, API routes |
 
-## Relationship to plumbus-core
+## Relationship to @plumbus/core
 
-`@plumbus/ui` depends on `plumbus-core` for:
+`@plumbus/ui` depends on `@plumbus/core` for:
 - `CapabilityContract` type — the shape of capability definitions
 - Zod schemas — introspected at runtime for form hint extraction
 - No runtime coupling — generators produce standalone code

@@ -5,7 +5,7 @@ Entities are the **data models** of a Plumbus application. Each entity defines t
 ## Defining an Entity
 
 ```typescript
-import { defineEntity, field } from "plumbus-core";
+import { defineEntity, field } from "@plumbus/core";
 
 export const Customer = defineEntity({
   name: "Customer",

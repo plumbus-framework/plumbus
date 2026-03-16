@@ -13,7 +13,7 @@ cd hello-plumbus
 
 ```typescript
 // app/entities/greeting.entity.ts
-import { defineEntity, field } from "plumbus-core";
+import { defineEntity, field } from "@plumbus/core";
 
 export const Greeting = defineEntity({
   name: "Greeting",
@@ -31,7 +31,7 @@ export const Greeting = defineEntity({
 
 ```typescript
 // app/capabilities/greetings/create-greeting/capability.ts
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const createGreeting = defineCapability({
@@ -64,7 +64,7 @@ export const createGreeting = defineCapability({
 
 ```typescript
 // app/capabilities/greetings/list-greetings/capability.ts
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const listGreetings = defineCapability({
@@ -90,7 +90,7 @@ export const listGreetings = defineCapability({
 
 ```typescript
 // app/events/greeting-created.event.ts
-import { defineEvent } from "plumbus-core";
+import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 export const greetingCreated = defineEvent({
@@ -120,7 +120,7 @@ GET  /api/greetings/list-greetings   → listGreetings
 
 ```typescript
 // app/capabilities/greetings/create-greeting/tests/create-greeting.test.ts
-import { runCapability } from "plumbus-core/testing";
+import { runCapability } from "@plumbus/core/testing";
 import { expect, test } from "vitest";
 
 test("creates a greeting", async () => {
