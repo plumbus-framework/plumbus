@@ -50,6 +50,8 @@ export function generatePackageJson(config: NextjsTemplateConfig): GeneratedFile
         next: '^14.0.0',
         react: '^18.2.0',
         'react-dom': '^18.2.0',
+        tailwindcss: '^4.0.0',
+        '@tailwindcss/postcss': '^4.0.0',
       },
       devDependencies: {
         typescript: '^5.0.0',
@@ -96,6 +98,42 @@ export function generateTsConfig(): GeneratedFile {
   return { path: 'tsconfig.json', content };
 }
 
+/** Generate globals.css with Tailwind import and basic resets */
+export function generateGlobalsCss(): GeneratedFile {
+  return {
+    path: 'app/globals.css',
+    content: `@import "tailwindcss";
+
+/* ── Base resets ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+`,
+  };
+}
+
+/** Generate postcss.config.mjs for Tailwind CSS */
+export function generatePostcssConfig(): GeneratedFile {
+  return {
+    path: 'postcss.config.mjs',
+    content: `export default {\n  plugins: {\n    "@tailwindcss/postcss": {},\n  },\n};\n`,
+  };
+}
+
 /** Generate the layout component */
 export function generateLayout(config: NextjsTemplateConfig): GeneratedFile {
   const auth = config.auth !== false;
@@ -107,6 +145,7 @@ export function generateLayout(config: NextjsTemplateConfig): GeneratedFile {
   return {
     path: 'app/layout.tsx',
     content: `import type { Metadata } from "next";
+import "./globals.css";
 ${authImport}
 export const metadata: Metadata = {
   title: "${config.appName}",
@@ -436,6 +475,8 @@ export function generateNextjsTemplate(
   const files: GeneratedFile[] = [
     generatePackageJson(config),
     generateTsConfig(),
+    generateGlobalsCss(),
+    generatePostcssConfig(),
     generateLayout(config),
     generateHomePage(config),
     generateEnvLocal(config),

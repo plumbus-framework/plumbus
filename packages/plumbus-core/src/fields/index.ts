@@ -8,6 +8,7 @@ import type { FieldClassification, RelationType } from '../types/enums.js';
 import type {
   BaseFieldOptions,
   BooleanFieldDescriptor,
+  DecimalFieldDescriptor,
   EnumFieldDescriptor,
   IdFieldDescriptor,
   JsonFieldDescriptor,
@@ -32,6 +33,10 @@ export const field = {
 
   number(options?: BaseFieldOptions): NumberFieldDescriptor {
     return { type: 'number', options: opts(options) };
+  },
+
+  decimal(options?: BaseFieldOptions): DecimalFieldDescriptor {
+    return { type: 'decimal', options: opts(options) };
   },
 
   boolean(options?: BaseFieldOptions): BooleanFieldDescriptor {

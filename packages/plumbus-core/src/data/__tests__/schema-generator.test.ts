@@ -29,6 +29,7 @@ describe('generateDrizzleSchema', () => {
         id: field.id(),
         label: field.string(),
         count: field.number(),
+        score: field.decimal(),
         active: field.boolean(),
         createdAt: field.timestamp(),
         meta: field.json(),
@@ -42,6 +43,7 @@ describe('generateDrizzleSchema', () => {
     expect(cols.id).toBeDefined();
     expect(cols.label).toBeDefined();
     expect(cols.count).toBeDefined();
+    expect(cols.score).toBeDefined();
     expect(cols.active).toBeDefined();
     expect(cols.createdAt).toBeDefined();
     expect(cols.meta).toBeDefined();

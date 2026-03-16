@@ -22,6 +22,12 @@ describe('field constructors', () => {
     expect(f.options.nullable).toBe(true);
   });
 
+  it('creates a decimal field', () => {
+    const f = field.decimal({ nullable: true });
+    expect(f.type).toBe('decimal');
+    expect(f.options.nullable).toBe(true);
+  });
+
   it('creates a boolean field with default', () => {
     const f = field.boolean({ default: true });
     expect(f.type).toBe('boolean');

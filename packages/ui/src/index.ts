@@ -35,6 +35,7 @@ export {
   generateCapabilityPage,
   generateEnvLocal,
   generateErrorBoundary,
+  generateGlobalsCss,
   generateHomePage,
   generateLayout,
   generateLoadingComponent,
@@ -42,6 +43,7 @@ export {
   generateNextjsTemplate,
   generatePackageJson,
   generatePlaceholderFiles,
+  generatePostcssConfig,
   generateTsConfig,
 } from './generators/nextjs-template.js';
 export type { GeneratedFile, NextjsTemplateConfig } from './generators/nextjs-template.js';
