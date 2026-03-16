@@ -1,15 +1,17 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
@@ -26,7 +28,10 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
-      - name: Publish packages
-        run: pnpm -r publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @plumbus/core
+        working-directory: packages/plumbus-core
+        run: npm publish --access public
+
+      - name: Publish @plumbus/ui
+        working-directory: packages/ui
+        run: npm publish --access public
