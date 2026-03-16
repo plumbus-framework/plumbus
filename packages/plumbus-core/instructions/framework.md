@@ -69,12 +69,12 @@ The framework provides common dependencies — **consumer apps must NOT install 
 
 | Dependency | Import from | Usage |
 |-----------|-------------|-------|
-| **Zod** | `plumbus-core/zod` | `import { z } from "plumbus-core/zod"` |
-| **Vitest** | `plumbus-core/testing` | `import { describe, it, expect } from "plumbus-core/testing"` |
-| **Playwright** | `plumbus-core/testing` | `import { chromium } from "plumbus-core/testing"` |
-| **Vitest Config** | `plumbus-core/vitest` | `import { defineConfig } from "plumbus-core/vitest"` |
+| **Zod** | `@plumbus/core/zod` | `import { z } from "@plumbus/core/zod"` |
+| **Vitest** | `@plumbus/core/testing` | `import { describe, it, expect } from "@plumbus/core/testing"` |
+| **Playwright** | `@plumbus/core/testing` | `import { chromium } from "@plumbus/core/testing"` |
+| **Vitest Config** | `@plumbus/core/vitest` | `import { defineConfig } from "@plumbus/core/vitest"` |
 
-**CRITICAL**: Never add `zod`, `vitest`, `playwright`, or `@playwright/test` to a consumer app's `package.json`. They are provided by `plumbus-core`.
+**CRITICAL**: Never add `zod`, `vitest`, `playwright`, or `@playwright/test` to a consumer app's `package.json`. They are provided by `@plumbus/core`.
 
 ### CLI Commands
 

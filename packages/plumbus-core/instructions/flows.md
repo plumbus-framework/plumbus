@@ -5,7 +5,7 @@ A flow is a multi-step workflow that orchestrates capabilities in sequence, with
 ## Defining a Flow
 
 ```ts
-import { defineFlow } from "plumbus-core";
+import { defineFlow } from "@plumbus/core";
 import { z } from "zod";
 
 export const refundApproval = defineFlow({

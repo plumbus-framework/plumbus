@@ -1,6 +1,6 @@
 // ── Test Scaffolding Generator ──
 // Generates test files for capabilities, flows, entities, and events
-// that use the plumbus-core/testing utilities.
+// that use the @plumbus/core/testing utilities.
 
 import { toCamelCase, toPascalCase } from '../cli/utils.js';
 
@@ -21,7 +21,7 @@ import {
   createTestContext,
   createTestAuth,
   mockAI,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 import { ${camel} } from "../capability.js";
 
 describe("${pascal}", () => {
@@ -76,7 +76,7 @@ export function generateFlowTest(name: string, _domain: string): string {
   const pascal = toPascalCase(name);
   const camel = toCamelCase(name);
   return `import { describe, it, expect } from "vitest";
-import { simulateFlow } from "plumbus-core/testing";
+import { simulateFlow } from "@plumbus/core/testing";
 import { ${camel}Flow } from "../flow.js";
 
 describe("${pascal} Flow", () => {
@@ -127,7 +127,7 @@ import {
   assertTenantIsolation,
   unauthenticated,
   adminAuth,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 import { ${camel} } from "../capability.js";
 
 describe("${pascal} Security", () => {
@@ -171,12 +171,12 @@ import {
   assertGovernanceSignals,
   assertNoGovernanceSignal,
   assertPolicyCompliance,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 import {
   securityRules,
   privacyRules,
   architectureRules,
-} from "plumbus-core";
+} from "@plumbus/core";
 
 describe("${pascal} Governance", () => {
   // TODO: Import your capabilities, entities, etc.
@@ -279,7 +279,7 @@ ${fieldFills}
   const routeEscaped = page.route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   return `import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { chromium, type Browser, type Page } from "plumbus-core/testing";
+import { chromium, type Browser, type Page } from "@plumbus/core/testing";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3001";
 

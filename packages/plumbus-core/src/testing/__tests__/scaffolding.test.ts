@@ -11,7 +11,7 @@ describe('generateCapabilityTest', () => {
     const output = generateCapabilityTest('create-order', 'orders');
     expect(output).toContain('import { describe, it, expect }');
     expect(output).toContain('from "vitest"');
-    expect(output).toContain('from "plumbus-core/testing"');
+    expect(output).toContain('from "@plumbus/core/testing"');
     expect(output).toContain('runCapability');
     expect(output).toContain('createOrder');
     expect(output).toContain('CreateOrder');

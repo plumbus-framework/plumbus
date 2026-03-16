@@ -76,7 +76,7 @@ access: {
 The JWT adapter verifies HMAC-SHA256 signatures using timing-safe comparison before trusting any token payload. Tokens with invalid, forged, or missing signatures are rejected.
 
 ```typescript
-import { createJwtAdapter } from "plumbus-core";
+import { createJwtAdapter } from "@plumbus/core";
 
 const adapter = createJwtAdapter({
   secret: "your-hmac-secret",
@@ -108,7 +108,7 @@ interface JwtClaimMapping {
 For first-party email/password authentication, use the framework helpers instead of app-local crypto code:
 
 ```typescript
-import { hashPassword, verifyPassword } from "plumbus-core";
+import { hashPassword, verifyPassword } from "@plumbus/core";
 
 const passwordHash = await hashPassword(input.password);
 const valid = await verifyPassword(input.password, user.passwordHash);
@@ -121,7 +121,7 @@ const valid = await verifyPassword(input.password, user.passwordHash);
 The OIDC adapter validates JWT tokens issued by OpenID Connect providers. It fetches the provider's JWKS public keys and verifies RS256/ES256 signatures.
 
 ```typescript
-import { createOidcAdapter } from "plumbus-core";
+import { createOidcAdapter } from "@plumbus/core";
 
 const adapter = createOidcAdapter({
   issuerUrl: "https://auth.example.com",
@@ -142,7 +142,7 @@ The adapter:
 The SAML adapter validates SAML 2.0 assertions from enterprise identity providers. It verifies XML signatures using the IdP's X.509 certificate.
 
 ```typescript
-import { createSamlAdapter } from "plumbus-core";
+import { createSamlAdapter } from "@plumbus/core";
 
 const adapter = createSamlAdapter({
   idpEntityId: "https://idp.example.com",
@@ -163,7 +163,7 @@ The adapter:
 The SCIM service handles user lifecycle management from identity providers. Apps implement a `ScimUserRepository` and wire it to the framework service.
 
 ```typescript
-import { createScimService } from "plumbus-core";
+import { createScimService } from "@plumbus/core";
 
 const scim = createScimService(
   { bearerToken: "idp-token", baseUrl: "https://app.example.com/scim/v2" },
@@ -280,7 +280,7 @@ Audit records include: actor identifier, authentication provider, timestamp, cap
 For testing, use `mockAudit()` to capture and verify audit records:
 
 ```typescript
-import { mockAudit } from "plumbus-core/testing";
+import { mockAudit } from "@plumbus/core/testing";
 
 const audit = mockAudit();
 const ctx = createTestContext({ audit });
@@ -325,7 +325,7 @@ import {
   adminAuth,
   unauthenticated,
   serviceAccountAuth,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 
 // Test access denied for unauthenticated
 await assertCapabilityDenied(createOrder, orderInput, {

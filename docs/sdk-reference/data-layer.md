@@ -35,7 +35,7 @@ Entity Definitions
 Central registry that manages all entities and their database tables:
 
 ```typescript
-import { EntityRegistry } from "plumbus-core";
+import { EntityRegistry } from "@plumbus/core";
 
 const registry = new EntityRegistry();
 
@@ -65,7 +65,7 @@ const dataService = registry.createDataService({
 Creates a repository for a single entity with built-in tenant isolation and audit:
 
 ```typescript
-import { createRepository } from "plumbus-core";
+import { createRepository } from "@plumbus/core";
 
 const userRepo = createRepository<User>({
   entity: UserEntity,
@@ -129,7 +129,7 @@ Cross-tenant access is prevented at the data layer — no capability can acciden
 Converts entity definitions into Drizzle ORM schemas:
 
 ```typescript
-import { generateDrizzleSchema, generateSchemas } from "plumbus-core";
+import { generateDrizzleSchema, generateSchemas } from "@plumbus/core";
 
 // Single entity
 const usersTable = generateDrizzleSchema(UserEntity);
@@ -184,7 +184,7 @@ plumbus migrate rollback
 ### Programmatic API
 
 ```typescript
-import { applyMigrations, rollbackLastMigration } from "plumbus-core";
+import { applyMigrations, rollbackLastMigration } from "@plumbus/core";
 
 await applyMigrations({ db, migrationsDir: "./migrations" });
 await rollbackLastMigration({ db, migrationsDir: "./migrations" });
@@ -195,7 +195,7 @@ await rollbackLastMigration({ db, migrationsDir: "./migrations" });
 Collects all generated Drizzle schemas for use in ORM configuration:
 
 ```typescript
-import { collectSchemas } from "plumbus-core";
+import { collectSchemas } from "@plumbus/core";
 
 const schemas = collectSchemas(entityRegistry);
 // Use in Drizzle config
@@ -215,7 +215,7 @@ import {
   flowDeadLetterTable,  // Failed flows
   documentsTable,       // RAG documents
   documentChunksTable,  // RAG chunks
-} from "plumbus-core";
+} from "@plumbus/core";
 ```
 
 These tables are created automatically with `plumbus migrate apply`.

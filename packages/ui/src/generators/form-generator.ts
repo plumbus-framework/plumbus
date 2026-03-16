@@ -3,7 +3,7 @@
 // so that UI components can consume field names, types, validation rules,
 // and required flags for rendering form fields.
 
-import type { CapabilityContract } from 'plumbus-core';
+import type { CapabilityContract } from '@plumbus/core';
 
 // ── Form Metadata Types ──
 

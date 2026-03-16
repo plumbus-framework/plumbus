@@ -11,7 +11,7 @@ export type { Browser, BrowserContext, Page } from 'playwright';
 export { chromium, firefox, webkit } from 'playwright';
 // ── Vitest Re-export ──
 // Consumer apps get vitest through the framework — no separate install needed.
-// Test files: import { describe, it, expect } from "plumbus-core/testing";
+// Test files: import { describe, it, expect } from "@plumbus/core/testing";
 export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 export type {
   AIResponse,

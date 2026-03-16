@@ -2,7 +2,7 @@
 // Generates a Next.js project scaffold with Plumbus auth integration,
 // generated client imports, and example pages wired to capabilities.
 
-import type { CapabilityContract } from 'plumbus-core';
+import type { CapabilityContract } from '@plumbus/core';
 
 export interface NextjsTemplateConfig {
   /** Application name */

@@ -67,7 +67,7 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
 
   for (const topic of CORE_INSTRUCTION_TOPICS) {
     lines.push(
-      `- When working on ${topic}, read \`node_modules/plumbus-core/instructions/${topic}.md\``,
+      `- When working on ${topic}, read \`node_modules/@plumbus/core/instructions/${topic}.md\``,
     );
   }
 
@@ -165,11 +165,11 @@ globs: app/capabilities/**
 ---
 
 When creating or modifying capabilities:
-- Use \`defineCapability()\` from plumbus-core
+- Use \`defineCapability()\` from @plumbus/core
 - Always declare effects (data, events, external, ai)
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
-- Reference: \`node_modules/plumbus-core/instructions/capabilities.md\`
+- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`
 `;
 }
 

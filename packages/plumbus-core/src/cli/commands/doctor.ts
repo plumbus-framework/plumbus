@@ -42,21 +42,21 @@ export function checkTypeScript(): DoctorCheck {
   }
 }
 
-/** Check plumbus-core availability */
+/** Check @plumbus/core availability */
 export function checkPlumbusCore(): DoctorCheck {
   try {
-    const pkgPath = resolvePath('node_modules', 'plumbus-core', 'package.json');
+    const pkgPath = resolvePath('node_modules', '@plumbus/core', 'package.json');
     if (fs.existsSync(pkgPath)) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: string };
-      return { name: 'plumbus-core', status: 'ok', message: `plumbus-core v${pkg.version}` };
+      return { name: '@plumbus/core', status: 'ok', message: `@plumbus/core v${pkg.version}` };
     }
     return {
-      name: 'plumbus-core',
+      name: '@plumbus/core',
       status: 'warn',
-      message: 'plumbus-core not found in node_modules (may be workspace root)',
+      message: '@plumbus/core not found in node_modules (may be workspace root)',
     };
   } catch {
-    return { name: 'plumbus-core', status: 'warn', message: 'plumbus-core not accessible' };
+    return { name: '@plumbus/core', status: 'warn', message: '@plumbus/core not accessible' };
   }
 }
 

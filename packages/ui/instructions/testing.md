@@ -42,7 +42,7 @@ Create a mock `CapabilityContract` and pass it to the generator:
 ```ts
 import { describe, it, expect } from "vitest";
 import { generateTypedClient } from "../client-generator.js";
-import type { CapabilityContract } from "plumbus-core";
+import type { CapabilityContract } from "@plumbus/core";
 
 const mockCap: CapabilityContract = {
   name: "getUser",
@@ -106,7 +106,7 @@ describe("generateAuthModule", () => {
 ```ts
 import { z } from "zod";
 import { extractFieldHint, extractFormHints } from "../form-generator.js";
-import type { CapabilityContract } from "plumbus-core";
+import type { CapabilityContract } from "@plumbus/core";
 
 describe("extractFieldHint", () => {
   it("extracts string field", () => {

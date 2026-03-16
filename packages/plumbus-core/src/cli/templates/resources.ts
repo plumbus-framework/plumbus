@@ -5,7 +5,7 @@ import { toCamelCase, toPascalCase } from '../utils.js';
 
 export function capabilityTemplate(name: string, kind: string, domain: string): string {
   const pascal = toPascalCase(name);
-  return `import { defineCapability } from "plumbus-core";
+  return `import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const ${toCamelCase(name)} = defineCapability({
@@ -56,7 +56,7 @@ describe("${toPascalCase(name)}", () => {
 
 export function entityTemplate(name: string): string {
   const pascal = toPascalCase(name);
-  return `import { defineEntity, field } from "plumbus-core";
+  return `import { defineEntity, field } from "@plumbus/core";
 
 export const ${toCamelCase(name)}Entity = defineEntity({
   name: "${pascal}",
@@ -75,7 +75,7 @@ export const ${toCamelCase(name)}Entity = defineEntity({
 }
 
 export function flowTemplate(name: string, domain: string): string {
-  return `import { defineFlow } from "plumbus-core";
+  return `import { defineFlow } from "@plumbus/core";
 import { z } from "zod";
 
 export const ${toCamelCase(name)}Flow = defineFlow({
@@ -99,7 +99,7 @@ export const ${toCamelCase(name)}Flow = defineFlow({
 
 export function flowTestTemplate(name: string, _domain: string): string {
   return `import { describe, it, expect } from "vitest";
-import { simulateFlow } from "plumbus-core/testing";
+import { simulateFlow } from "@plumbus/core/testing";
 import { ${toCamelCase(name)}Flow } from "../flow.js";
 
 describe("${toPascalCase(name)} Flow", () => {
@@ -126,7 +126,7 @@ describe("${toPascalCase(name)} Flow", () => {
 }
 
 export function eventTemplate(name: string): string {
-  return `import { defineEvent } from "plumbus-core";
+  return `import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 export const ${toCamelCase(name)}Event = defineEvent({
@@ -140,7 +140,7 @@ export const ${toCamelCase(name)}Event = defineEvent({
 }
 
 export function promptTemplate(name: string): string {
-  return `import { definePrompt } from "plumbus-core";
+  return `import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 export const ${toCamelCase(name)}Prompt = definePrompt({

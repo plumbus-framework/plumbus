@@ -29,9 +29,9 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 ## Installation
 
 ```bash
-npm install plumbus-core
+npm install @plumbus/core
 # or
-pnpm add plumbus-core
+pnpm add @plumbus/core
 ```
 
 The CLI is available as `plumbus` (or `npx plumbus`).
@@ -145,7 +145,7 @@ plumbus doctor [options]
 
 Checks performed:
 - Node.js version (≥ 20)
-- `plumbus-core` installed
+- `@plumbus/core` installed
 - `package.json` exists and valid
 - `app.config.ts` exists
 - PostgreSQL reachable

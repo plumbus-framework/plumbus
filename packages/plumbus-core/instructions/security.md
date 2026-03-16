@@ -71,7 +71,7 @@ Plumbus uses pluggable auth adapters. The default is JWT validation. The adapter
 When building first-party email/password authentication, use the framework helpers instead of app-local crypto:
 
 ```ts
-import { hashPassword, verifyPassword } from "plumbus-core";
+import { hashPassword, verifyPassword } from "@plumbus/core";
 ```
 
 - `hashPassword(password)` stores credentials as `salt:hash` using Node.js `scrypt`

@@ -5,7 +5,7 @@ A capability is a discrete unit of business logic. It is the **only** way busine
 ## Defining a Capability
 
 ```ts
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 export const getUser = defineCapability({

@@ -5,7 +5,7 @@ Flows orchestrate multiple capabilities into **structured, multi-step workflows*
 ## Defining a Flow
 
 ```typescript
-import { defineFlow } from "plumbus-core";
+import { defineFlow } from "@plumbus/core";
 
 export const orderFulfillment = defineFlow({
   name: "orderFulfillment",
@@ -215,7 +215,7 @@ The full history is accessible for debugging and audit.
 Failed flows that exhaust retries are sent to the dead letter queue:
 
 ```typescript
-import { sweepFailedFlows, deadLetterFlow } from "plumbus-core";
+import { sweepFailedFlows, deadLetterFlow } from "@plumbus/core";
 
 // Manually dead-letter a flow
 await deadLetterFlow(executionId, "Manual intervention required");

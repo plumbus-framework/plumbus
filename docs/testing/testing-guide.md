@@ -1,6 +1,6 @@
 # Testing Guide
 
-Plumbus provides a complete testing toolkit exported from `plumbus-core/testing`. Every testing utility is designed to work with Vitest.
+Plumbus provides a complete testing toolkit exported from `@plumbus/core/testing`. Every testing utility is designed to work with Vitest.
 
 **Important**: Vitest, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
 
@@ -16,7 +16,7 @@ import {
   mockEvents,
   assertAccessDenied,
   assertCapabilityAllowed,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 ```
 
 ## Testing Capabilities
@@ -26,7 +26,7 @@ import {
 Execute a capability in an isolated test context:
 
 ```typescript
-import { runCapability } from "plumbus-core/testing";
+import { runCapability } from "@plumbus/core/testing";
 import { getUser } from "../capabilities/users/get-user/capability.js";
 
 describe("getUser", () => {
@@ -71,7 +71,7 @@ interface RunCapabilityOptions {
 Pass entity definitions via the `entities` option to catch type mismatches at test time (e.g. inserting a float into an integer field):
 
 ```typescript
-import { runCapability } from "plumbus-core/testing";
+import { runCapability } from "@plumbus/core/testing";
 import { timelineEventEntity } from "../entities/timeline-event.entity.js";
 import { createTimelineEvent } from "../capabilities/default/create-timeline-event/capability.js";
 
@@ -93,7 +93,7 @@ When `entities` is provided, the mock data store validates every `create()` and 
 Simulate a flow execution step by step:
 
 ```typescript
-import { simulateFlow } from "plumbus-core/testing";
+import { simulateFlow } from "@plumbus/core/testing";
 import { orderFulfillment } from "../flows/orders/order-fulfillment/flow.js";
 
 describe("orderFulfillment", () => {
@@ -159,7 +159,7 @@ import {
   unauthenticated,
   adminAuth,
   serviceAccountAuth,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 
 describe("security", () => {
   it("denies unauthenticated access", async () => {
@@ -220,7 +220,7 @@ import {
   assertPolicyCompliance,
   assertPolicyNonCompliance,
   emptyInventory,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 
 describe("governance", () => {
   it("flags missing field classification", () => {
@@ -344,7 +344,7 @@ For generated browser configs, prefer an import-free `vitest.config.e2e.ts` that
 Boot a full Plumbus server for integration tests:
 
 ```typescript
-import { createE2EServer, createTestBearerHeader } from "plumbus-core/testing";
+import { createE2EServer, createTestBearerHeader } from "@plumbus/core/testing";
 
 describe("API E2E", () => {
   let e2e: E2EServerContext;
@@ -392,7 +392,7 @@ import {
   generateFlowTest,
   generateSecurityTest,
   generateGovernanceTest,
-} from "plumbus-core/testing";
+} from "@plumbus/core/testing";
 
 const testCode = generateCapabilityTest("getUser", "users", "query");
 const flowTest = generateFlowTest("orderFulfillment", "orders");

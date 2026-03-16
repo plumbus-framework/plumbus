@@ -63,7 +63,7 @@ importers:
 
   packages/ui:
     dependencies:
-      plumbus-core:
+      '@plumbus/core':
         specifier: workspace:*
         version: link:../plumbus-core
       zod:

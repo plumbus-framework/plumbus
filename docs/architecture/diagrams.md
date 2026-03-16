@@ -218,7 +218,7 @@ plumbus verify
 ```
 ┌─────────────────────┐
 │ CapabilityContract[] │
-│ (from plumbus-core) │
+│ (from @plumbus/core) │
 └──────────┬──────────┘
            │
            ▼

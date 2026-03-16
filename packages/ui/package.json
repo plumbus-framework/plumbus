@@ -24,8 +24,16 @@
   },
   "keywords": ["plumbus", "ui", "frontend"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/ui"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "plumbus-core": "workspace:*",
+    "@plumbus/core": "workspace:*",
     "zod": "^3.24.0"
   },
   "devDependencies": {

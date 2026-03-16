@@ -7,7 +7,7 @@ The `define*` functions are the primary SDK surface for declaring Plumbus resour
 Creates a capability definition — the atomic unit of business logic.
 
 ```typescript
-import { defineCapability } from "plumbus-core";
+import { defineCapability } from "@plumbus/core";
 import { z } from "zod";
 
 const getUser = defineCapability({
@@ -79,7 +79,7 @@ const getUser = defineCapability({
 Declares a data model with typed, classified fields.
 
 ```typescript
-import { defineEntity, field } from "plumbus-core";
+import { defineEntity, field } from "@plumbus/core";
 
 const Order = defineEntity({
   name: "Order",
@@ -126,7 +126,7 @@ const Order = defineEntity({
 Declares a domain event with a typed payload.
 
 ```typescript
-import { defineEvent } from "plumbus-core";
+import { defineEvent } from "@plumbus/core";
 import { z } from "zod";
 
 const orderPlaced = defineEvent({
@@ -165,7 +165,7 @@ const orderPlaced = defineEvent({
 Declares a multi-step workflow with steps, triggers, and retry policies.
 
 ```typescript
-import { defineFlow } from "plumbus-core";
+import { defineFlow } from "@plumbus/core";
 import { z } from "zod";
 
 const onboarding = defineFlow({
@@ -245,7 +245,7 @@ const onboarding = defineFlow({
 Declares an AI prompt with typed input/output and model configuration.
 
 ```typescript
-import { definePrompt } from "plumbus-core";
+import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 const classifySentiment = definePrompt({
@@ -292,7 +292,7 @@ const classifySentiment = definePrompt({
 Field constructor namespace for entity field definitions.
 
 ```typescript
-import { field } from "plumbus-core";
+import { field } from "@plumbus/core";
 
 field.id()                                          // Unique identifier
 field.string({ classification: "personal" })        // Text field

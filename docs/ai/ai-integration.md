@@ -32,7 +32,7 @@ Plumbus provides a structured AI runtime with typed prompts, output validation, 
 ## Defining Prompts
 
 ```typescript
-import { definePrompt } from "plumbus-core";
+import { definePrompt } from "@plumbus/core";
 import { z } from "zod";
 
 export const classifyTicket = definePrompt({
@@ -124,7 +124,7 @@ const docs = await ctx.ai.retrieve({
 Plumbus supports multiple AI providers simultaneously. Each prompt can specify which provider to use via `model.provider`; prompts without a provider field use the configured default.
 
 ```typescript
-import { createAIService, createProviderAdapter } from "plumbus-core";
+import { createAIService, createProviderAdapter } from "@plumbus/core";
 
 const service = createAIService({
   providers: {
@@ -166,7 +166,7 @@ The `extract()` and `classify()` convenience methods always use the default prov
 For single-provider setups, use `singleProviderConfig()`:
 
 ```typescript
-import { createAIService, singleProviderConfig, createOpenAIAdapter } from "plumbus-core";
+import { createAIService, singleProviderConfig, createOpenAIAdapter } from "@plumbus/core";
 
 const service = createAIService(singleProviderConfig(
   createOpenAIAdapter({ apiKey: "sk-..." }),
@@ -177,7 +177,7 @@ const service = createAIService(singleProviderConfig(
 ### OpenAI
 
 ```typescript
-import { createOpenAIAdapter } from "plumbus-core";
+import { createOpenAIAdapter } from "@plumbus/core";
 
 const openai = createOpenAIAdapter({
   apiKey: process.env["OPENAI_API_KEY"]!,
@@ -189,7 +189,7 @@ const openai = createOpenAIAdapter({
 ### Anthropic
 
 ```typescript
-import { createAnthropicAdapter } from "plumbus-core";
+import { createAnthropicAdapter } from "@plumbus/core";
 
 const anthropic = createAnthropicAdapter({
   apiKey: process.env["ANTHROPIC_API_KEY"]!,
@@ -202,7 +202,7 @@ const anthropic = createAnthropicAdapter({
 Unknown provider names use the OpenAI-compatible adapter:
 
 ```typescript
-import { createProviderAdapter } from "plumbus-core";
+import { createProviderAdapter } from "@plumbus/core";
 
 const ollama = createProviderAdapter("ollama", {
   apiKey: "",
@@ -216,7 +216,7 @@ const ollama = createProviderAdapter("ollama", {
 AI outputs are validated against the prompt's Zod output schema. On failure, the framework retries with an enriched prompt:
 
 ```typescript
-import { generateWithValidation } from "plumbus-core";
+import { generateWithValidation } from "@plumbus/core";
 
 const result = await generateWithValidation({
   provider: openaiAdapter,
@@ -249,7 +249,7 @@ Return     Retry with error context
 Every AI call is metered:
 
 ```typescript
-import { createCostTracker, estimateCost } from "plumbus-core";
+import { createCostTracker, estimateCost } from "@plumbus/core";
 
 const tracker = createCostTracker({
   dailyBudget: 50.00,
@@ -283,7 +283,7 @@ plumbus rag ingest ./docs --source knowledge-base --classification internal
 
 ```typescript
 // Programmatic
-import { createRAGPipeline, createInMemoryVectorStore } from "plumbus-core";
+import { createRAGPipeline, createInMemoryVectorStore } from "@plumbus/core";
 
 const vectorStore = createInMemoryVectorStore();
 const rag = createRAGPipeline({
@@ -338,7 +338,7 @@ for (const doc of results) {
 AI decisions are tracked for auditability:
 
 ```typescript
-import { createExplainabilityTracker } from "plumbus-core";
+import { createExplainabilityTracker } from "@plumbus/core";
 
 const tracker = createExplainabilityTracker({
   enabled: true,
@@ -367,7 +367,7 @@ Each AI invocation records:
 ## Testing AI
 
 ```typescript
-import { mockAI, createTestContext } from "plumbus-core/testing";
+import { mockAI, createTestContext } from "@plumbus/core/testing";
 
 const ctx = createTestContext({
   ai: mockAI({

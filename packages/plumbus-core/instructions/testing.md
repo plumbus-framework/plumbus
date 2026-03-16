@@ -4,10 +4,10 @@ Plumbus provides test utilities for testing capabilities, flows, and AI interact
 
 ## Test Utilities
 
-Import from `plumbus-core/testing`:
+Import from `@plumbus/core/testing`:
 
 ```ts
-import { runCapability, simulateFlow, mockAI, createTestContext } from "plumbus-core/testing";
+import { runCapability, simulateFlow, mockAI, createTestContext } from "@plumbus/core/testing";
 ```
 
 ### `runCapability`
@@ -95,7 +95,7 @@ await expect(
 ## Governance Test Patterns
 
 ```ts
-import { evaluateGovernance } from "plumbus-core/testing";
+import { evaluateGovernance } from "@plumbus/core/testing";
 
 const result = evaluateGovernance(rules, inventory);
 const signals = result.signals;
@@ -136,16 +136,16 @@ This scans `frontend/app/**/page.tsx` for ActionPanel usage and generates:
 
 ### Manual E2E Test Writing
 
-Import from `plumbus-core/testing`:
+Import from `@plumbus/core/testing`:
 
 ```ts
-import { createE2EServer, createTestBearerHeader } from "plumbus-core/testing";
+import { createE2EServer, createTestBearerHeader } from "@plumbus/core/testing";
 ```
 
 #### API-Level E2E
 
 ```ts
-import { createE2EServer } from "plumbus-core/testing";
+import { createE2EServer } from "@plumbus/core/testing";
 
 let e2e;
 beforeAll(async () => {
@@ -168,7 +168,7 @@ Generated test files use vitest as the test runner with Playwright for browser a
 
 ```ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { chromium, type Browser, type Page } from "plumbus-core/testing";
+import { chromium, type Browser, type Page } from "@plumbus/core/testing";
 
 describe("Project page", () => {
   let browser: Browser;
@@ -196,7 +196,7 @@ describe("Project page", () => {
 The framework scaffolds page descriptors:
 
 ```ts
-import { generateE2ETest, type E2EPageDescriptor } from "plumbus-core/testing";
+import { generateE2ETest, type E2EPageDescriptor } from "@plumbus/core/testing";
 
 const page: E2EPageDescriptor = {
   route: "/project",
@@ -214,7 +214,7 @@ const testCode = generateE2ETest(page);
 
 ```bash
 # Install Playwright browsers (one-time, from framework)
-cd node_modules/plumbus-core && npx playwright install chromium
+cd node_modules/@plumbus/core && npx playwright install chromium
 
 # Run E2E tests
 plumbus test --config frontend/e2e/vitest.config.e2e.ts
@@ -222,23 +222,23 @@ plumbus test --config frontend/e2e/vitest.config.e2e.ts
 
 ## Framework-Provided Dependencies — DO NOT Install Separately
 
-The framework includes **vitest**, **zod**, and **playwright** as dependencies of `plumbus-core`. Consumer apps must **never** add these to their own `package.json`. Import them through the framework:
+The framework includes **vitest**, **zod**, and **playwright** as dependencies of `@plumbus/core`. Consumer apps must **never** add these to their own `package.json`. Import them through the framework:
 
 ```ts
 // Zod — use for schema definitions in prompts, events, etc.
-import { z } from "plumbus-core/zod";
+import { z } from "@plumbus/core/zod";
 
 // Vitest — available at runtime when plumbus test runs tests
 import { describe, it, expect } from "vitest";
 
 // Vitest config — for vitest.config.ts files
-import { defineConfig } from "plumbus-core/vitest";
+import { defineConfig } from "@plumbus/core/vitest";
 
 // Playwright + test utilities — for e2e tests
-import { chromium, type Browser, type Page } from "plumbus-core/testing";
+import { chromium, type Browser, type Page } from "@plumbus/core/testing";
 
 // Test utilities — for unit/integration tests
-import { runCapability, createTestContext, mockAI } from "plumbus-core/testing";
+import { runCapability, createTestContext, mockAI } from "@plumbus/core/testing";
 ```
 
 Run tests with `plumbus test` — not `vitest run` or `npx vitest`.

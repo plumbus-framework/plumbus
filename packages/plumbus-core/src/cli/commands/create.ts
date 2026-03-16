@@ -40,7 +40,7 @@ export function generateProjectStructure(
           verify: 'plumbus verify',
         },
         dependencies: {
-          'plumbus-core': '^0.1.0',
+          '@plumbus/core': '^0.1.0',
           zod: '^3.24.0',
         },
         devDependencies: {
@@ -89,7 +89,7 @@ export function generateProjectStructure(
 
   files.set(
     'config/app.config.ts',
-    `import type { PlumbusConfig } from "plumbus-core";
+    `import type { PlumbusConfig } from "@plumbus/core";
 
 export const config: PlumbusConfig = {
   environment: "development",

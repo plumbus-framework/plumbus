@@ -1,5 +1,5 @@
 {
-  "name": "plumbus-core",
+  "name": "@plumbus/core",
   "version": "0.1.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
@@ -48,6 +48,14 @@
     "ai-native"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/plumbus-core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.1",
