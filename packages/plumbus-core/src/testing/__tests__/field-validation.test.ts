@@ -161,13 +161,17 @@ describe('createTestData with entity validation', () => {
 
   it('throws on update with invalid data', async () => {
     const data = createTestData(
-      { TimelineEvent: [{ id: 'evt-1', title: 'Old', confidence: 3, sourceType: 'interview_message' }] },
+      {
+        TimelineEvent: [
+          { id: 'evt-1', title: 'Old', confidence: 3, sourceType: 'interview_message' },
+        ],
+      },
       [timelineEventEntity],
     );
     const repo = data.TimelineEvent ?? unreachable('TimelineEvent repo missing');
-    await expect(
-      repo.update('evt-1', { confidence: 0.5 }),
-    ).rejects.toThrow(/confidence.*expected integer/i);
+    await expect(repo.update('evt-1', { confidence: 0.5 })).rejects.toThrow(
+      /confidence.*expected integer/i,
+    );
   });
 
   it('works without entity definitions (backward compat)', async () => {
