@@ -5,11 +5,13 @@ import type { NextjsTemplateConfig } from '../nextjs-template.js';
 import {
   generateAuthProvider,
   generateCapabilityPage,
+  generateGlobalsCss,
   generateHomePage,
   generateLayout,
   generateNextjsTemplate,
   generatePackageJson,
   generatePlaceholderFiles,
+  generatePostcssConfig,
   generateTsConfig,
 } from '../nextjs-template.js';
 
@@ -62,6 +64,13 @@ describe('generatePackageJson', () => {
     expect(parsed.name).toBe('my-cool-app');
   });
 
+  it('includes tailwindcss in dependencies', () => {
+    const file = generatePackageJson(makeConfig());
+    const parsed = JSON.parse(file.content);
+    expect(parsed.dependencies.tailwindcss).toBeDefined();
+    expect(parsed.dependencies['@tailwindcss/postcss']).toBeDefined();
+  });
+
   it('outputs to package.json path', () => {
     expect(generatePackageJson(makeConfig()).path).toBe('package.json');
   });
@@ -101,6 +110,38 @@ describe('generateLayout', () => {
   it('includes app name in metadata', () => {
     const file = generateLayout(makeConfig({ appName: 'TestApp' }));
     expect(file.content).toContain('title: "TestApp"');
+  });
+
+  it('imports globals.css', () => {
+    const file = generateLayout(makeConfig());
+    expect(file.content).toContain('import "./globals.css"');
+  });
+});
+
+// ── generateGlobalsCss ──
+
+describe('generateGlobalsCss', () => {
+  it('generates CSS with Tailwind import', () => {
+    const file = generateGlobalsCss();
+    expect(file.path).toBe('app/globals.css');
+    expect(file.content).toContain('@import "tailwindcss"');
+  });
+
+  it('includes base resets', () => {
+    const file = generateGlobalsCss();
+    expect(file.content).toContain('box-sizing: border-box');
+    expect(file.content).toContain('min-height: 100vh');
+    expect(file.content).toContain('margin: 0');
+  });
+});
+
+// ── generatePostcssConfig ──
+
+describe('generatePostcssConfig', () => {
+  it('generates postcss config with Tailwind plugin', () => {
+    const file = generatePostcssConfig();
+    expect(file.path).toBe('postcss.config.mjs');
+    expect(file.content).toContain('@tailwindcss/postcss');
   });
 });
 
@@ -184,6 +225,8 @@ describe('generateNextjsTemplate', () => {
     const paths = files.map((f) => f.path);
     expect(paths).toContain('package.json');
     expect(paths).toContain('tsconfig.json');
+    expect(paths).toContain('app/globals.css');
+    expect(paths).toContain('postcss.config.mjs');
     expect(paths).toContain('app/layout.tsx');
     expect(paths).toContain('app/page.tsx');
     expect(paths).toContain('generated/.gitkeep');
@@ -210,6 +253,7 @@ describe('generateNextjsTemplate', () => {
     const standardAppPaths = new Set([
       'app/layout.tsx',
       'app/page.tsx',
+      'app/globals.css',
       'app/error.tsx',
       'app/loading.tsx',
       'app/api/plumbus/[...path]/route.ts',

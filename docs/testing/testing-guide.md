@@ -60,10 +60,31 @@ describe("getUser", () => {
 interface RunCapabilityOptions {
   auth?: Partial<AuthContext>;
   data?: Record<string, Record<string, unknown>[]>;
+  entities?: EntityDefinition[];  // Enable field-type validation on writes
   ai?: AIService;
   ctx?: ExecutionContext;  // Provide a full custom context
 }
 ```
+
+### Field-Type Validation
+
+Pass entity definitions via the `entities` option to catch type mismatches at test time (e.g. inserting a float into an integer field):
+
+```typescript
+import { runCapability } from "plumbus-core/testing";
+import { timelineEventEntity } from "../entities/timeline-event.entity.js";
+import { createTimelineEvent } from "../capabilities/default/create-timeline-event/capability.js";
+
+const result = await runCapability(createTimelineEvent, input, {
+  auth: { roles: ["user"] },
+  entities: [timelineEventEntity],
+  data: {
+    ProjectMembership: [{ id: "mem_1", projectId: "proj_1", userId: "test-user", role: "owner" }],
+  },
+});
+```
+
+When `entities` is provided, the mock data store validates every `create()` and `update()` call against the entity's field descriptors. A `field.number()` column rejects non-integer values, `field.enum()` rejects invalid values, etc.
 
 ## Testing Flows
 

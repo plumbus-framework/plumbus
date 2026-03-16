@@ -16,7 +16,10 @@ import type {
   Repository,
   TimeService,
 } from '../types/context.js';
+import type { EntityDefinition } from '../types/entity.js';
+import type { FieldDescriptor } from '../types/fields.js';
 import type { AuthContext } from '../types/security.js';
+import { buildEntityFieldMap, validateRecord } from './field-validation.js';
 
 // ── Test Auth Builder ──
 
@@ -233,21 +236,67 @@ export function createInMemoryRepository<
   };
 }
 
+// ── Validating Repository Wrapper ──
+
+function withFieldValidation<T extends Record<string, unknown>>(
+  repo: Repository<T>,
+  entityName: string,
+  fields: Record<string, FieldDescriptor>,
+): Repository<T> {
+  function check(data: Record<string, unknown>) {
+    const errors = validateRecord(entityName, fields, data);
+    if (errors.length > 0) {
+      const details = errors
+        .map(
+          (e) =>
+            `  ${e.field}: expected ${e.expected}, got ${e.actual} (${JSON.stringify(e.value)})`,
+        )
+        .join('\n');
+      throw new Error(`Test data validation failed for ${entityName}:\n${details}`);
+    }
+  }
+
+  return {
+    findById: (id) => repo.findById(id),
+    async create(data) {
+      check(data as Record<string, unknown>);
+      return repo.create(data);
+    },
+    async update(id, updates) {
+      check(updates as Record<string, unknown>);
+      return repo.update(id, updates);
+    },
+    delete: (id) => repo.delete(id),
+    findMany: (query) => repo.findMany(query),
+  };
+}
+
 // ── Test Data Service ──
 
 /** Create a test DataService from a map of entity name → initial records */
-export function createTestData(entities?: Record<string, Record<string, unknown>[]>): DataService {
-  const data: DataService = {};
-  if (entities) {
-    for (const [name, records] of Object.entries(entities)) {
-      data[name] = createInMemoryRepository(records);
+export function createTestData(
+  data?: Record<string, Record<string, unknown>[]>,
+  entityDefs?: EntityDefinition[],
+): DataService {
+  const fieldMap = entityDefs ? buildEntityFieldMap(entityDefs) : null;
+  const dataService: DataService = {};
+
+  function makeRepo(name: string, records?: Record<string, unknown>[]): Repository {
+    const repo = createInMemoryRepository(records);
+    const fields = fieldMap?.get(name);
+    return fields ? withFieldValidation(repo, name, fields) : repo;
+  }
+
+  if (data) {
+    for (const [name, records] of Object.entries(data)) {
+      dataService[name] = makeRepo(name, records);
     }
   }
-  return new Proxy(data, {
+  return new Proxy(dataService, {
     get(target, prop) {
       if (typeof prop !== 'string') return undefined;
       if (!target[prop]) {
-        target[prop] = createInMemoryRepository();
+        target[prop] = makeRepo(prop);
       }
       return target[prop];
     },
@@ -267,6 +316,8 @@ export function fixedTime(date?: Date): TimeService {
 export interface TestContextOptions {
   auth?: TestAuthOptions;
   data?: Record<string, Record<string, unknown>[]>;
+  /** Entity definitions for field-type validation on writes. */
+  entities?: EntityDefinition[];
   events?: EventService;
   flows?: FlowService;
   ai?: AIService | AIResponse;
@@ -291,7 +342,7 @@ export function createTestContext(options?: TestContextOptions): ExecutionContex
 
   const deps: ContextDependencies = {
     auth: createTestAuth(options?.auth),
-    data: createTestData(options?.data),
+    data: createTestData(options?.data, options?.entities),
     events: options?.events ?? mockEvents(),
     flows: options?.flows ?? mockFlows(),
     ai: aiService,

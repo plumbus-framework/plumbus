@@ -35,6 +35,8 @@ export {
   mockFlows,
   mockLogger,
 } from './context.js';
+export type { FieldValidationError } from './field-validation.js';
+export { buildEntityFieldMap, validateRecord } from './field-validation.js';
 export type { E2EServerContext, E2EServerOptions } from './e2e.js';
 // ── E2E / Browser Test Utilities ──
 export { createE2EServer, createTestBearerHeader } from './e2e.js';

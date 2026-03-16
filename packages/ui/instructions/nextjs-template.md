@@ -37,11 +37,13 @@ for (const file of files) {
 ### Generated Project Structure
 
 ```
-package.json                          # Next.js 14, React 18, TypeScript 5
+package.json                          # Next.js 14, React 18, TypeScript 5, Tailwind CSS 4
 tsconfig.json                         # Strict, bundler module resolution
+postcss.config.mjs                    # PostCSS config with @tailwindcss/postcss
 .env.local                            # API base URL, auth flag, secrets
-middleware.ts                          # Auth token check, protected paths
+middleware.ts                         # Auth token check, protected paths
 app/
+  globals.css                         # Tailwind import + base resets
   layout.tsx                          # Root layout (with AuthProvider if auth)
   page.tsx                            # Home page
   loading.tsx                         # Global loading skeleton
@@ -63,7 +65,7 @@ hooks/
 ```json
 {
   "name": "{kebab-case-app-name}",
-  "dependencies": { "next": "^14", "react": "^18", "react-dom": "^18" },
+  "dependencies": { "next": "^14", "react": "^18", "react-dom": "^18", "tailwindcss": "^4", "@tailwindcss/postcss": "^4" },
   "devDependencies": { "typescript": "^5", "@types/react": "^18", "@types/react-dom": "^18" }
 }
 ```
@@ -72,9 +74,17 @@ hooks/
 
 Strict TypeScript config for Next.js: `target: "ES2017"`, `module: "esnext"`, `moduleResolution: "bundler"`, `jsx: "preserve"`, path alias `@/*`.
 
+### `generateGlobalsCss()`
+
+Minimal `app/globals.css` with Tailwind CSS import and base resets (box-sizing, margin, antialiased text). Apps customize by extending this file with their own theme tokens.
+
+### `generatePostcssConfig()`
+
+PostCSS config at `postcss.config.mjs` with `@tailwindcss/postcss` plugin. Required for Tailwind CSS 4 processing.
+
 ### `generateLayout(config)`
 
-Root layout with `<html>` + `<body>`. If `auth !== false`, wraps children in `<AuthProvider>`.
+Root layout with `<html>` + `<body>`. Imports `./globals.css` for Tailwind styles. If `auth !== false`, wraps children in `<AuthProvider>`.
 
 ### `generateHomePage(config)`
 

@@ -1,5 +1,6 @@
 import {
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -83,6 +84,9 @@ function mapFieldToColumn(colName: string, descriptor: FieldDescriptor): any {
       break;
     case 'number':
       col = integer(colName);
+      break;
+    case 'decimal':
+      col = doublePrecision(colName);
       break;
     case 'boolean':
       col = boolean(colName);

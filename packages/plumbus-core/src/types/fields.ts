@@ -27,6 +27,11 @@ export interface NumberFieldDescriptor {
   options: BaseFieldOptions;
 }
 
+export interface DecimalFieldDescriptor {
+  type: 'decimal';
+  options: BaseFieldOptions;
+}
+
 export interface BooleanFieldDescriptor {
   type: 'boolean';
   options: BaseFieldOptions;
@@ -59,6 +64,7 @@ export type FieldDescriptor =
   | IdFieldDescriptor
   | StringFieldDescriptor
   | NumberFieldDescriptor
+  | DecimalFieldDescriptor
   | BooleanFieldDescriptor
   | TimestampFieldDescriptor
   | JsonFieldDescriptor
