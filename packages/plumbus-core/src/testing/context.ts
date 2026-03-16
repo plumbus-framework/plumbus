@@ -247,11 +247,12 @@ function withFieldValidation<T extends Record<string, unknown>>(
     const errors = validateRecord(entityName, fields, data);
     if (errors.length > 0) {
       const details = errors
-        .map((e) => `  ${e.field}: expected ${e.expected}, got ${e.actual} (${JSON.stringify(e.value)})`)
+        .map(
+          (e) =>
+            `  ${e.field}: expected ${e.expected}, got ${e.actual} (${JSON.stringify(e.value)})`,
+        )
         .join('\n');
-      throw new Error(
-        `Test data validation failed for ${entityName}:\n${details}`,
-      );
+      throw new Error(`Test data validation failed for ${entityName}:\n${details}`);
     }
   }
 

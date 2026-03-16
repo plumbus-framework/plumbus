@@ -88,7 +88,12 @@ function validateFieldValue(
 
     case 'enum':
       if (typeof value !== 'string') {
-        return { field: fieldName, expected: `enum(${descriptor.values.join('|')})`, actual: typeof value, value };
+        return {
+          field: fieldName,
+          expected: `enum(${descriptor.values.join('|')})`,
+          actual: typeof value,
+          value,
+        };
       }
       if (!descriptor.values.includes(value)) {
         return {
