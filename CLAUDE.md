@@ -149,6 +149,21 @@ After making changes, update the corresponding documentation in `docs/`. **This 
 - Do **not** use ESLint, Prettier, or any other linter/formatter — Biome replaces all of them
 - Biome rule names differ from ESLint (e.g. `noNonNullAssertion` not `@typescript-eslint/no-non-null-assertion`)
 
+### Mandatory Validation — CRITICAL
+
+After **every** code change, you **must** run all four checks before considering the work done:
+
+```bash
+pnpm lint          # Biome lint — zero errors, zero warnings
+pnpm format:check  # Biome format — zero formatting drift
+pnpm typecheck     # tsc --noEmit — zero type errors
+pnpm test          # Vitest — all tests pass
+```
+
+**`pnpm lint` and `pnpm format:check` are separate commands.** Passing lint does NOT mean formatting is correct. Both must pass. If `format:check` fails, run `pnpm format` to auto-fix, then verify with `format:check` again.
+
+Do **not** push, commit, or report completion until all four commands succeed.
+
 ### Zero-Tolerance Lint Policy
 
 - **All lint rules are errors** — `pnpm lint` must produce zero errors and zero warnings
