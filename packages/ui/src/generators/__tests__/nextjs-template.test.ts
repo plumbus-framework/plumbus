@@ -54,8 +54,6 @@ describe('generatePackageJson', () => {
     const parsed = JSON.parse(file.content);
     expect(parsed.name).toBe('my-app');
     expect(parsed.scripts.dev).toBe('next dev');
-    expect(parsed.dependencies.next).toBeDefined();
-    expect(parsed.dependencies.react).toBeDefined();
   });
 
   it('uses kebab-case name', () => {
@@ -64,11 +62,14 @@ describe('generatePackageJson', () => {
     expect(parsed.name).toBe('my-cool-app');
   });
 
-  it('includes tailwindcss in dependencies', () => {
+  it('does not include framework-provided deps (provided by @plumbus/ui)', () => {
     const file = generatePackageJson(makeConfig());
     const parsed = JSON.parse(file.content);
-    expect(parsed.dependencies.tailwindcss).toBeDefined();
-    expect(parsed.dependencies['@tailwindcss/postcss']).toBeDefined();
+    expect(parsed.dependencies.next).toBeUndefined();
+    expect(parsed.dependencies.react).toBeUndefined();
+    expect(parsed.dependencies.tailwindcss).toBeUndefined();
+    expect(parsed.dependencies['@tailwindcss/postcss']).toBeUndefined();
+    expect(parsed.devDependencies.typescript).toBeUndefined();
   });
 
   it('outputs to package.json path', () => {
