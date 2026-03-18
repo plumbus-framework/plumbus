@@ -19,6 +19,7 @@
 //   migrate    — Database migration commands
 //   prompt     — Scaffold a new prompt
 //   rag        — RAG document ingestion
+//   run        — Run app command scripts from app/commands/
 //   seed       — Run seed files to populate the database
 //   test       — Run unit tests using vitest
 //   ui         — Generate frontend source files and scaffolds
@@ -39,6 +40,7 @@ export { registerInitCommand } from './init.js';
 export { registerDbCommand, registerMigrateCommand } from './migrate.js';
 export { registerPromptCommand } from './prompt.js';
 export { registerRagCommand } from './rag.js';
+export { registerRunCommand } from './run.js';
 export { registerSeedCommand } from './seed.js';
 export { registerTestCommand } from './test.js';
 export { registerUiCommand } from './ui.js';

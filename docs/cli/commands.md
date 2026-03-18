@@ -10,7 +10,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus init` | Generate AI agent wiring files |
 | `plumbus dev` | Start development server with hot reload |
 | `plumbus doctor` | Check environment readiness |
-| `plumbus generate` | Generate API clients, hooks, OpenAPI specs |
+| `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types |
 | `plumbus capability new` | Scaffold a new capability |
 | `plumbus flow new` | Scaffold a new flow |
 | `plumbus entity new` | Scaffold a new entity |
@@ -21,6 +21,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus migrate` | Database migration commands |
 | `plumbus db` | Database lifecycle management (create, reset) |
 | `plumbus rag ingest` | Ingest documents into RAG vector store |
+| `plumbus run` | Run app command scripts from app/commands/ |
 | `plumbus seed` | Run seed files to populate the database |
 | `plumbus agent` | AI agent brief and sync commands |
 | `plumbus ui` | Generate UI modules and Next.js frontends |
@@ -69,11 +70,15 @@ Generated structure:
 my-app/
 ├── package.json
 ├── tsconfig.json
-├── app.config.ts
-├── ai.config.ts
+├── biome.json
 ├── .env.example
 ├── .gitignore
 ├── README.md
+├── .vscode/
+│   └── settings.json
+├── config/
+│   ├── app.config.ts
+│   └── ai.config.ts
 └── app/
     ├── capabilities/
     ├── entities/
@@ -156,7 +161,7 @@ Checks performed:
 
 ### plumbus generate
 
-Generate core derived artifacts from capability definitions.
+Generate core derived artifacts from capability and entity definitions.
 
 ```bash
 plumbus generate [options]
@@ -167,10 +172,12 @@ plumbus generate [options]
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
-- `.plumbus/generated/clients/api.ts`
-- `.plumbus/generated/clients/hooks.ts`
+- `.plumbus/generated/capability-types.ts` — `Input`/`Output` types for each capability + `CapabilityName` union
+- `.plumbus/generated/clients/api.ts` — typed fetch functions (imports types from `capability-types.ts`)
+- `.plumbus/generated/clients/hooks.ts` — React hooks (imports types from `capability-types.ts`)
 - `.plumbus/generated/openapi.json`
 - `.plumbus/generated/manifest.json`
+- `.plumbus/generated/entity-types.ts` — typed interfaces for all entities and a `DataServiceMap` for `ctx.data`
 
 For frontend-ready modules and scaffolds, use `plumbus ui`.
 
@@ -407,4 +414,52 @@ export default async function (db: PostgresJsDatabase, schemas: Record<string, u
 ```
 
 The function receives the connected Drizzle `db` instance and the collected entity `schemas` (Drizzle table objects).
+
+---
+
+### plumbus run
+
+Run application-defined command scripts from `app/commands/`. This lets consumer apps create custom CLI operations (user setup, data migration, cleanup tasks) using the framework's infrastructure (config, DB connection, password hashing, etc.).
+
+```bash
+plumbus run <script>                        # Run a command script
+plumbus run <script> -- --arg1 value1       # Pass arguments to the script
+plumbus run <script> --json                 # Output in JSON format
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | `boolean` | `false` | Output in JSON format |
+
+**Command file convention:**
+
+Command files live in `app/commands/` and are `.ts` or `.js` files. Each file must export a `default` or named `run` async function:
+
+```ts
+import { hashPassword } from "@plumbus/core";
+import { randomBytes } from "node:crypto";
+
+export default async function (ctx: { db: any; sql: any; args: string[] }) {
+  // ctx.sql — raw postgres.js tagged-template connection
+  // ctx.db  — Drizzle PostgresJsDatabase instance (or null if DB unavailable)
+  // ctx.args — pass-through CLI arguments after --
+
+  const password = randomBytes(24).toString("base64url");
+  const hash = await hashPassword(password);
+
+  await ctx.sql`INSERT INTO "user" (id, email, password_hash) VALUES (gen_random_uuid(), 'admin@example.com', ${hash})`;
+
+  console.log(`Password: ${password}`);
+}
+```
+
+**Example usage:**
+
+```bash
+# List available commands
+plumbus run nonexistent  # Shows available command names
+
+# Run a setup script with arguments
+plumbus run setup-admin -- --email admin@company.com
+```
 

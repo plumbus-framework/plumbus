@@ -199,3 +199,30 @@ app/capabilities/{domain}/{kebab-name}/
     └── fixtures/
 ```
 
+## Generated Types
+
+Running `plumbus generate` produces typed artifacts from capability contracts:
+
+- **`capability-types.ts`** — `Input`/`Output` types inferred from Zod schemas, plus a `CapabilityName` union type
+- **`clients/api.ts`** — typed fetch functions that import from `capability-types.ts`
+- **`clients/hooks.ts`** — React hooks that import from `capability-types.ts`
+
+Example generated types for `approveRefund`:
+
+```typescript
+// .plumbus/generated/capability-types.ts
+export type ApproveRefundInput = {
+  refundId: string;
+  reason?: string;
+};
+export type ApproveRefundOutput = {
+  refundId: string;
+  status: "approved";
+  approvedAt: string;
+};
+
+export type CapabilityName = "approveRefund" | "getInvoice";
+```
+
+The `CapabilityName` type can be used for type-safe capability references (e.g. with `runCapability`).
+

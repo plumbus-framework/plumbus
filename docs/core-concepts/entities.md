@@ -152,3 +152,18 @@ app/entities/
 
 Entity files follow the `{kebab-name}.entity.ts` naming convention.
 
+## Type Generation
+
+Run `plumbus generate` to produce typed TypeScript interfaces for all your entities:
+
+```bash
+plumbus generate
+```
+
+This creates `.plumbus/generated/entity-types.ts` with:
+
+- An interface per entity (e.g. `UserRecord`) mapping fields to TypeScript types
+- A `DataServiceMap` interface mapping entity names to `Repository<T>` for typed `ctx.data` access
+
+See [Data Layer → Entity Type Generation](../sdk-reference/data-layer.md#entity-type-generation) for details.
+

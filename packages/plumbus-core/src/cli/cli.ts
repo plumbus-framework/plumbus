@@ -3,26 +3,27 @@
 
 import { Command } from 'commander';
 import {
-  registerAgentCommand,
-  registerCapabilityCommand,
-  registerCertifyCommand,
-  registerCreateCommand,
-  registerDbCommand,
-  registerDevCommand,
-  registerDoctorCommand,
-  registerE2ECommand,
-  registerEntityCommand,
-  registerEventCommand,
-  registerFlowCommand,
-  registerGenerateCommand,
-  registerInitCommand,
-  registerMigrateCommand,
-  registerPromptCommand,
-  registerRagCommand,
-  registerSeedCommand,
-  registerTestCommand,
-  registerUiCommand,
-  registerVerifyCommand,
+    registerAgentCommand,
+    registerCapabilityCommand,
+    registerCertifyCommand,
+    registerCreateCommand,
+    registerDbCommand,
+    registerDevCommand,
+    registerDoctorCommand,
+    registerE2ECommand,
+    registerEntityCommand,
+    registerEventCommand,
+    registerFlowCommand,
+    registerGenerateCommand,
+    registerInitCommand,
+    registerMigrateCommand,
+    registerPromptCommand,
+    registerRagCommand,
+    registerRunCommand,
+    registerSeedCommand,
+    registerTestCommand,
+    registerUiCommand,
+    registerVerifyCommand,
 } from './commands/index.js';
 import { assertInsidePlumbusProject, commandRequiresProject } from './utils.js';
 
@@ -60,6 +61,7 @@ export function createCli(): Command {
   registerCertifyCommand(program);
   registerAgentCommand(program);
   registerRagCommand(program);
+  registerRunCommand(program);
   registerSeedCommand(program);
   registerUiCommand(program);
   registerDoctorCommand(program);

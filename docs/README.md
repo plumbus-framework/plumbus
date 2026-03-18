@@ -9,6 +9,7 @@ docs/
 ├── getting-started/           Installation, first project, tutorial
 │   ├── installation.md
 │   ├── quick-start.md
+│   ├── development-workflow.md
 │   └── tutorial.md
 ├── architecture/              System design, diagrams, data flow
 │   ├── overview.md
@@ -46,6 +47,7 @@ docs/
 | I want to... | Go to |
 |--------------|-------|
 | Install Plumbus and create my first app | [Getting Started → Installation](getting-started/installation.md) |
+| Understand the development workflow | [Getting Started → Development Workflow](getting-started/development-workflow.md) |
 | Understand how the system works | [Architecture → Overview](architecture/overview.md) |
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |
 | See all CLI commands | [CLI → Commands](cli/commands.md) |

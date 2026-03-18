@@ -201,6 +201,17 @@ Multi-tenancy is enforced at multiple layers:
 └────────────────────────────────────────────────┘
 ```
 
+### Cross-Tenant Admin Access (bypassTenantScope)
+
+Capabilities with `access.tenantScoped: false` automatically bypass data-layer tenant filtering. This allows admin/back-office capabilities to query across all tenants without being restricted to the caller's `tenantId`.
+
+The bypass propagates through the route generator → data service → repositories:
+- `createRepository()` accepts `bypassTenantScope?: boolean` — when true, `tenantFilter()` returns `undefined` and `create()` does not auto-inject `tenantId`
+- `EntityRegistry.createDataService()` accepts `bypassTenantScope?: boolean` and forwards it to all repositories
+- The route generator detects `capability.access.tenantScoped === false` and passes `{ bypassTenantScope: true }` to `createDependencies()`
+
+This is intentional for admin dashboards that need to view/manage data across all tenants while still requiring role-based authorization.
+
 ## Field-Level Security
 
 ### Data Classification

@@ -26,7 +26,9 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 
 ## Consumer App Dependency Policy
 
-`@plumbus/core` provides these packages to consumer apps through subpath exports. Consumers must **never** add them to their own `package.json`:
+The framework provides these packages to consumer apps. Consumers must **never** add them to their own `package.json`:
+
+### From `@plumbus/core`
 
 | Package | Consumer imports from | Provided by |
 |---------|----------------------|-------------|
@@ -34,6 +36,20 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | vitest | `vitest` (at runtime) | `dependencies` |
 | vitest config | `@plumbus/core/vitest` | `dependencies` |
 | playwright | `@plumbus/core/testing` | `dependencies` |
+| drizzle-kit | used by `plumbus migrate` | `dependencies` |
+
+### From `@plumbus/ui`
+
+| Package | Provided by |
+|---------|-------------|
+| next | `dependencies` |
+| react | `dependencies` |
+| react-dom | `dependencies` |
+| tailwindcss | `dependencies` |
+| @tailwindcss/postcss | `dependencies` |
+| typescript | `dependencies` |
+| @types/react | `dependencies` |
+| @types/react-dom | `dependencies` |
 
 Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command resolves vitest from within the framework.
 

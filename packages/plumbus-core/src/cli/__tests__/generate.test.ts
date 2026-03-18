@@ -134,10 +134,7 @@ describe('generateCapabilityTypes', () => {
 
 describe('generateCapabilityNameType', () => {
   it('generates a union type of capability names', () => {
-    const caps = [
-      mockCapability({ name: 'getInvoice' }),
-      mockCapability({ name: 'createOrder' }),
-    ];
+    const caps = [mockCapability({ name: 'getInvoice' }), mockCapability({ name: 'createOrder' })];
     const result = generateCapabilityNameType(caps);
     expect(result).toBe('export type CapabilityName = "getInvoice" | "createOrder";');
   });
