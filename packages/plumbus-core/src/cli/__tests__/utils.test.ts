@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { formatOutput, toCamelCase, toKebabCase, toPascalCase } from '../utils.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  commandRequiresProject,
+  findPlumbusProjectRoot,
+  formatOutput,
+  toCamelCase,
+  toKebabCase,
+  toPascalCase,
+} from '../utils.js';
 
 describe('CLI utilities', () => {
   describe('toKebabCase', () => {
@@ -30,5 +40,97 @@ describe('CLI utilities', () => {
     it('returns string directly', () => {
       expect(formatOutput('hello', {})).toBe('hello');
     });
+  });
+});
+
+describe('findPlumbusProjectRoot', () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-guard-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const d of tmpDirs) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+    tmpDirs.length = 0;
+  });
+
+  it('returns undefined when no package.json exists', () => {
+    const dir = makeTmpDir();
+    expect(findPlumbusProjectRoot(dir)).toBeUndefined();
+  });
+
+  it('returns undefined when package.json has no @plumbus/core', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'some-app', dependencies: {} }),
+    );
+    expect(findPlumbusProjectRoot(dir)).toBeUndefined();
+  });
+
+  it('finds project root with @plumbus/core in dependencies', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'my-app', dependencies: { '@plumbus/core': '^0.1.0' } }),
+    );
+    expect(findPlumbusProjectRoot(dir)).toBe(dir);
+  });
+
+  it('finds project root with @plumbus/core in devDependencies', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'my-app', devDependencies: { '@plumbus/core': '^0.1.0' } }),
+    );
+    expect(findPlumbusProjectRoot(dir)).toBe(dir);
+  });
+
+  it('walks up to find project root from a subdirectory', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'my-app', dependencies: { '@plumbus/core': '^0.1.0' } }),
+    );
+    const sub = path.join(dir, 'app', 'entities');
+    fs.mkdirSync(sub, { recursive: true });
+    expect(findPlumbusProjectRoot(sub)).toBe(dir);
+  });
+
+  it('skips malformed package.json', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(path.join(dir, 'package.json'), '{ broken json');
+    expect(findPlumbusProjectRoot(dir)).toBeUndefined();
+  });
+});
+
+describe('commandRequiresProject', () => {
+  it('returns false for create', () => {
+    expect(commandRequiresProject('create')).toBe(false);
+  });
+
+  it('returns false for doctor', () => {
+    expect(commandRequiresProject('doctor')).toBe(false);
+  });
+
+  it('returns false for init', () => {
+    expect(commandRequiresProject('init')).toBe(false);
+  });
+
+  it('returns true for entity', () => {
+    expect(commandRequiresProject('entity')).toBe(true);
+  });
+
+  it('returns true for migrate', () => {
+    expect(commandRequiresProject('migrate')).toBe(true);
+  });
+
+  it('returns true for generate', () => {
+    expect(commandRequiresProject('generate')).toBe(true);
   });
 });

@@ -15,6 +15,8 @@ export interface RepositoryOptions {
   audit?: AuditService;
   /** Enable soft-delete — sets deletedAt instead of hard delete (default: false) */
   softDelete?: boolean;
+  /** Bypass tenant-scope filtering for cross-tenant admin access (default: false) */
+  bypassTenantScope?: boolean;
 }
 
 /**
@@ -25,14 +27,14 @@ export interface RepositoryOptions {
 export function createRepository<T = Record<string, unknown>>(
   options: RepositoryOptions,
 ): Repository<T> {
-  const { entity, table, db, auth, audit, softDelete = false } = options;
+  const { entity, table, db, auth, audit, softDelete = false, bypassTenantScope = false } = options;
 
   const maskedFields = getMaskedFields(entity);
   const isTenantScoped = entity.tenantScoped === true;
   const hasDeletedAt = 'deletedAt' in table;
 
   function tenantFilter(): SQL | undefined {
-    if (!isTenantScoped) return undefined;
+    if (!isTenantScoped || bypassTenantScope) return undefined;
     if (!auth.tenantId) {
       throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
     }
@@ -89,7 +91,7 @@ export function createRepository<T = Record<string, unknown>>(
       const record: Record<string, unknown> = { ...data };
 
       // Inject tenantId for tenant-scoped entities
-      if (isTenantScoped) {
+      if (isTenantScoped && !bypassTenantScope) {
         if (!auth.tenantId) {
           throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
         }

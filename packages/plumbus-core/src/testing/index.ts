@@ -5,7 +5,7 @@
 //
 // Key exports: createTestContext, runCapability, simulateFlow, assertAccessDenied
 
-export type { Browser, BrowserContext, Page } from 'playwright';
+export type { Browser, BrowserContext, Page, Route } from 'playwright';
 // ── Playwright Re-export ──
 // Consumer apps get playwright through the framework — no separate install needed.
 export { chromium, firefox, webkit } from 'playwright';
@@ -35,11 +35,11 @@ export {
   mockFlows,
   mockLogger,
 } from './context.js';
-export type { FieldValidationError } from './field-validation.js';
-export { buildEntityFieldMap, validateRecord } from './field-validation.js';
 export type { E2EServerContext, E2EServerOptions } from './e2e.js';
 // ── E2E / Browser Test Utilities ──
 export { createE2EServer, createTestBearerHeader } from './e2e.js';
+export { buildEntityFieldMap, validateRecord } from './field-validation.js';
+export type { FieldValidationError } from './field-validation.js';
 
 // ── Governance Test Helpers ──
 export {

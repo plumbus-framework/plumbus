@@ -3,8 +3,11 @@
 
 import type { Command } from 'commander';
 import * as path from 'node:path';
+import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
+import type { EntityDefinition } from '../../types/entity.js';
 import type { CapabilityKind } from '../../types/enums.js';
+import type { FieldDescriptor } from '../../types/fields.js';
 import { discoverResources } from '../discover.js';
 import {
   info,
@@ -19,6 +22,73 @@ import {
 
 export interface GenerateOptions {
   json?: boolean;
+}
+
+/**
+ * Convert a Zod type to a TypeScript type string for code generation.
+ * Handles ZodObject (with nested shapes), ZodArray, ZodString, ZodNumber,
+ * ZodBoolean, ZodEnum, ZodOptional, ZodNullable, ZodDefault, and ZodLiteral.
+ * Falls back to `unknown` for unsupported types.
+ */
+export function zodTypeToString(schema: z.ZodTypeAny): string {
+  if (schema instanceof z.ZodObject) {
+    const shape = schema.shape as Record<string, z.ZodTypeAny>;
+    const entries = Object.entries(shape);
+    if (entries.length === 0) return 'Record<string, never>';
+    const fields = entries.map(([key, value]) => {
+      const isOptional = value instanceof z.ZodOptional || value instanceof z.ZodDefault;
+      return `  ${key}${isOptional ? '?' : ''}: ${zodTypeToString(value)};`;
+    });
+    return `{\n${fields.join('\n')}\n}`;
+  }
+  if (schema instanceof z.ZodArray) {
+    const inner = zodTypeToString(schema.element);
+    return inner.includes('|') ? `(${inner})[]` : `${inner}[]`;
+  }
+  if (schema instanceof z.ZodString) return 'string';
+  if (schema instanceof z.ZodNumber) return 'number';
+  if (schema instanceof z.ZodBoolean) return 'boolean';
+  if (schema instanceof z.ZodDate) return 'Date';
+  if (schema instanceof z.ZodLiteral) {
+    const val = schema.value;
+    return typeof val === 'string' ? `"${val}"` : String(val);
+  }
+  if (schema instanceof z.ZodEnum) {
+    const values = schema.options as string[];
+    return values.map((v) => `"${v}"`).join(' | ');
+  }
+  if (schema instanceof z.ZodNativeEnum) return 'string | number';
+  if (schema instanceof z.ZodOptional) return zodTypeToString(schema.unwrap());
+  if (schema instanceof z.ZodNullable) return `${zodTypeToString(schema.unwrap())} | null`;
+  if (schema instanceof z.ZodDefault) return zodTypeToString(schema.removeDefault());
+  if (schema instanceof z.ZodUnion) {
+    const opts = schema.options as z.ZodTypeAny[];
+    return opts.map((o) => zodTypeToString(o)).join(' | ');
+  }
+  if (schema instanceof z.ZodRecord) return 'Record<string, unknown>';
+  if (schema instanceof z.ZodVoid) return 'void';
+  if (schema instanceof z.ZodUndefined) return 'undefined';
+  if (schema instanceof z.ZodNull) return 'null';
+  if (schema instanceof z.ZodAny) return 'any';
+  if (schema instanceof z.ZodUnknown) return 'unknown';
+  return 'unknown';
+}
+
+/** Generate TypeScript type declarations for a capability's input and output */
+export function generateCapabilityTypes(cap: CapabilityContract): string {
+  const name = toPascalCase(cap.name);
+  const inputType = zodTypeToString(cap.input);
+  const outputType = zodTypeToString(cap.output);
+  return `export type ${name}Input = ${inputType};\nexport type ${name}Output = ${outputType};`;
+}
+
+/** Generate a union type of all capability names */
+export function generateCapabilityNameType(capabilities: CapabilityContract[]): string {
+  if (capabilities.length === 0) {
+    return 'export type CapabilityName = never;';
+  }
+  const names = capabilities.map((c) => `"${c.name}"`).join(' | ');
+  return `export type CapabilityName = ${names};`;
 }
 
 /** Generate a typed API client function for a capability */
@@ -123,13 +193,124 @@ export function generateManifestEntry(cap: CapabilityContract): Record<string, u
   };
 }
 
+/**
+ * Map an entity FieldDescriptor type to its TypeScript type string.
+ */
+function fieldTypeToTS(descriptor: FieldDescriptor): string {
+  switch (descriptor.type) {
+    case 'id':
+      return 'string';
+    case 'string':
+      return 'string';
+    case 'number':
+      return 'number';
+    case 'decimal':
+      return 'number';
+    case 'boolean':
+      return 'boolean';
+    case 'timestamp':
+      return 'Date';
+    case 'json':
+      return 'unknown';
+    case 'enum':
+      return descriptor.values.map((v) => `"${v}"`).join(' | ') || 'string';
+    case 'relation':
+      return 'string';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * Generate a TypeScript interface for a single entity definition.
+ */
+export function generateEntityInterface(entity: EntityDefinition): string {
+  const name = toPascalCase(entity.name);
+  const lines: string[] = [];
+
+  lines.push(`export interface ${name}Record {`);
+  for (const [fieldName, descriptor] of Object.entries(entity.fields)) {
+    const tsType = fieldTypeToTS(descriptor);
+    const optional = !descriptor.options.required && descriptor.type !== 'id';
+    lines.push(`  ${fieldName}${optional ? '?' : ''}: ${tsType};`);
+  }
+
+  // Auto-added fields (mirrors schema-generator.ts behavior)
+  if (!entity.fields.createdAt) {
+    lines.push('  createdAt: Date;');
+  }
+  if (!entity.fields.updatedAt) {
+    lines.push('  updatedAt: Date;');
+  }
+  if (entity.tenantScoped && !entity.fields.tenantId) {
+    lines.push('  tenantId: string;');
+  }
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+/**
+ * Generate a DataServiceMap interface that maps entity names to typed repositories.
+ */
+export function generateDataServiceMap(entities: EntityDefinition[]): string {
+  const lines: string[] = [];
+  lines.push('import type { Repository } from "@plumbus/core";');
+  lines.push('');
+
+  for (const entity of entities) {
+    lines.push(generateEntityInterface(entity));
+    lines.push('');
+  }
+
+  lines.push('export interface DataServiceMap {');
+  for (const entity of entities) {
+    const name = toPascalCase(entity.name);
+    lines.push(`  ${entity.name}: Repository<${name}Record>;`);
+  }
+  lines.push('}');
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate the full entity types file content.
+ */
+export function generateEntityTypeFile(entities: EntityDefinition[]): string {
+  const header = '// Auto-generated by `plumbus generate` — do not edit\n';
+  if (entities.length === 0) {
+    return `${header}\nexport interface DataServiceMap {}\n`;
+  }
+  return `${header}\n${generateDataServiceMap(entities)}\n`;
+}
+
 /** Run full code generation for a set of capabilities */
-export function generateAll(capabilities: CapabilityContract[], outputDir: string): string[] {
+export function generateAll(
+  capabilities: CapabilityContract[],
+  outputDir: string,
+  entities: EntityDefinition[] = [],
+): string[] {
   const generated: string[] = [];
+
+  // Capability types (input/output interfaces + CapabilityName union)
+  const capabilityTypeLines = [
+    '// Auto-generated by `plumbus generate` — do not edit',
+    '',
+    ...capabilities.map(generateCapabilityTypes),
+    '',
+    generateCapabilityNameType(capabilities),
+  ];
+  writeFile(path.join(outputDir, 'capability-types.ts'), capabilityTypeLines.join('\n\n'));
+  generated.push('capability-types.ts');
 
   // Client functions
   const clientLines = [
     '// Auto-generated by `plumbus generate` — do not edit',
+    '',
+    ...capabilities.map(
+      (c) =>
+        `import type { ${toPascalCase(c.name)}Input, ${toPascalCase(c.name)}Output } from "./capability-types.js";`,
+    ),
     '',
     ...capabilities.map(generateClientFunction),
   ];
@@ -139,8 +320,17 @@ export function generateAll(capabilities: CapabilityContract[], outputDir: strin
   // React hooks
   const hookLines = [
     '// Auto-generated by `plumbus generate` — do not edit',
-    '// eslint-disable-next-line @typescript-eslint/no-unused-vars',
+    '// biome-ignore-all lint/correctness/noUnusedImports: generated code',
     'import { useState, useEffect } from "react";',
+    ...capabilities.map(
+      (c) =>
+        `import type { ${toPascalCase(c.name)}Input, ${toPascalCase(c.name)}Output } from "./capability-types.js";`,
+    ),
+    '',
+    ...capabilities.map((c) => {
+      const fnName = toCamelCase(c.name);
+      return `import { ${fnName} } from "./api.js";`;
+    }),
     '',
     ...capabilities.map(generateReactHook),
   ];
@@ -169,6 +359,11 @@ export function generateAll(capabilities: CapabilityContract[], outputDir: strin
   writeFile(path.join(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   generated.push('manifest.json');
 
+  // Entity types
+  const entityTypesContent = generateEntityTypeFile(entities);
+  writeFile(path.join(outputDir, 'entity-types.ts'), entityTypesContent);
+  generated.push('entity-types.ts');
+
   return generated;
 }
 
@@ -182,21 +377,28 @@ export function registerGenerateCommand(program: Command): void {
     .action(async (opts: GenerateOptions) => {
       const outputDir = resolvePath('.plumbus', 'generated');
 
-      info('Scanning for registered capabilities...');
+      info('Scanning for registered resources...');
       let capabilities: CapabilityContract[] = [];
+      let entities: EntityDefinition[] = [];
       try {
         const resources = await discoverResources();
         capabilities = resources.capabilities;
+        entities = resources.entities;
         if (capabilities.length > 0) {
           info(`Discovered ${capabilities.length} capability(ies)`);
         } else {
           warn('No capabilities found in app/capabilities/');
         }
+        if (entities.length > 0) {
+          info(`Discovered ${entities.length} entity(ies)`);
+        } else {
+          warn('No entities found in app/entities/');
+        }
       } catch {
         warn('Could not auto-discover resources (app/ directory may not exist)');
       }
 
-      const generated = generateAll(capabilities, outputDir);
+      const generated = generateAll(capabilities, outputDir, entities);
 
       if (opts.json) {
         console.log(JSON.stringify({ generated }, null, 2));

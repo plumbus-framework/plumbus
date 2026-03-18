@@ -8,12 +8,18 @@ import { createExecutionContext } from '../execution/context-factory.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext } from '../types/context.js';
 
+export interface DependencyOptions {
+  /** When true, repositories skip tenant-scope filtering (for cross-tenant admin access) */
+  bypassTenantScope?: boolean;
+}
+
 export interface RouteGeneratorConfig {
   /** Auth adapter for extracting identity from requests */
   authAdapter: AuthAdapter;
   /** Factory to build base context dependencies for each request */
   createDependencies: (
     auth: NonNullable<Awaited<ReturnType<AuthAdapter['authenticate']>>>,
+    options?: DependencyOptions,
   ) => ContextDependencies;
   /** Optional queue for dispatching async job capabilities */
   jobQueue?: EventQueue;
@@ -49,7 +55,8 @@ export function registerCapabilityRoute(
     };
 
     // 2. Build execution context
-    const deps = config.createDependencies(authContext as any);
+    const bypassTenantScope = capability.access?.tenantScoped === false;
+    const deps = config.createDependencies(authContext as any, { bypassTenantScope });
     const ctx: ExecutionContext = createExecutionContext(deps);
 
     // 3. Extract input (query params for GET, body for POST)

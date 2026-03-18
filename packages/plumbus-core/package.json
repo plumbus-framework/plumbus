@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -58,6 +58,7 @@
   },
   "dependencies": {
     "commander": "^12.1.0",
+    "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.8.2",
     "playwright": "^1.52.0",
@@ -70,7 +71,6 @@
     "@biomejs/biome": "^2.4.6",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",
-    "drizzle-kit": "^0.31.9",
     "typescript": "^5.7.0"
   }
 }

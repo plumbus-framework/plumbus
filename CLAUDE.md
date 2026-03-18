@@ -26,7 +26,9 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 
 ## Consumer App Dependency Policy
 
-`@plumbus/core` provides these packages to consumer apps through subpath exports. Consumers must **never** add them to their own `package.json`:
+The framework provides these packages to consumer apps. Consumers must **never** add them to their own `package.json`:
+
+### From `@plumbus/core`
 
 | Package | Consumer imports from | Provided by |
 |---------|----------------------|-------------|
@@ -34,6 +36,20 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | vitest | `vitest` (at runtime) | `dependencies` |
 | vitest config | `@plumbus/core/vitest` | `dependencies` |
 | playwright | `@plumbus/core/testing` | `dependencies` |
+| drizzle-kit | used by `plumbus migrate` | `dependencies` |
+
+### From `@plumbus/ui`
+
+| Package | Provided by |
+|---------|-------------|
+| next | `dependencies` |
+| react | `dependencies` |
+| react-dom | `dependencies` |
+| tailwindcss | `dependencies` |
+| @tailwindcss/postcss | `dependencies` |
+| typescript | `dependencies` |
+| @types/react | `dependencies` |
+| @types/react-dom | `dependencies` |
 
 Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command resolves vitest from within the framework.
 
@@ -132,6 +148,21 @@ After making changes, update the corresponding documentation in `docs/`. **This 
 - **Suppress for entire file**: `// biome-ignore-all lint/ruleName: reason` (at top of file)
 - Do **not** use ESLint, Prettier, or any other linter/formatter — Biome replaces all of them
 - Biome rule names differ from ESLint (e.g. `noNonNullAssertion` not `@typescript-eslint/no-non-null-assertion`)
+
+### Mandatory Validation — CRITICAL
+
+After **every** code change, you **must** run all four checks before considering the work done:
+
+```bash
+pnpm lint          # Biome lint — zero errors, zero warnings
+pnpm format:check  # Biome format — zero formatting drift
+pnpm typecheck     # tsc --noEmit — zero type errors
+pnpm test          # Vitest — all tests pass
+```
+
+**`pnpm lint` and `pnpm format:check` are separate commands.** Passing lint does NOT mean formatting is correct. Both must pass. If `format:check` fails, run `pnpm format` to auto-fix, then verify with `format:check` again.
+
+Do **not** push, commit, or report completion until all four commands succeed.
 
 ### Zero-Tolerance Lint Policy
 

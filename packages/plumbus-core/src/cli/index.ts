@@ -35,10 +35,16 @@ export {
 } from './commands/doctor.js';
 export {
   generateAll,
+  generateCapabilityNameType,
+  generateCapabilityTypes,
   generateClientFunction,
+  generateDataServiceMap,
+  generateEntityInterface,
+  generateEntityTypeFile,
   generateManifestEntry,
   generateOpenApiPath,
   generateReactHook,
+  zodTypeToString,
 } from './commands/generate.js';
 export {
   generateAgentsMd,
@@ -71,7 +77,10 @@ export {
 
 // Utilities
 export {
+  assertInsidePlumbusProject,
+  commandRequiresProject,
   exists,
+  findPlumbusProjectRoot,
   formatOutput,
   readJson,
   resolvePath,

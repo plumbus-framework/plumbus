@@ -78,3 +78,57 @@ export function error(msg: string): void {
 export function info(msg: string): void {
   console.log(`ℹ ${msg}`);
 }
+
+/**
+ * Walk up the directory tree from `from` looking for a package.json that
+ * lists `@plumbus/core` as a dependency or devDependency.
+ * Returns the directory path if found, or `undefined`.
+ */
+export function findPlumbusProjectRoot(from: string = process.cwd()): string | undefined {
+  let dir = path.resolve(from);
+  const root = path.parse(dir).root;
+
+  while (dir !== root) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const raw = fs.readFileSync(pkgPath, 'utf-8');
+        const pkg = JSON.parse(raw) as Record<string, unknown>;
+        const deps = pkg.dependencies as Record<string, unknown> | undefined;
+        const devDeps = pkg.devDependencies as Record<string, unknown> | undefined;
+        if (deps?.['@plumbus/core'] || devDeps?.['@plumbus/core']) {
+          return dir;
+        }
+      } catch {
+        // Malformed package.json — skip
+      }
+    }
+    dir = path.dirname(dir);
+  }
+
+  return undefined;
+}
+
+/** Commands that may run outside a Plumbus project. */
+const PROJECT_EXEMPT_COMMANDS = new Set(['create', 'doctor', 'init']);
+
+/**
+ * Returns true if the given command name requires a Plumbus project context.
+ */
+export function commandRequiresProject(commandName: string): boolean {
+  return !PROJECT_EXEMPT_COMMANDS.has(commandName);
+}
+
+/**
+ * Assert the CWD is inside a Plumbus project.
+ * Prints a clear error and calls `process.exit(1)` when not.
+ */
+export function assertInsidePlumbusProject(from?: string): void {
+  if (!findPlumbusProjectRoot(from)) {
+    error(
+      'This command must be run inside a Plumbus project (a directory with @plumbus/core in package.json). ' +
+        'Run "plumbus create <app-name>" to create a new project.',
+    );
+    process.exit(1);
+  }
+}

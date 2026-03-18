@@ -105,6 +105,30 @@ All migration commands accept `--json` for machine-readable output.
 plumbus dev
 ```
 
+## App Commands
+
+Run custom command scripts defined in your project's `app/commands/` directory. Use this for setup scripts, data migration tasks, and other one-off operations that need framework infrastructure (DB, config, password hashing).
+
+```bash
+# Run a command script
+plumbus run <script-name>
+
+# Pass arguments to the script
+plumbus run <script-name> -- --email admin@example.com --role admin
+```
+
+Command files must export a `default` or named `run` async function receiving `{ db, sql, args }`:
+
+```ts
+import { hashPassword } from "@plumbus/core";
+
+export default async function (ctx: { sql: any; args: string[] }) {
+  const password = randomBytes(24).toString("base64url");
+  await ctx.sql`INSERT INTO "user" ...`;
+  console.log(`Password: ${password}`);
+}
+```
+
 ## Important Notes
 
 - **Run from project root**: All commands must be executed from the consumer project directory where `package.json` lives.

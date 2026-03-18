@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateProjectStructure, type CreateOptions } from '../commands/create.js';
+import { type CreateOptions, generateProjectStructure } from '../commands/create.js';
 
 describe('plumbus create', () => {
   it('generates standard project files', () => {
@@ -11,6 +11,8 @@ describe('plumbus create', () => {
     expect(files.has('README.md')).toBe(true);
     expect(files.has('.gitignore')).toBe(true);
     expect(files.has('.env.example')).toBe(true);
+    expect(files.has('biome.json')).toBe(true);
+    expect(files.has('.vscode/settings.json')).toBe(true);
   });
 
   it('creates app directory stubs', () => {
@@ -47,5 +49,28 @@ describe('plumbus create', () => {
     const files = generateProjectStructure('OrderService', {});
     const config = files.get('config/app.config.ts') ?? '';
     expect(config).toContain('order-service');
+  });
+
+  it('generates tsconfig with app and config in include', () => {
+    const files = generateProjectStructure('MyApp', {});
+    const tsconfig = JSON.parse(files.get('tsconfig.json') ?? '{}');
+    expect(tsconfig.include).toEqual(['app', 'config']);
+    expect(tsconfig.compilerOptions.rootDir).toBeUndefined();
+  });
+
+  it('generates biome.json with linter and formatter config', () => {
+    const files = generateProjectStructure('MyApp', {});
+    const biome = JSON.parse(files.get('biome.json') ?? '{}');
+    expect(biome.linter.enabled).toBe(true);
+    expect(biome.formatter.enabled).toBe(true);
+    expect(biome.formatter.indentStyle).toBe('space');
+    expect(biome.files.ignore).toContain('node_modules');
+  });
+
+  it('generates .vscode/settings.json with biome formatter', () => {
+    const files = generateProjectStructure('MyApp', {});
+    const settings = JSON.parse(files.get('.vscode/settings.json') ?? '{}');
+    expect(settings['editor.defaultFormatter']).toBe('biomejs.biome');
+    expect(settings['editor.formatOnSave']).toBe(true);
   });
 });
