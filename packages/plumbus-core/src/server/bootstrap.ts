@@ -165,9 +165,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   // Route generator config
   const routeConfig: RouteGeneratorConfig = {
     authAdapter,
-    createDependencies: (auth: AuthContext): ContextDependencies => {
+    createDependencies: (auth: AuthContext, options?): ContextDependencies => {
       const audit = createAuditService({ db, auth });
-      const data = entities.createDataService({ db, auth, audit });
+      const data = entities.createDataService({
+        db,
+        auth,
+        audit,
+        bypassTenantScope: options?.bypassTenantScope,
+      });
 
       return {
         auth,

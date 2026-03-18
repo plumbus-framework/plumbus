@@ -277,6 +277,8 @@ export type {
 } from './cli/index.js';
 // ── CLI (entry point + scaffolding + code generation) ──
 export {
+  // CLI project guard
+  assertInsidePlumbusProject,
   // Scaffolding templates
   capabilityTemplate,
   capabilityTestTemplate,
@@ -289,11 +291,14 @@ export {
   checkPostgreSQL,
   checkRedis,
   checkTypeScript,
+  commandRequiresProject,
   createCli,
   entityTemplate,
   // Policy certification (plumbus certify)
   evaluatePolicy,
   eventTemplate,
+  // Utilities
+  findPlumbusProjectRoot,
   flowTemplate,
   // Agent wiring (plumbus init)
   generateAgentsMd,
@@ -301,11 +306,18 @@ export {
   generateAll,
   // Agent briefs
   generateCapabilityBrief,
+  // Capability type generation
+  generateCapabilityNameType,
+  generateCapabilityTypes,
   generateClientFunction,
   generateCopilotInstructions,
   generateCursorCapabilityRule,
   generateCursorRule,
+  // Entity type generation
+  generateDataServiceMap,
   generateEntityBrief,
+  generateEntityInterface,
+  generateEntityTypeFile,
   generateManifestEntry,
   generateOpenApiPath,
   generateProjectBrief,
@@ -326,11 +338,11 @@ export {
   runFullDoctorChecks,
   runGovernanceRules,
   startDevServer,
-  // Utilities
   toCamelCase,
   toKebabCase,
   toPascalCase,
   writeAgentFiles,
+  zodTypeToString,
 } from './cli/index.js';
 export type {
   GovernanceResult,

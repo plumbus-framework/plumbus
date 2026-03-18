@@ -65,4 +65,22 @@ describe('EntityRegistry', () => {
     expect(dataService.Order).toBeDefined();
     expect(dataService.Item).toBeDefined();
   });
+
+  it('createDataService accepts bypassTenantScope option', () => {
+    const registry = new EntityRegistry();
+    registry.registerAll([makeEntity('Order', { tenantScoped: true })]);
+
+    const mockDb = {} as any;
+    const auth = {
+      userId: 'u1',
+      roles: ['admin'],
+      scopes: [],
+      provider: 'test',
+      tenantId: 'admin',
+    };
+
+    // Should not throw — bypassTenantScope is accepted
+    const dataService = registry.createDataService({ db: mockDb, auth, bypassTenantScope: true });
+    expect(dataService.Order).toBeDefined();
+  });
 });

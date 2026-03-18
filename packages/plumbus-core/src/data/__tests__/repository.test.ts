@@ -235,4 +235,43 @@ describe('createRepository', () => {
     // Should not throw
     await repo.create({ title: 'No audit' } as any);
   });
+
+  it('bypassTenantScope skips tenant filtering for tenant-scoped entities', async () => {
+    const entity = makeEntity({ tenantScoped: true });
+    const table = generateDrizzleSchema(entity);
+    const db = makeMockDb();
+    db._chainable.where = vi.fn().mockResolvedValue(db._rows);
+
+    const repo = createRepository({
+      entity,
+      table,
+      db: db as any,
+      auth: makeAuth({ tenantId: 'admin' }),
+      bypassTenantScope: true,
+    });
+
+    const results = await repo.findMany();
+    expect(results).toEqual(db._rows);
+    // where() is called but tenant filter should be skipped (undefined)
+    expect(db._chainable.where).toHaveBeenCalled();
+  });
+
+  it('bypassTenantScope does not inject tenantId on create', async () => {
+    const entity = makeEntity({ tenantScoped: true });
+    const table = generateDrizzleSchema(entity);
+    const db = makeMockDb();
+
+    const repo = createRepository({
+      entity,
+      table,
+      db: db as any,
+      auth: makeAuth({ tenantId: 'admin' }),
+      bypassTenantScope: true,
+    });
+
+    await repo.create({ title: 'Cross-tenant' } as any);
+    const valuesCall = db._chainable.values.mock.calls[0]?.[0] as Record<string, unknown>;
+    // When bypassing, tenantId should NOT be injected
+    expect(valuesCall?.tenantId).toBeUndefined();
+  });
 });

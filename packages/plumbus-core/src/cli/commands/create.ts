@@ -66,7 +66,6 @@ export function generateProjectStructure(
           strict: true,
           esModuleInterop: true,
           outDir: 'dist',
-          rootDir: 'src',
           declaration: true,
           declarationMap: true,
           sourceMap: true,
@@ -74,7 +73,7 @@ export function generateProjectStructure(
           noUnusedParameters: true,
           noUncheckedIndexedAccess: true,
         },
-        include: ['src'],
+        include: ['app', 'config'],
         exclude: ['node_modules', 'dist'],
       },
       null,
@@ -140,6 +139,49 @@ dist/
 .env
 *.log
 `,
+  );
+
+  // biome.json
+  files.set(
+    'biome.json',
+    JSON.stringify(
+      {
+        $schema: 'https://biomejs.dev/schemas/2.0.0/schema.json',
+        linter: {
+          enabled: true,
+          rules: {
+            recommended: true,
+          },
+        },
+        formatter: {
+          enabled: true,
+          indentStyle: 'space',
+          indentWidth: 2,
+          lineWidth: 100,
+        },
+        files: {
+          ignore: ['node_modules', 'dist', '.plumbus/generated'],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+
+  // .vscode/settings.json
+  files.set(
+    '.vscode/settings.json',
+    JSON.stringify(
+      {
+        'editor.defaultFormatter': 'biomejs.biome',
+        'editor.formatOnSave': true,
+        'editor.codeActionsOnSave': {
+          'quickfix.biome': 'explicit',
+        },
+      },
+      null,
+      2,
+    ),
   );
 
   // .env.example

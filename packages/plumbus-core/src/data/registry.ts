@@ -72,6 +72,8 @@ export class EntityRegistry {
     db: PostgresJsDatabase;
     auth: AuthContext;
     audit?: AuditService;
+    /** Bypass tenant-scope filtering for cross-tenant admin access */
+    bypassTenantScope?: boolean;
   }): DataService {
     const dataService: Record<string, Repository> = {};
 
@@ -84,6 +86,7 @@ export class EntityRegistry {
         db: options.db,
         auth: options.auth,
         audit: options.audit,
+        bypassTenantScope: options.bypassTenantScope,
       });
     }
 
