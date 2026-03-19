@@ -32,6 +32,7 @@ Instead of writing loosely organized code, you define your system using five com
 | **Flow** | Multi-step workflows orchestrating capabilities | `defineFlow()` |
 | **Event** | Domain facts emitted by capabilities | `defineEvent()` |
 | **Prompt** | Structured AI interactions with typed I/O | `definePrompt()` |
+| **Translation** | Type-safe i18n message catalogs with ICU MessageFormat | `defineTranslation()` |
 
 The framework provides:
 
@@ -195,6 +196,32 @@ export const classifyTicket = definePrompt({
 });
 ```
 
+### Translations
+
+Translations provide type-safe i18n message catalogs with ICU MessageFormat:
+
+```typescript
+import { defineTranslation } from "@plumbus/core";
+
+export const commonTranslation = defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: {
+      greeting: "Hello {name}",
+      items: "{count, plural, one {# item} other {# items}}",
+    },
+    he: {
+      greeting: "שלום {name}",
+      items: "{count, plural, one {פריט #} two {# פריטים} other {# פריטים}}",
+    },
+  },
+});
+```
+
+Translation catalogs are validated at import time — all locales must have the same key set. The framework provides a server-side resolver (`ctx.translations.t()`) for backend messages and generates `next-intl` modules for the frontend via `plumbus ui generate`.
+
 ### Execution Context
 
 Every capability handler receives `ctx` — the scoped runtime context:
@@ -211,6 +238,7 @@ ctx.errors     → Structured errors (validation, notFound, forbidden, conflict)
 ctx.logger     → Structured logging (info, warn, error)
 ctx.time       → Time utilities (ctx.time.now())
 ctx.config     → Read-only application configuration
+ctx.translations → Translation resolver (ctx.translations.t("errors.notFound"))
 ```
 
 ---
@@ -236,6 +264,8 @@ my-app/
 │   │   └── order-placed.event.ts
 │   └── prompts/             # AI prompts (definePrompt)
 │       └── classify-ticket.prompt.ts
+│   └── translations/        # i18n catalogs (defineTranslation)
+│       └── common.translation.ts
 ├── config/
 │   ├── app.config.ts        # Framework configuration
 │   └── ai.config.ts         # AI provider configuration
@@ -263,6 +293,12 @@ plumbus migrate apply           # Apply pending migrations
 plumbus rag ingest <path>       # Ingest documents into RAG pipeline
 plumbus init                    # Generate AI agent wiring files
 plumbus agent sync              # Sync project brief for coding agents
+
+# Translation management
+plumbus translation new <name>  # Scaffold a new translation catalog
+plumbus translation export      # Export translations for translators (JSON/XLIFF)
+plumbus translation import      # Import translated files back
+plumbus translation status      # Report translation coverage per locale
 ```
 
 ### `plumbus create`
@@ -308,6 +344,7 @@ node_modules/@plumbus/core/instructions/
 ├── security.md       # Access policies, auth, tenant isolation, field classification
 ├── governance.md     # Advisory rules, compliance profiles, policy assessment
 ├── testing.md        # Test utilities (runCapability, simulateFlow, mockAI)
+├── translations.md   # Translation catalogs, server resolver, frontend i18n
 └── patterns.md       # Naming conventions, best practices, common patterns
 ```
 
@@ -418,6 +455,7 @@ plumbus/
 | Validation | Zod |
 | CLI | Commander.js |
 | Testing | Vitest |
+| i18n | next-intl (frontend) + built-in ICU resolver (backend) |
 | Build | Turborepo + pnpm workspaces |
 | AI Providers | OpenAI, Anthropic (pluggable) |
 

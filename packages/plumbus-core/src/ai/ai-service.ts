@@ -124,7 +124,10 @@ export function createAIService(config: AIServiceConfig): AIService {
   }
 
   return {
-    async generate(params: { prompt: string; input: Record<string, unknown> }): Promise<unknown> {
+    async generate(params: {
+      prompt: string;
+      input: Record<string, unknown>;
+    }): Promise<Record<string, any>> {
       const start = performance.now();
 
       // Security check
@@ -158,7 +161,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         maxTokens: promptInfo.maxTokens,
       };
 
-      let result: unknown;
+      // biome-ignore lint/suspicious/noExplicitAny: result shape varies between validated and raw generation
+      let result: any;
       let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
       let validationAttempts = 1;
       const validationPassed = true;
@@ -222,7 +226,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       return result;
     },
 
-    async extract(params: { schema: z.ZodTypeAny; text: string }): Promise<unknown> {
+    async extract(params: { schema: z.ZodTypeAny; text: string }): Promise<Record<string, any>> {
       const start = performance.now();
 
       checkBudget();

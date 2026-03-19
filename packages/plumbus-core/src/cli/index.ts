@@ -73,6 +73,7 @@ export {
   eventTemplate,
   flowTemplate,
   promptTemplate,
+  translationTemplate,
 } from './templates/resources.js';
 
 // Utilities

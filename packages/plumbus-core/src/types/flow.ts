@@ -8,6 +8,8 @@ export interface BaseFlowStep {
 
 export interface CapabilityStep extends BaseFlowStep {
   type: typeof FlowStepType.Capability;
+  capability?: string;
+  input?: Record<string, unknown>;
 }
 
 export interface ConditionalStep extends BaseFlowStep {

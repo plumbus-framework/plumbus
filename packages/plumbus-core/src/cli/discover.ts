@@ -11,6 +11,7 @@ import type { EntityDefinition } from '../types/entity.js';
 import type { EventDefinition } from '../types/event.js';
 import type { FlowDefinition } from '../types/flow.js';
 import type { PromptDefinition } from '../types/prompt.js';
+import type { TranslationDefinition } from '../types/translation.js';
 
 export interface DiscoveredResources {
   capabilities: CapabilityContract[];
@@ -18,6 +19,7 @@ export interface DiscoveredResources {
   flows: FlowDefinition[];
   events: EventDefinition[];
   prompts: PromptDefinition[];
+  translations: TranslationDefinition[];
 }
 
 /**
@@ -107,6 +109,17 @@ function isPrompt(v: unknown): v is PromptDefinition {
   );
 }
 
+function isTranslation(v: unknown): v is TranslationDefinition {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'name' in v &&
+    'defaultLocale' in v &&
+    'locales' in v &&
+    'messages' in v
+  );
+}
+
 /**
  * Discover all Plumbus resources from the app/ directory.
  * Scans each subdirectory (capabilities, entities, flows, events, prompts)
@@ -133,15 +146,21 @@ export async function discoverResources(
   }
 
   try {
-    const [capExports, entityExports, flowExports, eventExports, promptExports] = await Promise.all(
-      [
-        scanDir(path.join(appDir, 'capabilities')),
-        scanDir(path.join(appDir, 'entities')),
-        scanDir(path.join(appDir, 'flows')),
-        scanDir(path.join(appDir, 'events')),
-        scanDir(path.join(appDir, 'prompts')),
-      ],
-    );
+    const [
+      capExports,
+      entityExports,
+      flowExports,
+      eventExports,
+      promptExports,
+      translationExports,
+    ] = await Promise.all([
+      scanDir(path.join(appDir, 'capabilities')),
+      scanDir(path.join(appDir, 'entities')),
+      scanDir(path.join(appDir, 'flows')),
+      scanDir(path.join(appDir, 'events')),
+      scanDir(path.join(appDir, 'prompts')),
+      scanDir(path.join(appDir, 'translations')),
+    ]);
 
     return {
       capabilities: capExports.filter(isCapability),
@@ -149,6 +168,7 @@ export async function discoverResources(
       flows: flowExports.filter(isFlow),
       events: eventExports.filter(isEvent),
       prompts: promptExports.filter(isPrompt),
+      translations: translationExports.filter(isTranslation),
     };
   } finally {
     unregister?.();

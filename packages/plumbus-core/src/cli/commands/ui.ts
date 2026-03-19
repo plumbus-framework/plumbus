@@ -13,6 +13,7 @@ import {
 } from '../../testing/scaffolding.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
+import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
 import { info, resolvePath, success, writeFile } from '../utils.js';
 
@@ -46,6 +47,11 @@ interface GeneratedFile {
   content: string;
 }
 
+interface GeneratedTranslationFile {
+  path: string;
+  content: string;
+}
+
 interface UiGenerateOptions {
   outDir?: string;
   baseUrl?: string;
@@ -71,6 +77,7 @@ export interface UiGeneratorModule {
   generateHooksModule(capabilities: CapabilityContract[], config?: ClientGeneratorConfig): string;
   generateAuthModule(config?: AuthHelperConfig): string;
   generateFormHintsModule(capabilities: CapabilityContract[]): string;
+  generateTranslationModule?(definitions: TranslationDefinition[]): GeneratedTranslationFile[];
   generateNextjsTemplate(
     config: NextjsTemplateConfig,
     capabilities?: CapabilityContract[],
@@ -205,6 +212,7 @@ export function generateUiModuleFiles(
   generators: UiGeneratorModule,
   options: UiGenerateOptions,
   directoryPrefix = '',
+  translations: TranslationDefinition[] = [],
 ): GeneratedFile[] {
   const prefix = directoryPrefix ? `${directoryPrefix}/` : '';
   const clientConfig = {
@@ -217,7 +225,7 @@ export function generateUiModuleFiles(
     multiTenant: options.multiTenant,
   } satisfies AuthHelperConfig;
 
-  return [
+  const files: GeneratedFile[] = [
     {
       path: `${prefix}client.ts`,
       content: generators.generateClientModule(capabilities, toFlowTriggers(flows), clientConfig),
@@ -235,6 +243,16 @@ export function generateUiModuleFiles(
       content: generators.generateFormHintsModule(capabilities),
     },
   ];
+
+  // Generate i18n modules if translations are available
+  if (translations.length > 0 && generators.generateTranslationModule) {
+    const i18nFiles = generators.generateTranslationModule(translations);
+    for (const file of i18nFiles) {
+      files.push({ path: `${prefix}${file.path}`, content: file.content });
+    }
+  }
+
+  return files;
 }
 
 export function generateNextjsAppFiles(
@@ -243,6 +261,7 @@ export function generateNextjsAppFiles(
   flows: FlowDefinition[],
   generators: UiGeneratorModule,
   options: UiNextjsOptions,
+  translations: TranslationDefinition[] = [],
 ): GeneratedFile[] {
   const templateFiles = generators.generateNextjsTemplate(
     {
@@ -262,6 +281,7 @@ export function generateNextjsAppFiles(
       baseUrl: options.baseUrl ?? '/api/plumbus',
     },
     'generated',
+    translations,
   );
 
   return [...templateFiles, nextEnvTypesFile(), ...moduleFiles];
@@ -345,6 +365,8 @@ export function registerUiCommand(program: Command): void {
         resources.flows,
         generators,
         opts,
+        '',
+        resources.translations,
       );
       const written = writeGeneratedFiles(outputRoot, files);
 
