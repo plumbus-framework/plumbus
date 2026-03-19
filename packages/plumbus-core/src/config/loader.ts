@@ -20,6 +20,8 @@ export interface ConfigLoadOptions {
   environment?: Environment;
   /** Custom env source (default: process.env) */
   env?: Record<string, string | undefined>;
+  /** Allow extra passthrough config (merged into result) */
+  [key: string]: unknown;
 }
 
 /** Load PlumbusConfig from environment variables */

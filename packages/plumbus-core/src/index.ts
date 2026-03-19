@@ -130,6 +130,7 @@ export { defineEntity } from './define/defineEntity.js';
 export { defineEvent } from './define/defineEvent.js';
 export { defineFlow } from './define/defineFlow.js';
 export { definePrompt } from './define/definePrompt.js';
+export { defineTranslation } from './define/defineTranslation.js';
 // ── Error Utilities ──
 export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export { createErrorService, isPlumbusError } from './errors/index.js';
@@ -251,6 +252,12 @@ export {
 export type { PlumbusServer, ServerConfig } from './server/index.js';
 // ── Server Bootstrap ──
 export { createServer } from './server/index.js';
+// ── Translations ──
+export {
+  TranslationRegistry,
+  createTranslationResolver,
+  createTranslationService,
+} from './translations/index.js';
 // ── Types (re-export everything) ──
 export * from './types/index.js';
 export type { WorkerPool, WorkerPoolConfig } from './worker/index.js';
@@ -341,6 +348,7 @@ export {
   toCamelCase,
   toKebabCase,
   toPascalCase,
+  translationTemplate,
   writeAgentFiles,
   zodTypeToString,
 } from './cli/index.js';

@@ -134,12 +134,12 @@ export interface AIResponse {
 /** Create a mock AI service with configurable responses */
 export function mockAI(responses?: AIResponse): AIService {
   return {
-    async generate() {
-      if (responses?.generate !== undefined) return responses.generate;
+    async generate(_config) {
+      if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };
     },
-    async extract() {
-      if (responses?.extract !== undefined) return responses.extract;
+    async extract(_config) {
+      if (responses?.extract !== undefined) return responses.extract as Record<string, any>;
       return {};
     },
     async classify() {

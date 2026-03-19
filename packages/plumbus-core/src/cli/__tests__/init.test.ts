@@ -21,6 +21,9 @@ describe('plumbus init', () => {
       expect(content).toContain('node_modules/@plumbus/core/instructions/capabilities.md');
       expect(content).toContain('Edit Zones');
       expect(content).toContain('plumbus ui generate');
+      expect(content).toContain('Documentation Maintenance');
+      expect(content).toContain('app/entities/');
+      expect(content).toContain('docs/architecture/data-model.md');
     });
 
     it('generates inline-mode instructions', () => {
@@ -29,6 +32,7 @@ describe('plumbus init', () => {
       expect(content).toContain('framework and UI instruction files');
       // Should not reference node_modules in SDK Reference section
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
+      expect(content).toContain('Documentation Maintenance');
     });
   });
 
@@ -40,6 +44,7 @@ describe('plumbus init', () => {
       expect(content).toContain('globs: app/**');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/');
+      expect(content).toContain('Documentation Maintenance');
     });
 
     it('generates capability-specific rule', () => {
@@ -57,6 +62,9 @@ describe('plumbus init', () => {
       expect(content).toContain('Edit Zones');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/');
+      expect(content).toContain('Documentation Maintenance');
+      expect(content).toContain('app/capabilities/');
+      expect(content).toContain('docs/capabilities/index.md');
     });
 
     it('generates inline format', () => {
@@ -64,6 +72,7 @@ describe('plumbus init', () => {
       expect(content).toContain('framework and UI instruction files');
       // Should not reference node_modules in SDK Reference section
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
+      expect(content).toContain('Documentation Maintenance');
     });
   });
 

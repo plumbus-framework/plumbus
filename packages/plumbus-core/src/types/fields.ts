@@ -3,6 +3,7 @@ import type { FieldClassification, RelationType } from './enums.js';
 // ── Base Field Options ──
 export interface BaseFieldOptions {
   required?: boolean;
+  optional?: boolean;
   default?: unknown;
   unique?: boolean;
   nullable?: boolean;

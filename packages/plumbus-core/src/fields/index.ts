@@ -62,6 +62,7 @@ export const field = {
     entity: string;
     type: RelationType;
     classification?: FieldClassification;
+    optional?: boolean;
   }): RelationFieldDescriptor {
     if (!config.entity) {
       throw new Error('Relation field requires an entity name');
@@ -72,6 +73,7 @@ export const field = {
       relationType: config.type,
       options: {
         classification: config.classification,
+        optional: config.optional,
       },
     };
   },

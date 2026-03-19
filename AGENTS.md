@@ -5,7 +5,7 @@
 
 ## What Is Plumbus
 
-Plumbus is an AI-native, contract-driven TypeScript application framework. Users define applications through five primitives — Capabilities, Entities, Events, Flows, and Prompts — using `define*()` functions. The framework provides an execution runtime, CLI tooling, code generation, and a full testing harness.
+Plumbus is an AI-native, contract-driven TypeScript application framework. Users define applications through six primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — using `define*()` functions. The framework provides an execution runtime, CLI tooling, code generation, and a full testing harness.
 
 ## Commands
 
@@ -23,6 +23,7 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | Dev (watch) | `pnpm dev` |
 | Test single file | `cd packages/plumbus-core && npx vitest run src/<module>/__tests__/<name>.test.ts` |
 | Browser tests | `cd packages/plumbus-core && pnpm test:browser` |
+| Translation status | `plumbus translation status` |
 
 ## Consumer App Dependency Policy
 
@@ -43,6 +44,7 @@ The framework provides these packages to consumer apps. Consumers must **never**
 | Package | Provided by |
 |---------|-------------|
 | next | `dependencies` |
+| next-intl | `dependencies` |
 | react | `dependencies` |
 | react-dom | `dependencies` |
 | tailwindcss | `dependencies` |
@@ -98,6 +100,7 @@ src/<module>/
 - **New module**: create `src/<module>/index.ts` + `__tests__/` + re-export from `src/index.ts`
 - **New CLI command**: `src/cli/commands/<name>.ts` with `register<Name>Command()`, add export to `commands/index.ts`, register in `cli.ts`
 - **New define function**: `src/define/define<Primitive>.ts` + types in `src/types/` + validate with Zod + freeze output
+- **New translation catalog**: `src/cli/commands/translation.ts` scaffolds to `app/translations/<name>.translation.ts`
 - **New governance rule**: add to `src/governance/rules/`, register in `rules/index.ts` — advisory only
 
 ## Barrel Structure

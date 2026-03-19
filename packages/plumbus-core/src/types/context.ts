@@ -2,18 +2,23 @@ import type { z } from 'zod';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
 import type { AuthContext } from './security.js';
+import type { TranslationService } from './translation.js';
 
 // ── Repository (per-entity data access) ──
-export interface Repository<T = unknown> {
+export interface Repository<T = Record<string, any>> {
   findById(id: string): Promise<T | null>;
-  create(data: Partial<T>): Promise<T>;
-  update(id: string, updates: Partial<T>): Promise<T>;
+  create(data: Record<string, any>): Promise<T>;
+  update(id: string, updates: Record<string, any>): Promise<T>;
   delete(id: string): Promise<void>;
-  findMany(query?: Record<string, unknown>): Promise<T[]>;
+  findMany(query?: Record<string, any>): Promise<T[]>;
 }
 
 // ── Data Service (all entity repositories) ──
-export type DataService = Record<string, Repository>;
+// Interface (not type alias) so consumer apps can augment with known entity names.
+// With module augmentation, declared properties bypass noUncheckedIndexedAccess.
+export interface DataService {
+  [entity: string]: Repository;
+}
 
 // ── Event Service ──
 export interface EventService {
@@ -45,9 +50,17 @@ export interface AIDocument {
 
 // ── AI Service ──
 export interface AIService {
-  generate(config: { prompt: string; input: Record<string, unknown> }): Promise<unknown>;
+  generate(config: {
+    prompt: string;
+    input: Record<string, unknown>;
+  }): Promise<Record<string, any>>;
 
-  extract(config: { schema: z.ZodTypeAny; text: string }): Promise<unknown>;
+  extract(config: {
+    schema: z.ZodTypeAny;
+    text: string;
+    prompt?: string;
+    input?: Record<string, unknown>;
+  }): Promise<Record<string, any>>;
 
   classify(config: { labels: string[]; text: string }): Promise<string[]>;
 
@@ -99,6 +112,7 @@ export interface ExecutionContext {
   time: TimeService;
   config: ConfigService;
   security: SecurityService;
+  translations: TranslationService;
 
   // Flow-specific (only present inside flow step execution)
   state?: unknown;

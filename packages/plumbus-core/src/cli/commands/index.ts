@@ -43,5 +43,6 @@ export { registerRagCommand } from './rag.js';
 export { registerRunCommand } from './run.js';
 export { registerSeedCommand } from './seed.js';
 export { registerTestCommand } from './test.js';
+export { registerTranslationCommand } from './translation.js';
 export { registerUiCommand } from './ui.js';
 export { registerVerifyCommand } from './verify.js';

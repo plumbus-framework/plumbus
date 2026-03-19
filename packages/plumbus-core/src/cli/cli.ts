@@ -22,6 +22,7 @@ import {
   registerRunCommand,
   registerSeedCommand,
   registerTestCommand,
+  registerTranslationCommand,
   registerUiCommand,
   registerVerifyCommand,
 } from './commands/index.js';
@@ -36,9 +37,9 @@ export function createCli(): Command {
     .version('0.1.0');
 
   // Guard: ensure most commands run inside a Plumbus project
-  program.hook('preAction', (thisCommand) => {
+  program.hook('preAction', (_thisCommand, actionCommand) => {
     // Walk up to the direct child of the program to get the top-level subcommand
-    let cmd = thisCommand;
+    let cmd = actionCommand;
     while (cmd.parent?.parent) {
       cmd = cmd.parent;
     }
@@ -67,6 +68,7 @@ export function createCli(): Command {
   registerDoctorCommand(program);
   registerDevCommand(program);
   registerTestCommand(program);
+  registerTranslationCommand(program);
   registerE2ECommand(program);
 
   return program;

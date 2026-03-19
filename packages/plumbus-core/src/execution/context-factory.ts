@@ -12,6 +12,7 @@ import type {
   TimeService,
 } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
+import type { TranslationService } from '../types/translation.js';
 
 export interface ContextDependencies {
   auth: AuthContext;
@@ -23,10 +24,16 @@ export interface ContextDependencies {
   logger?: LoggerService;
   time?: TimeService;
   config?: ConfigService;
+  translations?: TranslationService;
 }
 
 const noopAudit: AuditService = {
   async record() {},
+};
+
+const noopTranslations: TranslationService = {
+  locale: 'en',
+  t: (key) => key,
 };
 
 const noopEvents: EventService = {
@@ -126,5 +133,6 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     time: deps.time ?? realTime,
     config: deps.config ?? {},
     security: createSecurityService(deps.auth),
+    translations: deps.translations ?? noopTranslations,
   };
 }

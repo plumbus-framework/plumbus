@@ -162,3 +162,20 @@ export const ${toCamelCase(name)}Prompt = definePrompt({
 });
 `;
 }
+
+export function translationTemplate(name: string): string {
+  return `import { defineTranslation } from "@plumbus/core";
+
+export const ${toCamelCase(name)}Translation = defineTranslation({
+  name: "${name}",
+  defaultLocale: "en",
+  locales: ["en"],
+
+  messages: {
+    en: {
+      // TODO: add message keys
+    },
+  },
+});
+`;
+}

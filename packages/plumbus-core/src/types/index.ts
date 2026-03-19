@@ -94,3 +94,10 @@ export type {
 export type { ModelConfig, PromptDefinition } from './prompt.js';
 // ── Security ──
 export type { AccessPolicy, AuthContext } from './security.js';
+// ── Translation ──
+export type {
+  MessageCatalog,
+  TranslationDefinition,
+  TranslationResolver,
+  TranslationService,
+} from './translation.js';
