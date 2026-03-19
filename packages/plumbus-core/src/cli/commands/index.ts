@@ -21,6 +21,7 @@
 //   rag        — RAG document ingestion
 //   run        — Run app command scripts from app/commands/
 //   seed       — Run seed files to populate the database
+//   start      — Start production server
 //   test       — Run unit tests using vitest
 //   ui         — Generate frontend source files and scaffolds
 //   verify     — Run governance rules
@@ -42,6 +43,7 @@ export { registerPromptCommand } from './prompt.js';
 export { registerRagCommand } from './rag.js';
 export { registerRunCommand } from './run.js';
 export { registerSeedCommand } from './seed.js';
+export { registerStartCommand } from './start.js';
 export { registerTestCommand } from './test.js';
 export { registerTranslationCommand } from './translation.js';
 export { registerUiCommand } from './ui.js';

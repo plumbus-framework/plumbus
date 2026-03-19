@@ -129,6 +129,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/security/` — security model, auth, tenant isolation
 - `docs/ai/` — prompts, RAG, cost tracking
 - `docs/testing/` — test utilities, patterns, examples
+- `packages/plumbus-core/instructions/deployment.md` — production deployment, Docker, environment variables
 
 ## Documentation — CRITICAL
 

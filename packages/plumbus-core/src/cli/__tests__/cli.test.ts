@@ -1,4 +1,5 @@
-import { type Command, describe, expect, it, vi } from 'vitest';
+import type { Command } from 'commander';
+import { describe, expect, it, vi } from 'vitest';
 import { createCli } from '../cli.js';
 
 vi.mock('../utils.js', async (importOriginal) => {

@@ -21,6 +21,7 @@ import {
   registerRagCommand,
   registerRunCommand,
   registerSeedCommand,
+  registerStartCommand,
   registerTestCommand,
   registerTranslationCommand,
   registerUiCommand,
@@ -67,6 +68,7 @@ export function createCli(): Command {
   registerUiCommand(program);
   registerDoctorCommand(program);
   registerDevCommand(program);
+  registerStartCommand(program);
   registerTestCommand(program);
   registerTranslationCommand(program);
   registerE2ECommand(program);
