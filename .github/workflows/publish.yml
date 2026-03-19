@@ -30,8 +30,8 @@ jobs:
 
       - name: Publish @plumbus/core
         working-directory: packages/plumbus-core
-        run: npm publish --access public
+        run: pnpm publish --access public --no-git-checks
 
       - name: Publish @plumbus/ui
         working-directory: packages/ui
-        run: npm publish --access public
+        run: pnpm publish --access public --no-git-checks
