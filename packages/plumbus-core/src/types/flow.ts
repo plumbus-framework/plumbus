@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { BackoffStrategy, FlowStepType } from './enums.js';
+import type { RegisteredCapabilityName, RegisteredEventName } from './registry.js';
 
 // ── Flow Steps ──
 export interface BaseFlowStep {
@@ -8,7 +9,7 @@ export interface BaseFlowStep {
 
 export interface CapabilityStep extends BaseFlowStep {
   type: typeof FlowStepType.Capability;
-  capability?: string;
+  capability?: RegisteredCapabilityName;
   input?: Record<string, unknown>;
 }
 
@@ -21,7 +22,7 @@ export interface ConditionalStep extends BaseFlowStep {
 
 export interface WaitStep extends BaseFlowStep {
   type: typeof FlowStepType.Wait;
-  event: string;
+  event: RegisteredEventName;
 }
 
 export interface DelayStep extends BaseFlowStep {
@@ -36,7 +37,7 @@ export interface ParallelStep extends BaseFlowStep {
 
 export interface EventEmitStep extends BaseFlowStep {
   type: typeof FlowStepType.EventEmit;
-  event: string;
+  event: RegisteredEventName;
 }
 
 export type FlowStep =
@@ -55,7 +56,7 @@ export interface FlowRetryPolicy {
 
 // ── Flow Trigger ──
 export interface FlowTrigger {
-  event: string;
+  event: RegisteredEventName;
 }
 
 // ── Flow Schedule ──

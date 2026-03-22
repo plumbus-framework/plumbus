@@ -37,25 +37,25 @@ for (const file of files) {
 ### Generated Project Structure
 
 ```
-package.json                          # Next.js 14, React 18, TypeScript 5, Tailwind CSS 4
+package.json                          # Next.js 16, React 19, TypeScript 5, Tailwind CSS 4
 tsconfig.json                         # Strict, bundler module resolution
 postcss.config.mjs                    # PostCSS config with @tailwindcss/postcss
 .env.local                            # API base URL, auth flag, secrets
-middleware.ts                         # Auth token check, protected paths
+proxy.ts                              # Auth token check, protected paths (Next.js 16+)
 app/
   globals.css                         # Tailwind import + base resets
   layout.tsx                          # Root layout (with AuthProvider if auth)
   page.tsx                            # Home page
   loading.tsx                         # Global loading skeleton
   error.tsx                           # Global error boundary
-  {capability-slug}/page.tsx          # Per-capability pages (query or action)
-  api/plumbus/[...path]/route.ts      # API proxy to Plumbus backend
+  login/page.tsx                      # Login page (if auth enabled)
+  signup/page.tsx                     # Signup page (if auth enabled)
 components/
   AuthProvider.tsx                    # Context-based auth provider (if auth)
-generated/
-  .gitkeep                            # Placeholder for generated client files
 hooks/
-  .gitkeep                            # Placeholder for custom hooks
+  .gitkeep                            # Placeholder for custom hooks (hooks.ts generated here)
+lib/
+  .gitkeep                            # Placeholder for lib modules (client.ts, auth.ts, form-hints.ts generated here)
 ```
 
 ## Individual File Generators
@@ -101,7 +101,7 @@ Generated page depends on capability kind:
 | `query` | Auto-fetches with `use{Name}({})`, shows loading/error/data states |
 | `action`/`job` | Form with `handleSubmit`, uses `use{Name}()` mutation hook, shows submit/loading/error/result |
 
-All pages use `"use client"` directive and import hooks from `@/generated/hooks`.
+All pages use `"use client"` directive and import hooks from `@/hooks/hooks`.
 
 ### `generateAuthProvider()`
 
@@ -109,21 +109,29 @@ Context-based provider at `components/AuthProvider.tsx`:
 - Creates `AuthContext` with `AuthState`.
 - On mount: checks stored token, refreshes session.
 - Exports `useAuthContext()` hook.
-- Imports from `@/generated/auth`.
+- Imports from `@/lib/auth`.
 
-### `generateMiddleware(config)`
+### `generateProxy(config)`
 
-Next.js middleware at `middleware.ts`:
-- When auth enabled: checks `auth_token` cookie for protected paths (`/dashboard`, `/settings`, `/api/protected`).
+Next.js proxy at `proxy.ts` (replaces the deprecated `middleware.ts` in Next.js 16+):
+- When auth enabled: checks `auth_token` cookie for protected paths (`/dashboard`, `/settings`).
 - Redirects to `/login` if no token.
+- Exports a `proxy` function (not `middleware`).
 - Matcher excludes `_next/static`, `_next/image`, and `favicon.ico`.
 
-### `generateApiRouteHelper(config)`
+### `generateLoginPage()`
 
-Catch-all API proxy at `app/api/plumbus/[...path]/route.ts`:
-- Forwards requests to `{apiBaseUrl}/{path}`.
-- Preserves auth headers, query parameters, and request method.
-- Supports GET, POST, PUT, PATCH, DELETE.
+Login page at `app/login/page.tsx`:
+- Client component with email/password form.
+- Uses `login()` from `@/lib/auth`.
+- Links to signup page.
+
+### `generateSignupPage()`
+
+Signup page at `app/signup/page.tsx`:
+- Client component with name/email/password form.
+- Posts to the backend signup endpoint.
+- Links to login page.
 
 ### `generateEnvLocal(config)`
 
@@ -144,17 +152,18 @@ Loading skeleton at `app/loading.tsx` with `role="status"` and `aria-label="Load
 
 ### `generatePlaceholderFiles()`
 
-Returns `generated/.gitkeep` and `hooks/.gitkeep`.
+Returns `hooks/.gitkeep` and `lib/.gitkeep`.
 
 ## Auth Integration
 
 When `auth: true` (default):
 1. `AuthProvider` wraps the app layout.
-2. Middleware protects configured paths.
-3. Generated pages can use `useAuthContext()`.
-4. API proxy forwards `Authorization` headers.
+2. Proxy protects configured paths.
+3. Login and signup pages are generated.
+4. Generated code can use `useAuthContext()`.
 
 When `auth: false`:
 - No `AuthProvider` import in layout.
-- Middleware runs but skips auth checks.
+- Proxy runs but skips auth checks.
+- No login/signup pages generated.
 - Pages still work for public capabilities.

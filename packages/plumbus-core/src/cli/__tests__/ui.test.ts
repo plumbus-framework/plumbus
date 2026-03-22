@@ -49,10 +49,10 @@ describe('plumbus ui helpers', () => {
     });
 
     expect(files.map((file) => file.path)).toEqual([
-      'client.ts',
-      'hooks.ts',
-      'auth.ts',
-      'form-hints.ts',
+      'lib/client.ts',
+      'hooks/hooks.ts',
+      'lib/auth.ts',
+      'lib/form-hints.ts',
     ]);
   });
 
@@ -68,10 +68,10 @@ describe('plumbus ui helpers', () => {
     const paths = files.map((file) => file.path);
     expect(paths).toContain('app/page.tsx');
     expect(paths).toContain('next-env.d.ts');
-    expect(paths).toContain('generated/client.ts');
-    expect(paths).toContain('generated/hooks.ts');
-    expect(paths).toContain('generated/auth.ts');
-    expect(paths).toContain('generated/form-hints.ts');
+    expect(paths).toContain('lib/client.ts');
+    expect(paths).toContain('hooks/hooks.ts');
+    expect(paths).toContain('lib/auth.ts');
+    expect(paths).toContain('lib/form-hints.ts');
   });
 
   it('generates an E2E Vitest config without external imports', () => {

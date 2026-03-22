@@ -393,8 +393,8 @@ export function generateHooksModule(
   // Import types from client
   for (const cap of capabilities) {
     const pascal = toPascalCase(cap.name);
-    lines.push(`import type { ${pascal}Input, ${pascal}Output } from "./client";`);
-    lines.push(`import { ${toCamelCase(cap.name)} } from "./client";`);
+    lines.push(`import type { ${pascal}Input, ${pascal}Output } from "../lib/client";`);
+    lines.push(`import { ${toCamelCase(cap.name)} } from "../lib/client";`);
   }
   lines.push('');
 

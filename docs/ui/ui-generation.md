@@ -34,17 +34,19 @@ plumbus ui generate
 plumbus ui nextjs frontend
 ```
 
-`plumbus ui generate` writes UI modules to `.plumbus/generated/ui/` by default:
+`plumbus ui generate` writes UI modules to the frontend directory (auto-detected) or `.plumbus/generated/ui/` by default:
 
 ```
-.plumbus/generated/ui/
-├── client.ts
-├── hooks.ts
-├── auth.ts
-└── form-hints.ts
+frontend/
+├── lib/
+│   ├── client.ts
+│   ├── auth.ts
+│   └── form-hints.ts
+└── hooks/
+    └── hooks.ts
 ```
 
-`plumbus ui nextjs frontend` scaffolds a Next.js app and also writes generated modules into `frontend/generated/`.
+`plumbus ui nextjs frontend` scaffolds a Next.js app and writes generated modules into the proper subdirectories (`lib/`, `hooks/`). It generates `proxy.ts` (Next.js 16+ convention, not the deprecated `middleware.ts`), login/signup pages (when auth is enabled), and does not generate per-capability pages or an API proxy route.
 
 ## Core Artifact Generation
 
@@ -70,7 +72,7 @@ These outputs are intended as contract artifacts. For frontend-ready source file
 Generated for each capability:
 
 ```typescript
-// generated/client/getUser.ts
+// lib/client.ts
 export async function getUser(input: { userId: string }): Promise<{
   id: string;
   name: string;
@@ -103,9 +105,9 @@ const created = await createUser({ name: "Alice", email: "alice@test.com" });
 ### Query hooks (for queries)
 
 ```typescript
-// generated/hooks.ts
+// hooks/hooks.ts
 import { useEffect, useState } from "react";
-import { getUser } from "./client";
+import { getUser } from "../lib/client";
 
 export function useGetUser(input: { userId: string }) {
   const [data, setData] = useState<{ id: string; name: string; email: string } | null>(null);
@@ -151,9 +153,9 @@ function UserProfile({ userId }: { userId: string }) {
 ### Mutation hooks (for actions)
 
 ```typescript
-// generated/hooks.ts
+// hooks/hooks.ts
 import { useState } from "react";
-import { createUser } from "./client";
+import { createUser } from "../lib/client";
 
 export function useCreateUser() {
   const [loading, setLoading] = useState(false);

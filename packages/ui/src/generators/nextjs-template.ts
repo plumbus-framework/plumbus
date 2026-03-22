@@ -181,7 +181,7 @@ export function generateCapabilityPage(cap: CapabilityContract): GeneratedFile {
       path: `app/${slug}/page.tsx`,
       content: `"use client";
 
-import { use${pascal} } from "@/generated/hooks";
+import { use${pascal} } from "@/hooks/hooks";
 
 export default function ${pascal}Page() {
   const { data, loading, error } = use${pascal}({});
@@ -204,7 +204,7 @@ export default function ${pascal}Page() {
     path: `app/${slug}/page.tsx`,
     content: `"use client";
 
-import { use${pascal} } from "@/generated/hooks";
+import { use${pascal} } from "@/hooks/hooks";
 
 export default function ${pascal}Page() {
   const { mutate, data, loading, error, reset } = use${pascal}();
@@ -245,8 +245,8 @@ export function generateAuthProvider(): GeneratedFile {
     content: `"use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { getStoredToken, isTokenExpired, refreshSession } from "@/generated/auth";
-import type { AuthUser, AuthState } from "@/generated/auth";
+import { getStoredToken, isTokenExpired, refreshSession } from "@/lib/auth";
+import type { AuthUser, AuthState } from "@/lib/auth";
 
 const AuthContext = createContext<AuthState>({
   user: null,
@@ -293,15 +293,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 }
 
-/** Generate the "generated" directory placeholder */
+/** Generate placeholder .gitkeep files for directory structure */
 export function generatePlaceholderFiles(): GeneratedFile[] {
   return [
     {
-      path: 'generated/.gitkeep',
+      path: 'hooks/.gitkeep',
       content: '',
     },
     {
-      path: 'hooks/.gitkeep',
+      path: 'lib/.gitkeep',
       content: '',
     },
   ];
@@ -373,13 +373,13 @@ export function generateLoadingComponent(): GeneratedFile {
   };
 }
 
-/** Generate Next.js middleware for auth token forwarding */
-export function generateMiddleware(config: NextjsTemplateConfig): GeneratedFile {
+/** Generate Next.js proxy for auth token forwarding (proxy.ts replaces middleware.ts in Next.js 16+) */
+export function generateProxy(config: NextjsTemplateConfig): GeneratedFile {
   const protectedPaths =
     config.auth !== false
       ? `
   // Protect routes that require authentication
-  const protectedPaths = ["/dashboard", "/settings", "/api/protected"];
+  const protectedPaths = ["/dashboard", "/settings"];
   const isProtected = protectedPaths.some((p) => request.nextUrl.pathname.startsWith(p));
 
   if (isProtected) {
@@ -392,11 +392,11 @@ export function generateMiddleware(config: NextjsTemplateConfig): GeneratedFile 
       : '';
 
   return {
-    path: 'middleware.ts',
+    path: 'proxy.ts',
     content: `import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export function middleware(request: NextRequest) {${protectedPaths}
+export function proxy(request: NextRequest) {${protectedPaths}
   return NextResponse.next();
 }
 
@@ -410,49 +410,119 @@ export const config = {
   };
 }
 
-/** Generate API route helper for proxying to the Plumbus backend */
-export function generateApiRouteHelper(config: NextjsTemplateConfig): GeneratedFile {
-  const baseUrl = config.apiBaseUrl ?? 'http://localhost:3000';
+/** Generate a login page (only when auth is enabled) */
+export function generateLoginPage(): GeneratedFile {
   return {
-    path: 'app/api/plumbus/[...path]/route.ts',
-    content: `import { NextRequest, NextResponse } from "next/server";
+    path: 'app/login/page.tsx',
+    content: `"use client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "${baseUrl}";
+import { useState } from "react";
+import { login } from "@/lib/auth";
 
-/**
- * Proxy handler that forwards requests to the Plumbus API server.
- * Forwards auth headers and returns the upstream response.
- */
-async function handler(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
-  const { path } = await params;
-  const target = new URL(path.join("/"), API_BASE);
+export default function LoginPage() {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Forward query parameters
-  request.nextUrl.searchParams.forEach((value, key) => {
-    target.searchParams.set(key, value);
-  });
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const formData = new FormData(e.currentTarget);
+    try {
+      await login({
+        email: formData.get("email") as string,
+        password: formData.get("password") as string,
+      });
+      window.location.href = "/";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-
-  const resp = await fetch(target.toString(), {
-    method: request.method,
-    headers,
-    body: request.method !== "GET" && request.method !== "HEAD" ? await request.text() : undefined,
-  });
-
-  const body = await resp.text();
-  return new NextResponse(body, {
-    status: resp.status,
-    headers: { "Content-Type": resp.headers.get("Content-Type") ?? "application/json" },
-  });
+  return (
+    <main>
+      <h1>Login</h1>
+      <form onSubmit={handleSubmit}>
+        <label htmlFor="email">Email</label>
+        <input id="email" name="email" type="email" required />
+        <label htmlFor="password">Password</label>
+        <input id="password" name="password" type="password" required />
+        <button type="submit" disabled={loading}>
+          {loading ? "Signing in..." : "Sign in"}
+        </button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      <p>Don&apos;t have an account? <a href="/signup">Sign up</a></p>
+    </main>
+  );
+}
+`,
+  };
 }
 
-export const GET = handler;
-export const POST = handler;
-export const PUT = handler;
-export const PATCH = handler;
-export const DELETE = handler;
+/** Generate a signup page (only when auth is enabled) */
+export function generateSignupPage(): GeneratedFile {
+  return {
+    path: 'app/signup/page.tsx',
+    content: `"use client";
+
+import { useState } from "react";
+
+export default function SignupPage() {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const formData = new FormData(e.currentTarget);
+    try {
+      const response = await fetch(
+        (process.env["NEXT_PUBLIC_API_BASE_URL"] ?? "") + "/api/auth/signup",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: formData.get("email") as string,
+            password: formData.get("password") as string,
+            name: formData.get("name") as string,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message ?? "Signup failed");
+      }
+      window.location.href = "/login";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Signup failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main>
+      <h1>Sign Up</h1>
+      <form onSubmit={handleSubmit}>
+        <label htmlFor="name">Name</label>
+        <input id="name" name="name" type="text" required />
+        <label htmlFor="email">Email</label>
+        <input id="email" name="email" type="email" required />
+        <label htmlFor="password">Password</label>
+        <input id="password" name="password" type="password" required />
+        <button type="submit" disabled={loading}>
+          {loading ? "Creating account..." : "Sign up"}
+        </button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      <p>Already have an account? <a href="/login">Log in</a></p>
+    </main>
+  );
+}
 `,
   };
 }
@@ -460,7 +530,7 @@ export const DELETE = handler;
 /** Generate the complete Next.js template file set */
 export function generateNextjsTemplate(
   config: NextjsTemplateConfig,
-  capabilities?: CapabilityContract[],
+  _capabilities?: CapabilityContract[],
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [
     generatePackageJson(config),
@@ -472,19 +542,14 @@ export function generateNextjsTemplate(
     generateEnvLocal(config),
     generateErrorBoundary(),
     generateLoadingComponent(),
-    generateMiddleware(config),
-    generateApiRouteHelper(config),
+    generateProxy(config),
     ...generatePlaceholderFiles(),
   ];
 
   if (config.auth !== false) {
     files.push(generateAuthProvider());
-  }
-
-  if (capabilities) {
-    for (const cap of capabilities) {
-      files.push(generateCapabilityPage(cap));
-    }
+    files.push(generateLoginPage());
+    files.push(generateSignupPage());
   }
 
   return files;

@@ -15,7 +15,15 @@ import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
-import { info, resolvePath, success, writeFile } from '../utils.js';
+import {
+  detectMonorepoLayout,
+  info,
+  migrateUiLegacyStructure,
+  resolvePath,
+  success,
+  warn,
+  writeFile,
+} from '../utils.js';
 
 // ── Types for dynamically loaded @plumbus/ui ──
 
@@ -227,19 +235,19 @@ export function generateUiModuleFiles(
 
   const files: GeneratedFile[] = [
     {
-      path: `${prefix}client.ts`,
+      path: `${prefix}lib/client.ts`,
       content: generators.generateClientModule(capabilities, toFlowTriggers(flows), clientConfig),
     },
     {
-      path: `${prefix}hooks.ts`,
+      path: `${prefix}hooks/hooks.ts`,
       content: generators.generateHooksModule(capabilities, clientConfig),
     },
     {
-      path: `${prefix}auth.ts`,
+      path: `${prefix}lib/auth.ts`,
       content: generators.generateAuthModule(authConfig),
     },
     {
-      path: `${prefix}form-hints.ts`,
+      path: `${prefix}lib/form-hints.ts`,
       content: generators.generateFormHintsModule(capabilities),
     },
   ];
@@ -278,9 +286,9 @@ export function generateNextjsAppFiles(
     generators,
     {
       ...options,
-      baseUrl: options.baseUrl ?? '/api/plumbus',
+      baseUrl: options.baseUrl,
     },
-    'generated',
+    '',
     translations,
   );
 
@@ -321,14 +329,37 @@ function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string
   return written;
 }
 
-/** Auto-detect the frontend generated dir. If a Next.js frontend exists, write there. */
+function printMigrationSummary(migration: import('../utils.js').MigrationResult): void {
+  const total =
+    migration.movedFiles.length + migration.rewrittenImports.length + migration.deletedPaths.length;
+  if (total === 0) return;
+
+  info('Migrating legacy UI structure...');
+  for (const moved of migration.movedFiles) {
+    warn(`  Moved: ${moved}`);
+  }
+  for (const deleted of migration.deletedPaths) {
+    warn(`  Removed: ${deleted}`);
+  }
+  if (migration.rewrittenImports.length > 0) {
+    warn(`  Rewrote imports in ${migration.rewrittenImports.length} file(s)`);
+  }
+  success('Legacy migration complete');
+}
+
+/** Auto-detect the frontend output dir. If a Next.js frontend exists, write there. */
 function resolveGenerateOutDir(explicit: string | undefined): string {
   if (explicit) return explicit;
+  // In a monorepo, default to the frontend package
+  const monorepo = detectMonorepoLayout();
+  if (monorepo.isMonorepo && monorepo.frontendDir) {
+    return 'frontend';
+  }
   // Check common Next.js frontend locations
   for (const candidate of ['frontend', 'web', 'client', 'app']) {
     const tsconfigPath = path.join(process.cwd(), candidate, 'tsconfig.json');
     if (fs.existsSync(tsconfigPath)) {
-      return path.join(candidate, 'generated');
+      return candidate;
     }
   }
   return '.plumbus/generated/ui';
@@ -360,6 +391,11 @@ export function registerUiCommand(program: Command): void {
       const outDir = resolveGenerateOutDir(opts.outDir);
       const outputRoot = resolvePath(outDir);
       info(`Writing UI modules to ${outDir}`);
+
+      // Auto-migrate legacy structure before writing new files
+      const migration = migrateUiLegacyStructure(outputRoot);
+      printMigrationSummary(migration);
+
       const files = generateUiModuleFiles(
         resources.capabilities,
         resources.flows,
@@ -405,6 +441,11 @@ export function registerUiCommand(program: Command): void {
       const resources = await discoverResources();
       const appName = opts.appName ?? path.basename(process.cwd());
       const outputRoot = resolvePath(outputDir ?? 'frontend');
+
+      // Auto-migrate legacy structure before writing new files
+      const migration = migrateUiLegacyStructure(outputRoot);
+      printMigrationSummary(migration);
+
       const files = generateNextjsAppFiles(
         appName,
         resources.capabilities,
@@ -419,7 +460,7 @@ export function registerUiCommand(program: Command): void {
         resources.capabilities,
         resources.flows,
         generators,
-        { ...opts, baseUrl: opts.baseUrl ?? '/api/plumbus' },
+        { ...opts, baseUrl: opts.baseUrl },
       );
       writeGeneratedFiles(resolvePath('.plumbus/generated/ui'), uiModuleFiles);
 

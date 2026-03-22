@@ -137,7 +137,7 @@ const code = generateAuthModule({
   loginEndpoint: "/api/v1/auth/login",
   multiTenant: true,
 });
-// Write to: generated/auth.ts
+// Write to: lib/auth.ts
 ```
 
 Output order: imports → types → token utils → auth functions → useAuth → useCurrentUser → RouteGuard → (tenant context if enabled).
