@@ -88,8 +88,9 @@ import {
   generateLayout,
   generateHomePage,
   generateCapabilityPage,
-  generateMiddleware,
-  generateApiRouteHelper,
+  generateProxy,
+  generateLoginPage,
+  generateSignupPage,
   generateAuthProvider,
   generateErrorBoundary,
   generateLoadingComponent,
@@ -102,7 +103,7 @@ import {
 
 ## How Agents Should Use This Package
 
-1. **Run `plumbus ui generate`** — auto-detects the frontend directory (e.g., `frontend/`) and writes typed client, hooks, auth, and form-hints modules to `{frontend}/generated/`. Also writes to `.plumbus/generated/ui/` as a contract artifact cache.
-2. **Run `plumbus ui nextjs <dir>`** — scaffolds a Next.js project that includes the generated modules in `{dir}/generated/`. The frontend imports them via `@/generated/hooks`, `@/generated/client`, etc.
-3. **Never copy generated files manually.** Re-running `plumbus ui generate` updates `{frontend}/generated/` in place. The CLI auto-detects the frontend by looking for `tsconfig.json` in `frontend/`, `web/`, `client/`, or `app/`.
-4. To customize the output location: `plumbus ui generate --out-dir path/to/generated`.
+1. **Run `plumbus ui generate`** — auto-detects the frontend directory (e.g., `frontend/`) and writes typed client, hooks, auth, and form-hints modules to `{frontend}/lib/` and `{frontend}/hooks/`. Also writes to `.plumbus/generated/ui/` as a contract artifact cache.
+2. **Run `plumbus ui nextjs <dir>`** — scaffolds a Next.js project with generated modules in `{dir}/lib/` and `{dir}/hooks/`. The frontend imports them via `@/hooks/hooks`, `@/lib/client`, etc.
+3. **Never copy generated files manually.** Re-running `plumbus ui generate` updates the modules in place. The CLI auto-detects the frontend by looking for `tsconfig.json` in `frontend/`, `web/`, `client/`, or `app/`.
+4. To customize the output location: `plumbus ui generate --out-dir path/to/frontend`.

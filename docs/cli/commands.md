@@ -10,7 +10,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus init` | Generate AI agent wiring files |
 | `plumbus dev` | Start development server with hot reload |
 | `plumbus doctor` | Check environment readiness |
-| `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types |
+| `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types, type registry |
 | `plumbus capability new` | Scaffold a new capability |
 | `plumbus flow new` | Scaffold a new flow |
 | `plumbus entity new` | Scaffold a new entity |
@@ -55,6 +55,7 @@ plumbus create <app-name> [options]
 | `--auth <provider>` | `string` | `jwt` | Auth provider (`jwt`, `clerk`, `auth0`) |
 | `--ai <provider>` | `string` | — | AI provider (`openai`, `anthropic`) |
 | `--compliance <profiles>` | `string` | — | Comma-separated compliance profiles |
+| `--monorepo` | `boolean` | `false` | Scaffold a pnpm-workspace monorepo with backend, frontend, and shared libs |
 | `--git` | `boolean` | `false` | Initialize git repository |
 | `--skip-install` | `boolean` | `false` | Skip dependency installation |
 
@@ -64,7 +65,7 @@ plumbus create <app-name> [options]
 plumbus create my-app --auth jwt --ai openai --compliance SOC2,GDPR --git
 ```
 
-Generated structure:
+Generated structure (flat — default):
 
 ```
 my-app/
@@ -86,6 +87,35 @@ my-app/
     ├── flows/
     └── prompts/
 ```
+
+**Monorepo mode** (`--monorepo`):
+
+```bash
+plumbus create my-app --monorepo --auth jwt --ai openai
+```
+
+```
+my-app/
+├── pnpm-workspace.yaml
+├── package.json          # workspace root
+├── tsconfig.base.json
+├── biome.json
+├── backend/
+│   ├── package.json      # @my-app/backend
+│   ├── tsconfig.json
+│   ├── config/
+│   └── app/              # capabilities, entities, flows, events, prompts
+├── frontend/
+│   ├── package.json      # @my-app/frontend
+│   ├── tsconfig.json
+│   └── src/
+└── libs/shared/
+    ├── package.json      # @my-app/shared
+    ├── tsconfig.json
+    └── types/            # populated by plumbus generate
+```
+
+Cross-package dependencies use `workspace:*`. `plumbus generate` writes shared types to `libs/shared/types/`, and `plumbus ui nextjs` defaults to the `frontend/` package.
 
 ---
 
@@ -178,6 +208,17 @@ Generates:
 - `.plumbus/generated/openapi.json`
 - `.plumbus/generated/manifest.json`
 - `.plumbus/generated/entity-types.ts` — typed interfaces for all entities and a `DataServiceMap` for `ctx.data`
+- `.plumbus/generated/plumbus.d.ts` — module augmentation that populates `PlumbusRegistry` with strict types for capability names, event names, flow names, and entity mappings
+
+The generated `plumbus.d.ts` file augments the `PlumbusRegistry` interface from `@plumbus/core`, providing:
+- **Strict `ctx.data` access** — only defined entities autocomplete (e.g., `ctx.data.User`)
+- **Typed capability names** — `capability` field in flow steps only accepts defined capability names
+- **Typed event names** — `trigger.event`, wait step `event`, emit step `event`, and `ctx.events.emit()` only accept defined event names
+- **Typed flow names** — `ctx.flows.start()` only accepts defined flow names
+
+Make sure `.plumbus/generated/` is included in your `tsconfig.json`'s `include` array.
+
+In **monorepo mode** (detected via `pnpm-workspace.yaml`), shared type definitions (`entity-types.ts`, `capability-types.ts`, `plumbus.d.ts`) are additionally written to `libs/shared/types/` so both backend and frontend packages can reference them.
 
 For frontend-ready modules and scaffolds, use `plumbus ui`.
 
@@ -193,7 +234,7 @@ plumbus ui generate [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--out-dir <path>` | `string` | auto-detected | Output directory (detects `frontend/generated` if a Next.js app exists, otherwise `.plumbus/generated/ui`) |
+| `--out-dir <path>` | `string` | auto-detected | Output directory (detects `frontend/` if a Next.js app exists, otherwise `.plumbus/generated/ui`) |
 | `--base-url <url>` | `string` | `""` | Prefix for generated API calls |
 | `--auth-provider <provider>` | `string` | `jwt` | Auth provider used by generated auth helpers |
 | `--token-key <key>` | `string` | — | Storage key for generated auth helpers |
@@ -202,10 +243,10 @@ plumbus ui generate [options]
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
-- `client.ts` — typed capability clients and flow triggers
-- `hooks.ts` — React hooks for capability invocation
-- `auth.ts` — frontend auth helpers
-- `form-hints.ts` — extracted form metadata from capability schemas
+- `lib/client.ts` — typed capability clients and flow triggers
+- `hooks/hooks.ts` — React hooks for capability invocation
+- `lib/auth.ts` — frontend auth helpers
+- `lib/form-hints.ts` — extracted form metadata from capability schemas
 
 ---
 
@@ -221,7 +262,7 @@ plumbus ui nextjs [output-dir] [options]
 |--------|------|---------|-------------|
 | `--app-name <name>` | `string` | current directory name | App display name |
 | `--api-base-url <url>` | `string` | `http://localhost:3000` | Upstream Plumbus API base URL |
-| `--base-url <url>` | `string` | `/api/plumbus` | Base URL used by generated client module |
+| `--base-url <url>` | `string` | `""` | Base URL used by generated client module |
 | `--auth-provider <provider>` | `string` | `jwt` | Auth provider used by generated auth helpers |
 | `--token-key <key>` | `string` | — | Storage key for generated auth helpers |
 | `--multi-tenant` | `boolean` | `false` | Include tenant helpers in auth module |
@@ -229,7 +270,7 @@ plumbus ui nextjs [output-dir] [options]
 | `--no-auth` | `boolean` | `false` | Disable auth wiring in the scaffold |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
-This command scaffolds the Next.js project structure and writes the generated UI modules (`client.ts`, `hooks.ts`, `auth.ts`, `form-hints.ts`) into `{output-dir}/generated/`. After scaffolding, run `plumbus ui generate` any time capabilities change — it auto-detects the frontend and regenerates the modules in place.
+This command scaffolds the Next.js project structure and writes the generated UI modules into their proper locations within the output directory (`lib/client.ts`, `hooks/hooks.ts`, `lib/auth.ts`, `lib/form-hints.ts`). After scaffolding, run `plumbus ui generate` any time capabilities change — it auto-detects the frontend and regenerates the modules in place. The scaffold generates `proxy.ts` (Next.js 16+ convention) instead of the deprecated `middleware.ts`, and only generates login/signup pages (when auth is enabled) — it does not generate per-capability pages.
 
 ---
 

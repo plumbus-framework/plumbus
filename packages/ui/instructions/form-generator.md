@@ -117,7 +117,7 @@ Produce a module exporting form hints for all capabilities:
 
 ```ts
 const code = generateFormHintsModule([createUser, updateUser]);
-// Write to: generated/form-hints.ts
+// Write to: lib/form-hints.ts
 ```
 
 ## Usage Pattern

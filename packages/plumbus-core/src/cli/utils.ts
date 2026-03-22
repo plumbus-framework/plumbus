@@ -132,3 +132,37 @@ export function assertInsidePlumbusProject(from?: string): void {
     process.exit(1);
   }
 }
+
+export interface MonorepoLayout {
+  isMonorepo: boolean;
+  backendDir?: string;
+  frontendDir?: string;
+  sharedTypesDir?: string;
+}
+
+/**
+ * Detect whether the current project is a pnpm-workspace monorepo scaffolded
+ * by `plumbus create --monorepo`. Returns directory paths for each package.
+ */
+export function detectMonorepoLayout(projectRoot: string = process.cwd()): MonorepoLayout {
+  const workspaceYaml = path.join(projectRoot, 'pnpm-workspace.yaml');
+  if (!fs.existsSync(workspaceYaml)) {
+    return { isMonorepo: false };
+  }
+
+  const backendDir = path.join(projectRoot, 'backend');
+  const frontendDir = path.join(projectRoot, 'frontend');
+  const sharedTypesDir = path.join(projectRoot, 'libs', 'shared', 'types');
+
+  // Verify it's actually a Plumbus monorepo (backend has the app/ dir structure)
+  if (!fs.existsSync(path.join(backendDir, 'package.json'))) {
+    return { isMonorepo: false };
+  }
+
+  return {
+    isMonorepo: true,
+    backendDir,
+    frontendDir,
+    sharedTypesDir,
+  };
+}

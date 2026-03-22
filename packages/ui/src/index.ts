@@ -42,7 +42,6 @@ export {
 export type { GeneratedFile, NextjsTemplateConfig } from './generators/nextjs-template.js';
 // Next.js Template Generator
 export {
-  generateApiRouteHelper,
   generateAuthProvider,
   generateCapabilityPage,
   generateEnvLocal,
@@ -51,11 +50,13 @@ export {
   generateHomePage,
   generateLayout,
   generateLoadingComponent,
-  generateMiddleware,
+  generateLoginPage,
   generateNextjsTemplate,
   generatePackageJson,
   generatePlaceholderFiles,
   generatePostcssConfig,
+  generateProxy,
+  generateSignupPage,
   generateTsConfig,
 } from './generators/nextjs-template.js';
 export type { GeneratedTranslationFile } from './generators/translation-generator.js';

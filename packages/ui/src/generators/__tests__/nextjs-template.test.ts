@@ -8,10 +8,13 @@ import {
   generateGlobalsCss,
   generateHomePage,
   generateLayout,
+  generateLoginPage,
   generateNextjsTemplate,
   generatePackageJson,
   generatePlaceholderFiles,
   generatePostcssConfig,
+  generateProxy,
+  generateSignupPage,
   generateTsConfig,
 } from '../nextjs-template.js';
 
@@ -170,9 +173,9 @@ describe('generateCapabilityPage', () => {
     expect(file.content).toContain('Loading...');
   });
 
-  it('imports hooks from @/generated/ path', () => {
+  it('imports hooks from @/hooks/ path', () => {
     const file = generateCapabilityPage(makeQueryCap());
-    expect(file.content).toContain('from "@/generated/hooks"');
+    expect(file.content).toContain('from "@/hooks/hooks"');
   });
 
   it('generates an action page with form', () => {
@@ -198,9 +201,9 @@ describe('generateAuthProvider', () => {
     expect(file.content).toContain('export function useAuthContext');
   });
 
-  it('imports from generated auth', () => {
+  it('imports from generated auth in lib/', () => {
     const file = generateAuthProvider();
-    expect(file.content).toContain('@/generated/auth');
+    expect(file.content).toContain('@/lib/auth');
     expect(file.content).toContain('getStoredToken');
     expect(file.content).toContain('isTokenExpired');
     expect(file.content).toContain('refreshSession');
@@ -210,11 +213,11 @@ describe('generateAuthProvider', () => {
 // ── generatePlaceholderFiles ──
 
 describe('generatePlaceholderFiles', () => {
-  it('generates gitkeep files for generated and hooks dirs', () => {
+  it('generates gitkeep files for hooks and lib dirs', () => {
     const files = generatePlaceholderFiles();
     const paths = files.map((f) => f.path);
-    expect(paths).toContain('generated/.gitkeep');
     expect(paths).toContain('hooks/.gitkeep');
+    expect(paths).toContain('lib/.gitkeep');
   });
 });
 
@@ -230,38 +233,111 @@ describe('generateNextjsTemplate', () => {
     expect(paths).toContain('postcss.config.mjs');
     expect(paths).toContain('app/layout.tsx');
     expect(paths).toContain('app/page.tsx');
-    expect(paths).toContain('generated/.gitkeep');
     expect(paths).toContain('hooks/.gitkeep');
+    expect(paths).toContain('lib/.gitkeep');
+    expect(paths).toContain('proxy.ts');
     expect(paths).toContain('components/AuthProvider.tsx');
+    expect(paths).toContain('app/login/page.tsx');
+    expect(paths).toContain('app/signup/page.tsx');
   });
 
-  it('excludes AuthProvider when auth is false', () => {
+  it('excludes AuthProvider and auth pages when auth is false', () => {
     const files = generateNextjsTemplate(makeConfig({ auth: false }));
     const paths = files.map((f) => f.path);
     expect(paths).not.toContain('components/AuthProvider.tsx');
+    expect(paths).not.toContain('app/login/page.tsx');
+    expect(paths).not.toContain('app/signup/page.tsx');
   });
 
-  it('includes capability pages when provided', () => {
+  it('does not generate per-capability pages', () => {
     const caps = [makeQueryCap(), makeActionCap()];
     const files = generateNextjsTemplate(makeConfig(), caps);
     const paths = files.map((f) => f.path);
-    expect(paths).toContain('app/get-invoice/page.tsx');
-    expect(paths).toContain('app/approve-refund/page.tsx');
+    expect(paths).not.toContain('app/get-invoice/page.tsx');
+    expect(paths).not.toContain('app/approve-refund/page.tsx');
   });
 
-  it('generates no capability pages when capabilities are omitted', () => {
+  it('does not generate API proxy route', () => {
     const files = generateNextjsTemplate(makeConfig());
-    const standardAppPaths = new Set([
-      'app/layout.tsx',
-      'app/page.tsx',
-      'app/globals.css',
-      'app/error.tsx',
-      'app/loading.tsx',
-      'app/api/plumbus/[...path]/route.ts',
-    ]);
-    const capPages = files.filter(
-      (f) => f.path.startsWith('app/') && !standardAppPaths.has(f.path),
-    );
-    expect(capPages).toHaveLength(0);
+    const paths = files.map((f) => f.path);
+    expect(paths).not.toContain('app/api/plumbus/[...path]/route.ts');
+  });
+});
+
+// ── generateProxy ──
+
+describe('generateProxy', () => {
+  it('generates proxy.ts (not middleware.ts)', () => {
+    const file = generateProxy(makeConfig());
+    expect(file.path).toBe('proxy.ts');
+  });
+
+  it('exports a proxy function', () => {
+    const file = generateProxy(makeConfig());
+    expect(file.content).toContain('export function proxy(request: NextRequest)');
+    expect(file.content).not.toContain('export function middleware');
+  });
+
+  it('includes auth protection when auth is enabled', () => {
+    const file = generateProxy(makeConfig({ auth: true }));
+    expect(file.content).toContain('protectedPaths');
+    expect(file.content).toContain('auth_token');
+    expect(file.content).toContain('/login');
+  });
+
+  it('omits auth protection when auth is false', () => {
+    const file = generateProxy(makeConfig({ auth: false }));
+    expect(file.content).not.toContain('protectedPaths');
+    expect(file.content).not.toContain('auth_token');
+  });
+});
+
+// ── generateLoginPage ──
+
+describe('generateLoginPage', () => {
+  it('generates login page at app/login/page.tsx', () => {
+    const file = generateLoginPage();
+    expect(file.path).toBe('app/login/page.tsx');
+  });
+
+  it('is a client component with form', () => {
+    const file = generateLoginPage();
+    expect(file.content).toContain('"use client"');
+    expect(file.content).toContain('<form');
+    expect(file.content).toContain('email');
+    expect(file.content).toContain('password');
+  });
+
+  it('imports login from @/lib/auth', () => {
+    const file = generateLoginPage();
+    expect(file.content).toContain('from "@/lib/auth"');
+  });
+
+  it('links to signup page', () => {
+    const file = generateLoginPage();
+    expect(file.content).toContain('/signup');
+  });
+});
+
+// ── generateSignupPage ──
+
+describe('generateSignupPage', () => {
+  it('generates signup page at app/signup/page.tsx', () => {
+    const file = generateSignupPage();
+    expect(file.path).toBe('app/signup/page.tsx');
+  });
+
+  it('is a client component with form', () => {
+    const file = generateSignupPage();
+    expect(file.content).toContain('"use client"');
+    expect(file.content).toContain('<form');
+    expect(file.content).toContain('name');
+    expect(file.content).toContain('email');
+    expect(file.content).toContain('password');
+  });
+
+  it('links to login page', () => {
+    const file = generateSignupPage();
+    expect(file.content).toContain('/login');
   });
 });

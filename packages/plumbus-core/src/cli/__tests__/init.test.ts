@@ -95,4 +95,39 @@ describe('plumbus init', () => {
       }
     });
   });
+
+  describe('Monorepo mode', () => {
+    it('generates copilot instructions with backend/ paths', () => {
+      const content = generateCopilotInstructions(false, true);
+      expect(content).toContain('backend/app/capabilities/');
+      expect(content).toContain('backend/app/entities/');
+      expect(content).toContain('backend/config/');
+      expect(content).toContain('frontend/');
+      expect(content).toContain('libs/shared/types/');
+    });
+
+    it('generates cursor rule with backend/ glob', () => {
+      const content = generateCursorRule(false, true);
+      expect(content).toContain('globs: backend/app/**');
+      expect(content).toContain('backend/app/capabilities/');
+    });
+
+    it('generates AGENTS.md with monorepo structure', () => {
+      const content = generateAgentsMd(false, true);
+      expect(content).toContain('backend/app/capabilities/');
+      expect(content).toContain('frontend/');
+      expect(content).toContain('libs/shared/types/');
+    });
+
+    it('passes monorepo flag through writeAgentFiles', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-mono-'));
+      try {
+        const written = writeAgentFiles(tempDir, ['copilot', 'agents-md'], false, false, true);
+        expect(written).toContain('.github/copilot-instructions.md');
+        expect(written).toContain('AGENTS.md');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
 });

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   commandRequiresProject,
+  detectMonorepoLayout,
   findPlumbusProjectRoot,
   formatOutput,
   toCamelCase,
@@ -132,5 +133,47 @@ describe('commandRequiresProject', () => {
 
   it('returns true for generate', () => {
     expect(commandRequiresProject('generate')).toBe(true);
+  });
+});
+
+describe('detectMonorepoLayout', () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-mono-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const d of tmpDirs) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+    tmpDirs.length = 0;
+  });
+
+  it('returns isMonorepo false when no pnpm-workspace.yaml', () => {
+    const dir = makeTmpDir();
+    expect(detectMonorepoLayout(dir)).toEqual({ isMonorepo: false });
+  });
+
+  it('returns isMonorepo false when workspace exists but no backend package.json', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "backend"\n');
+    expect(detectMonorepoLayout(dir)).toEqual({ isMonorepo: false });
+  });
+
+  it('detects a valid monorepo layout', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "backend"\n');
+    const backendDir = path.join(dir, 'backend');
+    fs.mkdirSync(backendDir, { recursive: true });
+    fs.writeFileSync(path.join(backendDir, 'package.json'), '{}');
+
+    const result = detectMonorepoLayout(dir);
+    expect(result.isMonorepo).toBe(true);
+    expect(result.backendDir).toBe(backendDir);
+    expect(result.frontendDir).toBe(path.join(dir, 'frontend'));
+    expect(result.sharedTypesDir).toBe(path.join(dir, 'libs', 'shared', 'types'));
   });
 });

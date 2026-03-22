@@ -43,6 +43,8 @@ Every capability handler receives `ctx` — the scoped runtime context:
 
 ## Project Structure
 
+### Flat layout (default)
+
 ```
 app/
   capabilities/<domain>/<name>/
@@ -62,6 +64,25 @@ config/
   app.config.ts       # PlumbusConfig
   ai.config.ts        # AI provider configuration
 ```
+
+### Monorepo layout (`plumbus create --monorepo`)
+
+```
+backend/              # Plumbus app — same structure as flat layout above
+  app/
+  config/
+  package.json
+frontend/             # Populated by `plumbus ui nextjs`
+  src/
+  package.json
+libs/shared/          # Shared type definitions (auto-generated)
+  types/
+  package.json
+pnpm-workspace.yaml   # pnpm workspaces root
+package.json          # Private root — delegates scripts via pnpm -r
+```
+
+In monorepo mode the `app/` and `config/` directories live under `backend/`. The CLI auto-detects the layout.
 
 ## Framework-Provided Dependencies
 

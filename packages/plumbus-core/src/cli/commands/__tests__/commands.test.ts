@@ -130,10 +130,10 @@ describe('generateUiModuleFiles', () => {
     );
 
     expect(files.map((file) => file.path)).toEqual([
-      'client.ts',
-      'hooks.ts',
-      'auth.ts',
-      'form-hints.ts',
+      'lib/client.ts',
+      'hooks/hooks.ts',
+      'lib/auth.ts',
+      'lib/form-hints.ts',
     ]);
   });
 });

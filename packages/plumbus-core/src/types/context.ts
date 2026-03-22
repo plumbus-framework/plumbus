@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
+import type { RegisteredEntities, RegisteredEventName, RegisteredFlowName } from './registry.js';
 import type { AuthContext } from './security.js';
 import type { TranslationService } from './translation.js';
 
@@ -14,15 +15,14 @@ export interface Repository<T = Record<string, any>> {
 }
 
 // ── Data Service (all entity repositories) ──
-// Interface (not type alias) so consumer apps can augment with known entity names.
-// With module augmentation, declared properties bypass noUncheckedIndexedAccess.
-export interface DataService {
-  [entity: string]: Repository;
-}
+// Uses RegisteredEntities from the type registry. When consumer apps run
+// `plumbus generate`, a module augmentation populates PlumbusRegistry.entities
+// with typed repository mappings. Until then, falls back to Record<string, Repository>.
+export type DataService = RegisteredEntities;
 
 // ── Event Service ──
 export interface EventService {
-  emit(eventName: string, payload: unknown): Promise<void>;
+  emit(eventName: RegisteredEventName, payload: unknown): Promise<void>;
 }
 
 // ── Flow Execution Handle ──
@@ -34,7 +34,7 @@ export interface FlowExecution {
 
 // ── Flow Service ──
 export interface FlowService {
-  start(flowName: string, input: unknown): Promise<FlowExecution>;
+  start(flowName: RegisteredFlowName, input: unknown): Promise<FlowExecution>;
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;

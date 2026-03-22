@@ -5,8 +5,11 @@ The Plumbus CLI scaffolds and manages application primitives. **Always run CLI c
 ## Project Setup
 
 ```bash
-# Create a new Plumbus project
+# Create a new Plumbus project (flat — default)
 plumbus create <project-name> [--auth jwt|auth0|clerk] [--ai openai|anthropic] [--compliance GDPR|HIPAA] [--skip-install] [--git]
+
+# Create a monorepo project (backend / frontend / libs)
+plumbus create <project-name> --monorepo [--auth jwt|auth0|clerk] [--ai openai|anthropic] [--compliance GDPR|HIPAA] [--skip-install] [--git]
 
 # Initialize AI agent wiring (copilot, cursor, or agents-md)
 plumbus init --agent copilot
@@ -14,6 +17,34 @@ plumbus init --agent copilot
 # Check project health
 plumbus doctor
 ```
+
+### Monorepo mode (`--monorepo`)
+
+When `--monorepo` is passed, the generated project uses **pnpm workspaces** with three packages:
+
+```
+<project-name>/
+├── pnpm-workspace.yaml
+├── package.json          # private root — delegates scripts via pnpm -r
+├── tsconfig.base.json
+├── biome.json
+├── backend/              # @<name>/backend — Plumbus app (entities, capabilities, etc.)
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── app/
+├── frontend/             # @<name>/frontend — populated by `plumbus ui nextjs`
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+└── libs/shared/          # @<name>/shared — cross-package type definitions
+    ├── package.json
+    ├── tsconfig.json
+    └── types/
+```
+
+- `plumbus generate` auto-detects the monorepo and copies shared types to `libs/shared/types/`.
+- `plumbus ui nextjs` outputs into `frontend/` instead of the configured `outDir`.
+- `plumbus init` adjusts AI wiring file paths to use `backend/app/` prefixes.
 
 ## Scaffolding Primitives
 

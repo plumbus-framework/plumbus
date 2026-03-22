@@ -15,7 +15,7 @@ import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
-import { info, resolvePath, success, writeFile } from '../utils.js';
+import { detectMonorepoLayout, info, resolvePath, success, writeFile } from '../utils.js';
 
 // ── Types for dynamically loaded @plumbus/ui ──
 
@@ -227,19 +227,19 @@ export function generateUiModuleFiles(
 
   const files: GeneratedFile[] = [
     {
-      path: `${prefix}client.ts`,
+      path: `${prefix}lib/client.ts`,
       content: generators.generateClientModule(capabilities, toFlowTriggers(flows), clientConfig),
     },
     {
-      path: `${prefix}hooks.ts`,
+      path: `${prefix}hooks/hooks.ts`,
       content: generators.generateHooksModule(capabilities, clientConfig),
     },
     {
-      path: `${prefix}auth.ts`,
+      path: `${prefix}lib/auth.ts`,
       content: generators.generateAuthModule(authConfig),
     },
     {
-      path: `${prefix}form-hints.ts`,
+      path: `${prefix}lib/form-hints.ts`,
       content: generators.generateFormHintsModule(capabilities),
     },
   ];
@@ -278,9 +278,9 @@ export function generateNextjsAppFiles(
     generators,
     {
       ...options,
-      baseUrl: options.baseUrl ?? '/api/plumbus',
+      baseUrl: options.baseUrl,
     },
-    'generated',
+    '',
     translations,
   );
 
@@ -321,14 +321,19 @@ function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string
   return written;
 }
 
-/** Auto-detect the frontend generated dir. If a Next.js frontend exists, write there. */
+/** Auto-detect the frontend output dir. If a Next.js frontend exists, write there. */
 function resolveGenerateOutDir(explicit: string | undefined): string {
   if (explicit) return explicit;
+  // In a monorepo, default to the frontend package
+  const monorepo = detectMonorepoLayout();
+  if (monorepo.isMonorepo && monorepo.frontendDir) {
+    return 'frontend';
+  }
   // Check common Next.js frontend locations
   for (const candidate of ['frontend', 'web', 'client', 'app']) {
     const tsconfigPath = path.join(process.cwd(), candidate, 'tsconfig.json');
     if (fs.existsSync(tsconfigPath)) {
-      return path.join(candidate, 'generated');
+      return candidate;
     }
   }
   return '.plumbus/generated/ui';
@@ -419,7 +424,7 @@ export function registerUiCommand(program: Command): void {
         resources.capabilities,
         resources.flows,
         generators,
-        { ...opts, baseUrl: opts.baseUrl ?? '/api/plumbus' },
+        { ...opts, baseUrl: opts.baseUrl },
       );
       writeGeneratedFiles(resolvePath('.plumbus/generated/ui'), uiModuleFiles);
 

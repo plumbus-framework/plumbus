@@ -161,7 +161,6 @@ export function createAIService(config: AIServiceConfig): AIService {
         maxTokens: promptInfo.maxTokens,
       };
 
-      // biome-ignore lint/suspicious/noExplicitAny: result shape varies between validated and raw generation
       let result: any;
       let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
       let validationAttempts = 1;

@@ -65,6 +65,21 @@ interface Repository<T> {
 }
 ```
 
+### Type Safety via PlumbusRegistry
+
+After running `plumbus generate`, `ctx.data` is strictly typed — only entities you've defined are accessible. The generated `.plumbus/generated/plumbus.d.ts` augments the `PlumbusRegistry` interface, so:
+
+- `ctx.data.User` autocompletes with `Repository<UserRecord>` methods
+- `ctx.data.NonExistent` produces a TypeScript error
+
+Before generation (or without it), `ctx.data` falls back to `Record<string, Repository>`, allowing any string key for backward compatibility.
+
+The same pattern applies to:
+- **`ctx.events.emit(eventName)`** — `eventName` is typed to registered event names
+- **`ctx.flows.start(flowName)`** — `flowName` is typed to registered flow names
+- **Flow step `capability`** — typed to registered capability names
+- **Flow trigger/wait/emit `event`** — typed to registered event names
+
 ```typescript
 handler: async (ctx, input) => {
   // Create

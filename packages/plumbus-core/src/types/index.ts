@@ -92,6 +92,14 @@ export type {
 } from './governance.js';
 // ── Prompt ──
 export type { ModelConfig, PromptDefinition } from './prompt.js';
+// ── Registry ──
+export type {
+  PlumbusRegistry,
+  RegisteredCapabilityName,
+  RegisteredEntities,
+  RegisteredEventName,
+  RegisteredFlowName,
+} from './registry.js';
 // ── Security ──
 export type { AccessPolicy, AuthContext } from './security.js';
 // ── Translation ──
