@@ -15,7 +15,15 @@ import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
-import { detectMonorepoLayout, info, resolvePath, success, writeFile } from '../utils.js';
+import {
+  detectMonorepoLayout,
+  info,
+  migrateUiLegacyStructure,
+  resolvePath,
+  success,
+  warn,
+  writeFile,
+} from '../utils.js';
 
 // ── Types for dynamically loaded @plumbus/ui ──
 
@@ -321,6 +329,24 @@ function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string
   return written;
 }
 
+function printMigrationSummary(migration: import('../utils.js').MigrationResult): void {
+  const total =
+    migration.movedFiles.length + migration.rewrittenImports.length + migration.deletedPaths.length;
+  if (total === 0) return;
+
+  info('Migrating legacy UI structure...');
+  for (const moved of migration.movedFiles) {
+    warn(`  Moved: ${moved}`);
+  }
+  for (const deleted of migration.deletedPaths) {
+    warn(`  Removed: ${deleted}`);
+  }
+  if (migration.rewrittenImports.length > 0) {
+    warn(`  Rewrote imports in ${migration.rewrittenImports.length} file(s)`);
+  }
+  success('Legacy migration complete');
+}
+
 /** Auto-detect the frontend output dir. If a Next.js frontend exists, write there. */
 function resolveGenerateOutDir(explicit: string | undefined): string {
   if (explicit) return explicit;
@@ -365,6 +391,11 @@ export function registerUiCommand(program: Command): void {
       const outDir = resolveGenerateOutDir(opts.outDir);
       const outputRoot = resolvePath(outDir);
       info(`Writing UI modules to ${outDir}`);
+
+      // Auto-migrate legacy structure before writing new files
+      const migration = migrateUiLegacyStructure(outputRoot);
+      printMigrationSummary(migration);
+
       const files = generateUiModuleFiles(
         resources.capabilities,
         resources.flows,
@@ -410,6 +441,11 @@ export function registerUiCommand(program: Command): void {
       const resources = await discoverResources();
       const appName = opts.appName ?? path.basename(process.cwd());
       const outputRoot = resolvePath(outputDir ?? 'frontend');
+
+      // Auto-migrate legacy structure before writing new files
+      const migration = migrateUiLegacyStructure(outputRoot);
+      printMigrationSummary(migration);
+
       const files = generateNextjsAppFiles(
         appName,
         resources.capabilities,

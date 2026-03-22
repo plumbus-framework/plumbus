@@ -248,6 +248,22 @@ Generates:
 - `lib/auth.ts` — frontend auth helpers
 - `lib/form-hints.ts` — extracted form metadata from capability schemas
 
+#### Automatic legacy migration
+
+When `plumbus ui generate` (or `plumbus ui nextjs`) detects artifacts from an older generation layout, it **auto-migrates** before writing new files:
+
+| Legacy artifact | Migration |
+|-----------------|-----------|
+| `generated/client.ts` | Moved → `lib/client.ts` |
+| `generated/hooks.ts` | Moved → `hooks/hooks.ts` |
+| `generated/auth.ts` | Moved → `lib/auth.ts` |
+| `generated/form-hints.ts` | Moved → `lib/form-hints.ts` |
+| `middleware.ts` | Renamed → `proxy.ts` (export updated to `proxy`) |
+| `app/api/plumbus/[...path]/route.ts` | Deleted (API proxy removed) |
+| `@/generated/*` imports in `.ts`/`.tsx` | Rewritten to `@/lib/*` / `@/hooks/*` |
+
+The migration is automatic and prints a summary of changes. Empty `generated/` directories are removed. No action is needed from the developer.
+
 ---
 
 ### plumbus ui nextjs
