@@ -138,6 +138,14 @@ export function mockAI(responses?: AIResponse): AIService {
       if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };
     },
+    async *streamGenerate(_config) {
+      const result =
+        responses?.generate !== undefined
+          ? (responses.generate as Record<string, any>)
+          : { text: 'mock-ai-response' };
+      yield { type: 'delta' as const, text: result.text ?? JSON.stringify(result) };
+      yield { type: 'done' as const, data: result };
+    },
     async extract(_config) {
       if (responses?.extract !== undefined) return responses.extract as Record<string, any>;
       return {};

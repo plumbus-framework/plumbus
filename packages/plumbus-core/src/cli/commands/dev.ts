@@ -3,6 +3,10 @@
 // with auto-reload awareness and dev-friendly defaults.
 
 import type { Command } from 'commander';
+import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
 import { loadConfig, validateConfig } from '../../config/loader.js';
 import { EntityRegistry } from '../../data/registry.js';
@@ -145,6 +149,36 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
     }
   }
 
+  // Try to load server extensions from app/server.ts (or app/server.js)
+  // Register tsx so dynamic import of .ts files works
+  let unregisterTsx: (() => void) | undefined;
+  try {
+    const req = createRequire(import.meta.url);
+    const tsxPath = req.resolve('tsx/esm/api');
+    const tsx = await import(pathToFileURL(tsxPath).href);
+    unregisterTsx = tsx.register();
+  } catch {
+    // tsx not available; only .js extensions will work
+  }
+
+  let onRoutesRegistered: import('../../server/bootstrap.js').ServerConfig['onRoutesRegistered'];
+  for (const ext of ['app/server.ts', 'app/server.js']) {
+    const extPath = path.resolve(process.cwd(), ext);
+    if (fs.existsSync(extPath)) {
+      try {
+        const mod = await import(pathToFileURL(extPath).href);
+        onRoutesRegistered = mod.onRoutesRegistered ?? mod.default?.onRoutesRegistered;
+        if (onRoutesRegistered) {
+          info(`Loaded server extensions from ${ext}`);
+        }
+      } catch (err) {
+        warn(`Failed to load ${ext}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      break;
+    }
+  }
+  unregisterTsx?.();
+
   const server = createServer({
     config,
     db: db as any,
@@ -156,6 +190,7 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
     promptRegistry,
     host,
     port,
+    onRoutesRegistered,
   });
 
   // Graceful shutdown handler

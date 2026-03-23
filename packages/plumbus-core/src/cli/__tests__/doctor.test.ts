@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  checkLegacyArtifacts,
   checkNodeVersion,
+  checkPlumbusUi,
   checkPostgreSQL,
   checkRedis,
   checkTypeScript,
@@ -22,9 +24,11 @@ describe('plumbus doctor', () => {
     const names = checks.map((c) => c.name);
     expect(names).toContain('node');
     expect(names).toContain('typescript');
+    expect(names).toContain('@plumbus/ui');
     expect(names).toContain('package.json');
     expect(names).toContain('config');
     expect(names).toContain('app-structure');
+    expect(names).toContain('legacy-artifacts');
   });
 
   it('detects TypeScript availability', () => {
@@ -65,5 +69,19 @@ describe('plumbus doctor', () => {
     expect(names).toContain('postgresql');
     expect(names).toContain('redis');
     expect(checks.length).toBeGreaterThan(runDoctorChecks().length);
+  });
+
+  it('checkPlumbusUi returns a structured check result', () => {
+    const check = checkPlumbusUi();
+    expect(check.name).toBe('@plumbus/ui');
+    expect(['ok', 'warn', 'fail']).toContain(check.status);
+    expect(check.message).toBeTruthy();
+  });
+
+  it('checkLegacyArtifacts returns a structured check result', () => {
+    const check = checkLegacyArtifacts();
+    expect(check.name).toBe('legacy-artifacts');
+    expect(['ok', 'warn', 'fail']).toContain(check.status);
+    expect(check.message).toBeTruthy();
   });
 });

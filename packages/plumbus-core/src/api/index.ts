@@ -7,5 +7,6 @@
 export {
   registerAllRoutes,
   registerCapabilityRoute,
+  registerStreamingRoute,
 } from './route-generator.js';
 export type { DependencyOptions, RouteGeneratorConfig } from './route-generator.js';

@@ -48,12 +48,29 @@ export interface AIDocument {
   metadata?: Record<string, unknown>;
 }
 
+// ── AI Stream Event ──
+export interface AIStreamEvent {
+  type: 'delta' | 'done' | 'error';
+  /** Incremental text chunk (for delta events) */
+  text?: string;
+  /** Final validated data (for done events) */
+  data?: Record<string, any>;
+  /** Error message (for error events) */
+  error?: string;
+}
+
 // ── AI Service ──
 export interface AIService {
   generate(config: {
     prompt: string;
     input: Record<string, unknown>;
   }): Promise<Record<string, any>>;
+
+  /** Stream AI generation, yielding incremental text deltas and a final validated result */
+  streamGenerate(config: {
+    prompt: string;
+    input: Record<string, unknown>;
+  }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {
     schema: z.ZodTypeAny;

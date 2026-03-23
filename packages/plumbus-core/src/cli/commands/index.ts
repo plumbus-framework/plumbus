@@ -24,6 +24,7 @@
 //   start      — Start production server
 //   test       — Run unit tests using vitest
 //   ui         — Generate frontend source files and scaffolds
+//   upgrade    — Migrate legacy artifacts after framework upgrades
 //   verify     — Run governance rules
 
 export { registerAgentCommand } from './agent.js';
@@ -47,4 +48,5 @@ export { registerStartCommand } from './start.js';
 export { registerTestCommand } from './test.js';
 export { registerTranslationCommand } from './translation.js';
 export { registerUiCommand } from './ui.js';
+export { registerUpgradeCommand } from './upgrade.js';
 export { registerVerifyCommand } from './verify.js';

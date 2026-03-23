@@ -3,7 +3,7 @@
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
 
 import { z } from 'zod';
-import type { AIDocument, AIService } from '../types/context.js';
+import type { AIDocument, AIService, AIStreamEvent } from '../types/context.js';
 import type { CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import type { PromptRegistry } from './prompt-registry.js';
@@ -223,6 +223,95 @@ export function createAIService(config: AIServiceConfig): AIService {
       }
 
       return result;
+    },
+
+    async *streamGenerate(params: {
+      prompt: string;
+      input: Record<string, unknown>;
+    }): AsyncIterable<AIStreamEvent> {
+      // Security check
+      const securityResult = security ? checkPromptSecurity(params.input, security) : undefined;
+      const inputForAI = securityResult?.redactedInput ?? params.input;
+
+      // Budget pre-check
+      checkBudget();
+
+      // Build prompt
+      const hasPromptDef = promptRegistry?.has(params.prompt);
+      const promptInfo = hasPromptDef
+        ? buildPromptText(params.prompt, inputForAI)
+        : { text: params.prompt };
+
+      // Resolve provider
+      const activeProvider = resolveProvider(
+        'provider' in promptInfo ? promptInfo.provider : undefined,
+      );
+
+      // Detect if the output schema is a simple single-string-field object
+      // (e.g. z.object({ question: z.string() })). If so, stream plain text
+      // so the user sees readable words instead of JSON tokens.
+      const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
+      let singleTextField: string | undefined;
+      if (promptDef) {
+        const shape = promptDef.output instanceof z.ZodObject ? promptDef.output.shape : undefined;
+        if (shape) {
+          const keys = Object.keys(shape);
+          const firstKey = keys[0];
+          if (keys.length === 1 && firstKey && shape[firstKey] instanceof z.ZodString) {
+            singleTextField = firstKey;
+          }
+        }
+      }
+
+      const basePrompt =
+        Object.keys(inputForAI).length > 0
+          ? `${promptInfo.text}\n\nInput: ${JSON.stringify(inputForAI)}`
+          : promptInfo.text;
+
+      const request: ProviderRequest = {
+        prompt: singleTextField
+          ? `${basePrompt}\n\nRespond with ONLY the plain text content. Do NOT wrap your response in JSON or any other format.`
+          : basePrompt,
+        model: promptInfo.model ?? config.defaultModel,
+        temperature: promptInfo.temperature,
+        maxTokens: promptInfo.maxTokens,
+        responseFormat: singleTextField ? 'text' : 'json',
+      };
+
+      // Stream from provider, collecting full text
+      let fullText = '';
+      for await (const event of activeProvider.stream(request)) {
+        if (event.type === 'content_delta' && event.delta) {
+          fullText += event.delta;
+          yield { type: 'delta', text: event.delta };
+        } else if (event.type === 'error') {
+          yield { type: 'error', error: event.error };
+          return;
+        }
+      }
+
+      // Build the final validated result
+      if (singleTextField) {
+        // Plain text mode — wrap the accumulated text in the schema field
+        yield { type: 'done', data: { [singleTextField]: fullText.trim() } };
+      } else if (promptDef) {
+        try {
+          const parsed = JSON.parse(fullText);
+          const validated = promptDef.output.parse(parsed);
+          yield { type: 'done', data: validated };
+        } catch {
+          // Validation failed — fall back to non-streaming retry with JSON mode
+          const validated = await generateWithValidation(
+            activeProvider,
+            { ...request, responseFormat: 'json' },
+            promptDef.output,
+            config.validation,
+          );
+          yield { type: 'done', data: validated.data };
+        }
+      } else {
+        yield { type: 'done', data: { content: fullText } };
+      }
     },
 
     async extract(params: { schema: z.ZodTypeAny; text: string }): Promise<Record<string, any>> {

@@ -78,7 +78,7 @@ export {
 } from './ai/index.js';
 export type { RouteGeneratorConfig } from './api/index.js';
 // ── API (HTTP route generation) ──
-export { registerAllRoutes, registerCapabilityRoute } from './api/index.js';
+export { registerAllRoutes, registerCapabilityRoute, registerStreamingRoute } from './api/index.js';
 export type { AuditServiceConfig } from './audit/index.js';
 // ── Audit ──
 export { auditRecords, createAuditService } from './audit/index.js';
@@ -292,9 +292,11 @@ export {
   // Doctor checks
   checkAppStructure,
   checkConfig,
+  checkLegacyArtifacts,
   checkNodeVersion,
   checkPackageJson,
   checkPlumbusCore,
+  checkPlumbusUi,
   checkPostgreSQL,
   checkRedis,
   checkTypeScript,
