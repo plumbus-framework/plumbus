@@ -1,6 +1,10 @@
+import { createRequire } from 'node:module';
 import type { Command } from 'commander';
 import { describe, expect, it, vi } from 'vitest';
 import { createCli } from '../cli.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../../../package.json') as { version: string };
 
 vi.mock('../utils.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../utils.js')>();
@@ -33,7 +37,7 @@ describe('CLI', () => {
   it('creates a program with correct name and version', () => {
     const program = createCli();
     expect(program.name()).toBe('plumbus');
-    expect(program.version()).toBe('0.1.0');
+    expect(program.version()).toBe(pkg.version);
   });
 
   it('registers all expected commands', () => {

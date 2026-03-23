@@ -1,6 +1,7 @@
 // ── CLI Entry Point ──
 // Main `plumbus` command with subcommands
 
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import {
   registerAgentCommand,
@@ -29,13 +30,23 @@ import {
 } from './commands/index.js';
 import { assertInsidePlumbusProject, commandRequiresProject } from './utils.js';
 
+function getVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../../package.json') as { version: string };
+    return pkg.version;
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function createCli(): Command {
   const program = new Command();
 
   program
     .name('plumbus')
     .description('Plumbus Framework CLI — AI-native, contract-driven TypeScript applications')
-    .version('0.1.0');
+    .version(getVersion());
 
   // Guard: ensure most commands run inside a Plumbus project
   program.hook('preAction', (_thisCommand, actionCommand) => {

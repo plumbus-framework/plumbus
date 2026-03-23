@@ -318,5 +318,5 @@ declare module "@plumbus/core" {
 }
 ```
 
-Once this file is included in your TypeScript compilation (ensure `.plumbus/generated/` is in your `tsconfig.json` `include`), `ctx.data` only exposes entity names you've actually defined. Before generation, all types fall back to permissive defaults (`string` / `Record<string, Repository>`) for backward compatibility.
+The `plumbus generate` command automatically adds `.plumbus/generated` to your `tsconfig.json` `include` array, so this file is picked up by TypeScript. Once active, `ctx.data` only exposes entity names you've actually defined. Before generation, all types fall back to permissive defaults (`string` / `Record<string, Repository>`) for backward compatibility.
 

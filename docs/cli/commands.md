@@ -216,7 +216,7 @@ The generated `plumbus.d.ts` file augments the `PlumbusRegistry` interface from 
 - **Typed event names** — `trigger.event`, wait step `event`, emit step `event`, and `ctx.events.emit()` only accept defined event names
 - **Typed flow names** — `ctx.flows.start()` only accepts defined flow names
 
-Make sure `.plumbus/generated/` is included in your `tsconfig.json`'s `include` array.
+The command automatically adds `.plumbus/generated` to your `tsconfig.json`'s `include` array if it's not already present.
 
 In **monorepo mode** (detected via `pnpm-workspace.yaml`), shared type definitions (`entity-types.ts`, `capability-types.ts`, `plumbus.d.ts`) are additionally written to `libs/shared/types/` so both backend and frontend packages can reference them.
 

@@ -2,7 +2,9 @@
 // Auto-generate derived artifacts from contracts
 
 import type { Command } from 'commander';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as JSONC from 'jsonc-parser';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { EntityDefinition } from '../../types/entity.js';
@@ -13,6 +15,7 @@ import type { FlowDefinition } from '../../types/flow.js';
 import { discoverResources } from '../discover.js';
 import {
   detectMonorepoLayout,
+  exists,
   info,
   resolvePath,
   success,
@@ -476,6 +479,54 @@ export function generateAll(
   return generated;
 }
 
+const GENERATED_INCLUDE_ENTRY = '.plumbus/generated';
+
+/**
+ * Ensure a tsconfig.json file includes `.plumbus/generated` in its `include` array.
+ * Uses JSONC-aware editing to preserve comments in the file.
+ * Returns true if the file was modified, false otherwise.
+ */
+export function ensureTsconfigIncludesGenerated(tsconfigPath: string): boolean {
+  if (!exists(tsconfigPath)) {
+    return false;
+  }
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(tsconfigPath, 'utf-8');
+  } catch {
+    warn(`Could not read ${tsconfigPath} — add "${GENERATED_INCLUDE_ENTRY}" to include manually`);
+    return false;
+  }
+
+  let tsconfig: Record<string, unknown>;
+  try {
+    tsconfig = JSONC.parse(raw) as Record<string, unknown>;
+  } catch {
+    warn(`Could not parse ${tsconfigPath} — add "${GENERATED_INCLUDE_ENTRY}" to include manually`);
+    return false;
+  }
+
+  const include = tsconfig.include as string[] | undefined;
+  if (!Array.isArray(include)) {
+    info(
+      `${tsconfigPath} has no include array — generated types should be picked up automatically`,
+    );
+    return false;
+  }
+
+  if (include.includes(GENERATED_INCLUDE_ENTRY)) {
+    return false;
+  }
+
+  const edits = JSONC.modify(raw, ['include', -1], GENERATED_INCLUDE_ENTRY, {
+    formattingOptions: { tabSize: 2, insertSpaces: true },
+  });
+  const updated = JSONC.applyEdits(raw, edits);
+  writeFile(tsconfigPath, updated.endsWith('\n') ? updated : `${updated}\n`);
+  return true;
+}
+
 export function registerGenerateCommand(program: Command): void {
   program
     .command('generate')
@@ -526,6 +577,19 @@ export function registerGenerateCommand(program: Command): void {
         flows,
         monorepo.sharedTypesDir,
       );
+
+      // Ensure tsconfig.json includes the generated directory
+      const tsconfigPaths = monorepo.isMonorepo
+        ? [resolvePath('backend', 'tsconfig.json'), resolvePath('frontend', 'tsconfig.json')]
+        : [resolvePath('tsconfig.json')];
+
+      for (const tsconfigPath of tsconfigPaths) {
+        if (ensureTsconfigIncludesGenerated(tsconfigPath)) {
+          success(
+            `Added "${GENERATED_INCLUDE_ENTRY}" to ${path.relative(process.cwd(), tsconfigPath)}`,
+          );
+        }
+      }
 
       if (opts.json) {
         console.log(JSON.stringify({ generated }, null, 2));
