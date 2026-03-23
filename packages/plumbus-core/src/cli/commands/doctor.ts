@@ -3,7 +3,15 @@
 
 import type { Command } from 'commander';
 import * as fs from 'node:fs';
-import { info, error as logError, resolvePath, success, warn } from '../utils.js';
+import * as path from 'node:path';
+import {
+  detectMonorepoLayout,
+  info,
+  error as logError,
+  resolvePath,
+  success,
+  warn,
+} from '../utils.js';
 
 export interface DoctorCheck {
   name: string;
@@ -97,6 +105,100 @@ export function checkPackageJson(): DoctorCheck {
     return { name: 'package.json', status: 'ok', message: 'package.json found' };
   }
   return { name: 'package.json', status: 'fail', message: 'package.json not found' };
+}
+
+/** Check @plumbus/ui availability and version */
+export function checkPlumbusUi(): DoctorCheck {
+  try {
+    const pkgPath = resolvePath('node_modules', '@plumbus/ui', 'package.json');
+    if (!fs.existsSync(pkgPath)) {
+      return {
+        name: '@plumbus/ui',
+        status: 'warn',
+        message: '@plumbus/ui not found (skip if backend-only)',
+      };
+    }
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as {
+      version?: string;
+      dependencies?: Record<string, string>;
+    };
+    const version = pkg.version ?? 'unknown';
+
+    // Check that the bundled next/react versions are current
+    const nextRange = pkg.dependencies?.next ?? '';
+    const reactRange = pkg.dependencies?.react ?? '';
+    const warnings: string[] = [];
+
+    if (nextRange && !nextRange.includes('16')) {
+      warnings.push(`next ${nextRange} (v16+ expected)`);
+    }
+    if (reactRange && !reactRange.includes('19')) {
+      warnings.push(`react ${reactRange} (v19+ expected)`);
+    }
+
+    if (warnings.length > 0) {
+      return {
+        name: '@plumbus/ui',
+        status: 'warn',
+        message: `@plumbus/ui v${version} — outdated deps: ${warnings.join(', ')}. Run \`plumbus upgrade\` or update @plumbus/ui`,
+      };
+    }
+
+    return { name: '@plumbus/ui', status: 'ok', message: `@plumbus/ui v${version}` };
+  } catch {
+    return { name: '@plumbus/ui', status: 'warn', message: '@plumbus/ui not accessible' };
+  }
+}
+
+/** Resolve the frontend directory for legacy artifact detection */
+function resolveFrontendDir(): string | undefined {
+  const layout = detectMonorepoLayout();
+  if (layout.isMonorepo && layout.frontendDir && fs.existsSync(layout.frontendDir)) {
+    return layout.frontendDir;
+  }
+  // Single-project: check for Next.js markers in CWD
+  const cwd = process.cwd();
+  if (
+    fs.existsSync(path.join(cwd, 'next.config.ts')) ||
+    fs.existsSync(path.join(cwd, 'next.config.js')) ||
+    fs.existsSync(path.join(cwd, 'next.config.mjs'))
+  ) {
+    return cwd;
+  }
+  return undefined;
+}
+
+/** Check for stale legacy UI artifacts (generated/, middleware.ts, API proxy route) */
+export function checkLegacyArtifacts(): DoctorCheck {
+  const frontendDir = resolveFrontendDir();
+  if (!frontendDir) {
+    return {
+      name: 'legacy-artifacts',
+      status: 'ok',
+      message: 'No frontend directory detected — skipped',
+    };
+  }
+
+  const stale: string[] = [];
+  if (fs.existsSync(path.join(frontendDir, 'generated'))) {
+    stale.push('generated/');
+  }
+  if (fs.existsSync(path.join(frontendDir, 'middleware.ts'))) {
+    stale.push('middleware.ts');
+  }
+  if (fs.existsSync(path.join(frontendDir, 'app', 'api', 'plumbus', '[...path]', 'route.ts'))) {
+    stale.push('app/api/plumbus/[...path]/route.ts');
+  }
+
+  if (stale.length > 0) {
+    return {
+      name: 'legacy-artifacts',
+      status: 'warn',
+      message: `Stale artifacts found: ${stale.join(', ')}. Run \`plumbus upgrade\` to migrate`,
+    };
+  }
+
+  return { name: 'legacy-artifacts', status: 'ok', message: 'No legacy artifacts detected' };
 }
 
 /** Check PostgreSQL connectivity */
@@ -202,9 +304,11 @@ export function runDoctorChecks(): DoctorCheck[] {
     checkNodeVersion(),
     checkTypeScript(),
     checkPlumbusCore(),
+    checkPlumbusUi(),
     checkPackageJson(),
     checkConfig(),
     checkAppStructure(),
+    checkLegacyArtifacts(),
   ];
 }
 

@@ -55,6 +55,9 @@ const noopAI: AIService = {
   async generate() {
     throw new Error('AI service not configured');
   },
+  streamGenerate() {
+    throw new Error('AI service not configured');
+  },
   async extract() {
     throw new Error('AI service not configured');
   },

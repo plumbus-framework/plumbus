@@ -27,6 +27,7 @@ export type {
 export type {
   AIDocument,
   AIService,
+  AIStreamEvent,
   ConfigService,
   DataService,
   EventService,

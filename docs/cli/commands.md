@@ -25,6 +25,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus seed` | Run seed files to populate the database |
 | `plumbus agent` | AI agent brief and sync commands |
 | `plumbus ui` | Generate UI modules and Next.js frontends |
+| `plumbus upgrade` | Migrate legacy artifacts after framework upgrades |
 | `plumbus test` | Run tests using vitest (provided by the framework) |
 
 ## Installation
@@ -181,11 +182,34 @@ plumbus doctor [options]
 Checks performed:
 - Node.js version (≥ 20)
 - `@plumbus/core` installed
+- `@plumbus/ui` version and bundled dependency versions (next, react)
 - `package.json` exists and valid
 - `app.config.ts` exists
 - PostgreSQL reachable
 - Redis reachable
 - App directory structure
+- Legacy artifacts detection (stale `generated/`, `middleware.ts`, API proxy route)
+
+---
+
+### plumbus upgrade
+
+Migrate legacy artifacts and report version status after a framework upgrade. Detects stale files from previous Plumbus versions (e.g. `generated/` folder, `middleware.ts`, legacy API proxy route) and migrates them to the current layout.
+
+```bash
+plumbus upgrade [options]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--dry-run` | `boolean` | `false` | Show what would be migrated without making changes |
+
+Migrations performed:
+- Move `generated/*.ts` → `lib/` + `hooks/` (delete `generated/` when empty)
+- Rename `middleware.ts` → `proxy.ts` and fix the exported function name
+- Delete `app/api/plumbus/[...path]/route.ts` (API proxy removed)
+- Rewrite `@/generated/` imports in all `.ts`/`.tsx` files
+- Report current `@plumbus/ui` version and bundled dependency versions
 
 ---
 

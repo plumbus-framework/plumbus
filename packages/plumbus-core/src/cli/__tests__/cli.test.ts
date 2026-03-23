@@ -54,6 +54,7 @@ describe('CLI', () => {
     expect(commandNames).toContain('agent');
     expect(commandNames).toContain('rag');
     expect(commandNames).toContain('ui');
+    expect(commandNames).toContain('upgrade');
     expect(commandNames).toContain('doctor');
   });
 

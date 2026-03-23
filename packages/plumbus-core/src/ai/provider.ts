@@ -17,6 +17,8 @@ export interface ProviderRequest {
   maxTokens?: number;
   /** Response format hint */
   responseFormat?: 'text' | 'json';
+  /** Request timeout in milliseconds (default: 120_000) */
+  timeout?: number;
 }
 
 // ── Provider Response ──
@@ -80,12 +82,15 @@ export interface OpenAIAdapterConfig {
   model?: string;
   embeddingModel?: string;
   baseUrl?: string;
+  /** Request timeout in milliseconds (default: 120_000) */
+  requestTimeout?: number;
 }
 
 export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdapter {
   const defaultModel = config.model ?? 'gpt-4o';
   const defaultEmbeddingModel = config.embeddingModel ?? 'text-embedding-3-small';
   const baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
+  const defaultTimeout = config.requestTimeout ?? 120_000;
 
   return {
     name: 'openai',
@@ -114,6 +119,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
       });
 
       if (!resp.ok) {
@@ -167,6 +173,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
       });
 
       if (!resp.ok) {
@@ -191,6 +198,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(defaultTimeout),
       });
 
       if (!resp.ok) {
@@ -218,11 +226,14 @@ export interface AnthropicAdapterConfig {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  /** Request timeout in milliseconds (default: 120_000) */
+  requestTimeout?: number;
 }
 
 export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProviderAdapter {
   const defaultModel = config.model ?? 'claude-sonnet-4-20250514';
   const baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
+  const defaultTimeout = config.requestTimeout ?? 120_000;
 
   return {
     name: 'anthropic',
@@ -244,6 +255,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
       });
 
       if (!resp.ok) {
@@ -293,6 +305,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
       });
 
       if (!resp.ok) {
@@ -466,6 +479,7 @@ export function createProviderAdapter(
     apiKey: providerConfig.apiKey,
     model: providerConfig.model,
     baseUrl: providerConfig.baseUrl,
+    requestTimeout: providerConfig.requestTimeout,
   };
 
   switch (name) {

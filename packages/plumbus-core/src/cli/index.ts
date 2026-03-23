@@ -23,9 +23,11 @@ export { runDev, startDevServer, type DevOptions } from './commands/dev.js';
 export {
   checkAppStructure,
   checkConfig,
+  checkLegacyArtifacts,
   checkNodeVersion,
   checkPackageJson,
   checkPlumbusCore,
+  checkPlumbusUi,
   checkPostgreSQL,
   checkRedis,
   checkTypeScript,

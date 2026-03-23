@@ -1,6 +1,6 @@
 # Next.js Template Generator
 
-Scaffolds a complete Next.js 14 project wired to a Plumbus backend — layout, pages, auth, middleware, API proxy, error boundary, and environment config.
+Scaffolds a complete Next.js 16+ project wired to a Plumbus backend — layout, pages, auth, proxy, error boundary, and environment config.
 
 ## Configuration
 

@@ -25,6 +25,7 @@ import {
   registerTestCommand,
   registerTranslationCommand,
   registerUiCommand,
+  registerUpgradeCommand,
   registerVerifyCommand,
 } from './commands/index.js';
 import { assertInsidePlumbusProject, commandRequiresProject } from './utils.js';
@@ -66,6 +67,7 @@ export function createCli(): Command {
   registerRunCommand(program);
   registerSeedCommand(program);
   registerUiCommand(program);
+  registerUpgradeCommand(program);
   registerDoctorCommand(program);
   registerDevCommand(program);
   registerStartCommand(program);

@@ -48,6 +48,8 @@ export interface ServerConfig {
   host?: string;
   /** Fastify listen port (default: 3000) */
   port?: number;
+  /** Called after all capability routes are registered. Use to add custom routes (e.g. streaming). */
+  onRoutesRegistered?: (app: FastifyInstance, routeConfig: RouteGeneratorConfig) => void;
 }
 
 // ── Server Instance ──
@@ -187,6 +189,11 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
   // Register all capability routes
   registerAllRoutes(app, capabilities.getAll(), routeConfig);
+
+  // Allow consumer to register additional routes (e.g., streaming endpoints)
+  if (serverConfig.onRoutesRegistered) {
+    serverConfig.onRoutesRegistered(app, routeConfig);
+  }
 
   logger.info(`Registered ${capabilities.getAll().length} capability routes`);
 

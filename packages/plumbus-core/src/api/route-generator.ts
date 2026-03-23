@@ -109,6 +109,63 @@ export function registerAllRoutes(
   }
 }
 
+/**
+ * Register a streaming SSE endpoint for a capability.
+ * The callback receives an ExecutionContext and input, and should yield AIStreamEvents
+ * via ctx.ai.streamGenerate(). Events are forwarded to the client as SSE.
+ *
+ * Path: POST /api/{domain}/{capability-name}/stream
+ */
+export function registerStreamingRoute(
+  app: FastifyInstance,
+  capability: CapabilityContract,
+  config: RouteGeneratorConfig,
+  streamHandler: (
+    ctx: ExecutionContext,
+    input: Record<string, unknown>,
+  ) => AsyncIterable<import('../types/context.js').AIStreamEvent>,
+): void {
+  const path = `/api/${capability.domain}/${toKebabCase(capability.name)}/stream`;
+
+  app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+    // 1. Authenticate
+    const authHeader = request.headers.authorization;
+    const auth = await config.authAdapter.authenticate(authHeader);
+    const authContext = auth ?? {
+      userId: undefined,
+      roles: [],
+      scopes: [],
+      provider: 'anonymous',
+    };
+
+    // 2. Build context
+    const bypassTenantScope = capability.access?.tenantScoped === false;
+    const deps = config.createDependencies(authContext as any, { bypassTenantScope });
+    const ctx: ExecutionContext = createExecutionContext(deps);
+
+    // 3. Extract input
+    const input = (request.body ?? {}) as Record<string, unknown>;
+
+    // 4. Set SSE headers
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    try {
+      for await (const event of streamHandler(ctx, input)) {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      reply.raw.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`);
+    }
+
+    reply.raw.end();
+  });
+}
+
 function toKebabCase(str: string): string {
   return str
     .replace(/([A-Z])/g, '-$1')
