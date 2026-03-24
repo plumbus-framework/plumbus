@@ -191,6 +191,9 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
     host,
     port,
     onRoutesRegistered,
+    ...(process.env.TRUST_PROXY && {
+      trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
+    }),
   });
 
   // Graceful shutdown handler

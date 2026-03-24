@@ -278,13 +278,15 @@ Provide predetermined AI responses:
 
 ```typescript
 const ai = mockAI({
-  classifyTicket: {
+  generate: {
     department: "billing",
     urgency: "high",
     confidence: 0.95,
   },
 });
 ```
+
+Both `generate()` and `generateWithUsage()` use the same `generate` response key. `generateWithUsage()` wraps the response in `{ data, usage }` automatically, with estimated token counts derived from the config/response string lengths (~4 chars per token).
 
 ### mockEvents
 

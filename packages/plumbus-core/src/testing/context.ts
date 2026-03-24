@@ -5,16 +5,16 @@ import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { AuditService } from '../types/audit.js';
 import type {
-  AIDocument,
-  AIService,
-  DataService,
-  EventService,
-  ExecutionContext,
-  FlowExecution,
-  FlowService,
-  LoggerService,
-  Repository,
-  TimeService,
+    AIDocument,
+    AIService,
+    DataService,
+    EventService,
+    ExecutionContext,
+    FlowExecution,
+    FlowService,
+    LoggerService,
+    Repository,
+    TimeService,
 } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
@@ -137,6 +137,22 @@ export function mockAI(responses?: AIResponse): AIService {
     async generate(_config) {
       if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };
+    },
+    async generateWithUsage(_config) {
+      const data =
+        responses?.generate !== undefined
+          ? (responses.generate as Record<string, any>)
+          : { text: 'mock-ai-response' };
+      const inputStr = JSON.stringify(_config);
+      const outputStr = JSON.stringify(data);
+      return {
+        data,
+        usage: {
+          inputTokens: Math.ceil(inputStr.length / 4),
+          outputTokens: Math.ceil(outputStr.length / 4),
+          totalTokens: Math.ceil(inputStr.length / 4) + Math.ceil(outputStr.length / 4),
+        },
+      };
     },
     async *streamGenerate(_config) {
       const result =

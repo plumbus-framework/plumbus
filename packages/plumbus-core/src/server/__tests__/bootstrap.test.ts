@@ -238,6 +238,21 @@ describe('Server Bootstrap', () => {
     });
   });
 
+  describe('trustProxy', () => {
+    it('passes trustProxy to Fastify when set', async () => {
+      const Fastify = (await import('fastify')).default;
+      createServer(makeServerConfig({ trustProxy: true }));
+      expect(Fastify).toHaveBeenCalledWith(expect.objectContaining({ trustProxy: true }));
+    });
+
+    it('does not include trustProxy when not set', async () => {
+      const Fastify = (await import('fastify')).default;
+      createServer(makeServerConfig());
+      const callArg = (Fastify as any).mock.calls.at(-1)?.[0];
+      expect(callArg).not.toHaveProperty('trustProxy');
+    });
+  });
+
   describe('production environment', () => {
     it('creates server with production config', () => {
       const server = createServer(

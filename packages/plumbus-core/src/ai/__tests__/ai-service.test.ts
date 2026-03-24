@@ -93,6 +93,40 @@ describe('AI Service (ctx.ai)', () => {
     });
   });
 
+  describe('generateWithUsage', () => {
+    it('returns data and usage for raw prompt', async () => {
+      const { service } = setupService();
+      const result = await service.generateWithUsage({
+        prompt: 'Say hello',
+        input: {},
+      });
+
+      expect(result.data).toBe('{"result":"hello"}');
+      expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 20, totalTokens: 30 });
+    });
+
+    it('returns validated data and usage with prompt registry', async () => {
+      const { service, promptRegistry } = setupService({ promptRegistry: true });
+      promptRegistry?.register(
+        definePrompt({
+          name: 'greet',
+          description: 'Say hello to {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+        }),
+      );
+
+      const result = await service.generateWithUsage({
+        prompt: 'greet',
+        input: { name: 'Alice' },
+      });
+
+      expect(result.data).toEqual({ result: 'hello' });
+      expect(result.usage.inputTokens).toBe(10);
+      expect(result.usage.outputTokens).toBe(20);
+    });
+  });
+
   describe('extract', () => {
     it('extracts structured data from text', async () => {
       const provider = createMockProvider({

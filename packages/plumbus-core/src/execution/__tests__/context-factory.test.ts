@@ -138,4 +138,24 @@ describe('createExecutionContext', () => {
     expect(() => ctx.security.requireScope('read')).not.toThrow();
     expect(() => ctx.security.requireScope('write')).toThrow('Forbidden');
   });
+
+  it('passes through request metadata when provided', () => {
+    const ctx = createExecutionContext({
+      auth: makeAuth(),
+      data: {},
+      request: { sourceIp: '192.168.1.1', userAgent: 'TestBrowser/1.0' },
+    });
+
+    expect(ctx.request?.sourceIp).toBe('192.168.1.1');
+    expect(ctx.request?.userAgent).toBe('TestBrowser/1.0');
+  });
+
+  it('request is undefined when not provided', () => {
+    const ctx = createExecutionContext({
+      auth: makeAuth(),
+      data: {},
+    });
+
+    expect(ctx.request).toBeUndefined();
+  });
 });
