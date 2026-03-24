@@ -175,9 +175,21 @@ AI operations — generate, extract, classify, and retrieve:
 ```typescript
 interface AIService {
   generate(config: { prompt: string; input: Record<string, unknown> }): Promise<unknown>;
+  generateWithUsage(config: { prompt: string; input: Record<string, unknown> }): Promise<AIGenerateResult>;
   extract(config: { schema: z.ZodTypeAny; text: string }): Promise<unknown>;
   classify(config: { labels: string[]; text: string }): Promise<string[]>;
   retrieve(config: { query: string }): Promise<AIDocument[]>;
+}
+
+interface AIGenerateResult {
+  data: Record<string, any>;
+  usage: AITokenUsage;
+}
+
+interface AITokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 ```
 
@@ -208,6 +220,13 @@ handler: async (ctx, input) => {
   const docs = await ctx.ai.retrieve({
     query: input.question,
   });
+
+  // Generate with token usage (for accurate cost tracking)
+  const { data, usage } = await ctx.ai.generateWithUsage({
+    prompt: "analyzeTicket",
+    input: { text: input.body },
+  });
+  // usage = { inputTokens, outputTokens, totalTokens }
 }
 ```
 
@@ -342,6 +361,31 @@ interface TimeService {
 ```
 
 Always use `ctx.time.now()` instead of `new Date()` to make capabilities testable with fixed time.
+
+---
+
+## ctx.request
+
+HTTP request metadata (available in HTTP-triggered capabilities):
+
+```typescript
+interface RequestMeta {
+  sourceIp?: string;
+  userAgent?: string;
+}
+```
+
+```typescript
+handler: async (ctx, input) => {
+  // Access request metadata for audit logging
+  const ip = ctx.request?.sourceIp;
+  const ua = ctx.request?.userAgent;
+}
+```
+
+Automatically populated by the route generator from Fastify request headers. Not available in test contexts unless explicitly provided.
+
+> **Proxy deployments**: If your app sits behind a reverse proxy or load balancer, set `trustProxy` in `ServerConfig` so that `sourceIp` reflects the client's real IP from `X-Forwarded-For` rather than the proxy's address.
 
 ---
 

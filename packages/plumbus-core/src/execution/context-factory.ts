@@ -8,6 +8,7 @@ import type {
   ExecutionContext,
   FlowService,
   LoggerService,
+  RequestMeta,
   SecurityService,
   TimeService,
 } from '../types/context.js';
@@ -25,6 +26,7 @@ export interface ContextDependencies {
   time?: TimeService;
   config?: ConfigService;
   translations?: TranslationService;
+  request?: RequestMeta;
 }
 
 const noopAudit: AuditService = {
@@ -53,6 +55,9 @@ const noopFlows: FlowService = {
 
 const noopAI: AIService = {
   async generate() {
+    throw new Error('AI service not configured');
+  },
+  async generateWithUsage() {
     throw new Error('AI service not configured');
   },
   streamGenerate() {
@@ -137,5 +142,6 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     config: deps.config ?? {},
     security: createSecurityService(deps.auth),
     translations: deps.translations ?? noopTranslations,
+    request: deps.request,
   };
 }

@@ -59,12 +59,31 @@ export interface AIStreamEvent {
   error?: string;
 }
 
+// ── Token Usage ──
+export interface AITokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+// ── AI Generate Result with Usage ──
+export interface AIGenerateResult {
+  data: Record<string, any>;
+  usage: AITokenUsage;
+}
+
 // ── AI Service ──
 export interface AIService {
   generate(config: {
     prompt: string;
     input: Record<string, unknown>;
   }): Promise<Record<string, any>>;
+
+  /** Like generate(), but also returns actual token usage from the provider */
+  generateWithUsage(config: {
+    prompt: string;
+    input: Record<string, unknown>;
+  }): Promise<AIGenerateResult>;
 
   /** Stream AI generation, yielding incremental text deltas and a final validated result */
   streamGenerate(config: {
@@ -116,6 +135,14 @@ export interface SecurityService {
   requireScope(scope: string): void;
 }
 
+// ── Request Metadata ──
+export interface RequestMeta {
+  /** Client IP address (may reflect X-Forwarded-For when behind a proxy) */
+  sourceIp?: string;
+  /** HTTP User-Agent header */
+  userAgent?: string;
+}
+
 // ── Execution Context ──
 export interface ExecutionContext {
   auth: AuthContext;
@@ -130,6 +157,8 @@ export interface ExecutionContext {
   config: ConfigService;
   security: SecurityService;
   translations: TranslationService;
+  /** HTTP request metadata (IP, User-Agent) — present when invoked via HTTP */
+  request?: RequestMeta;
 
   // Flow-specific (only present inside flow step execution)
   state?: unknown;

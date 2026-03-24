@@ -48,6 +48,8 @@ export interface ServerConfig {
   host?: string;
   /** Fastify listen port (default: 3000) */
   port?: number;
+  /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
+  trustProxy?: boolean | string | string[] | number;
   /** Called after all capability routes are registered. Use to add custom routes (e.g. streaming). */
   onRoutesRegistered?: (app: FastifyInstance, routeConfig: RouteGeneratorConfig) => void;
 }
@@ -75,6 +77,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     flows,
     host = '0.0.0.0',
     port = 3000,
+    trustProxy,
   } = serverConfig;
 
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
@@ -108,6 +111,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         : {
             level: 'info',
           },
+    ...(trustProxy != null && { trustProxy }),
   });
 
   // Health check endpoint

@@ -57,6 +57,10 @@ export function registerCapabilityRoute(
     // 2. Build execution context
     const bypassTenantScope = capability.access?.tenantScoped === false;
     const deps = config.createDependencies(authContext as any, { bypassTenantScope });
+    deps.request = {
+      sourceIp: request.ip,
+      userAgent: request.headers['user-agent'],
+    };
     const ctx: ExecutionContext = createExecutionContext(deps);
 
     // 3. Extract input (query params for GET, body for POST)
@@ -141,6 +145,10 @@ export function registerStreamingRoute(
     // 2. Build context
     const bypassTenantScope = capability.access?.tenantScoped === false;
     const deps = config.createDependencies(authContext as any, { bypassTenantScope });
+    deps.request = {
+      sourceIp: request.ip,
+      userAgent: request.headers['user-agent'],
+    };
     const ctx: ExecutionContext = createExecutionContext(deps);
 
     // 3. Extract input

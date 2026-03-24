@@ -3,7 +3,7 @@
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
 
 import { z } from 'zod';
-import type { AIDocument, AIService, AIStreamEvent } from '../types/context.js';
+import type { AIDocument, AIGenerateResult, AIService, AIStreamEvent } from '../types/context.js';
 import type { CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import type { PromptRegistry } from './prompt-registry.js';
@@ -123,106 +123,122 @@ export function createAIService(config: AIServiceConfig): AIService {
     };
   }
 
+  // ── Shared generate implementation (returns data + usage) ──
+  async function _generateCore(params: {
+    prompt: string;
+    input: Record<string, unknown>;
+  }): Promise<AIGenerateResult> {
+    const start = performance.now();
+
+    // Security check
+    const securityResult = security ? checkPromptSecurity(params.input, security) : undefined;
+    const inputForAI = securityResult?.redactedInput ?? params.input;
+
+    // Budget pre-check
+    checkBudget();
+
+    // Build prompt
+    const hasPromptDef = promptRegistry?.has(params.prompt);
+    const promptInfo = hasPromptDef
+      ? buildPromptText(params.prompt, inputForAI)
+      : { text: params.prompt };
+
+    // Resolve provider: prompt-level > default
+    const activeProvider = resolveProvider(
+      'provider' in promptInfo ? promptInfo.provider : undefined,
+    );
+
+    // Check if we have a schema to validate against
+    const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
+
+    const request: ProviderRequest = {
+      prompt:
+        Object.keys(inputForAI).length > 0
+          ? `${promptInfo.text}\n\nInput: ${JSON.stringify(inputForAI)}`
+          : promptInfo.text,
+      model: promptInfo.model ?? config.defaultModel,
+      temperature: promptInfo.temperature,
+      maxTokens: promptInfo.maxTokens,
+    };
+
+    let result: any;
+    let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    let validationAttempts = 1;
+    const validationPassed = true;
+
+    if (promptDef) {
+      // Use validated generation
+      const validated = await generateWithValidation(
+        activeProvider,
+        request,
+        promptDef.output,
+        config.validation,
+      );
+      result = validated.data;
+      totalUsage = validated.usage;
+      validationAttempts = validated.attempts;
+    } else {
+      // Raw generation
+      const response = await activeProvider.complete(request);
+      result = response.content;
+      totalUsage = response.usage;
+    }
+
+    const latencyMs = performance.now() - start;
+
+    // Track cost
+    if (costTracker) {
+      costTracker.record({
+        model: promptInfo.model ?? config.defaultModel ?? activeProvider.name,
+        provider: activeProvider.name,
+        promptName: hasPromptDef ? params.prompt : undefined,
+        operation: 'generate',
+        usage: totalUsage,
+        cost: null,
+        latencyMs,
+        tenantId: config.budget?.tenantId,
+        actor: config.budget?.actor,
+      });
+    }
+
+    // Explainability
+    if (explainability) {
+      explainability.record({
+        operation: 'generate',
+        promptName: hasPromptDef ? params.prompt : undefined,
+        model: promptInfo.model ?? config.defaultModel,
+        provider: activeProvider.name,
+        input: params.input,
+        output: result,
+        usage: totalUsage,
+        validation: {
+          passed: validationPassed,
+          attempts: validationAttempts,
+        },
+        securityWarnings: securityResult?.warnings.map((w) => w.message),
+        actor: config.budget?.actor,
+        tenantId: config.budget?.tenantId,
+        latencyMs,
+      });
+    }
+
+    return { data: result, usage: totalUsage };
+  }
+
   return {
     async generate(params: {
       prompt: string;
       input: Record<string, unknown>;
     }): Promise<Record<string, any>> {
-      const start = performance.now();
+      const { data } = await _generateCore(params);
+      return data;
+    },
 
-      // Security check
-      const securityResult = security ? checkPromptSecurity(params.input, security) : undefined;
-      const inputForAI = securityResult?.redactedInput ?? params.input;
-
-      // Budget pre-check
-      checkBudget();
-
-      // Build prompt
-      const hasPromptDef = promptRegistry?.has(params.prompt);
-      const promptInfo = hasPromptDef
-        ? buildPromptText(params.prompt, inputForAI)
-        : { text: params.prompt };
-
-      // Resolve provider: prompt-level > default
-      const activeProvider = resolveProvider(
-        'provider' in promptInfo ? promptInfo.provider : undefined,
-      );
-
-      // Check if we have a schema to validate against
-      const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
-
-      const request: ProviderRequest = {
-        prompt:
-          Object.keys(inputForAI).length > 0
-            ? `${promptInfo.text}\n\nInput: ${JSON.stringify(inputForAI)}`
-            : promptInfo.text,
-        model: promptInfo.model ?? config.defaultModel,
-        temperature: promptInfo.temperature,
-        maxTokens: promptInfo.maxTokens,
-      };
-
-      let result: any;
-      let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-      let validationAttempts = 1;
-      const validationPassed = true;
-
-      if (promptDef) {
-        // Use validated generation
-        const validated = await generateWithValidation(
-          activeProvider,
-          request,
-          promptDef.output,
-          config.validation,
-        );
-        result = validated.data;
-        totalUsage = validated.usage;
-        validationAttempts = validated.attempts;
-      } else {
-        // Raw generation
-        const response = await activeProvider.complete(request);
-        result = response.content;
-        totalUsage = response.usage;
-      }
-
-      const latencyMs = performance.now() - start;
-
-      // Track cost
-      if (costTracker) {
-        costTracker.record({
-          model: promptInfo.model ?? config.defaultModel ?? activeProvider.name,
-          provider: activeProvider.name,
-          promptName: hasPromptDef ? params.prompt : undefined,
-          operation: 'generate',
-          usage: totalUsage,
-          cost: null,
-          latencyMs,
-          tenantId: config.budget?.tenantId,
-          actor: config.budget?.actor,
-        });
-      }
-
-      // Explainability
-      if (explainability) {
-        explainability.record({
-          operation: 'generate',
-          promptName: hasPromptDef ? params.prompt : undefined,
-          model: promptInfo.model ?? config.defaultModel,
-          provider: activeProvider.name,
-          input: params.input,
-          output: result,
-          usage: totalUsage,
-          validation: {
-            passed: validationPassed,
-            attempts: validationAttempts,
-          },
-          securityWarnings: securityResult?.warnings.map((w) => w.message),
-          actor: config.budget?.actor,
-          tenantId: config.budget?.tenantId,
-          latencyMs,
-        });
-      }
-
-      return result;
+    async generateWithUsage(params: {
+      prompt: string;
+      input: Record<string, unknown>;
+    }): Promise<AIGenerateResult> {
+      return _generateCore(params);
     },
 
     async *streamGenerate(params: {
@@ -271,7 +287,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       const request: ProviderRequest = {
         prompt: singleTextField
           ? `${basePrompt}\n\nRespond with ONLY the plain text content. Do NOT wrap your response in JSON or any other format.`
-          : basePrompt,
+          : !basePrompt.toLowerCase().includes('json')
+            ? `${basePrompt}\n\nRespond with a valid JSON object.`
+            : basePrompt,
         model: promptInfo.model ?? config.defaultModel,
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,

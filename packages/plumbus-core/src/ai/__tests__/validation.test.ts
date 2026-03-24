@@ -127,4 +127,43 @@ describe('generateWithValidation', () => {
 
     expect(calls[1]).toContain('previous response was invalid');
   });
+
+  it('auto-injects JSON instruction when prompt lacks "json"', async () => {
+    const prompts: string[] = [];
+    const provider = createMockProvider({
+      complete: vi.fn(async (req) => {
+        prompts.push(req.prompt);
+        return {
+          content: '{"name":"E","age":2}',
+          model: 'mock',
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+          finishReason: 'stop',
+        };
+      }),
+    });
+
+    await generateWithValidation(provider, { prompt: 'Tell me about Alice' }, schema);
+
+    expect(prompts[0]).toContain('Respond with a valid JSON object.');
+  });
+
+  it('does not inject JSON instruction when prompt already mentions json', async () => {
+    const prompts: string[] = [];
+    const provider = createMockProvider({
+      complete: vi.fn(async (req) => {
+        prompts.push(req.prompt);
+        return {
+          content: '{"name":"F","age":3}',
+          model: 'mock',
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+          finishReason: 'stop',
+        };
+      }),
+    });
+
+    await generateWithValidation(provider, { prompt: 'Return the answer as json' }, schema);
+
+    expect(prompts[0]).toBe('Return the answer as json');
+    expect(prompts[0]).not.toContain('Respond with a valid JSON object.');
+  });
 });

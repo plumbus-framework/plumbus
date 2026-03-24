@@ -26,8 +26,10 @@ export type {
 // ── Context ──
 export type {
   AIDocument,
+  AIGenerateResult,
   AIService,
   AIStreamEvent,
+  AITokenUsage,
   ConfigService,
   DataService,
   EventService,
@@ -36,6 +38,7 @@ export type {
   FlowService,
   LoggerService,
   Repository,
+  RequestMeta,
   SecurityService,
   TimeService,
 } from './context.js';

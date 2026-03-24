@@ -138,6 +138,22 @@ export function mockAI(responses?: AIResponse): AIService {
       if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };
     },
+    async generateWithUsage(_config) {
+      const data =
+        responses?.generate !== undefined
+          ? (responses.generate as Record<string, any>)
+          : { text: 'mock-ai-response' };
+      const inputStr = JSON.stringify(_config);
+      const outputStr = JSON.stringify(data);
+      return {
+        data,
+        usage: {
+          inputTokens: Math.ceil(inputStr.length / 4),
+          outputTokens: Math.ceil(outputStr.length / 4),
+          totalTokens: Math.ceil(inputStr.length / 4) + Math.ceil(outputStr.length / 4),
+        },
+      };
+    },
     async *streamGenerate(_config) {
       const result =
         responses?.generate !== undefined

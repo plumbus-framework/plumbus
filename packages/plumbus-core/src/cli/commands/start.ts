@@ -145,6 +145,9 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
     host,
     port,
     onRoutesRegistered,
+    ...(process.env.TRUST_PROXY && {
+      trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
+    }),
   });
 
   // Graceful shutdown handler

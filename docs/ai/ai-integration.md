@@ -18,7 +18,8 @@ Plumbus provides a structured AI runtime with typed prompts, output validation, 
 │       │               │                   │             │
 │  ┌────▼───────────────▼───────────────────▼──────────┐  │
 │  │              ctx.ai Service                       │  │
-│  │  generate() | extract() | classify() | retrieve() │  │
+│  │  generate() | generateWithUsage() | extract()     │  │
+│  │  classify() | retrieve()                          │  │
 │  └───────────────────────────────────────────────────┘  │
 │                                                         │
 │  ┌─────────────┐  ┌────────────┐  ┌─────────────────┐  │
@@ -83,6 +84,21 @@ defineCapability({
   },
 });
 ```
+
+### Generate With Usage (Token Tracking)
+
+When you need actual token counts (e.g., for accurate cost recording):
+
+```typescript
+const { data, usage } = await ctx.ai.generateWithUsage({
+  prompt: "classifyTicket",
+  input: { ticketText: input.body },
+});
+// data = { department, urgency, confidence }
+// usage = { inputTokens: 498, outputTokens: 48, totalTokens: 546 }
+```
+
+`generate()` returns only the data; `generateWithUsage()` returns `{ data, usage }`.
 
 ### Extract (Data Extraction)
 
@@ -213,7 +229,9 @@ const ollama = createProviderAdapter("ollama", {
 
 ## Output Validation
 
-AI outputs are validated against the prompt's Zod output schema. On failure, the framework retries with an enriched prompt:
+AI outputs are validated against the prompt's Zod output schema. On failure, the framework retries with an enriched prompt.
+
+When using `responseFormat: 'json'` (OpenAI's json_object mode), the framework automatically injects "Respond with a valid JSON object." into the prompt if the word "json" is not already present. This prevents the OpenAI API error requiring "json" in the prompt text.
 
 ```typescript
 import { generateWithValidation } from "@plumbus/core";

@@ -32,9 +32,16 @@ export async function generateWithValidation<T>(
   let currentPrompt = request.prompt;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    // OpenAI requires the word "json" in the prompt when using json_object response format.
+    // Auto-inject a JSON instruction if the prompt doesn't already mention it.
+    let promptForRequest = currentPrompt;
+    if (!currentPrompt.toLowerCase().includes('json')) {
+      promptForRequest = `${currentPrompt}\n\nRespond with a valid JSON object.`;
+    }
+
     const response: ProviderResponse = await provider.complete({
       ...request,
-      prompt: currentPrompt,
+      prompt: promptForRequest,
       responseFormat: 'json',
     });
 
