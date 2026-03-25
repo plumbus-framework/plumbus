@@ -109,6 +109,7 @@ export function registerE2ECommand(program: Command): void {
           serverProcess = spawn('npx', ['next', 'dev', '--port', port], {
             cwd: frontendDir,
             stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true,
             env: { ...process.env, PORT: port },
           });
 
@@ -175,14 +176,38 @@ export function registerE2ECommand(program: Command): void {
         }
       } finally {
         // ── Shut down server ──
-        if (serverProcess) {
+        if (serverProcess?.pid) {
           info('Shutting down frontend server...');
-          serverProcess.kill('SIGTERM');
-          // Give it a moment to shut down gracefully
-          await new Promise((r) => setTimeout(r, 1000));
-          if (!serverProcess.killed) {
-            serverProcess.kill('SIGKILL');
+
+          // Stop listeners to prevent log output during shutdown
+          serverProcess.stderr?.removeAllListeners();
+          serverProcess.stdout?.removeAllListeners();
+
+          // Destroy piped streams so they can't keep the event loop alive
+          serverProcess.stdout?.destroy();
+          serverProcess.stderr?.destroy();
+
+          // Detach from event loop so Node can exit once cleanup is done
+          serverProcess.unref();
+
+          // Kill the entire process group (npx + next dev + workers)
+          const pid = serverProcess.pid;
+          try {
+            process.kill(-pid, 'SIGTERM');
+          } catch {
+            // Already exited
           }
+
+          // Failsafe: if the event loop is still alive after 3s, force-kill and exit
+          const code = process.exitCode ?? 0;
+          setTimeout(() => {
+            try {
+              process.kill(-pid, 'SIGKILL');
+            } catch {
+              // Already exited
+            }
+            process.exit(code);
+          }, 3000).unref();
         }
       }
     });
