@@ -130,7 +130,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     queue,
     onFlowError: poolConfig.onFlowError,
     createDataService: poolConfig.createDataService
-      ? (auth) => poolConfig.createDataService!(auth)
+      ? (auth) => poolConfig.createDataService?.(auth)
       : undefined,
   };
   const flowEngine = createFlowEngine(flowEngineConfig);
