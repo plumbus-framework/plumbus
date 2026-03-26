@@ -3,18 +3,18 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
 import type { EventQueue } from '../events/queue.js';
 import type { AuditService } from '../types/audit.js';
-import type { ExecutionContext, FlowExecution } from '../types/context.js';
+import type { DataService, ExecutionContext, FlowExecution } from '../types/context.js';
 import { BackoffStrategy } from '../types/enums.js';
 import type { FlowDefinition, FlowStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
 import type { FlowRegistry } from './registry.js';
 import { flowExecutionsTable } from './schema.js';
 import {
-  FlowStatus,
-  StepStatus,
   assertTransition,
+  FlowStatus,
   isTerminal,
   type StepHistoryEntry,
+  StepStatus,
 } from './state-machine.js';
 import { buildHistoryEntry, executeStep, type StepExecutorDeps } from './step-executor.js';
 
@@ -24,6 +24,17 @@ export interface FlowEngineConfig {
   stepDeps: StepExecutorDeps;
   audit?: AuditService;
   queue?: EventQueue;
+  /** Create a data service scoped to a specific auth context (for tenant isolation in flows). */
+  createDataService?: (auth: AuthContext) => DataService;
+  /** Called when a flow fails permanently (after retries exhausted). */
+  onFlowError?: (info: {
+    executionId: string;
+    flowName: string;
+    step: string | null;
+    error: string;
+    tenantId?: string | null;
+    actor?: string;
+  }) => Promise<void> | void;
 }
 
 interface FlowExecutionRow {
@@ -67,7 +78,7 @@ interface FlowExecutionUpdate {
  * start, run steps, handle wait/resume, and persist state.
  */
 export function createFlowEngine(config: FlowEngineConfig) {
-  const { db, registry, stepDeps, audit } = config;
+  const { db, registry, stepDeps, audit, onFlowError } = config;
 
   /**
    * Start a new flow execution.
@@ -181,13 +192,23 @@ export function createFlowEngine(config: FlowEngineConfig) {
         executionId,
         row.flowName,
         `Step "${currentStepName}" not found in flow definition`,
+        row,
       );
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
     }
 
-    // Build flow-scoped context
+    // Build flow-scoped context with tenant-aware auth from stored execution
+    const flowAuth: AuthContext = {
+      ...ctx.auth,
+      tenantId: row.tenantId ?? ctx.auth.tenantId,
+      userId: row.actor ?? ctx.auth.userId,
+      internal: true,
+    };
+    const flowData = config.createDataService ? config.createDataService(flowAuth) : ctx.data;
     const flowCtx: ExecutionContext = {
       ...ctx,
+      auth: flowAuth,
+      data: flowData,
       state: row.state,
       step: currentStepName,
       flowId: executionId,
@@ -195,7 +216,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     // Execute the step
     const startedAt = new Date();
-    const result = await executeStep(step, flowCtx, row.state, stepDeps);
+    const result = await executeStep(step, flowCtx, row.input, row.state, stepDeps);
     const completedAt = new Date();
 
     const historyEntry = buildHistoryEntry(currentStepName, result, startedAt, completedAt);
@@ -263,7 +284,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
       const branchResults = await Promise.allSettled(
         branchSteps.map(async (branchStep) => {
           const branchStart = new Date();
-          const branchResult = await executeStep(branchStep, flowCtx, row.state, stepDeps);
+          const branchResult = await executeStep(
+            branchStep,
+            flowCtx,
+            row.input,
+            row.state,
+            stepDeps,
+          );
           const branchEnd = new Date();
           return { branchStep, branchResult, branchStart, branchEnd };
         }),
@@ -477,7 +504,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     // Exhausted retries — fail the flow
-    await failFlow(executionId, row.flowName, error);
+    await failFlow(executionId, row.flowName, error, row);
     return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
   }
 
@@ -492,7 +519,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
   }
 
-  async function failFlow(executionId: string, flowName: string, error?: string): Promise<void> {
+  async function failFlow(executionId: string, flowName: string, error?: string, row?: FlowExecutionRow): Promise<void> {
     await updateExecution(executionId, {
       status: FlowStatus.Failed,
       lastError: error ?? 'Unknown error',
@@ -504,6 +531,20 @@ export function createFlowEngine(config: FlowEngineConfig) {
         flowName,
         error,
       });
+    }
+    if (onFlowError) {
+      try {
+        await onFlowError({
+          executionId,
+          flowName,
+          step: row?.currentStep ?? null,
+          error: error ?? 'Unknown error',
+          tenantId: row?.tenantId,
+          actor: row?.actor,
+        });
+      } catch {
+        // Swallow — error logging must never break flow processing
+      }
     }
   }
 

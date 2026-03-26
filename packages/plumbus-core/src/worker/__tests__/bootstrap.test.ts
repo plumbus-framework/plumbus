@@ -247,4 +247,33 @@ describe('Worker Bootstrap', () => {
       expect(pool).toBeDefined();
     });
   });
+
+  describe('flow trigger auto-registration', () => {
+    it('registers a flow trigger consumer when flows have event triggers', async () => {
+      const consumers = new ConsumerRegistry();
+      const flows = new FlowRegistry();
+      flows.register({
+        name: 'testFlow',
+        domain: 'test',
+        input: { safeParse: () => ({ success: true, data: {} }) } as any,
+        steps: [{ name: 'step1', type: 'capability', capability: 'testCap' }],
+        trigger: { event: 'test.event_occurred' },
+      } as any);
+
+      createWorkerPool(makePoolConfig({ consumers, flows }));
+
+      const matched = consumers.getConsumers('test.event_occurred');
+      expect(matched.length).toBe(1);
+      expect(matched[0]?.id).toBe('plumbus:flow-trigger');
+    });
+
+    it('does not register a trigger consumer when no flows have event triggers', () => {
+      const consumers = new ConsumerRegistry();
+      const flows = new FlowRegistry();
+
+      createWorkerPool(makePoolConfig({ consumers, flows }));
+
+      expect(consumers.getAll().length).toBe(0);
+    });
+  });
 });

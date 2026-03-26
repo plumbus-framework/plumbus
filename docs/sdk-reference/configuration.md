@@ -267,7 +267,25 @@ interface ServerConfig {
   flows?: FlowDefinition[];
   prompts?: PromptDefinition[];
   config: PlumbusConfig;
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
 }
+```
+
+### `onCapabilityError` Hook
+
+Optional fire-and-forget callback invoked whenever a capability returns a failure result. The hook runs **after** the error response is sent to the client, so it never delays the HTTP response. Any errors thrown by the hook are silently swallowed.
+
+Export an `onCapabilityError` function from `app/server.ts` and the CLI will wire it automatically:
+
+```typescript
+// app/server.ts
+import type { ServerConfig } from "@plumbus/core";
+
+export const onCapabilityError: NonNullable<ServerConfig['onCapabilityError']> = async (info) => {
+  // info contains: capabilityName, domain, errorCode, errorMessage,
+  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?
+  await writeToMyErrorTable(info);
+};
 ```
 
 > **Production requirement:** `auth.secret` must be set when `environment` is `"production"`. The server will throw on startup if no secret is configured in production. In development/staging, a fallback secret is used with a warning.
@@ -292,27 +310,30 @@ await server.start();
 
 ## Worker Pool Configuration
 
+The worker pool starts automatically when the server boots via `plumbus dev` or `plumbus start`. If any registered flows have event triggers, the framework creates an in-memory queue, registers flow trigger consumers, and starts the background workers (outbox dispatcher, event worker, flow runner, flow scheduler).
+
+No manual wiring is required. The following config options are available when using `createWorkerPool()` directly:
+
 ```typescript
 interface WorkerPoolConfig {
-  concurrency?: number;    // Default: 5
-  pollInterval?: number;   // ms, Default: 1000
   config: PlumbusConfig;
-  events?: EventDefinition[];
-  flows?: FlowDefinition[];
+  db: PostgresJsDatabase;
+  queue: EventQueue;
+  consumers: ConsumerRegistry;
+  flows: FlowRegistry;
+  stepDeps: StepExecutorDeps;
+  aiService?: AIService;              // AI service for capabilities that use AI
+  createDataService?: () => DataService; // Factory for data access in flow steps
+  eventRegistry?: EventRegistry;      // Event registry for emitting events from flow steps
+  outboxPollIntervalMs?: number;      // Default: 1000
+  schedulerPollIntervalMs?: number;   // Default: 60000
+  flowPollIntervalMs?: number;        // Default: 1000
+  enableDispatcher?: boolean;         // Default: true
+  enableEventWorker?: boolean;        // Default: true
+  enableScheduler?: boolean;          // Default: true
+  enableFlowRunner?: boolean;         // Default: true
 }
 ```
 
-```typescript
-import { createWorkerPool } from "@plumbus/core";
-
-const pool = await createWorkerPool({
-  concurrency: 10,
-  pollInterval: 500,
-  config: loadConfig(),
-  events: [userCreated, orderPlaced],
-  flows: [onboardingFlow],
-});
-
-await pool.start();
-```
+The pool auto-registers a `plumbus:flow-trigger` consumer that maps incoming events to flow starts via `createFlowTriggerHandler`.
 

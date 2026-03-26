@@ -2,7 +2,12 @@
 // Validates AI responses against Zod schemas, retries on mismatch
 
 import type { z } from 'zod';
-import type { AIProviderAdapter, ProviderRequest, ProviderResponse } from './provider.js';
+import type {
+  AIProviderAdapter,
+  ProviderRequest,
+  ProviderResponse,
+  TokenUsage,
+} from './provider.js';
 
 export interface ValidationRetryConfig {
   /** Max retries on validation failure (default 2) */
@@ -27,7 +32,7 @@ export async function generateWithValidation<T>(
   const maxRetries = config?.maxRetries ?? 2;
   const feedbackOnError = config?.feedbackOnError ?? true;
 
-  let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   let lastError: Error | null = null;
   let currentPrompt = request.prompt;
 
@@ -49,6 +54,9 @@ export async function generateWithValidation<T>(
       inputTokens: totalUsage.inputTokens + response.usage.inputTokens,
       outputTokens: totalUsage.outputTokens + response.usage.outputTokens,
       totalTokens: totalUsage.totalTokens + response.usage.totalTokens,
+      cachedInputTokens:
+        (totalUsage.cachedInputTokens ?? 0) + (response.usage.cachedInputTokens ?? 0),
+      cacheWriteTokens: (totalUsage.cacheWriteTokens ?? 0) + (response.usage.cacheWriteTokens ?? 0),
     };
 
     try {

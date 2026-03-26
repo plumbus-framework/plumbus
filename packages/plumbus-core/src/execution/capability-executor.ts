@@ -63,12 +63,19 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
       await recordAudit(ctx, capability, 'failure', { error: err });
       return { success: false, error: err };
     }
+    const causeMessage =
+      err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined;
+    const errorMessage = causeMessage
+      ? `${causeMessage} — ${err instanceof Error ? err.message : String(err)}`
+      : err instanceof Error
+        ? err.message
+        : String(err);
     const error = ctx.errors.internal('Capability execution failed', {
       capability: capability.name,
-      message: err instanceof Error ? err.message : String(err),
+      message: errorMessage,
     });
     ctx.logger.error(`Capability "${capability.name}" threw an error`, {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage,
     });
     await recordAudit(ctx, capability, 'failure', { error });
     return { success: false, error };

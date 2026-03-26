@@ -47,6 +47,46 @@ vi.mock('../../api/route-generator.js', () => ({
   registerAllRoutes: vi.fn(),
 }));
 
+const mockGenerateWithUsage = vi.fn(async () => ({
+  data: { answer: 'test' },
+  usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+  model: 'mock-model',
+  provider: 'mock',
+  cost: 0,
+}));
+
+const mockAIService = {
+  generate: vi.fn(async () => ({ answer: 'test' })),
+  generateWithUsage: mockGenerateWithUsage,
+  streamGenerate: vi.fn(async function* () {
+    yield { type: 'done' as const, data: { answer: 'test' } };
+  }),
+  extract: vi.fn(async () => ({})),
+  classify: vi.fn(async () => []),
+  retrieve: vi.fn(async () => []),
+};
+
+vi.mock('../../ai/ai-service.js', () => ({
+  createAIService: vi.fn(() => ({ ...mockAIService })),
+  singleProviderConfig: vi.fn((adapter: any, rest: any) => ({
+    providers: { [adapter.name]: adapter },
+    defaultProvider: adapter.name,
+    ...rest,
+  })),
+}));
+
+vi.mock('../../ai/provider.js', () => ({
+  createProviderAdapter: vi.fn((name: string) => ({ name })),
+}));
+
+vi.mock('../../ai/cost-tracker.js', () => ({
+  createCostTracker: vi.fn(() => ({
+    checkBudget: vi.fn(() => ({ allowed: true })),
+    record: vi.fn(),
+  })),
+}));
+
+import { createAIService } from '../../ai/ai-service.js';
 import { registerAllRoutes } from '../../api/route-generator.js';
 import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
@@ -288,6 +328,94 @@ describe('Server Bootstrap', () => {
           }),
         ),
       ).not.toThrow();
+    });
+  });
+
+  describe('resolveAiOverrides', () => {
+    function makeAiConfig(): Partial<PlumbusConfig> {
+      return {
+        aiProviders: {
+          defaultProvider: 'openai',
+          defaultModel: 'gpt-4o-mini',
+          providers: {
+            openai: {
+              provider: 'openai',
+              apiKey: 'test-key',
+              model: 'gpt-4o-mini',
+            },
+          },
+        },
+      };
+    }
+
+    it('creates AI service with defaultModel and promptOverrides from config', () => {
+      const aiProviders = {
+        defaultProvider: 'openai',
+        defaultModel: 'gpt-4o',
+        providers: {
+          openai: { provider: 'openai', apiKey: 'test-key', model: 'gpt-4o' },
+        },
+        promptOverrides: {
+          interview_ask_next_question: { model: 'gpt-4o-mini', temperature: 0.5 },
+        },
+      };
+      createServer(
+        makeServerConfig({
+          config: makeConfig({ aiProviders }),
+        }),
+      );
+      expect(createAIService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          defaultModel: 'gpt-4o',
+          promptOverrides: {
+            interview_ask_next_question: { model: 'gpt-4o-mini', temperature: 0.5 },
+          },
+        }),
+      );
+    });
+
+    it('wraps AI service when resolveAiOverrides is provided', () => {
+      const resolver = vi.fn(async () => ({
+        defaultModel: 'gpt-4o',
+        promptOverrides: { test_prompt: { model: 'gpt-4o' } },
+      }));
+      const server = createServer(
+        makeServerConfig({
+          config: makeConfig(makeAiConfig()),
+          resolveAiOverrides: resolver,
+        }),
+      );
+      // The server should be created successfully with the resolver
+      expect(server).toBeDefined();
+    });
+
+    it('calls resolver with DB before AI generate', async () => {
+      const db = { execute: vi.fn(async () => []) } as any;
+      const resolver = vi.fn(async () => ({
+        defaultModel: 'gpt-4o',
+      }));
+      createServer(
+        makeServerConfig({
+          config: makeConfig(makeAiConfig()),
+          db,
+          resolveAiOverrides: resolver,
+        }),
+      );
+
+      // Get the routeConfig from registerAllRoutes call to exercise the AI service
+      const routeConfigArg = (registerAllRoutes as any).mock.calls.at(-1)?.[2];
+      expect(routeConfigArg).toBeDefined();
+
+      const deps = routeConfigArg.createDependencies({
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        roles: ['admin'],
+        permissions: [],
+      });
+
+      // Calling AI should trigger the resolver
+      await deps.ai.generateWithUsage({ prompt: 'test', input: {} });
+      expect(resolver).toHaveBeenCalledWith(db);
     });
   });
 });

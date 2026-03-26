@@ -40,6 +40,11 @@ export function evaluateAccess(
     return { allowed: false, reason: 'Tenant context required' };
   }
 
+  // Internal callers (e.g. flow engine) skip role/scope checks
+  if (auth.internal) {
+    return { allowed: true };
+  }
+
   // Role check — caller must have at least one required role
   if (policy.roles && policy.roles.length > 0) {
     const hasRole = policy.roles.some((r) => auth.roles.includes(r));

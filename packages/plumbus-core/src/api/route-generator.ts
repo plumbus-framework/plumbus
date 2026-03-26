@@ -23,6 +23,18 @@ export interface RouteGeneratorConfig {
   ) => ContextDependencies;
   /** Optional queue for dispatching async job capabilities */
   jobQueue?: EventQueue;
+  /** Called when a capability execution fails */
+  onCapabilityError?: (info: {
+    capabilityName: string;
+    domain: string;
+    errorCode: string;
+    errorMessage: string;
+    metadata?: Record<string, unknown>;
+    userId?: string;
+    tenantId?: string;
+    sourceIp?: string;
+    userAgent?: string;
+  }) => void | Promise<void>;
 }
 
 /**
@@ -90,6 +102,23 @@ export function registerCapabilityRoute(
     } else {
       const httpError = errorToHttpResponse(result.error);
       reply.status(httpError.statusCode).send(httpError.body);
+
+      // Fire error hook (fire-and-forget, never blocks the response)
+      if (config.onCapabilityError) {
+        Promise.resolve(
+          config.onCapabilityError({
+            capabilityName: capability.name,
+            domain: capability.domain,
+            errorCode: result.error.code,
+            errorMessage: result.error.message,
+            metadata: result.error.metadata,
+            userId: ctx.auth.userId,
+            tenantId: ctx.auth.tenantId,
+            sourceIp: request.ip,
+            userAgent: request.headers['user-agent'],
+          }),
+        ).catch(() => {});
+      }
     }
   };
 

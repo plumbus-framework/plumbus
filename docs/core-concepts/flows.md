@@ -47,6 +47,25 @@ Executes a capability:
 { name: "validateOrder", capability: "validateOrder" }
 ```
 
+By default, each capability step receives the **merged flow input + flow state** as its input. You can also provide explicit `input` overrides with template references:
+
+```typescript
+{
+  name: "extractEvents",
+  capability: "extractTimelineEvents",
+  input: {
+    sourceType: "interview_message",          // literal value
+    sourceReferenceId: "$input.messageId",    // resolved from flow input
+    cached: "$state.metadataId",              // resolved from flow state
+  },
+}
+```
+
+Template syntax:
+- `$input.fieldName` — resolves to the named field from the flow's trigger input
+- `$state.fieldName` — resolves to the named field from the flow's mutable state
+- Any other value — used as a literal
+
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │ Step 1      │────▶│ Step 2      │────▶│ Step 3      │

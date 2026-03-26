@@ -17,6 +17,7 @@ import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import type { EntityRegistry } from '../data/registry.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
+import { createEventEmitter } from '../events/emitter.js';
 import type { EventRegistry } from '../events/registry.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
@@ -52,6 +53,36 @@ export interface ServerConfig {
   trustProxy?: boolean | string | string[] | number;
   /** Called after all capability routes are registered. Use to add custom routes (e.g. streaming). */
   onRoutesRegistered?: (app: FastifyInstance, routeConfig: RouteGeneratorConfig) => void;
+  /**
+   * Called when a capability execution fails with a non-success result.
+   * Use to log errors to a system log table, send alerts, etc.
+   * Runs after the error response has been sent — exceptions are caught and logged.
+   */
+  onCapabilityError?: (info: {
+    capabilityName: string;
+    domain: string;
+    errorCode: string;
+    errorMessage: string;
+    metadata?: Record<string, unknown>;
+    userId?: string;
+    tenantId?: string;
+    sourceIp?: string;
+    userAgent?: string;
+  }) => void | Promise<void>;
+  /**
+   * Optional async hook to resolve AI config overrides dynamically (e.g. from DB).
+   * Called before each AI generate/stream call. The framework passes the DB connection.
+   * Return default model/provider and per-prompt overrides.
+   * Merges with (and takes priority over) env-based config.
+   */
+  resolveAiOverrides?: (db: PostgresJsDatabase) => Promise<{
+    defaultModel?: string;
+    defaultProvider?: string;
+    promptOverrides?: Record<
+      string,
+      { provider?: string; model?: string; temperature?: number; maxTokens?: number }
+    >;
+  }>;
 }
 
 // ── Server Instance ──
@@ -146,12 +177,28 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
       dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
     });
-    aiService = createAIService({
+    const aiServiceConfig: import('../ai/ai-service.js').AIServiceConfig = {
       providers: providerAdapters,
       defaultProvider: config.aiProviders.defaultProvider,
+      defaultModel: config.aiProviders.defaultModel,
       costTracker,
       promptRegistry: serverConfig.promptRegistry,
-    });
+      promptOverrides: config.aiProviders.promptOverrides
+        ? { ...config.aiProviders.promptOverrides }
+        : undefined,
+    };
+    aiService = createAIService(aiServiceConfig);
+
+    // Wrap AI service with dynamic prompt overrides resolver
+    if (serverConfig.resolveAiOverrides) {
+      aiService = wrapAIServiceWithDynamicOverrides(
+        aiService,
+        aiServiceConfig,
+        serverConfig.resolveAiOverrides,
+        db,
+      );
+    }
+
     logger.info(
       `AI service configured with ${Object.keys(providerAdapters).length} providers (default: ${config.aiProviders.defaultProvider})`,
     );
@@ -179,16 +226,19 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         audit,
         bypassTenantScope: options?.bypassTenantScope,
       });
+      const eventService = createEventEmitter({ db, auth, registry: events, audit });
 
       return {
         auth,
         data,
+        events: eventService,
         ai: aiService,
         audit,
         logger,
         config: config as unknown as Record<string, unknown>,
       };
     },
+    onCapabilityError: serverConfig.onCapabilityError,
   };
 
   // Register all capability routes
@@ -235,6 +285,54 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       await app.close();
       logger.info('Server stopped');
     },
+  };
+}
+
+// ── Dynamic Prompt Overrides Wrapper ──
+
+/**
+ * Wraps an AI service to call a resolver before each AI invocation.
+ * The resolver returns dynamic overrides (e.g. from DB) that are merged
+ * into the AI service config, taking priority over env-based config.
+ */
+export function wrapAIServiceWithDynamicOverrides(
+  base: AIService,
+  aiServiceConfig: import('../ai/ai-service.js').AIServiceConfig,
+  resolver: NonNullable<ServerConfig['resolveAiOverrides']>,
+  db: PostgresJsDatabase,
+): AIService {
+  async function refreshOverrides(): Promise<void> {
+    const dynamic = await resolver(db);
+    if (dynamic.defaultModel) {
+      aiServiceConfig.defaultModel = dynamic.defaultModel;
+    }
+    if (dynamic.defaultProvider) {
+      aiServiceConfig.defaultProvider = dynamic.defaultProvider;
+    }
+    if (dynamic.promptOverrides) {
+      aiServiceConfig.promptOverrides = {
+        ...aiServiceConfig.promptOverrides,
+        ...dynamic.promptOverrides,
+      };
+    }
+  }
+
+  return {
+    async generate(params) {
+      await refreshOverrides();
+      return base.generate(params);
+    },
+    async generateWithUsage(params) {
+      await refreshOverrides();
+      return base.generateWithUsage(params);
+    },
+    async *streamGenerate(params) {
+      await refreshOverrides();
+      yield* base.streamGenerate(params);
+    },
+    extract: base.extract.bind(base),
+    classify: base.classify.bind(base),
+    retrieve: base.retrieve.bind(base),
   };
 }
 

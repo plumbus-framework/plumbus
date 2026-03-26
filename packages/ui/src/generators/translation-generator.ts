@@ -91,6 +91,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
   return {
     locale,
     messages: messages[locale] ?? messages[defaultLocale as Locale],
+    timeZone: "UTC",
   };
 });
 `;
@@ -152,7 +153,7 @@ export function TranslationProvider({ children }: { children: ReactNode }) {
 
   return (
     <LocaleContext.Provider value={contextValue}>
-      <NextIntlClientProvider locale={locale} messages={messages[locale]}>
+      <NextIntlClientProvider locale={locale} messages={messages[locale]} timeZone="UTC">
         {children}
       </NextIntlClientProvider>
     </LocaleContext.Provider>

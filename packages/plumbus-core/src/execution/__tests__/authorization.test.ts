@@ -101,4 +101,23 @@ describe('evaluateAccess', () => {
     );
     expect(result.allowed).toBe(true);
   });
+
+  it('allows internal callers regardless of roles', () => {
+    const policy: AccessPolicy = { roles: ['admin'], tenantScoped: true };
+    const result = evaluateAccess(
+      policy,
+      makeAuth({ roles: ['system'], internal: true, tenantId: 't-1' }),
+    );
+    expect(result.allowed).toBe(true);
+  });
+
+  it('still enforces tenant scoping for internal callers', () => {
+    const policy: AccessPolicy = { roles: ['admin'], tenantScoped: true };
+    const result = evaluateAccess(
+      policy,
+      makeAuth({ roles: [], internal: true, tenantId: undefined }),
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('Tenant context required');
+  });
 });

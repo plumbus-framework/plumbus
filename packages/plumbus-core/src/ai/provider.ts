@@ -34,6 +34,10 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Tokens served from provider cache (charged at reduced rate). */
+  cachedInputTokens?: number;
+  /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
+  cacheWriteTokens?: number;
 }
 
 // ── Streaming ──
@@ -130,7 +134,12 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       const data = (await resp.json()) as {
         choices: Array<{ message: { content: string }; finish_reason: string }>;
         model: string;
-        usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+        usage: {
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
       };
 
       const choice = data.choices[0];
@@ -142,6 +151,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           inputTokens: data.usage.prompt_tokens,
           outputTokens: data.usage.completion_tokens,
           totalTokens: data.usage.total_tokens,
+          cachedInputTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
         },
         finishReason: choice.finish_reason,
       };
@@ -266,7 +276,12 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       const data = (await resp.json()) as {
         content: Array<{ type: string; text: string }>;
         model: string;
-        usage: { input_tokens: number; output_tokens: number };
+        usage: {
+          input_tokens: number;
+          output_tokens: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        };
         stop_reason: string;
       };
 
@@ -282,6 +297,8 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           inputTokens: data.usage.input_tokens,
           outputTokens: data.usage.output_tokens,
           totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+          cachedInputTokens: data.usage.cache_read_input_tokens ?? 0,
+          cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
         },
         finishReason: data.stop_reason,
       };
@@ -381,7 +398,12 @@ function parseOpenAISSEChunk(_eventType: string, data: string): ProviderStreamEv
   try {
     const parsed = JSON.parse(data) as {
       choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
     };
 
     // Usage-only chunk (sent when stream_options.include_usage is true)
@@ -395,6 +417,7 @@ function parseOpenAISSEChunk(_eventType: string, data: string): ProviderStreamEv
           inputTokens: parsed.usage.prompt_tokens,
           outputTokens: parsed.usage.completion_tokens,
           totalTokens: parsed.usage.total_tokens,
+          cachedInputTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0,
         },
       };
     }

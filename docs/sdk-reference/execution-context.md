@@ -184,12 +184,19 @@ interface AIService {
 interface AIGenerateResult {
   data: Record<string, any>;
   usage: AITokenUsage;
+  model: string;
+  provider: string;
+  cost: number;
 }
 
 interface AITokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Tokens served from provider cache (charged at 0.1x input rate) */
+  cachedInputTokens?: number;
+  /** Tokens written to provider cache (charged at 1.25x input rate) */
+  cacheWriteTokens?: number;
 }
 ```
 

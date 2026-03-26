@@ -152,6 +152,9 @@ export function mockAI(responses?: AIResponse): AIService {
           outputTokens: Math.ceil(outputStr.length / 4),
           totalTokens: Math.ceil(inputStr.length / 4) + Math.ceil(outputStr.length / 4),
         },
+        model: 'mock-model',
+        provider: 'mock',
+        cost: 0,
       };
     },
     async *streamGenerate(_config) {
