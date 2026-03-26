@@ -9,7 +9,7 @@ import type {
   ParallelStep,
   WaitStep,
 } from '../types/flow.js';
-import { StepStatus, type StepHistoryEntry } from './state-machine.js';
+import { type StepHistoryEntry, StepStatus } from './state-machine.js';
 
 export interface StepResult {
   status: StepStatus;
@@ -39,16 +39,20 @@ export interface StepExecutorDeps {
 /**
  * Execute a single flow step. Returns a StepResult describing what happened
  * and what should happen next (next step, wait, delay, parallel branches).
+ *
+ * @param flowInput — the original flow trigger input (immutable after start)
+ * @param state     — the mutable flow state accumulated across steps
  */
 export async function executeStep(
   step: FlowStep,
   ctx: ExecutionContext,
+  flowInput: unknown,
   state: unknown,
   deps: StepExecutorDeps,
 ): Promise<StepResult> {
   switch (step.type) {
     case FlowStepType.Capability:
-      return executeCapabilityStep(step, ctx, state, deps);
+      return executeCapabilityStep(step, ctx, flowInput, state, deps);
     case FlowStepType.Conditional:
       return executeConditionalStep(step, state, deps);
     case FlowStepType.Wait:
@@ -67,14 +71,55 @@ export async function executeStep(
   }
 }
 
+/**
+ * Resolve a step's input by merging flow input, state, and step-level overrides.
+ *
+ * Step input values can reference flow input or state via template strings:
+ *   `$input.fieldName` — resolves to the corresponding field from flowInput
+ *   `$state.fieldName` — resolves to the corresponding field from state
+ *   any other value     — used as-is (literal)
+ */
+function resolveCapabilityInput(
+  stepInput: Record<string, unknown> | undefined,
+  flowInput: unknown,
+  state: unknown,
+): Record<string, unknown> {
+  const inputObj = (flowInput && typeof flowInput === 'object' ? flowInput : {}) as Record<
+    string,
+    unknown
+  >;
+  const stateObj = (state && typeof state === 'object' ? state : {}) as Record<string, unknown>;
+
+  // Base: flow input merged with state (state fields override input fields)
+  const merged: Record<string, unknown> = { ...inputObj, ...stateObj };
+
+  if (!stepInput) return merged;
+
+  // Apply step-level overrides with template resolution
+  for (const [key, value] of Object.entries(stepInput)) {
+    if (typeof value === 'string' && value.startsWith('$input.')) {
+      merged[key] = inputObj[value.slice(7)];
+    } else if (typeof value === 'string' && value.startsWith('$state.')) {
+      merged[key] = stateObj[value.slice(7)];
+    } else {
+      merged[key] = value;
+    }
+  }
+
+  return merged;
+}
+
 async function executeCapabilityStep(
   step: CapabilityStep,
   ctx: ExecutionContext,
+  flowInput: unknown,
   state: unknown,
   deps: StepExecutorDeps,
 ): Promise<StepResult> {
   try {
-    const result = await deps.executeCapability(step.name, ctx, state);
+    const capInput = resolveCapabilityInput(step.input, flowInput, state);
+    const capabilityName = step.capability ?? step.name;
+    const result = await deps.executeCapability(capabilityName, ctx, capInput);
     if (result.success) {
       return { status: StepStatus.Completed };
     }

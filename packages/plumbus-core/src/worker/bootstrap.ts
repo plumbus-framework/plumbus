@@ -4,11 +4,14 @@
 // flow scheduler. Handles graceful shutdown.
 
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { createAuditService } from '../audit/service.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { DispatcherConfig } from '../events/dispatcher.js';
 import { createOutboxDispatcher } from '../events/dispatcher.js';
+import { createEventEmitter } from '../events/emitter.js';
 import { createIdempotencyService } from '../events/idempotency.js';
 import type { EventQueue } from '../events/queue.js';
+import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -18,9 +21,11 @@ import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
 import { createFlowScheduler } from '../flows/scheduler.js';
 import type { StepExecutorDeps } from '../flows/step-executor.js';
+import { createFlowTriggerHandler } from '../flows/triggers.js';
 import type { AuditService } from '../types/audit.js';
 import type { PlumbusConfig } from '../types/config.js';
-import type { LoggerService } from '../types/context.js';
+import type { AIService, DataService, LoggerService } from '../types/context.js';
+import type { AuthContext } from '../types/security.js';
 
 // ── Worker Pool Config ──
 
@@ -55,6 +60,14 @@ export interface WorkerPoolConfig {
   enableScheduler?: boolean;
   /** Whether to run flow execution worker loop (default: true) */
   enableFlowRunner?: boolean;
+  /** Optional AI service for capability steps that use AI */
+  aiService?: AIService;
+  /** Optional data service factory for capability steps that access data */
+  createDataService?: (auth?: AuthContext) => DataService;
+  /** Optional event registry for capability steps that emit events */
+  eventRegistry?: EventRegistry;
+  /** Called when a flow fails permanently (after retries exhausted). */
+  onFlowError?: FlowEngineConfig['onFlowError'];
 }
 
 // ── Worker Pool Instance ──
@@ -109,14 +122,37 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const eventWorker = enableEventWorker ? createEventWorker(eventWorkerConfig) : null;
 
   // Flow engine + scheduler
+  const { createDataService } = poolConfig;
   const flowEngineConfig: FlowEngineConfig = {
     db,
     registry: flows,
     stepDeps,
     audit,
     queue,
+    onFlowError: poolConfig.onFlowError,
+    createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
   };
   const flowEngine = createFlowEngine(flowEngineConfig);
+
+  // Auto-register flow trigger consumer for all event-triggered flows
+  const triggerEventTypes = new Set<string>();
+  for (const flow of flows.getAll()) {
+    if (flow.trigger?.event) {
+      triggerEventTypes.add(flow.trigger.event);
+    }
+  }
+  if (triggerEventTypes.size > 0) {
+    const triggerHandler = createFlowTriggerHandler({ registry: flows, engine: flowEngine });
+    consumers.register({
+      id: 'plumbus:flow-trigger',
+      eventTypes: [...triggerEventTypes],
+      handler: async (envelope) => {
+        await triggerHandler.handleEvent(envelope);
+      },
+    });
+    logger.info(`Registered flow trigger consumer for ${triggerEventTypes.size} event types`);
+  }
+
   const schedulerConfig: SchedulerConfig = {
     db,
     registry: flows,
@@ -134,15 +170,32 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       const runnable = await flowEngine.listRunnable(50);
       if (runnable.length === 0) return;
 
+      const systemAuth = {
+        userId: 'system-flow-runner',
+        roles: ['system'],
+        scopes: [],
+        provider: 'worker',
+      };
+
+      const systemAudit = audit ?? createAuditService({ db, auth: systemAuth });
+      const dataService = poolConfig.createDataService
+        ? poolConfig.createDataService()
+        : ({} as DataService);
+      const eventService = poolConfig.eventRegistry
+        ? createEventEmitter({
+            db,
+            auth: systemAuth,
+            registry: poolConfig.eventRegistry,
+            audit: systemAudit,
+          })
+        : undefined;
+
       const baseCtx = createExecutionContext({
-        auth: {
-          userId: 'system-flow-runner',
-          roles: ['system'],
-          scopes: [],
-          provider: 'worker',
-        },
-        data: {},
-        audit,
+        auth: systemAuth,
+        data: dataService,
+        events: eventService,
+        ai: poolConfig.aiService,
+        audit: systemAudit,
         logger,
         config: poolConfig.config as unknown as Record<string, unknown>,
       });

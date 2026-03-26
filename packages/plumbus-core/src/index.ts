@@ -36,6 +36,7 @@ export type {
   EmbeddingResponse,
   ExplainabilityConfig,
   IngestDocumentInput,
+  ModelRate,
   OpenAIAdapterConfig,
   ProviderRequest,
   ProviderResponse,
@@ -60,6 +61,7 @@ export type {
 export {
   PromptRegistry,
   UsageAPIError,
+  calculateModelCost,
   checkPromptSecurity,
   chunkDocument,
   createAIService,

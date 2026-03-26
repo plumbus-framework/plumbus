@@ -170,11 +170,37 @@ PROMPT_INTERVIEW_EXTRACT_METADATA_MODEL=gpt-4o-mini
 
 When a prompt is invoked, the model is resolved in this order:
 
-1. **Per-prompt env override** (`PROMPT_{NAME}_MODEL`) — highest priority
-2. **Prompt definition** (`model.name` in `definePrompt`) — if set
-3. **Default model** (`AI_DEFAULT_MODEL`) — global fallback
+1. **Dynamic overrides** (`resolveAiOverrides` hook) — highest priority
+2. **Per-prompt env override** (`PROMPT_{NAME}_MODEL`)
+3. **Prompt definition** (`model.name` in `definePrompt`) — if set
+4. **Default model** (`AI_DEFAULT_MODEL`) — global fallback
 
-Provider resolution follows the same chain: per-prompt override → prompt definition → `AI_DEFAULT_PROVIDER`.
+Provider resolution follows the same chain: dynamic override → per-prompt env → prompt definition → `AI_DEFAULT_PROVIDER`.
+
+## Dynamic AI Config (DB Overrides)
+
+For runtime model configuration (e.g. admin dashboard changing models without restart), export a `resolveAiOverrides` function from `app/server.ts`:
+
+```ts
+import type { ServerConfig } from '@plumbus/core';
+import { sql } from 'drizzle-orm';
+
+export const resolveAiOverrides: NonNullable<ServerConfig['resolveAiOverrides']> = async (db) => {
+  const rows = await db.execute(sql`SELECT config_key, config_value FROM ai_config`);
+  // Parse rows into override format and return
+  return {
+    defaultModel: 'gpt-4o',        // override global default
+    defaultProvider: 'openai',      // override global provider
+    promptOverrides: {              // per-prompt overrides (key = lowercase, dots → underscores)
+      interview_ask_next_question: { model: 'gpt-4o', temperature: 0.7 },
+    },
+  };
+};
+```
+
+The framework calls this hook before each `generate()`, `generateWithUsage()`, and `streamGenerate()` call. Dynamic overrides merge with and take priority over env-based config.
+
+**Important**: The resolver should implement caching (e.g. 60-second TTL) to avoid querying the database on every AI call. API credentials (API keys) always come from environment variables — only model selection, temperature, and maxTokens should be stored in the database.
 
 ## Security
 

@@ -90,15 +90,19 @@ defineCapability({
 When you need actual token counts (e.g., for accurate cost recording):
 
 ```typescript
-const { data, usage } = await ctx.ai.generateWithUsage({
+const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
   prompt: "classifyTicket",
   input: { ticketText: input.body },
 });
 // data = { department, urgency, confidence }
-// usage = { inputTokens: 498, outputTokens: 48, totalTokens: 546 }
+// usage = { inputTokens: 498, outputTokens: 48, totalTokens: 546,
+//           cachedInputTokens: 200, cacheWriteTokens: 0 }
+// model = "gpt-4o-mini"
+// provider = "openai"
+// cost = 0.000045
 ```
 
-`generate()` returns only the data; `generateWithUsage()` returns `{ data, usage }`.
+`generate()` returns only the data; `generateWithUsage()` returns `{ data, usage, model, provider, cost }`.
 
 ### Extract (Data Extraction)
 
@@ -264,7 +268,44 @@ Return     Retry with error context
 
 ## Cost Tracking
 
-Every AI call is metered:
+Every AI call is metered. The framework automatically calculates per-request cost using published pricing rates from OpenAI and Anthropic.
+
+### Automatic Per-Request Cost
+
+`generateWithUsage()` returns a `cost` field with the dollar amount calculated from actual token usage:
+
+```typescript
+const { data, usage, cost } = await ctx.ai.generateWithUsage({
+  prompt: "analyzeTicket",
+  input: { text: input.body },
+});
+// cost = 0.00234 (USD)
+```
+
+Cost is computed by `calculateModelCost()` which uses a built-in pricing table covering all major OpenAI and Anthropic models. Unknown models (e.g., local Ollama) return cost 0.
+
+### Cached Token Pricing
+
+When providers return cache information, the framework adjusts pricing automatically:
+
+- **Cached input tokens** (prompt cache hits) are charged at **0.1x** the base input rate
+- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate
+- Standard (non-cached) input tokens are charged at the full base rate
+
+The framework parses cache data from provider responses:
+- **OpenAI**: `usage.prompt_tokens_details.cached_tokens`
+- **Anthropic**: `usage.cache_read_input_tokens` and `usage.cache_creation_input_tokens`
+
+### Long Context Premium
+
+For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:
+
+- Input rate: **2x** standard
+- Output rate: **1.5x** standard
+
+The framework detects this automatically based on the model name and total input token count.
+
+### Budget Enforcement
 
 ```typescript
 import { createCostTracker, estimateCost } from "@plumbus/core";
@@ -285,7 +326,7 @@ Cost records include:
 - Prompt name
 - Provider name
 - Model used
-- Input/output token counts
+- Input/output token counts (including cached/cache-write breakdown)
 - Dollar cost
 - Timestamp
 - Caller identity

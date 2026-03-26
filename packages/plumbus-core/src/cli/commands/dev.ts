@@ -7,15 +7,25 @@ import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createAIService, singleProviderConfig } from '../../ai/ai-service.js';
+import { createCostTracker } from '../../ai/cost-tracker.js';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
+import { createProviderAdapter } from '../../ai/provider.js';
 import { loadConfig, validateConfig } from '../../config/loader.js';
 import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
+import { createInMemoryQueue } from '../../events/queue.js';
 import { EventRegistry } from '../../events/registry.js';
+import { executeCapability } from '../../execution/capability-executor.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
+import type { StepExecutorDeps } from '../../flows/step-executor.js';
 import type { PlumbusServer } from '../../server/bootstrap.js';
-import { createServer } from '../../server/bootstrap.js';
+import { createServer, wrapAIServiceWithDynamicOverrides } from '../../server/bootstrap.js';
+import type { AIServiceConfig } from '../../ai/ai-service.js';
+import type { AIService } from '../../types/context.js';
+import type { WorkerPool } from '../../worker/bootstrap.js';
+import { createWorkerPool } from '../../worker/bootstrap.js';
 import { discoverResources } from '../discover.js';
 import { info, error as logError, warn } from '../utils.js';
 
@@ -162,12 +172,18 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
   }
 
   let onRoutesRegistered: import('../../server/bootstrap.js').ServerConfig['onRoutesRegistered'];
+  let resolveAiOverrides: import('../../server/bootstrap.js').ServerConfig['resolveAiOverrides'];
+  let onCapabilityError: import('../../server/bootstrap.js').ServerConfig['onCapabilityError'];
+  let onFlowError: import('../../worker/bootstrap.js').WorkerPoolConfig['onFlowError'];
   for (const ext of ['app/server.ts', 'app/server.js']) {
     const extPath = path.resolve(process.cwd(), ext);
     if (fs.existsSync(extPath)) {
       try {
         const mod = await import(pathToFileURL(extPath).href);
         onRoutesRegistered = mod.onRoutesRegistered ?? mod.default?.onRoutesRegistered;
+        resolveAiOverrides = mod.resolveAiOverrides ?? mod.default?.resolveAiOverrides;
+        onCapabilityError = mod.onCapabilityError ?? mod.default?.onCapabilityError;
+        onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
         if (onRoutesRegistered) {
           info(`Loaded server extensions from ${ext}`);
         }
@@ -191,6 +207,8 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
     host,
     port,
     onRoutesRegistered,
+    resolveAiOverrides,
+    onCapabilityError,
     ...(process.env.TRUST_PROXY && {
       trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
     }),
@@ -198,10 +216,112 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
 
   // Graceful shutdown handler
   let shuttingDown = false;
+  let workerPool: WorkerPool | undefined;
+
+  // Start worker pool if flows with triggers exist
+  if (flows.getAll().some((f) => f.trigger?.event)) {
+    const queue = createInMemoryQueue();
+
+    // Build AI service for worker (same logic as server)
+    let workerAiService: AIService | undefined;
+    if (config.aiProviders) {
+      const providerAdapters: Record<string, ReturnType<typeof createProviderAdapter>> = {};
+      for (const [name, provCfg] of Object.entries(config.aiProviders.providers)) {
+        providerAdapters[name] = createProviderAdapter(name, provCfg);
+      }
+      const costTracker = createCostTracker({
+        maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
+        dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
+      });
+      const workerAiServiceConfig: AIServiceConfig = {
+        providers: providerAdapters,
+        defaultProvider: config.aiProviders.defaultProvider,
+        defaultModel: config.aiProviders.defaultModel,
+        costTracker,
+        promptRegistry,
+      };
+      workerAiService = createAIService(workerAiServiceConfig);
+      if (resolveAiOverrides) {
+        workerAiService = wrapAIServiceWithDynamicOverrides(
+          workerAiService,
+          workerAiServiceConfig,
+          resolveAiOverrides,
+          db as any,
+        );
+      }
+    } else if (config.ai) {
+      const adapter = createProviderAdapter(config.ai.provider, config.ai);
+      const costTracker = createCostTracker({
+        maxTokensPerRequest: config.ai.maxTokensPerRequest,
+        dailyCostLimit: config.ai.dailyCostLimit,
+      });
+      workerAiService = createAIService(
+        singleProviderConfig(adapter, { costTracker, promptRegistry }),
+      );
+    }
+
+    // Build step executor deps
+    const stepDeps: StepExecutorDeps = {
+      executeCapability: async (capabilityName, ctx, input) => {
+        const capability = capabilities.get(capabilityName);
+        if (!capability) {
+          return {
+            success: false,
+            error: { code: 'not_found', message: `Capability "${capabilityName}" not found` },
+          };
+        }
+        return executeCapability(capability, ctx, input);
+      },
+      evaluateCondition: (expression, state) => {
+        try {
+          const stateObj = state && typeof state === 'object' ? state : {};
+          const fn = new Function('state', `return Boolean(${expression})`);
+          return fn(stateObj);
+        } catch {
+          return false;
+        }
+      },
+    };
+
+    workerPool = createWorkerPool({
+      config,
+      db: db as any,
+      queue,
+      consumers,
+      flows,
+      stepDeps,
+      aiService: workerAiService,
+      createDataService: (auth) => {
+        const effectiveAuth = auth ?? {
+          userId: 'system-flow-runner',
+          roles: ['system'],
+          scopes: [],
+          provider: 'worker',
+        };
+        return entities.createDataService({
+          db: db as any,
+          auth: effectiveAuth,
+          bypassTenantScope: !effectiveAuth.tenantId,
+        });
+      },
+      eventRegistry: events,
+      onFlowError,
+    });
+
+    await workerPool.start();
+    info(
+      `Worker pool started (${flows.getAll().filter((f) => f.trigger?.event).length} event-triggered flows)`,
+    );
+  }
+
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
     info('Graceful shutdown initiated...');
+    if (workerPool) {
+      await workerPool.stop();
+      info('Worker pool stopped');
+    }
     await server.stop();
     info('Server stopped');
   };

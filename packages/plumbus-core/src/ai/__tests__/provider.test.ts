@@ -43,7 +43,12 @@ describe('AI Provider Adapters', () => {
         json: async () => ({
           choices: [{ message: { content: 'Hello' }, finish_reason: 'stop' }],
           model: 'gpt-4o',
-          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            prompt_tokens_details: { cached_tokens: 4 },
+          },
         }),
       });
       vi.stubGlobal('fetch', mockFetch);
@@ -55,6 +60,7 @@ describe('AI Provider Adapters', () => {
       expect(result.model).toBe('gpt-4o');
       expect(result.usage.inputTokens).toBe(10);
       expect(result.usage.outputTokens).toBe(5);
+      expect(result.usage.cachedInputTokens).toBe(4);
       expect(mockFetch).toHaveBeenCalledWith(
         'https://api.openai.com/v1/chat/completions',
         expect.objectContaining({ method: 'POST' }),
@@ -135,7 +141,12 @@ describe('AI Provider Adapters', () => {
         json: async () => ({
           content: [{ type: 'text', text: 'Hello from Claude' }],
           model: 'claude-sonnet-4-20250514',
-          usage: { input_tokens: 10, output_tokens: 8 },
+          usage: {
+            input_tokens: 10,
+            output_tokens: 8,
+            cache_read_input_tokens: 3,
+            cache_creation_input_tokens: 2,
+          },
           stop_reason: 'end_turn',
         }),
       });
@@ -146,6 +157,8 @@ describe('AI Provider Adapters', () => {
 
       expect(result.content).toBe('Hello from Claude');
       expect(result.usage.totalTokens).toBe(18);
+      expect(result.usage.cachedInputTokens).toBe(3);
+      expect(result.usage.cacheWriteTokens).toBe(2);
       expect(mockFetch).toHaveBeenCalledWith(
         'https://api.anthropic.com/v1/messages',
         expect.objectContaining({

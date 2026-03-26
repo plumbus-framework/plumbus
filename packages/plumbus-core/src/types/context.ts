@@ -64,12 +64,20 @@ export interface AITokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Tokens served from provider cache (charged at reduced rate). */
+  cachedInputTokens?: number;
+  /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
+  cacheWriteTokens?: number;
 }
 
 // ── AI Generate Result with Usage ──
 export interface AIGenerateResult {
   data: Record<string, any>;
   usage: AITokenUsage;
+  model: string;
+  provider: string;
+  /** Estimated cost in USD based on published per-token rates. 0 for unknown models. */
+  cost: number;
 }
 
 // ── AI Service ──

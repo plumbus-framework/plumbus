@@ -6,8 +6,9 @@ import { z } from 'zod';
 import type { AIDocument, AIGenerateResult, AIService, AIStreamEvent } from '../types/context.js';
 import type { CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
+import { calculateModelCost } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
-import type { AIProviderAdapter, ProviderRequest } from './provider.js';
+import type { AIProviderAdapter, ProviderRequest, TokenUsage } from './provider.js';
 import type { RAGPipeline } from './rag/pipeline.js';
 import type { AISecurityConfig } from './security.js';
 import { checkPromptSecurity } from './security.js';
@@ -162,7 +163,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     };
 
     let result: any;
-    let totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     let validationAttempts = 1;
     const validationPassed = true;
 
@@ -222,7 +223,24 @@ export function createAIService(config: AIServiceConfig): AIService {
       });
     }
 
-    return { data: result, usage: totalUsage };
+    const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+    const cost = calculateModelCost(
+      totalUsage.inputTokens,
+      totalUsage.outputTokens,
+      resolvedModel,
+      {
+        cachedInputTokens: totalUsage.cachedInputTokens,
+        cacheWriteTokens: totalUsage.cacheWriteTokens,
+      },
+    );
+
+    return {
+      data: result,
+      usage: totalUsage,
+      model: resolvedModel,
+      provider: activeProvider.name,
+      cost,
+    };
   }
 
   return {

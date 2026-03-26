@@ -24,7 +24,7 @@ const defaultDeps: StepExecutorDeps = {
 describe('StepExecutor', () => {
   it('executes a capability step successfully', async () => {
     const step: CapabilityStep = { name: 'processOrder', type: FlowStepType.Capability };
-    const result = await executeStep(step, mockCtx, {}, defaultDeps);
+    const result = await executeStep(step, mockCtx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(defaultDeps.executeCapability).toHaveBeenCalledWith('processOrder', mockCtx, {});
   });
@@ -35,7 +35,7 @@ describe('StepExecutor', () => {
       ...defaultDeps,
       executeCapability: vi.fn().mockResolvedValue({ success: false, error: 'oops' }),
     };
-    const result = await executeStep(step, mockCtx, {}, deps);
+    const result = await executeStep(step, mockCtx, {}, {}, deps);
     expect(result.status).toBe(StepStatus.Failed);
     expect(result.error).toContain('oops');
   });
@@ -46,9 +46,76 @@ describe('StepExecutor', () => {
       ...defaultDeps,
       executeCapability: vi.fn().mockRejectedValue(new Error('boom')),
     };
-    const result = await executeStep(step, mockCtx, {}, deps);
+    const result = await executeStep(step, mockCtx, {}, {}, deps);
     expect(result.status).toBe(StepStatus.Failed);
     expect(result.error).toBe('boom');
+  });
+
+  it('merges flowInput and state into capability input', async () => {
+    const step: CapabilityStep = { name: 'process', type: FlowStepType.Capability };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+    };
+    await executeStep(
+      step,
+      mockCtx,
+      { projectId: 'p1', messageId: 'm1' },
+      { metadataId: 'md1' },
+      deps,
+    );
+    expect(deps.executeCapability).toHaveBeenCalledWith('process', mockCtx, {
+      projectId: 'p1',
+      messageId: 'm1',
+      metadataId: 'md1',
+    });
+  });
+
+  it('resolves $input and $state template references in step.input', async () => {
+    const step: CapabilityStep = {
+      name: 'extract',
+      type: FlowStepType.Capability,
+      input: {
+        sourceType: 'interview_message',
+        sourceReferenceId: '$input.messageId',
+        cached: '$state.metadataId',
+      },
+    };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+    };
+    await executeStep(
+      step,
+      mockCtx,
+      { projectId: 'p1', messageId: 'm1' },
+      { metadataId: 'md1' },
+      deps,
+    );
+    expect(deps.executeCapability).toHaveBeenCalledWith('extract', mockCtx, {
+      projectId: 'p1',
+      messageId: 'm1',
+      metadataId: 'md1',
+      sourceType: 'interview_message',
+      sourceReferenceId: 'm1',
+      cached: 'md1',
+    });
+  });
+
+  it('uses step.capability instead of step.name when provided', async () => {
+    const step: CapabilityStep = {
+      name: 'extractMetadata',
+      type: FlowStepType.Capability,
+      capability: 'extractMessageMetadata',
+    };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+    };
+    await executeStep(step, mockCtx, { projectId: 'p1' }, {}, deps);
+    expect(deps.executeCapability).toHaveBeenCalledWith('extractMessageMetadata', mockCtx, {
+      projectId: 'p1',
+    });
   });
 
   it('executes a conditional step — true branch', async () => {
@@ -63,7 +130,7 @@ describe('StepExecutor', () => {
       ...defaultDeps,
       evaluateCondition: vi.fn().mockReturnValue(true),
     };
-    const result = await executeStep(step, mockCtx, {}, deps);
+    const result = await executeStep(step, mockCtx, {}, {}, deps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.nextStep).toBe('approve');
   });
@@ -80,7 +147,7 @@ describe('StepExecutor', () => {
       ...defaultDeps,
       evaluateCondition: vi.fn().mockReturnValue(false),
     };
-    const result = await executeStep(step, mockCtx, {}, deps);
+    const result = await executeStep(step, mockCtx, {}, {}, deps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.nextStep).toBe('reject');
   });
@@ -91,7 +158,7 @@ describe('StepExecutor', () => {
       type: FlowStepType.Wait,
       event: 'approval.received',
     };
-    const result = await executeStep(step, mockCtx, {}, defaultDeps);
+    const result = await executeStep(step, mockCtx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.waitEvent).toBe('approval.received');
   });
@@ -102,7 +169,7 @@ describe('StepExecutor', () => {
       type: FlowStepType.Delay,
       duration: '30m',
     };
-    const result = await executeStep(step, mockCtx, {}, defaultDeps);
+    const result = await executeStep(step, mockCtx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.delayDuration).toBe('30m');
   });
@@ -113,7 +180,7 @@ describe('StepExecutor', () => {
       type: FlowStepType.Parallel,
       branches: ['branchA', 'branchB'],
     };
-    const result = await executeStep(step, mockCtx, {}, defaultDeps);
+    const result = await executeStep(step, mockCtx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.parallelBranches).toEqual(['branchA', 'branchB']);
   });
@@ -124,7 +191,7 @@ describe('StepExecutor', () => {
       type: FlowStepType.EventEmit,
       event: 'order.shipped',
     };
-    const result = await executeStep(step, mockCtx, { orderId: '123' }, defaultDeps);
+    const result = await executeStep(step, mockCtx, {}, { orderId: '123' }, defaultDeps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(mockCtx.events.emit).toHaveBeenCalledWith('order.shipped', { orderId: '123' });
   });
@@ -138,7 +205,7 @@ describe('StepExecutor', () => {
       type: FlowStepType.EventEmit,
       event: 'order.shipped',
     };
-    const result = await executeStep(step, ctx, {}, defaultDeps);
+    const result = await executeStep(step, ctx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Failed);
     expect(result.error).toBe('emit failed');
   });

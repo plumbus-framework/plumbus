@@ -2,7 +2,7 @@
 // Simulate flow execution in-memory without requiring a database or queue.
 // Walks through steps sequentially, tracking state and step history.
 
-import { FlowStatus, StepStatus, type StepHistoryEntry } from '../flows/state-machine.js';
+import { FlowStatus, type StepHistoryEntry, StepStatus } from '../flows/state-machine.js';
 import {
   buildHistoryEntry,
   executeStep,
@@ -61,12 +61,28 @@ export async function simulateFlow(
   const ctx = options?.ctx ?? createTestContext(options);
   const maxSteps = options?.maxSteps ?? 100;
 
+  // Build reverse lookup: capability name → step name (for capabilityResults matching)
+  const capToStepName = new Map<string, string>();
+  for (const step of flow.steps) {
+    if (step.type === 'capability' && 'capability' in step && step.capability) {
+      capToStepName.set(step.capability as string, step.name);
+    }
+  }
+
   // Build step deps with configurable results
   const stepDeps: StepExecutorDeps = {
     executeCapability:
       options?.stepDeps?.executeCapability ??
       (async (name) => {
-        return options?.capabilityResults?.[name] ?? { success: true, data: {} };
+        // Match by capability name first, then fall back to step name
+        const stepName = capToStepName.get(name);
+        return (
+          options?.capabilityResults?.[name] ??
+          (stepName ? options?.capabilityResults?.[stepName] : undefined) ?? {
+            success: true,
+            data: {},
+          }
+        );
       }),
     evaluateCondition:
       options?.stepDeps?.evaluateCondition ??
@@ -86,7 +102,8 @@ export async function simulateFlow(
 
   const history: StepHistoryEntry[] = [];
   const stepResults = new Map<string, StepResult>();
-  const state = input;
+  const flowInput = input;
+  const state = flow.state ? {} : input;
   let executedCount = 0;
 
   // Start with the first step
@@ -98,7 +115,7 @@ export async function simulateFlow(
     executedCount++;
 
     const startedAt = ctx.time.now();
-    const result = await executeStep(step, ctx, state, stepDeps);
+    const result = await executeStep(step, ctx, flowInput, state, stepDeps);
     const completedAt = ctx.time.now();
 
     const entry = buildHistoryEntry(step.name, result, startedAt, completedAt);
@@ -140,7 +157,7 @@ export async function simulateFlow(
         if (branchStep) {
           executedCount++;
           const bStart = ctx.time.now();
-          const bResult = await executeStep(branchStep, ctx, state, stepDeps);
+          const bResult = await executeStep(branchStep, ctx, flowInput, state, stepDeps);
           const bEnd = ctx.time.now();
           history.push(buildHistoryEntry(branchName, bResult, bStart, bEnd));
           stepResults.set(branchName, bResult);
