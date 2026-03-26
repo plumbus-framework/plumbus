@@ -122,6 +122,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const eventWorker = enableEventWorker ? createEventWorker(eventWorkerConfig) : null;
 
   // Flow engine + scheduler
+  const { createDataService } = poolConfig;
   const flowEngineConfig: FlowEngineConfig = {
     db,
     registry: flows,
@@ -129,9 +130,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     audit,
     queue,
     onFlowError: poolConfig.onFlowError,
-    createDataService: poolConfig.createDataService
-      ? (auth) => poolConfig.createDataService?.(auth)
-      : undefined,
+    createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
   };
   const flowEngine = createFlowEngine(flowEngineConfig);
 

@@ -519,7 +519,12 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
   }
 
-  async function failFlow(executionId: string, flowName: string, error?: string, row?: FlowExecutionRow): Promise<void> {
+  async function failFlow(
+    executionId: string,
+    flowName: string,
+    error?: string,
+    row?: FlowExecutionRow,
+  ): Promise<void> {
     await updateExecution(executionId, {
       status: FlowStatus.Failed,
       lastError: error ?? 'Unknown error',
