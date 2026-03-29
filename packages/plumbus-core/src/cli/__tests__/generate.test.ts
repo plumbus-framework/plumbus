@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { field } from '../../fields/index.js';
 import type { CapabilityContract, CapabilityEffects } from '../../types/capability.js';
@@ -6,6 +8,7 @@ import type { EntityDefinition } from '../../types/entity.js';
 import type { EventDefinition } from '../../types/event.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import {
+  ensureTsconfigIncludesGenerated,
   generateAll,
   generateCapabilityNameType,
   generateCapabilityTypes,
@@ -439,5 +442,88 @@ describe('generateAll with events and flows', () => {
     const tmpDir = `/tmp/plumbus-test-gen-${Date.now()}`;
     const generated = generateAll([], tmpDir, [], [], []);
     expect(generated).toContain('plumbus.d.ts');
+  });
+});
+
+describe('ensureTsconfigIncludesGenerated', () => {
+  const tmpDir = `/tmp/plumbus-tsconfig-test-${Date.now()}`;
+  const tsconfigPath = path.join(tmpDir, 'tsconfig.json');
+
+  afterEach(() => {
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it('adds .plumbus/generated to include array', () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(
+      tsconfigPath,
+      JSON.stringify({ compilerOptions: {}, include: ['app', 'config'] }),
+    );
+
+    const modified = ensureTsconfigIncludesGenerated(tsconfigPath);
+    expect(modified).toBe(true);
+
+    const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf-8'));
+    expect(tsconfig.include).toContain('.plumbus/generated');
+  });
+
+  it('preserves JSONC comments when modifying', () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const content = [
+      '{',
+      '  // Compiler settings',
+      '  "compilerOptions": {},',
+      '  "include": ["app"]',
+      '}',
+      '',
+    ].join('\n');
+    fs.writeFileSync(tsconfigPath, content);
+
+    const modified = ensureTsconfigIncludesGenerated(tsconfigPath);
+    expect(modified).toBe(true);
+
+    const result = fs.readFileSync(tsconfigPath, 'utf-8');
+    expect(result).toContain('// Compiler settings');
+    expect(result).toContain('.plumbus/generated');
+  });
+
+  it('preserves trailing newline', () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(tsconfigPath, '{\n  "include": ["app"]\n}\n');
+
+    ensureTsconfigIncludesGenerated(tsconfigPath);
+
+    const result = fs.readFileSync(tsconfigPath, 'utf-8');
+    expect(result.endsWith('\n')).toBe(true);
+  });
+
+  it('does not duplicate if already present', () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(
+      tsconfigPath,
+      JSON.stringify({ compilerOptions: {}, include: ['app', '.plumbus/generated'] }),
+    );
+
+    const modified = ensureTsconfigIncludesGenerated(tsconfigPath);
+    expect(modified).toBe(false);
+
+    const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf-8'));
+    const count = tsconfig.include.filter((e: string) => e === '.plumbus/generated').length;
+    expect(count).toBe(1);
+  });
+
+  it('returns false if tsconfig does not exist', () => {
+    const modified = ensureTsconfigIncludesGenerated('/tmp/nonexistent-tsconfig-12345.json');
+    expect(modified).toBe(false);
+  });
+
+  it('returns false if include is not an array', () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(tsconfigPath, JSON.stringify({ compilerOptions: {} }));
+
+    const modified = ensureTsconfigIncludesGenerated(tsconfigPath);
+    expect(modified).toBe(false);
   });
 });
