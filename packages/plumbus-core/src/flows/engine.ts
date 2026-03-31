@@ -5,7 +5,7 @@ import type { EventQueue } from '../events/queue.js';
 import type { AuditService } from '../types/audit.js';
 import type { DataService, ExecutionContext, FlowExecution } from '../types/context.js';
 import { BackoffStrategy } from '../types/enums.js';
-import type { FlowDefinition, FlowStep } from '../types/flow.js';
+import type { FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
 import type { FlowRegistry } from './registry.js';
 import { flowExecutionsTable } from './schema.js';
@@ -564,13 +564,34 @@ export function createFlowEngine(config: FlowEngineConfig) {
 }
 
 /**
+ * Collect all step names that are branches of parallel steps.
+ * These should be skipped during linear step advancement.
+ */
+function collectBranchNames(steps: FlowStep[]): Set<string> {
+  const branches = new Set<string>();
+  for (const step of steps) {
+    if (step.type === 'parallel' && 'branches' in step) {
+      for (const b of (step as ParallelStep).branches) branches.add(b);
+    }
+  }
+  return branches;
+}
+
+/**
  * Get the next step name in a linear flow sequence.
  * Returns undefined if we're at the last step.
+ * Skips branch steps that belong to parallel steps.
  */
 function getNextStepName(steps: FlowStep[], currentStepName: string): string | undefined {
-  const idx = steps.findIndex((s) => s.name === currentStepName);
+  const branchNames = collectBranchNames(steps);
+  let idx = steps.findIndex((s) => s.name === currentStepName);
   if (idx === -1 || idx >= steps.length - 1) return undefined;
-  return steps[idx + 1]?.name;
+  idx++;
+  while (idx < steps.length && branchNames.has(steps[idx]?.name ?? '')) {
+    idx++;
+  }
+  if (idx >= steps.length) return undefined;
+  return steps[idx]?.name;
 }
 
 /**

@@ -4,6 +4,8 @@
 //
 // Key exports: createRepository, EntityRegistry, generateDrizzleSchema, applyMigrations
 
+// Re-export Drizzle operators for use in query conditions
+export { gte, ilike, like, lte, sql } from 'drizzle-orm';
 export {
   applyMigrations,
   collectSchemas,

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { z } from 'zod';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { errorToHttpResponse } from '../errors/http.js';
 import type { EventQueue } from '../events/queue.js';
@@ -76,7 +77,8 @@ export function registerCapabilityRoute(
     const ctx: ExecutionContext = createExecutionContext(deps);
 
     // 3. Extract input (query params for GET, body for POST)
-    const input = method === 'GET' ? request.query : request.body;
+    const input =
+      method === 'GET' ? coerceQueryParams(request.query, capability.input) : request.body;
 
     // 4. Execute capability (jobs dispatched async via queue if available)
     if (capability.kind === 'job' && config.jobQueue) {
@@ -208,4 +210,53 @@ function toKebabCase(str: string): string {
     .replace(/([A-Z])/g, '-$1')
     .toLowerCase()
     .replace(/^-/, '');
+}
+
+/**
+ * Coerce query-string values (always strings) to the types expected by the Zod schema.
+ * Handles number and boolean coercion for top-level fields in ZodObject schemas.
+ */
+function coerceQueryParams(query: unknown, schema: z.ZodTypeAny): Record<string, unknown> {
+  const raw = (query ?? {}) as Record<string, unknown>;
+  const shape = getSchemaShape(schema);
+  if (!shape) return raw;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') {
+      result[key] = value;
+      continue;
+    }
+    const expectedType = getExpectedType(shape[key]);
+    if (expectedType === 'number') {
+      const n = Number(value);
+      result[key] = Number.isNaN(n) ? value : n;
+    } else if (expectedType === 'boolean') {
+      result[key] = value === 'true' ? true : value === 'false' ? false : value;
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/** Unwrap ZodOptional / ZodDefault / ZodNullable to find the inner type name. */
+function getExpectedType(field: z.ZodTypeAny | undefined): string | undefined {
+  if (!field) return undefined;
+  const typeName = (field as any)._def?.typeName as string | undefined;
+  if (typeName === 'ZodNumber') return 'number';
+  if (typeName === 'ZodBoolean') return 'boolean';
+  if (typeName === 'ZodOptional' || typeName === 'ZodDefault' || typeName === 'ZodNullable') {
+    return getExpectedType((field as any)._def?.innerType);
+  }
+  return typeName;
+}
+
+/** Extract the shape from a ZodObject, unwrapping ZodEffects if needed. */
+function getSchemaShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> | undefined {
+  const def = (schema as any)._def;
+  if (!def) return undefined;
+  if (def.typeName === 'ZodObject') return def.shape?.() ?? def.shape;
+  if (def.typeName === 'ZodEffects') return getSchemaShape(def.schema);
+  return undefined;
 }

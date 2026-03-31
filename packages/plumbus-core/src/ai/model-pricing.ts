@@ -3,7 +3,7 @@
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-03-25
+// Last updated: 2026-03-29
 //
 // Unknown models (Ollama, custom endpoints) return cost $0.
 
@@ -46,13 +46,18 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'gpt-4-turbo-2024-04-09': { inputPerMTok: 10, outputPerMTok: 30 },
   'gpt-4-0125-preview': { inputPerMTok: 10, outputPerMTok: 30 },
   'gpt-4-1106-preview': { inputPerMTok: 10, outputPerMTok: 30 },
+  'gpt-4-1106-vision-preview': { inputPerMTok: 10, outputPerMTok: 30 },
   'gpt-4-0613': { inputPerMTok: 30, outputPerMTok: 60 },
+  'gpt-4-0314': { inputPerMTok: 30, outputPerMTok: 60 },
   'gpt-4': { inputPerMTok: 30, outputPerMTok: 60 },
   'gpt-4-32k': { inputPerMTok: 60, outputPerMTok: 120 },
   'gpt-3.5-turbo': { inputPerMTok: 0.5, outputPerMTok: 1.5 },
   'gpt-3.5-turbo-0125': { inputPerMTok: 0.5, outputPerMTok: 1.5 },
   'gpt-3.5-turbo-1106': { inputPerMTok: 1, outputPerMTok: 2 },
+  'gpt-3.5-turbo-0613': { inputPerMTok: 1.5, outputPerMTok: 2 },
+  'gpt-3.5-0301': { inputPerMTok: 1.5, outputPerMTok: 2 },
   'gpt-3.5-turbo-instruct': { inputPerMTok: 1.5, outputPerMTok: 2 },
+  'gpt-3.5-turbo-16k-0613': { inputPerMTok: 3, outputPerMTok: 4 },
 
   // ── Anthropic: Claude ──
   'claude-opus-4-6': { inputPerMTok: 5, outputPerMTok: 25 },
@@ -76,7 +81,7 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
  * (e.g. "claude-sonnet-4-20250514" → "claude-sonnet-4").
  * Returns null for unknown/unsupported models (Ollama, custom).
  */
-function findModelRate(model: string): ModelRate | null {
+export function findModelRate(model: string): ModelRate | null {
   const exact = MODEL_PRICING[model];
   if (exact) return exact;
 

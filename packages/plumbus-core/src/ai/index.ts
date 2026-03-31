@@ -25,7 +25,7 @@ export {
   type ExplainabilityConfig,
 } from './explainability.js';
 // Model pricing
-export { calculateModelCost, type ModelRate } from './model-pricing.js';
+export { calculateModelCost, findModelRate, type ModelRate } from './model-pricing.js';
 // Prompt registry
 export { PromptRegistry } from './prompt-registry.js';
 // Provider adapters

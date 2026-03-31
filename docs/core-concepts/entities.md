@@ -162,8 +162,12 @@ plumbus generate
 
 This creates `.plumbus/generated/entity-types.ts` with:
 
-- An interface per entity (e.g. `UserRecord`) mapping fields to TypeScript types
-- A `DataServiceMap` interface mapping entity names to `Repository<T>` for typed `ctx.data` access
+- A **Record interface** per entity (e.g. `UserRecord`) mapping fields to TypeScript types
+- A **CreateInput interface** per entity (e.g. `UserCreateInput`) that omits system fields (`id`, `createdAt`, `updatedAt`, `tenantId`)
+- An **UpdateInput interface** per entity (e.g. `UserUpdateInput`) with all non-system fields optional
+- A `DataServiceMap` interface mapping entity names to `Repository<T, TCreate, TUpdate>` for typed `ctx.data` access
+
+After generation, calls like `ctx.data.User.create({ ... })` and `ctx.data.User.update(id, { ... })` are type-checked against the entity's fields.
 
 See [Data Layer → Entity Type Generation](../sdk-reference/data-layer.md#entity-type-generation) for details.
 

@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import { isPlumbusError } from '../errors/index.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext } from '../types/context.js';
-import type { PlumbusError } from '../types/errors.js';
+import type { PlumbusErrorLike } from '../types/errors.js';
 import { evaluateAccess } from './authorization.js';
 
 export interface ExecutionResult<T = unknown> {
@@ -12,7 +12,7 @@ export interface ExecutionResult<T = unknown> {
 
 export interface ExecutionFailure {
   success: false;
-  error: PlumbusError;
+  error: PlumbusErrorLike;
 }
 
 export type CapabilityResult<T = unknown> = ExecutionResult<T> | ExecutionFailure;

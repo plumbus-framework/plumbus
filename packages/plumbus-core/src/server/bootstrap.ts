@@ -70,6 +70,17 @@ export interface ServerConfig {
     userAgent?: string;
   }) => void | Promise<void>;
   /**
+   * Called on uncaught exceptions, unhandled rejections, and Fastify-level errors.
+   * Use to log process-level crashes that bypass capability/flow hooks.
+   * The `source` field indicates origin: 'uncaughtException', 'unhandledRejection', 'fastify', or 'startup'.
+   */
+  onProcessError?: (info: {
+    source: 'uncaughtException' | 'unhandledRejection' | 'fastify' | 'startup';
+    message: string;
+    stack?: string;
+    metadata?: Record<string, unknown>;
+  }) => void | Promise<void>;
+  /**
    * Optional async hook to resolve AI config overrides dynamically (e.g. from DB).
    * Called before each AI generate/stream call. The framework passes the DB connection.
    * Return default model/provider and per-prompt overrides.
@@ -243,6 +254,40 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
   // Register all capability routes
   registerAllRoutes(app, capabilities.getAll(), routeConfig);
+
+  // Fastify-level error handler — catches malformed requests, timeouts, uncaught route errors
+  if (serverConfig.onProcessError) {
+    const processErrorHook = serverConfig.onProcessError;
+    app.setErrorHandler((err, request, reply) => {
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      const statusCode =
+        typeof (err as { statusCode?: unknown }).statusCode === 'number'
+          ? (err as { statusCode: number }).statusCode
+          : 500;
+      logger.error(`Fastify error: ${message}`, {
+        url: request.url,
+        method: request.method,
+        statusCode,
+      });
+      Promise.resolve(
+        processErrorHook({
+          source: 'fastify',
+          message,
+          stack,
+          metadata: {
+            url: request.url,
+            method: request.method,
+            statusCode,
+            ip: request.ip,
+          },
+        }),
+      ).catch(() => {});
+      reply.status(statusCode).send({
+        error: { code: 'internal', message },
+      });
+    });
+  }
 
   // Allow consumer to register additional routes (e.g., streaming endpoints)
   if (serverConfig.onRoutesRegistered) {

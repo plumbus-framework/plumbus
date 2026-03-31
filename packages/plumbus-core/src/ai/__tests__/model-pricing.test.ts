@@ -13,6 +13,17 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'gpt-4o')).toBe(0.0075);
   });
 
+  it('returns non-zero cost for legacy OpenAI models', () => {
+    // gpt-4-0314: input $30/MTok, output $60/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-4-0314')).toBeGreaterThan(0);
+    // gpt-4-1106-vision-preview: input $10/MTok, output $30/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-4-1106-vision-preview')).toBeGreaterThan(0);
+    // gpt-3.5-turbo-0613: input $1.5/MTok, output $2/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-3.5-turbo-0613')).toBeGreaterThan(0);
+    // gpt-3.5-turbo-16k-0613: input $3/MTok, output $4/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-3.5-turbo-16k-0613')).toBeGreaterThan(0);
+  });
+
   it('resolves date-suffixed model names', () => {
     // claude-sonnet-4-20250514 → claude-sonnet-4
     const cost = calculateModelCost(1000, 500, 'claude-sonnet-4-20250514');

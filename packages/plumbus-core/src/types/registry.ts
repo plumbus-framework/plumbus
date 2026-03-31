@@ -6,8 +6,10 @@
 //     interface PlumbusRegistry {
 //       capabilityName: "getInvoice" | "createOrder";
 //       eventName: "user.created" | "order.completed";
+//       eventPayloads: { "user.created": { userId: string }; "order.completed": { orderId: string } };
 //       flowName: "onboardUser" | "processOrder";
-//       entities: { User: Repository<UserRecord>; Order: Repository<OrderRecord> };
+//       entities: { User: Repository<UserRecord, UserCreateInput, UserUpdateInput>; ... };
+//       appConfig: { featureFlags: { newCheckout: boolean } };
 //     }
 //   }
 //
@@ -46,3 +48,15 @@ export type RegisteredEntities = PlumbusRegistry extends {
 }
   ? E
   : Record<string, Repository>;
+
+export type RegisteredEventPayloadMap = PlumbusRegistry extends {
+  eventPayloads: infer M extends Record<string, unknown>;
+}
+  ? M
+  : Record<string, unknown>;
+
+export type RegisteredAppConfig = PlumbusRegistry extends {
+  appConfig: infer C extends Record<string, unknown>;
+}
+  ? C
+  : Record<string, unknown>;

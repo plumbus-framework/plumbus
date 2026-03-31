@@ -253,12 +253,76 @@ export function createInMemoryRepository<
     async delete(id) {
       store.delete(id);
     },
-    async findMany(query) {
-      const all = [...store.values()];
-      if (!query) return all;
-      return all.filter((item) =>
-        Object.entries(query).every(([key, value]) => (item as any)[key] === value),
-      );
+    async findMany(query, options) {
+      let results = [...store.values()];
+      if (query) {
+        results = results.filter((item) =>
+          Object.entries(query).every(([key, value]) => (item as any)[key] === value),
+        );
+      }
+      if (options?.dateFilters) {
+        for (const [field, range] of Object.entries(options.dateFilters)) {
+          if (range.gte) {
+            const gte = range.gte instanceof Date ? range.gte : new Date(range.gte as any);
+            results = results.filter((item) => {
+              const v = (item as any)[field];
+              return v && new Date(v) >= gte;
+            });
+          }
+          if (range.lte) {
+            const lte = range.lte instanceof Date ? range.lte : new Date(range.lte as any);
+            results = results.filter((item) => {
+              const v = (item as any)[field];
+              return v && new Date(v) <= lte;
+            });
+          }
+        }
+      }
+      if (options?.orderBy) {
+        const dir = options.orderDir === 'asc' ? 1 : -1;
+        const key = options.orderBy;
+        results.sort((a, b) => {
+          const av = (a as any)[key];
+          const bv = (b as any)[key];
+          if (av < bv) return -1 * dir;
+          if (av > bv) return 1 * dir;
+          return 0;
+        });
+      }
+      if (options?.offset) {
+        results = results.slice(options.offset);
+      }
+      if (options?.limit) {
+        results = results.slice(0, options.limit);
+      }
+      return results;
+    },
+    async count(query, options) {
+      let results = [...store.values()];
+      if (query) {
+        results = results.filter((item) =>
+          Object.entries(query).every(([key, value]) => (item as any)[key] === value),
+        );
+      }
+      if (options?.dateFilters) {
+        for (const [field, range] of Object.entries(options.dateFilters)) {
+          if (range.gte) {
+            const gte = range.gte instanceof Date ? range.gte : new Date(range.gte as any);
+            results = results.filter((item) => {
+              const v = (item as any)[field];
+              return v && new Date(v) >= gte;
+            });
+          }
+          if (range.lte) {
+            const lte = range.lte instanceof Date ? range.lte : new Date(range.lte as any);
+            results = results.filter((item) => {
+              const v = (item as any)[field];
+              return v && new Date(v) <= lte;
+            });
+          }
+        }
+      }
+      return results.length;
     },
   };
 }
@@ -294,7 +358,8 @@ function withFieldValidation<T extends Record<string, unknown>>(
       return repo.update(id, updates);
     },
     delete: (id) => repo.delete(id),
-    findMany: (query) => repo.findMany(query),
+    findMany: (query, options) => repo.findMany(query, options),
+    count: (query, options) => repo.count(query, options),
   };
 }
 

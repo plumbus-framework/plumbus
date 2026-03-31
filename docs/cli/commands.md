@@ -101,9 +101,11 @@ my-app/
 ├── package.json          # workspace root
 ├── tsconfig.base.json
 ├── biome.json
+├── .gitignore            # uses **/.plumbus/generated/ glob
 ├── backend/
 │   ├── package.json      # @my-app/backend
 │   ├── tsconfig.json
+│   ├── .env.example      # DB, queue, AI env vars
 │   ├── config/
 │   └── app/              # capabilities, entities, flows, events, prompts
 ├── frontend/
@@ -308,9 +310,22 @@ plumbus ui nextjs [output-dir] [options]
 | `--multi-tenant` | `boolean` | `false` | Include tenant helpers in auth module |
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
 | `--no-auth` | `boolean` | `false` | Disable auth wiring in the scaffold |
+| `--force` | `boolean` | `false` | Overwrite existing scaffold files (page.tsx, layout.tsx, etc.) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 This command scaffolds the Next.js project structure and writes the generated UI modules into their proper locations within the output directory (`lib/client.ts`, `hooks/hooks.ts`, `lib/auth.ts`, `lib/form-hints.ts`). After scaffolding, run `plumbus ui generate` any time capabilities change — it auto-detects the frontend and regenerates the modules in place. The scaffold generates `proxy.ts` (Next.js 16+ convention) instead of the deprecated `middleware.ts`, and only generates login/signup pages (when auth is enabled) — it does not generate per-capability pages.
+
+#### Scaffold Overwrite Protection
+
+**Scaffold files (page.tsx, layout.tsx, globals.css, login, signup, etc.) are never overwritten if they already exist on disk.** Only contract-derived module files (`lib/client.ts`, `hooks/hooks.ts`, `lib/auth.ts`, `lib/form-hints.ts`, i18n files) are regenerated unconditionally.
+
+If existing scaffold files are detected, the command prints a warning listing the skipped files. To force overwrite all scaffold files, pass `--force`:
+
+```bash
+plumbus ui nextjs --force        # overwrites everything, including custom pages
+```
+
+This prevents accidental destruction of custom frontend code when re-running the scaffold command.
 
 ---
 

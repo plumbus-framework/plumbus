@@ -153,6 +153,22 @@ describe('generateQueryHook', () => {
     const code = generateQueryHook(makeCap());
     expect(code).toContain('return { data, loading, error }');
   });
+
+  it('accepts optional onError callback', () => {
+    const code = generateQueryHook(makeCap());
+    expect(code).toContain('options?: { onError?: (err: Error) => void }');
+  });
+
+  it('calls toast.error by default on error', () => {
+    const code = generateQueryHook(makeCap());
+    expect(code).toContain('toast.error(e.message)');
+  });
+
+  it('calls onError instead of toast when provided', () => {
+    const code = generateQueryHook(makeCap());
+    expect(code).toContain('if (options?.onError) options.onError(e)');
+    expect(code).toContain('else toast.error(e.message)');
+  });
 });
 
 // ── generateMutationHook ──
@@ -169,6 +185,27 @@ describe('generateMutationHook', () => {
   it('returns mutate, data, loading, error, reset', () => {
     const code = generateMutationHook(makeActionCap());
     expect(code).toContain('return { mutate, data, loading, error, reset }');
+  });
+
+  it('accepts optional onError callback', () => {
+    const code = generateMutationHook(makeActionCap());
+    expect(code).toContain('options?: { onError?: (err: Error) => void }');
+  });
+
+  it('calls toast.error by default on mutation error', () => {
+    const code = generateMutationHook(makeActionCap());
+    expect(code).toContain('toast.error(err.message)');
+  });
+
+  it('calls onError instead of toast when provided', () => {
+    const code = generateMutationHook(makeActionCap());
+    expect(code).toContain('if (options?.onError) options.onError(err)');
+    expect(code).toContain('else toast.error(err.message)');
+  });
+
+  it('re-throws error after handling', () => {
+    const code = generateMutationHook(makeActionCap());
+    expect(code).toContain('throw err;');
   });
 });
 
@@ -274,5 +311,18 @@ describe('generateHooksModule', () => {
     expect(code).toContain('import { getInvoice } from "../lib/client"');
     expect(code).toContain('useGetInvoice');
     expect(code).toContain('useApproveRefund');
+  });
+
+  it('imports toast from sonner by default', () => {
+    const caps = [makeCap()];
+    const code = generateHooksModule(caps);
+    expect(code).toContain('import { toast } from "sonner"');
+  });
+
+  it('uses custom toast import when configured', () => {
+    const caps = [makeCap()];
+    const code = generateHooksModule(caps, { toastImport: 'my-toast-lib' });
+    expect(code).toContain('import { toast } from "my-toast-lib"');
+    expect(code).not.toContain('sonner');
   });
 });

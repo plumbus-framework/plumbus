@@ -310,14 +310,14 @@ function generateMonorepoStructure(appName: string, options: CreateOptions): Map
     '.gitignore',
     `node_modules/
 dist/
-.plumbus/generated/
+**/.plumbus/generated/
 .env
 *.log
 `,
   );
 
   files.set(
-    '.env.example',
+    'backend/.env.example',
     `DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=${kebab}
