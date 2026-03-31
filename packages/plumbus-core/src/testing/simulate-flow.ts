@@ -10,7 +10,7 @@ import {
   type StepResult,
 } from '../flows/step-executor.js';
 import type { ExecutionContext } from '../types/context.js';
-import type { FlowDefinition, FlowStep } from '../types/flow.js';
+import type { FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import { createTestContext, type TestContextOptions } from './context.js';
 
 // ── Simulation Result ──
@@ -100,6 +100,14 @@ export async function simulateFlow(
     stepMap.set(step.name, step);
   }
 
+  // Collect branch step names to skip during linear iteration
+  const branchNames = new Set<string>();
+  for (const step of flow.steps) {
+    if (step.type === 'parallel' && 'branches' in step) {
+      for (const b of (step as ParallelStep).branches) branchNames.add(b);
+    }
+  }
+
   const history: StepHistoryEntry[] = [];
   const stepResults = new Map<string, StepResult>();
   const flowInput = input;
@@ -112,6 +120,13 @@ export async function simulateFlow(
   while (currentStepIndex < flow.steps.length && executedCount < maxSteps) {
     const step = flow.steps[currentStepIndex];
     if (!step) break;
+
+    // Skip branch steps — they are executed by their parent parallel step
+    if (branchNames.has(step.name)) {
+      currentStepIndex++;
+      continue;
+    }
+
     executedCount++;
 
     const startedAt = ctx.time.now();

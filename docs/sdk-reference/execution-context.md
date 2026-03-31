@@ -69,13 +69,13 @@ interface Repository<T> {
 
 After running `plumbus generate`, `ctx.data` is strictly typed — only entities you've defined are accessible. The generated `.plumbus/generated/plumbus.d.ts` augments the `PlumbusRegistry` interface, so:
 
-- `ctx.data.User` autocompletes with `Repository<UserRecord>` methods
+- `ctx.data.User` autocompletes with `Repository<UserRecord, UserCreateInput, UserUpdateInput>` methods", "oldString": "- `ctx.data.User` autocompletes with `Repository<UserRecord>` methods
 - `ctx.data.NonExistent` produces a TypeScript error
 
 Before generation (or without it), `ctx.data` falls back to `Record<string, Repository>`, allowing any string key for backward compatibility.
 
 The same pattern applies to:
-- **`ctx.events.emit(eventName)`** — `eventName` is typed to registered event names
+- **`ctx.events.emit(eventName, payload)`** — `eventName` is typed to registered event names, and `payload` is typed to the corresponding event's payload schema
 - **`ctx.flows.start(flowName)`** — `flowName` is typed to registered flow names
 - **Flow step `capability`** — typed to registered capability names
 - **Flow trigger/wait/emit `event`** — typed to registered event names
@@ -117,21 +117,27 @@ Emit domain events:
 
 ```typescript
 interface EventService {
-  emit(eventName: string, payload: unknown): Promise<void>;
+  emit<E extends RegisteredEventName>(
+    eventName: E,
+    payload: RegisteredEventPayloadMap[E],
+  ): Promise<void>;
 }
 ```
+
+After running `plumbus generate`, both the event name and payload are strictly typed:
 
 ```typescript
-handler: async (ctx, input) => {
-  await ctx.data.Order.create(input);
-  await ctx.events.emit("order.placed", {
-    orderId: input.orderId,
-    total: input.total,
-  });
-}
+// OK — "order.placed" is registered and payload matches its schema
+await ctx.events.emit("order.placed", {
+  orderId: input.orderId,
+  total: input.total,
+});
+
+// Type error — wrong payload shape for "order.placed"
+await ctx.events.emit("order.placed", { wrong: "field" });
 ```
 
-Events are written to the outbox within the same database transaction as data mutations, guaranteeing at-least-once delivery.
+Before generation, both fall back to `string` and `unknown` for backward compatibility.
 
 ---
 
@@ -401,8 +407,31 @@ Automatically populated by the route generator from Fastify request headers. Not
 Application configuration:
 
 ```typescript
-type ConfigService = Record<string, unknown>;
+type ConfigService = RegisteredAppConfig;
 ```
+
+By default, `ConfigService` is `Record<string, unknown>`. When you augment `PlumbusRegistry` with an `appConfig` field, `ctx.config` becomes strictly typed to your app's configuration shape:
+
+```typescript
+// In your generated plumbus.d.ts or manual augmentation:
+declare module "@plumbus/core" {
+  interface PlumbusRegistry {
+    appConfig: {
+      featureFlags: { newCheckout: boolean };
+      limits: { maxUploadMb: number };
+    };
+  }
+}
+```
+
+```typescript
+handler: async (ctx, input) => {
+  // Fully typed — no need for type assertions
+  const enabled = ctx.config.featureFlags.newCheckout;
+}
+```
+
+> **Note:** `ConfigService` is distinct from `PlumbusConfig` (framework infrastructure config). `ctx.config` exposes only app-level configuration — never database credentials, queue passwords, or API keys.
 
 ---
 

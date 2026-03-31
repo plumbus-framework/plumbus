@@ -189,9 +189,21 @@ describe('plumbus create --monorepo', () => {
   it('includes common root files', () => {
     const files = generateProjectStructure('MyApp', { monorepo: true });
     expect(files.has('.gitignore')).toBe(true);
-    expect(files.has('.env.example')).toBe(true);
+    expect(files.has('backend/.env.example')).toBe(true);
     expect(files.has('biome.json')).toBe(true);
     expect(files.has('README.md')).toBe(true);
     expect(files.has('.vscode/settings.json')).toBe(true);
+  });
+
+  it('places .env.example in backend/ not root', () => {
+    const files = generateProjectStructure('MyApp', { monorepo: true });
+    expect(files.has('backend/.env.example')).toBe(true);
+    expect(files.has('.env.example')).toBe(false);
+  });
+
+  it('uses **/.plumbus/generated/ glob in .gitignore', () => {
+    const files = generateProjectStructure('MyApp', { monorepo: true });
+    const gitignore = files.get('.gitignore') ?? '';
+    expect(gitignore).toContain('**/.plumbus/generated/');
   });
 });

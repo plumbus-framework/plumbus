@@ -74,6 +74,7 @@ interface UiNextjsOptions extends UiGenerateOptions {
   appName?: string;
   apiBaseUrl?: string;
   auth?: boolean;
+  force?: boolean;
 }
 
 export interface UiGeneratorModule {
@@ -329,6 +330,37 @@ function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string
   return written;
 }
 
+interface ScaffoldWriteResult {
+  written: string[];
+  skipped: string[];
+}
+
+/**
+ * Write scaffold/template files with overwrite protection.
+ * Files that already exist on disk are skipped unless `force` is true.
+ * Returns lists of written and skipped file paths.
+ */
+function writeScaffoldFiles(
+  outputRoot: string,
+  files: GeneratedFile[],
+  force?: boolean,
+): ScaffoldWriteResult {
+  const written: string[] = [];
+  const skipped: string[] = [];
+
+  for (const file of files) {
+    const fullPath = path.join(outputRoot, file.path);
+    if (!force && fs.existsSync(fullPath)) {
+      skipped.push(path.join(outputRoot, file.path));
+    } else {
+      writeFile(fullPath, file.content);
+      written.push(path.join(outputRoot, file.path));
+    }
+  }
+
+  return { written, skipped };
+}
+
 function printMigrationSummary(migration: import('../utils.js').MigrationResult): void {
   const total =
     migration.movedFiles.length + migration.rewrittenImports.length + migration.deletedPaths.length;
@@ -432,6 +464,7 @@ export function registerUiCommand(program: Command): void {
     .option('--multi-tenant', 'Include tenant helpers in generated auth module')
     .option('--include-jsdoc', 'Emit JSDoc comments in generated client and hook modules')
     .option('--no-auth', 'Disable auth wiring in the generated Next.js app')
+    .option('--force', 'Overwrite existing scaffold files (page.tsx, layout.tsx, etc.)')
     .option('--json', 'Output generated file list as JSON')
     .action(async (outputDir: string | undefined, opts: UiNextjsOptions) => {
       info('Loading @plumbus/ui generators...');
@@ -446,31 +479,51 @@ export function registerUiCommand(program: Command): void {
       const migration = migrateUiLegacyStructure(outputRoot);
       printMigrationSummary(migration);
 
-      const files = generateNextjsAppFiles(
-        appName,
+      // Generate template scaffold files (page.tsx, layout.tsx, login, signup, etc.)
+      const templateFiles = generators.generateNextjsTemplate(
+        { appName, auth: opts.auth, apiBaseUrl: opts.apiBaseUrl },
         resources.capabilities,
-        resources.flows,
-        generators,
-        opts,
       );
-      const written = writeGeneratedFiles(outputRoot, files);
 
-      // Also write contract artifacts to .plumbus/generated/ui/
-      const uiModuleFiles = generateUiModuleFiles(
+      // Generate contract-derived module files (client.ts, hooks.ts, auth.ts, form-hints.ts, i18n)
+      const moduleFiles = generateUiModuleFiles(
         resources.capabilities,
         resources.flows,
         generators,
         { ...opts, baseUrl: opts.baseUrl },
+        '',
+        resources.translations,
       );
-      writeGeneratedFiles(resolvePath('.plumbus/generated/ui'), uiModuleFiles);
+
+      // Module files are always regenerated — they are derived from contracts
+      const written = writeGeneratedFiles(outputRoot, [...moduleFiles, nextEnvTypesFile()]);
+
+      // Scaffold files are protected: skip if they already exist, unless --force
+      const scaffold = writeScaffoldFiles(outputRoot, templateFiles, opts.force);
+      written.push(...scaffold.written);
+
+      // Also write contract artifacts to .plumbus/generated/ui/
+      writeGeneratedFiles(resolvePath('.plumbus/generated/ui'), moduleFiles);
 
       if (opts.json) {
-        console.log(JSON.stringify({ generated: written }, null, 2));
+        console.log(JSON.stringify({ generated: written, skipped: scaffold.skipped }, null, 2));
         return;
       }
 
       for (const file of written) {
         success(`Generated ${path.relative(process.cwd(), file)}`);
+      }
+
+      if (scaffold.skipped.length > 0) {
+        warn('');
+        warn(
+          `Skipped ${scaffold.skipped.length} existing scaffold file(s) to avoid overwriting custom code:`,
+        );
+        for (const file of scaffold.skipped) {
+          warn(`  ⊘ ${path.relative(process.cwd(), file)}`);
+        }
+        warn('');
+        warn('To overwrite these files, re-run with --force');
       }
     });
 

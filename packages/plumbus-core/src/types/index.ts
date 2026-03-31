@@ -37,6 +37,7 @@ export type {
   FlowExecution,
   FlowService,
   LoggerService,
+  QueryOptions,
   Repository,
   RequestMeta,
   SecurityService,
@@ -57,7 +58,7 @@ export {
   RuleStatus,
 } from './enums.js';
 // ── Errors ──
-export type { ErrorService, PlumbusError } from './errors.js';
+export type { ErrorService, PlumbusErrorLike } from './errors.js';
 // ── Event ──
 export type { EventDefinition, EventEnvelope } from './event.js';
 // ── Field Types ──
@@ -99,9 +100,11 @@ export type { ModelConfig, PromptDefinition } from './prompt.js';
 // ── Registry ──
 export type {
   PlumbusRegistry,
+  RegisteredAppConfig,
   RegisteredCapabilityName,
   RegisteredEntities,
   RegisteredEventName,
+  RegisteredEventPayloadMap,
   RegisteredFlowName,
 } from './registry.js';
 // ── Security ──

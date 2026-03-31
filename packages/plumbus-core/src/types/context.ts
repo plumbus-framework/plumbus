@@ -1,17 +1,42 @@
 import type { z } from 'zod';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
-import type { RegisteredEntities, RegisteredEventName, RegisteredFlowName } from './registry.js';
+import type {
+  RegisteredAppConfig,
+  RegisteredEntities,
+  RegisteredEventName,
+  RegisteredEventPayloadMap,
+  RegisteredFlowName,
+} from './registry.js';
 import type { AuthContext } from './security.js';
 import type { TranslationService } from './translation.js';
 
+// ── Query Options (pagination, sorting, date ranges) ──
+export interface QueryOptions {
+  /** Max rows to return (1–100). Omit for no limit. */
+  limit?: number;
+  /** Number of rows to skip (default 0) */
+  offset?: number;
+  /** Column name to sort by — validated against entity table columns */
+  orderBy?: string;
+  /** Sort direction (default 'desc') */
+  orderDir?: 'asc' | 'desc';
+  /** Date range filters: { columnName: { gte?: Date, lte?: Date } } */
+  dateFilters?: Record<string, { gte?: Date; lte?: Date }>;
+}
+
 // ── Repository (per-entity data access) ──
-export interface Repository<T = Record<string, any>> {
+export interface Repository<
+  T = Record<string, any>,
+  TCreate = Record<string, any>,
+  TUpdate = Record<string, any>,
+> {
   findById(id: string): Promise<T | null>;
-  create(data: Record<string, any>): Promise<T>;
-  update(id: string, updates: Record<string, any>): Promise<T>;
+  create(data: TCreate): Promise<T>;
+  update(id: string, updates: TUpdate): Promise<T>;
   delete(id: string): Promise<void>;
-  findMany(query?: Record<string, any>): Promise<T[]>;
+  findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+  count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number>;
 }
 
 // ── Data Service (all entity repositories) ──
@@ -22,7 +47,10 @@ export type DataService = RegisteredEntities;
 
 // ── Event Service ──
 export interface EventService {
-  emit(eventName: RegisteredEventName, payload: unknown): Promise<void>;
+  emit<E extends RegisteredEventName>(
+    eventName: E,
+    payload: RegisteredEventPayloadMap[E],
+  ): Promise<void>;
 }
 
 // ── Flow Execution Handle ──
@@ -125,7 +153,7 @@ export interface TimeService {
 }
 
 // ── Config Service ──
-export type ConfigService = Record<string, unknown>;
+export type ConfigService = RegisteredAppConfig;
 
 // ── Security Service ──
 export interface SecurityService {

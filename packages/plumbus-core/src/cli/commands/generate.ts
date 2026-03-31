@@ -138,7 +138,9 @@ export function generatePlumbusDeclaration(
     lines.push('import type { Repository } from "@plumbus/core";');
     for (const entity of entities) {
       const name = toPascalCase(entity.name);
-      lines.push(`import type { ${name}Record } from "./entity-types.js";`);
+      lines.push(
+        `import type { ${name}Record, ${name}CreateInput, ${name}UpdateInput } from "./entity-types.js";`,
+      );
     }
     lines.push('');
   }
@@ -162,6 +164,18 @@ export function generatePlumbusDeclaration(
     lines.push('    eventName: never;');
   }
 
+  // eventPayloads — maps each event name to its payload type
+  if (events.length > 0) {
+    lines.push('    eventPayloads: {');
+    for (const event of events) {
+      const payloadType = zodTypeToString(event.payload);
+      lines.push(`      "${event.name}": ${payloadType};`);
+    }
+    lines.push('    };');
+  } else {
+    lines.push('    eventPayloads: Record<string, never>;');
+  }
+
   // flowName
   if (flows.length > 0) {
     const flowNames = flows.map((f) => `"${f.name}"`).join(' | ');
@@ -175,7 +189,9 @@ export function generatePlumbusDeclaration(
     lines.push('    entities: {');
     for (const entity of entities) {
       const name = toPascalCase(entity.name);
-      lines.push(`      ${entity.name}: Repository<${name}Record>;`);
+      lines.push(
+        `      ${entity.name}: Repository<${name}Record, ${name}CreateInput, ${name}UpdateInput>;`,
+      );
     }
     lines.push('    };');
   } else {
@@ -344,6 +360,34 @@ export function generateEntityInterface(entity: EntityDefinition): string {
   }
 
   lines.push('}');
+
+  // Auto-generated fields that should be excluded from create/update inputs
+  const systemFields = new Set(['id', 'createdAt', 'updatedAt']);
+  if (entity.tenantScoped) {
+    systemFields.add('tenantId');
+  }
+
+  // CreateInput — omits system-managed fields
+  lines.push('');
+  lines.push(`export interface ${name}CreateInput {`);
+  for (const [fieldName, descriptor] of Object.entries(entity.fields)) {
+    if (systemFields.has(fieldName)) continue;
+    const tsType = fieldTypeToTS(descriptor);
+    const optional = !descriptor.options.required;
+    lines.push(`  ${fieldName}${optional ? '?' : ''}: ${tsType};`);
+  }
+  lines.push('}');
+
+  // UpdateInput — all non-system fields are optional
+  lines.push('');
+  lines.push(`export interface ${name}UpdateInput {`);
+  for (const [fieldName, descriptor] of Object.entries(entity.fields)) {
+    if (systemFields.has(fieldName)) continue;
+    const tsType = fieldTypeToTS(descriptor);
+    lines.push(`  ${fieldName}?: ${tsType};`);
+  }
+  lines.push('}');
+
   return lines.join('\n');
 }
 
@@ -363,7 +407,9 @@ export function generateDataServiceMap(entities: EntityDefinition[]): string {
   lines.push('export interface DataServiceMap {');
   for (const entity of entities) {
     const name = toPascalCase(entity.name);
-    lines.push(`  ${entity.name}: Repository<${name}Record>;`);
+    lines.push(
+      `  ${entity.name}: Repository<${name}Record, ${name}CreateInput, ${name}UpdateInput>;`,
+    );
   }
   lines.push('}');
 

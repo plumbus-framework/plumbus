@@ -274,4 +274,231 @@ describe('createRepository', () => {
     // When bypassing, tenantId should NOT be injected
     expect(valuesCall?.tenantId).toBeUndefined();
   });
+
+  describe('findMany with options', () => {
+    it('applies limit and offset', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const rows = [
+        { id: 'r-1', title: 'A' },
+        { id: 'r-2', title: 'B' },
+      ];
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        offset: vi.fn().mockResolvedValue(rows),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const result = await repo.findMany({}, { limit: 2, offset: 10 });
+      expect(result).toEqual(rows);
+      expect(chainable.limit).toHaveBeenCalledWith(2);
+      expect(chainable.offset).toHaveBeenCalledWith(10);
+    });
+
+    it('caps limit at 100', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        offset: vi.fn().mockResolvedValue([]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      await repo.findMany({}, { limit: 500 });
+      expect(chainable.limit).toHaveBeenCalledWith(100);
+    });
+
+    it('clamps negative offset to 0', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        offset: vi.fn().mockResolvedValue([]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      await repo.findMany({}, { offset: -10 });
+      expect(chainable.offset).toHaveBeenCalledWith(0);
+    });
+
+    it('applies orderBy when column exists on table', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([]),
+        offset: vi.fn().mockResolvedValue([]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      await repo.findMany({}, { orderBy: 'title', orderDir: 'asc' });
+      expect(chainable.orderBy).toHaveBeenCalled();
+    });
+
+    it('ignores orderBy when column does not exist on table', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([]),
+        offset: vi.fn().mockResolvedValue([]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      await repo.findMany({}, { orderBy: 'nonexistent_column' });
+      expect(chainable.orderBy).not.toHaveBeenCalled();
+    });
+
+    it('returns all results when no options provided (backward compat)', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const rows = [{ id: '1' }, { id: '2' }, { id: '3' }];
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue(rows),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const result = await repo.findMany();
+      expect(result).toEqual(rows);
+    });
+  });
+
+  describe('count', () => {
+    it('returns total matching rows', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([{ count: 42 }]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const total = await repo.count();
+      expect(total).toBe(42);
+    });
+
+    it('applies query filters to count', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([{ count: 5 }]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const total = await repo.count({ title: 'test' } as any);
+      expect(total).toBe(5);
+      expect(chainable.where).toHaveBeenCalled();
+    });
+  });
 });

@@ -1,8 +1,8 @@
-import { and, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNull, lte, type SQL } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService } from '../types/audit.js';
-import type { Repository } from '../types/context.js';
+import type { QueryOptions, Repository } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldClassification } from '../types/enums.js';
 import type { AuthContext } from '../types/security.js';
@@ -24,9 +24,11 @@ export interface RepositoryOptions {
  * tenant isolation, emits audit records on mutations, and masks
  * sensitive fields in audit logs.
  */
-export function createRepository<T = Record<string, unknown>>(
-  options: RepositoryOptions,
-): Repository<T> {
+export function createRepository<
+  T = Record<string, unknown>,
+  TCreate extends Record<string, unknown> = Record<string, any>,
+  TUpdate extends Record<string, unknown> = Record<string, any>,
+>(options: RepositoryOptions): Repository<T, TCreate, TUpdate> {
   const { entity, table, db, auth, audit, softDelete = false, bypassTenantScope = false } = options;
 
   const maskedFields = getMaskedFields(entity);
@@ -87,7 +89,7 @@ export function createRepository<T = Record<string, unknown>>(
       return (rows[0] as T) ?? null;
     },
 
-    async create(data: Partial<T>): Promise<T> {
+    async create(data: TCreate): Promise<T> {
       const record: Record<string, unknown> = { ...data };
 
       // Inject tenantId for tenant-scoped entities
@@ -104,7 +106,7 @@ export function createRepository<T = Record<string, unknown>>(
       return created;
     },
 
-    async update(id: string, updates: Partial<T>): Promise<T> {
+    async update(id: string, updates: TUpdate): Promise<T> {
       const conditions: SQL[] = [];
       const idCol = (table as any).id;
       if (idCol) {
@@ -149,7 +151,7 @@ export function createRepository<T = Record<string, unknown>>(
       await auditMutation('delete', { id });
     },
 
-    async findMany(query?: Record<string, unknown>): Promise<T[]> {
+    async findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]> {
       const conditions: SQL[] = [];
 
       // Apply tenant filter
@@ -170,6 +172,16 @@ export function createRepository<T = Record<string, unknown>>(
         }
       }
 
+      // Apply date range filters (validated against table columns)
+      if (options?.dateFilters) {
+        for (const [colName, range] of Object.entries(options.dateFilters)) {
+          const col = (table as any)[colName];
+          if (!col) continue;
+          if (range.gte) conditions.push(gte(col, range.gte));
+          if (range.lte) conditions.push(lte(col, range.lte));
+        }
+      }
+
       const where =
         conditions.length > 1
           ? and(...conditions)
@@ -177,8 +189,67 @@ export function createRepository<T = Record<string, unknown>>(
             ? conditions[0]
             : undefined;
 
-      const rows = await db.select().from(table).where(where);
+      // Build query with optional ordering
+      let queryBuilder = db.select().from(table).where(where);
+
+      if (options?.orderBy) {
+        const col = (table as any)[options.orderBy];
+        if (col) {
+          queryBuilder = queryBuilder.orderBy(
+            options.orderDir === 'asc' ? asc(col) : desc(col),
+          ) as typeof queryBuilder;
+        }
+      }
+
+      // Apply pagination if provided
+      if (options?.limit != null) {
+        const safeLimit = Math.max(1, Math.min(100, options.limit));
+        queryBuilder = queryBuilder.limit(safeLimit) as typeof queryBuilder;
+      }
+      if (options?.offset != null) {
+        const safeOffset = Math.max(0, options.offset);
+        queryBuilder = queryBuilder.offset(safeOffset) as typeof queryBuilder;
+      }
+
+      const rows = await queryBuilder;
       return rows as T[];
+    },
+
+    async count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number> {
+      const conditions: SQL[] = [];
+
+      const tf = tenantFilter();
+      if (tf) conditions.push(tf);
+      const sdf = softDeleteFilter();
+      if (sdf) conditions.push(sdf);
+
+      if (query) {
+        for (const [key, value] of Object.entries(query)) {
+          const col = (table as any)[key];
+          if (col) {
+            conditions.push(eq(col, value as any));
+          }
+        }
+      }
+
+      if (options?.dateFilters) {
+        for (const [colName, range] of Object.entries(options.dateFilters)) {
+          const col = (table as any)[colName];
+          if (!col) continue;
+          if (range.gte) conditions.push(gte(col, range.gte));
+          if (range.lte) conditions.push(lte(col, range.lte));
+        }
+      }
+
+      const where =
+        conditions.length > 1
+          ? and(...conditions)
+          : conditions.length === 1
+            ? conditions[0]
+            : undefined;
+
+      const result = await db.select({ count: count() }).from(table).where(where);
+      return Number(result[0]?.count ?? 0);
     },
   };
 }

@@ -10,6 +10,8 @@ interface ClientGeneratorConfig {
   baseUrl?: string;
   /** Include JSDoc comments in generated code */
   includeJsDoc?: boolean;
+  /** Package to import toast from (default: "sonner") */
+  toastImport?: string;
 }
 ```
 
@@ -45,7 +47,7 @@ Produces a React hook that auto-fetches on mount/input change:
 
 ```ts
 generateQueryHook({ name: "getUser", kind: "query", domain: "users", ... })
-// → export function useGetUser(input: GetUserInput) {
+// → export function useGetUser(input: GetUserInput, options?: { onError?: (err: Error) => void }) {
 //     const [data, setData] = useState<GetUserOutput | null>(null);
 //     ...
 //     return { data, loading, error };
@@ -54,6 +56,7 @@ generateQueryHook({ name: "getUser", kind: "query", domain: "users", ... })
 
 - Uses `useState` + `useEffect` with cancellation.
 - Re-fetches when `JSON.stringify(input)` changes.
+- On error: calls `toast.error(err.message)` by default, or `options.onError(err)` if provided.
 
 ### `generateMutationHook(cap, config?)`
 
@@ -61,7 +64,7 @@ Produces a React hook for manual invocation (actions, jobs):
 
 ```ts
 generateMutationHook({ name: "createUser", kind: "action", domain: "users", ... })
-// → export function useCreateUser() {
+// → export function useCreateUser(options?: { onError?: (err: Error) => void }) {
 //     ...
 //     return { mutate, data, loading, error, reset };
 //   }
@@ -69,6 +72,7 @@ generateMutationHook({ name: "createUser", kind: "action", domain: "users", ... 
 
 - `mutate(input)` triggers the request and returns the result.
 - `reset()` clears data and error state.
+- On error: calls `toast.error(err.message)` by default, or `options.onError(err)` if provided. Mutation hooks re-throw after error handling so callers can react.
 
 ### `generateReactHook(cap, config?)`
 
@@ -125,7 +129,9 @@ const code = generateHooksModule([getUser, createUser]);
 ```
 
 - Auto-imports `useState`, `useEffect` from React.
+- Auto-imports `toast` from the configured toast package (default: `sonner`).
 - Auto-imports types and functions from `../lib/client`.
+- All generated hooks include auto-toast error handling with an optional `onError` override.
 
 ## URL Routing Convention
 

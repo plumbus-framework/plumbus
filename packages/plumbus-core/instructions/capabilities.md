@@ -140,6 +140,10 @@ These map to HTTP status codes: 400, 404, 403, 409, 500.
 
 These are the **only** structured error types. If you need a custom error, use `ctx.errors.internal()` with a descriptive message.
 
+Errors are `PlumbusError` instances (extends `Error`) with `code`, `message`, and optional `metadata`. They serialize to JSON via `toJSON()` and can be detected with `isPlumbusError()` (supports both `instanceof` and duck-type checks for cross-version compatibility).
+
+**Do not** use `throw new Error(...)` in capability handlers — always use `ctx.errors.*()` for proper HTTP status mapping and structured error responses.
+
 ## Job Capabilities
 
 Capabilities with `kind: "job"` are for long-running operations. They return immediately with a job handle, and the work executes asynchronously.

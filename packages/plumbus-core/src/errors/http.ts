@@ -1,5 +1,5 @@
 import type { ErrorCode } from '../types/enums.js';
-import type { PlumbusError } from '../types/errors.js';
+import type { PlumbusErrorLike } from '../types/errors.js';
 
 /**
  * Map PlumbusError codes to HTTP status codes.
@@ -12,11 +12,11 @@ const statusMap: Record<ErrorCode, number> = {
   internal: 500,
 };
 
-export function errorToHttpStatus(error: PlumbusError): number {
+export function errorToHttpStatus(error: PlumbusErrorLike): number {
   return statusMap[error.code] ?? 500;
 }
 
-export function errorToHttpResponse(error: PlumbusError): {
+export function errorToHttpResponse(error: PlumbusErrorLike): {
   statusCode: number;
   body: { error: { code: string; message: string; metadata?: Record<string, unknown> } };
 } {

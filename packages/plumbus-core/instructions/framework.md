@@ -105,3 +105,52 @@ The framework provides common dependencies — **consumer apps must NOT install 
 | Watch mode | `plumbus test --watch` |
 | Run e2e tests | `plumbus test --config frontend/e2e/vitest.config.e2e.ts` |
 | Dev server | `plumbus dev` |
+
+## Server Extensions (`app/server.ts`)
+
+The optional `app/server.ts` file exports hooks that customize server behavior. The framework auto-discovers this file on `plumbus dev` and `plumbus start`.
+
+### Available Hooks
+
+| Hook | When it fires | Use for |
+|------|--------------|---------|
+| `onRoutesRegistered` | After capability routes are registered | Adding custom routes (e.g. streaming endpoints) |
+| `onCapabilityError` | After a capability returns a non-success result | Logging capability failures to a system log table |
+| `onFlowError` | After a flow fails permanently (retries exhausted) | Logging flow failures to a system log table |
+| `onProcessError` | On uncaught exceptions, unhandled rejections, and Fastify-level errors | Logging process-level crashes that bypass capability/flow hooks |
+| `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
+
+### Error Capture Coverage
+
+The framework provides hooks for **every error category**:
+
+| Error Type | Hook | Source Field |
+|------------|------|-------------|
+| Capability failure (handler throw, validation, access) | `onCapabilityError` | capability name, domain, error code |
+| Flow permanent failure (retries exhausted) | `onFlowError` | flow name, step, execution ID |
+| Uncaught exception (process crash) | `onProcessError` | `source: 'uncaughtException'` |
+| Unhandled promise rejection | `onProcessError` | `source: 'unhandledRejection'` |
+| Fastify request error (malformed request, timeout) | `onProcessError` | `source: 'fastify'` |
+
+### Example: Full Error Logging
+
+```ts
+import type { ServerConfig } from '@plumbus/core';
+
+// Capability errors
+export const onCapabilityError: NonNullable<ServerConfig['onCapabilityError']> = async (info) => {
+  await db.insert({ level: 'error', message: `[${info.capabilityName}] ${info.errorMessage}`, source: 'backend' });
+};
+
+// Flow errors
+export const onFlowError = async (info) => {
+  await db.insert({ level: 'error', message: `[flow:${info.flowName}] ${info.error}`, source: 'flow-engine' });
+};
+
+// Process-level errors (uncaught exceptions, unhandled rejections, Fastify errors)
+export const onProcessError: NonNullable<ServerConfig['onProcessError']> = async (info) => {
+  await db.insert({ level: 'error', message: `[${info.source}] ${info.message}`, stack: info.stack, source: 'backend' });
+};
+```
+
+All hooks are fire-and-forget — exceptions inside hooks are caught and swallowed to prevent logging from breaking the application.

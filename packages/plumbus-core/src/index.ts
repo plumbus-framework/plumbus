@@ -75,6 +75,7 @@ export {
   createUsageAPIClient,
   documentChunksTable,
   documentsTable,
+  findModelRate,
   generateWithValidation,
   singleProviderConfig,
 } from './ai/index.js';
@@ -124,7 +125,12 @@ export {
   createRepository,
   generateDrizzleSchema,
   generateSchemas,
+  gte,
+  ilike,
+  like,
+  lte,
   rollbackLastMigration,
+  sql,
 } from './data/index.js';
 // ── Define Functions ──
 export { defineCapability } from './define/defineCapability.js';
@@ -135,7 +141,7 @@ export { definePrompt } from './define/definePrompt.js';
 export { defineTranslation } from './define/defineTranslation.js';
 // ── Error Utilities ──
 export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
-export { createErrorService, isPlumbusError } from './errors/index.js';
+export { PlumbusError, createErrorService, isPlumbusError } from './errors/index.js';
 export type {
   DispatcherConfig,
   EventConsumer,

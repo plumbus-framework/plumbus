@@ -38,7 +38,10 @@ function mockUiGenerators(): UiGeneratorModule {
     generateHooksModule: () => 'hooks-module',
     generateAuthModule: () => 'auth-module',
     generateFormHintsModule: () => 'form-hints-module',
-    generateNextjsTemplate: () => [{ path: 'app/page.tsx', content: 'page-module' }],
+    generateNextjsTemplate: () => [
+      { path: 'app/page.tsx', content: 'page-module' },
+      { path: 'app/layout.tsx', content: 'layout-module' },
+    ],
   };
 }
 
@@ -72,6 +75,26 @@ describe('plumbus ui helpers', () => {
     expect(paths).toContain('hooks/hooks.ts');
     expect(paths).toContain('lib/auth.ts');
     expect(paths).toContain('lib/form-hints.ts');
+  });
+
+  it('separates template files from module files in nextjs output', () => {
+    const files = generateNextjsAppFiles(
+      'TestApp',
+      [mockCapability()],
+      [mockFlow()],
+      mockUiGenerators(),
+      { apiBaseUrl: 'http://localhost:3000' },
+    );
+
+    // Template files (from generateNextjsTemplate)
+    expect(files.map((f) => f.path)).toContain('app/page.tsx');
+    expect(files.map((f) => f.path)).toContain('app/layout.tsx');
+
+    // Module files (from generateUiModuleFiles) — always regenerated
+    const moduleFiles = ['lib/client.ts', 'hooks/hooks.ts', 'lib/auth.ts', 'lib/form-hints.ts'];
+    for (const modFile of moduleFiles) {
+      expect(files.map((f) => f.path)).toContain(modFile);
+    }
   });
 
   it('generates an E2E Vitest config without external imports', () => {

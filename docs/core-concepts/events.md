@@ -56,6 +56,28 @@ handler: async (ctx, input) => {
 }
 ```
 
+### Type-Safe Event Emission
+
+After running `plumbus generate`, the `emit()` call is fully type-safe — both the event name and the payload are checked at compile time:
+
+```typescript
+// Generated in .plumbus/generated/plumbus.d.ts:
+// eventPayloads: {
+//   "order.placed": { orderId: string; customerId: string; total: number; items: ... };
+// };
+
+// ✅ Correct — payload matches the schema
+await ctx.events.emit("order.placed", { orderId: "abc", customerId: "xyz", total: 100, items: [] });
+
+// ❌ Type error — missing required fields
+await ctx.events.emit("order.placed", { wrong: "field" });
+
+// ❌ Type error — "no.such.event" is not a registered event name
+await ctx.events.emit("no.such.event", {});
+```
+
+Before generation, both parameters fall back to `string` and `unknown` for backward compatibility.
+
 ## The Outbox Pattern
 
 Events are guaranteed to be delivered through the **outbox pattern**:

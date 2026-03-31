@@ -175,6 +175,17 @@ describe('simulateFlow', () => {
     expect(stepNames).toContain('branchB');
   });
 
+  it('does not double-execute parallel branch steps', async () => {
+    const result = await simulateFlow(parallelFlow(), {});
+    expect(result.status).toBe(FlowStatus.Completed);
+    const stepNames = result.history.map((h) => h.step);
+    // fanout + branchA + branchB + merge = 4 entries
+    expect(stepNames).toEqual(['fanout', 'branchA', 'branchB', 'merge']);
+    // Branches should appear exactly once each
+    expect(stepNames.filter((n) => n === 'branchA')).toHaveLength(1);
+    expect(stepNames.filter((n) => n === 'branchB')).toHaveLength(1);
+  });
+
   it('fails when parallel branch fails', async () => {
     const result = await simulateFlow(
       parallelFlow(),

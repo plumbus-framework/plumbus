@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { AIServiceConfig } from '../../ai/ai-service.js';
 import { createAIService, singleProviderConfig } from '../../ai/ai-service.js';
 import { createCostTracker } from '../../ai/cost-tracker.js';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
@@ -22,7 +23,6 @@ import { FlowRegistry } from '../../flows/registry.js';
 import type { StepExecutorDeps } from '../../flows/step-executor.js';
 import type { PlumbusServer } from '../../server/bootstrap.js';
 import { createServer, wrapAIServiceWithDynamicOverrides } from '../../server/bootstrap.js';
-import type { AIServiceConfig } from '../../ai/ai-service.js';
 import type { AIService } from '../../types/context.js';
 import type { WorkerPool } from '../../worker/bootstrap.js';
 import { createWorkerPool } from '../../worker/bootstrap.js';
@@ -128,6 +128,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
   let onRoutesRegistered: import('../../server/bootstrap.js').ServerConfig['onRoutesRegistered'];
   let resolveAiOverrides: import('../../server/bootstrap.js').ServerConfig['resolveAiOverrides'];
   let onCapabilityError: import('../../server/bootstrap.js').ServerConfig['onCapabilityError'];
+  let onProcessError: import('../../server/bootstrap.js').ServerConfig['onProcessError'];
   let onFlowError: import('../../worker/bootstrap.js').WorkerPoolConfig['onFlowError'];
   for (const ext of ['app/server.ts', 'app/server.js']) {
     const extPath = path.resolve(process.cwd(), ext);
@@ -137,6 +138,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         onRoutesRegistered = mod.onRoutesRegistered ?? mod.default?.onRoutesRegistered;
         resolveAiOverrides = mod.resolveAiOverrides ?? mod.default?.resolveAiOverrides;
         onCapabilityError = mod.onCapabilityError ?? mod.default?.onCapabilityError;
+        onProcessError = mod.onProcessError ?? mod.default?.onProcessError;
         onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
         if (onRoutesRegistered) {
           info(`Loaded server extensions from ${ext}`);
@@ -163,6 +165,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
     onRoutesRegistered,
     resolveAiOverrides,
     onCapabilityError,
+    onProcessError,
     ...(process.env.TRUST_PROXY && {
       trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
     }),
@@ -285,6 +288,35 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+
+  // Process-level error handlers — catch crashes that bypass capability/flow hooks
+  if (onProcessError) {
+    const errorHook = onProcessError;
+    process.on('uncaughtException', (err) => {
+      logError(`Uncaught exception: ${err.message}`);
+      Promise.resolve(
+        errorHook({
+          source: 'uncaughtException',
+          message: err.message,
+          stack: err.stack,
+        }),
+      ).catch(() => {});
+    });
+    process.on('unhandledRejection', (reason) => {
+      const message =
+        reason instanceof Error ? reason.message : String(reason ?? 'Unknown rejection');
+      const stack = reason instanceof Error ? reason.stack : undefined;
+      logError(`Unhandled rejection: ${message}`);
+      Promise.resolve(
+        errorHook({
+          source: 'unhandledRejection',
+          message,
+          stack,
+        }),
+      ).catch(() => {});
+    });
+    info('Process-level error handlers registered');
+  }
 
   // Start listening
   const address = await server.start();
