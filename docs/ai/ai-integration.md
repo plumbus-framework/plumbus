@@ -181,6 +181,12 @@ const extractFacts = definePrompt({
 
 The `extract()` and `classify()` convenience methods always use the default provider.
 
+### Transient Provider Failures
+
+Plumbus automatically retries transient upstream provider responses for AI requests. OpenAI-compatible and Anthropic adapters retry status codes `408`, `429`, `500`, `502`, `503`, and `504` with short exponential backoff before failing the request.
+
+If those retries are exhausted, the capability returns a retryable internal error with HTTP status `503` so clients can tell the user the AI provider is temporarily unavailable and invite them to try again.
+
 ### Single Provider (Legacy)
 
 For single-provider setups, use `singleProviderConfig()`:
@@ -235,6 +241,8 @@ const ollama = createProviderAdapter("ollama", {
 
 AI outputs are validated against the prompt's Zod output schema. On failure, the framework retries with an enriched prompt.
 
+Before validation, the runtime now does a conservative normalization pass for structured JSON responses: it strips surrounding markdown code fences, extracts the JSON object if the model added prefatory text, and escapes raw control characters inside string fields. This recovers common provider quirks without silently accepting obviously truncated payloads.
+
 When using `responseFormat: 'json'` (OpenAI's json_object mode), the framework automatically injects "Respond with a valid JSON object." into the prompt if the word "json" is not already present. This prevents the OpenAI API error requiring "json" in the prompt text.
 
 ```typescript
@@ -252,6 +260,9 @@ const result = await generateWithValidation({
 Provider response
        │
        ▼
+Normalize JSON-like payload
+  │
+  ▼
 Parse as JSON
        │
        ▼

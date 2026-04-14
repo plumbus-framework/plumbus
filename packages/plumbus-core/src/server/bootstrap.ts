@@ -21,10 +21,14 @@ import { createEventEmitter } from '../events/emitter.js';
 import type { EventRegistry } from '../events/registry.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
+import { createFlowEngine } from '../flows/engine.js';
+import { createFlowService } from '../flows/flow-service.js';
 import type { FlowRegistry } from '../flows/registry.js';
+import { createTranslationService, TranslationRegistry } from '../translations/index.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
+import type { TranslationDefinition } from '../types/translation.js';
 
 // ── Server Config ──
 
@@ -39,6 +43,8 @@ export interface ServerConfig {
   events: EventRegistry;
   consumers: ConsumerRegistry;
   flows: FlowRegistry;
+  /** Discovered translation definitions from app/translations */
+  translations?: TranslationDefinition[];
   /** Optional prompt registry for AI schema validation */
   promptRegistry?: PromptRegistry;
   /** Optional custom auth adapter (default: JWT from config) */
@@ -68,6 +74,7 @@ export interface ServerConfig {
     tenantId?: string;
     sourceIp?: string;
     userAgent?: string;
+    db?: PostgresJsDatabase;
   }) => void | Promise<void>;
   /**
    * Called on uncaught exceptions, unhandled rejections, and Fastify-level errors.
@@ -79,6 +86,7 @@ export interface ServerConfig {
     message: string;
     stack?: string;
     metadata?: Record<string, unknown>;
+    db?: PostgresJsDatabase;
   }) => void | Promise<void>;
   /**
    * Optional async hook to resolve AI config overrides dynamically (e.g. from DB).
@@ -123,6 +131,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   } = serverConfig;
 
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
+  const translationRegistry = new TranslationRegistry();
+  translationRegistry.registerAll(serverConfig.translations ?? []);
+  const defaultLocale = serverConfig.translations?.[0]?.defaultLocale ?? 'en';
 
   // Auth adapter
   if (!config.auth.secret && config.environment !== 'development') {
@@ -227,7 +238,24 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   }
 
   // Route generator config
+  const requestFlowEngine = createFlowEngine({
+    db,
+    registry: flows,
+    stepDeps: {
+      async executeCapability() {
+        return {
+          success: false,
+          error: 'Flow execution is worker-owned in HTTP server bootstrap',
+        };
+      },
+      evaluateCondition() {
+        return false;
+      },
+    },
+  });
+
   const routeConfig: RouteGeneratorConfig = {
+    db,
     authAdapter,
     createDependencies: (auth: AuthContext, options?): ContextDependencies => {
       const audit = createAuditService({ db, auth });
@@ -243,10 +271,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         auth,
         data,
         events: eventService,
+        flows: createFlowService(requestFlowEngine, auth),
         ai: aiService,
         audit,
         logger,
         config: config as unknown as Record<string, unknown>,
+        translations: createTranslationService(translationRegistry, defaultLocale),
       };
     },
     onCapabilityError: serverConfig.onCapabilityError,
@@ -281,6 +311,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
             statusCode,
             ip: request.ip,
           },
+          db,
         }),
       ).catch(() => {});
       reply.status(statusCode).send({

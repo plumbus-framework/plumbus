@@ -111,7 +111,12 @@ export async function simulateFlow(
   const history: StepHistoryEntry[] = [];
   const stepResults = new Map<string, StepResult>();
   const flowInput = input;
-  const state = flow.state ? {} : input;
+  let state: unknown = flow.state
+    ? (() => {
+        const parsed = flow.state.safeParse({});
+        return parsed.success ? parsed.data : {};
+      })()
+    : input;
   let executedCount = 0;
 
   // Start with the first step
@@ -136,6 +141,7 @@ export async function simulateFlow(
     const entry = buildHistoryEntry(step.name, result, startedAt, completedAt);
     history.push(entry);
     stepResults.set(step.name, result);
+    state = mergeFlowState(state, result.data);
 
     // Handle step failure
     if (result.status === StepStatus.Failed) {
@@ -176,6 +182,7 @@ export async function simulateFlow(
           const bEnd = ctx.time.now();
           history.push(buildHistoryEntry(branchName, bResult, bStart, bEnd));
           stepResults.set(branchName, bResult);
+          state = mergeFlowState(state, bResult.data);
 
           if (bResult.status === StepStatus.Failed) {
             return {
@@ -224,4 +231,26 @@ export async function simulateFlow(
     state,
     stepResults,
   };
+}
+
+function mergeFlowState(currentState: unknown, stepData: unknown): unknown {
+  if (stepData === undefined) {
+    return currentState;
+  }
+
+  if (
+    currentState &&
+    typeof currentState === 'object' &&
+    !Array.isArray(currentState) &&
+    stepData &&
+    typeof stepData === 'object' &&
+    !Array.isArray(stepData)
+  ) {
+    return {
+      ...(currentState as Record<string, unknown>),
+      ...(stepData as Record<string, unknown>),
+    };
+  }
+
+  return stepData;
 }

@@ -167,6 +167,8 @@ Emits an event as a flow step:
 }
 ```
 
+The emitted payload is built from the original flow input merged with the current flow state. When both contain the same key, the current flow state wins.
+
 ## Triggers
 
 | Trigger Type | Configuration | When It Fires |

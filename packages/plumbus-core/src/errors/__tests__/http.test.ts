@@ -24,6 +24,12 @@ describe('errorToHttpStatus', () => {
   it('maps internal to 500', () => {
     expect(errorToHttpStatus(errors.internal('oops'))).toBe(500);
   });
+
+  it('prefers metadata httpStatus override when provided', () => {
+    expect(errorToHttpStatus(errors.internal('upstream unavailable', { httpStatus: 503 }))).toBe(
+      503,
+    );
+  });
 });
 
 describe('errorToHttpResponse', () => {

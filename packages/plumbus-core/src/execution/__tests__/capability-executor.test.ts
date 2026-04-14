@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { ProviderAPIError } from '../../ai/provider.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { AuthContext } from '../../types/security.js';
 import { executeCapability } from '../capability-executor.js';
@@ -120,6 +121,38 @@ describe('executeCapability', () => {
     if (!result.success) {
       expect(result.error.code).toBe('internal');
       expect(result.error.metadata?.message).toBe('Database connection lost');
+    }
+  });
+
+  it('surfaces transient provider failures as retryable unavailable errors', async () => {
+    const cap = makeCapability({
+      handler: async () => {
+        throw new ProviderAPIError({
+          providerName: 'openai',
+          statusCode: 503,
+          retryable: true,
+          attempts: 3,
+          message: 'OpenAI API error (503) after 3 attempts: capacity',
+        });
+      },
+    } as any);
+    const { ctx } = makeCtx();
+
+    const result = await executeCapability(cap, ctx, { id: 'u1' });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('internal');
+      expect(result.error.message).toBe(
+        'AI provider temporarily unavailable. Please try again in a moment.',
+      );
+      expect(result.error.metadata).toMatchObject({
+        provider: 'openai',
+        retryable: true,
+        retryAttempts: 3,
+        upstreamStatusCode: 503,
+        httpStatus: 503,
+      });
     }
   });
 

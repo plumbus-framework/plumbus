@@ -81,6 +81,34 @@ function makeAuth() {
   };
 }
 
+function makeCtx(overrides?: Partial<Record<string, unknown>>) {
+  return {
+    auth: makeAuth(),
+    data: {},
+    events: { emit: vi.fn().mockResolvedValue(undefined) },
+    flows: {
+      start: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn(),
+      status: vi.fn(),
+    },
+    ai: {},
+    audit: { record: vi.fn() },
+    errors: {},
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+    time: { now: () => new Date() },
+    config: {},
+    security: {},
+    translations: { locale: 'en', t: (key: string) => key },
+    ...overrides,
+  } as any;
+}
+
 function makeStepDeps(succeeds = true) {
   return {
     executeCapability: vi
@@ -211,5 +239,76 @@ describe('FlowEngine', () => {
     await engine.start('order-processing', { orderId: 'abc' }, makeAuth());
     expect(auditRecords).toHaveLength(1);
     expect(auditRecords[0].action).toBe('flow.started.order-processing');
+  });
+
+  it('merges capability output into persisted state between steps', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'stateful-flow',
+        domain: 'orders',
+        input: z.object({ orderId: z.string() }),
+        state: z.object({ manuscriptId: z.string().default('') }),
+        steps: [
+          { name: 'plan', type: FlowStepType.Capability },
+          { name: 'write', type: FlowStepType.Capability },
+        ],
+      }),
+    );
+
+    const db = mockDb();
+    const stepDeps = {
+      executeCapability: vi
+        .fn()
+        .mockResolvedValueOnce({ success: true, data: { manuscriptId: 'm-1' } })
+        .mockResolvedValueOnce({ success: true, data: {} }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+    const engine = createFlowEngine({ db, registry, stepDeps });
+
+    const exec = await engine.start('stateful-flow', { orderId: 'abc' }, makeAuth());
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engine.runNext(exec.id, makeCtx());
+
+    expect(row.state).toMatchObject({ manuscriptId: 'm-1' });
+    expect(row.currentStep).toBe('write');
+  });
+
+  it('passes the live DB connection to onFlowError hooks', async () => {
+    const registry = new FlowRegistry();
+    registry.register(makeTestFlow());
+    const db = mockDb();
+    const onFlowError = vi.fn();
+    const engine = createFlowEngine({ db, registry, stepDeps: makeStepDeps(false), onFlowError });
+
+    const exec = await engine.start('order-processing', { orderId: 'abc' }, makeAuth());
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engine.runNext(exec.id, makeCtx());
+
+    expect(onFlowError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        executionId: exec.id,
+        flowName: 'order-processing',
+        step: 'validate',
+        error: 'step failed',
+      }),
+    );
   });
 });

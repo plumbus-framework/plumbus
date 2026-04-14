@@ -2,9 +2,9 @@
 // Auto-generate derived artifacts from contracts
 
 import type { Command } from 'commander';
+import * as JSONC from 'jsonc-parser';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as JSONC from 'jsonc-parser';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { EntityDefinition } from '../../types/entity.js';

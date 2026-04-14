@@ -234,6 +234,8 @@ const onboarding = defineFlow({
 { name: string; type: "eventEmit"; event: string }
 ```
 
+`eventEmit` steps send a payload composed from the original flow input merged with the current flow state. If the same key exists in both places, the state value overrides the input value.
+
 ### Returns
 
 `FlowDefinition<TInput, TState>` — an immutable flow definition.

@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { isProviderAPIError } from '../ai/provider.js';
 import { isPlumbusError } from '../errors/index.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext } from '../types/context.js';
@@ -63,6 +64,34 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
       await recordAudit(ctx, capability, 'failure', { error: err });
       return { success: false, error: err };
     }
+
+    if (isProviderAPIError(err) && err.retryable) {
+      const statusCode = err.statusCode === 429 ? 503 : (err.statusCode ?? 503);
+      const error = ctx.errors.internal(
+        'AI provider temporarily unavailable. Please try again in a moment.',
+        {
+          capability: capability.name,
+          message: err.message,
+          provider: err.providerName,
+          retryAttempts: err.attempts,
+          retryable: true,
+          upstreamStatusCode: err.statusCode,
+          httpStatus: statusCode,
+        },
+      );
+      ctx.logger.error(
+        `Capability "${capability.name}" failed due to transient AI provider error`,
+        {
+          error: err.message,
+          provider: err.providerName,
+          upstreamStatusCode: err.statusCode,
+          attempts: err.attempts,
+        },
+      );
+      await recordAudit(ctx, capability, 'failure', { error });
+      return { success: false, error };
+    }
+
     const causeMessage =
       err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined;
     const errorMessage = causeMessage

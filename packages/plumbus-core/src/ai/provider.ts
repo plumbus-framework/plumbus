@@ -80,6 +80,120 @@ export interface AIProviderAdapter {
   embed(request: EmbeddingRequest): Promise<EmbeddingResponse>;
 }
 
+export class ProviderAPIError extends Error {
+  readonly providerName: string;
+  readonly statusCode?: number;
+  readonly retryable: boolean;
+  readonly attempts: number;
+
+  constructor(args: {
+    providerName: string;
+    message: string;
+    retryable: boolean;
+    attempts: number;
+    statusCode?: number;
+  }) {
+    super(args.message);
+    this.name = 'ProviderAPIError';
+    this.providerName = args.providerName;
+    this.statusCode = args.statusCode;
+    this.retryable = args.retryable;
+    this.attempts = args.attempts;
+  }
+}
+
+export function isProviderAPIError(value: unknown): value is ProviderAPIError {
+  if (value instanceof ProviderAPIError) return true;
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.name === 'ProviderAPIError' &&
+    typeof candidate.message === 'string' &&
+    typeof candidate.providerName === 'string' &&
+    typeof candidate.retryable === 'boolean' &&
+    typeof candidate.attempts === 'number'
+  );
+}
+
+const retryableStatusCodes = new Set([408, 429, 500, 502, 503, 504]);
+const maxProviderAttempts = 3;
+const baseRetryDelayMs = 750;
+const maxRetryDelayMs = 5_000;
+
+function isRetryableStatusCode(statusCode: number): boolean {
+  return retryableStatusCodes.has(statusCode);
+}
+
+function parseRetryAfterMs(retryAfterHeader: string | null): number | undefined {
+  if (!retryAfterHeader) return undefined;
+
+  const retryAfterSeconds = Number(retryAfterHeader);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return retryAfterSeconds * 1000;
+  }
+
+  const retryAt = Date.parse(retryAfterHeader);
+  if (Number.isNaN(retryAt)) return undefined;
+  return Math.max(retryAt - Date.now(), 0);
+}
+
+function computeRetryDelayMs(attempt: number, retryAfterHeader: string | null): number {
+  const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+  if (retryAfterMs != null) {
+    return Math.min(Math.max(retryAfterMs, 0), maxRetryDelayMs);
+  }
+  return Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs);
+}
+
+async function waitForRetry(delayMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function buildProviderErrorMessage(
+  label: string,
+  statusCode: number,
+  body: string,
+  attempts: number,
+): string {
+  const suffix = attempts > 1 ? ` after ${attempts} attempts` : '';
+  const detail = body || 'Request failed';
+  return `${label} error (${statusCode})${suffix}: ${detail}`;
+}
+
+async function executeRequestWithRetry(args: {
+  providerName: string;
+  errorLabel: string;
+  send: () => Promise<Response>;
+}): Promise<Response> {
+  for (let attempt = 1; attempt <= maxProviderAttempts; attempt++) {
+    const response = await args.send();
+    if (response.ok) {
+      return response;
+    }
+
+    const body = await response.text();
+    const retryable = isRetryableStatusCode(response.status);
+    if (!retryable || attempt === maxProviderAttempts) {
+      throw new ProviderAPIError({
+        providerName: args.providerName,
+        statusCode: response.status,
+        retryable,
+        attempts: attempt,
+        message: buildProviderErrorMessage(args.errorLabel, response.status, body, attempt),
+      });
+    }
+
+    await waitForRetry(computeRetryDelayMs(attempt, response.headers.get('retry-after')));
+  }
+
+  throw new ProviderAPIError({
+    providerName: args.providerName,
+    retryable: false,
+    attempts: maxProviderAttempts,
+    message: `${args.errorLabel} request failed`,
+  });
+}
+
 // ── OpenAI Adapter ──
 export interface OpenAIAdapterConfig {
   apiKey: string;
@@ -116,20 +230,20 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         body.response_format = { type: 'json_object' };
       }
 
-      const resp = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+      const resp = await executeRequestWithRetry({
+        providerName: 'openai',
+        errorLabel: 'OpenAI API',
+        send: () =>
+          fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+          }),
       });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`OpenAI API error (${resp.status}): ${text}`);
-      }
 
       const data = (await resp.json()) as {
         choices: Array<{ message: { content: string }; finish_reason: string }>;
@@ -176,19 +290,27 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         body.response_format = { type: 'json_object' };
       }
 
-      const resp = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        yield { type: 'error', error: `OpenAI API error (${resp.status}): ${text}` };
+      let resp: Response;
+      try {
+        resp = await executeRequestWithRetry({
+          providerName: 'openai',
+          errorLabel: 'OpenAI API',
+          send: () =>
+            fetch(`${baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${config.apiKey}`,
+              },
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+            }),
+        });
+      } catch (error) {
+        yield {
+          type: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        };
         return;
       }
 
@@ -201,20 +323,20 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         input: request.texts,
       };
 
-      const resp = await fetch(`${baseUrl}/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(defaultTimeout),
+      const resp = await executeRequestWithRetry({
+        providerName: 'openai',
+        errorLabel: 'OpenAI Embedding API',
+        send: () =>
+          fetch(`${baseUrl}/embeddings`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(defaultTimeout),
+          }),
       });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`OpenAI Embedding API error (${resp.status}): ${text}`);
-      }
 
       const data = (await resp.json()) as {
         data: Array<{ embedding: number[] }>;
@@ -257,21 +379,21 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       };
       if (request.system) body.system = request.system;
 
-      const resp = await fetch(`${baseUrl}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': config.apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+      const resp = await executeRequestWithRetry({
+        providerName: 'anthropic',
+        errorLabel: 'Anthropic API',
+        send: () =>
+          fetch(`${baseUrl}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': config.apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+          }),
       });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Anthropic API error (${resp.status}): ${text}`);
-      }
 
       const data = (await resp.json()) as {
         content: Array<{ type: string; text: string }>;
@@ -314,20 +436,28 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       };
       if (request.system) body.system = request.system;
 
-      const resp = await fetch(`${baseUrl}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': config.apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
-      });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        yield { type: 'error', error: `Anthropic API error (${resp.status}): ${text}` };
+      let resp: Response;
+      try {
+        resp = await executeRequestWithRetry({
+          providerName: 'anthropic',
+          errorLabel: 'Anthropic API',
+          send: () =>
+            fetch(`${baseUrl}/messages`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': config.apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+            }),
+        });
+      } catch (error) {
+        yield {
+          type: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        };
         return;
       }
 

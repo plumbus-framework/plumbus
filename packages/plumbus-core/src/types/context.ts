@@ -83,6 +83,14 @@ export interface AIStreamEvent {
   text?: string;
   /** Final validated data (for done events) */
   data?: Record<string, any>;
+  /** Token usage from the provider (for done events) */
+  usage?: AITokenUsage;
+  /** Model name used (for done events) */
+  model?: string;
+  /** Provider name used (for done events) */
+  provider?: string;
+  /** Estimated cost in USD (for done events) */
+  cost?: number;
   /** Error message (for error events) */
   error?: string;
 }

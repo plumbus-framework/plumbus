@@ -205,6 +205,7 @@ export async function startDevServer(options: DevOptions & { db?: unknown }): Pr
     events,
     consumers,
     flows,
+    translations: resources.translations,
     promptRegistry,
     host,
     port,

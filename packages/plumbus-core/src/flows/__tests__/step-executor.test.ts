@@ -26,6 +26,7 @@ describe('StepExecutor', () => {
     const step: CapabilityStep = { name: 'processOrder', type: FlowStepType.Capability };
     const result = await executeStep(step, mockCtx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Completed);
+    expect(result.data).toEqual({});
     expect(defaultDeps.executeCapability).toHaveBeenCalledWith('processOrder', mockCtx, {});
   });
 
@@ -191,9 +192,18 @@ describe('StepExecutor', () => {
       type: FlowStepType.EventEmit,
       event: 'order.shipped',
     };
-    const result = await executeStep(step, mockCtx, {}, { orderId: '123' }, defaultDeps);
+    const result = await executeStep(
+      step,
+      mockCtx,
+      { projectId: 'p1' },
+      { orderId: '123' },
+      defaultDeps,
+    );
     expect(result.status).toBe(StepStatus.Completed);
-    expect(mockCtx.events.emit).toHaveBeenCalledWith('order.shipped', { orderId: '123' });
+    expect(mockCtx.events.emit).toHaveBeenCalledWith('order.shipped', {
+      projectId: 'p1',
+      orderId: '123',
+    });
   });
 
   it('event emit step fails gracefully on emit error', async () => {

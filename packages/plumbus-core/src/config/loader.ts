@@ -101,6 +101,7 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
     baseUrl: env.AI_BASE_URL ?? undefined,
     maxTokensPerRequest: env.AI_MAX_TOKENS ? parseInt(env.AI_MAX_TOKENS, 10) : undefined,
     dailyCostLimit: env.AI_DAILY_COST_LIMIT ? parseFloat(env.AI_DAILY_COST_LIMIT) : undefined,
+    requestTimeout: env.AI_REQUEST_TIMEOUT ? parseInt(env.AI_REQUEST_TIMEOUT, 10) : undefined,
   };
 }
 
@@ -132,6 +133,7 @@ export function loadMultiProviderConfig(
 
     const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
     const dailyCostRaw = env[`${prefix}DAILY_COST_LIMIT`];
+    const timeoutRaw = env[`${prefix}REQUEST_TIMEOUT`];
 
     providers[name] = {
       provider: name,
@@ -140,6 +142,7 @@ export function loadMultiProviderConfig(
       baseUrl: env[`${prefix}BASE_URL`] ?? undefined,
       maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
       dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
+      requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
     };
   }
 

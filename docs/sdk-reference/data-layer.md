@@ -200,13 +200,15 @@ await rollbackLastMigration({ db, migrationsDir: "./migrations" });
 
 ## collectSchemas
 
-Collects all generated Drizzle schemas for use in ORM configuration:
+Collects all generated Drizzle schemas for use in ORM configuration. This includes both user-defined entity tables and all framework-internal tables (audit, event outbox, flow execution, RAG):
 
 ```typescript
 import { collectSchemas } from "@plumbus/core";
 
 const schemas = collectSchemas(entityRegistry);
-// Use in Drizzle config
+// Includes: entity tables + audit_records, event_outbox, event_idempotency,
+// event_dead_letter, flow_executions, flow_dead_letter, flow_schedules,
+// documents, document_chunks
 ```
 
 ## Event Tables
