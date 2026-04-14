@@ -1,3 +1,4 @@
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AuthAdapter } from '../auth/adapter.js';
@@ -15,6 +16,8 @@ export interface DependencyOptions {
 }
 
 export interface RouteGeneratorConfig {
+  /** Live Drizzle database connection used by the server. */
+  db: PostgresJsDatabase;
   /** Auth adapter for extracting identity from requests */
   authAdapter: AuthAdapter;
   /** Factory to build base context dependencies for each request */
@@ -35,6 +38,7 @@ export interface RouteGeneratorConfig {
     tenantId?: string;
     sourceIp?: string;
     userAgent?: string;
+    db?: PostgresJsDatabase;
   }) => void | Promise<void>;
 }
 
@@ -118,6 +122,7 @@ export function registerCapabilityRoute(
             tenantId: ctx.auth.tenantId,
             sourceIp: request.ip,
             userAgent: request.headers['user-agent'],
+            db: config.db,
           }),
         ).catch(() => {});
       }

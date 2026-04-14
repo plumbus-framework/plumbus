@@ -167,7 +167,7 @@ if (!check.allowed) {
 
 ## Output Validation
 
-AI outputs are validated against the Zod schema defined in the prompt. If validation fails, the framework can retry with a refined prompt:
+AI outputs are validated against the Zod schema defined in the prompt. If validation fails, the framework can retry with a refined prompt. Structured JSON responses go through a conservative normalization pass first, so fenced JSON and raw newlines inside string fields do not immediately fail validation.
 
 ```typescript
 import { generateWithValidation } from "@plumbus/core";

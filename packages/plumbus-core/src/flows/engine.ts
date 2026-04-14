@@ -3,7 +3,12 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
 import type { EventQueue } from '../events/queue.js';
 import type { AuditService } from '../types/audit.js';
-import type { DataService, ExecutionContext, FlowExecution } from '../types/context.js';
+import type {
+  DataService,
+  EventService,
+  ExecutionContext,
+  FlowExecution,
+} from '../types/context.js';
 import { BackoffStrategy } from '../types/enums.js';
 import type { FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
@@ -26,6 +31,8 @@ export interface FlowEngineConfig {
   queue?: EventQueue;
   /** Create a data service scoped to a specific auth context (for tenant isolation in flows). */
   createDataService?: (auth: AuthContext) => DataService;
+  /** Create an event service scoped to a specific auth context. */
+  createEventService?: (auth: AuthContext) => EventService;
   /** Called when a flow fails permanently (after retries exhausted). */
   onFlowError?: (info: {
     executionId: string;
@@ -34,6 +41,7 @@ export interface FlowEngineConfig {
     error: string;
     tenantId?: string | null;
     actor?: string;
+    db?: PostgresJsDatabase;
   }) => Promise<void> | void;
 }
 
@@ -78,7 +86,7 @@ interface FlowExecutionUpdate {
  * start, run steps, handle wait/resume, and persist state.
  */
 export function createFlowEngine(config: FlowEngineConfig) {
-  const { db, registry, stepDeps, audit, onFlowError } = config;
+  const { db, registry, stepDeps, audit, onFlowError, createEventService } = config;
 
   /**
    * Start a new flow execution.
@@ -101,7 +109,12 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     const executionId = randomUUID();
-    const initialState = flow.state ? {} : null;
+    const initialState = flow.state
+      ? (() => {
+          const parsed = flow.state.safeParse({});
+          return parsed.success ? parsed.data : {};
+        })()
+      : null;
 
     await db.insert(flowExecutionsTable).values({
       id: executionId,
@@ -205,10 +218,12 @@ export function createFlowEngine(config: FlowEngineConfig) {
       internal: true,
     };
     const flowData = config.createDataService ? config.createDataService(flowAuth) : ctx.data;
+    const flowEvents = createEventService ? createEventService(flowAuth) : ctx.events;
     const flowCtx: ExecutionContext = {
       ...ctx,
       auth: flowAuth,
       data: flowData,
+      events: flowEvents,
       state: row.state,
       step: currentStepName,
       flowId: executionId,
@@ -222,6 +237,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const historyEntry = buildHistoryEntry(currentStepName, result, startedAt, completedAt);
     const history = Array.isArray(row.stepHistory) ? (row.stepHistory as StepHistoryEntry[]) : [];
     history.push(historyEntry);
+    const nextState = mergeExecutionState(row.state, result.data);
 
     if (audit) {
       await audit.record(`flow.step.${result.status}.${currentStepName}`, {
@@ -242,6 +258,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     if (result.waitEvent) {
       await updateExecution(executionId, {
         status: FlowStatus.Waiting,
+        state: nextState,
         stepHistory: history,
         currentStep: currentStepName, // stay on current step until resumed
         waitingForEvent: result.waitEvent,
@@ -267,6 +284,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       }
       await updateExecution(executionId, {
         status: FlowStatus.Waiting,
+        state: nextState,
         stepHistory: history,
         currentStep: nextStep,
         waitingForEvent: null,
@@ -277,6 +295,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     // Parallel step — execute all branches concurrently, then advance
     if (result.parallelBranches) {
+      let parallelState = nextState;
       const branchSteps = result.parallelBranches
         .map((branchName) => flow.steps.find((s) => s.name === branchName))
         .filter((s): s is FlowStep => s != null);
@@ -301,6 +320,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
         if (settled.status === 'fulfilled') {
           const { branchStep, branchResult, branchStart, branchEnd } = settled.value;
           history.push(buildHistoryEntry(branchStep.name, branchResult, branchStart, branchEnd));
+          parallelState = mergeExecutionState(parallelState, branchResult.data);
         }
       }
 
@@ -322,6 +342,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
       const nextStep = getNextStepName(flow.steps, currentStepName);
       await updateExecution(executionId, {
+        state: parallelState,
         stepHistory: history,
         currentStep: nextStep,
       });
@@ -335,6 +356,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // Conditional step — jump to the chosen branch
     if (result.nextStep) {
       await updateExecution(executionId, {
+        state: nextState,
         stepHistory: history,
         currentStep: result.nextStep,
       });
@@ -344,12 +366,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // Normal completion — advance to next step
     const nextStep = getNextStepName(flow.steps, currentStepName);
     if (!nextStep) {
-      await updateExecution(executionId, { stepHistory: history });
+      await updateExecution(executionId, { state: nextState, stepHistory: history });
       await completeFlow(executionId, row.flowName);
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Completed };
     }
 
     await updateExecution(executionId, {
+      state: nextState,
       stepHistory: history,
       currentStep: nextStep,
     });
@@ -546,6 +569,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           error: error ?? 'Unknown error',
           tenantId: row?.tenantId,
           actor: row?.actor,
+          db,
         });
       } catch {
         // Swallow — error logging must never break flow processing
@@ -561,6 +585,28 @@ export function createFlowEngine(config: FlowEngineConfig) {
   }
 
   return { start, runNext, resume, resumeWaitingByEvent, listRunnable, cancel, status };
+}
+
+function mergeExecutionState(currentState: unknown, stepData: unknown): unknown {
+  if (stepData === undefined) {
+    return currentState;
+  }
+
+  if (
+    currentState &&
+    typeof currentState === 'object' &&
+    !Array.isArray(currentState) &&
+    stepData &&
+    typeof stepData === 'object' &&
+    !Array.isArray(stepData)
+  ) {
+    return {
+      ...(currentState as Record<string, unknown>),
+      ...(stepData as Record<string, unknown>),
+    };
+  }
+
+  return stepData;
 }
 
 /**

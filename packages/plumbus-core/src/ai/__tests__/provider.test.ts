@@ -4,6 +4,7 @@ import {
   createAnthropicAdapter,
   createOpenAIAdapter,
   createProviderAdapter,
+  ProviderAPIError,
 } from '../provider.js';
 
 // ── Helper: create a mock provider ──
@@ -91,19 +92,85 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
-    it('throws on API error', async () => {
+    it('throws on non-retryable API error', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue({
           ok: false,
-          status: 429,
+          status: 400,
+          headers: new Headers(),
           text: async () => 'rate limited',
         }),
       );
 
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
-      await expect(adapter.complete({ prompt: 'test' })).rejects.toThrow('OpenAI API error (429)');
+      await expect(adapter.complete({ prompt: 'test' })).rejects.toThrow('OpenAI API error (400)');
 
+      vi.unstubAllGlobals();
+    });
+
+    it('retries transient API errors before succeeding', async () => {
+      vi.useFakeTimers();
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers(),
+          text: async () => 'capacity',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: 'Recovered' }, finish_reason: 'stop' }],
+            model: 'gpt-4o',
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const resultPromise = adapter.complete({ prompt: 'retry me' });
+
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(result.content).toBe('Recovered');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it('throws ProviderAPIError after exhausting transient retries', async () => {
+      vi.useFakeTimers();
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers(),
+        text: async () => 'still unavailable',
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const errorPromise = adapter.complete({ prompt: 'retry me' }).then(
+        () => new Error('Expected provider error'),
+        (reason) => reason,
+      );
+
+      await vi.runAllTimersAsync();
+      const error = await errorPromise;
+
+      expect(error).toBeInstanceOf(ProviderAPIError);
+      expect(error).toMatchObject({
+        providerName: 'openai',
+        retryable: true,
+        statusCode: 503,
+        attempts: 3,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     });
 

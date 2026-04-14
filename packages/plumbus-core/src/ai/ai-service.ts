@@ -314,27 +314,69 @@ export function createAIService(config: AIServiceConfig): AIService {
         responseFormat: singleTextField ? 'text' : 'json',
       };
 
-      // Stream from provider, collecting full text
+      // Stream from provider, collecting full text and usage
       let fullText = '';
+      let streamUsage: import('../types/context.js').AITokenUsage | undefined;
       for await (const event of activeProvider.stream(request)) {
         if (event.type === 'content_delta' && event.delta) {
           fullText += event.delta;
           yield { type: 'delta', text: event.delta };
+        } else if (event.type === 'usage' && event.usage) {
+          streamUsage = {
+            inputTokens: event.usage.inputTokens,
+            outputTokens: event.usage.outputTokens,
+            totalTokens: event.usage.totalTokens,
+            cachedInputTokens: event.usage.cachedInputTokens,
+            cacheWriteTokens: event.usage.cacheWriteTokens,
+          };
+        } else if (event.type === 'done') {
+          // Provider-level done (finish_reason) — no action needed
         } else if (event.type === 'error') {
           yield { type: 'error', error: event.error };
           return;
         }
       }
 
+      // Compute cost and model info for the done event
+      const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+      const streamCost = streamUsage
+        ? calculateModelCost(streamUsage.inputTokens, streamUsage.outputTokens, resolvedModel, {
+            cachedInputTokens: streamUsage.cachedInputTokens,
+            cacheWriteTokens: streamUsage.cacheWriteTokens,
+          })
+        : 0;
+
+      // Track cost (same as _generateCore)
+      if (costTracker && streamUsage) {
+        costTracker.record({
+          model: resolvedModel,
+          provider: activeProvider.name,
+          promptName: hasPromptDef ? params.prompt : undefined,
+          operation: 'generate',
+          usage: streamUsage,
+          cost: null,
+          latencyMs: 0,
+          tenantId: config.budget?.tenantId,
+          actor: config.budget?.actor,
+        });
+      }
+
+      const doneBase = {
+        usage: streamUsage,
+        model: resolvedModel,
+        provider: activeProvider.name,
+        cost: streamCost,
+      };
+
       // Build the final validated result
       if (singleTextField) {
         // Plain text mode — wrap the accumulated text in the schema field
-        yield { type: 'done', data: { [singleTextField]: fullText.trim() } };
+        yield { type: 'done', data: { [singleTextField]: fullText.trim() }, ...doneBase };
       } else if (promptDef) {
         try {
           const parsed = JSON.parse(fullText);
           const validated = promptDef.output.parse(parsed);
-          yield { type: 'done', data: validated };
+          yield { type: 'done', data: validated, ...doneBase };
         } catch {
           // Validation failed — fall back to non-streaming retry with JSON mode
           const validated = await generateWithValidation(
@@ -343,10 +385,10 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptDef.output,
             config.validation,
           );
-          yield { type: 'done', data: validated.data };
+          yield { type: 'done', data: validated.data, ...doneBase };
         }
       } else {
-        yield { type: 'done', data: { content: fullText } };
+        yield { type: 'done', data: { content: fullText }, ...doneBase };
       }
     },
 

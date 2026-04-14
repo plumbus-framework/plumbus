@@ -93,6 +93,7 @@ import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { EventRegistry } from '../../events/registry.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
+import type { TranslationDefinition } from '../../types/translation.js';
 import type { ServerConfig } from '../bootstrap.js';
 import { createServer } from '../bootstrap.js';
 
@@ -128,6 +129,18 @@ function makeServerConfig(overrides?: Partial<ServerConfig>): ServerConfig {
     ...overrides,
   };
 }
+
+const testTranslations: TranslationDefinition[] = [
+  {
+    name: 'errors',
+    defaultLocale: 'en',
+    locales: ['en', 'he'],
+    messages: {
+      en: { maxGenerationAttempts: 'Maximum number of generation attempts reached' },
+      he: { maxGenerationAttempts: 'הגעת למספר המרבי של ניסיונות יצירה' },
+    },
+  },
+];
 
 // ── Tests ──
 
@@ -274,6 +287,48 @@ describe('Server Bootstrap', () => {
         expect.anything(),
         expect.anything(),
         expect.objectContaining({ authAdapter: customAuth }),
+      );
+    });
+  });
+
+  describe('custom route hooks', () => {
+    it('passes the live DB connection to onRoutesRegistered', () => {
+      const db = { execute: vi.fn() } as any;
+      const onRoutesRegistered = vi.fn();
+
+      createServer(
+        makeServerConfig({
+          db,
+          onRoutesRegistered,
+        }),
+      );
+
+      expect(onRoutesRegistered).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ db }),
+      );
+    });
+
+    it('injects discovered translations into request dependencies', () => {
+      createServer(
+        makeServerConfig({
+          translations: testTranslations,
+        }),
+      );
+
+      const routeConfigArg = (registerAllRoutes as any).mock.calls.at(-1)?.[2];
+      expect(routeConfigArg).toBeDefined();
+
+      const deps = routeConfigArg.createDependencies({
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        roles: ['admin'],
+        scopes: [],
+        provider: 'test',
+      });
+
+      expect(deps.translations?.t('errors.maxGenerationAttempts')).toBe(
+        'Maximum number of generation attempts reached',
       );
     });
   });

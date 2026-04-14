@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { FlowStatus, StepStatus } from '../../flows/state-machine.js';
 import { FlowStepType } from '../../types/enums.js';
 import type { FlowDefinition } from '../../types/flow.js';
+import { createTestContext, mockEvents } from '../context.js';
 import { simulateFlow } from '../simulate-flow.js';
 
 // ── Test Flow Factories ──
@@ -82,7 +83,8 @@ function eventEmitFlow(): FlowDefinition {
   return {
     name: 'event-emit-flow',
     domain: 'test',
-    input: z.object({}),
+    input: z.object({ projectId: z.string() }),
+    state: z.object({ manuscriptId: z.string().default(''), versionNumber: z.number().default(0) }),
     steps: [
       { name: 'doWork', type: FlowStepType.Capability },
       { name: 'notify', type: FlowStepType.EventEmit, event: 'work.done' },
@@ -201,9 +203,33 @@ describe('simulateFlow', () => {
   });
 
   it('handles event emit steps', async () => {
-    const result = await simulateFlow(eventEmitFlow(), {});
+    const events = mockEvents();
+    const ctx = createTestContext({ events });
+    const result = await simulateFlow(
+      eventEmitFlow(),
+      { projectId: 'proj-1' },
+      {
+        ctx,
+        capabilityResults: {
+          doWork: {
+            success: true,
+            data: { manuscriptId: 'manuscript-1', versionNumber: 2 },
+          },
+        },
+      },
+    );
     expect(result.status).toBe(FlowStatus.Completed);
     expect(result.history).toHaveLength(2);
+    expect(events.emitted).toEqual([
+      {
+        eventName: 'work.done',
+        payload: {
+          projectId: 'proj-1',
+          manuscriptId: 'manuscript-1',
+          versionNumber: 2,
+        },
+      },
+    ]);
   });
 
   it('enforces max step limit', async () => {

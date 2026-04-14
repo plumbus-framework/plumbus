@@ -283,10 +283,14 @@ import type { ServerConfig } from "@plumbus/core";
 
 export const onCapabilityError: NonNullable<ServerConfig['onCapabilityError']> = async (info) => {
   // info contains: capabilityName, domain, errorCode, errorMessage,
-  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?
+  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?, db?
   await writeToMyErrorTable(info);
 };
 ```
+
+When the server is already connected to PostgreSQL, the same live Drizzle connection is also passed into framework callbacks and custom route hooks. Consumer apps can use that `db` handle instead of opening a second ad hoc database client from `app/server.ts`.
+
+When `createServer()` is started through `plumbus dev` or `plumbus start`, the framework also binds discovered `app/translations/*` catalogs into each HTTP execution context. That means generated capability routes and custom `app/server.ts` routes can safely call `ctx.translations.t('errors.someKey')` without falling back to the raw translation key.
 
 > **Production requirement:** `auth.secret` must be set when `environment` is `"production"`. The server will throw on startup if no secret is configured in production. In development/staging, a fallback secret is used with a warning.
 

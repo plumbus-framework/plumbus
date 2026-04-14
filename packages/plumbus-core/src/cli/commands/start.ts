@@ -159,6 +159,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
     events,
     consumers,
     flows,
+    translations: resources.translations,
     promptRegistry,
     host,
     port,

@@ -13,6 +13,8 @@ import { type StepHistoryEntry, StepStatus } from './state-machine.js';
 
 export interface StepResult {
   status: StepStatus;
+  /** Successful capability output that should be merged into flow state */
+  data?: unknown;
   /** For condition steps: the chosen branch step name */
   nextStep?: string;
   /** For wait steps: the event we're waiting for */
@@ -62,7 +64,7 @@ export async function executeStep(
     case FlowStepType.Parallel:
       return executeParallelStep(step);
     case FlowStepType.EventEmit:
-      return executeEventEmitStep(step, ctx, state);
+      return executeEventEmitStep(step, ctx, flowInput, state);
     default:
       return {
         status: StepStatus.Failed,
@@ -79,7 +81,7 @@ export async function executeStep(
  *   `$state.fieldName` — resolves to the corresponding field from state
  *   any other value     — used as-is (literal)
  */
-function resolveCapabilityInput(
+function resolveStepPayload(
   stepInput: Record<string, unknown> | undefined,
   flowInput: unknown,
   state: unknown,
@@ -117,11 +119,11 @@ async function executeCapabilityStep(
   deps: StepExecutorDeps,
 ): Promise<StepResult> {
   try {
-    const capInput = resolveCapabilityInput(step.input, flowInput, state);
+    const capInput = resolveStepPayload(step.input, flowInput, state);
     const capabilityName = step.capability ?? step.name;
     const result = await deps.executeCapability(capabilityName, ctx, capInput);
     if (result.success) {
-      return { status: StepStatus.Completed };
+      return { status: StepStatus.Completed, data: result.data };
     }
     return {
       status: StepStatus.Failed,
@@ -185,10 +187,11 @@ function executeParallelStep(step: ParallelStep): Promise<StepResult> {
 async function executeEventEmitStep(
   step: EventEmitStep,
   ctx: ExecutionContext,
+  flowInput: unknown,
   state: unknown,
 ): Promise<StepResult> {
   try {
-    await ctx.events.emit(step.event, state);
+    await ctx.events.emit(step.event, resolveStepPayload(undefined, flowInput, state));
     return { status: StepStatus.Completed };
   } catch (err) {
     return {

@@ -200,10 +200,11 @@ export function generateTypedClient(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(body.message ?? \`Request failed: \${response.status}\`), {
+    const err = body.error ?? body;
+    throw Object.assign(new Error(err.message ?? \`Request failed: \${response.status}\`), {
       status: response.status,
-      code: body.code,
-      metadata: body.metadata,
+      code: err.code,
+      metadata: err.metadata,
     });
   }
   return response.json() as Promise<${pascal}Output>;
@@ -324,9 +325,10 @@ export function generateFlowTrigger(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(body.message ?? \`Flow start failed: \${response.status}\`), {
+    const err = body.error ?? body;
+    throw Object.assign(new Error(err.message ?? \`Flow start failed: \${response.status}\`), {
       status: response.status,
-      code: body.code,
+      code: err.code,
     });
   }
   return response.json() as Promise<{ executionId: string; status: string }>;

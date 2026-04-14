@@ -1,3 +1,4 @@
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
@@ -31,6 +32,9 @@ function makeMockApp() {
 
 function makeMockConfig() {
   return {
+    db: {
+      execute: vi.fn(),
+    } as unknown as PostgresJsDatabase,
     authAdapter: {
       authenticate: vi.fn().mockResolvedValue({
         userId: 'u1',

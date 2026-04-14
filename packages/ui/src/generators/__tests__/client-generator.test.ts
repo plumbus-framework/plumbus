@@ -120,8 +120,9 @@ describe('generateTypedClient', () => {
     const code = generateTypedClient(makeCap());
     expect(code).toContain('if (!response.ok)');
     expect(code).toContain('throw Object.assign');
-    expect(code).toContain('body.code');
-    expect(code).toContain('body.metadata');
+    expect(code).toContain('const err = body.error ?? body');
+    expect(code).toContain('err.code');
+    expect(code).toContain('err.metadata');
   });
 
   it('supports AbortSignal', () => {

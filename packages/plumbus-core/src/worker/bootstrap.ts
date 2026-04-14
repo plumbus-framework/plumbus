@@ -100,6 +100,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   } = poolConfig;
 
   const logger = poolConfig.logger ?? createWorkerLogger();
+  const eventRegistry = poolConfig.eventRegistry;
 
   // Idempotency service for event worker
   const idempotency = createIdempotencyService(db);
@@ -131,6 +132,15 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     queue,
     onFlowError: poolConfig.onFlowError,
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
+    createEventService: eventRegistry
+      ? (auth) =>
+          createEventEmitter({
+            db,
+            auth,
+            registry: eventRegistry,
+            audit: audit ?? createAuditService({ db, auth }),
+          })
+      : undefined,
   };
   const flowEngine = createFlowEngine(flowEngineConfig);
 
@@ -181,11 +191,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       const dataService = poolConfig.createDataService
         ? poolConfig.createDataService()
         : ({} as DataService);
-      const eventService = poolConfig.eventRegistry
+      const eventService = eventRegistry
         ? createEventEmitter({
             db,
             auth: systemAuth,
-            registry: poolConfig.eventRegistry,
+            registry: eventRegistry,
             audit: systemAudit,
           })
         : undefined;

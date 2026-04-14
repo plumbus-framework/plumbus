@@ -52,6 +52,39 @@ describe('generateWithValidation', () => {
     expect(result.usage.totalTokens).toBe(50); // 15 + 35
   });
 
+  it('accepts JSON wrapped in markdown fences', async () => {
+    const provider = createMockProvider({
+      complete: vi.fn(async () => ({
+        content: '```json\n{"name":"Dana","age":29}\n```',
+        model: 'mock',
+        usage: { inputTokens: 10, outputTokens: 12, totalTokens: 22 },
+        finishReason: 'stop',
+      })),
+    });
+
+    const result = await generateWithValidation(provider, { prompt: 'test' }, schema);
+
+    expect(result.data).toEqual({ name: 'Dana', age: 29 });
+    expect(result.attempts).toBe(1);
+  });
+
+  it('accepts JSON with raw newlines inside string fields', async () => {
+    const multilineSchema = z.object({ content: z.string(), language: z.string() });
+    const provider = createMockProvider({
+      complete: vi.fn(async () => ({
+        content: '{"content":"Line 1\nLine 2","language":"en"}',
+        model: 'mock',
+        usage: { inputTokens: 10, outputTokens: 16, totalTokens: 26 },
+        finishReason: 'stop',
+      })),
+    });
+
+    const result = await generateWithValidation(provider, { prompt: 'test json' }, multilineSchema);
+
+    expect(result.data).toEqual({ content: 'Line 1\nLine 2', language: 'en' });
+    expect(result.attempts).toBe(1);
+  });
+
   it('throws after max retries exhausted', async () => {
     const provider = createMockProvider({
       complete: vi.fn(async () => ({
@@ -65,6 +98,21 @@ describe('generateWithValidation', () => {
     await expect(
       generateWithValidation(provider, { prompt: 'test' }, schema, { maxRetries: 1 }),
     ).rejects.toThrow('AI output validation failed after 2 attempts');
+  });
+
+  it('does not silently repair truncated JSON', async () => {
+    const provider = createMockProvider({
+      complete: vi.fn(async () => ({
+        content: '{"name":"Alice","age":30',
+        model: 'mock',
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        finishReason: 'stop',
+      })),
+    });
+
+    await expect(
+      generateWithValidation(provider, { prompt: 'test json' }, schema, { maxRetries: 0 }),
+    ).rejects.toThrow('AI output validation failed after 1 attempts');
   });
 
   it('accumulates token usage across retries', async () => {
