@@ -7,7 +7,9 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
+import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
+import type { AICostContext } from '../types/context.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
@@ -102,6 +104,22 @@ export interface ServerConfig {
       { provider?: string; model?: string; temperature?: number; maxTokens?: number }
     >;
   }>;
+  /**
+   * Called after every AI invocation completes (success or failure) and the
+   * in-memory cost tracker has been updated. Use this to persist a ledger
+   * row per AI call — the `record` carries `status: 'success' | 'failed'`
+   * plus typed structured-output failures (`'refused'`, `'incomplete'`)
+   * so sunk provider-side spend on failed retries is visible to billing.
+   * The framework passes the DB connection. Hook errors are logged but
+   * never propagate to the caller.
+   */
+  onAICostRecorded?: (
+    record: AICostRecord,
+    costContext: AICostContext | undefined,
+    db: PostgresJsDatabase,
+  ) => void | Promise<void>;
+  /** Enable provider-side constrained decoding for registered prompt output schemas. */
+  enableStrictStructuredOutputs?: boolean;
 }
 
 // ── Server Instance ──
@@ -189,6 +207,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   // AI service wiring
   let aiService: AIService | undefined;
 
+  // Adapt the consumer-facing `onAICostRecorded(record, ctx, db)` into the
+  // inner AI-service-level `OnAICostRecorded(record, ctx)` contract by
+  // pre-binding the DB. Undefined passes through unchanged.
+  const onAICostRecordedAdapter = serverConfig.onAICostRecorded
+    ? (record: AICostRecord, costContext: AICostContext | undefined) =>
+        serverConfig.onAICostRecorded?.(record, costContext, db)
+    : undefined;
+
   if (config.aiProviders) {
     // Multi-provider setup
     const providerAdapters: Record<string, ReturnType<typeof createProviderAdapter>> = {};
@@ -208,6 +234,8 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       promptOverrides: config.aiProviders.promptOverrides
         ? { ...config.aiProviders.promptOverrides }
         : undefined,
+      onAICostRecorded: onAICostRecordedAdapter,
+      enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
     };
     aiService = createAIService(aiServiceConfig);
 
@@ -232,7 +260,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       dailyCostLimit: config.ai.dailyCostLimit,
     });
     aiService = createAIService(
-      singleProviderConfig(adapter, { costTracker, promptRegistry: serverConfig.promptRegistry }),
+      singleProviderConfig(adapter, {
+        costTracker,
+        promptRegistry: serverConfig.promptRegistry,
+        onAICostRecorded: onAICostRecordedAdapter,
+        enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
+      }),
     );
     logger.info(`AI service configured with single provider: ${config.ai.provider}`);
   }
@@ -406,9 +439,15 @@ export function wrapAIServiceWithDynamicOverrides(
       await refreshOverrides();
       yield* base.streamGenerate(params);
     },
-    extract: base.extract.bind(base),
-    classify: base.classify.bind(base),
-    retrieve: base.retrieve.bind(base),
+    extract(params) {
+      return base.extract(params);
+    },
+    classify(params) {
+      return base.classify(params);
+    },
+    retrieve(params) {
+      return base.retrieve(params);
+    },
   };
 }
 

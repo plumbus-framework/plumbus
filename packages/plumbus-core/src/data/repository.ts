@@ -106,6 +106,31 @@ export function createRepository<
       return created;
     },
 
+    async createMany(records: TCreate[]): Promise<T[]> {
+      if (records.length === 0) return [];
+
+      const prepared = records.map((data) => {
+        const record: Record<string, unknown> = { ...data };
+        if (isTenantScoped && !bypassTenantScope) {
+          if (!auth.tenantId) {
+            throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
+          }
+          record.tenantId = auth.tenantId;
+        }
+        return record;
+      });
+
+      const rows = await db.insert(table).values(prepared).returning();
+
+      // One summary audit row per batch instead of N per-row audits.
+      await auditMutation('createMany', {
+        count: prepared.length,
+        sample: maskData(prepared[0] ?? {}),
+      });
+
+      return rows as T[];
+    },
+
     async update(id: string, updates: TUpdate): Promise<T> {
       const conditions: SQL[] = [];
       const idCol = (table as any).id;

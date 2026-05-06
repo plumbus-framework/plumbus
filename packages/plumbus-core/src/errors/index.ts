@@ -28,6 +28,29 @@ function createError(
   return new PlumbusError(code, message, metadata);
 }
 
+export class LeaseLostError extends PlumbusError {
+  constructor(message: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.LeaseLost, message, metadata);
+    this.name = 'LeaseLostError';
+  }
+}
+
+/**
+ * Raised as the AbortSignal reason when a flow step is cancelled via
+ * `flows.cancel()`. Surfaced to capability handlers that await cancelable
+ * HTTP/AI calls (the DOM `fetch` maps abort to a `DOMException('AbortError')`
+ * — the reason is available via `signal.reason`).
+ */
+export class FlowCancelledError extends PlumbusError {
+  constructor(executionId: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.Cancelled, `Flow execution "${executionId}" was cancelled`, {
+      executionId,
+      ...metadata,
+    });
+    this.name = 'FlowCancelledError';
+  }
+}
+
 export function createErrorService(): ErrorService {
   return {
     validation: (message, metadata) => createError(ErrorCode.Validation, message, metadata),

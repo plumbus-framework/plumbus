@@ -90,6 +90,8 @@ plumbus migrate push        # Applies pending migrations to the database
 
 Run `plumbus migrate generate` every time you change entity fields. The migration system tracks what's already been applied, so it only generates diffs.
 
+> **Important:** Plumbus manages 9 internal framework tables (audit, event system, flows, RAG). Do not create these tables manually — they are included in generated migrations. If you see a "schema drift" error, it means a framework table already exists in the database. Drop the conflicting table(s) and re-run the migration command.
+
 ### Seed data (optional)
 
 Create seed files in `app/seeds/` and run:
@@ -302,4 +304,5 @@ Check governance → plumbus verify
 | CLI creates files in wrong directory | Make sure you're inside your Plumbus project (`package.json` with `@plumbus/core`) |
 | `plumbus dev` shows no routes | Check that your capabilities export `defineCapability()` results and are in `app/capabilities/` |
 | Migrations fail | Run `plumbus doctor` to check your database connection, then verify your `.env` has the correct `DATABASE_URL` |
+| Schema drift error | A framework-managed table was created manually. Drop the conflicting table(s) listed in the error and re-run `plumbus migrate apply` or `plumbus migrate push` |
 | Tests can't find vitest | Don't install vitest yourself — it's provided by `@plumbus/core`. Run tests with `plumbus test` |

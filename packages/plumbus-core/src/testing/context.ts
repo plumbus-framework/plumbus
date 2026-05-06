@@ -84,6 +84,11 @@ export function mockEvents(): MockEventService {
     async emit(eventName, payload) {
       emitted.push({ eventName, payload });
     },
+    async emitMany(events) {
+      for (const e of events) {
+        emitted.push({ eventName: e.eventName, payload: e.payload });
+      }
+    },
     clear() {
       emitted.length = 0;
     },
@@ -116,6 +121,7 @@ export function mockFlows(): MockFlowService {
     async status(executionId) {
       return { id: executionId, flowName: 'unknown', status: 'unknown' };
     },
+    async heartbeat() {},
     clear() {
       started.length = 0;
     },
@@ -162,8 +168,22 @@ export function mockAI(responses?: AIResponse): AIService {
         responses?.generate !== undefined
           ? (responses.generate as Record<string, any>)
           : { text: 'mock-ai-response' };
+      const inputStr = JSON.stringify(_config);
+      const outputStr = JSON.stringify(result);
+      const usage = {
+        inputTokens: Math.ceil(inputStr.length / 4),
+        outputTokens: Math.ceil(outputStr.length / 4),
+        totalTokens: Math.ceil(inputStr.length / 4) + Math.ceil(outputStr.length / 4),
+      };
       yield { type: 'delta' as const, text: result.text ?? JSON.stringify(result) };
-      yield { type: 'done' as const, data: result };
+      yield {
+        type: 'done' as const,
+        data: result,
+        usage,
+        model: 'mock-model',
+        provider: 'mock',
+        cost: 0,
+      };
     },
     async extract(_config) {
       if (responses?.extract !== undefined) return responses.extract as Record<string, any>;
@@ -242,6 +262,16 @@ export function createInMemoryRepository<
       const record = { ...data, id } as unknown as T;
       store.set(id, record);
       return record;
+    },
+    async createMany(records) {
+      const out: T[] = [];
+      for (const data of records) {
+        const id = (data as any).id ?? `test-${++idCounter}`;
+        const record = { ...data, id } as unknown as T;
+        store.set(id, record);
+        out.push(record);
+      }
+      return out;
     },
     async update(id, updates) {
       const existing = store.get(id);
@@ -352,6 +382,12 @@ function withFieldValidation<T extends Record<string, unknown>>(
     async create(data) {
       check(data as Record<string, unknown>);
       return repo.create(data);
+    },
+    async createMany(records) {
+      for (const data of records) {
+        check(data as Record<string, unknown>);
+      }
+      return repo.createMany(records);
     },
     async update(id, updates) {
       check(updates as Record<string, unknown>);

@@ -129,6 +129,10 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
   let resolveAiOverrides: import('../../server/bootstrap.js').ServerConfig['resolveAiOverrides'];
   let onCapabilityError: import('../../server/bootstrap.js').ServerConfig['onCapabilityError'];
   let onProcessError: import('../../server/bootstrap.js').ServerConfig['onProcessError'];
+  let onAICostRecorded: import('../../server/bootstrap.js').ServerConfig['onAICostRecorded'];
+  let enableStrictStructuredOutputs:
+    | import('../../server/bootstrap.js').ServerConfig['enableStrictStructuredOutputs']
+    | undefined;
   let onFlowError: import('../../worker/bootstrap.js').WorkerPoolConfig['onFlowError'];
   for (const ext of ['app/server.ts', 'app/server.js']) {
     const extPath = path.resolve(process.cwd(), ext);
@@ -139,6 +143,9 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         resolveAiOverrides = mod.resolveAiOverrides ?? mod.default?.resolveAiOverrides;
         onCapabilityError = mod.onCapabilityError ?? mod.default?.onCapabilityError;
         onProcessError = mod.onProcessError ?? mod.default?.onProcessError;
+        onAICostRecorded = mod.onAICostRecorded ?? mod.default?.onAICostRecorded;
+        enableStrictStructuredOutputs =
+          mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
         onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
         if (onRoutesRegistered) {
           info(`Loaded server extensions from ${ext}`);
@@ -167,6 +174,8 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
     resolveAiOverrides,
     onCapabilityError,
     onProcessError,
+    onAICostRecorded,
+    enableStrictStructuredOutputs,
     ...(process.env.TRUST_PROXY && {
       trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
     }),
@@ -191,12 +200,20 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
         dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
       });
+      const workerOnAICostRecorded = onAICostRecorded
+        ? (
+            record: import('../../ai/cost-tracker.js').AICostRecord,
+            costContext: import('../../types/context.js').AICostContext | undefined,
+          ) => onAICostRecorded?.(record, costContext, db as any)
+        : undefined;
       const workerAiServiceConfig: AIServiceConfig = {
         providers: providerAdapters,
         defaultProvider: config.aiProviders.defaultProvider,
         defaultModel: config.aiProviders.defaultModel,
         costTracker,
         promptRegistry,
+        onAICostRecorded: workerOnAICostRecorded,
+        enableStrictStructuredOutputs,
       };
       workerAiService = createAIService(workerAiServiceConfig);
       if (resolveAiOverrides) {
@@ -213,8 +230,19 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         maxTokensPerRequest: config.ai.maxTokensPerRequest,
         dailyCostLimit: config.ai.dailyCostLimit,
       });
+      const workerOnAICostRecorded = onAICostRecorded
+        ? (
+            record: import('../../ai/cost-tracker.js').AICostRecord,
+            costContext: import('../../types/context.js').AICostContext | undefined,
+          ) => onAICostRecorded?.(record, costContext, db as any)
+        : undefined;
       workerAiService = createAIService(
-        singleProviderConfig(adapter, { costTracker, promptRegistry }),
+        singleProviderConfig(adapter, {
+          costTracker,
+          promptRegistry,
+          onAICostRecorded: workerOnAICostRecorded,
+          enableStrictStructuredOutputs,
+        }),
       );
     }
 

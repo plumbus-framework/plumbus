@@ -35,6 +35,7 @@ describe('createExecutionContext', () => {
   it('uses provided services when given', async () => {
     const customEvents = {
       emit: async () => {},
+      emitMany: async () => {},
     };
     const ctx = createExecutionContext({
       auth: makeAuth(),

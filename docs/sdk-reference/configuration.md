@@ -336,8 +336,20 @@ interface WorkerPoolConfig {
   enableEventWorker?: boolean;        // Default: true
   enableScheduler?: boolean;          // Default: true
   enableFlowRunner?: boolean;         // Default: true
+  flowLeaseDurationMs?: number;       // Default: 300000 (5 min)
+  flowHeartbeatIntervalMs?: number;   // Default: flowLeaseDurationMs / 3
+  flowClaimBatchSize?: number;        // Default: 50
 }
 ```
 
 The pool auto-registers a `plumbus:flow-trigger` consumer that maps incoming events to flow starts via `createFlowTriggerHandler`.
+
+### Flow lease tuning
+
+The flow runner uses lease-based row claiming (`FOR UPDATE SKIP LOCKED`) so multiple workers sharing the same database never execute the same step twice. The defaults are suitable for most deployments; tune these only when you have a specific reason to.
+
+- **`flowLeaseDurationMs`** (default `300_000` = 5 min) — Upper bound on how long a worker can hold a claim without heartbeating. If a worker crashes, another worker can reclaim the row after this window elapses. Raise it if you run steps longer than the heartbeat interval can reliably cover (e.g. suspended VMs, long GC pauses); lower it to reduce crash-recovery latency.
+- **`flowHeartbeatIntervalMs`** (default `flowLeaseDurationMs / 3`) — How often a running worker automatically extends its lease. The 3× safety margin tolerates two missed ticks before the lease is considered expired.
+- **`flowClaimBatchSize`** (default `50`) — Max executions a single `claimNext()` poll cycle will lock. Larger batches amortize the poll cost; smaller batches spread work more evenly across workers.
+- **Worker identity** — Each worker auto-generates a unique `workerId` of the form `<hostname>:<pid>:<short-uuid>` via `generateWorkerId()`. The pool does not expose a `workerId` knob on `WorkerPoolConfig`; if you need stable identity for observability, pass a `workerId` directly when constructing the engine with `createFlowEngine()`.
 

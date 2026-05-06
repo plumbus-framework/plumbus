@@ -9,10 +9,24 @@ export { gte, ilike, like, lte, sql } from 'drizzle-orm';
 export {
   applyMigrations,
   collectSchemas,
+  readPendingMigrations,
   rollbackLastMigration,
+  type MigrationApplyResult,
   type MigrationConfig,
   type MigrationRecord,
+  type PendingMigration,
 } from './migration.js';
+export {
+  extractCreateTableNames,
+  formatDriftReport,
+  FRAMEWORK_TABLE_NAMES,
+  getExistingFrameworkTables,
+  inspectFrameworkDrift,
+  type ColumnDrift,
+  type DriftReport,
+  type FrameworkTableName,
+  type TableDrift,
+} from './drift-inspector.js';
 export { EntityRegistry } from './registry.js';
 export { createRepository, type RepositoryOptions } from './repository.js';
 export { generateDrizzleSchema, generateSchemas } from './schema-generator.js';

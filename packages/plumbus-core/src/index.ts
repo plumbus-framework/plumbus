@@ -38,6 +38,8 @@ export type {
   IngestDocumentInput,
   ModelRate,
   OpenAIAdapterConfig,
+  ProviderJsonSchemaOptions,
+  ProviderJsonSchemaResult,
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
@@ -77,7 +79,11 @@ export {
   documentsTable,
   findModelRate,
   generateWithValidation,
+  zodToProviderJsonSchema,
   singleProviderConfig,
+  ProviderJsonSchemaError,
+  AIIncompleteOutputError,
+  AIRefusalError,
 } from './ai/index.js';
 export type { RouteGeneratorConfig } from './api/index.js';
 // ── API (HTTP route generation) ──
@@ -141,7 +147,12 @@ export { definePrompt } from './define/definePrompt.js';
 export { defineTranslation } from './define/defineTranslation.js';
 // ── Error Utilities ──
 export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
-export { PlumbusError, createErrorService, isPlumbusError } from './errors/index.js';
+export {
+  PlumbusError,
+  LeaseLostError,
+  createErrorService,
+  isPlumbusError,
+} from './errors/index.js';
 export type {
   DispatcherConfig,
   EventConsumer,
@@ -221,6 +232,7 @@ export {
   flowDeadLetterTable,
   flowExecutionsTable,
   flowSchedulesTable,
+  generateWorkerId,
   isTerminal,
   isValidTransition,
   sweepFailedFlows,

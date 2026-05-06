@@ -1,6 +1,9 @@
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { sql } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
 import { auditRecords } from '../audit/schema.js';
 import { deadLetterTable, idempotencyTable, outboxTable } from '../events/outbox.js';
@@ -13,13 +16,185 @@ export interface MigrationConfig {
   migrationsFolder: string;
 }
 
+// ── Pending Migration Reader ──
+
+interface JournalEntry {
+  idx: number;
+  version: string;
+  when: number;
+  tag: string;
+  breakpoints: boolean;
+}
+
+export interface PendingMigration {
+  tag: string;
+  hash: string;
+  statements: string[];
+  rawSql: string;
+  folderMillis: number;
+}
+
+export interface MigrationApplyResult {
+  applied: number;
+  tags: string[];
+}
+
+export interface MigrationReconcileResult {
+  adopted: number;
+  alreadyApplied: number;
+  adoptedTags: string[];
+}
+
+function readMigrationJournalEntries(migrationsFolder: string): JournalEntry[] {
+  const journalPath = path.join(migrationsFolder, 'meta', '_journal.json');
+  if (!fs.existsSync(journalPath)) {
+    throw new Error(`Can't find meta/_journal.json in ${migrationsFolder}`);
+  }
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8')) as {
+    entries: JournalEntry[];
+  };
+
+  return journal.entries;
+}
+
+function readJournalMigrations(migrationsFolder: string): PendingMigration[] {
+  const journalEntries = readMigrationJournalEntries(migrationsFolder);
+
+  return journalEntries.map((entry) => {
+    const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
+    if (!fs.existsSync(sqlPath)) {
+      throw new Error(`Missing migration file: ${sqlPath}`);
+    }
+
+    const rawSql = fs.readFileSync(sqlPath, 'utf-8');
+    const hash = crypto.createHash('sha256').update(rawSql).digest('hex');
+    const statements = entry.breakpoints
+      ? rawSql
+          .split('--> statement-breakpoint')
+          .map((statement) => statement.trim())
+          .filter(Boolean)
+      : [rawSql];
+
+    return {
+      tag: entry.tag,
+      hash,
+      statements,
+      rawSql,
+      folderMillis: entry.when,
+    };
+  });
+}
+
+async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
+  await db.execute(
+    sql`CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+      id SERIAL PRIMARY KEY,
+      hash TEXT NOT NULL,
+      created_at BIGINT
+    )`,
+  );
+}
+
+async function getAppliedMigrationHashes(db: PostgresJsDatabase): Promise<Set<string>> {
+  const appliedRows = (await db.execute(
+    sql`SELECT hash FROM "__drizzle_migrations"`,
+  )) as unknown as Array<{ hash: string }>;
+
+  return new Set(appliedRows.map((row) => row.hash));
+}
+
+/**
+ * Read the migration journal and determine which migrations are pending
+ * (not yet applied to the database).
+ */
+export async function readPendingMigrations(config: MigrationConfig): Promise<PendingMigration[]> {
+  const { db, migrationsFolder } = config;
+
+  await ensureMigrationsTable(db);
+
+  const appliedHashes = await getAppliedMigrationHashes(db);
+  const journalMigrations = readJournalMigrations(migrationsFolder);
+
+  return journalMigrations.filter((migration) => !appliedHashes.has(migration.hash));
+}
+
 /**
  * Apply pending migrations from the migrations folder.
+ *
+ * Each migration runs inside a transaction. On failure, the error includes
+ * the migration tag, statement index, and a SQL preview for diagnostics.
  */
-export async function applyMigrations(config: MigrationConfig): Promise<void> {
-  await migrate(config.db, {
-    migrationsFolder: config.migrationsFolder,
+export async function applyMigrations(config: MigrationConfig): Promise<MigrationApplyResult> {
+  const pending = await readPendingMigrations(config);
+
+  if (pending.length === 0) {
+    return { applied: 0, tags: [] };
+  }
+
+  const appliedTags: string[] = [];
+  for (const migration of pending) {
+    await config.db.transaction(async (tx) => {
+      for (let i = 0; i < migration.statements.length; i++) {
+        const stmt = migration.statements[i] ?? '';
+        try {
+          await tx.execute(sql.raw(stmt));
+        } catch (stmtErr) {
+          const preview = stmt.length > 200 ? `${stmt.slice(0, 200)}...` : stmt;
+          throw new Error(
+            `Migration "${migration.tag}" failed at statement ${i + 1}/${migration.statements.length}:\n` +
+              `  SQL: ${preview}\n` +
+              `  Error: ${stmtErr instanceof Error ? stmtErr.message : String(stmtErr)}`,
+          );
+        }
+      }
+      await tx.execute(
+        sql`INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
+      );
+    });
+    appliedTags.push(migration.tag);
+  }
+
+  return { applied: appliedTags.length, tags: appliedTags };
+}
+
+/**
+ * Reconcile migration history by marking journal migrations as applied
+ * without executing schema changes. Intended for adoption/recovery when
+ * the live database already matches the current Plumbus schema.
+ */
+export async function reconcileMigrationHistory(
+  config: MigrationConfig,
+): Promise<MigrationReconcileResult> {
+  const journalMigrations = readJournalMigrations(config.migrationsFolder);
+
+  await ensureMigrationsTable(config.db);
+  const appliedHashes = await getAppliedMigrationHashes(config.db);
+  const missingMigrations = journalMigrations.filter(
+    (migration) => !appliedHashes.has(migration.hash),
+  );
+
+  if (missingMigrations.length === 0) {
+    return {
+      adopted: 0,
+      alreadyApplied: journalMigrations.length,
+      adoptedTags: [],
+    };
+  }
+
+  await config.db.transaction(async (tx) => {
+    for (const migration of missingMigrations) {
+      await tx.execute(
+        sql`INSERT INTO "__drizzle_migrations" (hash, created_at)
+            VALUES (${migration.hash}, ${migration.folderMillis})`,
+      );
+    }
   });
+
+  return {
+    adopted: missingMigrations.length,
+    alreadyApplied: journalMigrations.length - missingMigrations.length,
+    adoptedTags: missingMigrations.map((migration) => migration.tag),
+  };
 }
 
 /**

@@ -56,6 +56,8 @@ export const ErrorCode = {
   Forbidden: 'forbidden',
   Conflict: 'conflict',
   Internal: 'internal',
+  LeaseLost: 'leaseLost',
+  Cancelled: 'cancelled',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

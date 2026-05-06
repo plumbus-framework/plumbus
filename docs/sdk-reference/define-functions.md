@@ -252,6 +252,7 @@ import { z } from "zod";
 
 const classifySentiment = definePrompt({
   name: "classifySentiment",
+  system: "You classify sentiment. Return only the requested structured fields.",
   description: "Classify text sentiment",
   domain: "support",
   tags: ["ai", "nlp"],
@@ -275,13 +276,15 @@ const classifySentiment = definePrompt({
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `string` | Yes | Prompt name |
-| `description` | `string` | No | Human-readable description |
+| `system` | `string` | No | Provider system instructions. Supports top-level `{{key}}` substitution |
+| `description` | `string` | No | User/data prompt content. Supports top-level `{{key}}` substitution |
 | `domain` | `string` | No | Business domain |
 | `tags` | `string[]` | No | Searchable tags |
 | `owner` | `string` | No | Owning team |
 | `input` | `z.ZodTypeAny` | Yes | Zod schema for prompt input |
 | `output` | `z.ZodTypeAny` | Yes | Zod schema for expected output |
 | `model` | `ModelConfig` | No | AI model configuration |
+| `appendUnsubstitutedInput` | `boolean` | No | Defaults to appending unused input keys as `Input: {...}`. Set `false` when `description` already renders the full user message |
 
 ### Returns
 

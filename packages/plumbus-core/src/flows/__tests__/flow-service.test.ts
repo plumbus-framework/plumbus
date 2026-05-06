@@ -53,4 +53,14 @@ describe('FlowService', () => {
     expect(st.status).toBe('running');
     expect(engine.status).toHaveBeenCalledWith('exec-1');
   });
+
+  it('heartbeat() is a no-op outside flow execution', async () => {
+    // The real heartbeat is injected onto flowCtx.flows.heartbeat by the engine during runNext.
+    // Calling it on a detached service (e.g. from a capability or API handler) must resolve silently
+    // rather than touch the db or throw — otherwise consumer code can't portably call ctx.flows.heartbeat().
+    const engine = mockEngine();
+    const svc = createFlowService(engine as any, auth);
+
+    await expect(svc.heartbeat()).resolves.toBeUndefined();
+  });
 });

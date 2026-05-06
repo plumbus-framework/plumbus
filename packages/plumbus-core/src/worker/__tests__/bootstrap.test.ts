@@ -35,6 +35,7 @@ vi.mock('../../events/worker.js', () => ({
 
 vi.mock('../../flows/engine.js', () => ({
   createFlowEngine: vi.fn(() => mockFlowEngine),
+  generateWorkerId: vi.fn(() => 'test-worker-id'),
 }));
 
 vi.mock('../../flows/scheduler.js', () => ({

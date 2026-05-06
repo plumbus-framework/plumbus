@@ -13,6 +13,7 @@ function isZodSchema(value: unknown): value is z.ZodTypeAny {
 
 interface DefinePromptInput<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny> {
   name: string;
+  system?: string;
   description?: string;
   domain?: string;
   tags?: string[];
@@ -21,6 +22,24 @@ interface DefinePromptInput<TInput extends z.ZodTypeAny, TOutput extends z.ZodTy
   input: TInput;
   output: TOutput;
   model?: ModelConfig;
+
+  /** See `PromptDefinition.skipStreamValidationFallback`. */
+  skipStreamValidationFallback?: boolean;
+
+  /** See `PromptDefinition.disableTextModeBrevityHint`. */
+  disableTextModeBrevityHint?: boolean;
+
+  /** See `PromptDefinition.appendUnsubstitutedInput`. */
+  appendUnsubstitutedInput?: boolean;
+
+  /** See `PromptDefinition.disableStrictStructuredOutputs`. */
+  disableStrictStructuredOutputs?: boolean;
+
+  /** See `PromptDefinition.requireStrictStructuredOutputs`. */
+  requireStrictStructuredOutputs?: boolean;
+
+  /** See `PromptDefinition.structuredOutputTransport`. */
+  structuredOutputTransport?: 'response_format' | 'tool';
 }
 
 export function definePrompt<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
@@ -34,6 +53,11 @@ export function definePrompt<TInput extends z.ZodTypeAny, TOutput extends z.ZodT
   }
   if (!isZodSchema(config.output)) {
     throw new Error(`Prompt "${config.name}": output must be a Zod schema`);
+  }
+  if (config.disableStrictStructuredOutputs && config.requireStrictStructuredOutputs) {
+    throw new Error(
+      `Prompt "${config.name}": cannot both disable and require strict structured outputs`,
+    );
   }
 
   return Object.freeze({ ...config });

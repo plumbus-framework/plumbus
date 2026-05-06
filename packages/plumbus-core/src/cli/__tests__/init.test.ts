@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +16,10 @@ describe('plumbus init', () => {
     it('generates reference-mode instructions', () => {
       const content = generateCopilotInstructions(false);
       expect(content).toContain('Plumbus Framework');
+      expect(content).toContain('plumbus:agent-wiring version=2');
+      expect(content).toContain('Non-Negotiable Guardrails');
+      expect(content).toContain('git checkout');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
       expect(content).toContain('node_modules/@plumbus/core/instructions/framework.md');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/framework.md');
       expect(content).toContain('node_modules/@plumbus/core/instructions/capabilities.md');
@@ -24,13 +28,15 @@ describe('plumbus init', () => {
       expect(content).toContain('Documentation Maintenance');
       expect(content).toContain('app/entities/');
       expect(content).toContain('docs/architecture/data-model.md');
+      expect(content).toContain('<!-- /plumbus:agent-wiring -->');
     });
 
     it('generates inline-mode instructions', () => {
       const content = generateCopilotInstructions(true);
       expect(content).toContain('Plumbus Framework');
+      expect(content).toContain('plumbus:agent-wiring version=2');
+      expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('framework and UI instruction files');
-      // Should not reference node_modules in SDK Reference section
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('Documentation Maintenance');
     });
@@ -42,15 +48,23 @@ describe('plumbus init', () => {
       expect(content).toContain('---');
       expect(content).toContain('description:');
       expect(content).toContain('globs: app/**');
+      expect(content).toContain('plumbus:agent-wiring version=2');
+      expect(content).toContain('Non-Negotiable Guardrails');
+      expect(content).toContain('git reset');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/');
       expect(content).toContain('Documentation Maintenance');
+      expect(content).toContain('<!-- /plumbus:agent-wiring -->');
     });
 
     it('generates capability-specific rule', () => {
       const content = generateCursorCapabilityRule();
       expect(content).toContain('globs: app/capabilities/**');
       expect(content).toContain('defineCapability()');
+      expect(content).toContain('plumbus:agent-wiring version=2');
+      expect(content).toContain('custom service, controller, route, or worker');
+      expect(content).toContain('git clean');
+      expect(content).toContain('<!-- /plumbus:agent-wiring -->');
     });
   });
 
@@ -58,19 +72,25 @@ describe('plumbus init', () => {
     it('generates agent-agnostic reference format', () => {
       const content = generateAgentsMd(false);
       expect(content).toContain('AGENTS.md');
+      expect(content).toContain('plumbus:agent-wiring version=2');
       expect(content).toContain('Directory Structure');
       expect(content).toContain('Edit Zones');
+      expect(content).toContain('Non-Negotiable Guardrails');
+      expect(content).toContain('git restore');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('node_modules/@plumbus/ui/instructions/');
       expect(content).toContain('Documentation Maintenance');
       expect(content).toContain('app/capabilities/');
       expect(content).toContain('docs/capabilities/index.md');
+      expect(content).toContain('<!-- /plumbus:agent-wiring -->');
     });
 
     it('generates inline format', () => {
       const content = generateAgentsMd(true);
+      expect(content).toContain('plumbus:agent-wiring version=2');
+      expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('framework and UI instruction files');
-      // Should not reference node_modules in SDK Reference section
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('Documentation Maintenance');
     });
@@ -88,8 +108,121 @@ describe('plumbus init', () => {
 
       try {
         const written = writeAgentFiles(tempDir, ['copilot'], false, false);
-        expect(written).toContain('.github/copilot-instructions.md');
-        expect(written).not.toContain('.plumbus/briefs/project.md');
+        expect(written.map((result) => result.path)).toContain('.github/copilot-instructions.md');
+        expect(written.map((result) => result.path)).not.toContain('.plumbus/briefs/project.md');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('writeAgentFiles', () => {
+    it('skips existing files in default create mode', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
+
+      try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        writeFileSync(filePath, 'custom instructions', 'utf-8');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false);
+        expect(results[0]?.action).toBe('skipped');
+        expect(results[0]?.message).toContain('--patch');
+        expect(readFileSync(filePath, 'utf-8')).toBe('custom instructions');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('patches managed wiring blocks and preserves surrounding user notes', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
+
+      try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        const original = [
+          '<!-- user note -->',
+          generateCopilotInstructions(false).replace(
+            '## Non-Negotiable Guardrails',
+            '## Old Guardrails',
+          ),
+          '<!-- user footer -->',
+        ].join('\n');
+        writeFileSync(filePath, original, 'utf-8');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false, false, 'patch');
+        const updated = readFileSync(filePath, 'utf-8');
+
+        expect(results[0]?.action).toBe('patched');
+        expect(updated).toContain('<!-- user note -->');
+        expect(updated).toContain('<!-- user footer -->');
+        expect(updated).toContain('## Non-Negotiable Guardrails');
+        expect(updated).not.toContain('## Old Guardrails');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('creates missing files in patch mode', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+
+      try {
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false, false, 'patch');
+        expect(results[0]?.action).toBe('created');
+        expect(results[0]?.path).toBe('.github/copilot-instructions.md');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('skips unmanaged files in patch mode', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
+
+      try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        writeFileSync(filePath, 'custom instructions', 'utf-8');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false, false, 'patch');
+        expect(results[0]?.action).toBe('skipped');
+        expect(results[0]?.message).toContain('--force');
+        expect(readFileSync(filePath, 'utf-8')).toBe('custom instructions');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('replaces existing files in force mode', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
+
+      try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        writeFileSync(filePath, 'custom instructions', 'utf-8');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false, false, 'force');
+        const updated = readFileSync(filePath, 'utf-8');
+
+        expect(results[0]?.action).toBe('replaced');
+        expect(updated).toContain('plumbus:agent-wiring version=2');
+        expect(updated).not.toBe('custom instructions');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('preserves an existing project brief even in force mode', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const briefPath = path.join(tempDir, '.plumbus', 'briefs', 'project.md');
+
+      try {
+        mkdirSync(path.dirname(briefPath), { recursive: true });
+        writeFileSync(briefPath, 'custom brief', 'utf-8');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, true, false, 'force');
+        const briefResult = results.find((result) => result.path === '.plumbus/briefs/project.md');
+        expect(briefResult?.action).toBe('skipped');
+        expect(readFileSync(briefPath, 'utf-8')).toBe('custom brief');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -104,12 +237,14 @@ describe('plumbus init', () => {
       expect(content).toContain('backend/config/');
       expect(content).toContain('frontend/');
       expect(content).toContain('libs/shared/types/');
+      expect(content).toContain('Non-Negotiable Guardrails');
     });
 
     it('generates cursor rule with backend/ glob', () => {
       const content = generateCursorRule(false, true);
       expect(content).toContain('globs: backend/app/**');
       expect(content).toContain('backend/app/capabilities/');
+      expect(content).toContain('Non-Negotiable Guardrails');
     });
 
     it('generates AGENTS.md with monorepo structure', () => {
@@ -117,14 +252,15 @@ describe('plumbus init', () => {
       expect(content).toContain('backend/app/capabilities/');
       expect(content).toContain('frontend/');
       expect(content).toContain('libs/shared/types/');
+      expect(content).toContain('Non-Negotiable Guardrails');
     });
 
     it('passes monorepo flag through writeAgentFiles', () => {
       const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-mono-'));
       try {
         const written = writeAgentFiles(tempDir, ['copilot', 'agents-md'], false, false, true);
-        expect(written).toContain('.github/copilot-instructions.md');
-        expect(written).toContain('AGENTS.md');
+        expect(written.map((result) => result.path)).toContain('.github/copilot-instructions.md');
+        expect(written.map((result) => result.path)).toContain('AGENTS.md');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }

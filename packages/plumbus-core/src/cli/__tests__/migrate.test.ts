@@ -64,11 +64,40 @@ vi.mock('../../data/migration.js', () => ({
   collectSchemas: vi.fn(() => ({
     test_entities: { _: 'mock_table' },
   })),
-  applyMigrations: vi.fn(async () => {}),
+  applyMigrations: vi.fn(async () => ({ applied: 1, tags: ['0001_migration'] })),
+  reconcileMigrationHistory: vi.fn(async () => ({
+    adopted: 1,
+    alreadyApplied: 0,
+    adoptedTags: ['0001_migration'],
+  })),
+  readPendingMigrations: vi.fn(async () => []),
   rollbackLastMigration: vi.fn(async () => ({
     status: 'rolled_back',
     rolledBack: '0001_init',
   })),
+}));
+
+vi.mock('../../data/drift-inspector.js', () => ({
+  FRAMEWORK_TABLE_NAMES: [
+    'audit_records',
+    'event_outbox',
+    'event_idempotency',
+    'event_dead_letter',
+    'flow_executions',
+    'flow_dead_letter',
+    'flow_schedules',
+    'documents',
+    'document_chunks',
+  ],
+  getExistingFrameworkTables: vi.fn(async () => []),
+  inspectFrameworkDrift: vi.fn(async () => ({
+    hasDrift: false,
+    existingFrameworkTables: [],
+    missingFrameworkTables: [],
+    tables: [],
+  })),
+  formatDriftReport: vi.fn(() => ['No drift detected']),
+  extractCreateTableNames: vi.fn(() => []),
 }));
 
 vi.mock('drizzle-kit/api', () => ({
@@ -101,7 +130,18 @@ vi.mock('postgres', () => ({
 
 import { Command } from 'commander';
 import { generateDrizzleJson, generateMigration, pushSchema } from 'drizzle-kit/api';
-import { applyMigrations, collectSchemas, rollbackLastMigration } from '../../data/migration.js';
+import {
+  extractCreateTableNames,
+  getExistingFrameworkTables,
+  inspectFrameworkDrift,
+} from '../../data/drift-inspector.js';
+import {
+  applyMigrations,
+  collectSchemas,
+  readPendingMigrations,
+  reconcileMigrationHistory,
+  rollbackLastMigration,
+} from '../../data/migration.js';
 import { registerDbCommand, registerMigrateCommand } from '../commands/migrate.js';
 import { discoverResources } from '../discover.js';
 
@@ -192,6 +232,111 @@ describe('plumbus migrate', () => {
         .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"no_migrations"'));
       expect(output).toBeDefined();
     });
+
+    it('aborts with drift error when framework tables already exist', async () => {
+      mockExistsSync.mockReturnValue(true);
+      vi.mocked(readPendingMigrations).mockResolvedValueOnce([
+        {
+          tag: '0001_init',
+          hash: 'abc123',
+          statements: ['CREATE TABLE "event_outbox" ("id" uuid PRIMARY KEY);'],
+          rawSql: 'CREATE TABLE "event_outbox" ("id" uuid PRIMARY KEY);',
+          folderMillis: 1000,
+        },
+      ]);
+      vi.mocked(getExistingFrameworkTables).mockResolvedValueOnce(['event_outbox']);
+      vi.mocked(extractCreateTableNames).mockReturnValueOnce(['event_outbox']);
+
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'apply', '--json']);
+
+      expect(applyMigrations).not.toHaveBeenCalled();
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"drift"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.status).toBe('drift');
+      expect(parsed.conflictingTables).toContain('event_outbox');
+      expect(parsed.error).toContain('plumbus migrate reconcile');
+    });
+  });
+
+  describe('migrate reconcile', () => {
+    it('reconciles migration history when the live schema is already in sync', async () => {
+      mockExistsSync.mockReturnValue(true);
+      vi.mocked(pushSchema).mockResolvedValueOnce({
+        hasDataLoss: false,
+        warnings: [],
+        statementsToExecute: [],
+        apply: vi.fn(async () => {}),
+      });
+
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'reconcile', '--json']);
+
+      expect(reconcileMigrationHistory).toHaveBeenCalled();
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"reconciled"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.status).toBe('reconciled');
+      expect(parsed.adopted).toBe(1);
+    });
+
+    it('supports dry-run mode', async () => {
+      mockExistsSync.mockReturnValue(true);
+      vi.mocked(pushSchema).mockResolvedValueOnce({
+        hasDataLoss: false,
+        warnings: [],
+        statementsToExecute: [],
+        apply: vi.fn(async () => {}),
+      });
+      vi.mocked(readPendingMigrations).mockResolvedValueOnce([
+        {
+          tag: '0002_migration',
+          hash: 'def456',
+          statements: ['ALTER TABLE "test_entities" ADD COLUMN "slug" text;'],
+          rawSql: 'ALTER TABLE "test_entities" ADD COLUMN "slug" text;',
+          folderMillis: 2000,
+        },
+      ]);
+
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'reconcile', '--dry-run', '--json']);
+
+      expect(reconcileMigrationHistory).not.toHaveBeenCalled();
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"dry_run"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.status).toBe('dry_run');
+      expect(parsed.wouldAdopt).toBe(1);
+    });
+
+    it('refuses to reconcile when schema diff still exists', async () => {
+      mockExistsSync.mockReturnValue(true);
+      vi.mocked(pushSchema).mockResolvedValueOnce({
+        hasDataLoss: false,
+        warnings: [],
+        statementsToExecute: ['ALTER TABLE "test_entities" ADD COLUMN "slug" text;'],
+        apply: vi.fn(async () => {}),
+      });
+
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'reconcile', '--json']);
+
+      expect(reconcileMigrationHistory).not.toHaveBeenCalled();
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"schema_mismatch"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.status).toBe('schema_mismatch');
+      expect(parsed.statementCount).toBe(1);
+    });
   });
 
   describe('migrate push', () => {
@@ -238,6 +383,49 @@ describe('plumbus migrate', () => {
       const parsed = JSON.parse(output?.[0] as string);
       expect(parsed.status).toBe('pushed');
       expect(parsed.statements).toBe(1);
+    });
+
+    it('aborts with drift error when framework tables have drift', async () => {
+      vi.mocked(inspectFrameworkDrift).mockResolvedValueOnce({
+        hasDrift: true,
+        existingFrameworkTables: ['event_outbox'],
+        missingFrameworkTables: [],
+        tables: [
+          {
+            tableName: 'event_outbox',
+            exists: true,
+            columnDrifts: [{ column: 'correlation_id', kind: 'missing_in_db', expected: 'text' }],
+          },
+        ],
+      });
+
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'push', '--json']);
+
+      expect(pushSchema).not.toHaveBeenCalled();
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"drift"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.status).toBe('drift');
+    });
+
+    it('normalizes TTY prompt errors from Drizzle', async () => {
+      vi.mocked(pushSchema).mockRejectedValueOnce(
+        new Error('Cannot read properties of undefined (reading setRawMode)'),
+      );
+
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'push', '--json']);
+
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"drizzleError"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.error).toContain('interactive resolution');
+      expect(parsed.error).toContain('plumbus migrate reconcile');
     });
   });
 

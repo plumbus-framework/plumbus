@@ -38,6 +38,7 @@ import { z } from "zod";
 
 export const classifyTicket = definePrompt({
   name: "classifyTicket",
+  system: "You classify support tickets. Return only the requested fields.",
   description: "Classify a support ticket by department and urgency",
   domain: "support",
   input: z.object({
@@ -57,6 +58,14 @@ export const classifyTicket = definePrompt({
   },
 });
 ```
+
+`system` is optional. Use it for stable provider-level instructions such as role,
+safety, output policy, or language policy. `description` remains the user/data
+message. Both fields support simple top-level `{{key}}` substitution from the
+prompt input, and prompts without `system` keep the old single-message behavior.
+If a prompt renders a complete user message into one placeholder, set
+`appendUnsubstitutedInput: false` to prevent remaining input keys from being
+appended as `Input: {...}`.
 
 ## Using AI in Capabilities
 
@@ -104,6 +113,18 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 
 `generate()` returns only the data; `generateWithUsage()` returns `{ data, usage, model, provider, cost }`.
 
+For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
+
+```typescript
+await ctx.ai.generateWithUsage({
+  prompt: "timeline.propose_periods",
+  input: { events, language: "en" },
+  validation: { maxRetries: 0, feedbackOnError: false },
+});
+```
+
+When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error keeps the final raw model completion on `error.rawOutput`, which is useful for diagnosing truncation or malformed JSON without guessing from the parse offset alone.
+
 ### Extract (Data Extraction)
 
 ```typescript
@@ -142,6 +163,10 @@ const docs = await ctx.ai.retrieve({
 ### Multi-Provider Setup
 
 Plumbus supports multiple AI providers simultaneously. Each prompt can specify which provider to use via `model.provider`; prompts without a provider field use the configured default.
+
+For OpenAI chat completions, Plumbus maps prompt `maxTokens` to the provider-specific request
+field expected by the selected model. Older models receive `max_tokens`; newer completion models
+such as `gpt-5*` and `o*` receive `max_completion_tokens`.
 
 ```typescript
 import { createAIService, createProviderAdapter } from "@plumbus/core";
@@ -244,6 +269,17 @@ AI outputs are validated against the prompt's Zod output schema. On failure, the
 Before validation, the runtime now does a conservative normalization pass for structured JSON responses: it strips surrounding markdown code fences, extracts the JSON object if the model added prefatory text, and escapes raw control characters inside string fields. This recovers common provider quirks without silently accepting obviously truncated payloads.
 
 When using `responseFormat: 'json'` (OpenAI's json_object mode), the framework automatically injects "Respond with a valid JSON object." into the prompt if the word "json" is not already present. This prevents the OpenAI API error requiring "json" in the prompt text.
+
+### Strict Structured Outputs
+
+Set `enableStrictStructuredOutputs: true` on `createAIService()` to have Plumbus convert each registered prompt's Zod output schema into provider-compatible JSON Schema and pass it to providers that support constrained decoding.
+
+- OpenAI-compatible providers receive `response_format: { type: "json_schema", json_schema: { strict: true, ... } }`.
+- Anthropic receives `output_config.format: { type: "json_schema", schema: ... }`.
+- Single-string-field outputs such as `z.object({ content: z.string() })` stay in plain text mode for streaming and are not constrained.
+- Prompts can opt out with `disableStrictStructuredOutputs: true` when their schema cannot fit the provider JSON Schema subset.
+
+The converter enforces provider-safe schema rules before a request is sent: every object gets `additionalProperties: false`, unsupported numeric and string constraints are moved into field descriptions, `minItems` is clamped to `0` or `1`, and Anthropic's complexity counters are checked locally. If a model refuses a structured request, Plumbus throws `AIRefusalError`. If a provider stops due to `finish_reason: "length"` or `stop_reason: "max_tokens"`, Plumbus throws `AIIncompleteOutputError` instead of retrying or reporting a generic parse failure.
 
 ```typescript
 import { generateWithValidation } from "@plumbus/core";

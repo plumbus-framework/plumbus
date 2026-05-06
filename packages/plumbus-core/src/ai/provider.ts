@@ -2,6 +2,7 @@
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
 import type { AIProviderConfig } from '../types/config.js';
+import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
 export interface ProviderRequest {
@@ -17,8 +18,37 @@ export interface ProviderRequest {
   maxTokens?: number;
   /** Response format hint */
   responseFormat?: 'text' | 'json';
-  /** Request timeout in milliseconds (default: 120_000) */
+  /** Provider-compatible JSON Schema for strict structured outputs. */
+  responseSchema?: Record<string, unknown>;
+  /** Transport used for provider-side structured outputs. Defaults to response_format. */
+  structuredOutputTransport?: 'response_format' | 'tool';
+  /** Request timeout in milliseconds (default: 600_000) */
   timeout?: number;
+  /**
+   * External AbortSignal (e.g. `ctx.signal`). When fired, the in-flight
+   * fetch(es) for this request abort immediately. Combined with the internal
+   * timeout signal via `AbortSignal.any([...])`, so whichever triggers first
+   * wins.
+   */
+  signal?: AbortSignal;
+  /**
+   * Deterministic sampling seed. OpenAI-compatible providers (including xAI
+   * Grok) honor this parameter: identical `{seed, temperature, model, prompt}`
+   * tuples produce the same tokens. Combined with `temperature: 0`, lets
+   * callers pin reproducible output for structural-planning prompts. Ignored
+   * by providers that do not support it.
+   */
+  seed?: number;
+}
+
+/** Compose a request's optional user signal with a timeout, returning a single AbortSignal. */
+export function combineRequestSignals(
+  userSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  if (!userSignal) return timeoutSignal;
+  return AbortSignal.any([userSignal, timeoutSignal]);
 }
 
 // ── Provider Response ──
@@ -145,6 +175,214 @@ function computeRetryDelayMs(attempt: number, retryAfterHeader: string | null): 
   return Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs);
 }
 
+function buildOpenAIResponseFormat(request: ProviderRequest): Record<string, unknown> | undefined {
+  if (request.responseFormat !== 'json') return undefined;
+  if (!request.responseSchema) return { type: 'json_object' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'response',
+      strict: true,
+      schema: request.responseSchema,
+    },
+  };
+}
+
+const OPENAI_STRUCTURED_OUTPUT_TOOL_NAME = 'return_structured_response';
+
+function shouldUseOpenAIStructuredTool(args: { request: ProviderRequest }): boolean {
+  return (
+    args.request.structuredOutputTransport === 'tool' &&
+    args.request.responseFormat === 'json' &&
+    !!args.request.responseSchema
+  );
+}
+
+function buildOpenAIStructuredOutputTool(schema: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: 'function',
+    function: {
+      name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
+      description: 'Return the complete structured response for this request.',
+      strict: true,
+      parameters: schema,
+    },
+  };
+}
+
+function extractOpenAIMessageContent(message: {
+  content: string | null;
+  tool_calls?: Array<{
+    type?: string;
+    function?: { name?: string; arguments?: string };
+  }>;
+}): string {
+  const structuredToolCall = message.tool_calls?.find(
+    (toolCall) => toolCall.function?.name === OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
+  );
+  const toolArguments = structuredToolCall?.function?.arguments;
+  if (typeof toolArguments === 'string' && toolArguments.length > 0) {
+    return toolArguments;
+  }
+
+  return message.content ?? '';
+}
+
+function summarizeUnknown(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return { type: 'string', length: value.length, empty: value.length === 0 };
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => summarizeUnknown(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        summarizeUnknown(item),
+      ]),
+    );
+  }
+  return value;
+}
+
+function logEmptyOpenAIStructuredContent(args: {
+  data: unknown;
+  choice: {
+    message: {
+      content: string | null;
+      refusal?: string | null;
+      tool_calls?: Array<{
+        type?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason: string;
+  };
+  request: ProviderRequest;
+  model: string;
+}): void {
+  const messageKeys = Object.keys(args.choice.message);
+  const toolCallSummary =
+    args.choice.message.tool_calls?.map((toolCall) => ({
+      type: toolCall.type ?? null,
+      name: toolCall.function?.name ?? null,
+      argumentsChars: toolCall.function?.arguments?.length ?? 0,
+    })) ?? [];
+
+  // #region agent log
+  fetch('http://127.0.0.1:7653/ingest/06cbeac8-a197-4896-9d68-c9e1a3d84ddc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Debug-Session-Id': '787c16',
+    },
+    body: JSON.stringify({
+      sessionId: '787c16',
+      runId: 'structured-output-empty',
+      hypothesisId: 'H1,H2,H3,H4',
+      location: 'packages/plumbus-core/src/ai/provider.ts:empty-structured-content',
+      message: 'OpenAI-compatible structured output returned empty adapter content',
+      data: {
+        provider: 'openai',
+        model: args.model,
+        responseFormat: args.request.responseFormat ?? null,
+        hasResponseSchema: !!args.request.responseSchema,
+        structuredOutputTransport: args.request.structuredOutputTransport ?? null,
+        finishReason: args.choice.finish_reason,
+        messageKeys,
+        contentType:
+          args.choice.message.content === null ? 'null' : typeof args.choice.message.content,
+        contentLength: args.choice.message.content?.length ?? 0,
+        refusalLength: args.choice.message.refusal?.length ?? 0,
+        toolCalls: toolCallSummary,
+        responseShape: summarizeUnknown(args.data),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
+function buildEmptyOpenAIStructuredContentError(args: {
+  data: unknown;
+  choice: {
+    message: {
+      content: string | null;
+      refusal?: string | null;
+      tool_calls?: Array<{
+        type?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason: string;
+  };
+}): Error {
+  const messageKeys = Object.keys(args.choice.message).join(',');
+  const toolCallSummary =
+    args.choice.message.tool_calls
+      ?.map((toolCall) => {
+        const name = toolCall.function?.name ?? 'unknown';
+        const argumentLength = toolCall.function?.arguments?.length ?? 0;
+        return `${name}:argumentsChars=${argumentLength}`;
+      })
+      .join('|') ?? 'none';
+
+  return new Error(
+    `OpenAI-compatible provider returned empty JSON response content ` +
+      `finish_reason=${args.choice.finish_reason} messageKeys=${messageKeys || 'none'} ` +
+      `hasRefusal=${args.choice.message.refusal ? 'true' : 'false'} ` +
+      `toolCalls=${toolCallSummary} debugSession=787c16`,
+  );
+}
+
+function openAIUsageToTokenUsage(usage: {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+}): TokenUsage {
+  return {
+    inputTokens: usage.prompt_tokens,
+    outputTokens: usage.completion_tokens,
+    totalTokens: usage.total_tokens,
+    cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+  };
+}
+
+function shouldUseOpenAIMaxCompletionTokens(model: string): boolean {
+  const normalizedModel = model.trim().toLowerCase();
+  return /^(?:o\d|o\d-|o\d\.)/.test(normalizedModel) || normalizedModel.startsWith('gpt-5');
+}
+
+function applyOpenAITokenLimit(
+  body: Record<string, unknown>,
+  model: string,
+  maxTokens?: number,
+): void {
+  if (!maxTokens) return;
+  if (shouldUseOpenAIMaxCompletionTokens(model)) {
+    body.max_completion_tokens = maxTokens;
+    return;
+  }
+  body.max_tokens = maxTokens;
+}
+
+function anthropicUsageToTokenUsage(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}): TokenUsage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    totalTokens: usage.input_tokens + usage.output_tokens,
+    cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+  };
+}
+
 async function waitForRetry(delayMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
@@ -200,7 +438,7 @@ export interface OpenAIAdapterConfig {
   model?: string;
   embeddingModel?: string;
   baseUrl?: string;
-  /** Request timeout in milliseconds (default: 120_000) */
+  /** Request timeout in milliseconds (default: 600_000) */
   requestTimeout?: number;
 }
 
@@ -208,12 +446,13 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
   const defaultModel = config.model ?? 'gpt-4o';
   const defaultEmbeddingModel = config.embeddingModel ?? 'text-embedding-3-small';
   const baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
-  const defaultTimeout = config.requestTimeout ?? 120_000;
+  const defaultTimeout = config.requestTimeout ?? 600_000;
 
   return {
     name: 'openai',
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
+      const model = request.model ?? defaultModel;
       const messages: Array<{ role: string; content: string }> = [];
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
@@ -221,13 +460,28 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       messages.push({ role: 'user', content: request.prompt });
 
       const body: Record<string, unknown> = {
-        model: request.model ?? defaultModel,
+        model,
         messages,
         temperature: request.temperature ?? 0.7,
       };
-      if (request.maxTokens) body.max_tokens = request.maxTokens;
-      if (request.responseFormat === 'json') {
-        body.response_format = { type: 'json_object' };
+      applyOpenAITokenLimit(body, model, request.maxTokens);
+      const structuredToolSchema = shouldUseOpenAIStructuredTool({ request })
+        ? request.responseSchema
+        : undefined;
+      if (structuredToolSchema) {
+        body.tools = [buildOpenAIStructuredOutputTool(structuredToolSchema)];
+        body.tool_choice = {
+          type: 'function',
+          function: { name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME },
+        };
+      } else {
+        const responseFormat = buildOpenAIResponseFormat(request);
+        if (responseFormat) {
+          body.response_format = responseFormat;
+        }
+      }
+      if (typeof request.seed === 'number') {
+        body.seed = request.seed;
       }
 
       const resp = await executeRequestWithRetry({
@@ -241,12 +495,22 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
               Authorization: `Bearer ${config.apiKey}`,
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+            signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
           }),
       });
 
       const data = (await resp.json()) as {
-        choices: Array<{ message: { content: string }; finish_reason: string }>;
+        choices: Array<{
+          message: {
+            content: string | null;
+            refusal?: string | null;
+            tool_calls?: Array<{
+              type?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+          finish_reason: string;
+        }>;
         model: string;
         usage: {
           prompt_tokens: number;
@@ -258,20 +522,39 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
       const choice = data.choices[0];
       if (!choice) throw new Error('OpenAI returned no choices');
+      const usage = openAIUsageToTokenUsage(data.usage);
+      const content = extractOpenAIMessageContent(choice.message);
+      if (choice.message.refusal) {
+        throw new AIRefusalError({
+          provider: 'openai',
+          model: data.model,
+          refusalText: choice.message.refusal,
+          usage,
+        });
+      }
+      if (choice.finish_reason === 'length') {
+        throw new AIIncompleteOutputError({
+          provider: 'openai',
+          model: data.model,
+          partialText: content,
+          usage,
+          finishReason: choice.finish_reason,
+        });
+      }
+      if (request.responseFormat === 'json' && content.trim().length === 0) {
+        logEmptyOpenAIStructuredContent({ data, choice, request, model: data.model });
+        throw buildEmptyOpenAIStructuredContentError({ data, choice });
+      }
       return {
-        content: choice.message.content,
+        content,
         model: data.model,
-        usage: {
-          inputTokens: data.usage.prompt_tokens,
-          outputTokens: data.usage.completion_tokens,
-          totalTokens: data.usage.total_tokens,
-          cachedInputTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
-        },
+        usage,
         finishReason: choice.finish_reason,
       };
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
+      const model = request.model ?? defaultModel;
       const messages: Array<{ role: string; content: string }> = [];
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
@@ -279,15 +562,19 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       messages.push({ role: 'user', content: request.prompt });
 
       const body: Record<string, unknown> = {
-        model: request.model ?? defaultModel,
+        model,
         messages,
         temperature: request.temperature ?? 0.7,
         stream: true,
         stream_options: { include_usage: true },
       };
-      if (request.maxTokens) body.max_tokens = request.maxTokens;
-      if (request.responseFormat === 'json') {
-        body.response_format = { type: 'json_object' };
+      applyOpenAITokenLimit(body, model, request.maxTokens);
+      const responseFormat = buildOpenAIResponseFormat(request);
+      if (responseFormat) {
+        body.response_format = responseFormat;
+      }
+      if (typeof request.seed === 'number') {
+        body.seed = request.seed;
       }
 
       let resp: Response;
@@ -303,7 +590,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
                 Authorization: `Bearer ${config.apiKey}`,
               },
               body: JSON.stringify(body),
-              signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+              signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
             }),
         });
       } catch (error) {
@@ -358,14 +645,14 @@ export interface AnthropicAdapterConfig {
   apiKey: string;
   model?: string;
   baseUrl?: string;
-  /** Request timeout in milliseconds (default: 120_000) */
+  /** Request timeout in milliseconds (default: 600_000) */
   requestTimeout?: number;
 }
 
 export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProviderAdapter {
   const defaultModel = config.model ?? 'claude-sonnet-4-20250514';
   const baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
-  const defaultTimeout = config.requestTimeout ?? 120_000;
+  const defaultTimeout = config.requestTimeout ?? 600_000;
 
   return {
     name: 'anthropic',
@@ -378,6 +665,14 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         temperature: request.temperature ?? 0.7,
       };
       if (request.system) body.system = request.system;
+      if (request.responseFormat === 'json' && request.responseSchema) {
+        body.output_config = {
+          format: {
+            type: 'json_schema',
+            schema: request.responseSchema,
+          },
+        };
+      }
 
       const resp = await executeRequestWithRetry({
         providerName: 'anthropic',
@@ -391,7 +686,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+            signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
           }),
       });
 
@@ -407,21 +702,34 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         stop_reason: string;
       };
 
+      const usage = anthropicUsageToTokenUsage(data.usage);
       const text = data.content
         .filter((c) => c.type === 'text')
         .map((c) => c.text)
         .join('');
 
+      if (data.stop_reason === 'refusal') {
+        throw new AIRefusalError({
+          provider: 'anthropic',
+          model: data.model,
+          refusalText: text || 'Request refused by Anthropic',
+          usage,
+        });
+      }
+      if (data.stop_reason === 'max_tokens') {
+        throw new AIIncompleteOutputError({
+          provider: 'anthropic',
+          model: data.model,
+          partialText: text,
+          usage,
+          finishReason: data.stop_reason,
+        });
+      }
+
       return {
         content: text,
         model: data.model,
-        usage: {
-          inputTokens: data.usage.input_tokens,
-          outputTokens: data.usage.output_tokens,
-          totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-          cachedInputTokens: data.usage.cache_read_input_tokens ?? 0,
-          cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
-        },
+        usage,
         finishReason: data.stop_reason,
       };
     },
@@ -435,6 +743,14 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         stream: true,
       };
       if (request.system) body.system = request.system;
+      if (request.responseFormat === 'json' && request.responseSchema) {
+        body.output_config = {
+          format: {
+            type: 'json_schema',
+            schema: request.responseSchema,
+          },
+        };
+      }
 
       let resp: Response;
       try {
@@ -450,7 +766,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify(body),
-              signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+              signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
             }),
         });
       } catch (error) {

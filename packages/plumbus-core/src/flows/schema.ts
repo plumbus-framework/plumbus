@@ -37,12 +37,15 @@ export const flowExecutionsTable = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
   },
   (table) => [
     index('flow_exec_status_idx').on(table.status),
     index('flow_exec_wake_at_idx').on(table.wakeAt),
     index('flow_exec_flow_name_idx').on(table.flowName),
     index('flow_exec_tenant_idx').on(table.tenantId),
+    index('flow_exec_lease_idx').on(table.status, table.leaseExpiresAt),
   ],
 );
 

@@ -2,6 +2,13 @@
 
 Plumbus is an AI-native, contract-driven TypeScript application framework. You build applications by composing five primitives — **Entities**, **Capabilities**, **Flows**, **Events**, and **Prompts** — through a controlled execution context (`ctx`).
 
+## Non-Negotiable Guardrails
+
+- Plumbus primitives are the application architecture, not optional helpers.
+- **Capabilities are the only entry point for business logic.** If behavior does not belong in a capability directly, it should be orchestrated by a flow, emitted as an event, modeled as an entity, or wrapped in a prompt.
+- Use framework extension points and `ctx.*` subsystems before inventing custom controllers, service layers, job runners, event buses, or direct infrastructure integrations.
+- If the correct primitive is unclear, stop and ask which Plumbus extension point should own the behavior.
+
 ## Core Abstractions
 
 | Primitive | Purpose | Defined with |
