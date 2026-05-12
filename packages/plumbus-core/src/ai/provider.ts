@@ -5,11 +5,36 @@ import type { AIProviderConfig } from '../types/config.js';
 import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
+
+/**
+ * A single chat-history turn. Used for native multi-turn requests where the
+ * model should see real conversation flow (assistant + user alternation).
+ * Optional — when omitted, providers fall back to single-user-message mode
+ * built from `ProviderRequest.prompt`.
+ */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface ProviderRequest {
   /** System prompt / instructions */
   system?: string;
-  /** User prompt content */
+  /**
+   * User prompt content. Used as the SOLE user message when `messages` is
+   * absent. When `messages` is provided, this field is IGNORED — the messages
+   * array is the conversation. Callers passing `messages` may still set
+   * `prompt: ''` for type-compat.
+   */
   prompt: string;
+  /**
+   * Optional native multi-turn conversation history. When present, providers
+   * send `[system?, ...messages]` to the API instead of `[system?, {role:'user', content: prompt}]`.
+   * The LAST entry should be a `user` message (the latest turn). Order is
+   * preserved exactly as supplied. Empty array is treated as "no messages"
+   * (falls back to single-user mode using `prompt`).
+   */
+  messages?: ChatMessage[];
   /** Model name override */
   model?: string;
   /** Temperature (0-2) */
@@ -457,7 +482,16 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
       }
-      messages.push({ role: 'user', content: request.prompt });
+      // Multi-turn path: when `messages` is supplied, append them verbatim
+      // (preserving role + order). Single-turn path (legacy): build a single
+      // user message from `prompt`.
+      if (request.messages && request.messages.length > 0) {
+        for (const msg of request.messages) {
+          messages.push({ role: msg.role, content: msg.content });
+        }
+      } else {
+        messages.push({ role: 'user', content: request.prompt });
+      }
 
       const body: Record<string, unknown> = {
         model,
@@ -559,7 +593,15 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
       }
-      messages.push({ role: 'user', content: request.prompt });
+      // Multi-turn path: when `messages` is supplied, append them verbatim.
+      // Single-turn path (legacy): single user message from `prompt`.
+      if (request.messages && request.messages.length > 0) {
+        for (const msg of request.messages) {
+          messages.push({ role: msg.role, content: msg.content });
+        }
+      } else {
+        messages.push({ role: 'user', content: request.prompt });
+      }
 
       const body: Record<string, unknown> = {
         model,
@@ -658,9 +700,15 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
     name: 'anthropic',
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
+      // Multi-turn path: when `messages` is supplied, send them verbatim.
+      // Single-turn path: synthesize a single user message from `prompt`.
+      const messages =
+        request.messages && request.messages.length > 0
+          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
+          : [{ role: 'user', content: request.prompt }];
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
-        messages: [{ role: 'user', content: request.prompt }],
+        messages,
         max_tokens: request.maxTokens ?? 4096,
         temperature: request.temperature ?? 0.7,
       };
@@ -735,9 +783,15 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
+      // Multi-turn path: when `messages` is supplied, send them verbatim.
+      // Single-turn path: synthesize a single user message from `prompt`.
+      const messages =
+        request.messages && request.messages.length > 0
+          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
+          : [{ role: 'user', content: request.prompt }];
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
-        messages: [{ role: 'user', content: request.prompt }],
+        messages,
         max_tokens: request.maxTokens ?? 4096,
         temperature: request.temperature ?? 0.7,
         stream: true,

@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { ChatMessage } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
 import type {
@@ -184,6 +185,13 @@ export interface AIService {
   generate(config: {
     prompt: string;
     input: Record<string, unknown>;
+    /**
+     * Optional native multi-turn history (`user` / `assistant` turns). When
+     * set, providers receive the thread instead of a single synthesized user
+     * message from the rendered prompt; the rendered description is merged into
+     * `system` by the AI service. Last turn should be `user`.
+     */
+    messages?: ChatMessage[];
     validation?: AIValidationOptions;
     /** Abort the in-flight HTTP request to the provider when this signal fires. Defaults to ctx.signal inside flow steps. */
     signal?: AbortSignal;
@@ -197,6 +205,8 @@ export interface AIService {
   generateWithUsage(config: {
     prompt: string;
     input: Record<string, unknown>;
+    /** Same semantics as `generate({ messages })`. */
+    messages?: ChatMessage[];
     validation?: AIValidationOptions;
     /** Abort the in-flight HTTP request to the provider when this signal fires. Defaults to ctx.signal inside flow steps. */
     signal?: AbortSignal;
@@ -210,6 +220,8 @@ export interface AIService {
   streamGenerate(config: {
     prompt: string;
     input: Record<string, unknown>;
+    /** Same semantics as `generate({ messages })`. */
+    messages?: ChatMessage[];
     /** Abort the stream when this signal fires. Defaults to ctx.signal inside flow steps. */
     signal?: AbortSignal;
     /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */

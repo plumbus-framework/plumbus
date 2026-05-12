@@ -29,6 +29,7 @@ export type {
   BudgetCheckResult,
   BudgetConfig,
   ChunkConfig,
+  ChatMessage,
   CostTracker,
   DailyUsage,
   DocumentChunk,

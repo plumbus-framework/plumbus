@@ -18,8 +18,8 @@ Plumbus provides a structured AI runtime with typed prompts, output validation, 
 │       │               │                   │             │
 │  ┌────▼───────────────▼───────────────────▼──────────┐  │
 │  │              ctx.ai Service                       │  │
-│  │  generate() | generateWithUsage() | extract()     │  │
-│  │  classify() | retrieve()                          │  │
+│  │  generate() | generateWithUsage() | streamGenerate()  │  │
+│  │  extract() | classify() | retrieve()                  │  │
 │  └───────────────────────────────────────────────────┘  │
 │                                                         │
 │  ┌─────────────┐  ┌────────────┐  ┌─────────────────┐  │
@@ -124,6 +124,38 @@ await ctx.ai.generateWithUsage({
 ```
 
 When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error keeps the final raw model completion on `error.rawOutput`, which is useful for diagnosing truncation or malformed JSON without guessing from the parse offset alone.
+
+### streamGenerate (streaming completions)
+
+`ctx.ai.streamGenerate({ prompt, input, ... })` yields `AIStreamEvent` values (`delta` with partial text, then `done` with validated `data` and usage, or `error`). Token accounting and optional `onAICostRecorded` behave like non-streaming calls. Streaming uses the same prompt registry, substitution, validation, and structured-output paths as `generate()`.
+
+### Native multi-turn (`messages`)
+
+Optional **`messages`**: `Array<{ role: 'user' | 'assistant'; content: string }>`.
+
+When **`messages` is non-empty**, the OpenAI and Anthropic adapters send `[system?, ...messages]` to the provider. The **`prompt` field on the wire is not used as an extra user message** in that mode. The AI service merges the rendered description (`system` + `description` from `buildPromptText`) into the provider **`system`** block so template-backed context is not dropped.
+
+Use this for real chat transcripts instead of concatenating history into one giant `input` blob. The **last** entry should normally be **`user`** when the model is answering the latest user turn.
+
+Supported on **`generate`**, **`generateWithUsage`**, and **`streamGenerate`**. Omit `messages` for existing single-turn prompts.
+
+```typescript
+import type { ChatMessage } from "@plumbus/core";
+
+const messages: ChatMessage[] = [
+  { role: "user", content: "Hello" },
+  { role: "assistant", content: "Hi — what would you like to record?" },
+  { role: "user", content: "I grew up in Boston." },
+];
+
+for await (const ev of ctx.ai.streamGenerate({
+  prompt: "interview.ask_next_question",
+  input: { language: "en", subjectName: "Alex" /* ...other template fields */ },
+  messages,
+})) {
+  if (ev.type === "delta") process.stdout.write(ev.text ?? "");
+}
+```
 
 ### Extract (Data Extraction)
 

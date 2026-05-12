@@ -22,6 +22,15 @@
 - `AIValidationError` now carries `usage: TokenUsage`, `model: string`,
   and `provider: string` so failure-path cost recording knows what the
   provider actually billed across the retry loop.
+- **`ChatMessage` type** and optional **`messages`** on `ctx.ai.generate`,
+  `ctx.ai.generateWithUsage`, and **`ctx.ai.streamGenerate`**. When `messages`
+  is a non-empty array of `{ role: 'user' | 'assistant', content }` turns,
+  OpenAI and Anthropic adapters send the thread natively instead of folding
+  everything into a single user message built from `prompt`. The rendered
+  prompt description (`buildBasePrompt`) is merged into the provider **`system`**
+  instruction so per-turn template context is preserved; `prompt` is not used
+  as an extra user turn in that mode. Sub-agents and single-turn callers can
+  omit `messages` unchanged.
 
 ### Changed
 
@@ -52,3 +61,11 @@ To opt into the new failure-ledger persistence:
 1. Pass `costContext: { projectId, ... }` on your `ctx.ai.*` calls.
 2. Install `onAICostRecorded` in `createServer({ ... })` and write the
    `record` (with its `status`) to your persistent ledger.
+
+For chat-style prompts (optional):
+
+- Build `messages` from your transcript (roles `user` / `assistant` only)
+  and pass it alongside `input` for template substitution. Ensure the
+  **last** message is a `user` turn when the model should reply to the latest
+  subject input. No code changes required for consumers that never pass
+  `messages`.

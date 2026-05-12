@@ -481,6 +481,40 @@ describe('AI Provider Adapters', () => {
 
       vi.unstubAllGlobals();
     });
+
+    it('sends multi-turn messages verbatim and does not append prompt as an extra user message', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+          model: 'gpt-4o',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      await adapter.complete({
+        prompt: 'IGNORED_WHEN_MESSAGES',
+        system: 'Sys',
+        messages: [
+          { role: 'user', content: 'Hi' },
+          { role: 'assistant', content: 'Hello' },
+          { role: 'user', content: 'Last' },
+        ],
+      });
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body as string);
+      expect(body.messages).toEqual([
+        { role: 'system', content: 'Sys' },
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: 'Hello' },
+        { role: 'user', content: 'Last' },
+      ]);
+
+      vi.unstubAllGlobals();
+    });
   });
 
   describe('createAnthropicAdapter', () => {
@@ -615,6 +649,39 @@ describe('AI Provider Adapters', () => {
       await expect(adapter.embed({ texts: ['hello'] })).rejects.toThrow(
         'Anthropic does not provide an embedding API',
       );
+    });
+
+    it('sends multi-turn messages verbatim when messages array is provided', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          model: 'claude-sonnet-4-20250514',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      await adapter.complete({
+        prompt: 'IGNORED',
+        system: 'Merged system text',
+        messages: [
+          { role: 'user', content: 'First' },
+          { role: 'assistant', content: 'Second' },
+        ],
+      });
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body as string);
+      expect(body.system).toBe('Merged system text');
+      expect(body.messages).toEqual([
+        { role: 'user', content: 'First' },
+        { role: 'assistant', content: 'Second' },
+      ]);
+
+      vi.unstubAllGlobals();
     });
   });
 

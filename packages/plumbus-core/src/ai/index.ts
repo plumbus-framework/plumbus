@@ -41,6 +41,7 @@ export {
   createOpenAIAdapter,
   createProviderAdapter,
   type AIProviderAdapter,
+  type ChatMessage,
   type AnthropicAdapterConfig,
   type EmbeddingRequest,
   type EmbeddingResponse,

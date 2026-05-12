@@ -15,7 +15,7 @@ import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracke
 import type { AIExplainabilityTracker } from './explainability.js';
 import { calculateModelCost } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
-import type { AIProviderAdapter, ProviderRequest, TokenUsage } from './provider.js';
+import type { AIProviderAdapter, ChatMessage, ProviderRequest, TokenUsage } from './provider.js';
 import type { RAGPipeline } from './rag/pipeline.js';
 import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 import type { AISecurityConfig } from './security.js';
@@ -320,6 +320,7 @@ export function createAIService(config: AIServiceConfig): AIService {
   async function _generateCore(params: {
     prompt: string;
     input: Record<string, unknown>;
+    messages?: ChatMessage[];
     validation?: ValidationRetryConfig;
     signal?: AbortSignal;
     costContext?: AICostContext;
@@ -350,9 +351,16 @@ export function createAIService(config: AIServiceConfig): AIService {
     const singleTextField = promptDef ? getSingleTextFieldName(promptDef.output) : undefined;
     const responseSchema = getStrictResponseSchema(params.prompt, promptDef);
 
+    const basePrompt = buildBasePrompt(promptInfo, inputForAI);
+    const useMultiTurn = Boolean(params.messages && params.messages.length > 0);
+    const mergedSystem = useMultiTurn
+      ? [promptInfo.system, basePrompt].filter((s) => s && String(s).trim().length > 0).join('\n\n')
+      : promptInfo.system;
+
     const request: ProviderRequest = {
-      system: promptInfo.system,
-      prompt: buildBasePrompt(promptInfo, inputForAI),
+      system: mergedSystem || undefined,
+      prompt: useMultiTurn ? '' : basePrompt,
+      messages: params.messages,
       model: promptInfo.model ?? config.defaultModel,
       temperature: promptInfo.temperature,
       maxTokens: promptInfo.maxTokens,
@@ -487,6 +495,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     async generate(params: {
       prompt: string;
       input: Record<string, unknown>;
+      messages?: ChatMessage[];
       validation?: ValidationRetryConfig;
       signal?: AbortSignal;
       costContext?: AICostContext;
@@ -499,6 +508,11 @@ export function createAIService(config: AIServiceConfig): AIService {
     async generateWithUsage(params: {
       prompt: string;
       input: Record<string, unknown>;
+      /**
+       * Optional native multi-turn conversation history. See `streamGenerate`
+       * for semantics — same behavior, applies to non-streaming completions.
+       */
+      messages?: ChatMessage[];
       validation?: ValidationRetryConfig;
       signal?: AbortSignal;
       costContext?: AICostContext;
@@ -510,6 +524,15 @@ export function createAIService(config: AIServiceConfig): AIService {
     async *streamGenerate(params: {
       prompt: string;
       input: Record<string, unknown>;
+      /**
+       * Optional native multi-turn conversation history. When supplied, the
+       * provider receives `[system?, ...messages]` instead of a single user
+       * message built from the rendered prompt. The rendered description
+       * (`buildBasePrompt`) is merged into `system` so per-turn context is
+       * not lost. Callers should ensure the LAST entry in `messages` is a
+       * `user` turn (the latest input).
+       */
+      messages?: ChatMessage[];
       signal?: AbortSignal;
       costContext?: AICostContext;
       /**
@@ -555,15 +578,30 @@ export function createAIService(config: AIServiceConfig): AIService {
       // when they own their own length contract in the prompt body.
       const skipTextBrevityHint = promptDef?.disableTextModeBrevityHint === true;
 
-      const request: ProviderRequest = {
-        system: promptInfo.system,
-        prompt: singleTextField
+      const useMultiTurn = Boolean(params.messages && params.messages.length > 0);
+      const promptForProvider = useMultiTurn
+        ? ''
+        : singleTextField
           ? skipTextBrevityHint
             ? basePrompt
             : `${basePrompt}\n\nRespond with ONLY the plain text content. Do NOT wrap your response in JSON or any other format.`
           : !responseSchema && !basePrompt.toLowerCase().includes('json')
             ? `${basePrompt}\n\nRespond with a valid JSON object.`
-            : basePrompt,
+            : basePrompt;
+
+      const mergedSystem = useMultiTurn
+        ? [promptInfo.system, basePrompt]
+            .filter((s) => s && String(s).trim().length > 0)
+            .join('\n\n')
+        : promptInfo.system;
+
+      const request: ProviderRequest = {
+        system: mergedSystem || undefined,
+        prompt: promptForProvider,
+        // Native multi-turn: when caller supplies a messages array, providers
+        // use it verbatim and ignore `prompt`. Otherwise legacy single-user
+        // mode applies.
+        messages: params.messages,
         model: promptInfo.model ?? config.defaultModel,
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,
