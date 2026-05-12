@@ -287,7 +287,7 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
-    it('logs redacted provider response shape when structured JSON content is empty', async () => {
+    it('throws a descriptive error when structured JSON content is empty', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -320,19 +320,11 @@ describe('AI Provider Adapters', () => {
           },
         }),
       ).rejects.toThrow(
-        /OpenAI-compatible provider returned empty JSON response content .*finish_reason=stop.*debugSession=787c16/,
+        /OpenAI-compatible provider returned empty JSON response content .*finish_reason=stop/,
       );
-      const debugCall = mockFetch.mock.calls.find(([url]) =>
-        String(url).includes('/ingest/06cbeac8-a197-4896-9d68-c9e1a3d84ddc'),
-      );
-      expect(debugCall).toBeDefined();
-      const debugBody = JSON.parse(String(debugCall?.[1]?.body));
-      expect(debugBody.data.responseShape.id).toEqual({
-        type: 'string',
-        length: 'chatcmpl-empty'.length,
-        empty: false,
-      });
-      expect(JSON.stringify(debugBody)).not.toContain('chatcmpl-empty');
+      // Ensure the framework does NOT phone home to a debug ingest endpoint.
+      const debugCall = mockFetch.mock.calls.find(([url]) => String(url).includes('/ingest/'));
+      expect(debugCall).toBeUndefined();
 
       vi.unstubAllGlobals();
     });
@@ -757,7 +749,7 @@ describe('AI Provider Adapters', () => {
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
       await adapter.complete({ prompt: 'fast' });
 
-      expect(capturedTimeoutMs).toBe(600_000);
+      expect(capturedTimeoutMs).toBe(120_000);
 
       timeoutSpy.mockRestore();
       vi.unstubAllGlobals();

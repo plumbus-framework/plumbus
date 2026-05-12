@@ -234,149 +234,6 @@ function parseStructuredResponse(content: string): unknown {
   }
 }
 
-function summarizeJsonTextShape(content: string): Record<string, unknown> {
-  let objectBalance = 0;
-  let arrayBalance = 0;
-  let inString = false;
-  let escaped = false;
-  let quoteCount = 0;
-  let colonCount = 0;
-  let commaCount = 0;
-
-  for (const character of content) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === '\\') {
-      escaped = inString;
-      continue;
-    }
-    if (character === '"') {
-      inString = !inString;
-      quoteCount += 1;
-      continue;
-    }
-    if (inString) {
-      continue;
-    }
-    if (character === '{') objectBalance += 1;
-    if (character === '}') objectBalance -= 1;
-    if (character === '[') arrayBalance += 1;
-    if (character === ']') arrayBalance -= 1;
-    if (character === ':') colonCount += 1;
-    if (character === ',') commaCount += 1;
-  }
-
-  const trimmed = content.trim();
-  const lastChar = trimmed.at(-1) ?? '';
-  return {
-    contentLength: content.length,
-    trimmedLength: trimmed.length,
-    startsWithObject: trimmed.startsWith('{'),
-    startsWithArray: trimmed.startsWith('['),
-    lastCharCode: lastChar ? lastChar.charCodeAt(0) : null,
-    lastCharClass: lastChar
-      ? /[\s]/.test(lastChar)
-        ? 'whitespace'
-        : /[{}[\]":,]/.test(lastChar)
-          ? 'json-punctuation'
-          : /\p{L}/u.test(lastChar)
-            ? 'letter'
-            : /\p{N}/u.test(lastChar)
-              ? 'number'
-              : 'other'
-      : 'none',
-    objectBalance,
-    arrayBalance,
-    endedInString: inString,
-    endedEscaped: escaped,
-    quoteCount,
-    colonCount,
-    commaCount,
-  };
-}
-
-function logMalformedStructuredResponse(args: {
-  content: string;
-  error: Error;
-  provider: string;
-  model: string;
-  finishReason: string;
-  usage: TokenUsage;
-  hasResponseSchema: boolean;
-  maxTokens?: number;
-  attempt: number;
-}): void {
-  // #region agent log
-  fetch('http://127.0.0.1:7653/ingest/06cbeac8-a197-4896-9d68-c9e1a3d84ddc', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': '787c16',
-    },
-    body: JSON.stringify({
-      sessionId: '787c16',
-      runId: 'structured-output-malformed',
-      hypothesisId: 'H2,H3,H4,H5',
-      location: 'packages/plumbus-core/src/ai/validation.ts:parse-failure',
-      message: 'Structured response failed JSON parsing',
-      data: {
-        provider: args.provider,
-        model: args.model,
-        finishReason: args.finishReason,
-        validationMessage: args.error.message,
-        hasResponseSchema: args.hasResponseSchema,
-        maxTokens: args.maxTokens ?? null,
-        attempt: args.attempt,
-        usage: args.usage,
-        jsonShape: summarizeJsonTextShape(args.content),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
-function logStructuredValidationInput(args: {
-  content: string;
-  provider: string;
-  model: string;
-  finishReason: string;
-  hasResponseSchema: boolean;
-  attempt: number;
-}): void {
-  if (args.content.length > 0) {
-    return;
-  }
-
-  // #region agent log
-  fetch('http://127.0.0.1:7653/ingest/06cbeac8-a197-4896-9d68-c9e1a3d84ddc', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': '787c16',
-    },
-    body: JSON.stringify({
-      sessionId: '787c16',
-      runId: 'structured-output-empty',
-      hypothesisId: 'H5',
-      location: 'packages/plumbus-core/src/ai/validation.ts:pre-parse',
-      message: 'Validation received empty structured response content',
-      data: {
-        provider: args.provider,
-        model: args.model,
-        finishReason: args.finishReason,
-        hasResponseSchema: args.hasResponseSchema,
-        attempt: args.attempt,
-        contentLength: args.content.length,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
 export async function generateWithValidation<T>(
   provider: AIProviderAdapter,
   request: ProviderRequest,
@@ -423,18 +280,11 @@ export async function generateWithValidation<T>(
       responseFormat: textOutput ? 'text' : 'json',
     });
     lastRawOutput = response.content;
-    if (!textOutput) {
-      logStructuredValidationInput({
-        content: response.content,
-        provider: config?.provider ?? provider.name,
-        model: config?.model ?? response.model,
-        finishReason: response.finishReason,
-        hasResponseSchema: !!request.responseSchema,
-        attempt,
-      });
-    }
 
-    if (response.finishReason === 'length' || response.finishReason === 'max_tokens') {
+    if (
+      !textOutput &&
+      (response.finishReason === 'length' || response.finishReason === 'max_tokens')
+    ) {
       throw new AIIncompleteOutputError({
         provider: config?.provider ?? provider.name,
         model: config?.model ?? response.model,
@@ -464,19 +314,6 @@ export async function generateWithValidation<T>(
       };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (!textOutput) {
-        logMalformedStructuredResponse({
-          content: response.content,
-          error: lastError,
-          provider: config?.provider ?? provider.name,
-          model: config?.model ?? response.model,
-          finishReason: response.finishReason,
-          usage: response.usage,
-          hasResponseSchema: !!request.responseSchema,
-          maxTokens: request.maxTokens,
-          attempt,
-        });
-      }
 
       if (attempt <= maxRetries && feedbackOnError) {
         currentPrompt = `${request.prompt}\n\nYour previous response was invalid. Error: ${lastError.message}\nPlease fix the output to match the required schema.`;

@@ -123,7 +123,7 @@ await ctx.ai.generateWithUsage({
 });
 ```
 
-When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error keeps the final raw model completion on `error.rawOutput`, which is useful for diagnosing truncation or malformed JSON without guessing from the parse offset alone.
+When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. Catch it in capability handlers to surface a structured error to the caller instead of a generic 500.
 
 ### streamGenerate (streaming completions)
 
@@ -310,8 +310,24 @@ Set `enableStrictStructuredOutputs: true` on `createAIService()` to have Plumbus
 - Anthropic receives `output_config.format: { type: "json_schema", schema: ... }`.
 - Single-string-field outputs such as `z.object({ content: z.string() })` stay in plain text mode for streaming and are not constrained.
 - Prompts can opt out with `disableStrictStructuredOutputs: true` when their schema cannot fit the provider JSON Schema subset.
+- Prompts can require strict mode with `requireStrictStructuredOutputs: true` — the AI service refuses to run the prompt unless it can send a provider JSON Schema, preventing silent fallback to prompt-only JSON instructions.
+- Transport can be switched with `structuredOutputTransport: "tool"` to use strict tool-call arguments instead of `response_format`, for provider/prompt combinations where JSON-schema response content is weak but tool calls are reliable.
 
-The converter enforces provider-safe schema rules before a request is sent: every object gets `additionalProperties: false`, unsupported numeric and string constraints are moved into field descriptions, `minItems` is clamped to `0` or `1`, and Anthropic's complexity counters are checked locally. If a model refuses a structured request, Plumbus throws `AIRefusalError`. If a provider stops due to `finish_reason: "length"` or `stop_reason: "max_tokens"`, Plumbus throws `AIIncompleteOutputError` instead of retrying or reporting a generic parse failure.
+The conversion is also exposed as a standalone helper:
+
+```typescript
+import { zodToProviderJsonSchema, ProviderJsonSchemaError } from "@plumbus/core";
+
+const { schema, warnings } = zodToProviderJsonSchema(myZodSchema, {
+  promptName: "classifyTicket",
+});
+```
+
+Returns a `ProviderJsonSchemaResult` with the converted JSON Schema and any constraint warnings. Throws `ProviderJsonSchemaError` if the input schema cannot be safely converted (e.g. unsupported union shapes, Anthropic complexity limits exceeded).
+
+The converter enforces provider-safe schema rules before a request is sent: every object gets `additionalProperties: false`, unsupported numeric and string constraints are moved into field descriptions, `minItems` is clamped to `0` or `1`, and Anthropic's complexity counters are checked locally. If a model refuses a structured request, Plumbus throws `AIRefusalError`.
+
+`AIIncompleteOutputError` is thrown when a provider stops due to `finish_reason: "length"` / `stop_reason: "max_tokens"` **and the call was a structured-output request** — that is, `responseFormat: "json"` or a `responseSchema` was set. Truncated JSON has no recovery path the framework can safely take, so it surfaces as an error instead of a generic parse failure. Free-text prompts (no schema, no JSON mode) hit the same provider stop reason but return the partial content unchanged; if you want them to fail loud you can inspect `AIStreamEvent.finishReason` on the `done` event, or `ProviderResponse.finishReason` on a direct adapter call.
 
 ```typescript
 import { generateWithValidation } from "@plumbus/core";
@@ -401,14 +417,69 @@ if (!check.allowed) {
 }
 ```
 
-Cost records include:
-- Prompt name
-- Provider name
-- Model used
-- Input/output token counts (including cached/cache-write breakdown)
-- Dollar cost
-- Timestamp
-- Caller identity
+Cost records (`AICostRecord`) include:
+- `promptName`, `provider`, `model`, `operation` (`"generate" | "extract" | "classify" | "embed"`)
+- `usage` — input/output token counts including `cachedInputTokens` / `cacheWriteTokens`
+- `cost` (USD) and `latencyMs`
+- `timestamp`, `tenantId`, `actor`
+- `status` — `"success" | "failed" | "refused" | "incomplete"`. Failed rows still represent real provider-side spend and count toward `dailyCostLimit`. Defaults to `"success"` for records created without an explicit status.
+- `errorMessage` — short description when `status !== "success"`
+- `fallbackUsed?: boolean` — set when a streaming `generate` call fell back to a non-streaming retry after the streamed text failed JSON/schema validation. Both attempts are billed; this flag is the duplicate-billing signal.
+
+### Per-call cost context
+
+Pass `costContext` on any `ctx.ai.*` call to attach billing metadata to the recorded `AICostRecord`. Useful for sharded ledgers and per-project cost rollups:
+
+```typescript
+import type { AICostContext } from "@plumbus/core";
+
+await ctx.ai.generate({
+  prompt: "summarizeTicket",
+  input: { body: input.body },
+  costContext: {
+    projectId: input.projectId,
+    serviceArea: "support",
+    operationName: "summarize",
+    relatedEntityType: "Ticket",
+    relatedEntityId: input.ticketId,
+  },
+});
+```
+
+All fields are optional. Same shape is accepted on `generate`, `generateWithUsage`, `streamGenerate`, `extract`, and `classify`.
+
+### Persisting a ledger with `onAICostRecorded`
+
+Install `onAICostRecorded` on `ServerConfig` to receive every cost record after the in-memory tracker has been updated — including failure-path rows. The framework passes the active DB connection so you can write the ledger row in the same transactional scope as your domain data:
+
+```typescript
+import { createServer } from "@plumbus/core";
+
+createServer({
+  // ...
+  onAICostRecorded: async (record, costContext, db) => {
+    await db.insert(aiLedgerTable).values({
+      ...record,
+      projectId: costContext?.projectId,
+      operationName: costContext?.operationName,
+    });
+  },
+});
+```
+
+Hook errors are caught and logged; they never propagate to the AI caller.
+
+### Deterministic sampling with `seed`
+
+For OpenAI-compatible providers (including xAI Grok), pass `seed` to pin reproducible output. Combined with `temperature: 0`, identical `{ seed, temperature, model, prompt }` tuples produce the same tokens. Ignored by providers that do not support it.
+
+```typescript
+const { data } = await ctx.ai.generateWithUsage({
+  prompt: "planTimeline",
+  input: { events },
+  seed: 42,
+});
+```
 
 ## RAG Pipeline
 

@@ -13,7 +13,15 @@ export interface AICostRecord {
   model: string;
   provider: string;
   promptName?: string;
-  operation: 'generate' | 'generate+fallback' | 'extract' | 'classify' | 'embed';
+  operation: 'generate' | 'extract' | 'classify' | 'embed';
+  /**
+   * True when the call originally streamed but fell back to a non-streaming
+   * retry after the streamed text failed JSON/schema validation. Both the
+   * original streamed attempt and the fallback attempt are billed, so this
+   * flag is the signal consumers use to detect duplicate billing for a
+   * single logical generation.
+   */
+  fallbackUsed?: boolean;
   usage: TokenUsage;
   /** Actual cost from provider API, or null if API unavailable */
   cost: number | null;

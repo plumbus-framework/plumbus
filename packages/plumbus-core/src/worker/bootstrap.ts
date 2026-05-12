@@ -3,6 +3,7 @@
 // outbox dispatcher, event delivery worker, flow step executor,
 // flow scheduler. Handles graceful shutdown.
 
+import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { createAuditService } from '../audit/service.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
@@ -73,6 +74,36 @@ function describeError(err: unknown): Record<string, unknown> {
   }
 
   return out;
+}
+
+// ── Lease-column preflight ──
+//
+// 0.3.0 added `lease_owner` and `lease_expires_at` columns to flow_executions
+// to support lease-based claiming across workers. If a consumer upgrades
+// `@plumbus/core` but forgets to run `plumbus migrate generate` +
+// `plumbus migrate apply`, the first claim-cycle UPDATE fails with PG error
+// 42703 (undefined_column) deep inside drizzle, producing logs that don't
+// point at the real fix. This probe runs one cheap `LIMIT 0` SELECT against
+// those columns and rethrows a clear, actionable error when they're missing.
+//
+// Exported for direct testing.
+export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<void> {
+  try {
+    await db.execute(sql`SELECT lease_owner, lease_expires_at FROM flow_executions LIMIT 0`);
+  } catch (err) {
+    const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
+    const pgCode =
+      cause && typeof cause === 'object' && 'code' in cause
+        ? (cause as { code?: unknown }).code
+        : undefined;
+    if (pgCode === '42703') {
+      throw new Error(
+        'Plumbus 0.3.0 requires new columns on flow_executions (lease_owner, lease_expires_at).\n' +
+          'Run `plumbus migrate generate` then `plumbus migrate apply` before starting workers.',
+      );
+    }
+    throw err;
+  }
 }
 
 // ── Worker Pool Config ──
@@ -341,6 +372,16 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   return {
     async start() {
       if (running) return;
+
+      // Schema preflight: 0.3.0 added `lease_owner` and `lease_expires_at`
+      // to flow_executions. Consumers who upgrade `@plumbus/core` but skip
+      // `plumbus migrate apply` would otherwise hit a cryptic UPDATE error
+      // on the first claim cycle. Probe the columns once at startup and
+      // emit an actionable error instead.
+      if (enableFlowRunner) {
+        await assertFlowLeaseColumns(db);
+      }
+
       running = true;
 
       // Sync flow schedules to DB

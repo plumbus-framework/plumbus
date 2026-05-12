@@ -47,7 +47,7 @@ export interface ProviderRequest {
   responseSchema?: Record<string, unknown>;
   /** Transport used for provider-side structured outputs. Defaults to response_format. */
   structuredOutputTransport?: 'response_format' | 'tool';
-  /** Request timeout in milliseconds (default: 600_000) */
+  /** Request timeout in milliseconds (default: 120_000) */
   timeout?: number;
   /**
    * External AbortSignal (e.g. `ctx.signal`). When fired, the in-flight
@@ -253,82 +253,6 @@ function extractOpenAIMessageContent(message: {
   return message.content ?? '';
 }
 
-function summarizeUnknown(value: unknown): unknown {
-  if (typeof value === 'string') {
-    return { type: 'string', length: value.length, empty: value.length === 0 };
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => summarizeUnknown(item));
-  }
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
-        key,
-        summarizeUnknown(item),
-      ]),
-    );
-  }
-  return value;
-}
-
-function logEmptyOpenAIStructuredContent(args: {
-  data: unknown;
-  choice: {
-    message: {
-      content: string | null;
-      refusal?: string | null;
-      tool_calls?: Array<{
-        type?: string;
-        function?: { name?: string; arguments?: string };
-      }>;
-    };
-    finish_reason: string;
-  };
-  request: ProviderRequest;
-  model: string;
-}): void {
-  const messageKeys = Object.keys(args.choice.message);
-  const toolCallSummary =
-    args.choice.message.tool_calls?.map((toolCall) => ({
-      type: toolCall.type ?? null,
-      name: toolCall.function?.name ?? null,
-      argumentsChars: toolCall.function?.arguments?.length ?? 0,
-    })) ?? [];
-
-  // #region agent log
-  fetch('http://127.0.0.1:7653/ingest/06cbeac8-a197-4896-9d68-c9e1a3d84ddc', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': '787c16',
-    },
-    body: JSON.stringify({
-      sessionId: '787c16',
-      runId: 'structured-output-empty',
-      hypothesisId: 'H1,H2,H3,H4',
-      location: 'packages/plumbus-core/src/ai/provider.ts:empty-structured-content',
-      message: 'OpenAI-compatible structured output returned empty adapter content',
-      data: {
-        provider: 'openai',
-        model: args.model,
-        responseFormat: args.request.responseFormat ?? null,
-        hasResponseSchema: !!args.request.responseSchema,
-        structuredOutputTransport: args.request.structuredOutputTransport ?? null,
-        finishReason: args.choice.finish_reason,
-        messageKeys,
-        contentType:
-          args.choice.message.content === null ? 'null' : typeof args.choice.message.content,
-        contentLength: args.choice.message.content?.length ?? 0,
-        refusalLength: args.choice.message.refusal?.length ?? 0,
-        toolCalls: toolCallSummary,
-        responseShape: summarizeUnknown(args.data),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
 function buildEmptyOpenAIStructuredContentError(args: {
   data: unknown;
   choice: {
@@ -357,7 +281,7 @@ function buildEmptyOpenAIStructuredContentError(args: {
     `OpenAI-compatible provider returned empty JSON response content ` +
       `finish_reason=${args.choice.finish_reason} messageKeys=${messageKeys || 'none'} ` +
       `hasRefusal=${args.choice.message.refusal ? 'true' : 'false'} ` +
-      `toolCalls=${toolCallSummary} debugSession=787c16`,
+      `toolCalls=${toolCallSummary}`,
   );
 }
 
@@ -463,7 +387,7 @@ export interface OpenAIAdapterConfig {
   model?: string;
   embeddingModel?: string;
   baseUrl?: string;
-  /** Request timeout in milliseconds (default: 600_000) */
+  /** Request timeout in milliseconds (default: 120_000) */
   requestTimeout?: number;
 }
 
@@ -471,7 +395,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
   const defaultModel = config.model ?? 'gpt-4o';
   const defaultEmbeddingModel = config.embeddingModel ?? 'text-embedding-3-small';
   const baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
-  const defaultTimeout = config.requestTimeout ?? 600_000;
+  const defaultTimeout = config.requestTimeout ?? 120_000;
 
   return {
     name: 'openai',
@@ -566,7 +490,14 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           usage,
         });
       }
-      if (choice.finish_reason === 'length') {
+      // Only treat `finish_reason === 'length'` as a hard failure when the
+      // caller asked for structured JSON output. For free-text generation,
+      // a `length` finish is a partial-success: return what we have rather
+      // than discarding tokens the caller already paid for.
+      if (
+        choice.finish_reason === 'length' &&
+        (request.responseFormat === 'json' || !!request.responseSchema)
+      ) {
         throw new AIIncompleteOutputError({
           provider: 'openai',
           model: data.model,
@@ -576,7 +507,6 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         });
       }
       if (request.responseFormat === 'json' && content.trim().length === 0) {
-        logEmptyOpenAIStructuredContent({ data, choice, request, model: data.model });
         throw buildEmptyOpenAIStructuredContentError({ data, choice });
       }
       return {
@@ -687,14 +617,14 @@ export interface AnthropicAdapterConfig {
   apiKey: string;
   model?: string;
   baseUrl?: string;
-  /** Request timeout in milliseconds (default: 600_000) */
+  /** Request timeout in milliseconds (default: 120_000) */
   requestTimeout?: number;
 }
 
 export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProviderAdapter {
   const defaultModel = config.model ?? 'claude-sonnet-4-20250514';
   const baseUrl = config.baseUrl ?? 'https://api.anthropic.com/v1';
-  const defaultTimeout = config.requestTimeout ?? 600_000;
+  const defaultTimeout = config.requestTimeout ?? 120_000;
 
   return {
     name: 'anthropic',
@@ -764,7 +694,13 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           usage,
         });
       }
-      if (data.stop_reason === 'max_tokens') {
+      // Mirror the OpenAI adapter: only throw on max_tokens when the caller
+      // requested structured JSON output. Free-text completions should return
+      // the partial content.
+      if (
+        data.stop_reason === 'max_tokens' &&
+        (request.responseFormat === 'json' || !!request.responseSchema)
+      ) {
         throw new AIIncompleteOutputError({
           provider: 'anthropic',
           model: data.model,

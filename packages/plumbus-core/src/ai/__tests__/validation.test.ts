@@ -132,7 +132,7 @@ describe('generateWithValidation', () => {
     ).rejects.toThrow('AI output validation failed after 1 attempts');
   });
 
-  it('logs redacted JSON-shape diagnostics when structured parsing fails', async () => {
+  it('does not phone home to a debug ingest endpoint on structured parse failure', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', mockFetch);
     const provider = createMockProvider({
@@ -157,27 +157,8 @@ describe('generateWithValidation', () => {
       ),
     ).rejects.toThrow('AI output validation failed after 1 attempts');
 
-    const debugCall = mockFetch.mock.calls.find(([url]) =>
-      String(url).includes('/ingest/06cbeac8-a197-4896-9d68-c9e1a3d84ddc'),
-    );
-    expect(debugCall).toBeDefined();
-    const debugBody = JSON.parse(String(debugCall?.[1]?.body));
-    expect(debugBody.message).toBe('Structured response failed JSON parsing');
-    expect(debugBody.data).toMatchObject({
-      provider: 'mock-provider',
-      model: 'mock-model',
-      finishReason: 'stop',
-      hasResponseSchema: true,
-      maxTokens: 400000,
-      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
-    });
-    expect(debugBody.data.jsonShape).toMatchObject({
-      contentLength: 24,
-      startsWithObject: true,
-      objectBalance: 1,
-      endedInString: false,
-    });
-    expect(JSON.stringify(debugBody)).not.toContain('Alice');
+    const ingestCall = mockFetch.mock.calls.find(([url]) => String(url).includes('/ingest/'));
+    expect(ingestCall).toBeUndefined();
 
     vi.unstubAllGlobals();
   });

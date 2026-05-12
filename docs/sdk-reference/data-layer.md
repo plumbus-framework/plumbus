@@ -92,6 +92,11 @@ interface Repository<
   // Create a new record
   create(data: TCreate): Promise<T>;
 
+  // Bulk-create N records in a single DB round-trip plus one summary audit row.
+  // Empty arrays short-circuit to []. Use for hot paths that would otherwise
+  // call create() in a loop (typically > ~10 records).
+  createMany(records: TCreate[]): Promise<T[]>;
+
   // Update by ID
   update(id: string, updates: TUpdate): Promise<T>;
 
@@ -103,7 +108,7 @@ interface Repository<
 }
 ```
 
-After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` and `update()`.
+After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` / `createMany()` / `update()`.
 ```
 
 ### Automatic Tenant Isolation

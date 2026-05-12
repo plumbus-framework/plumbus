@@ -27,7 +27,7 @@ export interface AIProviderConfig {
   baseUrl?: string;
   maxTokensPerRequest?: number;
   dailyCostLimit?: number;
-  /** Request timeout in milliseconds for AI provider calls (default: 600_000) */
+  /** Request timeout in milliseconds for AI provider calls (default: 120_000) */
   requestTimeout?: number;
 }
 
