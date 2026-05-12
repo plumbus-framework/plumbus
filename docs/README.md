@@ -37,7 +37,8 @@ docs/
 ├── ui/                        Client generation, hooks, Next.js scaffolding
 │   └── ui-generation.md
 ├── agents/                    Wiring AI coding agents to your project
-│   └── agent-setup.md
+│   ├── agent-setup.md
+│   └── guardrails.md
 └── assets/                    Diagrams and images
     └── plumbus-banner.svg
 ```
@@ -52,6 +53,7 @@ docs/
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |
 | See all CLI commands | [CLI → Commands](cli/commands.md) |
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |
+| Review framework-first and git-safety rules for agents | [Agents → Guardrails](agents/guardrails.md) |
 | Generate a React frontend | [UI → Generation](ui/ui-generation.md) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |

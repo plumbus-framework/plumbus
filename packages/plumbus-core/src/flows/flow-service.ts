@@ -27,5 +27,10 @@ export function createFlowService(
     async status(executionId: string): Promise<FlowExecution> {
       return engine.status(executionId);
     },
+
+    async heartbeat(): Promise<void> {
+      // No-op outside of flow step execution context.
+      // The real heartbeat is injected directly on flowCtx.flows by the engine.
+    },
   };
 }

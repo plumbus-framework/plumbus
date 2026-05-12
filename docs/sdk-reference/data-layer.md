@@ -92,6 +92,11 @@ interface Repository<
   // Create a new record
   create(data: TCreate): Promise<T>;
 
+  // Bulk-create N records in a single DB round-trip plus one summary audit row.
+  // Empty arrays short-circuit to []. Use for hot paths that would otherwise
+  // call create() in a loop (typically > ~10 records).
+  createMany(records: TCreate[]): Promise<T[]>;
+
   // Update by ID
   update(id: string, updates: TUpdate): Promise<T>;
 
@@ -103,7 +108,7 @@ interface Repository<
 }
 ```
 
-After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` and `update()`.
+After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` / `createMany()` / `update()`.
 ```
 
 ### Automatic Tenant Isolation
@@ -181,6 +186,8 @@ Applies all pending migrations in order:
 plumbus migrate apply
 ```
 
+Before executing, a preflight check detects if any pending migration would `CREATE TABLE` for a framework-managed table that already exists in the database. If drift is detected, the command fails with a structured error listing the conflicting tables and recovery steps. On execution failure, error messages include the migration tag, statement index, and SQL preview.
+
 ### Rollback
 
 Rolls back the most recently applied migration:
@@ -194,8 +201,10 @@ plumbus migrate rollback
 ```typescript
 import { applyMigrations, rollbackLastMigration } from "@plumbus/core";
 
-await applyMigrations({ db, migrationsDir: "./migrations" });
-await rollbackLastMigration({ db, migrationsDir: "./migrations" });
+const result = await applyMigrations({ db, migrationsFolder: "./drizzle" });
+// result: { applied: number, tags: string[] }
+
+await rollbackLastMigration({ db, migrationsFolder: "./drizzle" });
 ```
 
 ## collectSchemas
@@ -228,7 +237,7 @@ import {
 } from "@plumbus/core";
 ```
 
-These tables are created automatically with `plumbus migrate apply`.
+These tables are created automatically with `plumbus migrate apply`. **Do not create them manually** — the framework manages their lifecycle through generated migrations. Both `migrate apply` and `migrate push` include preflight drift detection that will fail fast if these tables are found with unexpected structure.
 
 ## Entity Type Generation
 

@@ -35,6 +35,7 @@ vi.mock('../../events/worker.js', () => ({
 
 vi.mock('../../flows/engine.js', () => ({
   createFlowEngine: vi.fn(() => mockFlowEngine),
+  generateWorkerId: vi.fn(() => 'test-worker-id'),
 }));
 
 vi.mock('../../flows/scheduler.js', () => ({
@@ -51,7 +52,7 @@ vi.mock('../../events/idempotency.js', () => ({
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
 import type { WorkerPoolConfig } from '../bootstrap.js';
-import { createWorkerPool } from '../bootstrap.js';
+import { assertFlowLeaseColumns, createWorkerPool } from '../bootstrap.js';
 
 // ── Helpers ──
 
@@ -85,10 +86,17 @@ function makeStepDeps(): StepExecutorDeps {
   };
 }
 
+function makeDb(): any {
+  // The lease-column preflight does a single `SELECT ... FROM flow_executions
+  // LIMIT 0`; resolve it unconditionally so tests that don't care about
+  // schema state still start cleanly.
+  return { execute: vi.fn(async () => undefined) };
+}
+
 function makePoolConfig(overrides?: Partial<WorkerPoolConfig>): WorkerPoolConfig {
   return {
     config: makeConfig(),
-    db: {} as any,
+    db: makeDb(),
     queue: makeQueue(),
     consumers: new ConsumerRegistry(),
     flows: new FlowRegistry(),
@@ -245,6 +253,45 @@ describe('Worker Bootstrap', () => {
       };
       const pool = createWorkerPool(makePoolConfig({ audit }));
       expect(pool).toBeDefined();
+    });
+  });
+
+  describe('lease-column preflight', () => {
+    it('rethrows a friendly error when flow_executions is missing lease columns', async () => {
+      const undefinedColumnError = Object.assign(
+        new Error(
+          'Failed query: SELECT lease_owner, lease_expires_at FROM flow_executions LIMIT 0',
+        ),
+        { cause: Object.assign(new Error('column does not exist'), { code: '42703' }) },
+      );
+      const db = { execute: vi.fn(async () => Promise.reject(undefinedColumnError)) };
+
+      await expect(assertFlowLeaseColumns(db as any)).rejects.toThrow(
+        /plumbus migrate generate.*plumbus migrate apply/s,
+      );
+    });
+
+    it('passes when both lease columns exist', async () => {
+      const db = { execute: vi.fn(async () => undefined) };
+      await expect(assertFlowLeaseColumns(db as any)).resolves.toBeUndefined();
+    });
+
+    it('rethrows the original error for non-42703 failures', async () => {
+      const otherError = Object.assign(new Error('connection refused'), {
+        cause: Object.assign(new Error('econnrefused'), { code: 'ECONNREFUSED' }),
+      });
+      const db = { execute: vi.fn(async () => Promise.reject(otherError)) };
+      await expect(assertFlowLeaseColumns(db as any)).rejects.toBe(otherError);
+    });
+
+    it('blocks pool start when columns are missing', async () => {
+      const undefinedColumnError = Object.assign(new Error('Failed query'), {
+        cause: Object.assign(new Error('column does not exist'), { code: '42703' }),
+      });
+      const db = { execute: vi.fn(async () => Promise.reject(undefinedColumnError)) };
+      const pool = createWorkerPool(makePoolConfig({ db: db as any }));
+      await expect(pool.start()).rejects.toThrow(/plumbus migrate/);
+      expect(pool.isRunning).toBe(false);
     });
   });
 

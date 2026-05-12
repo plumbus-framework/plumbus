@@ -6,11 +6,18 @@
 // Key exports: createAIService, createRAGPipeline, PromptRegistry, checkPromptSecurity
 
 // AI Service
-export { createAIService, singleProviderConfig, type AIServiceConfig } from './ai-service.js';
+export {
+  createAIService,
+  singleProviderConfig,
+  type AICostContext,
+  type AIServiceConfig,
+  type OnAICostRecorded,
+} from './ai-service.js';
 // Cost tracking
 export {
   createCostTracker,
   type AICostRecord,
+  type AICostRecordInput,
   type BudgetCheckResult,
   type BudgetConfig,
   type CostTracker,
@@ -34,6 +41,7 @@ export {
   createOpenAIAdapter,
   createProviderAdapter,
   type AIProviderAdapter,
+  type ChatMessage,
   type AnthropicAdapterConfig,
   type EmbeddingRequest,
   type EmbeddingResponse,
@@ -43,6 +51,15 @@ export {
   type ProviderStreamEvent,
   type TokenUsage,
 } from './provider.js';
+// Provider-side structured output errors
+export { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
+// Provider-compatible schema conversion
+export {
+  ProviderJsonSchemaError,
+  zodToProviderJsonSchema,
+  type ProviderJsonSchemaOptions,
+  type ProviderJsonSchemaResult,
+} from './zod-to-provider-schema.js';
 // RAG pipeline
 export {
   chunkDocument,

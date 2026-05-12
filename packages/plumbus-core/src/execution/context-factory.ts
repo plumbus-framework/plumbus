@@ -40,6 +40,7 @@ const noopTranslations: TranslationService = {
 
 const noopEvents: EventService = {
   async emit() {},
+  async emitMany() {},
 };
 
 const noopFlows: FlowService = {
@@ -51,6 +52,7 @@ const noopFlows: FlowService = {
   async status() {
     return { id: '', flowName: '', status: 'unknown' };
   },
+  async heartbeat() {},
 };
 
 const noopAI: AIService = {

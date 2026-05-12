@@ -12,6 +12,11 @@ import {
   success,
   warn,
 } from '../utils.js';
+import {
+  AGENT_WIRING_VERSION,
+  hasPatchableAgentWiringBlock,
+  parseAgentWiringVersion,
+} from './init.js';
 
 export interface DoctorCheck {
   name: string;
@@ -21,6 +26,103 @@ export interface DoctorCheck {
 
 export interface DoctorOptions {
   json?: boolean;
+}
+
+const GENERATED_AGENTS_TITLE = '# AGENTS.md — Plumbus Framework';
+
+function isGeneratedAgentsMd(content: string): boolean {
+  return content.includes(GENERATED_AGENTS_TITLE) || parseAgentWiringVersion(content) !== undefined;
+}
+
+/** Check whether generated agent wiring files are missing or stale */
+export function checkAgentWiring(): DoctorCheck {
+  const files = [
+    { path: '.github/copilot-instructions.md', label: 'copilot', alwaysCandidate: true },
+    { path: '.cursor/rules/plumbus.mdc', label: 'cursor', alwaysCandidate: true },
+    {
+      path: '.cursor/rules/plumbus-capabilities.mdc',
+      label: 'cursor-capabilities',
+      alwaysCandidate: true,
+    },
+    { path: 'AGENTS.md', label: 'agents-md', alwaysCandidate: false },
+  ] as const;
+
+  const detected: Array<{ path: string; version?: number; label: string; patchable: boolean }> = [];
+
+  for (const file of files) {
+    const absolutePath = resolvePath(file.path);
+    if (!fs.existsSync(absolutePath)) {
+      continue;
+    }
+
+    const content = fs.readFileSync(absolutePath, 'utf-8');
+    if (!file.alwaysCandidate && !isGeneratedAgentsMd(content)) {
+      continue;
+    }
+
+    detected.push({
+      path: file.path,
+      label: file.label,
+      version: parseAgentWiringVersion(content),
+      patchable: hasPatchableAgentWiringBlock(content),
+    });
+  }
+
+  if (detected.length === 0) {
+    return {
+      name: 'agent-wiring',
+      status: 'ok',
+      message:
+        'No generated agent wiring detected — run `plumbus init` if you use AI coding agents',
+    };
+  }
+
+  const cursorMain = detected.some((file) => file.label === 'cursor');
+  const cursorCapabilities = detected.some((file) => file.label === 'cursor-capabilities');
+  const issues: string[] = [];
+  let recommendedCommand = 'plumbus init --patch';
+
+  if (cursorMain !== cursorCapabilities) {
+    issues.push(
+      'Cursor wiring is incomplete (.cursor/rules/plumbus.mdc and plumbus-capabilities.mdc should be generated together)',
+    );
+  }
+
+  for (const file of detected) {
+    if (file.version === undefined) {
+      issues.push(
+        `${file.path} is unversioned and may predate the current Plumbus wiring template`,
+      );
+      recommendedCommand = 'plumbus init --force';
+      continue;
+    }
+    if (file.version < AGENT_WIRING_VERSION) {
+      if (file.patchable) {
+        issues.push(
+          `${file.path} uses wiring version ${file.version} (current: ${AGENT_WIRING_VERSION})`,
+        );
+      } else {
+        issues.push(
+          `${file.path} uses wiring version ${file.version} but does not contain a patchable Plumbus-managed block`,
+        );
+        recommendedCommand = 'plumbus init --force';
+      }
+    }
+  }
+
+  if (issues.length > 0) {
+    return {
+      name: 'agent-wiring',
+      status: 'warn',
+      message: `${issues.join('; ')}. Review local customizations, then run \`${recommendedCommand}\` to refresh the generated wiring.`,
+    };
+  }
+
+  return {
+    name: 'agent-wiring',
+    status: 'ok',
+    message: `Generated agent wiring is current (template version ${AGENT_WIRING_VERSION})`,
+  };
 }
 
 /** Check Node.js version */
@@ -308,6 +410,7 @@ export function runDoctorChecks(): DoctorCheck[] {
     checkPackageJson(),
     checkConfig(),
     checkAppStructure(),
+    checkAgentWiring(),
     checkLegacyArtifacts(),
   ];
 }

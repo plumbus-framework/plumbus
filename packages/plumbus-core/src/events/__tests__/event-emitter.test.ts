@@ -116,4 +116,83 @@ describe('EventEmitter', () => {
     expect(insertedRows[0].eventType).toBe('custom.unregistered');
     expect(insertedRows[0].version).toBe('1'); // defaults to "1"
   });
+
+  describe('emitMany', () => {
+    it('is a no-op for an empty array and does not touch db or audit', async () => {
+      const { emitter, insertedRows, auditRecords, db } = setup({ audit: true });
+      await emitter.emitMany([]);
+      expect(insertedRows).toHaveLength(0);
+      expect(auditRecords).toHaveLength(0);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('validates payload against registry schema for every entry', async () => {
+      const { emitter } = setup();
+      await expect(
+        emitter.emitMany([
+          { eventName: 'order.created', payload: { orderId: 'a' } },
+          { eventName: 'order.created', payload: { wrong: 'field' } as any },
+        ]),
+      ).rejects.toThrow('invalid payload');
+    });
+
+    it('performs a single outbox INSERT containing all envelopes', async () => {
+      const { emitter, insertedRows, db } = setup();
+      await emitter.emitMany([
+        { eventName: 'order.created', payload: { orderId: 'a' } },
+        { eventName: 'order.created', payload: { orderId: 'b' } },
+        { eventName: 'order.created', payload: { orderId: 'c' } },
+      ]);
+      expect(db.insert).toHaveBeenCalledTimes(1);
+      // values() captured one call with an array of 3 envelopes
+      expect(insertedRows).toHaveLength(1);
+      expect(Array.isArray(insertedRows[0])).toBe(true);
+      expect(insertedRows[0]).toHaveLength(3);
+      expect(insertedRows[0][0]).toMatchObject({
+        eventType: 'order.created',
+        actor: 'user-1',
+        tenantId: 'tenant-1',
+        status: 'pending',
+      });
+    });
+
+    it('assigns a distinct UUID to every envelope', async () => {
+      const { emitter, insertedRows } = setup();
+      await emitter.emitMany([
+        { eventName: 'order.created', payload: { orderId: 'a' } },
+        { eventName: 'order.created', payload: { orderId: 'b' } },
+      ]);
+      const envelopes = insertedRows[0] as Array<{ id: string }>;
+      const [a, b] = envelopes;
+      expect(a).toBeDefined();
+      expect(b).toBeDefined();
+      if (!a || !b) throw new Error('Expected two envelopes');
+      expect(a.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(b.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(a.id).not.toBe(b.id);
+    });
+
+    it('writes exactly one summary audit row per batch', async () => {
+      const { emitter, auditRecords } = setup({ audit: true });
+      await emitter.emitMany([
+        { eventName: 'order.created', payload: { orderId: 'a' } },
+        { eventName: 'order.created', payload: { orderId: 'b' } },
+        { eventName: 'order.created', payload: { orderId: 'c' } },
+      ]);
+      expect(auditRecords).toHaveLength(1);
+      expect(auditRecords[0].action).toBe('event.emitted.batch');
+      expect(auditRecords[0].count).toBe(3);
+      expect(auditRecords[0].eventType).toBe('order.created');
+      expect(auditRecords[0].outcome).toBe('success');
+    });
+
+    it('skips audit when no audit service provided', async () => {
+      const { emitter, auditRecords } = setup({ audit: false });
+      await emitter.emitMany([
+        { eventName: 'order.created', payload: { orderId: 'a' } },
+        { eventName: 'order.created', payload: { orderId: 'b' } },
+      ]);
+      expect(auditRecords).toHaveLength(0);
+    });
+  });
 });

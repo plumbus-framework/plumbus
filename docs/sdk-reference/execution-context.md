@@ -17,9 +17,12 @@ interface ExecutionContext {
   time: TimeService;           // Clock abstraction
   config: ConfigService;       // App configuration
   security: SecurityService;   // Authorization helpers
+  request?: RequestMeta;       // HTTP metadata (HTTP callers only)
   state?: unknown;             // Flow state (flows only)
   step?: string;               // Current step (flows only)
   flowId?: string;             // Flow execution ID (flows only)
+  workerId?: string;           // Owning worker identity (flows only)
+  signal?: AbortSignal;        // Cancellation signal (flows only)
 }
 ```
 
@@ -59,11 +62,15 @@ Repository access for all registered entities. Each entity gets a typed reposito
 interface Repository<T> {
   findById(id: string): Promise<T | null>;
   create(data: Partial<T>): Promise<T>;
+  /** Bulk-create N records in a single DB round-trip plus one summary audit row. */
+  createMany(records: Partial<T>[]): Promise<T[]>;
   update(id: string, updates: Partial<T>): Promise<T>;
   delete(id: string): Promise<void>;
   findMany(query?: Record<string, unknown>): Promise<T[]>;
 }
 ```
+
+Use `createMany` for hot paths that would otherwise call `create()` in a loop (typically more than ~10 records). Empty arrays short-circuit to `[]` without touching the database. Tenant scoping and audit behave as for `create()` — a single summary audit row is recorded per batch instead of one per record.
 
 ### Type Safety via PlumbusRegistry
 
@@ -121,8 +128,15 @@ interface EventService {
     eventName: E,
     payload: RegisteredEventPayloadMap[E],
   ): Promise<void>;
+
+  /** Bulk-emit N events of the same name in a single outbox INSERT plus one summary audit row. */
+  emitMany<E extends RegisteredEventName>(
+    events: Array<{ eventName: E; payload: RegisteredEventPayloadMap[E] }>,
+  ): Promise<void>;
 }
 ```
+
+All events in a single `emitMany` call must share the same event name so TypeScript can enforce the payload shape. Empty arrays short-circuit without touching the database.
 
 After running `plumbus generate`, both the event name and payload are strictly typed:
 
@@ -151,8 +165,12 @@ interface FlowService {
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;
+  /** Extend the current flow execution lease. Only effective inside a flow step handler. */
+  heartbeat(): Promise<void>;
 }
 ```
+
+`cancel(executionId)` is now cooperative — it aborts the running step's `AbortController` (the same signal exposed as `ctx.signal` inside the step). See [Cancellation](../core-concepts/flows.md#cancellation) in the flow docs for how to thread `ctx.signal` into in-flight AI / HTTP calls.
 
 ```typescript
 handler: async (ctx, input) => {
@@ -180,12 +198,20 @@ AI operations — generate, extract, classify, and retrieve:
 
 ```typescript
 interface AIService {
-  generate(config: { prompt: string; input: Record<string, unknown> }): Promise<unknown>;
-  generateWithUsage(config: { prompt: string; input: Record<string, unknown> }): Promise<AIGenerateResult>;
-  extract(config: { schema: z.ZodTypeAny; text: string }): Promise<unknown>;
-  classify(config: { labels: string[]; text: string }): Promise<string[]>;
-  retrieve(config: { query: string }): Promise<AIDocument[]>;
+  generate(config: GenerateConfig): Promise<unknown>;
+  generateWithUsage(config: GenerateConfig): Promise<AIGenerateResult>;
+  streamGenerate(config: StreamConfig): AsyncIterable<AIStreamEvent>;
+  extract(config: ExtractConfig): Promise<unknown>;
+  classify(config: ClassifyConfig): Promise<string[]>;
+  retrieve(config: { query: string; signal?: AbortSignal }): Promise<AIDocument[]>;
 }
+
+// All AI calls accept these optional fields:
+//   messages?: ChatMessage[]            // native multi-turn (generate/stream)
+//   validation?: AIValidationOptions    // per-call retry override
+//   signal?: AbortSignal                // defaults to ctx.signal inside flows
+//   costContext?: AICostContext         // per-call billing metadata
+//   seed?: number                       // deterministic sampling (OpenAI-compatible)
 
 interface AIGenerateResult {
   data: Record<string, any>;
@@ -441,11 +467,15 @@ Inside flow step handlers, additional properties are available:
 
 ```typescript
 handler: async (ctx, input) => {
-  ctx.state;   // Current flow state
-  ctx.step;    // Current step name
-  ctx.flowId;  // Flow execution ID
+  ctx.state;     // Current flow state
+  ctx.step;      // Current step name
+  ctx.flowId;    // Flow execution ID
+  ctx.workerId;  // Owning worker (matches lease_owner on flow_executions)
+  ctx.signal;    // Cancellation signal — fires on flows.cancel() or lease loss
 }
 ```
+
+Pass `ctx.signal` to cancelable AI/HTTP calls so cancellation propagates without leaving zombie work running. Most `ctx.ai.*` methods default their `signal` parameter to `ctx.signal` automatically; explicit threading is only needed for raw `fetch()` or third-party SDK calls. See [Cancellation](../core-concepts/flows.md#cancellation) for the full pattern.
 
 ---
 

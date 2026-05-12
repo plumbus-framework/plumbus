@@ -252,6 +252,7 @@ import { z } from "zod";
 
 const classifySentiment = definePrompt({
   name: "classifySentiment",
+  system: "You classify sentiment. Return only the requested structured fields.",
   description: "Classify text sentiment",
   domain: "support",
   tags: ["ai", "nlp"],
@@ -275,13 +276,20 @@ const classifySentiment = definePrompt({
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `string` | Yes | Prompt name |
-| `description` | `string` | No | Human-readable description |
+| `system` | `string` | No | Provider system instructions. Supports top-level `{{key}}` substitution |
+| `description` | `string` | No | User/data prompt content. Supports top-level `{{key}}` substitution |
 | `domain` | `string` | No | Business domain |
 | `tags` | `string[]` | No | Searchable tags |
 | `owner` | `string` | No | Owning team |
 | `input` | `z.ZodTypeAny` | Yes | Zod schema for prompt input |
 | `output` | `z.ZodTypeAny` | Yes | Zod schema for expected output |
 | `model` | `ModelConfig` | No | AI model configuration |
+| `appendUnsubstitutedInput` | `boolean` | No | Defaults to appending unused input keys as `Input: {...}`. Set `false` when `description` already renders the full user message |
+| `disableStrictStructuredOutputs` | `boolean` | No | Opt this prompt out of provider-side structured outputs even when `enableStrictStructuredOutputs` is enabled globally. Use when the output schema can't fit the provider JSON Schema subset |
+| `requireStrictStructuredOutputs` | `boolean` | No | Refuse to run unless a provider JSON Schema can be sent. Use for production extraction paths that must not silently fall back to prompt-only JSON instructions |
+| `structuredOutputTransport` | `"response_format" \| "tool"` | No | Select the provider transport for structured output. Defaults to `response_format`; use `"tool"` when JSON-schema response content is weak but strict tool-call arguments are reliable |
+| `disableTextModeBrevityHint` | `boolean` | No | For single-string-field outputs streaming as plain text, suppress the brevity-hint suffix that tells the model to "respond with ONLY plain text". Set `true` for long-form payloads (chapters, articles) where the hint collapses output |
+| `skipStreamValidationFallback` | `boolean` | No | When `streamGenerate` fails JSON validation, do NOT fall back to a non-streaming retry. Throws instead. Use for prompts with huge input tokens where silently re-paying is unacceptable; the caller is expected to implement its own recovery |
 
 ### Returns
 

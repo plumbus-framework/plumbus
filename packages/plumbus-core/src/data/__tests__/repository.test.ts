@@ -275,6 +275,157 @@ describe('createRepository', () => {
     expect(valuesCall?.tenantId).toBeUndefined();
   });
 
+  describe('createMany', () => {
+    it('returns [] for empty input and does not touch the database', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const audit: AuditService = { record: vi.fn().mockResolvedValue(undefined) };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+        audit,
+      });
+
+      const result = await repo.createMany([]);
+      expect(result).toEqual([]);
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('inserts all records in a single call and returns rows', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const rows = [
+        { id: 'r-1', title: 'A' },
+        { id: 'r-2', title: 'B' },
+        { id: 'r-3', title: 'C' },
+      ];
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue(rows),
+        set: vi.fn().mockReturnThis(),
+        values: vi.fn().mockReturnThis(),
+        returning: vi.fn().mockResolvedValue(rows),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const result = await repo.createMany([{ title: 'A' }, { title: 'B' }, { title: 'C' }] as any);
+
+      expect(result).toEqual(rows);
+      expect(db.insert).toHaveBeenCalledTimes(1);
+      expect(chainable.values).toHaveBeenCalledTimes(1);
+      const valuesArg = chainable.values.mock.calls[0]?.[0] as unknown[];
+      expect(Array.isArray(valuesArg)).toBe(true);
+      expect(valuesArg).toHaveLength(3);
+    });
+
+    it('injects tenantId into every record for tenant-scoped entities', async () => {
+      const entity = makeEntity({ tenantScoped: true });
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const auth = makeAuth({ tenantId: 't-7' });
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth,
+      });
+
+      await repo.createMany([{ title: 'One' }, { title: 'Two' }] as any);
+      const valuesArg = db._chainable.values.mock.calls[0]?.[0] as Record<string, unknown>[];
+      expect(valuesArg).toHaveLength(2);
+      expect(valuesArg[0]?.tenantId).toBe('t-7');
+      expect(valuesArg[1]?.tenantId).toBe('t-7');
+    });
+
+    it('throws when tenant-scoped entity used without tenantId', async () => {
+      const entity = makeEntity({ tenantScoped: true });
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const auth = makeAuth({ tenantId: undefined });
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth,
+      });
+
+      await expect(repo.createMany([{ title: 'X' }] as any)).rejects.toThrow(
+        'requires auth.tenantId',
+      );
+    });
+
+    it('writes exactly one summary audit row per batch', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const audit: AuditService = { record: vi.fn().mockResolvedValue(undefined) };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+        audit,
+      });
+
+      await repo.createMany([
+        { title: 'A', secret: 's1', token: 't1' },
+        { title: 'B', secret: 's2', token: 't2' },
+        { title: 'C', secret: 's3', token: 't3' },
+      ] as any);
+
+      expect(audit.record).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledWith(
+        'Document.createMany',
+        expect.objectContaining({
+          count: 3,
+          sample: expect.objectContaining({
+            title: 'A',
+            secret: '***',
+            token: '***',
+          }),
+        }),
+      );
+    });
+
+    it('does not call audit when no audit service provided', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      // Should not throw
+      await repo.createMany([{ title: 'A' }, { title: 'B' }] as any);
+      expect(db.insert).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('findMany with options', () => {
     it('applies limit and offset', async () => {
       const entity = makeEntity();

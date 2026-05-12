@@ -124,7 +124,7 @@ Cross-package dependencies use `workspace:*`. `plumbus generate` writes shared t
 
 ### plumbus init
 
-Generate AI agent wiring files so coding agents (Copilot, Cursor, etc.) understand the framework.
+Generate AI agent wiring files so coding agents (Copilot, Cursor, etc.) understand the framework and its mandatory guardrails.
 
 ```bash
 plumbus init [options]
@@ -134,6 +134,9 @@ plumbus init [options]
 |--------|------|---------|-------------|
 | `--agent <format>` | `string` | — | Agent format: `copilot`, `cursor`, `agents-md` |
 | `--inline` | `boolean` | `false` | Inline instructions instead of referencing files |
+| `--patch` | `boolean` | `false` | Update Plumbus-managed sections and create missing files |
+| `--force` | `boolean` | `false` | Replace existing generated wiring files outright |
+| `--dry-run` | `boolean` | `false` | Show what would change without writing files |
 
 **Example:**
 
@@ -141,6 +144,9 @@ plumbus init [options]
 plumbus init --agent copilot
 plumbus init --agent cursor
 plumbus init --agent agents-md
+plumbus init --patch
+plumbus init --force
+plumbus init --patch --dry-run
 ```
 
 Files generated:
@@ -150,6 +156,21 @@ Files generated:
 | `copilot` | `.github/copilot-instructions.md` | GitHub Copilot instructions |
 | `cursor` | `.cursor/rules/plumbus.mdc` | Cursor rules file |
 | `agents-md` | `AGENTS.md` | Generic agent instruction file |
+
+Generated files include:
+
+- framework-first rules that tell agents to implement business logic through Plumbus primitives
+- references to the packaged SDK instruction files
+- destructive git safety guidance that requires explicit user approval before discard or history-rewrite commands
+
+Behavior by mode:
+
+- `plumbus init` creates missing wiring files only and leaves existing files alone
+- `plumbus init --patch` updates only Plumbus-managed sections and preserves surrounding custom notes
+- `plumbus init --force` replaces existing generated wiring files outright
+- `plumbus init --dry-run` previews the changes without writing files
+
+Existing project briefs are preserved by `plumbus init`; use `plumbus agent sync` to refresh them.
 
 ---
 
@@ -190,7 +211,14 @@ Checks performed:
 - PostgreSQL reachable
 - Redis reachable
 - App directory structure
+- Generated agent wiring freshness (warns when generated Copilot, Cursor, or `AGENTS.md` files predate the current template version)
 - Legacy artifacts detection (stale `generated/`, `middleware.ts`, API proxy route)
+
+When stale wiring is detected, doctor recommends the safest follow-up command:
+
+- `plumbus init` for missing wiring
+- `plumbus init --patch` for patchable generated wiring
+- `plumbus init --force` for old or unmanaged files that cannot be safely patched
 
 ---
 
@@ -390,6 +418,7 @@ Database migration commands. **All schema changes must go through the framework 
 ```bash
 plumbus migrate generate [options]   # Generate migration SQL from entity diffs (programmatic)
 plumbus migrate apply [options]      # Apply pending migrations
+plumbus migrate reconcile [options]  # Backfill migration history when schema is already in sync
 plumbus migrate push [options]       # Push schema directly to DB (no migration files)
 plumbus migrate rollback [options]   # Rollback last migration
 ```
@@ -404,9 +433,32 @@ plumbus migrate rollback [options]   # Rollback last migration
 1. Define entities in `app/entities/` using `defineEntity()`
 2. `plumbus migrate generate` — compares entity schemas against previous snapshot, writes SQL to `drizzle/`
 3. `plumbus migrate apply` — executes pending migration files
-4. For rapid dev: `plumbus migrate push` — diffs schemas against live DB and applies changes directly (no files)
+4. If schema already exists but migration history is missing: `plumbus migrate reconcile` — verifies the live DB already matches the current Plumbus schema, then backfills `__drizzle_migrations` without executing DDL
+5. For rapid dev: `plumbus migrate push` — diffs schemas against live DB and applies changes directly (no files)
 
 **Never run `drizzle-kit` manually** — the framework wraps it programmatically via the `drizzle-kit/api`.
+
+**Framework-managed tables:**
+
+Plumbus manages 9 internal tables: `audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `documents`, `document_chunks`. **Do not create these tables manually** — they are included in generated migrations automatically.
+
+**Schema drift detection:**
+
+Both `migrate apply` and `migrate push` run a preflight check before executing. If a framework-managed table already exists in the database (e.g. from manual creation), the command fails with a drift report listing the conflicting tables and recovery steps.
+
+For `migrate apply`, the preflight detects when a pending migration would `CREATE TABLE` for an already-existing framework table. For `migrate push`, the preflight compares existing framework table structures against the expected schema and reports column, type, or nullability mismatches.
+
+`migrate reconcile` is the safe adoption path for the specific case where the schema is already correct and only the migration history is missing. It refuses to write history if the live database still differs from the current Plumbus schema.
+
+**Recovery from drift:**
+
+If you see a drift error, you have two options:
+1. **Run `plumbus migrate reconcile`** if the live database already matches the current Plumbus schema and you only need to adopt the existing migration history.
+2. **Fix or drop the conflicting tables** and then re-run `plumbus migrate apply` or `plumbus migrate push`.
+
+**Statement-level diagnostics:**
+
+When `migrate apply` fails during SQL execution, the error message includes the migration tag, statement index, and a SQL preview to pinpoint the exact failing statement.
 
 ---
 

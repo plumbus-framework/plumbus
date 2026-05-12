@@ -2,13 +2,39 @@
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
 import type { AIProviderConfig } from '../types/config.js';
+import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
+
+/**
+ * A single chat-history turn. Used for native multi-turn requests where the
+ * model should see real conversation flow (assistant + user alternation).
+ * Optional — when omitted, providers fall back to single-user-message mode
+ * built from `ProviderRequest.prompt`.
+ */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface ProviderRequest {
   /** System prompt / instructions */
   system?: string;
-  /** User prompt content */
+  /**
+   * User prompt content. Used as the SOLE user message when `messages` is
+   * absent. When `messages` is provided, this field is IGNORED — the messages
+   * array is the conversation. Callers passing `messages` may still set
+   * `prompt: ''` for type-compat.
+   */
   prompt: string;
+  /**
+   * Optional native multi-turn conversation history. When present, providers
+   * send `[system?, ...messages]` to the API instead of `[system?, {role:'user', content: prompt}]`.
+   * The LAST entry should be a `user` message (the latest turn). Order is
+   * preserved exactly as supplied. Empty array is treated as "no messages"
+   * (falls back to single-user mode using `prompt`).
+   */
+  messages?: ChatMessage[];
   /** Model name override */
   model?: string;
   /** Temperature (0-2) */
@@ -17,8 +43,37 @@ export interface ProviderRequest {
   maxTokens?: number;
   /** Response format hint */
   responseFormat?: 'text' | 'json';
+  /** Provider-compatible JSON Schema for strict structured outputs. */
+  responseSchema?: Record<string, unknown>;
+  /** Transport used for provider-side structured outputs. Defaults to response_format. */
+  structuredOutputTransport?: 'response_format' | 'tool';
   /** Request timeout in milliseconds (default: 120_000) */
   timeout?: number;
+  /**
+   * External AbortSignal (e.g. `ctx.signal`). When fired, the in-flight
+   * fetch(es) for this request abort immediately. Combined with the internal
+   * timeout signal via `AbortSignal.any([...])`, so whichever triggers first
+   * wins.
+   */
+  signal?: AbortSignal;
+  /**
+   * Deterministic sampling seed. OpenAI-compatible providers (including xAI
+   * Grok) honor this parameter: identical `{seed, temperature, model, prompt}`
+   * tuples produce the same tokens. Combined with `temperature: 0`, lets
+   * callers pin reproducible output for structural-planning prompts. Ignored
+   * by providers that do not support it.
+   */
+  seed?: number;
+}
+
+/** Compose a request's optional user signal with a timeout, returning a single AbortSignal. */
+export function combineRequestSignals(
+  userSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  if (!userSignal) return timeoutSignal;
+  return AbortSignal.any([userSignal, timeoutSignal]);
 }
 
 // ── Provider Response ──
@@ -145,6 +200,138 @@ function computeRetryDelayMs(attempt: number, retryAfterHeader: string | null): 
   return Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs);
 }
 
+function buildOpenAIResponseFormat(request: ProviderRequest): Record<string, unknown> | undefined {
+  if (request.responseFormat !== 'json') return undefined;
+  if (!request.responseSchema) return { type: 'json_object' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'response',
+      strict: true,
+      schema: request.responseSchema,
+    },
+  };
+}
+
+const OPENAI_STRUCTURED_OUTPUT_TOOL_NAME = 'return_structured_response';
+
+function shouldUseOpenAIStructuredTool(args: { request: ProviderRequest }): boolean {
+  return (
+    args.request.structuredOutputTransport === 'tool' &&
+    args.request.responseFormat === 'json' &&
+    !!args.request.responseSchema
+  );
+}
+
+function buildOpenAIStructuredOutputTool(schema: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: 'function',
+    function: {
+      name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
+      description: 'Return the complete structured response for this request.',
+      strict: true,
+      parameters: schema,
+    },
+  };
+}
+
+function extractOpenAIMessageContent(message: {
+  content: string | null;
+  tool_calls?: Array<{
+    type?: string;
+    function?: { name?: string; arguments?: string };
+  }>;
+}): string {
+  const structuredToolCall = message.tool_calls?.find(
+    (toolCall) => toolCall.function?.name === OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
+  );
+  const toolArguments = structuredToolCall?.function?.arguments;
+  if (typeof toolArguments === 'string' && toolArguments.length > 0) {
+    return toolArguments;
+  }
+
+  return message.content ?? '';
+}
+
+function buildEmptyOpenAIStructuredContentError(args: {
+  data: unknown;
+  choice: {
+    message: {
+      content: string | null;
+      refusal?: string | null;
+      tool_calls?: Array<{
+        type?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason: string;
+  };
+}): Error {
+  const messageKeys = Object.keys(args.choice.message).join(',');
+  const toolCallSummary =
+    args.choice.message.tool_calls
+      ?.map((toolCall) => {
+        const name = toolCall.function?.name ?? 'unknown';
+        const argumentLength = toolCall.function?.arguments?.length ?? 0;
+        return `${name}:argumentsChars=${argumentLength}`;
+      })
+      .join('|') ?? 'none';
+
+  return new Error(
+    `OpenAI-compatible provider returned empty JSON response content ` +
+      `finish_reason=${args.choice.finish_reason} messageKeys=${messageKeys || 'none'} ` +
+      `hasRefusal=${args.choice.message.refusal ? 'true' : 'false'} ` +
+      `toolCalls=${toolCallSummary}`,
+  );
+}
+
+function openAIUsageToTokenUsage(usage: {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+}): TokenUsage {
+  return {
+    inputTokens: usage.prompt_tokens,
+    outputTokens: usage.completion_tokens,
+    totalTokens: usage.total_tokens,
+    cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+  };
+}
+
+function shouldUseOpenAIMaxCompletionTokens(model: string): boolean {
+  const normalizedModel = model.trim().toLowerCase();
+  return /^(?:o\d|o\d-|o\d\.)/.test(normalizedModel) || normalizedModel.startsWith('gpt-5');
+}
+
+function applyOpenAITokenLimit(
+  body: Record<string, unknown>,
+  model: string,
+  maxTokens?: number,
+): void {
+  if (!maxTokens) return;
+  if (shouldUseOpenAIMaxCompletionTokens(model)) {
+    body.max_completion_tokens = maxTokens;
+    return;
+  }
+  body.max_tokens = maxTokens;
+}
+
+function anthropicUsageToTokenUsage(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}): TokenUsage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    totalTokens: usage.input_tokens + usage.output_tokens,
+    cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+  };
+}
+
 async function waitForRetry(delayMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
@@ -214,20 +401,45 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
     name: 'openai',
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
+      const model = request.model ?? defaultModel;
       const messages: Array<{ role: string; content: string }> = [];
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
       }
-      messages.push({ role: 'user', content: request.prompt });
+      // Multi-turn path: when `messages` is supplied, append them verbatim
+      // (preserving role + order). Single-turn path (legacy): build a single
+      // user message from `prompt`.
+      if (request.messages && request.messages.length > 0) {
+        for (const msg of request.messages) {
+          messages.push({ role: msg.role, content: msg.content });
+        }
+      } else {
+        messages.push({ role: 'user', content: request.prompt });
+      }
 
       const body: Record<string, unknown> = {
-        model: request.model ?? defaultModel,
+        model,
         messages,
         temperature: request.temperature ?? 0.7,
       };
-      if (request.maxTokens) body.max_tokens = request.maxTokens;
-      if (request.responseFormat === 'json') {
-        body.response_format = { type: 'json_object' };
+      applyOpenAITokenLimit(body, model, request.maxTokens);
+      const structuredToolSchema = shouldUseOpenAIStructuredTool({ request })
+        ? request.responseSchema
+        : undefined;
+      if (structuredToolSchema) {
+        body.tools = [buildOpenAIStructuredOutputTool(structuredToolSchema)];
+        body.tool_choice = {
+          type: 'function',
+          function: { name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME },
+        };
+      } else {
+        const responseFormat = buildOpenAIResponseFormat(request);
+        if (responseFormat) {
+          body.response_format = responseFormat;
+        }
+      }
+      if (typeof request.seed === 'number') {
+        body.seed = request.seed;
       }
 
       const resp = await executeRequestWithRetry({
@@ -241,12 +453,22 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
               Authorization: `Bearer ${config.apiKey}`,
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+            signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
           }),
       });
 
       const data = (await resp.json()) as {
-        choices: Array<{ message: { content: string }; finish_reason: string }>;
+        choices: Array<{
+          message: {
+            content: string | null;
+            refusal?: string | null;
+            tool_calls?: Array<{
+              type?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+          finish_reason: string;
+        }>;
         model: string;
         usage: {
           prompt_tokens: number;
@@ -258,36 +480,73 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
       const choice = data.choices[0];
       if (!choice) throw new Error('OpenAI returned no choices');
+      const usage = openAIUsageToTokenUsage(data.usage);
+      const content = extractOpenAIMessageContent(choice.message);
+      if (choice.message.refusal) {
+        throw new AIRefusalError({
+          provider: 'openai',
+          model: data.model,
+          refusalText: choice.message.refusal,
+          usage,
+        });
+      }
+      // Only treat `finish_reason === 'length'` as a hard failure when the
+      // caller asked for structured JSON output. For free-text generation,
+      // a `length` finish is a partial-success: return what we have rather
+      // than discarding tokens the caller already paid for.
+      if (
+        choice.finish_reason === 'length' &&
+        (request.responseFormat === 'json' || !!request.responseSchema)
+      ) {
+        throw new AIIncompleteOutputError({
+          provider: 'openai',
+          model: data.model,
+          partialText: content,
+          usage,
+          finishReason: choice.finish_reason,
+        });
+      }
+      if (request.responseFormat === 'json' && content.trim().length === 0) {
+        throw buildEmptyOpenAIStructuredContentError({ data, choice });
+      }
       return {
-        content: choice.message.content,
+        content,
         model: data.model,
-        usage: {
-          inputTokens: data.usage.prompt_tokens,
-          outputTokens: data.usage.completion_tokens,
-          totalTokens: data.usage.total_tokens,
-          cachedInputTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
-        },
+        usage,
         finishReason: choice.finish_reason,
       };
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
+      const model = request.model ?? defaultModel;
       const messages: Array<{ role: string; content: string }> = [];
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
       }
-      messages.push({ role: 'user', content: request.prompt });
+      // Multi-turn path: when `messages` is supplied, append them verbatim.
+      // Single-turn path (legacy): single user message from `prompt`.
+      if (request.messages && request.messages.length > 0) {
+        for (const msg of request.messages) {
+          messages.push({ role: msg.role, content: msg.content });
+        }
+      } else {
+        messages.push({ role: 'user', content: request.prompt });
+      }
 
       const body: Record<string, unknown> = {
-        model: request.model ?? defaultModel,
+        model,
         messages,
         temperature: request.temperature ?? 0.7,
         stream: true,
         stream_options: { include_usage: true },
       };
-      if (request.maxTokens) body.max_tokens = request.maxTokens;
-      if (request.responseFormat === 'json') {
-        body.response_format = { type: 'json_object' };
+      applyOpenAITokenLimit(body, model, request.maxTokens);
+      const responseFormat = buildOpenAIResponseFormat(request);
+      if (responseFormat) {
+        body.response_format = responseFormat;
+      }
+      if (typeof request.seed === 'number') {
+        body.seed = request.seed;
       }
 
       let resp: Response;
@@ -303,7 +562,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
                 Authorization: `Bearer ${config.apiKey}`,
               },
               body: JSON.stringify(body),
-              signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+              signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
             }),
         });
       } catch (error) {
@@ -371,13 +630,27 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
     name: 'anthropic',
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
+      // Multi-turn path: when `messages` is supplied, send them verbatim.
+      // Single-turn path: synthesize a single user message from `prompt`.
+      const messages =
+        request.messages && request.messages.length > 0
+          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
+          : [{ role: 'user', content: request.prompt }];
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
-        messages: [{ role: 'user', content: request.prompt }],
+        messages,
         max_tokens: request.maxTokens ?? 4096,
         temperature: request.temperature ?? 0.7,
       };
       if (request.system) body.system = request.system;
+      if (request.responseFormat === 'json' && request.responseSchema) {
+        body.output_config = {
+          format: {
+            type: 'json_schema',
+            schema: request.responseSchema,
+          },
+        };
+      }
 
       const resp = await executeRequestWithRetry({
         providerName: 'anthropic',
@@ -391,7 +664,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+            signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
           }),
       });
 
@@ -407,34 +680,67 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         stop_reason: string;
       };
 
+      const usage = anthropicUsageToTokenUsage(data.usage);
       const text = data.content
         .filter((c) => c.type === 'text')
         .map((c) => c.text)
         .join('');
 
+      if (data.stop_reason === 'refusal') {
+        throw new AIRefusalError({
+          provider: 'anthropic',
+          model: data.model,
+          refusalText: text || 'Request refused by Anthropic',
+          usage,
+        });
+      }
+      // Mirror the OpenAI adapter: only throw on max_tokens when the caller
+      // requested structured JSON output. Free-text completions should return
+      // the partial content.
+      if (
+        data.stop_reason === 'max_tokens' &&
+        (request.responseFormat === 'json' || !!request.responseSchema)
+      ) {
+        throw new AIIncompleteOutputError({
+          provider: 'anthropic',
+          model: data.model,
+          partialText: text,
+          usage,
+          finishReason: data.stop_reason,
+        });
+      }
+
       return {
         content: text,
         model: data.model,
-        usage: {
-          inputTokens: data.usage.input_tokens,
-          outputTokens: data.usage.output_tokens,
-          totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-          cachedInputTokens: data.usage.cache_read_input_tokens ?? 0,
-          cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
-        },
+        usage,
         finishReason: data.stop_reason,
       };
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
+      // Multi-turn path: when `messages` is supplied, send them verbatim.
+      // Single-turn path: synthesize a single user message from `prompt`.
+      const messages =
+        request.messages && request.messages.length > 0
+          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
+          : [{ role: 'user', content: request.prompt }];
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
-        messages: [{ role: 'user', content: request.prompt }],
+        messages,
         max_tokens: request.maxTokens ?? 4096,
         temperature: request.temperature ?? 0.7,
         stream: true,
       };
       if (request.system) body.system = request.system;
+      if (request.responseFormat === 'json' && request.responseSchema) {
+        body.output_config = {
+          format: {
+            type: 'json_schema',
+            schema: request.responseSchema,
+          },
+        };
+      }
 
       let resp: Response;
       try {
@@ -450,7 +756,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify(body),
-              signal: AbortSignal.timeout(request.timeout ?? defaultTimeout),
+              signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
             }),
         });
       } catch (error) {

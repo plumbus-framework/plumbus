@@ -141,6 +141,14 @@ After making changes, update the corresponding documentation in `docs/`. **This 
 
 `AGENTS.md` and `CLAUDE.md` must stay identical. When editing one, always apply the same change to the other.
 
+## Agent Safety
+
+- Framework-first is mandatory. When modifying consumer-facing agent templates, docs, or instruction files, preserve the rule that Plumbus primitives and `ctx.*` subsystems are the required implementation path for app business logic.
+- Read-only git inspection is allowed: `git status`, `git diff`, `git log`, `git show`.
+- Do **not** run destructive git commands without explicit user approval: `git checkout` when restoring files, `git restore`, `git reset`, `git clean`, `git push --force`, branch deletion, or tag deletion.
+- Do **not** overwrite or discard user changes to clean up a worktree. If reverting or discarding work is being considered, stop and ask first.
+- `packages/*/instructions/` are consumer-facing AI instructions. Leave them alone unless the task explicitly targets agent guidance or framework instruction behavior.
+
 ## Linting & Formatting
 
 - **Tool**: [Biome](https://biomejs.dev/) — single tool for both linting and formatting
@@ -180,5 +188,4 @@ Do **not** push, commit, or report completion until all four commands succeed.
 ## Files You Should Not Edit
 
 - `dist/`, `node_modules/`, `.turbo/` — generated/managed
-- `packages/*/instructions/` — consumer-facing AI instructions (separate concern)
 - `design/`, `general-desc/` — reference documentation (gitignored)

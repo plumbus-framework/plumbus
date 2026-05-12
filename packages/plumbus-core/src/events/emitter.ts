@@ -75,5 +75,60 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
         });
       }
     },
+
+    async emitMany(events): Promise<void> {
+      if (events.length === 0) return;
+
+      // 1. Validate each payload and build envelopes
+      const envelopes: EventEnvelope[] = events.map(({ eventName, payload }) => {
+        const eventDef = registry.get(eventName);
+        if (eventDef) {
+          const parseResult = eventDef.payload.safeParse(payload);
+          if (!parseResult.success) {
+            throw new Error(`Event "${eventName}": invalid payload — ${parseResult.error.message}`);
+          }
+        }
+        return {
+          id: randomUUID(),
+          eventType: eventName,
+          version: eventDef?.version ?? '1',
+          occurredAt: new Date(),
+          actor: auth.userId ?? 'anonymous',
+          tenantId: auth.tenantId,
+          correlationId: correlationId ?? randomUUID(),
+          causationId,
+          payload: payload as Record<string, unknown>,
+        };
+      });
+
+      // 2. Single bulk outbox INSERT
+      await db.insert(outboxTable).values(
+        envelopes.map((envelope) => ({
+          id: envelope.id,
+          eventType: envelope.eventType,
+          version: envelope.version,
+          payload: envelope.payload as any,
+          actor: envelope.actor,
+          tenantId: envelope.tenantId ?? null,
+          correlationId: envelope.correlationId,
+          causationId: envelope.causationId ?? null,
+          occurredAt: envelope.occurredAt,
+          status: 'pending' as const,
+        })),
+      );
+
+      // 3. Single summary audit row per batch
+      if (audit) {
+        const first = envelopes[0];
+        if (!first) return;
+        await audit.record('event.emitted.batch', {
+          count: envelopes.length,
+          eventType: first.eventType,
+          actor: first.actor,
+          tenantId: first.tenantId,
+          outcome: 'success',
+        });
+      }
+    },
   };
 }

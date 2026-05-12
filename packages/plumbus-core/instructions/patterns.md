@@ -1,5 +1,13 @@
 # Patterns & Conventions
 
+## Framework Boundaries
+
+These rules are non-negotiable. They are architecture constraints, not style preferences.
+
+- **Business logic belongs in Plumbus primitives.** Start with a capability, then compose flows, events, prompts, and entities around it.
+- **Ask before bypassing the framework.** If the task appears to need custom routes, services, jobs, or infrastructure layers, stop and clarify the intended extension point.
+- **Generated code is not an edit surface.** Treat `.plumbus/generated/` as read-only.
+
 ## Naming Conventions
 
 | Element | Convention | Example |
@@ -44,8 +52,10 @@ app/prompts/<name>.prompt.ts
 ## Don'ts
 
 - **Don't** access the database directly — always use `ctx.data.<Entity>`.
+- **Don't** implement business logic in ad hoc controllers, service classes, raw API routes, cron scripts, or queue handlers when a capability or flow should own it.
 - **Don't** emit events outside of capabilities — the outbox pattern requires a capability transaction.
 - **Don't** bypass `ctx.auth` checks — the framework evaluates access policies before your handler runs.
+- **Don't** bypass `ctx.*` subsystems with custom infrastructure layers unless the framework explicitly documents that extension point.
 - **Don't** mutate the `ctx` object — it is scoped and controlled by the framework.
 - **Don't** import framework internals — use only the public SDK surface (`defineCapability`, `defineFlow`, etc.).
 - **Don't** store secrets in code — use `ctx.config` and environment variables.

@@ -13,7 +13,10 @@ import { StepStatus } from '../state-machine.js';
 import { buildHistoryEntry, executeStep, type StepExecutorDeps } from '../step-executor.js';
 
 const mockCtx = {
-  events: { emit: vi.fn().mockResolvedValue(undefined) },
+  events: {
+    emit: vi.fn().mockResolvedValue(undefined),
+    emitMany: vi.fn().mockResolvedValue(undefined),
+  },
 } as unknown as ExecutionContext;
 
 const defaultDeps: StepExecutorDeps = {
@@ -208,7 +211,10 @@ describe('StepExecutor', () => {
 
   it('event emit step fails gracefully on emit error', async () => {
     const ctx = {
-      events: { emit: vi.fn().mockRejectedValue(new Error('emit failed')) },
+      events: {
+        emit: vi.fn().mockRejectedValue(new Error('emit failed')),
+        emitMany: vi.fn().mockResolvedValue(undefined),
+      },
     } as unknown as ExecutionContext;
     const step: EventEmitStep = {
       name: 'failEmit',

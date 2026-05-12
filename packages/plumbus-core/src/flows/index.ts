@@ -30,7 +30,7 @@ export { buildHistoryEntry, executeStep } from './step-executor.js';
 export type { StepExecutorDeps, StepResult } from './step-executor.js';
 
 // ── Flow Engine ──
-export { computeRetryDelay, createFlowEngine } from './engine.js';
+export { computeRetryDelay, createFlowEngine, generateWorkerId } from './engine.js';
 export type { FlowEngineConfig } from './engine.js';
 
 // ── Flow Triggers ──

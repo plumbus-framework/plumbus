@@ -2,17 +2,119 @@
 // Generate AI agent wiring files that connect coding agents to framework knowledge
 
 import type { Command } from 'commander';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { detectMonorepoLayout, info, success, writeFile } from '../utils.js';
+import {
+  detectMonorepoLayout,
+  error as logError,
+  info,
+  success,
+  warn,
+  writeFile,
+} from '../utils.js';
 
 export type AgentFormat = 'copilot' | 'cursor' | 'agents-md';
 
 export interface InitOptions {
   agent?: string;
   inline?: boolean;
+  patch?: boolean;
+  force?: boolean;
+  dryRun?: boolean;
+}
+
+type InitWriteMode = 'create' | 'patch' | 'force';
+type InitWriteAction = 'created' | 'patched' | 'replaced' | 'skipped' | 'unchanged';
+
+interface AgentFileTarget {
+  path: string;
+  content: string;
+  kind: 'wiring' | 'brief';
+}
+
+export interface InitWriteResult {
+  path: string;
+  action: InitWriteAction;
+  message: string;
+}
+
+export const AGENT_WIRING_VERSION = 2;
+export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
+
+const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
+const AGENT_WIRING_START_PATTERN =
+  /^(?:<!--\s*plumbus:agent-wiring version=\d+\b.*?-->|#\s*plumbus:agent-wiring version=\d+\b.*)$/m;
+
+function buildAgentWiringStartMarker(
+  format: 'copilot' | 'cursor' | 'cursor-capabilities' | 'agents-md',
+  inline = false,
+  monorepo = false,
+  style: 'html' | 'yaml' = 'html',
+): string {
+  const mode = inline ? 'inline' : 'reference';
+  const layout = monorepo ? 'monorepo' : 'flat';
+  const marker = `plumbus:agent-wiring version=${AGENT_WIRING_VERSION} format=${format} mode=${mode} layout=${layout}`;
+  return style === 'yaml' ? `# ${marker}` : `<!-- ${marker} -->`;
+}
+
+export function parseAgentWiringVersion(content: string): number | undefined {
+  const match = content.match(AGENT_WIRING_VERSION_PATTERN);
+  if (!match) {
+    return undefined;
+  }
+  return Number.parseInt(match[1] ?? '', 10);
+}
+
+function getAgentWiringManagedBlockRange(
+  content: string,
+): { startIndex: number; endIndex: number } | undefined {
+  const startMatch = content.match(AGENT_WIRING_START_PATTERN);
+  if (!startMatch || startMatch.index === undefined) {
+    return undefined;
+  }
+
+  const endIndex = content.indexOf(AGENT_WIRING_END_MARKER, startMatch.index);
+  if (endIndex === -1) {
+    return undefined;
+  }
+
+  return {
+    startIndex: startMatch.index,
+    endIndex: endIndex + AGENT_WIRING_END_MARKER.length,
+  };
+}
+
+export function hasPatchableAgentWiringBlock(content: string): boolean {
+  return getAgentWiringManagedBlockRange(content) !== undefined;
+}
+
+function extractAgentWiringManagedBlock(content: string): string | undefined {
+  const range = getAgentWiringManagedBlockRange(content);
+  if (!range) {
+    return undefined;
+  }
+  return content.slice(range.startIndex, range.endIndex);
+}
+
+function patchAgentWiringContent(
+  existingContent: string,
+  generatedContent: string,
+): string | undefined {
+  const existingRange = getAgentWiringManagedBlockRange(existingContent);
+  const generatedBlock = extractAgentWiringManagedBlock(generatedContent);
+  if (!existingRange || !generatedBlock) {
+    return undefined;
+  }
+
+  return (
+    existingContent.slice(0, existingRange.startIndex) +
+    generatedBlock +
+    existingContent.slice(existingRange.endIndex)
+  );
 }
 
 const CORE_INSTRUCTION_TOPICS = [
+  'guardrails',
   'framework',
   'cli',
   'capabilities',
@@ -25,6 +127,24 @@ const CORE_INSTRUCTION_TOPICS = [
   'testing',
   'patterns',
 ] as const;
+
+const GUARDRAIL_LINES = [
+  '## Non-Negotiable Guardrails',
+  '- Plumbus is the application architecture, not an optional helper library.',
+  '- Implement business logic through Plumbus primitives: capabilities, flows, entities, events, prompts, and translations where relevant.',
+  '- Do not improvise clean-room architecture such as ad hoc API routes, service layers, jobs, queues, or event buses when Plumbus primitives should own the behavior.',
+  '- Use `ctx.data`, `ctx.events`, `ctx.flows`, `ctx.ai`, `ctx.auth`, and other `ctx.*` subsystems instead of bypassing the framework with direct infrastructure code unless the framework explicitly documents that extension point.',
+  '- If the correct primitive is unclear, stop and ask which Plumbus extension point should be used.',
+  '',
+  '## Git Safety',
+  '- Allowed without extra approval: read-only inspection such as `git status`, `git diff`, `git log`, `git show`.',
+  '- Require explicit user approval before any destructive or history-rewriting command, including `git checkout` used to overwrite files, `git restore`, `git reset`, `git clean`, `git revert` across user work, force-push, and branch or tag deletion.',
+  '- Never discard or overwrite existing user work unless the user explicitly asked for that exact action.',
+] as const;
+
+function addGuardrailLines(lines: string[]): void {
+  lines.push('', ...GUARDRAIL_LINES);
+}
 
 const UI_INSTRUCTION_REFERENCES = [
   {
@@ -145,6 +265,7 @@ function addFrameworkDependencyLines(lines: string[]): void {
 export function generateCopilotInstructions(inline: boolean, monorepo = false): string {
   const appPrefix = monorepo ? 'backend/' : '';
   const lines = [
+    buildAgentWiringStartMarker('copilot', inline, monorepo),
     '# Plumbus Framework — Copilot Instructions',
     '',
     'This project is built with the Plumbus framework — an AI-native, contract-driven TypeScript framework.',
@@ -163,6 +284,8 @@ export function generateCopilotInstructions(inline: boolean, monorepo = false): 
     '- **Restricted**: `.plumbus/` generated files (regenerated by CLI)',
     '- **Forbidden**: `node_modules/`, `dist/`',
   ];
+
+  addGuardrailLines(lines);
 
   addFrameworkDependencyLines(lines);
 
@@ -202,6 +325,7 @@ export function generateCopilotInstructions(inline: boolean, monorepo = false): 
 
   addDocumentationMaintenanceLines(lines);
 
+  lines.push('', AGENT_WIRING_END_MARKER);
   lines.push('');
 
   return lines.join('\n');
@@ -212,6 +336,7 @@ export function generateCursorRule(inline: boolean, monorepo = false): string {
   const appPrefix = monorepo ? 'backend/' : '';
   const lines = [
     '---',
+    buildAgentWiringStartMarker('cursor', inline, monorepo, 'yaml'),
     `description: Plumbus framework conventions and SDK reference`,
     `globs: ${appPrefix}app/**`,
     '---',
@@ -231,14 +356,17 @@ export function generateCursorRule(inline: boolean, monorepo = false): string {
     `- Safe: \`${appPrefix}app/\`, \`${appPrefix}config/\`, \`docs/\`, tests${monorepo ? ', `frontend/`, `libs/shared/`' : ''}`,
     '- Restricted: `.plumbus/generated/`',
     '- Forbidden: `node_modules/`, `dist/`',
-    '',
-    '## SDK Reference',
   ];
+
+  addGuardrailLines(lines);
+
+  lines.push('', '## SDK Reference');
 
   addInstructionReferenceLines(lines, inline);
 
   addDocumentationMaintenanceLines(lines);
 
+  lines.push('', AGENT_WIRING_END_MARKER);
   lines.push('');
   return lines.join('\n');
 }
@@ -246,16 +374,21 @@ export function generateCursorRule(inline: boolean, monorepo = false): string {
 /** Generate capability-specific Cursor rule */
 export function generateCursorCapabilityRule(): string {
   return `---
+${buildAgentWiringStartMarker('cursor-capabilities', false, false, 'yaml')}
 description: Plumbus capability development rules
 globs: app/capabilities/**
 ---
 
 When creating or modifying capabilities:
+- Capability code is the primary home for business logic in Plumbus.
 - Use \`defineCapability()\` from @plumbus/core
 - Always declare effects (data, events, external, ai)
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
+- If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
+- Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
 - Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`
+${AGENT_WIRING_END_MARKER}
 `;
 }
 
@@ -263,6 +396,7 @@ When creating or modifying capabilities:
 export function generateAgentsMd(inline: boolean, monorepo = false): string {
   const appPrefix = monorepo ? 'backend/' : '';
   const lines = [
+    buildAgentWiringStartMarker('agents-md', inline, monorepo),
     '# AGENTS.md — Plumbus Framework',
     '',
     'This project is built with the Plumbus framework.',
@@ -289,6 +423,8 @@ export function generateAgentsMd(inline: boolean, monorepo = false): string {
     '- **Forbidden**: `node_modules/`, `dist/`',
   ];
 
+  addGuardrailLines(lines);
+
   addFrameworkDependencyLines(lines);
 
   lines.push(
@@ -308,6 +444,7 @@ export function generateAgentsMd(inline: boolean, monorepo = false): string {
 
   addDocumentationMaintenanceLines(lines);
 
+  lines.push('', AGENT_WIRING_END_MARKER);
   lines.push('');
   return lines.join('\n');
 }
@@ -339,49 +476,167 @@ None detected. Run \`plumbus verify\` to check.
 }
 
 /** Write all files for a given agent format */
-export function writeAgentFiles(
+function buildAgentFileTargets(
   projectRoot: string,
   formats: AgentFormat[],
   inline: boolean,
   includeProjectBrief = true,
   monorepo = false,
-): string[] {
-  const written: string[] = [];
+): AgentFileTarget[] {
+  const targets: AgentFileTarget[] = [];
 
   for (const format of formats) {
     switch (format) {
       case 'copilot': {
-        const filePath = path.join(projectRoot, '.github', 'copilot-instructions.md');
-        writeFile(filePath, generateCopilotInstructions(inline, monorepo));
-        written.push('.github/copilot-instructions.md');
+        targets.push({
+          path: path.join(projectRoot, '.github', 'copilot-instructions.md'),
+          content: generateCopilotInstructions(inline, monorepo),
+          kind: 'wiring',
+        });
         break;
       }
       case 'cursor': {
-        const mainRule = path.join(projectRoot, '.cursor', 'rules', 'plumbus.mdc');
-        writeFile(mainRule, generateCursorRule(inline, monorepo));
-        written.push('.cursor/rules/plumbus.mdc');
-
-        const capRule = path.join(projectRoot, '.cursor', 'rules', 'plumbus-capabilities.mdc');
-        writeFile(capRule, generateCursorCapabilityRule());
-        written.push('.cursor/rules/plumbus-capabilities.mdc');
+        targets.push({
+          path: path.join(projectRoot, '.cursor', 'rules', 'plumbus.mdc'),
+          content: generateCursorRule(inline, monorepo),
+          kind: 'wiring',
+        });
+        targets.push({
+          path: path.join(projectRoot, '.cursor', 'rules', 'plumbus-capabilities.mdc'),
+          content: generateCursorCapabilityRule(),
+          kind: 'wiring',
+        });
         break;
       }
       case 'agents-md': {
-        const filePath = path.join(projectRoot, 'AGENTS.md');
-        writeFile(filePath, generateAgentsMd(inline, monorepo));
-        written.push('AGENTS.md');
+        targets.push({
+          path: path.join(projectRoot, 'AGENTS.md'),
+          content: generateAgentsMd(inline, monorepo),
+          kind: 'wiring',
+        });
         break;
       }
     }
   }
 
   if (includeProjectBrief) {
-    const briefPath = path.join(projectRoot, '.plumbus', 'briefs', 'project.md');
-    writeFile(briefPath, generateProjectBrief());
-    written.push('.plumbus/briefs/project.md');
+    targets.push({
+      path: path.join(projectRoot, '.plumbus', 'briefs', 'project.md'),
+      content: generateProjectBrief(),
+      kind: 'brief',
+    });
   }
 
-  return written;
+  return targets;
+}
+
+function relativeTargetPath(projectRoot: string, filePath: string): string {
+  return path.relative(projectRoot, filePath).replaceAll(path.sep, '/');
+}
+
+function writeTargetContent(filePath: string, content: string, dryRun: boolean): void {
+  if (!dryRun) {
+    writeFile(filePath, content);
+  }
+}
+
+export function writeAgentFiles(
+  projectRoot: string,
+  formats: AgentFormat[],
+  inline: boolean,
+  includeProjectBrief = true,
+  monorepo = false,
+  mode: InitWriteMode = 'create',
+  dryRun = false,
+): InitWriteResult[] {
+  const results: InitWriteResult[] = [];
+  const targets = buildAgentFileTargets(
+    projectRoot,
+    formats,
+    inline,
+    includeProjectBrief,
+    monorepo,
+  );
+
+  for (const target of targets) {
+    const relPath = relativeTargetPath(projectRoot, target.path);
+    if (!fs.existsSync(target.path)) {
+      writeTargetContent(target.path, target.content, dryRun);
+      results.push({
+        path: relPath,
+        action: 'created',
+        message: `${dryRun ? 'Would create' : 'Created'} ${relPath}`,
+      });
+      continue;
+    }
+
+    const existingContent = fs.readFileSync(target.path, 'utf-8');
+
+    if (target.kind === 'brief') {
+      results.push({
+        path: relPath,
+        action: 'skipped',
+        message: `Skipped ${relPath}: existing project brief preserved. Run \`plumbus agent sync\` to refresh it.`,
+      });
+      continue;
+    }
+
+    if (mode === 'create') {
+      results.push({
+        path: relPath,
+        action: 'skipped',
+        message: `Skipped ${relPath}: file already exists. Use \`plumbus init --patch\` to update managed sections or \`plumbus init --force\` to replace it.`,
+      });
+      continue;
+    }
+
+    if (mode === 'patch') {
+      const patchedContent = patchAgentWiringContent(existingContent, target.content);
+      if (!patchedContent) {
+        results.push({
+          path: relPath,
+          action: 'skipped',
+          message: `Skipped ${relPath}: no Plumbus-managed block found. Use \`plumbus init --force\` to replace it.`,
+        });
+        continue;
+      }
+
+      if (patchedContent === existingContent) {
+        results.push({
+          path: relPath,
+          action: 'unchanged',
+          message: `${relPath} is already up to date.`,
+        });
+        continue;
+      }
+
+      writeTargetContent(target.path, patchedContent, dryRun);
+      results.push({
+        path: relPath,
+        action: 'patched',
+        message: `${dryRun ? 'Would patch' : 'Patched'} ${relPath}`,
+      });
+      continue;
+    }
+
+    if (existingContent === target.content) {
+      results.push({
+        path: relPath,
+        action: 'unchanged',
+        message: `${relPath} is already up to date.`,
+      });
+      continue;
+    }
+
+    writeTargetContent(target.path, target.content, dryRun);
+    results.push({
+      path: relPath,
+      action: 'replaced',
+      message: `${dryRun ? 'Would replace' : 'Replaced'} ${relPath}`,
+    });
+  }
+
+  return results;
 }
 
 function parseAgentFormats(agent?: string): AgentFormat[] {
@@ -401,22 +656,53 @@ export function registerInitCommand(program: Command): void {
     .description('Generate AI agent wiring files for the project')
     .option('--agent <format>', 'Agent format: copilot, cursor, all (default: all)')
     .option('--inline', 'Copy full instruction content instead of referencing node_modules')
+    .option('--patch', 'Update only Plumbus-managed sections and create missing files')
+    .option('--force', 'Replace existing generated wiring files outright')
+    .option('--dry-run', 'Show what would change without writing files')
     .action((opts: InitOptions) => {
+      if (opts.patch && opts.force) {
+        logError('Choose either --patch or --force, not both.');
+        process.exit(1);
+      }
+
       const projectRoot = process.cwd();
       const formats = parseAgentFormats(opts.agent);
       const monorepo = detectMonorepoLayout(projectRoot);
-      const written = writeAgentFiles(
+      const mode: InitWriteMode = opts.force ? 'force' : opts.patch ? 'patch' : 'create';
+      const results = writeAgentFiles(
         projectRoot,
         formats,
         opts.inline ?? false,
         true,
         monorepo.isMonorepo,
+        mode,
+        opts.dryRun ?? false,
       );
 
-      for (const f of written) {
-        success(`Created ${f}`);
+      for (const result of results) {
+        switch (result.action) {
+          case 'created':
+          case 'patched':
+          case 'replaced':
+            if (opts.dryRun) {
+              info(result.message);
+            } else {
+              success(result.message);
+            }
+            break;
+          case 'unchanged':
+            info(result.message);
+            break;
+          case 'skipped':
+            warn(result.message);
+            break;
+        }
       }
 
-      info('Agent wiring complete. Run `plumbus agent sync` to populate project brief.');
+      info(
+        opts.dryRun
+          ? 'Dry run complete. Run `plumbus agent sync` separately if you want to refresh the project brief.'
+          : 'Agent wiring complete. Run `plumbus agent sync` to populate or refresh the project brief.',
+      );
     });
 }

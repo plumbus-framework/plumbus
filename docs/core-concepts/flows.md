@@ -193,6 +193,73 @@ Retry behavior:
 - `linear`: delay increases linearly (1s, 2s, 3s...)
 - `exponential`: delay doubles (1s, 2s, 4s, 8s...)
 
+## Multi-Worker Safety & Leasing
+
+Plumbus is built for horizontal scale: any number of worker processes can share one database without executing the same step twice. Safety is enforced at the row level — each flow execution is held by at most one worker at a time via a time-bounded lease.
+
+**How claims work.** Each poll cycle, `claimNext()` runs a single atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` against `flow_executions`. Postgres' `SKIP LOCKED` guarantees that concurrent workers never lock the same row, so each returned execution is owned by exactly the worker that claimed it. Expired leases (from a crashed worker) are picked up by the same query.
+
+**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each tick issues a `UPDATE … WHERE id = $1 AND lease_owner = $workerId`; if zero rows match, the lease has been stolen and the worker aborts the step.
+
+**Manual heartbeat.** Long-running step handlers that span multiple lease intervals can call `ctx.flows.heartbeat()` to extend the lease explicitly. Outside of flow execution it's a no-op, so helper code that calls it stays portable.
+
+**`LeaseLostError`.** Thrown from `runNext` (and from `ctx.flows.heartbeat()`) when the lease has moved to another worker. If you handle it, do not write to the execution or emit events — the current lease holder is authoritative and will own the commit. In practice, workers bubble this error up to the poll loop and move on to the next row.
+
+See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the `flowLeaseDurationMs`, `flowHeartbeatIntervalMs`, and `flowClaimBatchSize` knobs.
+
+## Cancellation
+
+Inside a flow step handler, `ctx.signal` is an `AbortSignal` that fires when:
+
+- `ctx.flows.cancel(executionId)` is called (in this process or any peer worker), OR
+- the worker loses its lease on the execution.
+
+Capability handlers can pass it to cancelable HTTP / AI calls so a cancel request stops in-flight work cooperatively, rather than letting a zombie step burn budget after the user gave up:
+
+```typescript
+handler: async (ctx, input) => {
+  // AI helpers default `signal` to `ctx.signal` automatically — explicit pass shown for clarity.
+  const summary = await ctx.ai.generate({
+    prompt: "summarizeTicket",
+    input: { body: input.body },
+    signal: ctx.signal,
+  });
+
+  // External HTTP — pass the signal so fetch aborts on cancel
+  const reply = await fetch(input.callbackUrl, { signal: ctx.signal });
+
+  // Long loops should poll
+  for (const item of input.items) {
+    if (ctx.signal?.aborted) break;
+    await processItem(item);
+  }
+};
+```
+
+`ctx.workerId` is also available inside step execution for diagnostic logging — it matches the `lease_owner` column on the active flow execution row.
+
+**`FlowCancelledError`.** Raised as the `AbortSignal.reason` when a step is cancelled via `flows.cancel()`. The DOM `fetch` API surfaces aborts as `DOMException("AbortError")`; the reason is available on `signal.reason` for handlers that want to distinguish cancellation from other abort sources.
+
+## Operations: upgrading the flow_executions schema
+
+The lease-based engine added in 0.3.0 stores `lease_owner` and `lease_expires_at` columns on `flow_executions`, plus a `flow_exec_lease_idx` index. Worker startup runs a preflight against these columns and refuses to start with a clear migration prompt when they're missing:
+
+```
+Plumbus 0.3.0 requires new columns on flow_executions
+(lease_owner, lease_expires_at).
+Run `plumbus migrate generate` then `plumbus migrate apply`
+before starting workers.
+```
+
+On upgrade from 0.2.x, run:
+
+```bash
+plumbus migrate generate   # emits ALTER TABLE + CREATE INDEX
+plumbus migrate apply
+```
+
+The preflight is also exported as `assertFlowLeaseColumns(db)` for consumers that bootstrap their own worker entry points and want to surface the same error explicitly.
+
 ## Flow State Machine
 
 ```

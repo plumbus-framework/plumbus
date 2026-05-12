@@ -335,6 +335,7 @@ The framework ships with comprehensive instruction files inside the `@plumbus/co
 
 ```
 node_modules/@plumbus/core/instructions/
+├── guardrails.md     # Mandatory framework boundaries and git safety
 ├── framework.md      # Core abstractions, execution context, project structure
 ├── capabilities.md   # Capability definitions, handlers, effects, access policies
 ├── entities.md       # Entity fields, classifications, relations, repositories
@@ -361,11 +362,27 @@ node_modules/@plumbus/ui/instructions/
 └── testing.md           # UI test setup, strategy, patterns
 ```
 
+### Non-Negotiable Guardrails
+
+Generated agent wiring is expected to tell models that:
+
+- business logic belongs in Plumbus primitives, not ad hoc service layers or raw routes
+- `ctx.*` subsystems should be used instead of bypassing the framework with custom infrastructure code
+- destructive git commands require explicit user approval before execution
+
+If an agent starts implementing around the framework, rerun `plumbus init --patch` after upgrading and verify the generated instruction file still contains the guardrails section.
+
 ### Wiring Agents to Your Project
 
 ```bash
 # Generate all agent configuration files
 plumbus init --agent all
+
+# Refresh Plumbus-managed sections without replacing surrounding notes
+plumbus init --patch
+
+# Replace existing generated wiring files outright
+plumbus init --force
 
 # This creates:
 # .github/copilot-instructions.md  — Points Copilot to framework docs
@@ -374,6 +391,8 @@ plumbus init --agent all
 # .plumbus/briefs/project.md       — Project-specific brief
 ```
 
+`plumbus init` is non-destructive by default: it creates missing wiring files and skips existing ones. Use `--patch` to update Plumbus-managed blocks in generated files, and use `--force` only when you want a full replacement.
+
 ### Manual Agent Setup
 
 If you're configuring an agent manually, point it to the instruction files:
@@ -381,6 +400,7 @@ If you're configuring an agent manually, point it to the instruction files:
 ```markdown
 # In your agent instructions:
 When working with Plumbus, read these files for SDK reference:
+- node_modules/@plumbus/core/instructions/guardrails.md
 - node_modules/@plumbus/core/instructions/framework.md
 - node_modules/@plumbus/core/instructions/capabilities.md
 - node_modules/@plumbus/core/instructions/entities.md
@@ -390,6 +410,8 @@ When working with Plumbus, read these files for SDK reference:
 - node_modules/@plumbus/core/instructions/security.md
 - node_modules/@plumbus/core/instructions/testing.md
 ```
+
+For a fuller explanation of the framework-first policy and destructive git safety, see [docs/agents/guardrails.md](docs/agents/guardrails.md).
 
 ---
 

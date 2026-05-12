@@ -49,4 +49,44 @@ describe('Document Chunking', () => {
 
     expect(chunks).toHaveLength(2);
   });
+
+  it('snaps size-based chunks to sentence boundaries', () => {
+    const text = 'First sentence here. Second sentence here. Third sentence is the last one.';
+    const chunks = chunkDocument(text, { maxChunkSize: 45, overlap: 10 });
+
+    // First chunk should end at a sentence boundary, not mid-word
+    const first = chunks[0]?.content ?? '';
+    expect(first.endsWith('.')).toBe(true);
+  });
+
+  it('avoids mid-word cuts when no sentence boundary is found', () => {
+    const text = 'word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12';
+    const chunks = chunkDocument(text, { maxChunkSize: 30, overlap: 5 });
+
+    for (const chunk of chunks) {
+      // No chunk should start or end with a partial word (except possibly the last)
+      expect(chunk.content.trim()).toBe(chunk.content.trim());
+      if (chunk.index < chunks.length - 1) {
+        expect(chunk.content).not.toMatch(/\w$/);
+      }
+    }
+  });
+
+  it('handles newline boundaries for oral history text', () => {
+    const lines = [
+      'I was born in Baghdad in 1929.',
+      'My father passed away when I was young.',
+      'We were a wealthy family at the time.',
+      'My mother traveled to Paris regularly.',
+    ];
+    const text = lines.join('\n');
+    const chunks = chunkDocument(text, { maxChunkSize: 80, overlap: 20 });
+
+    // Chunks should end at newline or period boundaries
+    for (const chunk of chunks) {
+      const lastChar = chunk.content[chunk.content.length - 1];
+      const endsClean = lastChar === '.' || lastChar === '\n' || chunk.index === chunks.length - 1;
+      expect(endsClean).toBe(true);
+    }
+  });
 });

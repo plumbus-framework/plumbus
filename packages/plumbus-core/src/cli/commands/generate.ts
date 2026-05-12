@@ -383,13 +383,18 @@ export function generateEntityInterface(entity: EntityDefinition): string {
     systemFields.add('tenantId');
   }
 
-  // CreateInput — omits system-managed fields
+  // CreateInput — omits system-managed fields. Fields with a `default` are
+  // optional in the input type even when `required: true`, because the
+  // runtime will supply the default when the caller omits them. This keeps
+  // CreateInput callers backward-compatible when new required-with-default
+  // fields are added to existing entities.
   lines.push('');
   lines.push(`export interface ${name}CreateInput {`);
   for (const [fieldName, descriptor] of Object.entries(entity.fields)) {
     if (systemFields.has(fieldName)) continue;
     const tsType = fieldTypeToTS(descriptor);
-    const optional = !descriptor.options.required;
+    const hasDefault = descriptor.options.default !== undefined;
+    const optional = !descriptor.options.required || hasDefault;
     lines.push(`  ${fieldName}${optional ? '?' : ''}: ${tsType};`);
   }
   lines.push('}');

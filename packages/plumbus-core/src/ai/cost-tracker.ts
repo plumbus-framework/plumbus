@@ -14,12 +14,29 @@ export interface AICostRecord {
   provider: string;
   promptName?: string;
   operation: 'generate' | 'extract' | 'classify' | 'embed';
+  /**
+   * True when the call originally streamed but fell back to a non-streaming
+   * retry after the streamed text failed JSON/schema validation. Both the
+   * original streamed attempt and the fallback attempt are billed, so this
+   * flag is the signal consumers use to detect duplicate billing for a
+   * single logical generation.
+   */
+  fallbackUsed?: boolean;
   usage: TokenUsage;
   /** Actual cost from provider API, or null if API unavailable */
   cost: number | null;
   latencyMs: number;
   tenantId?: string;
   actor?: string;
+  /**
+   * Whether the underlying provider call completed successfully. Failed rows
+   * still represent real provider-side spend and count toward budget caps.
+   * Defaults to 'success' inside `createCostTracker` when the caller does
+   * not set it, preserving pre-0.3.0 behavior for existing consumers.
+   */
+  status: 'success' | 'failed' | 'refused' | 'incomplete';
+  /** Short description of the failure when `status !== 'success'`. */
+  errorMessage?: string;
 }
 
 // ── Budget Config ──
@@ -32,9 +49,18 @@ export interface BudgetConfig {
   perTenantDailyLimit?: number;
 }
 
+/**
+ * Input type for {@link CostTracker.record}. `status` and `errorMessage` are
+ * optional so pre-0.3.0 call sites keep compiling; the tracker defaults
+ * `status` to `'success'` internally.
+ */
+export type AICostRecordInput = Omit<AICostRecord, 'id' | 'timestamp' | 'status'> & {
+  status?: AICostRecord['status'];
+};
+
 // ── Cost Tracker ──
 export interface CostTracker {
-  record(entry: Omit<AICostRecord, 'id' | 'timestamp'>): void;
+  record(entry: AICostRecordInput): void;
   checkBudget(config: { tenantId?: string; estimatedTokens?: number }): BudgetCheckResult;
   getDailyUsage(tenantId?: string): DailyUsage;
   getRecords(): AICostRecord[];
@@ -93,6 +119,7 @@ export function createCostTracker(
     record(entry) {
       records.push({
         ...entry,
+        status: entry.status ?? 'success',
         id: crypto.randomUUID(),
         timestamp: new Date(),
       });

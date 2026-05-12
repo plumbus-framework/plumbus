@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { ChatMessage } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
 import type {
@@ -33,6 +34,13 @@ export interface Repository<
 > {
   findById(id: string): Promise<T | null>;
   create(data: TCreate): Promise<T>;
+  /**
+   * Bulk-create N records in a single database round-trip plus one summary
+   * audit row per batch. Empty arrays short-circuit to `[]` without touching
+   * the database. Use for hot paths that would otherwise call `create()` in a
+   * loop (typically > ~10 records).
+   */
+  createMany(records: TCreate[]): Promise<T[]>;
   update(id: string, updates: TUpdate): Promise<T>;
   delete(id: string): Promise<void>;
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
@@ -51,6 +59,16 @@ export interface EventService {
     eventName: E,
     payload: RegisteredEventPayloadMap[E],
   ): Promise<void>;
+
+  /**
+   * Bulk-emit N events in a single outbox INSERT plus one summary audit row.
+   * Empty arrays short-circuit without touching the database. All events in
+   * a single call must share the same event name so TypeScript can still
+   * enforce the payload shape.
+   */
+  emitMany<E extends RegisteredEventName>(
+    events: Array<{ eventName: E; payload: RegisteredEventPayloadMap[E] }>,
+  ): Promise<void>;
 }
 
 // ── Flow Execution Handle ──
@@ -66,6 +84,8 @@ export interface FlowService {
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;
+  /** Extend the current flow execution lease. Only effective inside a flow step handler. Throws LeaseLostError if the lease has been lost. */
+  heartbeat(): Promise<void>;
 }
 
 // ── AI Document (RAG retrieval result) ──
@@ -91,6 +111,21 @@ export interface AIStreamEvent {
   provider?: string;
   /** Estimated cost in USD (for done events) */
   cost?: number;
+  /**
+   * Provider-reported termination reason (for done events). Typical values:
+   * 'stop' (natural completion), 'length' (hit max_tokens — output was
+   * truncated, not compressed), 'content_filter', 'tool_calls'. Lets callers
+   * distinguish "model decided to stop short" from "model wanted to continue
+   * but hit a hard ceiling", which shapes how they should escalate.
+   */
+  finishReason?: string;
+  /**
+   * True when the streaming JSON-validation fallback fired — i.e. the stream
+   * produced invalid JSON and ai-service re-ran the call non-streaming to
+   * recover a schema-valid result. Callers can use this to detect duplicate
+   * billing and to mark the output as fragile.
+   */
+  validationFallbackFired?: boolean;
   /** Error message (for error events) */
   error?: string;
 }
@@ -116,23 +151,83 @@ export interface AIGenerateResult {
   cost: number;
 }
 
+export interface AIValidationOptions {
+  /** Additional retries after the first structured-output attempt fails validation. */
+  maxRetries?: number;
+  /** Whether to append the previous validation error to the retry prompt. */
+  feedbackOnError?: boolean;
+}
+
+/**
+ * Per-call billing metadata attached to `ctx.ai.*` invocations. When the
+ * framework's `onAICostRecorded` hook is installed (via
+ * `ServerConfig.onAICostRecorded`) it receives this alongside the cost
+ * record and can persist a ledger row scoped to the project / operation.
+ *
+ * All fields are optional — a missing `costContext` is a no-op, preserving
+ * pre-0.3.0 behavior for consumers that haven't opted in.
+ */
+export interface AICostContext {
+  /** Tenant-level project this AI call belongs to (primary grouping key). */
+  projectId?: string;
+  /** High-level area inside the project (e.g. "interview", "documents"). */
+  serviceArea?: string;
+  /** Name of the operation / capability making the call. */
+  operationName?: string;
+  /** Entity type this AI call was operating on (for dashboards). */
+  relatedEntityType?: string;
+  /** Entity ID this AI call was operating on. */
+  relatedEntityId?: string;
+}
+
 // ── AI Service ──
 export interface AIService {
   generate(config: {
     prompt: string;
     input: Record<string, unknown>;
+    /**
+     * Optional native multi-turn history (`user` / `assistant` turns). When
+     * set, providers receive the thread instead of a single synthesized user
+     * message from the rendered prompt; the rendered description is merged into
+     * `system` by the AI service. Last turn should be `user`.
+     */
+    messages?: ChatMessage[];
+    validation?: AIValidationOptions;
+    /** Abort the in-flight HTTP request to the provider when this signal fires. Defaults to ctx.signal inside flow steps. */
+    signal?: AbortSignal;
+    /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
+    costContext?: AICostContext;
+    /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
+    seed?: number;
   }): Promise<Record<string, any>>;
 
   /** Like generate(), but also returns actual token usage from the provider */
   generateWithUsage(config: {
     prompt: string;
     input: Record<string, unknown>;
+    /** Same semantics as `generate({ messages })`. */
+    messages?: ChatMessage[];
+    validation?: AIValidationOptions;
+    /** Abort the in-flight HTTP request to the provider when this signal fires. Defaults to ctx.signal inside flow steps. */
+    signal?: AbortSignal;
+    /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
+    costContext?: AICostContext;
+    /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
+    seed?: number;
   }): Promise<AIGenerateResult>;
 
   /** Stream AI generation, yielding incremental text deltas and a final validated result */
   streamGenerate(config: {
     prompt: string;
     input: Record<string, unknown>;
+    /** Same semantics as `generate({ messages })`. */
+    messages?: ChatMessage[];
+    /** Abort the stream when this signal fires. Defaults to ctx.signal inside flow steps. */
+    signal?: AbortSignal;
+    /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
+    costContext?: AICostContext;
+    /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
+    seed?: number;
   }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {
@@ -140,11 +235,20 @@ export interface AIService {
     text: string;
     prompt?: string;
     input?: Record<string, unknown>;
+    signal?: AbortSignal;
+    /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
+    costContext?: AICostContext;
   }): Promise<Record<string, any>>;
 
-  classify(config: { labels: string[]; text: string }): Promise<string[]>;
+  classify(config: {
+    labels: string[];
+    text: string;
+    signal?: AbortSignal;
+    /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
+    costContext?: AICostContext;
+  }): Promise<string[]>;
 
-  retrieve(config: { query: string }): Promise<AIDocument[]>;
+  retrieve(config: { query: string; signal?: AbortSignal }): Promise<AIDocument[]>;
 }
 
 // ── Logger Service ──
@@ -204,8 +308,19 @@ export interface ExecutionContext {
   /** HTTP request metadata (IP, User-Agent) — present when invoked via HTTP */
   request?: RequestMeta;
 
+  /** Worker process identity — present when running inside a flow worker */
+  workerId?: string;
+
   // Flow-specific (only present inside flow step execution)
   state?: unknown;
   step?: string;
   flowId?: string;
+  /**
+   * Aborted when the current flow step is cancelled (by `flows.cancel`) or
+   * when the worker loses its lease on the execution. Capability handlers
+   * should check `ctx.signal?.aborted` in long-running loops and pass the
+   * signal to AI/HTTP calls (most AI helpers default `signal` to `ctx.signal`
+   * automatically). Undefined outside a flow step.
+   */
+  signal?: AbortSignal;
 }
