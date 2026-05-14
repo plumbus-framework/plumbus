@@ -32,7 +32,13 @@ export {
   type ExplainabilityConfig,
 } from './explainability.js';
 // Model pricing
-export { calculateModelCost, findModelRate, type ModelRate } from './model-pricing.js';
+export {
+  allKnownModels,
+  calculateModelCost,
+  findModelRate,
+  type Kind,
+  type ModelRate,
+} from './model-pricing.js';
 // Prompt registry
 export { PromptRegistry } from './prompt-registry.js';
 // Provider adapters
@@ -40,12 +46,15 @@ export {
   createAnthropicAdapter,
   createOpenAIAdapter,
   createProviderAdapter,
+  joinAndFilterModels,
   type AIProviderAdapter,
   type ChatMessage,
   type AnthropicAdapterConfig,
   type EmbeddingRequest,
   type EmbeddingResponse,
+  type ListModelsFilter,
   type OpenAIAdapterConfig,
+  type ProviderModel,
   type ProviderRequest,
   type ProviderResponse,
   type ProviderStreamEvent,

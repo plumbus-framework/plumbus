@@ -2,6 +2,7 @@
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
 import type { AIProviderConfig } from '../types/config.js';
+import { allKnownModels, type Kind } from './model-pricing.js';
 import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
@@ -121,6 +122,44 @@ export interface EmbeddingResponse {
   usage: { totalTokens: number };
 }
 
+// ── Model Listing ──
+
+/**
+ * A single model entry returned by `AIProviderAdapter.listModels()`.
+ * The id is whatever the provider's `/v1/models` returns; pricing and `kind`
+ * are joined from the framework's pricing catalog. Models not in the catalog
+ * surface as `kind: 'unknown'` with `null` prices.
+ */
+export interface ProviderModel {
+  /** API identifier (the value to pass as `model` in requests). */
+  id: string;
+  /** Adapter name (e.g. "openai", "anthropic", or a custom adapter's name). */
+  provider: string;
+  /** Capability classification, from the pricing catalog. `'unknown'` if not in the catalog. */
+  kind: Kind | 'unknown';
+  /** USD per 1M input tokens, or `null` if the model is not in the catalog. */
+  inputPerMTok: number | null;
+  /** USD per 1M output tokens, or `null` if the model is not in the catalog. */
+  outputPerMTok: number | null;
+  /** Provider-supplied human-readable label (Anthropic exposes this; OpenAI doesn't). */
+  displayName?: string;
+  /** ISO-8601 creation timestamp when the provider exposes one. */
+  createdAt?: string;
+  /** Owner/team (OpenAI exposes this; Anthropic doesn't). */
+  ownedBy?: string;
+}
+
+/**
+ * Optional filter passed to `AIProviderAdapter.listModels()`. `kind` accepts a
+ * single Kind or an array. When unset, all models are returned (including
+ * unknown ones). When set against an official endpoint, unknown-kind models
+ * are excluded; against a custom endpoint they are included alongside the
+ * filtered matches (see adapter docs).
+ */
+export interface ListModelsFilter {
+  kind?: Kind | Kind[];
+}
+
 // ── AI Provider Adapter ──
 export interface AIProviderAdapter {
   readonly name: string;
@@ -133,6 +172,77 @@ export interface AIProviderAdapter {
 
   /** Generate embeddings for texts */
   embed(request: EmbeddingRequest): Promise<EmbeddingResponse>;
+
+  /**
+   * List models the provider exposes for this account, joined against the
+   * framework's pricing catalog. Optional — custom adapters that don't
+   * implement it still satisfy the interface.
+   *
+   * Filtering rule (see docs for full details):
+   * - No filter → all models, including unknown-kind entries.
+   * - Filter + official endpoint → only matching kinds; unknowns excluded.
+   * - Filter + custom endpoint → matching kinds **plus** all unknowns.
+   *
+   * On network error / 404 / unsupported endpoint, returns `[]` and emits
+   * one `console.warn`; does not throw.
+   */
+  listModels?(filter?: ListModelsFilter): Promise<ProviderModel[]>;
+}
+
+/**
+ * Shared logic used by adapter `listModels` implementations: join a list of
+ * provider-supplied model entries against the pricing catalog, then apply
+ * the kind filter respecting the official-endpoint rule.
+ */
+export function joinAndFilterModels(args: {
+  provider: string;
+  entries: Array<{
+    id: string;
+    displayName?: string;
+    createdAt?: string;
+    ownedBy?: string;
+  }>;
+  filter: ListModelsFilter | undefined;
+  isOfficial: boolean;
+}): ProviderModel[] {
+  const catalog = new Map<string, { kind: Kind; inputPerMTok: number; outputPerMTok: number }>(
+    allKnownModels()
+      .filter(([, rate]) => rate.kind != null)
+      .map(([id, rate]) => [
+        id,
+        {
+          kind: rate.kind as Kind,
+          inputPerMTok: rate.inputPerMTok,
+          outputPerMTok: rate.outputPerMTok,
+        },
+      ]),
+  );
+
+  const joined: ProviderModel[] = args.entries.map((e) => {
+    const cat = catalog.get(e.id);
+    const model: ProviderModel = {
+      id: e.id,
+      provider: args.provider,
+      kind: cat?.kind ?? 'unknown',
+      inputPerMTok: cat?.inputPerMTok ?? null,
+      outputPerMTok: cat?.outputPerMTok ?? null,
+    };
+    if (e.displayName != null) model.displayName = e.displayName;
+    if (e.createdAt != null) model.createdAt = e.createdAt;
+    if (e.ownedBy != null) model.ownedBy = e.ownedBy;
+    return model;
+  });
+
+  if (!args.filter?.kind) return joined;
+
+  const allowedKinds = new Set<Kind>(
+    Array.isArray(args.filter.kind) ? args.filter.kind : [args.filter.kind],
+  );
+
+  return joined.filter((m) => {
+    if (m.kind === 'unknown') return !args.isOfficial;
+    return allowedKinds.has(m.kind);
+  });
 }
 
 export class ProviderAPIError extends Error {
@@ -609,6 +719,49 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         usage: { totalTokens: data.usage.total_tokens },
       };
     },
+
+    async listModels(filter?: ListModelsFilter): Promise<ProviderModel[]> {
+      const isOfficial = baseUrl === 'https://api.openai.com/v1';
+      try {
+        const resp = await fetch(`${baseUrl}/models`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+          signal: AbortSignal.timeout(defaultTimeout),
+        });
+        if (!resp.ok) {
+          console.warn(
+            `[plumbus] OpenAI listModels: ${baseUrl}/models returned ${resp.status} ${resp.statusText}; returning empty list`,
+          );
+          return [];
+        }
+        const data = (await resp.json()) as {
+          data?: Array<{ id: string; created?: number; owned_by?: string }>;
+        };
+        if (!Array.isArray(data.data)) {
+          console.warn(
+            `[plumbus] OpenAI listModels: ${baseUrl}/models returned unexpected response shape; returning empty list`,
+          );
+          return [];
+        }
+        const entries = data.data.map((m) => {
+          const e: { id: string; createdAt?: string; ownedBy?: string } = { id: m.id };
+          if (typeof m.created === 'number') {
+            e.createdAt = new Date(m.created * 1000).toISOString();
+          }
+          if (typeof m.owned_by === 'string') {
+            e.ownedBy = m.owned_by;
+          }
+          return e;
+        });
+        return joinAndFilterModels({ provider: 'openai', entries, filter, isOfficial });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[plumbus] OpenAI listModels: ${baseUrl}/models failed (${msg}); returning empty list`,
+        );
+        return [];
+      }
+    },
   };
 }
 
@@ -776,6 +929,63 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       throw new Error(
         'Anthropic does not provide an embedding API. Use an OpenAI-compatible provider for embeddings.',
       );
+    },
+
+    async listModels(filter?: ListModelsFilter): Promise<ProviderModel[]> {
+      const isOfficial = baseUrl === 'https://api.anthropic.com/v1';
+      const entries: Array<{ id: string; displayName?: string; createdAt?: string }> = [];
+      let afterId: string | undefined;
+      try {
+        // Anthropic /models is paginated via `has_more` / `last_id` + `after_id` query param.
+        // Cap iterations defensively so a misbehaving API doesn't loop forever.
+        for (let page = 0; page < 20; page++) {
+          const url = new URL(`${baseUrl}/models`);
+          url.searchParams.set('limit', '100');
+          if (afterId) url.searchParams.set('after_id', afterId);
+          const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'x-api-key': config.apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            signal: AbortSignal.timeout(defaultTimeout),
+          });
+          if (!resp.ok) {
+            console.warn(
+              `[plumbus] Anthropic listModels: ${url} returned ${resp.status} ${resp.statusText}; returning ${entries.length === 0 ? 'empty' : 'partial'} list`,
+            );
+            if (entries.length === 0) return [];
+            break;
+          }
+          const data = (await resp.json()) as {
+            data?: Array<{ id: string; display_name?: string; created_at?: string }>;
+            has_more?: boolean;
+            last_id?: string | null;
+          };
+          if (!Array.isArray(data.data)) {
+            console.warn(
+              `[plumbus] Anthropic listModels: ${url} returned unexpected response shape; returning ${entries.length === 0 ? 'empty' : 'partial'} list`,
+            );
+            if (entries.length === 0) return [];
+            break;
+          }
+          for (const m of data.data) {
+            const e: { id: string; displayName?: string; createdAt?: string } = { id: m.id };
+            if (typeof m.display_name === 'string') e.displayName = m.display_name;
+            if (typeof m.created_at === 'string') e.createdAt = m.created_at;
+            entries.push(e);
+          }
+          if (!data.has_more || !data.last_id) break;
+          afterId = data.last_id;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[plumbus] Anthropic listModels: ${baseUrl}/models failed (${msg}); returning ${entries.length === 0 ? 'empty' : 'partial'} list`,
+        );
+        if (entries.length === 0) return [];
+      }
+      return joinAndFilterModels({ provider: 'anthropic', entries, filter, isOfficial });
     },
   };
 }
