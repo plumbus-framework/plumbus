@@ -75,6 +75,18 @@ export interface RAGPipelineConfig {
   embeddingModel?: string;
   /** Max chunks to embed in a single batch (default: 100) */
   embeddingBatchSize?: number;
+  /**
+   * Invoked after each `provider.embed(...)` call inside the pipeline. Lets
+   * consumers record embedding-API spend (e.g. into a per-tenant cost ledger).
+   * `operation` distinguishes ingest-batch embeds from retrieval-query embeds.
+   * Awaited if the callback returns a promise.
+   */
+  onEmbeddingCost?: (info: {
+    operation: 'ingest' | 'retrieve';
+    model: string;
+    totalTokens: number;
+    cost: number;
+  }) => void | Promise<void>;
 }
 
 export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
@@ -94,6 +106,15 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
           texts: batch.map((c) => c.content),
           model: config.embeddingModel,
         });
+
+        if (config.onEmbeddingCost) {
+          await config.onEmbeddingCost({
+            operation: 'ingest',
+            model: embeddingResponse.model,
+            totalTokens: embeddingResponse.usage.totalTokens,
+            cost: embeddingResponse.cost,
+          });
+        }
 
         for (let j = 0; j < batch.length; j++) {
           const chunk = batch[j];
@@ -128,6 +149,16 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
         texts: [query.query],
         model: config.embeddingModel,
       });
+
+      if (config.onEmbeddingCost) {
+        await config.onEmbeddingCost({
+          operation: 'retrieve',
+          model: embeddingResponse.model,
+          totalTokens: embeddingResponse.usage.totalTokens,
+          cost: embeddingResponse.cost,
+        });
+      }
+
       const queryEmbedding = embeddingResponse.embeddings[0];
       if (!queryEmbedding) return [];
 

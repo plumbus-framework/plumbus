@@ -31,6 +31,7 @@ describe('AI Service (ctx.ai)', () => {
         embeddings: req.texts.map(() => [0.1, 0.2, 0.3]),
         model: 'mock-embed',
         usage: { totalTokens: 5 },
+        cost: 0,
       })),
     });
 
