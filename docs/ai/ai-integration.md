@@ -294,6 +294,62 @@ const ollama = createProviderAdapter("ollama", {
 });
 ```
 
+### Listing Available Models
+
+`adapter.listModels()` hits the provider's `/v1/models` endpoint and joins the
+live id list against the framework's pricing catalog. The `kind` of each model
+comes from the pricing-page section it appears under — no name-pattern matching.
+
+```typescript
+const openai = createOpenAIAdapter({ apiKey: process.env["OPENAI_API_KEY"]! });
+
+// All models the API key can see, with kind + pricing.
+const everything = await openai.listModels!();
+
+// Just embedding models.
+const embeddings = await openai.listModels!({ kind: "embedding" });
+
+// Multiple kinds at once.
+const callable = await openai.listModels!({ kind: ["text", "embedding"] });
+```
+
+Each returned `ProviderModel` carries:
+
+```typescript
+{
+  id: "text-embedding-3-small",
+  provider: "openai",
+  kind: "text" | "embedding" | "moderation" | "image" | "audio" | "unknown",
+  inputPerMTok: 0.02,        // null if the model isn't in the pricing catalog
+  outputPerMTok: 0,          // null if the model isn't in the pricing catalog
+  createdAt: "2024-01-25T19:38:00.000Z",
+  ownedBy: "openai",         // OpenAI only
+  displayName: "...",        // Anthropic only
+}
+```
+
+**Filter semantics — official vs. custom endpoints:**
+
+| Scenario                                          | No filter   | `{ kind: 'embedding' }`               |
+| ------------------------------------------------- | ----------- | ------------------------------------- |
+| Official OpenAI / Anthropic                       | Everything  | Just embeddings (unknowns excluded)   |
+| Custom OpenAI-compatible (Ollama, OpenRouter, …)  | Everything  | Embeddings **+ all unknowns**         |
+
+"Official" means `baseUrl === 'https://api.openai.com/v1'` for OpenAI and
+`baseUrl === 'https://api.anthropic.com/v1'` for Anthropic. Any other base URL
+is considered custom, and a `kind` filter will return unknown-kind models
+alongside the catalog matches — useful when running Ollama or similar where
+the framework can't classify the live ids.
+
+**Error handling.** If the endpoint 404s (Azure OpenAI uses a different path,
+some corporate proxies don't implement `/v1/models`) or the network fails, the
+method returns `[]` and emits a single `console.warn` rather than throwing —
+so a settings UI can render "no models" cleanly.
+
+`listModels` is **optional** on `AIProviderAdapter`. Custom adapters that
+don't implement it still satisfy the interface; callers should check with
+`if (adapter.listModels)` before invoking.
+
 ## Output Validation
 
 AI outputs are validated against the prompt's Zod output schema. On failure, the framework retries with an enriched prompt.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateModelCost } from '../model-pricing.js';
+import { allKnownModels, calculateModelCost, findModelRate } from '../model-pricing.js';
 
 describe('calculateModelCost', () => {
   it('returns 0 for unknown models', () => {
@@ -22,6 +22,56 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'gpt-3.5-turbo-0613')).toBeGreaterThan(0);
     // gpt-3.5-turbo-16k-0613: input $3/MTok, output $4/MTok
     expect(calculateModelCost(1000, 500, 'gpt-3.5-turbo-16k-0613')).toBeGreaterThan(0);
+  });
+
+  it('every catalog entry carries a kind field', () => {
+    const entries = allKnownModels();
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [model, rate] of entries) {
+      expect(rate.kind, `model "${model}" missing kind`).toBeDefined();
+    }
+  });
+
+  it('catalog includes embedding entries with kind="embedding" and outputPerMTok=0', () => {
+    const small = findModelRate('text-embedding-3-small');
+    expect(small?.kind).toBe('embedding');
+    expect(small?.outputPerMTok).toBe(0);
+    const large = findModelRate('text-embedding-3-large');
+    expect(large?.kind).toBe('embedding');
+    const ada = findModelRate('text-embedding-ada-002');
+    expect(ada?.kind).toBe('embedding');
+  });
+
+  it('catalog includes moderation entries with kind="moderation" and zero pricing', () => {
+    const omni = findModelRate('omni-moderation-latest');
+    expect(omni?.kind).toBe('moderation');
+    expect(omni?.inputPerMTok).toBe(0);
+    expect(omni?.outputPerMTok).toBe(0);
+  });
+
+  it('findModelRate returns kind alongside prices for chat models', () => {
+    const gpt4o = findModelRate('gpt-4o');
+    expect(gpt4o?.kind).toBe('text');
+    expect(gpt4o?.inputPerMTok).toBe(2.5);
+    const opus = findModelRate('claude-opus-4-7');
+    expect(opus?.kind).toBe('text');
+  });
+
+  it('calculateModelCost ignores kind and prices embeddings against inputPerMTok only', () => {
+    // text-embedding-3-small: $0.02/MTok input, $0 output
+    // 10_000 input tokens × $0.02/MTok = $0.0002
+    const cost = calculateModelCost(10_000, 0, 'text-embedding-3-small');
+    expect(cost).toBe(0.0002);
+  });
+
+  it('returns non-zero cost for newly added models', () => {
+    // gpt-5.5: input $5/MTok, output $30/MTok
+    // 1000 × 5 + 500 × 30 = 5000 + 15000 = 20000 / 1M = 0.02
+    expect(calculateModelCost(1000, 500, 'gpt-5.5')).toBe(0.02);
+    // gpt-5.5-pro: input $30/MTok, output $180/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-5.5-pro')).toBe(0.12);
+    // claude-opus-4-7: input $5/MTok, output $25/MTok
+    expect(calculateModelCost(1000, 500, 'claude-opus-4-7')).toBe(0.0175);
   });
 
   it('resolves date-suffixed model names', () => {

@@ -4,9 +4,19 @@ import {
   createAnthropicAdapter,
   createOpenAIAdapter,
   createProviderAdapter,
+  joinAndFilterModels,
+  type ListModelsFilter,
   ProviderAPIError,
 } from '../provider.js';
 import { AIIncompleteOutputError, AIRefusalError } from '../refusal.js';
+
+// The built-in OpenAI and Anthropic adapters always implement `listModels`;
+// the interface marks it optional only for third-party adapters. This helper
+// narrows the type so tests don't need non-null assertions on every call.
+function callListModels(adapter: AIProviderAdapter, filter?: ListModelsFilter) {
+  if (!adapter.listModels) throw new Error('adapter must implement listModels');
+  return adapter.listModels(filter);
+}
 
 // ── Helper: create a mock provider ──
 // biome-ignore lint/suspicious/noExportsInTest: shared test helper used by multiple test files
@@ -778,6 +788,345 @@ describe('AI Provider Adapters', () => {
       });
       // Unknown providers use OpenAI-compatible adapter
       expect(adapter.name).toBe('openai');
+    });
+  });
+
+  describe('joinAndFilterModels', () => {
+    it('joins entries against the pricing catalog (kind + prices for known, unknown otherwise)', () => {
+      const result = joinAndFilterModels({
+        provider: 'openai',
+        entries: [{ id: 'gpt-4o' }, { id: 'text-embedding-3-small' }, { id: 'llama3:8b' }],
+        filter: undefined,
+        isOfficial: true,
+      });
+      expect(result).toHaveLength(3);
+      const gpt = result.find((m) => m.id === 'gpt-4o');
+      expect(gpt?.kind).toBe('text');
+      expect(gpt?.inputPerMTok).toBe(2.5);
+      const emb = result.find((m) => m.id === 'text-embedding-3-small');
+      expect(emb?.kind).toBe('embedding');
+      const llama = result.find((m) => m.id === 'llama3:8b');
+      expect(llama?.kind).toBe('unknown');
+      expect(llama?.inputPerMTok).toBeNull();
+      expect(llama?.outputPerMTok).toBeNull();
+    });
+
+    it('passes through every entry when no filter is supplied', () => {
+      const r = joinAndFilterModels({
+        provider: 'openai',
+        entries: [{ id: 'gpt-4o' }, { id: 'text-embedding-3-small' }, { id: 'mystery' }],
+        filter: undefined,
+        isOfficial: false,
+      });
+      expect(r.map((m) => m.id)).toEqual(['gpt-4o', 'text-embedding-3-small', 'mystery']);
+    });
+
+    it('single-kind filter against the official endpoint excludes unknowns', () => {
+      const r = joinAndFilterModels({
+        provider: 'openai',
+        entries: [{ id: 'gpt-4o' }, { id: 'text-embedding-3-small' }, { id: 'nomic-embed' }],
+        filter: { kind: 'embedding' },
+        isOfficial: true,
+      });
+      expect(r.map((m) => m.id)).toEqual(['text-embedding-3-small']);
+    });
+
+    it('single-kind filter against a custom endpoint includes unknowns alongside matches', () => {
+      const r = joinAndFilterModels({
+        provider: 'ollama',
+        entries: [{ id: 'gpt-4o' }, { id: 'text-embedding-3-small' }, { id: 'nomic-embed' }],
+        filter: { kind: 'embedding' },
+        isOfficial: false,
+      });
+      expect(r.map((m) => m.id).sort()).toEqual(['nomic-embed', 'text-embedding-3-small']);
+    });
+
+    it('multi-kind filter accepts arrays', () => {
+      const r = joinAndFilterModels({
+        provider: 'openai',
+        entries: [
+          { id: 'gpt-4o' },
+          { id: 'text-embedding-3-small' },
+          { id: 'omni-moderation-latest' },
+        ],
+        filter: { kind: ['text', 'embedding'] },
+        isOfficial: true,
+      });
+      expect(r.map((m) => m.id).sort()).toEqual(['gpt-4o', 'text-embedding-3-small']);
+    });
+
+    it('carries through optional displayName / createdAt / ownedBy fields', () => {
+      const r = joinAndFilterModels({
+        provider: 'anthropic',
+        entries: [
+          {
+            id: 'claude-opus-4-7',
+            displayName: 'Claude Opus 4.7',
+            createdAt: '2026-01-15T00:00:00Z',
+          },
+        ],
+        filter: undefined,
+        isOfficial: true,
+      });
+      expect(r[0]?.displayName).toBe('Claude Opus 4.7');
+      expect(r[0]?.createdAt).toBe('2026-01-15T00:00:00Z');
+    });
+  });
+
+  describe('OpenAI listModels', () => {
+    it('returns joined entries from /v1/models with kind + pricing', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          object: 'list',
+          data: [
+            { id: 'gpt-4o', object: 'model', created: 1715367049, owned_by: 'system' },
+            {
+              id: 'text-embedding-3-small',
+              object: 'model',
+              created: 1700000000,
+              owned_by: 'openai',
+            },
+          ],
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const models = await callListModels(adapter);
+
+      const call = mockFetch.mock.calls[0];
+      expect(call?.[0]).toBe('https://api.openai.com/v1/models');
+      expect(call?.[1].headers.Authorization).toBe('Bearer sk-test');
+
+      expect(models).toHaveLength(2);
+      expect(models[0]).toMatchObject({
+        id: 'gpt-4o',
+        provider: 'openai',
+        kind: 'text',
+        inputPerMTok: 2.5,
+        outputPerMTok: 10,
+        ownedBy: 'system',
+      });
+      expect(models[0]?.createdAt).toBe(new Date(1715367049 * 1000).toISOString());
+
+      vi.unstubAllGlobals();
+    });
+
+    it('filters by kind against the official endpoint (unknowns excluded)', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'gpt-4o' },
+            { id: 'text-embedding-3-small' },
+            { id: 'fine-tune-ft-custom-12345' },
+          ],
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const models = await callListModels(adapter, { kind: 'embedding' });
+      expect(models.map((m) => m.id)).toEqual(['text-embedding-3-small']);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('filters by kind against a custom endpoint and includes unknowns', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'gpt-4o' }, { id: 'nomic-embed-text' }, { id: 'llama3:8b' }],
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({
+        apiKey: 'ollama',
+        baseUrl: 'http://localhost:11434/v1',
+      });
+      const models = await callListModels(adapter, { kind: 'embedding' });
+      // text-known stays out, but both unknowns (nomic-embed-text, llama3:8b) come through.
+      expect(models.map((m) => m.id).sort()).toEqual(['llama3:8b', 'nomic-embed-text']);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('returns empty list and warns on 404 (endpoint not implemented)', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const adapter = createOpenAIAdapter({
+        apiKey: 'azure-key',
+        baseUrl: 'https://example.openai.azure.com/openai/v1',
+      });
+      const models = await callListModels(adapter);
+      expect(models).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toMatch(/returned 404/);
+
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    });
+
+    it('returns empty list and warns on network error', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+      vi.stubGlobal('fetch', mockFetch);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const models = await callListModels(adapter);
+      expect(models).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toMatch(/ECONNREFUSED/);
+
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    });
+
+    it('returns empty list when response shape is unexpected', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ message: 'hello' }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const models = await callListModels(adapter);
+      expect(models).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe('Anthropic listModels', () => {
+    it('returns joined entries from /v1/models with displayName + createdAt', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: 'claude-opus-4-7',
+              type: 'model',
+              display_name: 'Claude Opus 4.7',
+              created_at: '2026-01-15T00:00:00Z',
+            },
+            {
+              id: 'claude-sonnet-4-6',
+              type: 'model',
+              display_name: 'Claude Sonnet 4.6',
+              created_at: '2025-09-01T00:00:00Z',
+            },
+          ],
+          has_more: false,
+          last_id: 'claude-sonnet-4-6',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      const models = await callListModels(adapter);
+
+      const call = mockFetch.mock.calls[0];
+      expect(String(call?.[0])).toContain('https://api.anthropic.com/v1/models');
+      expect(call?.[1].headers['x-api-key']).toBe('ant-test');
+      expect(call?.[1].headers['anthropic-version']).toBe('2023-06-01');
+
+      expect(models).toHaveLength(2);
+      expect(models[0]).toMatchObject({
+        id: 'claude-opus-4-7',
+        provider: 'anthropic',
+        kind: 'text',
+        inputPerMTok: 5,
+        outputPerMTok: 25,
+        displayName: 'Claude Opus 4.7',
+        createdAt: '2026-01-15T00:00:00Z',
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('paginates via has_more / last_id', async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'claude-opus-4-7', display_name: 'Claude Opus 4.7' }],
+            has_more: true,
+            last_id: 'claude-opus-4-7',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' }],
+            has_more: false,
+            last_id: 'claude-sonnet-4-6',
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      const models = await callListModels(adapter);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const page2Url = String(mockFetch.mock.calls[1]?.[0]);
+      expect(page2Url).toContain('after_id=claude-opus-4-7');
+      expect(models.map((m) => m.id)).toEqual(['claude-opus-4-7', 'claude-sonnet-4-6']);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('returns empty list and warns on 401', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const adapter = createAnthropicAdapter({ apiKey: 'bad-key' });
+      const models = await callListModels(adapter);
+      expect(models).toEqual([]);
+      expect(warn).toHaveBeenCalled();
+
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    });
+
+    it('filters by kind (Anthropic models are all text)', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: 'claude-opus-4-7', display_name: 'Claude Opus 4.7' },
+            { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6' },
+          ],
+          has_more: false,
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+
+      const embeddings = await callListModels(adapter, { kind: 'embedding' });
+      expect(embeddings).toEqual([]);
+
+      const texts = await callListModels(adapter, { kind: 'text' });
+      expect(texts.map((m) => m.id)).toEqual(['claude-opus-4-7', 'claude-sonnet-4-6']);
+
+      vi.unstubAllGlobals();
     });
   });
 });
