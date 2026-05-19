@@ -112,7 +112,7 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
             operation: 'ingest',
             model: embeddingResponse.model,
             totalTokens: embeddingResponse.usage.totalTokens,
-            cost: embeddingResponse.cost,
+            cost: embeddingResponse.cost ?? 0,
           });
         }
 
@@ -155,7 +155,7 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
           operation: 'retrieve',
           model: embeddingResponse.model,
           totalTokens: embeddingResponse.usage.totalTokens,
-          cost: embeddingResponse.cost,
+          cost: embeddingResponse.cost ?? 0,
         });
       }
 

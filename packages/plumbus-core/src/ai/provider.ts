@@ -123,9 +123,12 @@ export interface EmbeddingResponse {
   /**
    * USD cost computed from the pricing catalog using `usage.totalTokens` against
    * the model's input rate (embeddings are input-only). `0` for unknown models
-   * — same convention as completion-side cost.
+   * — same convention as completion-side cost. Optional so that external
+   * `AIProviderAdapter` implementations written before this field existed still
+   * satisfy the interface; consumers reading `cost` should treat `undefined` as
+   * "unknown" (typically by coalescing to `0`).
    */
-  cost: number;
+  cost?: number;
 }
 
 // ── Model Listing ──
