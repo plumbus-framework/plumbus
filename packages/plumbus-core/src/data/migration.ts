@@ -86,8 +86,12 @@ function readJournalMigrations(migrationsFolder: string): PendingMigration[] {
 }
 
 async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
+  // Keep tracking metadata in the `drizzle` schema (stock Drizzle's default)
+  // so it stays out of `public` and the location is deterministic across
+  // sessions regardless of search_path.
+  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
   await db.execute(
-    sql`CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+    sql`CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
       id SERIAL PRIMARY KEY,
       hash TEXT NOT NULL,
       created_at BIGINT
@@ -97,7 +101,7 @@ async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
 
 async function getAppliedMigrationHashes(db: PostgresJsDatabase): Promise<Set<string>> {
   const appliedRows = (await db.execute(
-    sql`SELECT hash FROM "__drizzle_migrations"`,
+    sql`SELECT hash FROM "drizzle"."__drizzle_migrations"`,
   )) as unknown as Array<{ hash: string }>;
 
   return new Set(appliedRows.map((row) => row.hash));
@@ -148,7 +152,7 @@ export async function applyMigrations(config: MigrationConfig): Promise<Migratio
         }
       }
       await tx.execute(
-        sql`INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
+        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
       );
     });
     appliedTags.push(migration.tag);
@@ -184,7 +188,7 @@ export async function reconcileMigrationHistory(
   await config.db.transaction(async (tx) => {
     for (const migration of missingMigrations) {
       await tx.execute(
-        sql`INSERT INTO "__drizzle_migrations" (hash, created_at)
+        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at)
             VALUES (${migration.hash}, ${migration.folderMillis})`,
       );
     }
@@ -249,7 +253,7 @@ export async function rollbackLastMigration(config: MigrationConfig): Promise<{
 
   // Check if migrations table exists and get the last applied migration
   const rows = (await db.execute({
-    sql: `SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1`,
+    sql: `SELECT hash, created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`,
     params: [],
   } as any)) as unknown as Array<{ hash: string; created_at: number }>;
 
@@ -266,7 +270,7 @@ export async function rollbackLastMigration(config: MigrationConfig): Promise<{
 
   // Delete the migration record to allow re-application
   await db.execute({
-    sql: `DELETE FROM __drizzle_migrations WHERE hash = $1`,
+    sql: `DELETE FROM "drizzle"."__drizzle_migrations" WHERE hash = $1`,
     params: [migrationHash],
   } as any);
 
