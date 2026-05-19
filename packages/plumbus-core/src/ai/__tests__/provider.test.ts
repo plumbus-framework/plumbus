@@ -37,6 +37,7 @@ export function createMockProvider(overrides?: Partial<AIProviderAdapter>): AIPr
       embeddings: [[0.1, 0.2, 0.3]],
       model: 'mock-embed',
       usage: { totalTokens: 5 },
+      cost: 0,
     })),
     ...overrides,
   };
@@ -480,6 +481,46 @@ describe('AI Provider Adapters', () => {
       expect(result.embeddings).toHaveLength(1);
       expect(result.embeddings[0]).toEqual([0.1, 0.2, 0.3]);
       expect(result.model).toBe('text-embedding-3-small');
+      expect(result.usage.totalTokens).toBe(8);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('computes cost from the pricing catalog for a known embedding model', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: [0.1] }],
+          model: 'text-embedding-3-large',
+          usage: { total_tokens: 1_000_000 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const result = await adapter.embed({ texts: ['x'] });
+
+      // text-embedding-3-large: $0.13 per 1M input tokens → 1M tokens = $0.13
+      expect(result.cost).toBeCloseTo(0.13, 6);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('returns cost=0 for an embedding model not in the pricing catalog', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: [0.1] }],
+          model: 'custom-embedding-model-not-in-catalog',
+          usage: { total_tokens: 1000 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const result = await adapter.embed({ texts: ['x'] });
+
+      expect(result.cost).toBe(0);
 
       vi.unstubAllGlobals();
     });

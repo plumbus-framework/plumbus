@@ -18,6 +18,7 @@ import { createEventWorker } from '../events/worker.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
+import { createFlowService } from '../flows/flow-service.js';
 import { FlowStatus } from '../flows/state-machine.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
@@ -292,6 +293,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         auth: systemAuth,
         data: dataService,
         events: eventService,
+        // Without a real FlowService here, ctx.flows defaults to noopFlows in
+        // createExecutionContext, and any capability that calls
+        // `ctx.flows.start(...)` from inside a flow step silently does nothing
+        // — start() returns {id:'',status:'not_started'} and the nested flow
+        // is never launched. The HTTP route bootstrap wires this; the worker
+        // must too.
+        flows: createFlowService(flowEngine, systemAuth),
         ai: poolConfig.aiService,
         audit: systemAudit,
         logger,

@@ -461,6 +461,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
       signal: stepAc.signal,
       flows: {
         ...ctx.flows,
+        // `ctx.flows` on the worker baseCtx is bound to systemAuth (no
+        // tenantId). If a capability inside this step calls
+        // `ctx.flows.start(innerFlow, ...)`, the inner flow's stored
+        // `actor`/`tenantId` would inherit systemAuth — and any tenantScoped
+        // capability inside the inner flow would then reject with "Tenant
+        // context required". Rebind `start` to use the current flowAuth so
+        // nested flows inherit the calling flow's identity and tenant.
+        start: (flowName: string, input: unknown) =>
+          start(flowName, input, flowAuth, {
+            correlationId: row.correlationId ?? undefined,
+            triggerEventId: executionId,
+          }),
         heartbeat: heartbeatFn,
       },
     };

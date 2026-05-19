@@ -2,7 +2,7 @@
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
 import type { AIProviderConfig } from '../types/config.js';
-import { allKnownModels, type Kind } from './model-pricing.js';
+import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
 import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
@@ -120,6 +120,15 @@ export interface EmbeddingResponse {
   embeddings: number[][];
   model: string;
   usage: { totalTokens: number };
+  /**
+   * USD cost computed from the pricing catalog using `usage.totalTokens` against
+   * the model's input rate (embeddings are input-only). `0` for unknown models
+   * — same convention as completion-side cost. Optional so that external
+   * `AIProviderAdapter` implementations written before this field existed still
+   * satisfy the interface; consumers reading `cost` should treat `undefined` as
+   * "unknown" (typically by coalescing to `0`).
+   */
+  cost?: number;
 }
 
 // ── Model Listing ──
@@ -713,10 +722,12 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         usage: { total_tokens: number };
       };
 
+      const totalTokens = data.usage.total_tokens;
       return {
         embeddings: data.data.map((d) => d.embedding),
         model: data.model,
-        usage: { totalTokens: data.usage.total_tokens },
+        usage: { totalTokens },
+        cost: calculateModelCost(totalTokens, 0, data.model),
       };
     },
 

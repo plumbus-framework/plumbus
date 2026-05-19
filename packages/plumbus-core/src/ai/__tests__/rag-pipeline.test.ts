@@ -9,6 +9,7 @@ describe('RAG Pipeline', () => {
         embeddings: req.texts.map(() => [0.1, 0.2, 0.3]),
         model: 'mock-embed',
         usage: { totalTokens: req.texts.length * 5 },
+        cost: 0,
       })),
     });
     const vectorStore = createInMemoryVectorStore();
@@ -85,6 +86,62 @@ describe('RAG Pipeline', () => {
       });
 
       expect(results.every((r) => r.metadata?.documentId !== 'doc-t2')).toBe(true);
+    });
+  });
+
+  describe('onEmbeddingCost callback', () => {
+    it('fires once per provider.embed call with operation/model/totalTokens/cost', async () => {
+      const onEmbeddingCost = vi.fn();
+      const provider = createMockProvider({
+        embed: vi.fn(async (req) => ({
+          embeddings: req.texts.map(() => [0.1, 0.2, 0.3]),
+          model: 'mock-embed',
+          usage: { totalTokens: req.texts.length * 5 },
+          cost: req.texts.length * 0.00001,
+        })),
+      });
+      const pipeline = createRAGPipeline({
+        provider,
+        vectorStore: createInMemoryVectorStore(),
+        onEmbeddingCost,
+      });
+
+      await pipeline.ingest({
+        documentId: 'doc-cost',
+        content: 'A document for cost tracking.',
+        source: 'cost.md',
+        tenantId: 't1',
+      });
+      await pipeline.retrieve({ query: 'document', tenantId: 't1' });
+
+      const ingestCalls = onEmbeddingCost.mock.calls.filter(
+        ([info]) => info.operation === 'ingest',
+      );
+      const retrieveCalls = onEmbeddingCost.mock.calls.filter(
+        ([info]) => info.operation === 'retrieve',
+      );
+      expect(ingestCalls.length).toBeGreaterThanOrEqual(1);
+      expect(retrieveCalls).toHaveLength(1);
+
+      const retrieveInfo = retrieveCalls[0]?.[0];
+      expect(retrieveInfo).toMatchObject({
+        operation: 'retrieve',
+        model: 'mock-embed',
+        totalTokens: 5,
+        cost: 0.00001,
+      });
+    });
+
+    it('is omittable — pipeline works without the callback', async () => {
+      const { pipeline } = setup();
+      await expect(
+        pipeline.ingest({
+          documentId: 'd',
+          content: 'no callback',
+          source: 's',
+          tenantId: 't',
+        }),
+      ).resolves.toBeDefined();
     });
   });
 
