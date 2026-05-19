@@ -850,3 +850,92 @@ describe('FlowEngine — cooperative cancellation (ctx.signal)', () => {
     });
   });
 });
+
+// Regression: in production, a flow worker's baseCtx is bound to `systemAuth`
+// (userId: 'system-flow-runner', no tenantId). If `ctx.flows.start(...)` from
+// inside a flow step inherits that auth, the nested flow row stores
+// `tenantId: null`, and any tenantScoped capability inside the nested flow
+// rejects with "Tenant context required". The engine must rebind `start` in
+// the flow-step ctx so nested flows inherit the calling flow's auth instead.
+describe('FlowEngine — flow-step ctx.flows.start propagates flowAuth', () => {
+  it('uses the executing flow row auth, not the base worker auth, when starting nested flows', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'outer',
+        domain: 'test',
+        input: z.object({}),
+        steps: [{ name: 'kickoff', type: FlowStepType.Capability }],
+      }),
+    );
+    registry.register(
+      defineFlow({
+        name: 'inner',
+        domain: 'test',
+        input: z.object({ foo: z.string() }),
+        steps: [{ name: 'inner-step', type: FlowStepType.Capability }],
+      }),
+    );
+
+    // Outer step captures ctx and calls ctx.flows.start('inner', ...). We
+    // assert what auth reaches the recursive engine.start call.
+    let capturedCtx: any = null;
+    const stepDeps = {
+      executeCapability: vi.fn().mockImplementation(async (_name, ctx) => {
+        capturedCtx = ctx;
+        await ctx.flows.start('inner', { foo: 'bar' });
+        return { success: true, data: {} };
+      }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+
+    const db = mockDb();
+    const engine = createFlowEngine({ db, registry, stepDeps });
+
+    // Caller (the human/HTTP) is tenant t-A.
+    const callerAuth = {
+      userId: 'real-user',
+      tenantId: 't-A',
+      roles: ['user'],
+      scopes: [],
+      provider: 'http',
+    };
+    const exec = await engine.start('outer', {}, callerAuth);
+
+    // The worker's baseCtx — `systemAuth`, NO tenantId. This is the exact
+    // shape the worker's bootstrap creates and the regression we're guarding.
+    const workerBaseCtx = makeCtx({
+      auth: {
+        userId: 'system-flow-runner',
+        roles: ['system'],
+        scopes: [],
+        provider: 'worker',
+      },
+    });
+
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engine.runNext(exec.id, workerBaseCtx);
+
+    // Two inserts: outer (from engine.start above), inner (from ctx.flows.start
+    // inside the step). The inner row must inherit the OUTER flow's tenantId
+    // and actor, not the worker's systemAuth.
+    expect(db._inserts).toHaveLength(2);
+    const innerRow = db._inserts.find((r: any) => r.flowName === 'inner');
+    expect(innerRow).toBeDefined();
+    expect(innerRow.tenantId).toBe('t-A');
+    expect(innerRow.actor).toBe('real-user');
+
+    // The captured ctx given to the step also has flowAuth (sanity).
+    expect(capturedCtx?.auth?.tenantId).toBe('t-A');
+    expect(capturedCtx?.auth?.userId).toBe('real-user');
+    expect(capturedCtx?.auth?.internal).toBe(true);
+  });
+});
