@@ -1,5 +1,6 @@
 import type { ExecutionContext } from '../types/context.js';
 import { FlowStepType } from '../types/enums.js';
+import { FlowConditionError } from './evaluate-condition.js';
 import type {
   CapabilityStep,
   ConditionalStep,
@@ -147,14 +148,21 @@ function executeConditionalStep(
 ): Promise<StepResult> {
   try {
     const conditionMet = deps.evaluateCondition(step.if, state);
+    const elseStep = step.else;
     return Promise.resolve({
       status: StepStatus.Completed,
-      nextStep: conditionMet ? step.then : step.else,
+      nextStep: conditionMet ? step.then : elseStep,
     });
   } catch (err) {
+    const message =
+      err instanceof FlowConditionError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
     return Promise.resolve({
       status: StepStatus.Failed,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
   }
 }

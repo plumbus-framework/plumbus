@@ -936,6 +936,6 @@ describe('FlowEngine — flow-step ctx.flows.start propagates flowAuth', () => {
     // The captured ctx given to the step also has flowAuth (sanity).
     expect(capturedCtx?.auth?.tenantId).toBe('t-A');
     expect(capturedCtx?.auth?.userId).toBe('real-user');
-    expect(capturedCtx?.auth?.internal).toBe(true);
+    expect(capturedCtx?.auth?.roles).toContain('system');
   });
 });

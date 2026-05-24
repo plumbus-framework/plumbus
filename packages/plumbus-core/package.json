@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,6 +24,10 @@
     "./vitest": {
       "types": "./dist/vitest/index.d.ts",
       "import": "./dist/vitest/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
     }
   },
   "files": [
@@ -39,7 +43,8 @@
     "lint": "biome lint ./src",
     "format": "biome format --write ./src",
     "format:check": "biome format ./src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
   },
   "keywords": [
     "plumbus",
@@ -56,6 +61,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "engines": {
+    "node": ">=20.6.0"
+  },
   "dependencies": {
     "commander": "^12.1.0",
     "drizzle-kit": "^0.31.9",
@@ -69,7 +77,16 @@
     "zod": "^3.24.0",
     "zod-to-json-schema": "^3.25.2"
   },
+  "peerDependencies": {
+    "@plumbus/mcp": "0.4.x"
+  },
+  "peerDependenciesMeta": {
+    "@plumbus/mcp": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@plumbus/mcp": "workspace:*",
     "@biomejs/biome": "^2.4.6",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",

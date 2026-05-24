@@ -2,7 +2,8 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AuthAdapter } from '../auth/adapter.js';
-import { errorToHttpResponse } from '../errors/http.js';
+import { errorToHttpResponse, unknownErrorToSsePayload } from '../errors/http.js';
+import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
@@ -73,7 +74,7 @@ export function registerCapabilityRoute(
 
     // 2. Build execution context
     const bypassTenantScope = capability.access?.tenantScoped === false;
-    const deps = config.createDependencies(authContext as any, { bypassTenantScope });
+    const deps = config.createDependencies(authContext, { bypassTenantScope });
     deps.request = {
       sourceIp: request.ip,
       userAgent: request.headers['user-agent'],
@@ -124,7 +125,9 @@ export function registerCapabilityRoute(
             userAgent: request.headers['user-agent'],
             db: config.db,
           }),
-        ).catch(() => {});
+        ).catch((hookErr) => {
+          logHookError('onCapabilityError', hookErr);
+        });
       }
     }
   };
@@ -180,7 +183,7 @@ export function registerStreamingRoute(
 
     // 2. Build context
     const bypassTenantScope = capability.access?.tenantScoped === false;
-    const deps = config.createDependencies(authContext as any, { bypassTenantScope });
+    const deps = config.createDependencies(authContext, { bypassTenantScope });
     deps.request = {
       sourceIp: request.ip,
       userAgent: request.headers['user-agent'],
@@ -202,8 +205,8 @@ export function registerStreamingRoute(
         reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      reply.raw.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`);
+      const payload = unknownErrorToSsePayload(err);
+      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
     }
 
     reply.raw.end();

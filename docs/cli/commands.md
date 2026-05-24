@@ -27,6 +27,9 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus ui` | Generate UI modules and Next.js frontends |
 | `plumbus upgrade` | Migrate legacy artifacts after framework upgrades |
 | `plumbus test` | Run tests using vitest (provided by the framework) |
+| `plumbus mcp serve` | Start MCP server (stdio or HTTP) for `exposeAs: ['mcp']` capabilities |
+| `plumbus mcp generate` | Generate MCP manifest and skill files only |
+| `plumbus mcp list-tools` | List MCP-exposed tool names and descriptions |
 
 ## Installation
 
@@ -263,6 +266,8 @@ Generates:
 - `.plumbus/generated/manifest.json`
 - `.plumbus/generated/entity-types.ts` — typed interfaces for all entities and a `DataServiceMap` for `ctx.data`
 - `.plumbus/generated/plumbus.d.ts` — module augmentation that populates `PlumbusRegistry` with strict types for capability names, event names, flow names, and entity mappings
+- `.plumbus/generated/mcp-manifest.json` — MCP tool manifest (only capabilities with `exposeAs: ['mcp']`)
+- `.plumbus/generated/skills/<domain>/<kebab-name>.md` — agent skill files per MCP-exposed capability
 
 The generated `plumbus.d.ts` file augments the `PlumbusRegistry` interface from `@plumbus/core`, providing:
 - **Strict `ctx.data` access** — only defined entities autocomplete (e.g., `ctx.data.User`)
@@ -275,6 +280,27 @@ The command automatically adds `.plumbus/generated` to your `tsconfig.json`'s `i
 In **monorepo mode** (detected via `pnpm-workspace.yaml`), shared type definitions (`entity-types.ts`, `capability-types.ts`, `plumbus.d.ts`) are additionally written to `libs/shared/types/` so both backend and frontend packages can reference them.
 
 For frontend-ready modules and scaffolds, use `plumbus ui`.
+
+---
+
+### plumbus mcp
+
+Expose MCP-exposed capabilities to AI agents. Requires `exposeAs: ['mcp']` on capabilities and `mcp.agents` in config for authentication. See [MCP overview](../mcp/overview.md).
+
+```bash
+plumbus mcp serve [--stdio] [--http] [--port <port>] [--host <host>]
+plumbus mcp generate
+plumbus mcp list-tools
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `serve` | Start MCP server; default transport is stdio when `--http` is omitted |
+| `serve --http` | Streamable HTTP on `/mcp`; discovery at `GET /mcp/discovery` |
+| `generate` | Write `mcp-manifest.json` and skill files under `.plumbus/generated/` |
+| `list-tools` | Print MCP tool names and descriptions from current app contracts |
+
+stdio auth uses `PLUMBUS_MCP_TOKEN`; HTTP uses `Authorization: Bearer <token>`.
 
 ---
 

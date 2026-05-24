@@ -1,6 +1,7 @@
 // ── Built-in Architecture Governance Rules ──
 
 import { GovernanceSeverity } from '../../types/enums.js';
+import { ruleMcpMissingDescription } from './mcp.js';
 import type { GovernanceRule } from '../rule-engine.js';
 
 /** Capabilities with too many side effects */
@@ -120,4 +121,5 @@ export const architectureRules: GovernanceRule[] = [
   ruleMissingAuditConfig,
   ruleExcessiveFlowSteps,
   ruleEntityMissingDescription,
+  ruleMcpMissingDescription,
 ];

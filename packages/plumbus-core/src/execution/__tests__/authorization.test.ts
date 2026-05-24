@@ -102,21 +102,28 @@ describe('evaluateAccess', () => {
     expect(result.allowed).toBe(true);
   });
 
-  it('allows internal callers regardless of roles', () => {
-    const policy: AccessPolicy = { roles: ['admin'], tenantScoped: true };
-    const result = evaluateAccess(
-      policy,
-      makeAuth({ roles: ['system'], internal: true, tenantId: 't-1' }),
-    );
+  it('allows system role when policy opts in', () => {
+    const policy: AccessPolicy = { roles: ['admin', 'system'], tenantScoped: true };
+    const result = evaluateAccess(policy, makeAuth({ roles: ['system'], tenantId: 't-1' }));
     expect(result.allowed).toBe(true);
   });
 
-  it('still enforces tenant scoping for internal callers', () => {
+  it('denies system role when policy does not include system', () => {
     const policy: AccessPolicy = { roles: ['admin'], tenantScoped: true };
-    const result = evaluateAccess(
-      policy,
-      makeAuth({ roles: [], internal: true, tenantId: undefined }),
-    );
+    const result = evaluateAccess(policy, makeAuth({ roles: ['system'], tenantId: 't-1' }));
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('Required roles');
+  });
+
+  it('maps deprecated internal flag to system role for compatibility', () => {
+    const policy: AccessPolicy = { roles: ['system'], tenantScoped: true };
+    const result = evaluateAccess(policy, makeAuth({ roles: [], internal: true, tenantId: 't-1' }));
+    expect(result.allowed).toBe(true);
+  });
+
+  it('still enforces tenant scoping for system callers', () => {
+    const policy: AccessPolicy = { roles: ['system'], tenantScoped: true };
+    const result = evaluateAccess(policy, makeAuth({ roles: ['system'], tenantId: undefined }));
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('Tenant context required');
   });

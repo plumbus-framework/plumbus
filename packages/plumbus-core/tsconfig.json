@@ -6,5 +6,6 @@
     "rootDir": "src",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["src"]
+  "include": ["src", "src/shims/**/*.d.ts"],
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"]
 }

@@ -1,5 +1,7 @@
 import type { EntityDefinition, EntityRetention } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
+import { deepFreeze } from '../types/deep-freeze.js';
+import { throwDefineValidationError } from './validation-error.js';
 
 interface DefineEntityInput {
   name: string;
@@ -16,10 +18,12 @@ interface DefineEntityInput {
 
 export function defineEntity(config: DefineEntityInput): EntityDefinition {
   if (!config.name) {
-    throw new Error('Entity name is required');
+    throwDefineValidationError('Entity name is required', { field: 'name' });
   }
   if (!config.fields || Object.keys(config.fields).length === 0) {
-    throw new Error(`Entity "${config.name}": at least one field is required`);
+    throwDefineValidationError(`Entity "${config.name}": at least one field is required`, {
+      field: 'fields',
+    });
   }
 
   // Validate indexes reference existing fields
@@ -28,11 +32,14 @@ export function defineEntity(config: DefineEntityInput): EntityDefinition {
     for (const idx of config.indexes) {
       for (const col of idx) {
         if (!fieldNames.has(col)) {
-          throw new Error(`Entity "${config.name}": index references unknown field "${col}"`);
+          throwDefineValidationError(
+            `Entity "${config.name}": index references unknown field "${col}"`,
+            { field: 'indexes' },
+          );
         }
       }
     }
   }
 
-  return Object.freeze({ ...config });
+  return deepFreeze({ ...config });
 }

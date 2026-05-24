@@ -20,13 +20,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
+
+      # Publish @plumbus/mcp BEFORE @plumbus/core so the optional peer
+      # dependency declared by core resolves immediately for consumers.
+      - name: Publish @plumbus/mcp
+        working-directory: packages/mcp
+        run: pnpm publish --access public --no-git-checks
 
       - name: Publish @plumbus/core
         working-directory: packages/plumbus-core

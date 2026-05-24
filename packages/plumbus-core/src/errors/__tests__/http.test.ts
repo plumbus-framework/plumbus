@@ -43,4 +43,32 @@ describe('errorToHttpResponse', () => {
     expect(resp.body.error.message).toBe('Invalid email');
     expect(resp.body.error.metadata).toEqual({ field: 'email' });
   });
+
+  it('strips unsafe metadata and genericizes internal messages', () => {
+    const resp = errorToHttpResponse(
+      errors.internal('connection string postgres://secret', {
+        connectionString: 'postgres://secret',
+        hint: 'Check DATABASE_URL',
+        httpStatus: 500,
+      }),
+    );
+
+    expect(resp.body.error.message).toBe('An internal error occurred');
+    expect(resp.body.error.metadata).toEqual({ hint: 'Check DATABASE_URL', httpStatus: 500 });
+    expect(resp.body.error.metadata).not.toHaveProperty('connectionString');
+  });
+
+  it('forwards safe hint and reason metadata', () => {
+    const resp = errorToHttpResponse(
+      errors.validation('Bad config', {
+        reason: 'unknown_ai_provider_env',
+        hint: 'Use AI_OPENAI_BASE_URL for local Ollama',
+      }),
+    );
+
+    expect(resp.body.error.metadata).toEqual({
+      reason: 'unknown_ai_provider_env',
+      hint: 'Use AI_OPENAI_BASE_URL for local Ollama',
+    });
+  });
 });

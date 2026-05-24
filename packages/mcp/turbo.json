@@ -1,0 +1,14 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["@plumbus/core#build"]
+    },
+    "typecheck": {
+      "dependsOn": ["@plumbus/core#build", "build"]
+    },
+    "test": {
+      "dependsOn": ["@plumbus/core#build", "build"]
+    }
+  }
+}

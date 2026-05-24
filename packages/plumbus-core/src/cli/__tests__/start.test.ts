@@ -47,43 +47,43 @@ describe('CLI start command', () => {
   });
 
   it('loads config with production environment', async () => {
-    const { server } = await startProductionServer({ db: {} });
+    const { server } = await startProductionServer({ db: {} as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.config.environment).toBe('production');
     expect(server).toBeDefined();
   });
 
   it('defaults host to 0.0.0.0', async () => {
-    await startProductionServer({ db: {} });
+    await startProductionServer({ db: {} as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.host).toBe('0.0.0.0');
   });
 
   it('defaults port to 3000', async () => {
-    await startProductionServer({ db: {} });
+    await startProductionServer({ db: {} as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.port).toBe(3000);
   });
 
   it('uses custom port from options', async () => {
-    await startProductionServer({ port: '8080', db: {} });
+    await startProductionServer({ port: '8080', db: {} as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.port).toBe(8080);
   });
 
   it('uses custom host from options', async () => {
-    await startProductionServer({ host: '127.0.0.1', db: {} });
+    await startProductionServer({ host: '127.0.0.1', db: {} as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.host).toBe('127.0.0.1');
   });
 
   it('calls discoverResources', async () => {
-    await startProductionServer({ db: {} });
+    await startProductionServer({ db: {} as never });
     expect(discoverResources).toHaveBeenCalled();
   });
 
   it('passes discovered capabilities to createServer', async () => {
-    await startProductionServer({ db: {} });
+    await startProductionServer({ db: {} as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.capabilities.getAll()).toHaveLength(1);
     expect(serverConfig.capabilities.getAll()[0].name).toBe('testCap');
@@ -91,13 +91,13 @@ describe('CLI start command', () => {
 
   it('uses provided db when given', async () => {
     const mockDb = { execute: vi.fn() };
-    await startProductionServer({ db: mockDb });
+    await startProductionServer({ db: mockDb as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.db).toBe(mockDb);
   });
 
   it('returns shutdown function', async () => {
-    const { shutdown } = await startProductionServer({ db: {} });
+    const { shutdown } = await startProductionServer({ db: {} as never });
     expect(typeof shutdown).toBe('function');
   });
 });

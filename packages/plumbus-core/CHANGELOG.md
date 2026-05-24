@@ -1,5 +1,72 @@
 # @plumbus/core changelog
 
+## 0.4.0
+
+### Added
+
+- **MCP exposure** — optional `exposeAs: ['mcp']` and `mcp?: { description?, dangerous?, agentTags? }` on capabilities; validation when MCP-exposed; `isMcpExposed()` helper.
+- **`@plumbus/core/mcp`** — `buildMcpManifest`, `renderSkillFile`; `plumbus generate` writes `mcp-manifest.json` and `skills/<domain>/<kebab>.md`.
+- **`zodInputToJsonSchema()`** — exported from `@plumbus/core` for MCP/OpenAPI-style JSON Schema from Zod inputs.
+- **`@plumbus/mcp`** — separate, optional runtime package. Declared as an optional peer dependency of `@plumbus/core` (version-locked `0.4.x`). Install with `pnpm add @plumbus/mcp` when you want to serve capabilities to AI agents; `@plumbus/core` works without it.
+- **CLI `plumbus mcp`** — `serve` (stdio / HTTP), `generate`, `list-tools`. `serve` lazy-loads `@plumbus/mcp` and prints a friendly install hint if the package is missing.
+- **`PlumbusConfig.mcp.agents`** — static agent token map for MCP auth (see `docs/mcp/agent-authentication.md`).
+- **Governance** — advisory rule for MCP-exposed capabilities missing agent-facing descriptions.
+- **Consumer AI guidance includes MCP** — `plumbus init` now wires a new `instructions/mcp.md` reference into Copilot, Cursor, and AGENTS.md so coding agents in consumer projects discover `exposeAs: ['mcp']`, `plumbus mcp serve`, and agent auth. Scaffolded capabilities include a commented-out MCP block as a discoverable next step. `AGENT_WIRING_VERSION` bumped to 3.
+
+### Upgrading existing projects
+
+If you ran `plumbus init` on an earlier version, your `.cursor/rules/`, `.github/copilot-instructions.md`, and `AGENTS.md` files were generated against `AGENT_WIRING_VERSION` 2 and do not reference the new MCP instruction. To pick up the MCP guidance (and any future framework-managed additions), run:
+
+```bash
+plumbus init --patch       # replaces only the Plumbus-managed block; preserves your edits outside the markers
+# or
+plumbus agent sync          # same as --patch plus refreshes .plumbus/briefs/project.md
+```
+
+Use `--dry-run` to preview, or `--force` to replace the entire file.
+
+### Non-breaking
+
+- Capabilities without `exposeAs: ['mcp']` behave identically on HTTP and in tests.
+- Upgrading `@plumbus/core` does **not** install `@plumbus/mcp`; install it explicitly when you want MCP support.
+- `plumbus init --patch` only replaces content between the `plumbus:agent-wiring` markers — user-written content outside those markers is preserved.
+
+## Unreleased — security hardening
+
+### Security
+
+- **Flow conditions** use a sandboxed expression evaluator (`evaluateFlowCondition`) instead of `new Function` (no arbitrary JS).
+- **`auth.internal` removed as a god-mode bypass** — flow engine uses the `system` role; capabilities must list `system` in `access.roles` (included in scaffold).
+- **`define*()` outputs are deep-frozen** (nested plain objects/arrays); Zod schemas and handlers are not frozen.
+- **HTTP/SSE errors** expose only whitelisted `metadata` keys (`field`, `hint`, `reason`, `docUrl`, `httpStatus`, `retryAfter`, …); internal errors return a generic message.
+- **CLI `.env` load** only runs inside a Plumbus project (`config/app.config.ts` or `plumbus.config.*`).
+- **AI env providers** limited to `openai` and `anthropic` only; local Ollama uses `AI_OPENAI_BASE_URL` (no URL validation).
+- **`translation import`** rejects paths outside the project root.
+- **Workers** no longer set `bypassTenantScope` when `tenantId` is absent.
+- **JWT adapter** requires secrets ≥ 32 characters.
+- **Hook failures** (`onCapabilityError`, `onAICostRecorded`, process error hooks) are logged instead of swallowed.
+
+### Fixed
+
+- AI explainability `validation.passed` reflects whether validation succeeded on the first attempt.
+- `define*()` validation throws `PlumbusError` with `code: validation`.
+
+### Developer experience
+
+- Centralized `ErrorHints` / `ErrorDocUrls` for flow conditions, tenant denials, and CLI messages.
+- `DatabaseConnection` + `resolveDatabaseConnection()` used by `plumbus start` / `plumbus dev`.
+- Migration snapshot parsing covered by unit tests (`migrate-snapshot-schema`).
+
+### Migration notes
+
+| Change | Action |
+|--------|--------|
+| Flow `if` expressions | Use `state.field` comparisons (`state.amount > 100`). `ctx.state.*` is normalized automatically. No method calls or arbitrary JS. |
+| `AI_OLLAMA_*` / other `AI_*_API_KEY` | Use `AI_OPENAI_API_KEY` + `AI_OPENAI_BASE_URL=http://…/v1` |
+| Capabilities called from flows | Ensure `access.roles` includes `"system"` |
+| Custom `AI_*` providers in env | Only `openai` and `anthropic` are registered |
+| Relying on missing `tenantId` + cross-tenant data in flows | Provide `tenantId` on flow execution or use `access.tenantScoped: false` for admin capabilities |
+
 ## 0.3.0
 
 ### Upgrade checklist

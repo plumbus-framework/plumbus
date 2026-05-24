@@ -18,7 +18,7 @@ export const orderFulfillment = defineFlow({
     {
       name: "checkInventory",
       type: "conditional",
-      condition: "ctx.state.paymentStatus === 'success'",
+      condition: "state.paymentStatus === 'success'",
       ifTrue: "createShipment",
       ifFalse: "cancelOrder",
     },
@@ -81,7 +81,7 @@ Branches based on a condition:
 {
   name: "route",
   type: "conditional",
-  condition: "ctx.state.amount > 100",
+  condition: "state.amount > 100",
   ifTrue: "managerApproval",
   ifFalse: "autoApprove",
 }

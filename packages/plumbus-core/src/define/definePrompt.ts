@@ -1,5 +1,7 @@
 import type { z } from 'zod';
 import type { ModelConfig, PromptDefinition } from '../types/prompt.js';
+import { deepFreeze } from '../types/deep-freeze.js';
+import { throwDefineValidationError } from './validation-error.js';
 
 function isZodSchema(value: unknown): value is z.ZodTypeAny {
   return (
@@ -46,19 +48,24 @@ export function definePrompt<TInput extends z.ZodTypeAny, TOutput extends z.ZodT
   config: DefinePromptInput<TInput, TOutput>,
 ): PromptDefinition<TInput, TOutput> {
   if (!config.name) {
-    throw new Error('Prompt name is required');
+    throwDefineValidationError('Prompt name is required', { field: 'name' });
   }
   if (!isZodSchema(config.input)) {
-    throw new Error(`Prompt "${config.name}": input must be a Zod schema`);
+    throwDefineValidationError(`Prompt "${config.name}": input must be a Zod schema`, {
+      field: 'input',
+    });
   }
   if (!isZodSchema(config.output)) {
-    throw new Error(`Prompt "${config.name}": output must be a Zod schema`);
+    throwDefineValidationError(`Prompt "${config.name}": output must be a Zod schema`, {
+      field: 'output',
+    });
   }
   if (config.disableStrictStructuredOutputs && config.requireStrictStructuredOutputs) {
-    throw new Error(
+    throwDefineValidationError(
       `Prompt "${config.name}": cannot both disable and require strict structured outputs`,
+      { field: 'structuredOutputs' },
     );
   }
 
-  return Object.freeze({ ...config });
+  return deepFreeze({ ...config });
 }

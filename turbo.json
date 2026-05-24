@@ -10,7 +10,7 @@
       "persistent": true
     },
     "test": {
-      "dependsOn": ["build"]
+      "dependsOn": ["^build", "build"]
     },
     "lint": {},
     "format": {
@@ -18,7 +18,7 @@
     },
     "format:check": {},
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["build"]
     }
   }
 }

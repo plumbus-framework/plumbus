@@ -39,6 +39,16 @@ The framework provides these packages to consumer apps. Consumers must **never**
 | playwright | `@plumbus/core/testing` | `dependencies` |
 | drizzle-kit | used by `plumbus migrate` | `dependencies` |
 
+### Optional add-on: `@plumbus/mcp`
+
+`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.4.x`). Apps that want to serve capabilities to AI agents install it explicitly:
+
+```
+pnpm add @plumbus/mcp
+```
+
+Apps that don't use MCP never install it. `plumbus mcp serve` prints an install hint when the package is missing. `plumbus generate` (which emits the MCP manifest + skill files) does **not** require `@plumbus/mcp`.
+
 ### From `@plumbus/ui`
 
 | Package | Provided by |

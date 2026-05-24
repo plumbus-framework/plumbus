@@ -26,6 +26,18 @@ export interface CapabilityExplanationConfig {
   summary?: string;
 }
 
+// ── MCP exposure (agent surface) ──
+export type CapabilityExposeAs = 'mcp';
+
+export interface McpExposureConfig {
+  /** Agent-facing description override for MCP manifest and skills */
+  description?: string;
+  /** Maps to MCP annotations.destructiveHint */
+  dangerous?: boolean;
+  /** Categorization hints for tool selection (manifest + skills) */
+  agentTags?: readonly string[];
+}
+
 // ── Capability Contract ──
 export interface CapabilityContract<
   TInput extends z.ZodTypeAny = z.ZodTypeAny,
@@ -46,6 +58,10 @@ export interface CapabilityContract<
   effects: CapabilityEffects;
   audit?: CapabilityAuditConfig;
   explanation?: CapabilityExplanationConfig;
+  /** Surfaces this capability is exposed on (e.g. MCP tools) */
+  exposeAs?: readonly CapabilityExposeAs[];
+  /** MCP-specific metadata when `exposeAs` includes `'mcp'` */
+  mcp?: McpExposureConfig;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

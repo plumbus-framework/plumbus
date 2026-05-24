@@ -136,6 +136,28 @@ All migration commands accept `--json` for machine-readable output.
 plumbus dev
 ```
 
+## MCP (Model Context Protocol)
+
+Expose capabilities marked with `exposeAs: ['mcp']` to AI agents.
+
+```bash
+# Generate MCP tool manifest and skill files (always available, no install needed)
+plumbus mcp generate
+# → .plumbus/generated/mcp-manifest.json
+# → .plumbus/generated/skills/<domain>/<kebab-name>.md
+
+# Run an MCP server — requires `pnpm add @plumbus/mcp` (optional peer dep)
+plumbus mcp serve --stdio                        # Claude Desktop, Cursor, local agents
+plumbus mcp serve --http --port 3001             # remote agents over Streamable HTTP
+
+# Human-readable manifest dump for debugging
+plumbus mcp list-tools
+```
+
+If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @plumbus/mcp` and exits. Manifest generation works without the runtime.
+
+Read `node_modules/@plumbus/core/instructions/mcp.md` for the full MCP guide.
+
 ## App Commands
 
 Run custom command scripts defined in your project's `app/commands/` directory. Use this for setup scripts, data migration tasks, and other one-off operations that need framework infrastructure (DB, config, password hashing).

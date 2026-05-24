@@ -419,7 +419,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       ...ctx.auth,
       tenantId: row.tenantId ?? ctx.auth.tenantId,
       userId: row.actor ?? ctx.auth.userId,
-      internal: true,
+      roles: ctx.auth.roles.includes('system') ? ctx.auth.roles : [...ctx.auth.roles, 'system'],
     };
     const flowData = config.createDataService ? config.createDataService(flowAuth) : ctx.data;
     const flowEvents = createEventService ? createEventService(flowAuth) : ctx.events;

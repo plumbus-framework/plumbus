@@ -31,7 +31,17 @@ vi.mock('../../server/bootstrap.js', () => ({
   })),
 }));
 
+// Mock worker pool so we can capture stepDeps wired by dev.ts
+vi.mock('../../worker/bootstrap.js', () => ({
+  createWorkerPool: vi.fn(() => ({
+    start: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+  })),
+}));
+
 import { createServer } from '../../server/bootstrap.js';
+import { createWorkerPool } from '../../worker/bootstrap.js';
+import { FlowConditionError } from '../../flows/evaluate-condition.js';
 import { runDev, startDevServer } from '../commands/dev.js';
 import { discoverResources } from '../discover.js';
 
@@ -132,12 +142,12 @@ describe('CLI dev command', () => {
     });
 
     it('calls discoverResources to auto-discover app primitives', async () => {
-      await startDevServer({ db: {} });
+      await startDevServer({ db: {} as never });
       expect(discoverResources).toHaveBeenCalled();
     });
 
     it('passes discovered capabilities to createServer', async () => {
-      await startDevServer({ db: {} });
+      await startDevServer({ db: {} as never });
       expect(createServer).toHaveBeenCalled();
       const serverConfig = (createServer as any).mock.calls[0][0];
       expect(serverConfig.capabilities.getAll()).toHaveLength(1);
@@ -146,9 +156,43 @@ describe('CLI dev command', () => {
 
     it('uses provided db when given', async () => {
       const mockDb = { execute: vi.fn() };
-      await startDevServer({ db: mockDb });
+      await startDevServer({ db: mockDb as never });
       const serverConfig = (createServer as any).mock.calls[0][0];
       expect(serverConfig.db).toBe(mockDb);
+    });
+
+    it('wires evaluateFlowCondition into the worker pool stepDeps (C1)', async () => {
+      // A flow with an event trigger forces the worker pool to be created
+      // so we can capture stepDeps.evaluateCondition.
+      vi.mocked(discoverResources).mockResolvedValueOnce({
+        capabilities: [],
+        entities: [],
+        flows: [
+          {
+            name: 'flowA',
+            domain: 'test',
+            trigger: { type: 'event', event: 'test.event' },
+            steps: [],
+            input: { parse: (v: unknown) => v },
+          } as never,
+        ],
+        events: [],
+        prompts: [],
+        translations: [],
+        eventHandlers: [],
+      } as never);
+
+      await startDevServer({ db: { execute: vi.fn() } as never });
+
+      expect(createWorkerPool).toHaveBeenCalled();
+      const workerConfig = vi.mocked(createWorkerPool).mock.calls[0]?.[0];
+      const evaluate = workerConfig?.stepDeps?.evaluateCondition;
+      expect(typeof evaluate).toBe('function');
+
+      // Safe state.* expression evaluates without throwing.
+      expect(evaluate?.('state.amount > 100', { amount: 150 })).toBe(true);
+      // Arbitrary JS is rejected — the safe evaluator is wired, not `new Function`.
+      expect(() => evaluate?.('process.exit(1)', {})).toThrow(FlowConditionError);
     });
   });
 });

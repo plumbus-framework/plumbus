@@ -226,3 +226,29 @@ export type CapabilityName = "approveRefund" | "getInvoice";
 
 The `CapabilityName` type can be used for type-safe capability references (e.g. with `runCapability`).
 
+## MCP exposure (optional)
+
+Capabilities can be exposed to AI agents over MCP without a separate primitive:
+
+```typescript
+defineCapability({
+  name: "getRefund",
+  kind: "query",
+  exposeAs: ["mcp"],
+  mcp: {
+    description: "Look up a refund for support agents",
+    agentTags: ["billing"],
+  },
+  access: {
+    serviceAccounts: ["billing-agent"],
+    tenantScoped: true,
+  },
+  // ...
+});
+```
+
+- Only `exposeAs: ['mcp']` opts in; tags do not grant MCP exposure.
+- `job` and `eventHandler` kinds cannot be MCP-exposed.
+- `plumbus generate` adds `mcp-manifest.json` and `skills/<domain>/<kebab>.md`.
+- Runtime: `plumbus mcp serve` (see [MCP overview](../mcp/overview.md)).
+

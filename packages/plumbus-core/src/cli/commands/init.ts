@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 2;
+export const AGENT_WIRING_VERSION = 3;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -126,6 +126,7 @@ const CORE_INSTRUCTION_TOPICS = [
   'governance',
   'testing',
   'patterns',
+  'mcp',
 ] as const;
 
 const GUARDRAIL_LINES = [
@@ -385,9 +386,10 @@ When creating or modifying capabilities:
 - Always declare effects (data, events, external, ai)
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
+- To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\` and \`action\` kinds are eligible.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
-- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`
+- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\` and \`node_modules/@plumbus/core/instructions/mcp.md\`
 ${AGENT_WIRING_END_MARKER}
 `;
 }

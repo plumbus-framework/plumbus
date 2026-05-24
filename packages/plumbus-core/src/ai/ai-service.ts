@@ -376,7 +376,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     let result: any;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     let validationAttempts = 1;
-    const validationPassed = true;
+    let validationPassed = true;
 
     try {
       if (promptDef) {
@@ -390,6 +390,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         result = validated.data;
         totalUsage = validated.usage;
         validationAttempts = validated.attempts;
+        validationPassed = validated.attempts === 1;
       } else {
         // Raw generation
         const response = await activeProvider.complete(request);
@@ -1009,7 +1010,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           input: { text: params.text },
           output: validated.data,
           usage: validated.usage,
-          validation: { passed: true, attempts: validated.attempts },
+          validation: { passed: validated.attempts === 1, attempts: validated.attempts },
           actor: config.budget?.actor,
           tenantId: config.budget?.tenantId,
           latencyMs,
@@ -1106,7 +1107,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           input: { labels: params.labels, text: params.text },
           output: result,
           usage: validated.usage,
-          validation: { passed: true, attempts: validated.attempts },
+          validation: { passed: validated.attempts === 1, attempts: validated.attempts },
           actor: config.budget?.actor,
           tenantId: config.budget?.tenantId,
           latencyMs,
