@@ -1117,7 +1117,14 @@ export function createAIService(config: AIServiceConfig): AIService {
       return result;
     },
 
-    async retrieve(params: { query: string; signal?: AbortSignal }): Promise<AIDocument[]> {
+    async retrieve(params: {
+      query: string;
+      corpus?: string;
+      filter?: Record<string, unknown>;
+      limit?: number;
+      minScore?: number;
+      signal?: AbortSignal;
+    }): Promise<AIDocument[]> {
       if (!ragPipeline) {
         throw new Error('RAG pipeline not configured — cannot perform retrieval');
       }
@@ -1129,6 +1136,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       const results = await ragPipeline.retrieve({
         query: params.query,
         tenantId: config.budget?.tenantId,
+        corpus: params.corpus,
+        filter: params.filter,
+        limit: params.limit,
+        minScore: params.minScore,
       });
 
       const latencyMs = performance.now() - start;

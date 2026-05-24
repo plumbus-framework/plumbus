@@ -36,6 +36,14 @@ docs/
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding
 │   └── ui-generation.md
+├── chat/                      Conversational runtime: defineChat, guards, context sources
+│   ├── README.md
+│   ├── defining-chats.md
+│   ├── policies.md
+│   ├── context-sources.md
+│   ├── testing.md
+│   ├── evaluations.md
+│   └── design/                10 design decisions (ADRs) explaining the framework's shape
 ├── agents/                    Wiring AI coding agents to your project
 │   ├── agent-setup.md
 │   └── guardrails.md
@@ -55,6 +63,7 @@ docs/
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |
 | Review framework-first and git-safety rules for agents | [Agents → Guardrails](agents/guardrails.md) |
 | Generate a React frontend | [UI → Generation](ui/ui-generation.md) |
+| Add a chat surface to my app | [Chat → README](chat/README.md) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |

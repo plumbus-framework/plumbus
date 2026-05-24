@@ -44,8 +44,9 @@ plumbus init
        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Reads instruction files from:                               │
-│ node_modules/@plumbus/core/instructions/                     │
+│ node_modules/@plumbus/core/instructions/                    │
 │ node_modules/@plumbus/ui/instructions/                      │
+│ node_modules/@plumbus/chat/instructions/                    │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
 │  framework.md     ← Core patterns and conventions           │
@@ -59,6 +60,8 @@ plumbus init
 │  governance.md    ← Governance rules and compliance         │
 │  testing.md       ← Testing helpers and patterns            │
 │  patterns.md      ← Common code patterns                    │
+│  chat/*.md        ← Recipes for defineChat, guards,         │
+│                     context sources, testing, extending     │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
@@ -112,6 +115,7 @@ After initialization, your AI agent understands:
 | **Testing** | `runCapability()`, `simulateFlow()`, `mockAI()`, security asserts |
 | **Patterns** | Common implementation patterns and idioms |
 | **UI Generation** | How to generate clients, hooks, auth helpers, form hints, and Next.js scaffolds |
+| **Chat** | How to define chats, configure guards, pick context sources, test, and extend the runtime |
 
 ## Manual Setup
 

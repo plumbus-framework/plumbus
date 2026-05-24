@@ -178,6 +178,33 @@ const UI_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const CHAT_INSTRUCTION_REFERENCES = [
+  {
+    area: 'chat framework overview, package conventions, and critical rules',
+    path: 'node_modules/@plumbus/chat/instructions/framework.md',
+  },
+  {
+    area: 'adding a new chat with defineChat (recipe + full config shape)',
+    path: 'node_modules/@plumbus/chat/instructions/defining-chats.md',
+  },
+  {
+    area: 'configuring chat policy guards (audience, scope, behavioral, action, etc.)',
+    path: 'node_modules/@plumbus/chat/instructions/policies.md',
+  },
+  {
+    area: 'wiring chat context sources (knowledgeContext, capabilityContext, staticContext)',
+    path: 'node_modules/@plumbus/chat/instructions/context-sources.md',
+  },
+  {
+    area: 'testing chats with mockChatRuntime and pure UI helpers',
+    path: 'node_modules/@plumbus/chat/instructions/testing.md',
+  },
+  {
+    area: 'extending chat with custom prompts, context sources, or guards',
+    path: 'node_modules/@plumbus/chat/instructions/extending.md',
+  },
+] as const;
+
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
@@ -193,6 +220,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of UI_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of CHAT_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 }

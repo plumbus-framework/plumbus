@@ -248,7 +248,14 @@ export interface AIService {
     costContext?: AICostContext;
   }): Promise<string[]>;
 
-  retrieve(config: { query: string; signal?: AbortSignal }): Promise<AIDocument[]>;
+  retrieve(config: {
+    query: string;
+    corpus?: string;
+    filter?: Record<string, unknown>;
+    limit?: number;
+    minScore?: number;
+    signal?: AbortSignal;
+  }): Promise<AIDocument[]>;
 }
 
 // ── Logger Service ──

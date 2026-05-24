@@ -1,0 +1,116 @@
+# Chat (`@plumbus/chat`)
+
+The Plumbus framework's chat primitive. Turns a declarative `defineChat({...})` config into a fully-governed conversation runtime: context resolution, scope and provenance guards, per-turn and per-session budgets, refusal cooldowns, action confirmation, and a typed event stream for the UI.
+
+The runtime lives in [`packages/chat`](../../packages/chat). The thin React layer lives in [`packages/chat-ui`](../../packages/chat-ui).
+
+These docs are split in three:
+
+- **Usage** (the files in this folder) — how to define, configure, test, and ship a chat. Human-readable, explanatory.
+- **[Design](./design/)** — *why* the framework is shaped the way it is. Tradeoffs, rejected alternatives, locked decisions. Read before you "fix" something that looks weird.
+- **Agent instructions** — prescriptive "do this / don't do that" guidance for AI coding agents. Lives at [`packages/chat/instructions/`](../../packages/chat/instructions/) and ships in the npm tarball so agents working in `node_modules/@plumbus/chat/` can find it. The instructions cross-link back to these docs for the deeper conceptual material.
+
+## Usage docs
+
+| Doc | Read when… |
+|---|---|
+| [defining-chats.md](./defining-chats.md) | You want to author a new `defineChat` config. |
+| [policies.md](./policies.md) | You need to understand the seven built-in guards and the order they fire in. |
+| [context-sources.md](./context-sources.md) | You're wiring up `knowledgeContext`, `capabilityContext`, or `staticContext`. |
+| [testing.md](./testing.md) | You're writing tests with `mockChatRuntime` or the pure UI helpers. |
+| [evaluations.md](./evaluations.md) | You want to know what `defineChatEvaluation` will look like in v0.2. |
+
+## Design docs
+
+See [design/](./design/) for the ten decision records — why the framework is shaped the way it is, what alternatives were rejected, and what to watch out for when extending it.
+
+## Agent instructions
+
+Read these when you're an AI agent extending a Plumbus app that uses chat. They live in the package itself ([`packages/chat/instructions/`](../../packages/chat/instructions/)) so they're available in `node_modules/@plumbus/chat/instructions/` for agents working outside this monorepo:
+
+- [`instructions/framework.md`](../../packages/chat/instructions/framework.md) — file map, package conventions, critical rules
+- [`instructions/defining-chats.md`](../../packages/chat/instructions/defining-chats.md) — recipe for adding a chat
+- [`instructions/policies.md`](../../packages/chat/instructions/policies.md) — recipe for configuring guards
+- [`instructions/context-sources.md`](../../packages/chat/instructions/context-sources.md) — picker + recipes for each helper
+- [`instructions/testing.md`](../../packages/chat/instructions/testing.md) — test patterns
+- [`instructions/extending.md`](../../packages/chat/instructions/extending.md) — custom prompts, context sources, guards
+
+## When to reach for `@plumbus/chat` vs. something else
+
+| You want… | Reach for |
+|---|---|
+| A single capability call with no conversational state | `defineCapability` in `@plumbus/core` |
+| A long-running multi-step workflow | `defineFlow` in `@plumbus/core` |
+| One-shot RAG-grounded answer with no chat surface | `ctx.ai.retrieve` + a normal capability |
+| **Multi-turn user conversation with scope, budgets, citations, and an event stream** | **`@plumbus/chat`** |
+| Conversational *agent* with autonomous tool selection | Not v0.1. Action confirmation is the closest primitive — model proposes a capability, runtime validates and asks the user. |
+
+Use chat when the surface itself is the product: a help bot, customer support, in-product Q&A. If the AI work is upstream of a capability and the user never sees a chat, you don't need this package.
+
+## Architecture in one paragraph
+
+A chat is declared once via `defineChat`. Each user turn runs through a fixed pipeline: budget preflight → pre-turn guards (audience, locale, behavioral) → eager context resolution → prompt build with structured-output scope guard baked in → model call (streaming or fallback) → post-turn guards (provenance, scope, privacy, action, behavioral) → session persistence → event emission. The runtime never lets the model invent source IDs, never lets a write-effect capability appear as a context source, and never sends a turn that would breach configured limits. Pipeline state lives in `ChatSession` + `ChatTurn` entities; conversation prose lives there by default but can be opted out of (`persistence.messageContent: 'client'`).
+
+## Package layout
+
+```
+packages/chat/
+  src/
+    index.ts                          Public barrel
+    define/
+      defineChat.ts                   The declarative entrypoint
+      defineChatEvaluation.ts         (preview — v0.2 gate not yet passed)
+    context/
+      knowledge-context.ts            Wraps ctx.ai.retrieve over a registered RAG corpus
+      capability-context.ts           Wraps a read capability (write-effect capabilities rejected)
+      static-context.ts               Inline structured items (path maps, glossaries)
+      static-context-from-translations.ts   Built from i18n catalogs — no drift
+      resolver.ts                     Eager parallel resolution with stable handles
+    policy/
+      registry.ts                     compilePolicy(policy) → preTurn[] + postTurn[]
+      audience-guard.ts               Strict-mode role check
+      locale-guard.ts                 Locale normalization + whitelist
+      scope-classifier.ts             Single-call structured-output refusal
+      privacy-guard.ts                Substring redaction (v0.1 limitation)
+      provenance-guard.ts             Validates citations against runtime handles
+      action-guard.ts                 Capability re-validation; pending-action store
+      behavioral-guard.ts             Cooldown state read/increment
+    budget/, history/, runtime/, session/, capabilities/, prompt/
+    eval/                             PREVIEW — v0.2 gate not yet passed
+    testing/                          mockChatRuntime helper
+    events/                           Domain events (chat.turn.completed, etc.)
+    internal/                         Private helpers
+packages/chat-ui/
+  src/
+    hooks/useChat.ts                  + pure helpers (applyChatEvent, buildTurnRequestBody)
+    client/event-stream.ts            SSE parser
+    components/                       ChatPanel, ChatMessages, ChatInput, ConfirmationDialog, SourceCitation
+```
+
+## Relationship to `@plumbus/core`
+
+This package composes on core; it does not duplicate. Specifically:
+
+| Concern | Owned by | Used here as |
+|---|---|---|
+| LLM calls (`generate`, `streamGenerate`, `generateWithUsage`) | core | direct dependency in `run-turn.ts` |
+| RAG retrieval (`ctx.ai.retrieve({ corpus, query, filter })`) | core | wrapped by `knowledgeContext` |
+| Capability execution | core | wrapped by `capabilityContext` (read-only) and `action-guard` (write with confirmation) |
+| Auth / tenant scoping | core | inherited via `ExecutionContext` |
+| Cost ledger / `onAICostRecorded` hook | core | every chat AI call tags `costContext.serviceArea = 'chat'`, `operationName = chat.<name>` |
+| Entity registry / Drizzle migrations | core | chat entities register through the same path as any consumer entity |
+| Prompts (`definePrompt`) | core | the generic `chat.turn` prompt is a normal Plumbus prompt; per-chat overrides plug into `AiConfig` admin overrides like every other prompt |
+
+## What v0.1 ships
+
+- `defineChat` with full policy DSL (audience, scope, reply, privacy, provenance, behavioral, action, custom guards).
+- Three built-in context sources + a translation-backed helper.
+- All five budget scopes + per-turn timeout.
+- Streaming runtime with event protocol.
+- Pending-action confirmation with schema-hash re-validation.
+- React hook (`useChat`) and minimal components in `@plumbus/chat-ui`.
+- Session and turn persistence with opt-out for message content.
+
+## What's in source but NOT shipped in v0.1
+
+The eval framework (`defineChatEvaluation`, `TraceRecorder`, reference scenarios) and observability events (`chat.turn.completed`, etc.) are implemented in `src/eval/` and `src/events/`. They are explicitly held back from v0.1 — the plan gates them on at least one real consumer stressing the runtime in production. The reference eval scenarios will be more useful once they're informed by real failures, not invented from a whiteboard. Treat these surfaces as unstable until v0.2 is tagged.
