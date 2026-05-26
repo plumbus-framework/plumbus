@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.3 — 2026-05-25
+
+- `runChatTurn` auto-creates the `chat_session` row when `loadSession` returns null AND `saveToDb: true`. Lets consumers ship client-generated session UUIDs without a separate bootstrap capability (`chatStart`). Identity (`userId`, `tenantId`, `audience`, `locale`, `chatName`) comes from `ctx.auth` + the request. **Breaking semantic** (no API break): the `chat.session_not_found` event no longer fires under normal operation — only on `loadSession` errors. Consumers that relied on the failure signal should switch to checking `getOrCreateSession` directly.
+- New export: `getOrCreateSession(ctx, args)` — idempotent session bootstrap with caller-supplied id. Handles primary-key race (concurrent first-turns) via try/re-load. Use directly if you want explicit control vs. letting `runChatTurn` do it for you.
+
+## 0.1.2 — 2026-05-25
+
+- `defineChat({ persistence: { saveToDb?: boolean } })` — opt out of all server-side DB writes for ephemeral chat surfaces (in-product help widgets, public marketing chats). When `saveToDb: false`, the runtime skips `loadSession`, `aggregateTurnCount`, `checkBudgetPreflight`, `maybeSummarize`, and both `appendTurn` calls. Session is synthesized from the request; client owns sessionId generation. Cost recording via `onAICostRecorded` is unchanged. Default remains `true` (fully backward compatible — flipping back to `true` resumes writing to the existing chat tables).
+- `saveToDb: false` enforces `messageContent: 'client'` and rejects `policy.action.allowedCapabilities` at `defineChat` validation (no chat_turn row to hold content; no chat_pending_action row to survive across requests).
+- `clientHistory` wire shape extended: each message now carries an optional `refusalReason` field. Lets the server-side behavioral cooldown guard enforce policy from the client-supplied history when there's no `chat_session.behavioral_state` to read from. Backward compatible (the field is optional).
+- `behavioralPreGuard` branches on `saveToDb`: reads DB state when true; reads `clientHistory` when false. Refusal cooldown semantics in ephemeral mode: "last N assistant messages are all refusals → block + emit `chat.cooldown_active` notice with `retryAfterSeconds`."
+- `behavioralPostGuard` is a no-op when `saveToDb: false` (nothing to persist — next turn's clientHistory re-supplies the state).
+- `budget.perSession.userMessages` works in ephemeral mode by counting user-role messages in `clientHistory + 1`. Per-tenant / per-user / per-day budgets still require `saveToDb: true`.
+- `GuardState` gained `saveToDb?: boolean` and `clientHistory?` fields so custom guards can branch on persistence mode and read the wire history.
+
+## 0.1.1 — 2026-05-19
+
+- `defineChat({ streaming?: boolean })` — opt-in JSON `{ events }` responses when `streaming: false`.
+- `turn.completed` events include optional `inScope`, `refusalReason`, and `sources`.
+- `registerChatRoutes` opts: `authCookieNames`, `audienceTenantOverride` (auth spread), `beforeTurn`, `afterTurn`.
+- Turn body schema uses `.passthrough()` for consumer fields (`projectId`, `currentPath`).
+
 ## Unreleased — v0.2 features (preview, NOT shipped)
 
 The following landed in source ahead of the v0.2 gate but are not part of v0.1

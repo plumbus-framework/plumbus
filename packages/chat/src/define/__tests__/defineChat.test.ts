@@ -41,6 +41,16 @@ describe('defineChat', () => {
     ).toThrow();
   });
 
+  it('defaults streaming to true', () => {
+    const def = defineChat({ name: 'x', access: {} });
+    expect(def.streaming).toBe(true);
+  });
+
+  it('respects streaming: false', () => {
+    const def = defineChat({ name: 'x', access: {}, streaming: false });
+    expect(def.streaming).toBe(false);
+  });
+
   it('accepts persistence client', () => {
     const chat = defineChat({
       name: 'c',
@@ -48,6 +58,42 @@ describe('defineChat', () => {
       persistence: { messageContent: 'client' },
     });
     expect(chat.persistence?.messageContent).toBe('client');
+  });
+
+  it('defaults persistence.saveToDb to true', () => {
+    const chat = defineChat({ name: 'd', access: {} });
+    expect(chat.persistence?.saveToDb).toBe(true);
+  });
+
+  it('respects persistence.saveToDb: false when paired with messageContent: "client"', () => {
+    const chat = defineChat({
+      name: 'ephem',
+      access: {},
+      persistence: { messageContent: 'client', saveToDb: false },
+    });
+    expect(chat.persistence?.saveToDb).toBe(false);
+    expect(chat.persistence?.messageContent).toBe('client');
+  });
+
+  it('rejects saveToDb: false with messageContent: "server"', () => {
+    expect(() =>
+      defineChat({
+        name: 'bad',
+        access: {},
+        persistence: { messageContent: 'server', saveToDb: false },
+      }),
+    ).toThrow(/saveToDb=false/);
+  });
+
+  it('rejects saveToDb: false with policy.action.allowedCapabilities', () => {
+    expect(() =>
+      defineChat({
+        name: 'bad-action',
+        access: {},
+        persistence: { messageContent: 'client', saveToDb: false },
+        policy: { action: { allowedCapabilities: ['doThing'] } },
+      }),
+    ).toThrow(/saveToDb=false.*action/);
   });
 
   it('accepts a per-chat prompt override (Decision 0008)', () => {
@@ -59,7 +105,9 @@ describe('defineChat', () => {
       output: z.object({
         inScope: z.boolean(),
         answer: z.string(),
-        refusalReason: z.enum(['off_topic', 'unsafe', 'asking_for_action', 'pii_request']).nullable(),
+        refusalReason: z
+          .enum(['off_topic', 'unsafe', 'asking_for_action', 'pii_request'])
+          .nullable(),
         citedSources: z.array(z.string()),
         requestedAction: z.unknown().nullable(),
       }),

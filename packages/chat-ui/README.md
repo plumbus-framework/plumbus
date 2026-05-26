@@ -22,7 +22,7 @@ import { ChatPanel } from '@plumbus/chat-ui';
 
 ## Docs
 
-See [`docs/chat/`](../../docs/chat/) in the monorepo for the full framework documentation. UI-specific notes are in [`docs/chat/README.md`](../../docs/chat/README.md) under the chat-ui section.
+UI-specific reference lives in [`docs/chat-ui/`](../../docs/chat-ui/) — surface map, `<ChatPanel />` props, the `useChat` return shape, and headless usage. The server-side chat framework is documented in [`docs/chat/`](../../docs/chat/).
 
 ## Testing
 

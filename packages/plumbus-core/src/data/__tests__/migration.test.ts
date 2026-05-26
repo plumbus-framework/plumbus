@@ -131,6 +131,7 @@ describe('migration history helpers', () => {
         .fn()
         .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
         .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
+        .mockResolvedValueOnce([]) // adopt legacy public.__drizzle_migrations
         .mockResolvedValueOnce([{ hash: sha256(firstSql) }]),
     };
 
@@ -164,6 +165,7 @@ describe('migration history helpers', () => {
         .fn()
         .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
         .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
+        .mockResolvedValueOnce([]) // adopt legacy public.__drizzle_migrations
         .mockResolvedValueOnce([{ hash: sha256(firstSql) }]),
       transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
     };

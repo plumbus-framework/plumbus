@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — 2026-05-25
+
+- `buildTurnRequestBody` now propagates each message's `refusalReason` into the `clientHistory` wire payload. Required for `@plumbus/chat@0.1.2`'s `saveToDb: false` mode — server-side behavioral cooldown enforcement uses the per-message refusal flags from the wire when there's no DB state.
+- Exported `WireHistoryMessage` + `WireRefusalReason` types alongside existing helper types.
+
+## 0.1.1 — 2026-05-19
+
+- Auto-detect JSON vs SSE responses in `useChat` (`credentials: 'include'` for cookie auth).
+- `send(text, extras?)` supports per-call `sessionId`, `locale`, and `extraBody` overrides.
+- `turn.completed` applies `inScope` / `refusalReason` to the last assistant message.
+- Exported `applyChatEvent`, `buildTurnRequestBody`, and related helper types from the package barrel.
+
 ## 0.1.0 — 2026-05-19
 
 Initial release. Thin React layer over `@plumbus/chat`'s event stream.

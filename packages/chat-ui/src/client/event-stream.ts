@@ -13,9 +13,7 @@ export async function* readChatStream(response: Response): AsyncIterable<ChatEve
     const parts = buffer.split('\n\n');
     buffer = parts.pop() ?? '';
     for (const part of parts) {
-      const line = part
-        .split('\n')
-        .find((l) => l.startsWith('data: '));
+      const line = part.split('\n').find((l) => l.startsWith('data: '));
       if (!line) continue;
       const json = line.slice(6);
       if (!json.trim()) continue;

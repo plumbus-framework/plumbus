@@ -6,6 +6,8 @@ export type ChatUiMessage = {
   role: 'user' | 'assistant';
   content: string;
   sources?: string[];
+  inScope?: boolean;
+  refusalReason?: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
 };
 
 export type ChatUiNotice = {
@@ -19,6 +21,11 @@ export type ChatUiPendingConfirmation = {
   capabilityName: string;
   confirmationMessage: string;
   expiresAt: string;
+  /** Echo this back to `chatConfirmAction` so the server can detect schema
+   * drift between propose and confirm. May be missing when talking to a
+   * pre-0.1.4 server — apps that wire confirmation should treat that as a
+   * configuration error. */
+  schemaHash?: string;
 };
 
 export interface ChatUiState {
@@ -87,11 +94,23 @@ export function applyChatEvent(state: ChatUiState, evt: ChatEvent): ChatUiState 
           capabilityName: evt.capabilityName,
           confirmationMessage: evt.confirmationMessage,
           expiresAt: evt.expiresAt,
+          schemaHash: evt.schemaHash,
         },
       };
 
-    case 'turn.completed':
-      return { ...state, status: 'idle' };
+    case 'turn.completed': {
+      const messages = [...state.messages];
+      const lastIdx = messages.length - 1;
+      const last = messages[lastIdx];
+      if (last?.role === 'assistant') {
+        messages[lastIdx] = {
+          ...last,
+          inScope: evt.inScope,
+          refusalReason: evt.refusalReason ?? null,
+        };
+      }
+      return { ...state, messages, status: 'idle' };
+    }
 
     case 'turn.failed':
       return { ...state, status: 'error' };
@@ -122,12 +141,24 @@ export interface BuildTurnBodyArgs {
   currentMessages: ChatUiMessage[];
 }
 
+export type WireRefusalReason = 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request';
+
+export interface WireHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  /** Set on past assistant turns that were refusals. Used by the server's
+   * behavioral cooldown guard when the chat runs with `saveToDb: false`
+   * (cooldowns are enforced from clientHistory instead of from chat_session
+   * state). Optional + nullable so legacy clients still parse. */
+  refusalReason?: WireRefusalReason | null;
+}
+
 export interface TurnRequestBody {
   sessionId: string;
   userMessage: string;
   audience: string;
   locale: string;
-  clientHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  clientHistory?: WireHistoryMessage[];
 }
 
 /**
@@ -136,8 +167,10 @@ export interface TurnRequestBody {
  * In `client` persistence mode the body carries the last 20 messages plus the
  * about-to-send user message as `clientHistory` — the server has no message
  * content of its own and uses this to give the model conversational context
- * (Decision 0009). In `server` mode `clientHistory` is omitted; the server
- * hydrates history from `ChatTurn` rows.
+ * (Decision 0009). Assistant messages also carry their `refusalReason` when
+ * applicable so server-side behavioral cooldowns can run without DB state
+ * (`defineChat({ persistence: { saveToDb: false } })`). In `server` mode
+ * `clientHistory` is omitted; the server hydrates history from `ChatTurn` rows.
  *
  * The 20-message cap mirrors the server's `CLIENT_HISTORY_MAX_MESSAGES`. The
  * hook caps proactively so a long-lived conversation doesn't grow the request
@@ -151,8 +184,14 @@ export function buildTurnRequestBody(args: BuildTurnBodyArgs): TurnRequestBody {
     locale: args.locale,
   };
   if (args.persistence === 'client') {
-    const all: Array<{ role: 'user' | 'assistant'; content: string }> = [
-      ...args.currentMessages.map((m) => ({ role: m.role, content: m.content })),
+    const all: WireHistoryMessage[] = [
+      ...args.currentMessages.map((m): WireHistoryMessage => {
+        const wire: WireHistoryMessage = { role: m.role, content: m.content };
+        if (m.role === 'assistant' && m.refusalReason) {
+          wire.refusalReason = m.refusalReason;
+        }
+        return wire;
+      }),
       { role: 'user', content: args.userMessage },
     ];
     body.clientHistory = all.slice(-20);

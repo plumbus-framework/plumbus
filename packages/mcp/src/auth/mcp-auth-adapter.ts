@@ -17,7 +17,8 @@ export function createMcpAuthAdapter(config: McpAuthAdapterConfig): AuthAdapter 
         return null;
       }
 
-      const agent = agents[key];
+      // resolveMcpAgentToken already verified Object.hasOwn(agents, key).
+      const agent = Object.hasOwn(agents, key) ? agents[key] : undefined;
       if (!agent) {
         return null;
       }

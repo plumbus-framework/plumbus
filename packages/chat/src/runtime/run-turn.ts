@@ -10,13 +10,13 @@ import { compilePolicy } from '../policy/registry.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
 import type { ChatTurnModelOutput } from '../prompt/chat-turn.prompt.js';
-import { appendTurn, loadSession } from '../session/service.js';
+import { appendTurn, getOrCreateSession, loadSession } from '../session/service.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatEvent } from '../types/event.js';
 import type { GuardState } from '../types/policy.js';
 import type { ChatSourceRef } from '../types/context.js';
 import type { TraceRecorder } from '../eval/trace.js';
-import { capClientHistory } from './constants.js';
+import { capClientHistory, type ClientHistoryMessage } from './constants.js';
 import { ChatEventEmitter, emitterToIterable } from './events.js';
 import { storePending } from './pending-actions.js';
 import { chatRefusalRecordedEvent, chatTurnCompletedEvent } from '../events/chat-events.js';
@@ -27,7 +27,7 @@ export interface RunChatTurnArgs {
   userMessage: string;
   audience: string;
   locale: string;
-  clientHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  clientHistory?: ClientHistoryMessage[];
   traceRecorder?: TraceRecorder;
 }
 
@@ -58,9 +58,36 @@ export async function* runChatTurn(
     const turnId = crypto.randomUUID();
     const chat = args.chatDefinition;
     const persistence = chat.persistence?.messageContent ?? 'server';
+    const saveToDb = chat.persistence?.saveToDb ?? true;
 
     try {
-      const session = await loadSession(ctx, args.sessionId);
+      // In ephemeral mode (`saveToDb: false`) there's no chat_session row to
+      // load. Synthesize a minimal stand-in from the request so downstream
+      // code that reads `session.userId` / `session.tenantId` works uniformly.
+      // Cast covers ChatSessionRow's other fields, none of which are accessed
+      // in this code path (history summarizer + DB writes are both skipped
+      // when `saveToDb: false`).
+      //
+      // In DB mode (`saveToDb: true`), the client may have generated its own
+      // sessionId without a separate bootstrap (e.g. help widgets where the
+      // browser owns the UUID). `getOrCreateSession` looks up the row and
+      // inserts it on first turn — wiring identity from ctx.auth + the
+      // request. This removes the need for consumers to ship a separate
+      // `chatStart` capability.
+      const session = saveToDb
+        ? await getOrCreateSession(ctx, {
+            sessionId: args.sessionId,
+            chatName: chat.name,
+            userId: (ctx.auth as { userId?: string }).userId ?? '',
+            audience: args.audience,
+            locale: args.locale,
+            tenantId: (ctx.auth as { tenantId?: string }).tenantId,
+          })
+        : ({
+            id: args.sessionId,
+            userId: (ctx.auth as { userId?: string }).userId ?? 'ephemeral',
+            tenantId: (ctx.auth as { tenantId?: string }).tenantId,
+          } as unknown as Awaited<ReturnType<typeof loadSession>>);
       if (!session) {
         emit({
           type: 'turn.failed',
@@ -71,16 +98,48 @@ export async function* runChatTurn(
         return;
       }
 
-      const ordinal = await aggregateTurnCount(ctx, args.sessionId);
+      // Ordinal: when DB-backed, count existing rows. When ephemeral, the
+      // client-supplied history length is the best proxy (the new user message
+      // about to be sent makes this turn ordinal N = past message count).
+      const ordinal = saveToDb
+        ? await aggregateTurnCount(ctx, args.sessionId)
+        : (args.clientHistory?.length ?? 0);
       emit({ type: 'turn.started', turnId, ordinal });
 
-      await checkBudgetPreflight(ctx, {
-        chatName: chat.name,
-        userId: session.userId,
-        tenantId: session.tenantId,
-        sessionId: args.sessionId,
-        budget: chat.budget,
-      });
+      // Per-tenant / per-user / per-day budgets aggregate across sessions —
+      // they require DB. Per-session message-cap is enforced inline below
+      // (against clientHistory) when ephemeral.
+      if (saveToDb) {
+        await checkBudgetPreflight(ctx, {
+          chatName: chat.name,
+          userId: session.userId,
+          tenantId: session.tenantId,
+          sessionId: args.sessionId,
+          budget: chat.budget,
+        });
+      } else {
+        const cap = chat.budget?.perSession?.userMessages;
+        if (cap !== undefined) {
+          const priorUserMessages = (args.clientHistory ?? []).filter(
+            (m) => m.role === 'user',
+          ).length;
+          // +1 for the incoming turn's user message
+          if (priorUserMessages + 1 > cap) {
+            emit({
+              type: 'notice',
+              code: 'chat.budget_exceeded',
+              message: `Session message cap reached (${cap})`,
+            });
+            emit({
+              type: 'turn.failed',
+              code: 'chat.budget_exceeded',
+              message: `Session message cap reached (${cap})`,
+            });
+            emitter.end();
+            return;
+          }
+        }
+      }
 
       const policy = chat.policy ?? {};
       const { preTurnGuards, postTurnGuards } = compilePolicy(policy);
@@ -100,6 +159,10 @@ export async function* runChatTurn(
         chatName: chat.name,
         policy,
         resolvedSources: new Set<string>(),
+        // Surfaced to behavioralPreGuard so it can enforce cooldowns from
+        // clientHistory when there's no chat_session.behavioral_state to read.
+        clientHistory: saveToDb ? undefined : (args.clientHistory ?? []),
+        saveToDb,
       };
 
       for (const guard of preTurnGuards) {
@@ -144,13 +207,15 @@ export async function* runChatTurn(
               persistence,
             );
 
-      const historyRows = await loadTurnRows(ctx, args.sessionId);
-      const summaryResult = await maybeSummarize(
-        ctx,
-        session,
-        historyRows,
-        chat.history?.summarize,
-      );
+      // Summarizer reads chat_turn rows. Ephemeral mode has none — skip.
+      const summaryResult = saveToDb
+        ? await maybeSummarize(
+            ctx,
+            session,
+            await loadTurnRows(ctx, args.sessionId),
+            chat.history?.summarize,
+          )
+        : null;
 
       const systemPrompt = buildSystemPrompt({
         chatInstructions: (chat.instructions ?? []).join('\n'),
@@ -203,9 +268,13 @@ export async function* runChatTurn(
         });
 
         for await (const chunk of stream) {
-          if (chunk.type === 'delta' && chunk.text) {
-            emit({ type: 'message.delta', text: chunk.text });
-          }
+          // Do NOT emit `chunk.text` as message.delta during streaming. For the
+          // structured-output ChatTurnModelOutput schema, `chunk.text` is the
+          // raw JSON serialization in progress (e.g. `{"inScope":false,"answe`)
+          // — emitting it would dump JSON into the user-facing message bubble.
+          // We emit one synthetic message.delta with `modelOutput.answer` after
+          // `done` instead. (Token-level streaming of the `answer` field would
+          // require diffing partial JSON snapshots — out of scope for v0.1.)
           if (chunk.type === 'done') {
             streamCompleted = true;
             if (chunk.data) {
@@ -241,10 +310,17 @@ export async function* runChatTurn(
         };
         model = gen.model;
         cost = gen.cost ?? 0;
-        if (modelOutput.answer) {
-          emit({ type: 'message.delta', text: modelOutput.answer });
-        }
       }
+
+      // Emit the user-facing answer text as a single delta — same shape both
+      // paths (streaming + fallback) so applyChatEvent's accumulator produces
+      // clean message content. ALWAYS emit (even when answer is empty) so the
+      // accumulator creates an assistant message that turn.completed can then
+      // tag with inScope/refusalReason. Without this, empty-answer refusals
+      // leave no assistant message in chat-ui state and the refusal bubble
+      // never renders client-side — the user sees nothing despite the server
+      // having recorded a refusal (and the cooldown counter incrementing).
+      emit({ type: 'message.delta', text: modelOutput.answer ?? '' });
 
       guardState.modelOutput = modelOutput as unknown as Record<string, unknown>;
       trace?.recordModelOutput(guardState.modelOutput);
@@ -273,6 +349,7 @@ export async function* runChatTurn(
             capabilityName: verdict.pendingAction.capabilityName,
             confirmationMessage: verdict.pendingAction.confirmationMessage,
             expiresAt: verdict.pendingAction.expiresAt,
+            schemaHash: verdict.pendingAction.schemaHash,
           });
         }
       }
@@ -287,52 +364,58 @@ export async function* runChatTurn(
       // set is debugging data; the cited set is the audit trail.
       const allowedHandles = guardState.resolvedSources ?? new Set<string>();
       const citedHandles: string[] = Array.isArray(guardState.modelOutput?.citedSources)
-        ? (guardState.modelOutput!.citedSources as string[]).filter((id) => allowedHandles.has(id))
+        ? (guardState.modelOutput.citedSources as string[]).filter((id) => allowedHandles.has(id))
         : [];
       const citedSourceRefs: ChatSourceRef[] = resolvedRaw.sourceRefs.filter((src) =>
         citedHandles.includes(src.id),
       );
 
-      await appendTurn(
-        ctx,
-        {
-          sessionId: args.sessionId,
-          ordinal: 0,
-          role: 'user',
-          content: args.userMessage,
-          inScope: true,
-          sources: [],
-          tokensIn: 0,
-          tokensOut: 0,
-          costUsd: 0,
-          model: '',
-          latencyMs: 0,
-          recordedAt: ctx.time.now(),
-          userId: session.userId,
-        },
-        { persistContent: persistence !== 'client' },
-      );
+      // Ephemeral mode: no chat_session anchor row exists, so we can't FK
+      // chat_turn rows to it. Cost still flows to onAICostRecorded via the AI
+      // service's AICostContext (independent of this code path). Behavioral
+      // state lives in clientHistory which the client re-sends each turn.
+      if (saveToDb) {
+        await appendTurn(
+          ctx,
+          {
+            sessionId: args.sessionId,
+            ordinal: 0,
+            role: 'user',
+            content: args.userMessage,
+            inScope: true,
+            sources: [],
+            tokensIn: 0,
+            tokensOut: 0,
+            costUsd: 0,
+            model: '',
+            latencyMs: 0,
+            recordedAt: ctx.time.now(),
+            userId: session.userId,
+          },
+          { persistContent: persistence !== 'client' },
+        );
 
-      await appendTurn(
-        ctx,
-        {
-          sessionId: args.sessionId,
-          ordinal: 0,
-          role: 'assistant',
-          content: finalAnswer,
-          inScope: modelOutput.inScope,
-          refusalReason: modelOutput.refusalReason ?? undefined,
-          sources: citedSourceRefs,
-          tokensIn: usage.tokensIn,
-          tokensOut: usage.tokensOut,
-          costUsd: cost,
-          model,
-          latencyMs: 0,
-          recordedAt: ctx.time.now(),
-          userId: session.userId,
-        },
-        { persistContent: persistence !== 'client' },
-      );
+        await appendTurn(
+          ctx,
+          {
+            sessionId: args.sessionId,
+            ordinal: 0,
+            role: 'assistant',
+            content: finalAnswer,
+            inScope: modelOutput.inScope,
+            refusalReason: modelOutput.refusalReason ?? undefined,
+            sources: citedSourceRefs,
+            tokensIn: usage.tokensIn,
+            tokensOut: usage.tokensOut,
+            costUsd: cost,
+            model,
+            latencyMs: 0,
+            recordedAt: ctx.time.now(),
+            userId: session.userId,
+          },
+          { persistContent: persistence !== 'client' },
+        );
+      }
 
       await ctx.events.emit(chatTurnCompletedEvent.name, {
         chatName: chat.name,
@@ -340,7 +423,15 @@ export async function* runChatTurn(
         turnId,
         costUsd: cost,
       });
-      emit({ type: 'turn.completed', turnId, usage, cost });
+      emit({
+        type: 'turn.completed',
+        turnId,
+        usage,
+        cost,
+        inScope: modelOutput.inScope,
+        refusalReason: modelOutput.refusalReason ?? null,
+        sources: citedSourceRefs,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       emit({ type: 'turn.failed', code: 'chat.turn_error', message });

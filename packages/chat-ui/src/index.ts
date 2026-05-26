@@ -1,4 +1,17 @@
 export { useChat } from './hooks/useChat.js';
+export {
+  applyChatEvent,
+  buildTurnRequestBody,
+  initialChatUiState,
+  pushUserMessage,
+  type ChatUiMessage,
+  type ChatUiNotice,
+  type ChatUiPendingConfirmation,
+  type ChatUiState,
+  type ChatUiStatus,
+  type BuildTurnBodyArgs,
+  type TurnRequestBody,
+} from './hooks/useChat-helpers.js';
 export { useChatSession } from './hooks/useChatSession.js';
 export { ChatPanel } from './components/ChatPanel.js';
 export { ChatMessages } from './components/ChatMessages.js';

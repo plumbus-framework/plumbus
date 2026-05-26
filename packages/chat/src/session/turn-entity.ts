@@ -19,7 +19,9 @@ export const chatTurnEntity = defineEntity({
     actionConfirmed: field.boolean({ optional: true }),
     tokensIn: field.number({ required: true }),
     tokensOut: field.number({ required: true }),
-    costUsd: field.number({ required: true }),
+    // costUsd is fractional dollars (e.g. 0.001595). Must be decimal — field.number
+    // maps to PostgreSQL integer and rejects floats.
+    costUsd: field.decimal({ required: true }),
     model: field.string({ required: true }),
     latencyMs: field.number({ required: true }),
     recordedAt: field.timestamp({ required: true }),

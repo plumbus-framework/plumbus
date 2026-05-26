@@ -11,6 +11,7 @@ export function ChatPanel({
   locale,
   sessionId,
   persistence = 'server',
+  turnUrl,
   className,
 }: {
   chatName: string;
@@ -18,9 +19,10 @@ export function ChatPanel({
   locale: string;
   sessionId: string;
   persistence?: 'server' | 'client';
+  turnUrl?: string;
   className?: string;
 }) {
-  const chat = useChat({ chatName, sessionId, audience, locale, persistence });
+  const chat = useChat({ chatName, sessionId, audience, locale, persistence, turnUrl });
 
   return (
     <div className={className}>

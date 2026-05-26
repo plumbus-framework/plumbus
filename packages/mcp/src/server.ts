@@ -1,12 +1,40 @@
+import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import { createExecutionContext, executeCapability, type CapabilityContract } from '@plumbus/core';
 import { buildMcpManifest, isMcpExposed } from '@plumbus/core/mcp';
 import type { McpServerConfig } from './types.js';
 
+const PACKAGE_VERSION: string = (() => {
+  try {
+    const requireFromHere = createRequire(import.meta.url);
+    const pkg = requireFromHere('../package.json') as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 export interface CreateMcpServerOptions {
   name?: string;
   version?: string;
+}
+
+/** Case-insensitive header lookup; returns first string match or undefined. */
+function getHeaderValue(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) return undefined;
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() !== target) continue;
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  }
+  return undefined;
 }
 
 function capabilityResultToToolResponse(result: Awaited<ReturnType<typeof executeCapability>>): {
@@ -30,7 +58,7 @@ export function createMcpServer(
   options: CreateMcpServerOptions = {},
 ): Server {
   const server = new Server(
-    { name: options.name ?? 'plumbus-mcp', version: options.version ?? '0.4.0' },
+    { name: options.name ?? 'plumbus-mcp', version: options.version ?? PACKAGE_VERSION },
     { capabilities: { tools: {} } },
   );
 
@@ -60,12 +88,11 @@ export function createMcpServer(
 
     const extraInfo = extra as {
       signal?: AbortSignal;
-      authInfo?: { token?: string };
-      requestInfo?: { headers?: Record<string, string | string[] | undefined> };
+      authInfo?: AuthInfo;
+      requestInfo?: McpRequestInfo;
     };
 
-    const headerAuth = extraInfo.requestInfo?.headers?.authorization;
-    const headerValue = typeof headerAuth === 'string' ? headerAuth : undefined;
+    const headerValue = getHeaderValue(extraInfo.requestInfo?.headers, 'authorization');
     const rawToken = extraInfo.authInfo?.token ?? headerValue;
     const authHeader =
       rawToken && !rawToken.startsWith('Bearer ') ? `Bearer ${rawToken}` : rawToken;
@@ -78,35 +105,57 @@ export function createMcpServer(
       provider: 'anonymous',
     };
 
-    const deps = config.createDependencies(authContext);
+    const bypassTenantScope = cap.access?.tenantScoped === false;
+    const deps = config.createDependencies(authContext, { bypassTenantScope });
+
+    const userAgent = getHeaderValue(extraInfo.requestInfo?.headers, 'user-agent');
+    if (userAgent !== undefined) {
+      deps.request = { userAgent };
+    }
+
     const ctx = createExecutionContext(deps);
-    if (extraInfo.signal) {
-      ctx.signal = extraInfo.signal;
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const signals: AbortSignal[] = [];
+    if (extraInfo.signal) signals.push(extraInfo.signal);
+    if (config.requestTimeoutMs && config.requestTimeoutMs > 0) {
+      const timeoutController = new AbortController();
+      timeoutId = setTimeout(() => timeoutController.abort(), config.requestTimeoutMs);
+      signals.push(timeoutController.signal);
+    }
+    if (signals.length === 1) {
+      ctx.signal = signals[0];
+    } else if (signals.length > 1) {
+      ctx.signal = AbortSignal.any(signals);
     }
 
-    const result = await executeCapability(
-      cap as CapabilityContract,
-      ctx,
-      request.params.arguments ?? {},
-    );
+    try {
+      const result = await executeCapability(
+        cap as CapabilityContract,
+        ctx,
+        request.params.arguments ?? {},
+      );
 
-    if (!result.success && config.onCapabilityError) {
-      Promise.resolve(
-        config.onCapabilityError({
-          capabilityName: cap.name,
-          domain: cap.domain,
-          errorCode: result.error.code,
-          errorMessage: result.error.message,
-          metadata: result.error.metadata,
-          userId: ctx.auth.userId,
-          tenantId: ctx.auth.tenantId,
-        }),
-      ).catch(() => {
-        /* fire-and-forget */
-      });
+      if (!result.success && config.onCapabilityError) {
+        // IIFE so a sync throw inside the hook is caught by .catch.
+        void (async () =>
+          config.onCapabilityError?.({
+            capabilityName: cap.name,
+            domain: cap.domain,
+            errorCode: result.error.code,
+            errorMessage: result.error.message,
+            metadata: result.error.metadata,
+            userId: ctx.auth.userId,
+            tenantId: ctx.auth.tenantId,
+          }))().catch(() => {
+          /* fire-and-forget */
+        });
+      }
+
+      return capabilityResultToToolResponse(result);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
-
-    return capabilityResultToToolResponse(result);
   });
 
   return server;

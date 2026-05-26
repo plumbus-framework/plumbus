@@ -27,7 +27,7 @@ export { renderContext } from './prompt/render-context.js';
 
 export { compilePolicy } from './policy/registry.js';
 export { runChatTurn } from './runtime/run-turn.js';
-export { registerChatRoutes } from './runtime/http.js';
+export { registerChatRoutes, type RegisterChatRoutesOpts } from './runtime/http.js';
 export { ChatEventEmitter } from './runtime/events.js';
 export { validateCitations, stripInvalidFromAnswer } from './runtime/provenance.js';
 export { setTokenCounter } from './budget/context-budget.js';

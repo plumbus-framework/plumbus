@@ -25,7 +25,7 @@ type GuardVerdict =
   | { decision: 'require_confirmation'; pendingAction: PendingAction };
 ```
 
-A `'block'` verdict ends the turn with a `turn.failed` event (plus the optional `emit` notice). A `'require_confirmation'` verdict stores a pending action and emits `confirmation_required`; the user calls `confirm(actionId)` to execute.
+A `'block'` verdict ends the turn with a `turn.failed` event (plus the optional `emit` notice). A `'require_confirmation'` verdict stores a pending action and emits `confirmation_required`; the client then calls the `chatConfirmAction` capability with the pending action ID to execute it (see [action-guard](#action-guard-post-turn) below).
 
 ## Built-in guards in detail
 
@@ -122,14 +122,17 @@ When the model returns `output.requestedAction = { capabilityName, input, confir
 3. Compute `schemaHash` (hash of the current input schema) and store it on the `ChatPendingAction` row.
 4. Return `decision: 'require_confirmation'` — the runtime emits `confirmation_required` with the action ID.
 
-The user calls `confirm(actionId)`:
-1. Load the pending action.
-2. **Re-hash the capability's current input schema and compare to stored hash** — if the schema has changed since the action was proposed (e.g. a redeploy tightened it), reject with `chat.action_schema_changed`.
-3. Re-validate input against current schema.
-4. Execute the capability via the standard `executeCapability` path.
-5. Mark the action `confirmed`.
+The server-side confirmation capability (`chatConfirmAction`, auto-routed at `POST /api/chat/chat-confirm-action`) takes `{ actionId, capabilityName, schemaHash, execute }`. The client gets all three (action ID, capability name, schema hash) from the `confirmation_required` event the runtime emitted when the action was proposed. On confirm the capability:
 
-This `schemaHash` check is the security primitive: it guarantees that what the user confirmed is exactly what gets executed.
+1. Loads the pending action.
+2. **Re-hashes the capability's current input schema and compares to the supplied `schemaHash`** — if the schema has changed since the action was proposed (e.g. a redeploy tightened it), rejects with `chat.action_schema_changed`.
+3. Re-validates input against the current schema.
+4. Executes the capability via the standard `executeCapability` path.
+5. Marks the action `confirmed`.
+
+This `schemaHash` check is the security primitive: it guarantees that what the user confirmed is exactly what gets executed. The client carries `schemaHash` purely as a witness — the server is the only party that re-derives it from the live schema.
+
+> **v0.1 UI wiring gap.** `useChat`'s `confirm(actionId)` in `@plumbus/chat-ui` currently only clears local UI state — it does **not** call `chatConfirmAction` on the server. Apps that ship action-confirmation flows in v0.1 should read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash`) and call `chatConfirmAction` directly via the auto-routed endpoint. A first-party `useChat → chatConfirmAction` round-trip is planned for v0.2; see [`packages/chat-ui/src/hooks/useChat.ts`](../../packages/chat-ui/src/hooks/useChat.ts).
 
 ## Custom guards (`policy.custom`)
 

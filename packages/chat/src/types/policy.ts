@@ -33,6 +33,19 @@ export interface GuardState {
   policy: ChatPolicy;
   modelOutput?: Record<string, unknown>;
   resolvedSources?: Set<string>;
+  /** Set by runChatTurn. `true` for normal DB-backed chats; `false` when the
+   * chat opts out with `persistence.saveToDb: false`. Guards that need DB
+   * state should branch on this. */
+  saveToDb?: boolean;
+  /** Set by runChatTurn ONLY when `saveToDb: false`. Lets guards (notably
+   * behavioralPreGuard) enforce policy from the client-supplied history when
+   * there's no chat_session row to read state from. Includes the optional
+   * `refusalReason` per assistant message. */
+  clientHistory?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    refusalReason?: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
+  }>;
 }
 
 export type Guard = (turnCtx: TurnContext, state: GuardState) => Promise<GuardVerdict>;

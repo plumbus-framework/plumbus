@@ -1,5 +1,6 @@
 'use client';
 
+import type { ChatEvent } from '@plumbus/chat';
 import { useCallback, useState } from 'react';
 import { readChatStream } from '../client/event-stream.js';
 import {
@@ -24,30 +25,54 @@ export function useChat(args: {
   const [state, setState] = useState<ChatUiState>(initialChatUiState);
 
   const send = useCallback(
-    async (text: string) => {
+    async (
+      text: string,
+      extras?: {
+        sessionId?: string;
+        locale?: string;
+        extraBody?: Record<string, unknown>;
+      },
+    ) => {
       let snapshot: ChatUiMessage[] = [];
       setState((prev) => {
         snapshot = prev.messages;
         return pushUserMessage(prev, text);
       });
 
-      const body = buildTurnRequestBody({
-        sessionId: args.sessionId,
-        userMessage: text,
-        audience: args.audience,
-        locale: args.locale,
-        persistence: args.persistence,
-        currentMessages: snapshot,
-      });
+      const body = {
+        ...buildTurnRequestBody({
+          sessionId: extras?.sessionId ?? args.sessionId,
+          userMessage: text,
+          audience: args.audience,
+          locale: extras?.locale ?? args.locale,
+          persistence: args.persistence,
+          currentMessages: snapshot,
+        }),
+        ...(extras?.extraBody ?? {}),
+      };
 
       const res = await fetch(args.turnUrl ?? `/chat/${args.chatName}/turn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(body),
       });
 
       if (!res.ok) {
         setState((prev) => ({ ...prev, status: 'error' }));
+        return;
+      }
+
+      const contentType = res.headers.get('content-type') ?? '';
+      if (contentType.startsWith('application/json')) {
+        const payload = (await res.json()) as { events: ChatEvent[] };
+        setState((prev) => {
+          let next = prev;
+          for (const evt of payload.events) {
+            next = applyChatEvent(next, evt);
+          }
+          return next;
+        });
         return;
       }
 

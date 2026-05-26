@@ -20,4 +20,9 @@ export interface McpServerConfig {
     userId?: string;
     tenantId?: string;
   }) => void | Promise<void>;
+  /**
+   * Optional per-request timeout (ms). If set and exceeded, ctx.signal aborts
+   * and cooperative handlers (`ctx.ai.*`, fetch, etc.) cancel. Omit for no timeout.
+   */
+  requestTimeoutMs?: number;
 }

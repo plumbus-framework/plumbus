@@ -64,8 +64,14 @@ const chatConfigSchema = z.object({
     .optional(),
   instructions: z.array(z.string()).optional(),
   prompt: z.custom().optional(),
-  persistence: z.object({ messageContent: z.enum(['server', 'client']) }).optional(),
+  persistence: z
+    .object({
+      messageContent: z.enum(['server', 'client']),
+      saveToDb: z.boolean().optional(),
+    })
+    .optional(),
   exposeAs: z.enum(['capability', 'sse', 'both']).optional(),
+  streaming: z.boolean().optional(),
 });
 
 let warnedEmptyContext = false;
@@ -93,11 +99,27 @@ export function defineChat(config: ChatConfig): ChatDefinition {
     throwDefineValidationError('defineChat: audience.roles must not be empty in strict mode');
   }
 
+  const saveToDb = config.persistence?.saveToDb ?? true;
+  if (!saveToDb && config.persistence?.messageContent === 'server') {
+    throwDefineValidationError(
+      "defineChat: persistence.saveToDb=false requires persistence.messageContent='client' — there is no chat_turn row to hold server-side content",
+    );
+  }
+  if (!saveToDb && (config.policy?.action?.allowedCapabilities?.length ?? 0) > 0) {
+    throwDefineValidationError(
+      'defineChat: persistence.saveToDb=false cannot coexist with policy.action.allowedCapabilities — pending actions require chat_pending_action rows to survive across requests',
+    );
+  }
+
   return deepFreeze({
     ...config,
     context: config.context ?? [],
-    persistence: config.persistence ?? { messageContent: 'server' },
+    persistence: {
+      messageContent: config.persistence?.messageContent ?? 'server',
+      saveToDb,
+    },
     exposeAs: config.exposeAs ?? 'sse',
+    streaming: config.streaming ?? true,
     kind: 'chat' as const,
   });
 }

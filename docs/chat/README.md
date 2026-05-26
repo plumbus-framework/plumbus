@@ -14,11 +14,12 @@ These docs are split in three:
 
 | Doc | Read when… |
 |---|---|
-| [defining-chats.md](./defining-chats.md) | You want to author a new `defineChat` config. |
+| [defining-chats.md](./defining-chats.md) | You want to author a new `defineChat` config or wire `registerChatRoutes`. |
 | [policies.md](./policies.md) | You need to understand the seven built-in guards and the order they fire in. |
 | [context-sources.md](./context-sources.md) | You're wiring up `knowledgeContext`, `capabilityContext`, or `staticContext`. |
 | [testing.md](./testing.md) | You're writing tests with `mockChatRuntime` or the pure UI helpers. |
 | [evaluations.md](./evaluations.md) | You want to know what `defineChatEvaluation` will look like in v0.2. |
+| [../chat-ui/README.md](../chat-ui/README.md) | You're wiring `<ChatPanel />`, `useChat`, or the SSE client helpers in a React app. |
 
 ## Design docs
 
@@ -114,3 +115,23 @@ This package composes on core; it does not duplicate. Specifically:
 ## What's in source but NOT shipped in v0.1
 
 The eval framework (`defineChatEvaluation`, `TraceRecorder`, reference scenarios) and observability events (`chat.turn.completed`, etc.) are implemented in `src/eval/` and `src/events/`. They are explicitly held back from v0.1 — the plan gates them on at least one real consumer stressing the runtime in production. The reference eval scenarios will be more useful once they're informed by real failures, not invented from a whiteboard. Treat these surfaces as unstable until v0.2 is tagged.
+
+## Public barrel: what each export is for
+
+`@plumbus/chat` exports more than the headline `defineChat` + `runChatTurn`. The full surface, grouped:
+
+| Group | Exports | Stable in v0.1 |
+|---|---|---|
+| Definition | `defineChat` | yes |
+| Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts` | yes |
+| Policy | `compilePolicy` | yes — public for advanced tooling; chats normally compile policies internally |
+| Context helpers | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations`, `resolveContextSources` | yes (`resolveContextSources` is advanced — for custom runtimes) |
+| Prompts | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | yes — overridable via `definePrompt` + AI Config admin |
+| Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | yes — auto-routed; `chatConfirmAction` is what the UI confirm round-trip will call in v0.2 |
+| Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | yes — register in your app's entity list |
+| Session service | `createSession`, `loadSession`, `appendTurn`, `aggregateForBudget`, `updateSessionBehavioralState`, `updateSessionSummary` | advanced — for custom turn pipelines / migrations; most apps never need these |
+| Runtime utilities | `ChatEventEmitter`, `validateCitations`, `stripInvalidFromAnswer`, `setTokenCounter` | advanced — only reach for these when wrapping the runtime or swapping the token counter (e.g. local tiktoken vs heuristic) |
+| Evals (preview) | `defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder` | **NOT stable in v0.1** — gated on a real consumer |
+| Events (preview) | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent` | **NOT stable in v0.1** — gated on the same milestone |
+
+Treat anything marked "NOT stable" as subject to change without a deprecation cycle until v0.2 tags. Everything else honours the package's standard semver.

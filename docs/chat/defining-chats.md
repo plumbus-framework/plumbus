@@ -87,9 +87,11 @@ defineChat({
 
   persistence?: {                             // Decision 0009
     messageContent: 'server' | 'client',      // default 'server'
+    saveToDb?: boolean,                       // default true (see "Persistence mode")
   },
 
   exposeAs?: 'sse' | 'capability' | 'both',   // default 'sse' (see below)
+  streaming?: boolean,                        // default true (SSE); false → JSON request/response
 
   prompt?: customPrompt,                      // Decision 0008; defaults to generic chat.turn
 });
@@ -144,7 +146,11 @@ Plumbus auto-routes every capability. Chat needs a streaming SSE wire too. `expo
 
 ## Persistence mode (Decision 0009)
 
-| `persistence.messageContent` | What's stored server-side | Client responsibility |
+Two independent knobs sit under `persistence`. `messageContent` controls where the prose lives; `saveToDb` controls whether the runtime writes to the chat tables at all.
+
+### `persistence.messageContent`
+
+| `messageContent` | What's stored server-side | Client responsibility |
 |---|---|---|
 | `'server'` (default) | Full message content on `ChatTurnRow.content`, plus metadata | Just render messages from SSE events |
 | `'client'` | Empty string on `ChatTurnRow.content`. Metadata still persisted (token counts, refusal reasons, abuse counters, cost) | Send the last 20 turns as `clientHistory` on every `POST /chat/:name/turn` so the model has context |
@@ -152,6 +158,56 @@ Plumbus auto-routes every capability. Chat needs a streaming SSE wire too. `expo
 The 20-message cap mirrors the server's `CLIENT_HISTORY_MAX_MESSAGES`. The server validates and rejects oversized payloads with `400 + chat.client_history_too_large`. **Client-sent history is NOT authoritative** — abuse limits, budgets, cooldowns all compute from the always-persisted metadata. A malicious client can lie about its conversation prose but cannot inflate its own limits.
 
 Pick `'server'` for audit + cross-device continuity (the default). Pick `'client'` for privacy-sensitive chats where you don't want message text in the DB at all.
+
+### `persistence.saveToDb`
+
+`saveToDb` controls whether the runtime writes to the chat tables at all. Default `true`.
+
+| `saveToDb` | Chat-table writes | Cooldowns / budgets enforced from | Use case |
+|---|---|---|---|
+| `true` (default) | `chat_session` + `chat_turn` + `chat_pending_action` rows are written | Persisted `ChatSession.behavioralState` and per-session/per-user/per-tenant counters | Audit trail, cross-device continuity, action confirmation, server-authoritative state |
+| `false` | None. Sessions are ephemeral; the client owns `sessionId` generation | The `clientHistory` payload alone (each assistant message carries the optional `refusalReason` it received last turn) | In-product help widgets and other surfaces where DB durability is overkill |
+
+When `saveToDb: false`, `defineChat` enforces two cascading rules:
+
+- **Must combine with `messageContent: 'client'`.** There is no `chat_turn` row to hold server-side content. Trying to set `messageContent: 'server'` is rejected at `defineChat` time with a clear error.
+- **Cannot enable `policy.action.allowedCapabilities`.** Pending actions require `chat_pending_action` rows to survive across the propose → confirm round-trip. Action-confirmation flows are unavailable on ephemeral chats.
+
+Cost recording via `onAICostRecorded` is unaffected — costs still flow through the AI service's `AICostContext` regardless of `saveToDb`.
+
+## Serving chats over HTTP (`registerChatRoutes`)
+
+`registerChatRoutes(app, routeConfig, chats, opts?)` registers one `POST /chat/:name/turn` route per chat. By default the route is SSE; set `streaming: false` on the chat to register a JSON request/response route at the same path instead.
+
+The fourth argument is an optional `RegisterChatRoutesOpts`:
+
+```ts
+import { registerChatRoutes, type RegisterChatRoutesOpts } from '@plumbus/chat';
+
+const opts: RegisterChatRoutesOpts = {
+  authCookieNames: ['session', 'auth_token'],
+  audienceTenantOverride: (audience, auth) =>
+    audience === 'admin' ? auth.tenantId : undefined,
+  beforeTurn: async (ctx, parsed, rawBody) => {
+    if (parsed.userMessage.length > 4000) {
+      return { error: { status: 400, body: { error: 'too long' } } };
+    }
+    return { userMessage: parsed.userMessage.trim() };
+  },
+  afterTurn: async (ctx, rawBody, events) => {
+    ctx.logger.info('chat.turn.served', { count: events.length });
+  },
+};
+
+registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
+```
+
+| Option | When to use |
+|---|---|
+| `authCookieNames` | Browser callers ship the session token in a cookie rather than the `Authorization` header. Listed names are tried in order; the first non-empty cookie becomes `Bearer <value>`. |
+| `audienceTenantOverride` | Public/multi-tenant chats where the audience implies a tenant the auth adapter couldn't infer (e.g. anonymous `audience: 'support'` → marketing tenant). Only applied when `auth.tenantId` is empty. |
+| `beforeTurn` | Mutate the user message (sanitise, normalise) or short-circuit with a typed `{ error: { status, body } }` reply before any runtime work fires. |
+| `afterTurn` | Observability / audit. Receives the full ordered `ChatEvent[]` after the turn completes (or after the SSE stream ends). Errors are swallowed with a `console.warn`; do not rely on this for correctness. |
 
 ## Examples
 

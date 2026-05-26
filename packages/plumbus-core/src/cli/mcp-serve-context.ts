@@ -23,6 +23,7 @@ import type { PlumbusConfig } from '../types/config.js';
 import type { AuthContext } from '../types/security.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import type { LoggerService } from '../types/context.js';
+import { warn } from './utils.js';
 import { discoverResources } from './discover.js';
 
 export interface McpServeContext {
@@ -41,6 +42,9 @@ async function resolveMcpServeAuthAdapter(config: PlumbusConfig): Promise<AuthAd
       envToken: process.env.PLUMBUS_MCP_TOKEN,
     });
   }
+  warn(
+    'plumbus.config.mcp.agents is not configured — MCP requests will be anonymous and only `access.public: true` capabilities will be callable. See docs/mcp/agent-authentication.md.',
+  );
   return createJwtAdapter({
     secret: config.auth.secret ?? 'development-secret-placeholder-32chars-min',
     issuer: config.auth.issuer,

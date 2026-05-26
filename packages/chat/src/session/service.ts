@@ -12,6 +12,7 @@ export async function createSession(
 ): Promise<ChatSessionRow> {
   const now = ctx.time.now();
   return repos(ctx).sessions.create({
+    id: crypto.randomUUID(),
     chatName: args.chatName,
     userId: args.userId,
     tenantId: args.tenantId,
@@ -30,6 +31,52 @@ export async function loadSession(
   sessionId: string,
 ): Promise<ChatSessionRow | null> {
   return repos(ctx).sessions.findById(sessionId);
+}
+
+/**
+ * Look up a session by id; if it doesn't exist, create one with that exact id
+ * using the caller-supplied identity. Used by `runChatTurn` when `saveToDb:
+ * true` and the client generated the sessionId itself (no separate bootstrap
+ * step). Concurrent first-turns racing the same sessionId resolve via the
+ * primary-key constraint: the loser's create throws, and the catch re-loads
+ * to return the winner's row.
+ */
+export async function getOrCreateSession(
+  ctx: ExecutionContext,
+  args: {
+    sessionId: string;
+    chatName: string;
+    userId: string;
+    audience: string;
+    locale: string;
+    tenantId?: string;
+  },
+): Promise<ChatSessionRow> {
+  const existing = await loadSession(ctx, args.sessionId);
+  if (existing) return existing;
+  const now = ctx.time.now();
+  try {
+    return await repos(ctx).sessions.create({
+      id: args.sessionId,
+      chatName: args.chatName,
+      userId: args.userId,
+      tenantId: args.tenantId,
+      audience: args.audience,
+      locale: args.locale,
+      startedAt: now,
+      lastTurnAt: now,
+      status: 'active',
+      behavioralState: {},
+      summaryTurnCount: 0,
+    });
+  } catch {
+    // Concurrent insert won — re-load. Returning null here would mask the
+    // race; throwing surfaces a real "DB unreachable" failure separately
+    // because loadSession would also throw.
+    const after = await loadSession(ctx, args.sessionId);
+    if (after) return after;
+    throw new Error('chat.session_create_race_unresolved');
+  }
 }
 
 export async function appendTurn(

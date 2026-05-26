@@ -11,7 +11,7 @@ export function resolveMcpAgentToken(
   envToken?: string,
 ): string | null {
   const bearer = parseBearerToken(authorizationHeader);
-  if (bearer !== null && agents[bearer] !== undefined) {
+  if (bearer !== null && Object.hasOwn(agents, bearer)) {
     return bearer;
   }
 
@@ -20,7 +20,7 @@ export function resolveMcpAgentToken(
     return null;
   }
 
-  if (agents[raw] !== undefined) {
+  if (Object.hasOwn(agents, raw)) {
     return raw;
   }
 

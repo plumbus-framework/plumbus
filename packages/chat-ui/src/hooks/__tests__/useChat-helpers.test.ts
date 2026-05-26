@@ -110,6 +110,18 @@ describe('applyChatEvent — confirmation_required', () => {
     expect(s.pendingConfirmation?.actionId).toBe('a1');
     expect(s.pendingConfirmation?.capabilityName).toBe('createTicket');
   });
+
+  it('surfaces schemaHash so apps can call chatConfirmAction', () => {
+    const s = applyChatEvent(initialChatUiState, {
+      type: 'confirmation_required',
+      actionId: 'a1',
+      capabilityName: 'createTicket',
+      confirmationMessage: 'Create a ticket?',
+      expiresAt: '2099-01-01T00:00:00Z',
+      schemaHash: 'sha256:abc',
+    });
+    expect(s.pendingConfirmation?.schemaHash).toBe('sha256:abc');
+  });
 });
 
 describe('applyChatEvent — terminal events', () => {
@@ -119,6 +131,24 @@ describe('applyChatEvent — terminal events', () => {
       { type: 'turn.completed', turnId: 't1', usage: { tokensIn: 0, tokensOut: 0 }, cost: 0 },
     );
     expect(s.status).toBe('idle');
+  });
+
+  it('turn.completed tags refusal metadata on the last assistant message', () => {
+    let s = pushUserMessage(initialChatUiState, 'hi');
+    s = applyChatEvent(s, { type: 'message.delta', text: 'nope' });
+    s = applyChatEvent(s, {
+      type: 'turn.completed',
+      turnId: 't1',
+      usage: { tokensIn: 0, tokensOut: 0 },
+      cost: 0,
+      inScope: false,
+      refusalReason: 'off_topic',
+    });
+    expect(s.messages[1]).toMatchObject({
+      role: 'assistant',
+      inScope: false,
+      refusalReason: 'off_topic',
+    });
   });
 
   it('turn.failed flips status to error', () => {

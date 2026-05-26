@@ -12,6 +12,12 @@ export interface RegisterMcpOnFastifyOptions {
   discoveryPath?: string;
   /** Use stateless Streamable HTTP (default true) */
   stateless?: boolean;
+  /**
+   * Require a valid Bearer token on the discovery route.
+   * Default `false` — discovery is unauthenticated so agents can self-onboard.
+   * Set `true` when the tool surface itself is sensitive.
+   */
+  requireDiscoveryAuth?: boolean;
 }
 
 /**
@@ -27,6 +33,7 @@ export async function registerMcpOnFastify(
   const path = mcpOptions.path ?? '/mcp';
   const discoveryPath = mcpOptions.discoveryPath ?? '/mcp/discovery';
   const stateless = mcpOptions.stateless ?? true;
+  const requireDiscoveryAuth = mcpOptions.requireDiscoveryAuth ?? false;
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: stateless ? undefined : () => randomUUID(),
@@ -35,10 +42,24 @@ export async function registerMcpOnFastify(
   await mcpServer.connect(transport);
 
   app.all(path, async (request, reply) => {
+    // Tell Fastify we're taking over the response; the MCP transport
+    // writes directly to reply.raw and will end the response itself.
+    reply.hijack();
     await transport.handleRequest(request.raw, reply.raw, request.body);
   });
 
-  app.get(discoveryPath, async (_request, reply) => {
+  app.get(discoveryPath, async (request, reply) => {
+    if (requireDiscoveryAuth) {
+      const authHeader =
+        typeof request.headers.authorization === 'string'
+          ? request.headers.authorization
+          : undefined;
+      const auth = await config.authAdapter.authenticate(authHeader);
+      if (!auth) {
+        await reply.code(401).send({ error: 'unauthorized' });
+        return;
+      }
+    }
     const manifest = buildMcpManifest(config.registry);
     await reply.send({
       manifest,

@@ -110,10 +110,11 @@ export function registerCapabilityRoute(
       const httpError = errorToHttpResponse(result.error);
       reply.status(httpError.statusCode).send(httpError.body);
 
-      // Fire error hook (fire-and-forget, never blocks the response)
+      // Fire error hook (fire-and-forget, never blocks the response).
+      // IIFE so a sync throw inside the hook is caught by .catch.
       if (config.onCapabilityError) {
-        Promise.resolve(
-          config.onCapabilityError({
+        void (async () =>
+          config.onCapabilityError?.({
             capabilityName: capability.name,
             domain: capability.domain,
             errorCode: result.error.code,
@@ -124,8 +125,7 @@ export function registerCapabilityRoute(
             sourceIp: request.ip,
             userAgent: request.headers['user-agent'],
             db: config.db,
-          }),
-        ).catch((hookErr) => {
+          }))().catch((hookErr) => {
           logHookError('onCapabilityError', hookErr);
         });
       }
