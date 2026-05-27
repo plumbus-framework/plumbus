@@ -21,7 +21,7 @@ export interface McpManifest {
 }
 
 function isMcpEligible(cap: CapabilityContract): boolean {
-  return isMcpExposed(cap) && cap.kind !== 'eventHandler' && cap.kind !== 'job';
+  return isMcpExposed(cap) && cap.kind !== 'eventHandler';
 }
 
 export function buildMcpToolDefinition(cap: CapabilityContract): McpToolDefinition {

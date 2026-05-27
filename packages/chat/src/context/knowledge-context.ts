@@ -1,65 +1,60 @@
-/**
- * Corpus binding: `knowledgeContext({ corpus, query, filter })` references a corpus identifier
- * pre-registered in the consumer app's RAG configuration (`plumbus rag ingest`).
- * Uses `ctx.ai.retrieve({ corpus, query, filter })`.
- */
 import type { ExecutionContext } from '@plumbus/core';
+import type { KnowledgeRegistry, KnowledgeScope } from '@plumbus/knowledge-base';
 import { stableHash } from '../internal/stable-hash.js';
 import type { ContextItem, ContextSource, ResolvedContext } from '../types/context.js';
 import type { TurnContext } from '../types/turn.js';
 
-const warnedAudienceFilter = new Set<string>();
+const CHAT_TIER_TOOLS_ERROR_PREFIX = 'knowledge.chat_tier_not_supported';
 
 export function knowledgeContext(opts: {
+  registry: KnowledgeRegistry;
+  source: string;
+  tier?: 'block' | 'tools';
+  scopeFromTurn?: (turnCtx: TurnContext) => KnowledgeScope;
+  queryFromTurn?: (turnCtx: TurnContext) => string;
   id?: string;
-  corpus: string;
-  query: string | ((turnCtx: TurnContext) => string);
-  topK?: number;
-  minScore?: number;
-  filter?: (turnCtx: TurnContext) => Record<string, unknown>;
   sourceId?: string;
-  /** When set and consumer omitted filter, default ({ audience }) => ({ audience }) */
-  parentChatAudiencePolicy?: boolean;
 }): ContextSource {
-  const id = opts.id ?? `knowledge:${stableHash({ corpus: opts.corpus, sourceId: opts.sourceId })}`;
+  if (opts.tier === 'tools') {
+    throw new Error(
+      `${CHAT_TIER_TOOLS_ERROR_PREFIX}: tier 'tools' is interface-only in @plumbus/knowledge-base v1 and is not executed by @plumbus/chat@0.1.4. Use tier: 'block'.`,
+    );
+  }
+
+  const id =
+    opts.id ??
+    `kb:${stableHash({ source: opts.source, registry: opts.registry.list().map((s) => s.name) })}`;
+
+  const defaultScopeFromTurn = (turnCtx: TurnContext): KnowledgeScope => ({
+    audience: turnCtx.audience,
+    locale: turnCtx.locale,
+    tenantId: turnCtx.tenantId,
+  });
 
   return {
     kind: 'knowledge',
     id,
     async resolve(ctx: ExecutionContext, turnCtx: TurnContext): Promise<ResolvedContext> {
-      const query = typeof opts.query === 'function' ? opts.query(turnCtx) : opts.query;
-      let filter = opts.filter?.(turnCtx);
-      if (opts.parentChatAudiencePolicy && !opts.filter) {
-        if (!warnedAudienceFilter.has(id)) {
-          warnedAudienceFilter.add(id);
-          console.warn(
-            `[@plumbus/chat] knowledgeContext "${id}": applying default audience metadata filter`,
-          );
-        }
-        filter = { audience: turnCtx.audience };
-      }
-
-      const docs = await ctx.ai.retrieve({
-        corpus: opts.corpus,
+      const scope = (opts.scopeFromTurn ?? defaultScopeFromTurn)(turnCtx);
+      const query = opts.queryFromTurn?.(turnCtx);
+      const block = await opts.registry.get(opts.source).getBlock(ctx, scope, {
+        maxTokens: turnCtx.contextTokenBudget,
         query,
-        filter,
-        limit: opts.topK ?? 5,
-        minScore: opts.minScore ?? 0,
       });
 
-      const items: ContextItem[] = docs.map((d, i) => ({
-        id: `${id}:item:${i}`,
-        kind: 'text' as const,
-        content: d.content,
-        sourceId: opts.sourceId ?? id,
-        score: d.score,
-      }));
+      const items: ContextItem[] = [
+        {
+          id: `${id}:block`,
+          kind: 'text',
+          content: block,
+          sourceId: opts.sourceId ?? opts.source,
+        },
+      ];
 
-      const estimatedTokens = Math.ceil(
-        items.reduce((s, it) => s + String(it.content).length, 0) / 4,
-      );
-
+      const estimatedTokens = Math.ceil(block.length / 4);
       return { items, sources: [], estimatedTokens };
     },
   };
 }
+
+export { CHAT_TIER_TOOLS_ERROR_PREFIX };

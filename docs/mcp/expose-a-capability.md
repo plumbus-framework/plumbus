@@ -19,7 +19,7 @@ export interface McpExposureConfig {
 
 ## Validation (when `exposeAs` includes `'mcp'`)
 
-- Reject `kind: 'eventHandler'` or `kind: 'job'`.
+- Reject `kind: 'eventHandler'`. `kind: 'job'` is supported via MCP Tasks — see [tasks-and-jobs.md](./tasks-and-jobs.md).
 - Require `description`, `mcp.description`, or `explanation.summary`.
 - `mcp` block is validated with Zod when present.
 
@@ -78,3 +78,9 @@ Avoid `public: true` on destructive MCP tools.
 ## Governance
 
 An advisory governance rule warns when MCP-exposed capabilities lack an agent-facing description.
+
+## Exposing a `kind: 'job'` capability
+
+Long-running operations (report generation, batch processing, slow external calls) are exposed as MCP tasks. The same `defineCapability({ kind: 'job', exposeAs: ['mcp'] })` works — the runtime returns a task instead of an inline result when the client opts in with `taskMetadata`.
+
+Required wiring: register `mcpTaskEntity` in the app's entity list. See [tasks-and-jobs.md](./tasks-and-jobs.md) for the full sequence diagram, `ctx.progress.report` usage, and cancellation semantics.

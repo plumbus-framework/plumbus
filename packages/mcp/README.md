@@ -46,6 +46,13 @@ export default {
 };
 ```
 
+Apps that expose `kind: 'job'` capabilities via MCP must register `mcpTaskEntity`:
+
+```ts
+import { mcpTaskEntity } from '@plumbus/mcp';
+export const entities = [/* your entities */, mcpTaskEntity];
+```
+
 Run an MCP server:
 
 ```bash
@@ -60,10 +67,12 @@ plumbus mcp serve --http --port 3001       # for remote agents
 | `createMcpServer(config)` | Build an MCP `Server` from a `CapabilityRegistry` |
 | `startStdioServer({ server })` | Run an MCP server on stdio |
 | `startHttpServer({ config, port, host })` | Run a Fastify-backed Streamable HTTP MCP server with `/mcp` + `/mcp/discovery` |
-| `registerMcpOnFastify(app, registry, config)` | Mount MCP routes on an existing Fastify instance |
+| `registerMcpOnFastify(app, config, mcpOptions?)` | Mount MCP routes on an existing Fastify instance (`path`, `discoveryPath`, `stateless`, `requireDiscoveryAuth`) |
 | `createMcpAuthAdapter({ agents })` | Build an `AuthAdapter` that maps Bearer tokens to Plumbus `AuthContext` with `provider: 'mcp'` |
 | `resolveMcpAgentToken(header, agents, envToken)` | Resolve a token from the `Authorization` header or `PLUMBUS_MCP_TOKEN` env |
 | `parseBearerToken(header)` | Extract the bearer value from an `Authorization` header |
+| `mcpTaskEntity` | Entity for MCP task storage — register in the app entity list when exposing `kind: 'job'` via MCP |
+| `createTestMcpServer` / `mockMcpClient` (from `@plumbus/mcp/testing`) | Test helpers — pre-connected client + server over `InMemoryTransport` |
 
 ## How requests flow
 

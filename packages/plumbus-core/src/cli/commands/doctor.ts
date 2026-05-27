@@ -17,6 +17,11 @@ import {
   hasPatchableAgentWiringBlock,
   parseAgentWiringVersion,
 } from './init.js';
+import { loadConfig } from '../../config/loader.js';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { buildMcpManifest, isMcpExposed } from '../../mcp/index.js';
+import { discoverResources } from '../discover.js';
+import { toKebabCase } from '../utils.js';
 
 export interface DoctorCheck {
   name: string;
@@ -167,6 +172,140 @@ export function checkPlumbusCore(): DoctorCheck {
     };
   } catch {
     return { name: '@plumbus/core', status: 'warn', message: '@plumbus/core not accessible' };
+  }
+}
+
+function isMcpInstalled(): boolean {
+  try {
+    const pkgPath = resolvePath('node_modules', '@plumbus/mcp', 'package.json');
+    return fs.existsSync(pkgPath);
+  } catch {
+    return false;
+  }
+}
+
+/** Warn if @plumbus/mcp is installed but mcp.agents is empty. */
+export function checkMcpAgentsConfigured(): DoctorCheck | null {
+  if (!isMcpInstalled()) return null;
+  try {
+    const config = loadConfig({ environment: 'development' });
+    const agents = config.mcp?.agents ?? {};
+    if (Object.keys(agents).length === 0) {
+      return {
+        name: 'mcp.agents',
+        status: 'warn',
+        message:
+          '@plumbus/mcp is installed but mcp.agents is empty — MCP calls fall back to JWT then anonymous. Only access.public capabilities will be callable. See docs/mcp/agent-authentication.md.',
+      };
+    }
+    return {
+      name: 'mcp.agents',
+      status: 'ok',
+      message: `mcp.agents configured (${Object.keys(agents).length} agent(s))`,
+    };
+  } catch {
+    return {
+      name: 'mcp.agents',
+      status: 'warn',
+      message: 'Could not load plumbus.config — cannot verify mcp.agents',
+    };
+  }
+}
+
+/** FAIL if any capability is both exposeAs:['mcp'] and access.public:true. */
+export async function checkMcpPublicCapabilityFootgun(): Promise<DoctorCheck | null> {
+  if (!isMcpInstalled()) return null;
+  try {
+    const resources = await discoverResources();
+    const offenders = resources.capabilities
+      .filter((c) => c.exposeAs?.includes('mcp') === true && c.access?.public === true)
+      .map((c) => `${c.domain}.${c.name}`);
+    if (offenders.length > 0) {
+      return {
+        name: 'mcp.no-public-tools',
+        status: 'fail',
+        message: `MCP-exposed capabilities with access.public:true (security risk): ${offenders.join(', ')}`,
+      };
+    }
+    return {
+      name: 'mcp.no-public-tools',
+      status: 'ok',
+      message: 'No MCP-exposed capabilities are public',
+    };
+  } catch {
+    return {
+      name: 'mcp.no-public-tools',
+      status: 'warn',
+      message: 'Could not discover capabilities for public+MCP check',
+    };
+  }
+}
+
+/** Warn if generated skill files drift from current MCP-exposed capabilities. */
+export async function checkMcpSkillFilesFresh(): Promise<DoctorCheck | null> {
+  if (!isMcpInstalled()) return null;
+  try {
+    const resources = await discoverResources();
+    const registry = new CapabilityRegistry();
+    for (const cap of resources.capabilities) if (isMcpExposed(cap)) registry.register(cap);
+    const manifest = buildMcpManifest(registry);
+    const expected = new Set(
+      manifest.tools.map((tool) => {
+        const cap = registry.get(tool.name);
+        return path.join(
+          '.plumbus',
+          'generated',
+          'skills',
+          cap?.domain ?? 'unknown',
+          `${toKebabCase(tool.name)}.md`,
+        );
+      }),
+    );
+    const skillsRoot = resolvePath('.plumbus', 'generated', 'skills');
+    if (!fs.existsSync(skillsRoot)) {
+      return manifest.tools.length === 0
+        ? {
+            name: 'mcp.skill-files',
+            status: 'ok',
+            message: 'No MCP-exposed capabilities; no skill files needed',
+          }
+        : {
+            name: 'mcp.skill-files',
+            status: 'warn',
+            message: `${manifest.tools.length} MCP-exposed capabilities but no generated skill files. Run: plumbus generate`,
+          };
+    }
+    const onDisk = new Set<string>();
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile() && entry.name.endsWith('.md')) {
+          onDisk.add(full.replace(`${process.cwd()}/`, ''));
+        }
+      }
+    };
+    walk(skillsRoot);
+    const missing = [...expected].filter((f) => !onDisk.has(f));
+    const orphaned = [...onDisk].filter((f) => !expected.has(f));
+    if (missing.length > 0 || orphaned.length > 0) {
+      return {
+        name: 'mcp.skill-files',
+        status: 'warn',
+        message: `Skill files drifted (missing: ${missing.length}, orphaned: ${orphaned.length}). Run: plumbus generate`,
+      };
+    }
+    return {
+      name: 'mcp.skill-files',
+      status: 'ok',
+      message: 'Skill files match current MCP-exposed capabilities',
+    };
+  } catch {
+    return {
+      name: 'mcp.skill-files',
+      status: 'warn',
+      message: 'Could not verify skill-file freshness',
+    };
   }
 }
 
@@ -402,6 +541,7 @@ export async function checkRedis(): Promise<DoctorCheck> {
 
 /** Run all doctor checks (sync checks only) */
 export function runDoctorChecks(): DoctorCheck[] {
+  const mcpAgentsCheck = checkMcpAgentsConfigured();
   return [
     checkNodeVersion(),
     checkTypeScript(),
@@ -412,14 +552,21 @@ export function runDoctorChecks(): DoctorCheck[] {
     checkAppStructure(),
     checkAgentWiring(),
     checkLegacyArtifacts(),
+    ...(mcpAgentsCheck ? [mcpAgentsCheck] : []),
   ];
 }
 
 /** Run all doctor checks including async connectivity tests */
 export async function runFullDoctorChecks(): Promise<DoctorCheck[]> {
   const syncChecks = runDoctorChecks();
-  const [pgCheck, redisCheck] = await Promise.all([checkPostgreSQL(), checkRedis()]);
-  return [...syncChecks, pgCheck, redisCheck];
+  const [pgCheck, redisCheck, mcpPublicCheck, mcpSkillsCheck] = await Promise.all([
+    checkPostgreSQL(),
+    checkRedis(),
+    checkMcpPublicCapabilityFootgun(),
+    checkMcpSkillFilesFresh(),
+  ]);
+  const mcpAsync = [mcpPublicCheck, mcpSkillsCheck].filter((c): c is DoctorCheck => c !== null);
+  return [...syncChecks, pgCheck, redisCheck, ...mcpAsync];
 }
 
 export function registerDoctorCommand(program: Command): void {

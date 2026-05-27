@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.4 — 2026-05-26
+
+- `TurnContext.contextTokenBudget` and `TurnContext.userMessage` stamped in `run-turn.ts` before context resolution (registry-backed knowledge scope packing and RAG query plumbing).
+- **Breaking:** direct-RAG helper renamed to `ragContext` (was `knowledgeContext({ corpus, query })`).
+- New registry-backed `knowledgeContext({ registry, source, scopeFromTurn?, queryFromTurn?, tier? })` — optional peer on `@plumbus/knowledge-base@^0.1.0`.
+- Deprecated `knowledgeContextLegacy` alias (= `ragContext`) for one minor; removal in v0.2.
+- `knowledgeContext({ tier: 'tools' })` throws `knowledge.chat_tier_not_supported` at construction (tier 2 not executed in v0.1.4).
+- `staticContextFromTranslations` marked `@deprecated`; use `translationCatalog` + registry-backed `knowledgeContext`.
+
+| Package | Version | Relationship |
+|---|---:|---|
+| `@plumbus/knowledge-base` | `0.1.0` | New optional package |
+| `@plumbus/chat` | `0.1.4` | Adds registry-backed `knowledgeContext` |
+| `@plumbus/core` | `^0.4.0 <0.5.0` | Required peer of KB |
+
 ## 0.1.3 — 2026-05-25
 
 - `runChatTurn` auto-creates the `chat_session` row when `loadSession` returns null AND `saveToDb: true`. Lets consumers ship client-generated session UUIDs without a separate bootstrap capability (`chatStart`). Identity (`userId`, `tenantId`, `audience`, `locale`, `chatName`) comes from `ctx.auth` + the request. **Breaking semantic** (no API break): the `chat.session_not_found` event no longer fires under normal operation — only on `loadSession` errors. Consumers that relied on the failure signal should switch to checking `getOrCreateSession` directly.

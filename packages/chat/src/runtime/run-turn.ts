@@ -10,7 +10,7 @@ import { compilePolicy } from '../policy/registry.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
 import type { ChatTurnModelOutput } from '../prompt/chat-turn.prompt.js';
-import { appendTurn, getOrCreateSession, loadSession } from '../session/service.js';
+import { appendTurn, getOrCreateSession, type loadSession } from '../session/service.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatEvent } from '../types/event.js';
 import type { GuardState } from '../types/policy.js';
@@ -152,6 +152,8 @@ export async function* runChatTurn(
         locale: args.locale,
         signal: AbortSignal.timeout((chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000),
         traceId: turnId,
+        contextTokenBudget: chat.budget?.contextTokens,
+        userMessage: args.userMessage,
       };
 
       const guardState: GuardState = {

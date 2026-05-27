@@ -216,52 +216,64 @@ export const ticketTriage = defineFlow({
 // app/capabilities/support/create-ticket/tests/create-ticket.test.ts
 import { runCapability, createTestContext, mockAI } from "@plumbus/core/testing";
 import { expect, describe, it } from "vitest";
+import { createTicket } from "../capability.js";
+import { classifyTicketHandler } from "../../classify-ticket/capability.js";
 
 describe("createTicket", () => {
   it("creates a ticket and emits event", async () => {
-    const result = await runCapability("createTicket", {
-      input: {
+    const result = await runCapability(
+      createTicket,
+      {
         subject: "Cannot login to my account",
         body: "I keep getting an error when trying to login...",
         customerEmail: "alice@example.com",
       },
-      data: { Ticket: [] },
-    });
+      { data: { Ticket: [] } },
+    );
 
-    expect(result.ticketId).toBeDefined();
-    expect(result.status).toBe("open");
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.ticketId).toBeDefined();
+      expect(result.data.status).toBe("open");
+    }
   });
 
-  it("validates input", async () => {
-    await expect(
-      runCapability("createTicket", {
-        input: { subject: "Hi", body: "Too short", customerEmail: "invalid" },
-        data: { Ticket: [] },
-      }),
-    ).rejects.toThrow();
+  it("rejects invalid input", async () => {
+    const result = await runCapability(
+      createTicket,
+      { subject: "Hi", body: "Too short", customerEmail: "invalid" },
+      { data: { Ticket: [] } },
+    );
+
+    expect(result.success).toBe(false);
   });
 });
 
 describe("classifyTicketHandler", () => {
   it("classifies using AI", async () => {
-    const result = await runCapability("classifyTicketHandler", {
-      input: { ticketId: "t_1", subject: "Billing error" },
-      auth: { userId: "svc_1", roles: [], scopes: [], provider: "service" },
-      data: {
-        Ticket: [{ id: "t_1", subject: "Billing error", body: "I was overcharged..." }],
-      },
-      ai: mockAI({
-        classifyTicket: {
-          category: "billing",
-          priority: "high",
-          sentiment: "negative",
-          suggestedResponse: "We apologize for the billing issue.",
+    const result = await runCapability(
+      classifyTicketHandler,
+      { ticketId: "t_1", subject: "Billing error" },
+      {
+        auth: { userId: "svc_1", roles: [], scopes: [], provider: "service" },
+        data: {
+          Ticket: [{ id: "t_1", subject: "Billing error", body: "I was overcharged..." }],
         },
-      }),
-    });
+        ai: mockAI({
+          classifyTicket: {
+            category: "billing",
+            priority: "high",
+            sentiment: "negative",
+            suggestedResponse: "We apologize for the billing issue.",
+          },
+        }),
+      },
+    );
 
-    expect(result.category).toBe("billing");
-    expect(result.priority).toBe("high");
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.category).toBe("billing");
+    expect(result.data.priority).toBe("high");
   });
 });
 ```

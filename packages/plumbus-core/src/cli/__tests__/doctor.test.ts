@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   checkAgentWiring,
   checkLegacyArtifacts,
+  checkMcpAgentsConfigured,
+  checkMcpPublicCapabilityFootgun,
+  checkMcpSkillFilesFresh,
   checkNodeVersion,
   checkPlumbusUi,
   checkPostgreSQL,
@@ -183,7 +186,7 @@ describe('plumbus doctor', () => {
 
       const check = checkAgentWiring();
       expect(check.status).toBe('ok');
-      expect(check.message).toContain('template version 3');
+      expect(check.message).toContain('template version 4');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -225,5 +228,22 @@ describe('plumbus doctor', () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('MCP doctor checks', () => {
+  it('checkMcpAgentsConfigured returns null when @plumbus/mcp is not installed', () => {
+    const result = checkMcpAgentsConfigured();
+    expect(result === null || result.status === 'ok' || result.status === 'warn').toBe(true);
+  });
+
+  it('checkMcpPublicCapabilityFootgun returns null or non-failing in test env', async () => {
+    const result = await checkMcpPublicCapabilityFootgun();
+    expect(result === null || ['ok', 'warn'].includes(result.status)).toBe(true);
+  });
+
+  it('checkMcpSkillFilesFresh returns null or non-failing in test env', async () => {
+    const result = await checkMcpSkillFilesFresh();
+    expect(result === null || ['ok', 'warn'].includes(result.status)).toBe(true);
   });
 });

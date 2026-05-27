@@ -48,7 +48,7 @@ export const createGreeting = defineCapability({
     message: z.string(),
   }),
   access: { roles: ["user", "admin"] },
-  effects: { writes: ["Greeting"], emits: ["greeting.created"] },
+  effects: { data: ["Greeting"], events: ["greeting.created"], external: [], ai: false },
   handler: async (ctx, input) => {
     const greeting = await ctx.data.Greeting.create(input);
     await ctx.events.emit("greeting.created", {
@@ -79,7 +79,7 @@ export const listGreetings = defineCapability({
     author: z.string(),
   })),
   access: { public: true },
-  effects: { reads: ["Greeting"] },
+  effects: { data: [], events: [], external: [], ai: false },
   handler: async (ctx) => {
     return ctx.data.Greeting.findMany();
   },
@@ -103,7 +103,18 @@ export const greetingCreated = defineEvent({
 });
 ```
 
-## 6. Run the Development Server
+## 6. Apply Database Migrations
+
+Before starting the server, generate and apply the schema for the entities you just defined:
+
+```bash
+plumbus migrate generate
+plumbus migrate apply
+```
+
+This creates the `greeting` table (and the framework-owned `audit_log`, `event_outbox`, etc.) in your local Postgres. See [Migrations](../cli/commands.md#plumbus-migrate) for details on review-and-apply mode.
+
+## 7. Run the Development Server
 
 ```bash
 plumbus dev
@@ -116,22 +127,29 @@ POST /api/greetings/create-greeting  → createGreeting
 GET  /api/greetings/list-greetings   → listGreetings
 ```
 
-## 7. Test It
+## 8. Test It
 
 ```typescript
 // app/capabilities/greetings/create-greeting/tests/create-greeting.test.ts
 import { runCapability } from "@plumbus/core/testing";
 import { expect, test } from "vitest";
+import { createGreeting } from "../capability.js";
 
 test("creates a greeting", async () => {
-  const result = await runCapability("createGreeting", {
-    input: { message: "Hello, world!", author: "Alice" },
-    auth: { userId: "usr_1", roles: ["user"], scopes: [], provider: "test" },
-    data: { Greeting: [] },
-  });
+  const result = await runCapability(
+    createGreeting,
+    { message: "Hello, world!", author: "Alice" },
+    {
+      auth: { userId: "usr_1", roles: ["user"], scopes: [], provider: "test" },
+      data: { Greeting: [] },
+    },
+  );
 
-  expect(result.message).toBe("Hello, world!");
-  expect(result.id).toBeDefined();
+  expect(result.success).toBe(true);
+  if (result.success) {
+    expect(result.data.message).toBe("Hello, world!");
+    expect(result.data.id).toBeDefined();
+  }
 });
 ```
 

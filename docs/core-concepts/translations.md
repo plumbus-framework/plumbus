@@ -74,8 +74,8 @@ Access translations through the execution context:
 ```typescript
 export const getProject = defineCapability({
   // ...
-  handler: async (input, ctx) => {
-    const project = await ctx.data.findById("Project", input.projectId);
+  handler: async (ctx, input) => {
+    const project = await ctx.data.Project.findById(input.projectId);
     if (!project) {
       throw ctx.errors.notFound(ctx.translations.t("errors.projectNotFound"));
     }
@@ -222,3 +222,9 @@ app/translations/
 ```
 
 Each file exports a single `defineTranslation()` result. The `name` field serves as the namespace for key resolution (e.g., `common.nav.overview`).
+
+---
+
+## SDK reference
+
+For every `defineTranslation` option and the full `TranslationResolver` / `TranslationRegistry` API, see [SDK Reference → defineTranslation](../sdk-reference/define-functions.md#definetranslation). This page covers the common case; the reference is exhaustive.

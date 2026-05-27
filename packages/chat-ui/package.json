@@ -12,9 +12,21 @@
     "build": "tsc -b",
     "test": "vitest run",
     "lint": "biome lint src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "README.md", "CHANGELOG.md"],
+  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/chat-ui"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
   "peerDependencies": {
     "react": ">=19",
     "@plumbus/chat": "0.1.x",

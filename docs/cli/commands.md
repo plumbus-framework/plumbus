@@ -9,6 +9,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus create` | Scaffold a new Plumbus application |
 | `plumbus init` | Generate AI agent wiring files |
 | `plumbus dev` | Start development server with hot reload |
+| `plumbus start` | Start production server (no watchers, requires `AUTH_SECRET`) |
 | `plumbus doctor` | Check environment readiness |
 | `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types, type registry |
 | `plumbus capability new` | Scaffold a new capability |
@@ -30,6 +31,10 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus mcp serve` | Start MCP server (stdio or HTTP) for `exposeAs: ['mcp']` capabilities |
 | `plumbus mcp generate` | Generate MCP manifest and skill files only |
 | `plumbus mcp list-tools` | List MCP-exposed tool names and descriptions |
+| `plumbus translation new` | Scaffold a new translation catalog |
+| `plumbus translation export` | Export translations to JSON or XLIFF for translators |
+| `plumbus translation import` | Import translated files back into the catalog |
+| `plumbus translation status` | Report translation coverage per namespace and locale |
 
 ## Installation
 
@@ -193,6 +198,32 @@ plumbus dev [options]
 
 ---
 
+### plumbus start
+
+Start the production server. Unlike `plumbus dev`, this command has no watchers, forces `environment: "production"`, and fails fast if `AUTH_SECRET` is missing.
+
+```bash
+plumbus start [options]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-p, --port <port>` | `string` | `3000` | Server port |
+| `-H, --host <host>` | `string` | `0.0.0.0` | Server host |
+
+Behavior:
+
+- Loads `plumbus.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
+- Discovers resources from `app/`, populates registries, connects to the database.
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`).
+- Starts a worker pool for event-triggered flows when any flow declares `trigger.event`.
+- Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
+- Exposes `GET /health` and `GET /ready`.
+
+Set `TRUST_PROXY=true` (or a specific IP/CIDR string) when running behind a load balancer so Fastify trusts `X-Forwarded-*` headers.
+
+---
+
 ### plumbus doctor
 
 Check environment readiness — Node.js version, PostgreSQL, Redis, configuration, dependencies.
@@ -216,6 +247,9 @@ Checks performed:
 - App directory structure
 - Generated agent wiring freshness (warns when generated Copilot, Cursor, or `AGENTS.md` files predate the current template version)
 - Legacy artifacts detection (stale `generated/`, `middleware.ts`, API proxy route)
+- `mcp.agents` (warn if `@plumbus/mcp` is installed but `mcp.agents` is empty)
+- `mcp.no-public-tools` (fail if any capability is both `exposeAs: ['mcp']` and `access.public: true`)
+- `mcp.skill-files` (warn if generated skill files drift from current MCP-exposed capabilities)
 
 When stale wiring is detected, doctor recommends the safest follow-up command:
 
@@ -590,6 +624,55 @@ export default async function (db: PostgresJsDatabase, schemas: Record<string, u
 ```
 
 The function receives the connected Drizzle `db` instance and the collected entity `schemas` (Drizzle table objects).
+
+---
+
+### plumbus translation
+
+Manage translation catalogs. Catalogs live in `app/translations/<name>.translation.ts` and are registered through `defineTranslation`.
+
+```bash
+plumbus translation new <name>
+plumbus translation export [options]
+plumbus translation import [options]
+plumbus translation status [options]
+```
+
+#### `plumbus translation new <name>`
+
+Scaffold a new translation catalog at `app/translations/<name>.translation.ts` populated with the default locale.
+
+#### `plumbus translation export`
+
+Export the current catalog state for handoff to external translators.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--format <format>` | `string` | `json` | Output format: `json` or `xliff` |
+| `--locale <locale>` | `string` | — | Export only this locale (default: all locales) |
+| `--out-dir <path>` | `string` | `.plumbus/translations` | Output directory |
+
+Writes one file per `<locale>` (or per namespace when XLIFF) under the chosen directory.
+
+#### `plumbus translation import`
+
+Import a finished translation file back into the catalog. Provide exactly one of `--file` or `--dir`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--format <format>` | `string` | `json` | Source format: `json` or `xliff` |
+| `--file <path>` | `string` | — | Import a single file |
+| `--dir <path>` | `string` | — | Import all files from a directory |
+
+Untranslated keys are preserved; the importer never overwrites with empty strings.
+
+#### `plumbus translation status`
+
+Report translation coverage. Exits non-zero when any locale is incomplete — wire it into CI to catch missing translations before release.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | `boolean` | `false` | Output as JSON for CI integration |
 
 ---
 

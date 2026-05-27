@@ -1,10 +1,32 @@
 import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  CancelTaskRequestSchema,
+  ErrorCode,
+  GetTaskPayloadRequestSchema,
+  GetTaskRequestSchema,
+  ListTasksRequestSchema,
+  ListToolsRequestSchema,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
 import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
-import { createExecutionContext, executeCapability, type CapabilityContract } from '@plumbus/core';
+import {
+  createExecutionContext,
+  executeCapability,
+  type AuthContext,
+  type CapabilityContract,
+  type ExecutionContext,
+} from '@plumbus/core';
 import { buildMcpManifest, isMcpExposed } from '@plumbus/core/mcp';
+import {
+  createTask,
+  getByIdScoped,
+  markStatus,
+  recordProgress,
+  type McpTaskRow,
+} from './tasks/task-store.js';
 import type { McpServerConfig } from './types.js';
 
 const PACKAGE_VERSION: string = (() => {
@@ -16,6 +38,17 @@ const PACKAGE_VERSION: string = (() => {
     return '0.0.0';
   }
 })();
+
+/**
+ * Maps active taskId → its AbortController for cooperative cancellation.
+ *
+ * Known limitation: module-scope shared across every `createMcpServer(...)`
+ * instance in the process. Acceptable for the single-process / pinned-LB
+ * topology that is currently the only supported deployment. Multi-instance
+ * servers must add a per-`Server` registry (passed via closure or attached
+ * to the Server object) — tracked as a follow-up; do NOT change in this plan.
+ */
+const taskAbortRegistry = new Map<string, AbortController>();
 
 export interface CreateMcpServerOptions {
   name?: string;
@@ -52,6 +85,58 @@ function capabilityResultToToolResponse(result: Awaited<ReturnType<typeof execut
   };
 }
 
+type McpExtra = {
+  signal?: AbortSignal;
+  authInfo?: AuthInfo;
+  requestInfo?: McpRequestInfo;
+};
+
+async function resolveCtx(
+  config: McpServerConfig,
+  extra: McpExtra,
+  options: { bypassTenantScope?: boolean } = {},
+): Promise<{ ctx: ExecutionContext; authContext: AuthContext }> {
+  const headerValue = getHeaderValue(extra.requestInfo?.headers, 'authorization');
+  const rawToken = extra.authInfo?.token ?? headerValue;
+  const authHeader = rawToken && !rawToken.startsWith('Bearer ') ? `Bearer ${rawToken}` : rawToken;
+  const auth = await config.authAdapter.authenticate(authHeader);
+  const authContext: AuthContext = auth ?? {
+    userId: undefined,
+    roles: [],
+    scopes: [],
+    provider: 'anonymous',
+  };
+  const deps = config.createDependencies(authContext, options);
+  const userAgent = getHeaderValue(extra.requestInfo?.headers, 'user-agent');
+  if (userAgent !== undefined) deps.request = { userAgent };
+  const ctx = createExecutionContext(deps);
+  return { ctx, authContext };
+}
+
+function taskRowToWire(task: McpTaskRow): {
+  taskId: string;
+  status: McpTaskRow['status'];
+  statusMessage?: string;
+  createdAt: string;
+  lastUpdatedAt: string;
+  ttl: number | null;
+} {
+  return {
+    taskId: task.id,
+    status: task.status,
+    statusMessage: task.statusMessage,
+    createdAt: task.createdAt.toISOString(),
+    lastUpdatedAt: task.updatedAt.toISOString(),
+    ttl: task.ttlMs ?? null,
+  };
+}
+
+function assertTaskOwnership(task: McpTaskRow, auth: AuthContext): void {
+  if (task.userId !== auth.userId) {
+    throw new McpError(ErrorCode.InvalidRequest, 'task.forbidden: task belongs to another user');
+  }
+}
+
 /** Create an MCP server that lists and invokes MCP-exposed capabilities. */
 export function createMcpServer(
   config: McpServerConfig,
@@ -59,7 +144,16 @@ export function createMcpServer(
 ): Server {
   const server = new Server(
     { name: options.name ?? 'plumbus-mcp', version: options.version ?? PACKAGE_VERSION },
-    { capabilities: { tools: {} } },
+    {
+      capabilities: {
+        tools: { listChanged: false },
+        tasks: {
+          list: {},
+          cancel: {},
+          requests: { tools: { call: {} } },
+        },
+      },
+    },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -86,38 +180,149 @@ export function createMcpServer(
       };
     }
 
-    const extraInfo = extra as {
-      signal?: AbortSignal;
-      authInfo?: AuthInfo;
-      requestInfo?: McpRequestInfo;
-    };
-
-    const headerValue = getHeaderValue(extraInfo.requestInfo?.headers, 'authorization');
-    const rawToken = extraInfo.authInfo?.token ?? headerValue;
-    const authHeader =
-      rawToken && !rawToken.startsWith('Bearer ') ? `Bearer ${rawToken}` : rawToken;
-
-    const auth = await config.authAdapter.authenticate(authHeader);
-    const authContext = auth ?? {
-      userId: undefined,
-      roles: [],
-      scopes: [],
-      provider: 'anonymous',
-    };
-
     const bypassTenantScope = cap.access?.tenantScoped === false;
-    const deps = config.createDependencies(authContext, { bypassTenantScope });
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { bypassTenantScope });
 
-    const userAgent = getHeaderValue(extraInfo.requestInfo?.headers, 'user-agent');
-    if (userAgent !== undefined) {
-      deps.request = { userAgent };
+    const meta = request.params._meta as
+      | { taskMetadata?: unknown; progressToken?: string | number }
+      | undefined;
+    const taskMetadata = meta?.taskMetadata;
+    const progressToken = meta?.progressToken;
+
+    // ── Task-augmented path: kind:'job' + opt-in via taskMetadata ──
+    if (cap.kind === 'job' && taskMetadata !== undefined) {
+      if (!authContext.userId) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                code: 'unauthorized',
+                message: 'Tasks require an authenticated user',
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const taskId = crypto.randomUUID();
+      const abortController = new AbortController();
+      taskAbortRegistry.set(taskId, abortController);
+
+      const task = await createTask(ctx, {
+        id: taskId,
+        userId: authContext.userId,
+        capabilityName: cap.name,
+        capabilityDomain: cap.domain,
+        progressToken: progressToken !== undefined ? String(progressToken) : undefined,
+      });
+
+      const bgDeps = config.createDependencies(authContext, { bypassTenantScope });
+      const bgCtx = createExecutionContext(bgDeps);
+      bgCtx.signal = abortController.signal;
+      bgCtx.progress = {
+        report: (opts) => {
+          void recordProgress(bgCtx, taskId, opts).catch(() => {});
+          if (progressToken !== undefined) {
+            void server
+              .notification({
+                method: 'notifications/progress',
+                params: {
+                  progressToken,
+                  progress: opts.progress,
+                  total: opts.total,
+                  message: opts.message,
+                },
+              })
+              .catch(() => {});
+          }
+        },
+      };
+
+      const taskStart = Date.now();
+      void (async () => {
+        let finalStatus: 'success' | 'error' = 'success';
+        let finalErrorCode: string | undefined;
+        try {
+          const result = await executeCapability(
+            cap as CapabilityContract,
+            bgCtx,
+            request.params.arguments ?? {},
+          );
+          if (abortController.signal.aborted) {
+            finalStatus = 'error';
+            finalErrorCode = 'cancelled';
+            return;
+          }
+          if (result.success) {
+            await markStatus(bgCtx, taskId, 'completed', { payloadJson: result.data });
+          } else {
+            finalStatus = 'error';
+            finalErrorCode = result.error.code;
+            await markStatus(bgCtx, taskId, 'failed', { errorJson: result.error });
+          }
+        } catch (err) {
+          finalStatus = 'error';
+          finalErrorCode = 'internal';
+          try {
+            await markStatus(bgCtx, taskId, 'failed', {
+              errorJson: {
+                code: 'internal',
+                message: err instanceof Error ? err.message : String(err),
+              },
+            });
+          } catch {
+            /* swallow — best-effort */
+          }
+        } finally {
+          taskAbortRegistry.delete(taskId);
+          if (config.onMcpToolCall) {
+            void (async () =>
+              config.onMcpToolCall?.({
+                capabilityName: cap.name,
+                domain: cap.domain,
+                durationMs: Date.now() - taskStart,
+                status: finalStatus,
+                errorCode: finalErrorCode,
+                userId: authContext.userId,
+                tenantId: authContext.tenantId,
+                provider: authContext.provider,
+              }))().catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[plumbus:mcp] onMcpToolCall hook threw (task path): ${msg}`);
+            });
+          }
+          try {
+            const finalTask = await getByIdScoped(bgCtx, taskId);
+            if (finalTask) {
+              await server
+                .notification({
+                  method: 'notifications/tasks/status',
+                  params: taskRowToWire(finalTask),
+                })
+                .catch(() => {});
+            }
+          } catch {
+            /* best-effort notification */
+          }
+        }
+      })();
+
+      return {
+        task: {
+          taskId,
+          status: task.status,
+          createdAt: task.createdAt.toISOString(),
+          lastUpdatedAt: task.updatedAt.toISOString(),
+          ttl: task.ttlMs ?? null,
+        },
+      };
     }
 
-    const ctx = createExecutionContext(deps);
-
+    // ── Inline (synchronous) path: unchanged behavior + onMcpToolCall hook ──
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const signals: AbortSignal[] = [];
-    if (extraInfo.signal) signals.push(extraInfo.signal);
+    if ((extra as McpExtra).signal) signals.push((extra as McpExtra).signal as AbortSignal);
     if (config.requestTimeoutMs && config.requestTimeoutMs > 0) {
       const timeoutController = new AbortController();
       timeoutId = setTimeout(() => timeoutController.abort(), config.requestTimeoutMs);
@@ -129,15 +334,33 @@ export function createMcpServer(
       ctx.signal = AbortSignal.any(signals);
     }
 
+    const start = Date.now();
     try {
       const result = await executeCapability(
         cap as CapabilityContract,
         ctx,
         request.params.arguments ?? {},
       );
+      const durationMs = Date.now() - start;
+
+      if (config.onMcpToolCall) {
+        void (async () =>
+          config.onMcpToolCall?.({
+            capabilityName: cap.name,
+            domain: cap.domain,
+            durationMs,
+            status: result.success ? 'success' : 'error',
+            errorCode: result.success ? undefined : result.error.code,
+            userId: ctx.auth.userId,
+            tenantId: ctx.auth.tenantId,
+            provider: ctx.auth.provider,
+          }))().catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[plumbus:mcp] onMcpToolCall hook threw: ${msg}`);
+        });
+      }
 
       if (!result.success && config.onCapabilityError) {
-        // IIFE so a sync throw inside the hook is caught by .catch.
         void (async () =>
           config.onCapabilityError?.({
             capabilityName: cap.name,
@@ -156,6 +379,58 @@ export function createMcpServer(
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
+  });
+
+  server.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const task = await getByIdScoped(ctx, request.params.taskId);
+    if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+    assertTaskOwnership(task, authContext);
+    return taskRowToWire(task);
+  });
+
+  server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const task = await getByIdScoped(ctx, request.params.taskId);
+    if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+    assertTaskOwnership(task, authContext);
+    if (task.status !== 'completed') {
+      throw new McpError(ErrorCode.InvalidRequest, `task.not_completed: status is ${task.status}`);
+    }
+    return (task.payloadJson ?? {}) as Record<string, unknown>;
+  });
+
+  server.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const task = await getByIdScoped(ctx, request.params.taskId);
+    if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+    assertTaskOwnership(task, authContext);
+    if (task.status === 'working') {
+      await markStatus(ctx, task.id, 'cancelled');
+      const controller = taskAbortRegistry.get(task.id);
+      if (controller) controller.abort();
+    }
+    const updated = await getByIdScoped(ctx, request.params.taskId);
+    return taskRowToWire(updated ?? task);
+  });
+
+  server.setRequestHandler(ListTasksRequestSchema, async (_request, extra) => {
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const mcpTaskData = ctx.data as Record<
+      string,
+      { findMany: (q?: Record<string, unknown>, o?: { limit?: number }) => Promise<unknown[]> }
+    >;
+    const mcpTask = mcpTaskData.McpTask;
+    if (!mcpTask) {
+      throw new McpError(ErrorCode.InvalidRequest, 'McpTask entity not registered');
+    }
+    const rows = (await mcpTask.findMany(
+      { userId: authContext.userId },
+      { limit: 100 },
+    )) as McpTaskRow[];
+    return {
+      tasks: rows.map(taskRowToWire),
+    };
   });
 
   return server;

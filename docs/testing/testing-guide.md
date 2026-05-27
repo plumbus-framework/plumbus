@@ -56,15 +56,34 @@ describe("getUser", () => {
 
 ### RunCapabilityOptions
 
+`RunCapabilityOptions` extends `TestContextOptions` — every service the test context creates can be overridden.
+
 ```typescript
 interface RunCapabilityOptions {
+  // Auth & data fixtures
   auth?: Partial<AuthContext>;
   data?: Record<string, Record<string, unknown>[]>;
-  entities?: EntityDefinition[];  // Enable field-type validation on writes
-  ai?: AIService;
-  ctx?: ExecutionContext;  // Provide a full custom context
+  entities?: EntityDefinition[];          // Enable field-type validation on writes
+
+  // Service overrides — substitute mocks or fakes
+  ai?: AIService | AIResponse;            // Pass a pre-built service, or shorthand response
+  events?: EventService;                  // Capture or assert event emissions
+  flows?: FlowService;                    // Capture flow.start calls
+  audit?: AuditService;                   // Capture audit writes
+  logger?: LoggerService;                 // Quiet logs or assert log lines
+  time?: TimeService | Date;              // Pin "now" for deterministic tests
+  config?: Record<string, unknown>;       // Stub ctx.config
+
+  // Escape hatch
+  ctx?: ExecutionContext;                 // Bypass everything above and provide a full custom context
 }
 ```
+
+Common uses:
+
+- **`time: new Date("2024-01-15T12:00:00Z")`** — pin `ctx.time.now()` for snapshot stability.
+- **`events: createMockEventService()`** — assert `ctx.events.emit` calls instead of letting them go to the outbox mock.
+- **`ai: { text: "fixed reply" }`** — shorthand for a one-shot `AIService` that always returns this response.
 
 ### Field-Type Validation
 
@@ -373,6 +392,33 @@ describe("API E2E", () => {
   });
 });
 ```
+
+### Testing MCP capabilities
+
+```ts
+import { createTestMcpServer } from '@plumbus/mcp/testing';
+import { mcpTaskEntity } from '@plumbus/mcp';
+import { myJobCapability } from '../app/capabilities/my-job/capability.js';
+
+const { client, close } = await createTestMcpServer({
+  capabilities: [myJobCapability],
+  entities: [mcpTaskEntity],
+  auth: { userId: 'u1', roles: ['user'], scopes: [], provider: 'mcp' },
+});
+
+try {
+  const result = await client.callTool({
+    name: 'myJobCapability',
+    arguments: { ... },
+    _meta: { taskMetadata: {} },
+  } as any);
+  // ... assert on result.task.taskId, poll tasks/get, etc.
+} finally {
+  await close();
+}
+```
+
+See [packages/mcp/README.md](../../packages/mcp/README.md) for the full testing API.
 
 ## Scaffolding Test Files
 

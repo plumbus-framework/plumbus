@@ -8,7 +8,7 @@ A chat's `context: [...]` array tells the runtime what data to inject into the m
 |---|---|
 | Tiny static lookup (path map, surface list, status enum) | `staticContext` |
 | Same data, already in `app/translations/` catalogs | `staticContextFromTranslations` |
-| Long-tail docs, FAQs, knowledge base | `knowledgeContext` over a registered RAG corpus |
+| Long-tail docs, FAQs, knowledge base | Registry `knowledgeContext` (`@plumbus/knowledge-base`) or direct `ragContext` |
 | Live per-user data (account state, billing snapshot) | `capabilityContext(getOwnState)` |
 | Curated wiki of summarized entity pages | Custom `ContextSource` |
 
@@ -61,23 +61,37 @@ const billingStatus = capabilityContext(getOwnBillingStatus, {
 
 **The capability MUST be read-only.** `capabilityContext` rejects capabilities with any `effects.data` or `effects.events` at construction time. For writes, use `actions:` + `policy.action.allowedCapabilities`.
 
-### `knowledgeContext` — RAG over a registered corpus
+### `knowledgeContext` — registry-backed (`@plumbus/knowledge-base`)
 
 ```ts
 import { knowledgeContext } from '@plumbus/chat';
+import { knowledgeRegistry } from '../knowledge/index.js';
 
-const docs = knowledgeContext({
-  corpus: 'product-docs',                    // REQUIRED — must match an ingested collection
-  query: (turnCtx) => turnCtx.userMessage,
-  topK: 6,
-  filter: (turnCtx) => ({
-    audience: turnCtx.audience,
-    locale: turnCtx.locale,
-  }),
+const helpKb = knowledgeContext({
+  registry: knowledgeRegistry,
+  source: 'help-kb',
+  queryFromTurn: (t) => t.userMessage ?? '', // required for RAG-backed sources
 });
 ```
 
-The corpus is pre-registered via `plumbus rag ingest` (or whatever ingestion the consumer app uses). The chat package does not own ingestion.
+`tier: 'tools'` throws at construction in v0.1.4.
+
+### `ragContext` — direct RAG (no registry)
+
+```ts
+import { ragContext } from '@plumbus/chat';
+
+const docs = ragContext({
+  corpus: 'product-docs',
+  query: (turnCtx) => turnCtx.userMessage ?? '',
+  topK: 6,
+  filter: (turnCtx) => ({ audience: turnCtx.audience, locale: turnCtx.locale }),
+});
+```
+
+Legacy alias: `knowledgeContextLegacy` (= `ragContext`). The old `knowledgeContext({ corpus })` name now means registry-backed.
+
+Corpora are registered via `plumbus rag ingest`. The chat package does not own ingestion.
 
 ## Source Handles and Citations
 

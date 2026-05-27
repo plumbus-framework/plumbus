@@ -13,3 +13,4 @@ export {
   type StartHttpServerOptions,
 } from './transports/http.js';
 export { startStdioServer } from './transports/stdio.js';
+export { mcpTaskEntity } from './tasks/mcp-task-entity.js';

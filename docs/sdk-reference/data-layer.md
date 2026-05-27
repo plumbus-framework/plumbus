@@ -60,6 +60,15 @@ const dataService = registry.createDataService({
 });
 ```
 
+### `bypassTenantScope`
+
+`createDataService({ db, auth, audit, bypassTenantScope })` accepts an optional `bypassTenantScope: boolean`. When `true`, the resulting data service skips the automatic `WHERE tenant_id = $auth.tenantId` predicate on every query. Reserved for two narrow use cases:
+
+1. Internal administrative endpoints that legitimately need cross-tenant access.
+2. MCP and HTTP routes serving a capability with `access.tenantScoped: false` (the route generator sets this automatically — see [MCP transports](../mcp/transports.md) and [route generator](../security/security-model.md)).
+
+Setting `bypassTenantScope: true` from application code is a security-sensitive escape hatch — do not enable it unless you have explicitly designed for cross-tenant reads. Tenant-scoped capabilities (the default) must NEVER use `bypassTenantScope: true`.
+
 ## createRepository
 
 Creates a repository for a single entity with built-in tenant isolation and audit:
@@ -104,11 +113,47 @@ interface Repository<
   delete(id: string): Promise<void>;
 
   // Query multiple records
-  findMany(query?: Partial<T>): Promise<T[]>;
+  findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+
+  // Count rows matching query (tenant scoping applies like findMany)
+  count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number>;
 }
 ```
 
 After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` / `createMany()` / `update()`.
+
+### `findMany`
+
+`findMany(query?, options?)` returns all rows matching `query` (or all rows when omitted). Tenant scoping and access policies apply on tenant-scoped entities.
+
+### `QueryOptions` (second arg to `findMany`)
+
+`findMany(query?, options?)` accepts an optional `QueryOptions` second argument:
+
+```typescript
+interface QueryOptions {
+  /** Max rows to return (1–100). Omit for no limit. */
+  limit?: number;
+  /** Number of rows to skip (default 0) */
+  offset?: number;
+  /** Column name to sort by — validated against entity table columns */
+  orderBy?: string;
+  /** Sort direction (default 'desc') */
+  orderDir?: 'asc' | 'desc';
+  /** Date range filters: { columnName: { gte?: Date, lte?: Date } } */
+  dateFilters?: Record<string, { gte?: Date; lte?: Date }>;
+}
+```
+
+Only the fields defined on `QueryOptions` in `packages/plumbus-core/src/types/context.ts` are supported.
+
+### `count(query?, options?)`
+
+Returns the number of rows matching `query` (or all rows when omitted). Tenant scoping and access policies apply identically to `findMany`. Use this in preference to `(await findMany()).length` when you only need a number — `count` issues a SQL `SELECT COUNT(*)` instead of streaming rows.
+
+```typescript
+const total = await ctx.data.User.count();
+const active = await ctx.data.User.count({ status: "active" });
 ```
 
 ### Automatic Tenant Isolation
@@ -158,6 +203,7 @@ const tableMap = generateSchemas([UserEntity, OrderEntity, InvoiceEntity]);
 | `field.id()` | `TEXT PRIMARY KEY` | `text().primaryKey()` |
 | `field.string()` | `TEXT` | `text()` |
 | `field.number()` | `DOUBLE PRECISION` | `doublePrecision()` |
+| `field.decimal()` | `DOUBLE PRECISION` | `doublePrecision()` |
 | `field.boolean()` | `BOOLEAN` | `boolean()` |
 | `field.timestamp()` | `TIMESTAMP` | `timestamp()` |
 | `field.json()` | `JSONB` | `jsonb()` |

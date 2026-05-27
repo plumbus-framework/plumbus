@@ -4,7 +4,11 @@
     "composite": true,
     "outDir": "dist",
     "rootDir": "src",
-    "tsBuildInfoFile": "dist/.tsbuildinfo"
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "baseUrl": ".",
+    "paths": {
+      "@plumbus/mcp": ["./src/shims/plumbus-mcp.js"]
+    }
   },
   "include": ["src", "src/shims/**/*.d.ts"],
   "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"]

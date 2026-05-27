@@ -10,7 +10,7 @@ import { z } from "zod";
 
 export const summarizeTicket = definePrompt({
   name: "summarizeTicket",
-  model: "gpt-4o-mini",
+  model: { name: "gpt-4o-mini", temperature: 0.2 },
   input: z.object({
     ticketText: z.string(),
     context: z.string().optional(),
@@ -21,7 +21,7 @@ export const summarizeTicket = definePrompt({
     sentiment: z.enum(["positive", "neutral", "negative"]),
     suggestedActions: z.array(z.string()),
   }),
-  systemPrompt: `You are a support ticket analyzer. Given a ticket, produce:
+  system: `You are a support ticket analyzer. Given a ticket, produce:
 - summary: concise summary of the issue
 - priority: urgency level
 - sentiment: customer sentiment
@@ -30,6 +30,8 @@ export const summarizeTicket = definePrompt({
 Return valid JSON matching the output schema.`,
 });
 ```
+
+`model` is a `ModelConfig` object — `{ provider?, name?, temperature?, maxTokens? }`. Leaving any field unset falls back to the provider's default. Set `provider: "openai" | "anthropic" | …` when you have multiple providers configured and want this prompt to pin to one.
 
 ## Using Prompts via ctx.ai
 
@@ -77,8 +79,10 @@ const [topLabel] = await ctx.ai.classify({
 ```typescript
 const chunks = await ctx.ai.retrieve({
   query: "How do I reset my password?",
-  maxResults: 5,
-  minRelevance: 0.7,
+  corpus: "support-docs",  // optional; omit to search the default corpus
+  limit: 5,
+  minScore: 0.7,
+  // filter: { audience: "user", locale: "en" },  // optional metadata predicate
 });
 // → [{ content: "...", score: 0.92, metadata: {...} }, ...]
 ```
@@ -131,7 +135,7 @@ import { createOpenAIAdapter } from "@plumbus/core";
 
 const provider = createOpenAIAdapter({
   apiKey: process.env["OPENAI_API_KEY"]!,
-  defaultModel: "gpt-4o-mini",
+  model: "gpt-4o-mini",
 });
 ```
 
@@ -142,7 +146,7 @@ import { createAnthropicAdapter } from "@plumbus/core";
 
 const provider = createAnthropicAdapter({
   apiKey: process.env["ANTHROPIC_API_KEY"]!,
-  defaultModel: "claude-sonnet-4-20250514",
+  model: "claude-sonnet-4-20250514",
 });
 ```
 
@@ -222,8 +226,9 @@ Retrieval:
 ```typescript
 const results = await ctx.ai.retrieve({
   query: "password reset instructions",
-  maxResults: 5,
-  minRelevance: 0.7,
+  corpus: "support-docs",
+  limit: 5,
+  minScore: 0.7,
 });
 ```
 
@@ -244,4 +249,10 @@ app/prompts/
 ├── classify-intent.prompt.ts
 └── extract-entities.prompt.ts
 ```
+
+---
+
+## SDK reference
+
+For every `definePrompt` option — including advanced flags (`skipStreamValidationFallback`, `disableTextModeBrevityHint`, `appendUnsubstitutedInput`, `disableStrictStructuredOutputs`, `requireStrictStructuredOutputs`, `structuredOutputTransport`), `domain`, `tags`, `owner`, and the full `ModelConfig` shape — see [SDK Reference → definePrompt](../sdk-reference/define-functions.md#defineprompt). This page covers the common case; the reference is exhaustive.
 

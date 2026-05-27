@@ -2,6 +2,10 @@ import type { ExecutionContext } from '@plumbus/core';
 import type { ContextItem } from '../types/context.js';
 import { staticContext } from './static-context.js';
 
+/**
+ * @deprecated Use `createKnowledgeRegistry` with `translationCatalog` and `knowledgeContext({ registry, source })`.
+ * Removal target: `@plumbus/chat` v0.2.
+ */
 export function staticContextFromTranslations(opts: {
   id?: string;
   namespaces: string[];

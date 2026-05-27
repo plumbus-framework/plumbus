@@ -14,7 +14,13 @@ export {
   updateSessionSummary,
 } from './session/service.js';
 
-export { knowledgeContext } from './context/knowledge-context.js';
+export { knowledgeContext, CHAT_TIER_TOOLS_ERROR_PREFIX } from './context/knowledge-context.js';
+export { ragContext } from './context/rag-context.js';
+/**
+ * @deprecated Use `ragContext` for direct RAG access, or `knowledgeContext` with a registry.
+ * Removal target: `@plumbus/chat` v0.2.
+ */
+export { ragContext as knowledgeContextLegacy } from './context/rag-context.js';
 export { capabilityContext } from './context/capability-context.js';
 export { staticContext } from './context/static-context.js';
 export { staticContextFromTranslations } from './context/static-context-from-translations.js';

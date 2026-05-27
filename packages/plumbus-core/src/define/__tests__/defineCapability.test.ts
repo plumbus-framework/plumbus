@@ -117,17 +117,6 @@ describe('defineCapability', () => {
     ).toThrow('eventHandler cannot be exposed via MCP');
   });
 
-  it('throws when job is exposed via MCP', () => {
-    expect(() =>
-      defineCapability({
-        ...validConfig(),
-        kind: 'job',
-        description: 'x',
-        exposeAs: ['mcp'],
-      }),
-    ).toThrow('job cannot be exposed via MCP');
-  });
-
   it('throws when MCP-exposed without agent-facing description', () => {
     expect(() =>
       defineCapability({

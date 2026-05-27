@@ -86,7 +86,7 @@ External AI agents use MCP (`plumbus mcp serve`) with the same deny-by-default a
 
 Resolved identity uses `provider: 'mcp'` and `userId` set to the configured `serviceAccountId`. Access then follows `serviceAccounts`, `scopes`, `roles`, and `tenantScoped` on each capability — same `evaluateAccess()` as HTTP.
 
-MCP v1 does not use `bypassTenantScope`. Scope-filtered `tools/list` is not implemented; all MCP-exposed tools appear in the list, with enforcement at `tools/call`.
+MCP follows the same per-capability `bypassTenantScope` rule as the HTTP route generator: when `access.tenantScoped: false`, the runtime calls `createDependencies(auth, { bypassTenantScope: true })`. Tenant-scoped capabilities (the default) still enforce tenant isolation. Scope-filtered `tools/list` is not implemented; all MCP-exposed tools appear in the list, with enforcement at `tools/call`.
 
 See [MCP agent authentication](../mcp/agent-authentication.md).
 

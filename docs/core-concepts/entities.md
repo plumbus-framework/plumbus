@@ -16,11 +16,11 @@ export const Customer = defineEntity({
     name: field.string({ classification: "personal" }),
     email: field.string({ classification: "personal", maskedInLogs: true }),
     phone: field.string({ classification: "sensitive", optional: true }),
-    tier: field.enum({ values: ["free", "pro", "enterprise"] }),
+    tier: field.enum(["free", "pro", "enterprise"]),
     metadata: field.json({ optional: true }),
     isActive: field.boolean({ default: true }),
-    createdAt: field.timestamp({ defaultNow: true }),
-    updatedAt: field.timestamp({ defaultNow: true }),
+    createdAt: field.timestamp({ default: () => new Date() }),
+    updatedAt: field.timestamp({ default: () => new Date() }),
   },
 });
 ```
@@ -31,22 +31,35 @@ export const Customer = defineEntity({
 |-----------|---------|-----------------|-------|
 | `id` | `field.id()` | `string` | Auto-generated unique identifier |
 | `string` | `field.string()` | `string` | Text data |
-| `number` | `field.number()` | `number` | Numeric data |
+| `number` | `field.number()` | `number` | Integer numeric data |
+| `decimal` | `field.decimal()` | `number` | Decimal numeric data (mapped to a precise SQL decimal type) |
 | `boolean` | `field.boolean()` | `boolean` | True/false |
 | `timestamp` | `field.timestamp()` | `Date` | Date/time values |
 | `json` | `field.json()` | `Record<string, unknown>` | Arbitrary JSON |
-| `enum` | `field.enum()` | Union type | Constrained string values |
-| `relation` | `field.relation()` | `string` | Foreign key reference |
+| `enum` | `field.enum(values)` | Union type | Constrained string values; pass values as the first positional argument |
+| `relation` | `field.relation()` | `string` | Foreign key reference (see [Relations](#relations)) |
 
 ## Field Options
+
+All field constructors accept the same `BaseFieldOptions`:
 
 ```typescript
 field.string({
   classification: "personal",  // Data classification level
   maskedInLogs: true,          // Redact in structured logs
-  optional: true,              // Nullable field
-  default: "unknown",          // Default value
+  optional: true,              // Allow undefined on input
+  nullable: true,              // Allow null in the stored column
+  required: true,              // Validation guard — input must be present
+  unique: true,                // Add a UNIQUE constraint at the column level
+  default: "unknown",          // Default value (literal or `() => value` factory)
+  encrypted: true,             // Mark as application-layer encrypted (governance signal)
 })
+```
+
+For `enum`, pass the values positionally:
+
+```typescript
+field.enum(["free", "pro", "enterprise"], { default: "free" })
 ```
 
 ## Data Classification
@@ -93,16 +106,20 @@ defineEntity({
   name: "Order",
   fields: {
     id: field.id(),
-    customerId: field.relation({ entity: "Customer", kind: "belongsTo" }),
+    customerId: field.relation({ entity: "Customer", type: "many-to-one" }),
     // ...
   },
 });
 ```
 
-Relation kinds:
-- `belongsTo` — this entity holds the foreign key
-- `hasMany` — reverse of belongsTo
-- `hasOne` — unique reverse relation
+`field.relation` takes a config object with:
+
+- `entity` (required) — name of the related entity.
+- `type` (required) — one of `"one-to-one"`, `"one-to-many"`, `"many-to-one"`, `"many-to-many"`.
+- `optional?: boolean` — relation is nullable.
+- `classification?: FieldClassification` — propagates to the FK column.
+
+The column on this entity holds the foreign key for `one-to-one` and `many-to-one`. Reverse-side relations (`one-to-many`, `many-to-many`) are derived for query convenience but don't add a column to this entity.
 
 ## Repository Operations
 
@@ -115,8 +132,10 @@ handler: async (ctx, input) => {
 
   // Read
   const found = await ctx.data.User.findById(user.id);
-  const all = await ctx.data.User.findMany();
-  const byEmail = await ctx.data.User.findByEmail("alice@test.com");
+  const all = await ctx.data.User.findMany();                       // all rows
+  const active = await ctx.data.User.findMany({ status: "active" }); // filter by field
+  const byEmail = await ctx.data.User.findMany({ email: "alice@test.com" });
+  const total = await ctx.data.User.count();
 
   // Update
   await ctx.data.User.update(user.id, { name: "Alice Updated" });
@@ -170,4 +189,10 @@ This creates `.plumbus/generated/entity-types.ts` with:
 After generation, calls like `ctx.data.User.create({ ... })` and `ctx.data.User.update(id, { ... })` are type-checked against the entity's fields.
 
 See [Data Layer → Entity Type Generation](../sdk-reference/data-layer.md#entity-type-generation) for details.
+
+---
+
+## SDK reference
+
+For every `defineEntity` option — `domain`, `tags`, `owner`, `indexes`, `retention`, the full `BaseFieldOptions` shape, every field constructor — see [SDK Reference → defineEntity](../sdk-reference/define-functions.md#defineentity) and [SDK Reference → Data Layer](../sdk-reference/data-layer.md). This page covers the common case; the reference is exhaustive.
 

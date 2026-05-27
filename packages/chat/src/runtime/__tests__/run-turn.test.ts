@@ -548,9 +548,7 @@ describe('runChatTurn — saveToDb: false (ephemeral mode)', () => {
       persistence: { messageContent: 'client', saveToDb: false },
       policy: {
         behavioral: {
-          cooldowns: [
-            { trigger: 'refusal', count: 3, durationSeconds: 30, scope: 'session' },
-          ],
+          cooldowns: [{ trigger: 'refusal', count: 3, durationSeconds: 30, scope: 'session' }],
         },
       },
     });
@@ -593,9 +591,7 @@ describe('runChatTurn — saveToDb: false (ephemeral mode)', () => {
       persistence: { messageContent: 'client', saveToDb: false },
       policy: {
         behavioral: {
-          cooldowns: [
-            { trigger: 'refusal', count: 3, durationSeconds: 30, scope: 'session' },
-          ],
+          cooldowns: [{ trigger: 'refusal', count: 3, durationSeconds: 30, scope: 'session' }],
         },
       },
     });
@@ -621,7 +617,9 @@ describe('runChatTurn — saveToDb: false (ephemeral mode)', () => {
     }
 
     // No cooldown should fire — last 3 assistant messages aren't all refusals.
-    expect(events.byType('notice').find((n) => (n as { code: string }).code === 'chat.cooldown_active')).toBeUndefined();
+    expect(
+      events.byType('notice').find((n) => (n as { code: string }).code === 'chat.cooldown_active'),
+    ).toBeUndefined();
     expect(events.byType('turn.completed')).toHaveLength(1);
   });
 });
@@ -706,7 +704,10 @@ describe('runChatTurn — saveToDb: true with client-generated sessionId', () =>
       userMessage: 'second',
       audience: 'user',
       locale: 'en',
-      clientHistory: [{ role: 'user', content: 'first' }, { role: 'assistant', content: 'fine' }],
+      clientHistory: [
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'fine' },
+      ],
     })) {
       // drain
     }

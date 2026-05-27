@@ -1,21 +1,40 @@
-# Corpus binding
+# Context sources
 
-`knowledgeContext` is the chat package's adapter over `@plumbus/core`'s RAG primitive. It does NOT own ingestion, embedding, or storage — those are core's responsibility. It only resolves a query against a named corpus at turn time.
-
-## Shape
+## Registry-backed knowledge (`@plumbus/knowledge-base`)
 
 ```ts
 import { knowledgeContext } from '@plumbus/chat';
+import { knowledgeRegistry } from '../knowledge/index.js';
 
 knowledgeContext({
-  id?: string,                                      // stable handle (default: hash of opts)
-  corpus: string,                                   // pre-registered RAG collection name
-  query: string | ((turnCtx) => string),            // what to retrieve
-  topK?: number,                                    // result count cap
-  filter?: (turnCtx) => Record<string, unknown>,    // metadata filter
-  sourceId?: string,                                // human-readable label
+  registry: knowledgeRegistry,
+  source: 'help-kb',
+  queryFromTurn: (t) => t.userMessage ?? '', // required for RAG-backed sources
+});
+```
+
+Install `@plumbus/knowledge-base` and pass a `createKnowledgeRegistry({ sources })` instance. `tier: 'tools'` is **not** supported in chat v0.1.4 (throws at construction).
+
+## Direct RAG (`ragContext`)
+
+`ragContext` is the chat adapter over `@plumbus/core`'s RAG primitive without registry indirection.
+
+## Shape (`ragContext`)
+
+```ts
+import { ragContext } from '@plumbus/chat';
+
+ragContext({
+  id?: string,
+  corpus: string,
+  query: string | ((turnCtx) => string),
+  topK?: number,
+  filter?: (turnCtx) => Record<string, unknown>,
+  sourceId?: string,
 })
 ```
+
+**Migration:** the old name `knowledgeContext({ corpus, query })` is now `ragContext`. Temporary alias: `knowledgeContextLegacy`.
 
 At each turn the resolver calls:
 
@@ -46,18 +65,18 @@ Once registered, multiple chats can reference the same corpus, and the same corp
 //   plumbus rag ingest --corpus product-docs --source ./docs
 
 // Then in a chat config:
-import { knowledgeContext } from '@plumbus/chat';
+import { ragContext } from '@plumbus/chat';
 
 const helpChat = defineChat({
   // ...
   context: [
-    knowledgeContext({
+    ragContext({
       corpus: 'product-docs',
-      query: (turnCtx) => turnCtx.userMessage,
+      query: (turnCtx) => turnCtx.userMessage ?? '',
       topK: 6,
       filter: (turnCtx) => ({
-        audience: turnCtx.audience,            // 'user' vs 'admin' docs
-        locale: turnCtx.locale,                // language-specific chunks
+        audience: turnCtx.audience,
+        locale: turnCtx.locale,
       }),
     }),
   ],
@@ -66,7 +85,7 @@ const helpChat = defineChat({
 
 ## Default audience filter (footgun mitigation)
 
-If your chat declares `policy.audience` and your `knowledgeContext` does NOT provide a `filter`, the resolver attaches `({ audience }) => ({ audience })` automatically and logs a warning the first time it fires. This prevents admin-only docs leaking to a user just because you forgot to wire the filter.
+If your chat declares `policy.audience` and your `ragContext` does NOT provide a `filter`, the resolver attaches `({ audience }) => ({ audience })` automatically and logs a warning the first time it fires. This prevents admin-only docs leaking to a user just because you forgot to wire the filter.
 
 Override by providing your own `filter` (even one that returns `{}` to explicitly opt out of the default).
 

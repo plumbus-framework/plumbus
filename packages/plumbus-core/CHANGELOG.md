@@ -53,6 +53,7 @@ Use `--dry-run` to preview, or `--force` to replace the entire file.
 
 ### Developer experience
 
+- **`AGENT_WIRING_VERSION` 4** — `plumbus init` references `@plumbus/knowledge-base/instructions/*` (conventions, defining-sources, providers, chat-integration, testing, README) alongside core, UI, and chat. Run `plumbus init --patch` to refresh existing agent wiring files.
 - Centralized `ErrorHints` / `ErrorDocUrls` for flow conditions, tenant denials, and CLI messages.
 - `DatabaseConnection` + `resolveDatabaseConnection()` used by `plumbus start` / `plumbus dev`.
 - Migration snapshot parsing covered by unit tests (`migrate-snapshot-schema`).

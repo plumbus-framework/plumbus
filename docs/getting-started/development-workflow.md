@@ -27,15 +27,17 @@ This scaffolds the full project structure:
 my-app/
 ├── package.json
 ├── tsconfig.json
-├── app.config.ts          # Runtime configuration (DB, auth, AI, compliance)
-├── ai.config.ts           # AI provider settings
+├── config/
+│   ├── app.config.ts      # Runtime configuration (DB, auth, AI, compliance)
+│   └── ai.config.ts       # AI provider settings
 ├── .env.example           # Environment variable template
 └── app/
     ├── capabilities/      # Your capabilities go here
     ├── entities/          # Entity definitions
     ├── events/            # Event definitions
     ├── flows/             # Flow definitions
-    └── prompts/           # Prompt definitions
+    ├── prompts/           # Prompt definitions
+    └── translations/      # Translation catalogs
 ```
 
 After creation, copy `.env.example` to `.env` and fill in your database URL, auth secrets, and AI API keys.
@@ -137,7 +139,7 @@ export const createUser = defineCapability({
   }),
   output: z.object({ id: z.string() }),
   access: { roles: ["admin"] },
-  effects: { writes: ["User"], emits: ["user.created"] },
+  effects: { data: ["User"], events: ["user.created"], external: [], ai: false },
   handler: async (ctx, input) => {
     const user = await ctx.data.User.create(input);
     await ctx.events.emit("user.created", { userId: user.id });
@@ -243,15 +245,20 @@ Tests live next to their capabilities. Use `runCapability()` from the testing ut
 ```typescript
 import { runCapability } from "@plumbus/core/testing";
 import { expect, test } from "vitest";
+import { createUser } from "../capability.js";
 
 test("creates a user", async () => {
-  const result = await runCapability("createUser", {
-    input: { email: "alice@example.com", name: "Alice" },
-    auth: { userId: "usr_1", roles: ["admin"], scopes: [], provider: "test" },
-    data: { User: [] },
-  });
+  const result = await runCapability(
+    createUser,
+    { email: "alice@example.com", name: "Alice" },
+    {
+      auth: { userId: "usr_1", roles: ["admin"], scopes: [], provider: "test" },
+      data: { User: [] },
+    },
+  );
 
-  expect(result.id).toBeDefined();
+  expect(result.success).toBe(true);
+  if (result.success) expect(result.data.id).toBeDefined();
 });
 ```
 

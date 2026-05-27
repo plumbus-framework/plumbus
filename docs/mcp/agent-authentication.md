@@ -28,6 +28,8 @@ After authentication, `evaluateAccess()` runs as for HTTP:
 
 Deny-by-default: no matching policy → 403 at `tools/call`.
 
+**Task requests re-authenticate.** `tasks/get`, `tasks/result`, `tasks/cancel`, and `tasks/list` independently authenticate the caller (same Bearer-token lookup) and additionally enforce task ownership: the caller's `userId` must equal `task.userId`, and tenant isolation applies normally. A leaked token grants only the task scope of the original caller.
+
 ## Tenant-scoped tools and tenanted agents
 
 When a capability has `access.tenantScoped: true`:
@@ -36,7 +38,9 @@ When a capability has `access.tenantScoped: true`:
 - A cross-tenant `tools/call` (agent `tenantId` does not match the tool's tenant scope) is **denied** via existing tenant checks in the data layer and access evaluation.
 - Audit records include `provider: 'mcp'` and the service account id so operators can distinguish agent denials from human JWT denials.
 
-MCP v1 does **not** use `bypassTenantScope` (that HTTP option is for internal/admin routes only).
+### `bypassTenantScope` mirrors the HTTP path
+
+MCP follows the same per-capability rule as the HTTP route generator: when a capability declares `access.tenantScoped: false`, the runtime calls `createDependencies(authContext, { bypassTenantScope: true })` so explicitly cross-tenant capabilities can read across tenants. Tenant-scoped capabilities (the default) still enforce tenant isolation. See `packages/mcp/src/server.ts` and `packages/plumbus-core/src/api/route-generator.ts` — the two paths share this logic verbatim.
 
 ## Token carriage
 
@@ -67,26 +71,36 @@ Loaded via `loadConfig()` like database and auth settings. v1 is a **static map*
 
 `plumbus mcp serve` builds `createMcpAuthAdapter(loadConfig().mcp?.agents ?? {})`.
 
-## PLUMBUS_MCP_TOKEN precedence (stdio)
+## Token resolution
 
-Resolution order when authenticating on stdio:
+Both transports use the same lookup against `mcp.agents`. The implementation is `resolveMcpAgentToken` in [packages/mcp/src/auth/resolve-agent-token.ts](../../packages/mcp/src/auth/resolve-agent-token.ts).
 
-1. If `Authorization: Bearer <value>` is present on the MCP session (some stdio clients support metadata), use `<value>` as the lookup key (same as HTTP).
-2. Else if `PLUMBUS_MCP_TOKEN` is set:
-   - If the value matches a **key** in `mcp.agents`, use that entry.
-   - Else if the value matches a **key** used as the token secret (the map key string equals the env value), use that entry.
-   - Else: treat the env value as an opaque secret and find the agent entry whose map key equals that secret (single match required).
-3. If no match: `authenticate` returns `null` → `tools/call` is denied.
+Resolution order:
+
+1. **`Authorization: Bearer <value>` header**, when present (HTTP transport always; stdio when the runner forwards request metadata). If `<value>` is a key in `mcp.agents`, that entry is used.
+2. **`envToken`** (passed by `plumbus mcp serve` from `PLUMBUS_MCP_TOKEN`). If the env value is a key in `mcp.agents`, that entry is used.
+3. Otherwise `resolveMcpAgentToken` returns `null` and `createMcpAuthAdapter.authenticate` returns `null`.
+
+There is no "secret match" or "opaque secret" branch — the map key **is** the bearer token verbatim. Pick a high-entropy string as the key.
 
 **Examples**
 
-| `mcp.agents` keys | `PLUMBUS_MCP_TOKEN` | Result |
-|-------------------|----------------------|--------|
-| `{ "dev-agent": { ... } }` | `dev-agent` | Resolves via key name |
-| `{ "sk-live-abc": { ... } }` | `sk-live-abc` | Resolves via secret key |
-| `{ "dev-agent": { ... } }` | `wrong` | `null` auth → denial |
+| `mcp.agents` keys | Bearer / `PLUMBUS_MCP_TOKEN` | Result |
+|-------------------|------------------------------|--------|
+| `{ "dev-agent": { ... } }` | `dev-agent` | Resolves to that agent |
+| `{ "sk-live-abc": { ... } }` | `sk-live-abc` | Resolves to that agent |
+| `{ "dev-agent": { ... } }` | `wrong` | `null` auth |
 
-Unknown or missing token → denial (never fall back to anonymous for MCP tools).
+### What happens when auth resolves to `null`
+
+Behavior depends on which adapter is in effect and which transport is serving the call:
+
+| Scenario | Adapter resolved by `plumbus mcp serve` | Null-auth behavior |
+|---|---|---|
+| `config.mcp.agents` has at least one entry | `createMcpAuthAdapter(agents, envToken)` | `null` → HTTP transport returns 401 at the tool call; stdio transport surfaces a tool error. Access evaluation never runs. |
+| `config.mcp.agents` is empty or unset | Falls back to the **JWT adapter** ([`packages/plumbus-core/src/cli/mcp-serve-context.ts:45-52`](../../packages/plumbus-core/src/cli/mcp-serve-context.ts#L45-L52)) and `plumbus mcp serve` prints an "anonymous-only" warning at startup. | `null` → the per-call MCP server ([`packages/mcp/src/server.ts:101-106`](../../packages/mcp/src/server.ts#L101-L106)) substitutes an anonymous `AuthContext` (`provider: 'anonymous'`, empty roles/scopes). The capability still runs `evaluateAccess()`, so only `access.public: true` tools execute. |
+
+**Deploy with `mcp.agents` configured for any production-shaped surface** — the anonymous fallback exists only so that local development with `--public` capabilities works without a config. Never ship a destructive `mcp`-exposed capability with `access.public: true`.
 
 ## Audit
 

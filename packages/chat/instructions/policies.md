@@ -93,9 +93,11 @@ When the model returns `requestedAction`, the action-guard:
 1. Validates `capabilityName` is in `allowedCapabilities` (deny by default).
 2. Re-validates `input` against the capability's current Zod schema.
 3. Hashes the schema and stores a `ChatPendingAction` row.
-4. Returns `require_confirmation` — runtime emits `confirmation_required` event.
+4. Returns `require_confirmation` — runtime emits `confirmation_required` with `{ actionId, capabilityName, confirmationMessage, expiresAt, schemaHash }`. The `schemaHash` on the wire is what the client must echo back.
 
-On `confirm(actionId)`: schema is re-hashed; if it changed (e.g. redeploy tightened it), the confirmation is rejected with `chat.action_schema_changed`. This `schemaHash` check is load-bearing security — do not bypass.
+**Confirmation is a server capability, not a UI helper.** The client commits the action by calling the auto-routed `chatConfirmAction` capability (`POST /api/chat/chat-confirm-action`) with `{ actionId, capabilityName, schemaHash, execute: true }`. On the server: schema is re-hashed; if it has changed since propose (e.g. a redeploy tightened it), the call is rejected with `chat.action_schema_changed`. This `schemaHash` check is load-bearing security — do not bypass it and do not let the client forge a hash, since the server re-derives from the live schema.
+
+In `@plumbus/chat-ui` v0.1, `useChat.confirm()` is a UI-only stub that clears local `pendingConfirmation` state but does **not** call `chatConfirmAction`. Apps that ship action-confirmation flows must call the capability directly. A first-party `useChat → chatConfirmAction` round-trip is planned for v0.2.
 
 ### Provenance (require citations)
 

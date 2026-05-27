@@ -12,7 +12,8 @@ import { createTestContext } from '@plumbus/core/testing';
 import { buildMcpManifest } from '@plumbus/core/mcp';
 import { createMcpAuthAdapter } from '../auth/mcp-auth-adapter.js';
 import { createMcpServer } from '../server.js';
-import type { McpServerConfig } from '../types.js';
+import { createTestMcpServer } from '../testing/create-test-mcp-server.js';
+import type { McpServerConfig, McpToolCallInfo } from '../types.js';
 
 describe('createMcpServer', () => {
   const mcpCap = defineCapability({
@@ -245,5 +246,65 @@ describe('createMcpServer tenant isolation (e2e)', () => {
       arguments: { resourceTenantId: 'tenant-1' },
     });
     expect(allowed.isError).toBeFalsy();
+  });
+});
+
+describe('onMcpToolCall hook', () => {
+  const echo = defineCapability({
+    name: 'echo-for-hook',
+    kind: 'query',
+    domain: 'test',
+    description: 'Echo capability for testing onMcpToolCall',
+    input: z.object({ message: z.string() }),
+    output: z.object({ echoed: z.string() }),
+    access: { public: true },
+    effects: { data: [], events: [], external: [], ai: false },
+    exposeAs: ['mcp'],
+    mcp: { description: 'Echo' },
+    async handler(_ctx, input) {
+      return { echoed: input.message };
+    },
+  });
+
+  const mcpTestAuth: AuthAdapter = {
+    async authenticate() {
+      return { userId: 'test-user', roles: [], scopes: [], provider: 'mcp' };
+    },
+  };
+
+  it('fires on success with status:success and a non-negative durationMs', async () => {
+    const calls: McpToolCallInfo[] = [];
+    const { client, close } = await createTestMcpServer({
+      capabilities: [echo],
+      authAdapter: mcpTestAuth,
+      onMcpToolCall: (info) => calls.push(info),
+    });
+    try {
+      await client.callTool({ name: 'echo-for-hook', arguments: { message: 'hi' } });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.capabilityName).toBe('echo-for-hook');
+      expect(calls[0]?.status).toBe('success');
+      expect(calls[0]?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(calls[0]?.provider).toBe('mcp');
+    } finally {
+      await close();
+    }
+  });
+
+  it('fires on error with status:error and errorCode set', async () => {
+    const calls: McpToolCallInfo[] = [];
+    const { client, close } = await createTestMcpServer({
+      capabilities: [echo],
+      authAdapter: mcpTestAuth,
+      onMcpToolCall: (info) => calls.push(info),
+    });
+    try {
+      await client.callTool({ name: 'echo-for-hook', arguments: { wrong: 'shape' } });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.status).toBe('error');
+      expect(calls[0]?.errorCode).toBeDefined();
+    } finally {
+      await close();
+    }
   });
 });

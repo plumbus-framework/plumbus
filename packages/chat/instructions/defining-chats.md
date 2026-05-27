@@ -13,7 +13,7 @@ When the user asks you to add a new chat to a Plumbus app, follow this recipe.
 7. **Set budgets.** Real production chats need at minimum `perSession.userMessages` and `perUser.turnsPerDay`.
 8. **Register the chat's entities** in the app's entity boot (`chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity`).
 9. **Register HTTP routes** via `registerChatRoutes(app, routeConfig, [helpChat, billingChat, ...])` in the app's `onRoutesRegistered` hook.
-10. **Mount the UI** with `<ChatPanel chatName="help" sessionId={s} audience={...} locale={...} />`.
+10. **Mount the UI** with `<ChatPanel chatName="help" sessionId={s} audience={...} locale={...} turnUrl="/api/chat/help/turn" />`. The `turnUrl` is optional; omit it when the server is mounted at the default `/chat/:name/turn`.
 
 ## Minimal Recipe
 
@@ -84,13 +84,43 @@ defineChat({
     summarize?: { strategy, thresholdTurns?, targetTokens? },
   },
 
-  persistence?: { messageContent: 'server' | 'client' },  // default 'server'
+  persistence?: {
+    messageContent: 'server' | 'client',     // default 'server'
+    saveToDb?: boolean,                      // default true — see below
+  },
 
   exposeAs?: 'sse' | 'capability' | 'both',  // default 'sse'
+  streaming?: boolean,                       // default true (SSE); false → JSON request/response
 
   prompt?: PromptDefinition,                 // optional per-chat prompt
 });
 ```
+
+### `persistence.saveToDb`
+
+Two independent knobs. `messageContent` controls where the prose lives; `saveToDb` controls whether the runtime writes to `chat_session` / `chat_turn` / `chat_pending_action` at all.
+
+- `saveToDb: true` (default) — full audit, cross-device continuity, action confirmation, server-authoritative state.
+- `saveToDb: false` — no chat-table writes. The client owns `sessionId`; cooldowns and per-session message caps are enforced from `clientHistory` (assistant messages carry their `refusalReason` on the wire). `defineChat` rejects two combinations: `saveToDb: false` + `messageContent: 'server'`, and `saveToDb: false` + `policy.action.allowedCapabilities`. Action confirmation is therefore unavailable in ephemeral mode.
+
+### `streaming`
+
+When `streaming: false`, `registerChatRoutes` registers a JSON request/response route at the same path instead of SSE. Use for server-to-server callers that can't consume an event stream.
+
+### `registerChatRoutes(app, routeConfig, chats, opts?)`
+
+The optional fourth argument is `RegisterChatRoutesOpts`:
+
+| Option | When to use |
+|---|---|
+| `authCookieNames: string[]` | Browser callers carry the session token in a cookie rather than `Authorization`. First non-empty cookie wins; it becomes `Bearer <value>`. |
+| `audienceTenantOverride: (audience, auth) => tenantId \| undefined` | Audience-implied tenant routing when the auth adapter couldn't infer one. Only applied when `auth.tenantId` is empty. |
+| `beforeTurn: (ctx, parsed, rawBody) => { userMessage? } \| { error: { status, body } }` | Sanitize the user message or short-circuit with a typed error before any runtime work. |
+| `afterTurn: (ctx, rawBody, events) => Promise<void>` | Observability hook. Receives the full ordered `ChatEvent[]` after the turn completes. Errors are swallowed with `console.warn`. |
+
+### `<ChatPanel turnUrl=… />`
+
+When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on the panel so the hook posts there instead of the default `/chat/:name/turn`.
 
 ## Do's
 

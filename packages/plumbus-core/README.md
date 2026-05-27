@@ -2,7 +2,7 @@
 
 **AI-native, contract-driven TypeScript application framework.**
 
-Define your application through five composable primitives — Entities, Capabilities, Flows, Events, and Prompts — and get deny-by-default security, advisory governance, audit trails, and managed AI integration out of the box.
+Define your application through six composable primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — and get deny-by-default security, advisory governance, audit trails, and managed AI integration out of the box. Two opt-in companion packages extend the surface: `@plumbus/chat` for conversational runtimes and `@plumbus/mcp` for serving capabilities to AI agents.
 
 ## Install
 
@@ -23,7 +23,7 @@ cd my-app
 plumbus dev
 ```
 
-## The Five Primitives
+## The Six Primitives
 
 ### Capabilities — atomic business operations
 

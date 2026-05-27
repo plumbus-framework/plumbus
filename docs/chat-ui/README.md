@@ -4,6 +4,15 @@ React hooks and components that consume the `@plumbus/chat` turn protocol — SS
 
 The package is intentionally thin: a state-managing hook, a high-level panel component, a small library of presentational sub-components, and pure helpers you can fold into your own UI.
 
+## Two reading paths
+
+- **Conceptual reference** (this file): wiring diagram, event vocabulary, persistence pairing matrix, action-confirmation rationale.
+- **Agent recipes** at [`packages/chat-ui/instructions/`](../../packages/chat-ui/instructions/) (ships in the npm tarball at `node_modules/@plumbus/chat-ui/instructions/`):
+  - [`instructions/framework.md`](../../packages/chat-ui/instructions/framework.md) — package boundary, exports, file map, critical rules
+  - [`instructions/wiring-chat-panel.md`](../../packages/chat-ui/instructions/wiring-chat-panel.md) — default recipe with `<ChatPanel />`
+  - [`instructions/custom-ui.md`](../../packages/chat-ui/instructions/custom-ui.md) — headless `useChat`, pure helpers, `readChatStream`
+  - [`instructions/action-confirmation.md`](../../packages/chat-ui/instructions/action-confirmation.md) — wiring `chatConfirmAction` directly (the v0.1 `confirm()` stub)
+
 ## Glossary
 
 A few terms appear repeatedly. Pinning them down up front:

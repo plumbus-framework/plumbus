@@ -178,7 +178,7 @@ export const getRefund = defineCapability({
 - Either `description`, `mcp.description`, or `explanation.summary` is required.
 - Agent identity is controlled via `access.serviceAccounts` and `access.scopes`. Deny-by-default still holds.
 
-Read `node_modules/@plumbus/core/instructions/mcp.md` for the full MCP guide: auth, transports, configuration, and request flow.
+Read `node_modules/@plumbus/core/instructions/mcp.md` and `node_modules/@plumbus/mcp/instructions/README.md` for MCP (auth, transports, tasks, testing).
 
 ## Job Capabilities
 

@@ -25,4 +25,22 @@ export interface McpServerConfig {
    * and cooperative handlers (`ctx.ai.*`, fetch, etc.) cancel. Omit for no timeout.
    */
   requestTimeoutMs?: number;
+  /**
+   * Optional per-tool-call observability hook. Fires after every executeCapability,
+   * regardless of success/failure. Fire-and-forget — hook errors are logged to
+   * stderr and never propagate to the MCP client. Mirrors `onAICostRecorded`.
+   */
+  onMcpToolCall?: (info: McpToolCallInfo) => void | Promise<void>;
+}
+
+export interface McpToolCallInfo {
+  capabilityName: string;
+  domain: string;
+  durationMs: number;
+  status: 'success' | 'error';
+  errorCode?: string;
+  userId?: string;
+  tenantId?: string;
+  /** ctx.auth.provider — usually 'mcp' or 'anonymous'. */
+  provider: string;
 }

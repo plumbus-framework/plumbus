@@ -90,11 +90,6 @@ function validateMcpExposure(config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTy
       { field: 'exposeAs' },
     );
   }
-  if (config.kind === 'job') {
-    throwDefineValidationError(`Capability "${config.name}": job cannot be exposed via MCP`, {
-      field: 'exposeAs',
-    });
-  }
   if (!hasAgentFacingDescription(config)) {
     throwDefineValidationError(
       `Capability "${config.name}": MCP-exposed capabilities require description, mcp.description, or explanation.summary`,

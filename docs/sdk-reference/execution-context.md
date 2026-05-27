@@ -23,8 +23,13 @@ interface ExecutionContext {
   flowId?: string;             // Flow execution ID (flows only)
   workerId?: string;           // Owning worker identity (flows only)
   signal?: AbortSignal;        // Cancellation signal (flows only)
+  progress?: ProgressService;  // MCP task progress (MCP task path only)
 }
 ```
+
+| Property | Description |
+|----------|-------------|
+| `ctx.progress` | Present only when running under an MCP task. Capability handlers call `ctx.progress?.report({ progress, total?, message? })` to emit `notifications/progress` to the connected MCP client. `undefined` outside MCP task context. |
 
 ---
 
@@ -76,7 +81,7 @@ Use `createMany` for hot paths that would otherwise call `create()` in a loop (t
 
 After running `plumbus generate`, `ctx.data` is strictly typed — only entities you've defined are accessible. The generated `.plumbus/generated/plumbus.d.ts` augments the `PlumbusRegistry` interface, so:
 
-- `ctx.data.User` autocompletes with `Repository<UserRecord, UserCreateInput, UserUpdateInput>` methods", "oldString": "- `ctx.data.User` autocompletes with `Repository<UserRecord>` methods
+- `ctx.data.User` autocompletes with `Repository<UserRecord, UserCreateInput, UserUpdateInput>` methods
 - `ctx.data.NonExistent` produces a TypeScript error
 
 Before generation (or without it), `ctx.data` falls back to `Record<string, Repository>`, allowing any string key for backward compatibility.

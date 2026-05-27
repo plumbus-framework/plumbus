@@ -8,5 +8,5 @@
   },
   "include": ["src"],
   "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"],
-  "references": [{ "path": "../plumbus-core" }]
+  "references": [{ "path": "../plumbus-core" }, { "path": "../knowledge-base" }]
 }

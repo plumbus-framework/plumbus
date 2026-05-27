@@ -259,6 +259,10 @@ export interface AIService {
 }
 
 // ── Logger Service ──
+export interface ProgressService {
+  report(opts: { progress: number; total?: number; message?: string }): void;
+}
+
 export interface LoggerService {
   debug(message: string, metadata?: Record<string, unknown>): void;
   info(message: string, metadata?: Record<string, unknown>): void;
@@ -288,6 +292,22 @@ export interface SecurityService {
   requireRole(role: string): void;
   /** Throw a forbidden error if the user does not have the required scope */
   requireScope(scope: string): void;
+}
+
+// ── Context Dependencies (passed to createExecutionContext) ──
+export interface ContextDependencies {
+  auth: AuthContext;
+  data: DataService;
+  events?: EventService;
+  flows?: FlowService;
+  ai?: AIService;
+  audit?: AuditService;
+  logger?: LoggerService;
+  time?: TimeService;
+  config?: ConfigService;
+  translations?: TranslationService;
+  request?: RequestMeta;
+  progress?: ProgressService;
 }
 
 // ── Request Metadata ──
@@ -330,4 +350,10 @@ export interface ExecutionContext {
    * automatically). Undefined outside a flow step.
    */
   signal?: AbortSignal;
+  /**
+   * Present only when running under an MCP task. Capability handlers call
+   * `ctx.progress?.report({ progress, total, message })` to emit
+   * `notifications/progress` to the connected MCP client.
+   */
+  progress?: ProgressService;
 }
