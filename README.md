@@ -23,7 +23,7 @@
 
 Plumbus is a **contract-driven, AI-native TypeScript framework** for building modern applications that are safe, auditable, and explainable by default.
 
-Instead of writing loosely organized code, you define your system using five composable primitives:
+Instead of writing loosely organized code, you define your system using six composable primitives:
 
 | Primitive | Purpose | Defined with |
 |-----------|---------|--------------|
@@ -42,6 +42,12 @@ The framework provides:
 - **Managed AI integration** — cost tracking, output validation, RAG pipelines
 - **Compliance profiles** — GDPR, PCI-DSS, SOC2, HIPAA policy assessment
 - **Full code generation** — typed API clients, React hooks, Next.js scaffolds
+
+Optional add-on packages extend the core:
+
+- **MCP agent surface** — expose capabilities to AI agents over the Model Context Protocol (`@plumbus/mcp`)
+- **Conversational runtime** — `defineChat` with policy guards and context sources (`@plumbus/chat`, plus `@plumbus/chat-ui` for React clients)
+- **Knowledge sources** — scoped, registry-backed grounding for chat, capabilities, and search UIs (`@plumbus/knowledge-base`)
 
 ---
 
@@ -294,6 +300,11 @@ plumbus rag ingest <path>       # Ingest documents into RAG pipeline
 plumbus init                    # Generate AI agent wiring files
 plumbus agent sync              # Sync project brief for coding agents
 
+# MCP — serve capabilities to AI agents (requires @plumbus/mcp for `serve`)
+plumbus mcp serve               # Start an MCP server (stdio / HTTP) for capabilities with exposeAs: ["mcp"]
+plumbus mcp generate            # Generate MCP manifest and skill files
+plumbus mcp list-tools          # List MCP-exposed tools from the current app contracts
+
 # Translation management
 plumbus translation new <name>  # Scaffold a new translation catalog
 plumbus translation export      # Export translations for translators (JSON/XLIFF)
@@ -421,6 +432,12 @@ For a fuller explanation of the framework-first policy and destructive git safet
 |---------|-------------|
 | [`@plumbus/core`](packages/plumbus-core/) | Core framework — types, SDK, runtime, execution engine, CLI, test utilities |
 | [`@plumbus/ui`](packages/ui/) | UI code generation — typed clients, React hooks, auth helpers, Next.js scaffolds |
+| [`@plumbus/mcp`](packages/mcp/) | Optional — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
+| [`@plumbus/chat`](packages/chat/) | Optional — chat primitive; `defineChat`, policy guards, context sources, budgets, evals |
+| [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol |
+| [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional — scoped knowledge providers and registry for registry-backed grounding |
+
+The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).
 
 ---
 
@@ -434,7 +451,7 @@ cd plumbus
 # Install dependencies
 pnpm install
 
-# Run all tests (797 tests across 68 files)
+# Run all tests (1717 tests across 126 files)
 pnpm test
 
 # Type check
@@ -449,14 +466,18 @@ pnpm build
 ```
 plumbus/
 ├── packages/
-│   ├── @plumbus/core/          # Core framework package
-│   │   ├── src/               # 120+ source files
-│   │   ├── instructions/      # 10 AI agent instruction files
+│   ├── plumbus-core/           # @plumbus/core — core framework package
+│   │   ├── src/               # 165 source files
+│   │   ├── instructions/      # 15 AI agent instruction files
 │   │   └── package.json
-│   └── ui/                    # UI generation package
-│       ├── src/               # 6 source files
-│       ├── instructions/      # 7 AI agent instruction files
-│       └── package.json
+│   ├── ui/                    # @plumbus/ui — UI generation package
+│   │   ├── src/               # 9 source files
+│   │   ├── instructions/      # 7 AI agent instruction files
+│   │   └── package.json
+│   ├── mcp/                   # @plumbus/mcp — optional MCP runtime
+│   ├── chat/                  # @plumbus/chat — optional chat primitive
+│   ├── chat-ui/               # @plumbus/chat-ui — optional React chat UI
+│   └── knowledge-base/        # @plumbus/knowledge-base — optional knowledge providers
 ├── design/                    # Architecture design documents
 ├── docs/                      # Documentation
 ├── turbo.json                 # Turborepo configuration
