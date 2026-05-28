@@ -32,24 +32,66 @@ jobs:
       # dependency declared by core resolves immediately for consumers.
       - name: Publish @plumbus/mcp
         working-directory: packages/mcp
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
 
       - name: Publish @plumbus/core
         working-directory: packages/plumbus-core
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
 
       - name: Publish @plumbus/knowledge-base
         working-directory: packages/knowledge-base
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
 
       - name: Publish @plumbus/chat
         working-directory: packages/chat
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
 
       - name: Publish @plumbus/ui
         working-directory: packages/ui
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
 
       - name: Publish @plumbus/chat-ui
         working-directory: packages/chat-ui
-        run: pnpm publish --access public --no-git-checks
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
