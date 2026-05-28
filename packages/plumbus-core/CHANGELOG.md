@@ -65,6 +65,7 @@ Use `--dry-run` to preview, or `--force` to replace the entire file.
 | Flow `if` expressions | Use `state.field` comparisons (`state.amount > 100`). `ctx.state.*` is normalized automatically. No method calls or arbitrary JS. |
 | `AI_OLLAMA_*` / other `AI_*_API_KEY` | Use `AI_OPENAI_API_KEY` + `AI_OPENAI_BASE_URL=http://…/v1` |
 | Capabilities called from flows | Ensure `access.roles` includes `"system"` |
+| `auth.secret` shorter than 32 chars | Lengthen to ≥ 32 characters (HS256 key strength); `createJwtAdapter` now throws on shorter secrets |
 | Custom `AI_*` providers in env | Only `openai` and `anthropic` are registered |
 | Relying on missing `tenantId` + cross-tenant data in flows | Provide `tenantId` on flow execution or use `access.tenantScoped: false` for admin capabilities |
 
