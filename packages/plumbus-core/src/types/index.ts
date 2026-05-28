@@ -11,6 +11,8 @@ export type {
   CapabilityContract,
   CapabilityEffects,
   CapabilityExplanationConfig,
+  CapabilityExposeAs,
+  McpExposureConfig,
 } from './capability.js';
 // ── Config ──
 export type {
@@ -19,6 +21,8 @@ export type {
   AuthAdapterConfig,
   DatabaseConfig,
   Environment,
+  McpAgentConfig,
+  McpConfig,
   PlumbusConfig,
   PromptModelOverride,
   QueueConfig,

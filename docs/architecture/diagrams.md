@@ -46,7 +46,7 @@ Visual reference for the Plumbus framework architecture and data flows.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Five Primitives
+## Six Primitives
 
 ```
                         ┌─────────────┐

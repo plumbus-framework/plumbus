@@ -63,11 +63,23 @@ export interface PromptModelOverride {
   maxTokens?: number;
 }
 
+// ── MCP agent config ──
+export interface McpAgentConfig {
+  serviceAccountId: string;
+  scopes: string[];
+  tenantId?: string;
+}
+
+export interface McpConfig {
+  agents?: Record<string, McpAgentConfig>;
+}
+
 // ── Plumbus Config ──
 export interface PlumbusConfig {
   environment: Environment;
   database: DatabaseConfig;
   queue: QueueConfig;
+  mcp?: McpConfig;
   /** Single-provider AI config (legacy) */
   ai?: AIProviderConfig;
   /** Multi-provider AI config — takes precedence over `ai` when set */

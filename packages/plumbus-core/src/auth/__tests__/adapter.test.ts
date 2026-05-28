@@ -2,7 +2,8 @@ import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { createJwtAdapter, signJwt } from '../adapter.js';
 
-const TEST_SECRET = 'test-secret';
+// Placeholder only — not a real credential (min 32 chars for adapter)
+const TEST_SECRET = 'test-secret-placeholder-32chars-min';
 
 /** Helper: create a properly HMAC-signed JWT with an arbitrary payload. */
 function signedJwt(secret: string, payload: Record<string, unknown>): string {
@@ -114,10 +115,10 @@ describe('createJwtAdapter', () => {
 
   it('validates issuer when configured', async () => {
     const strictAdapter = createJwtAdapter({
-      secret: 's',
+      secret: TEST_SECRET,
       issuer: 'my-app',
     });
-    const token = signedJwt('s', {
+    const token = signedJwt(TEST_SECRET, {
       sub: 'u1',
       iss: 'wrong-issuer',
       exp: Math.floor(Date.now() / 1000) + 3600,
@@ -129,10 +130,10 @@ describe('createJwtAdapter', () => {
 
   it('allows matching issuer', async () => {
     const strictAdapter = createJwtAdapter({
-      secret: 's',
+      secret: TEST_SECRET,
       issuer: 'my-app',
     });
-    const token = signedJwt('s', {
+    const token = signedJwt(TEST_SECRET, {
       sub: 'u1',
       iss: 'my-app',
       exp: Math.floor(Date.now() / 1000) + 3600,
@@ -144,10 +145,10 @@ describe('createJwtAdapter', () => {
 
   it('validates audience when configured', async () => {
     const audAdapter = createJwtAdapter({
-      secret: 's',
+      secret: TEST_SECRET,
       audience: 'api',
     });
-    const token = signedJwt('s', {
+    const token = signedJwt(TEST_SECRET, {
       sub: 'u1',
       aud: 'other-service',
       exp: Math.floor(Date.now() / 1000) + 3600,
@@ -159,7 +160,7 @@ describe('createJwtAdapter', () => {
 
   it('supports custom claim mapping', async () => {
     const customAdapter = createJwtAdapter({
-      secret: 's',
+      secret: TEST_SECRET,
       claimMapping: {
         userId: 'user_id',
         roles: 'permissions',
@@ -167,7 +168,7 @@ describe('createJwtAdapter', () => {
         tenantId: 'org_id',
       },
     });
-    const token = signedJwt('s', {
+    const token = signedJwt(TEST_SECRET, {
       user_id: 'custom-user',
       permissions: ['superadmin'],
       grants: 'all',
@@ -196,12 +197,12 @@ describe('createJwtAdapter', () => {
 
 describe('signJwt', () => {
   it('produces a valid 3-part JWT', () => {
-    const token = signJwt({ secret: 'test', sub: 'user-1' });
+    const token = signJwt({ secret: TEST_SECRET, sub: 'user-1' });
     expect(token.split('.')).toHaveLength(3);
   });
 
   it('includes sub claim', () => {
-    const token = signJwt({ secret: 'test', sub: 'user-1' });
+    const token = signJwt({ secret: TEST_SECRET, sub: 'user-1' });
     const payload = JSON.parse(
       Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf-8'),
     );
@@ -210,7 +211,7 @@ describe('signJwt', () => {
 
   it('includes roles and scopes', () => {
     const token = signJwt({
-      secret: 'test',
+      secret: TEST_SECRET,
       sub: 'user-1',
       roles: ['admin', 'user'],
       scopes: ['read', 'write'],
@@ -224,7 +225,7 @@ describe('signJwt', () => {
 
   it('includes tenantId', () => {
     const token = signJwt({
-      secret: 'test',
+      secret: TEST_SECRET,
       sub: 'user-1',
       tenantId: 'tenant-42',
     });
@@ -243,7 +244,7 @@ describe('signJwt', () => {
   });
 
   it('roundtrips through createJwtAdapter', async () => {
-    const secret = 'shared-secret';
+    const secret = TEST_SECRET;
     const token = signJwt({
       secret,
       sub: 'user-42',

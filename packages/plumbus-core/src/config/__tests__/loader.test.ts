@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PlumbusConfig } from '../../types/config.js';
 import { loadConfig, loadPromptOverrides, validateConfig } from '../loader.js';
 
@@ -213,9 +213,9 @@ describe('Config Loader', () => {
       expect(config.auth.secret).toBe('my-secret');
     });
 
-    it('defaults auth secret to development-secret in dev', () => {
+    it('defaults auth secret to development placeholder in dev', () => {
       const config = loadConfig({ env: {} });
-      expect(config.auth.secret).toBe('development-secret');
+      expect(config.auth.secret).toBe('development-secret-placeholder-32chars-min');
     });
 
     it('does not default auth secret in production', () => {
@@ -513,6 +513,23 @@ describe('Config Loader', () => {
       expect(config.aiProviders?.promptOverrides).toEqual({
         writer: { model: 'claude-sonnet-4-20250514', provider: 'anthropic' },
       });
+    });
+
+    it('ignores unsupported AI_*_API_KEY env vars (only openai and anthropic)', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_OPENAI_API_KEY: 'sk-test',
+          AI_OLLAMA_API_KEY: 'ollama-key',
+        },
+      });
+      expect(config.aiProviders?.providers).toEqual({
+        openai: expect.objectContaining({ provider: 'openai' }),
+      });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('AI_OLLAMA_API_KEY'));
+      warnSpy.mockRestore();
     });
 
     it('should include both defaultModel and promptOverrides together', () => {

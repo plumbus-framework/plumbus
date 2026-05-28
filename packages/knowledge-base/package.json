@@ -1,0 +1,41 @@
+{
+  "name": "@plumbus/knowledge-base",
+  "version": "0.1.0",
+  "description": "Plumbus knowledge-base primitive — scoped knowledge providers and registry.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./testing": { "types": "./dist/testing/index.d.ts", "default": "./dist/testing/index.js" }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/knowledge-base"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "^0.4.0 <0.5.0"
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT"
+}

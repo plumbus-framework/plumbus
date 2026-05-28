@@ -111,8 +111,8 @@ This document traces the complete lifecycle of a request through the Plumbus fra
 │  │ capability step  │  → Execute capability via engine   │
 │  └─────────────────┘                                    │
 │  ┌─────────────────┐                                    │
-│  │ conditional step │  → Evaluate condition              │
-│  │                  │  → Branch to ifTrue or ifFalse     │
+│  │ conditional step │  → Evaluate `if` expression        │
+│  │                  │  → Branch to `then` or `else`      │
 │  └─────────────────┘                                    │
 │  ┌─────────────────┐                                    │
 │  │ parallel step    │  → Promise.allSettled(branches)    │

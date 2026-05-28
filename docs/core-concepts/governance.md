@@ -58,7 +58,7 @@ plumbus certify
 plumbus certify --json
 ```
 
-Built-in profiles: `SOC2`, `GDPR`, `HIPAA`, `ISO27001`, `PCI_DSS`.
+Built-in profiles (`PolicyProfile` enum values): `soc2`, `gdpr`, `hipaa`, `pci_dss`, `internal_security_baseline`.
 
 ## Overrides
 
@@ -83,10 +83,23 @@ Overrides are recorded and appear in policy reports, ensuring deviations remain 
 The rule engine evaluates registered rules against the full system inventory (capabilities, entities, events, flows, prompts):
 
 ```typescript
-import { createGovernanceRuleEngine, securityRules, privacyRules } from '@plumbus/core';
+import {
+  createGovernanceRuleEngine,
+  securityRules,
+  privacyRules,
+  architectureRules,
+  aiRules,
+  mcpRules,
+} from '@plumbus/core';
 
 const engine = createGovernanceRuleEngine();
-engine.registerRules([...securityRules, ...privacyRules]);
+engine.registerRules([
+  ...securityRules,
+  ...privacyRules,
+  ...architectureRules,
+  ...aiRules,
+  ...mcpRules,
+]);
 
 const result = engine.evaluate(inventory);
 // result.signals — array of GovernanceSignal
@@ -94,12 +107,13 @@ const result = engine.evaluate(inventory);
 
 ### Built-in Rule Categories
 
-| Category | Key Rules |
+| Category | Rules |
 |----------|-----------|
-| **Security** | `ruleCapabilityMissingAccessPolicy`, `ruleOverlyPermissiveRoles`, `ruleCrossTenantDataAccess` |
-| **Privacy** | `ruleMissingFieldClassification`, `rulePersonalDataInLogs`, `ruleExcessiveDataRetention` |
-| **Architecture** | `ruleExcessiveEffects`, `ruleExcessiveFlowSteps`, `ruleExcessiveFlowBranching` |
-| **AI** | `ruleAIWithoutExplanation`, `ruleExcessiveAIUsage`, `ruleSensitiveFieldUnencrypted` |
+| **Security** | `ruleCapabilityMissingAccessPolicy`, `ruleOverlyPermissiveRoles`, `ruleCrossTenantDataAccess`, `ruleEntityTenantIsolation` |
+| **Privacy** | `ruleMissingFieldClassification`, `rulePersonalDataInLogs`, `ruleExcessiveDataRetention`, `ruleSensitiveFieldUnencrypted` |
+| **Architecture** | `ruleExcessiveEffects`, `ruleExcessiveFlowSteps`, `ruleExcessiveFlowBranching`, `ruleEntityMissingDescription`, `ruleMissingAuditConfig` |
+| **AI** | `ruleAIWithoutExplanation`, `ruleExcessiveAIUsage`, `rulePromptMissingModelConfig`, `rulePromptMissingOutputSchema` |
+| **MCP** | `ruleMcpMissingDescription` |
 
 ## Policy Reports
 
@@ -128,3 +142,9 @@ Teams may configure failure thresholds (e.g., fail on `high` severity warnings o
 - [Security Model](../security/security-model.md) — access policies, auth, tenant isolation
 - [Capabilities](capabilities.md) — access policy declaration
 - [CLI Reference](../cli/commands.md) — `verify` and `certify` commands
+
+---
+
+## SDK reference
+
+For the full rule list, the `PolicyProfile` enum values, and the `OverrideStore` API, see [SDK Reference → defineCapability (governance fields)](../sdk-reference/define-functions.md) and the governance source under `packages/plumbus-core/src/governance/rules/`. This page covers the common case; the reference is exhaustive.

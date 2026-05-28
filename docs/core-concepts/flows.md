@@ -11,29 +11,29 @@ export const orderFulfillment = defineFlow({
   name: "orderFulfillment",
   domain: "orders",
   description: "Process an order from payment to delivery",
-  trigger: { type: "event", event: "order.placed" },
+  trigger: { event: "order.placed" },
   steps: [
-    { name: "validateOrder", capability: "validateOrder" },
-    { name: "processPayment", capability: "processPayment" },
+    { name: "validateOrder", type: "capability", capability: "validateOrder" },
+    { name: "processPayment", type: "capability", capability: "processPayment" },
     {
       name: "checkInventory",
       type: "conditional",
-      condition: "ctx.state.paymentStatus === 'success'",
-      ifTrue: "createShipment",
-      ifFalse: "cancelOrder",
+      if: "state.paymentStatus === 'success'",
+      then: "createShipment",
+      else: "cancelOrder",
     },
-    { name: "createShipment", capability: "createShipment" },
-    { name: "cancelOrder", capability: "cancelOrder" },
+    { name: "createShipment", type: "capability", capability: "createShipment" },
+    { name: "cancelOrder", type: "capability", capability: "cancelOrder" },
     {
       name: "notifyAll",
       type: "parallel",
       branches: ["sendEmail", "sendSms", "updateDashboard"],
     },
-    { name: "sendEmail", capability: "sendOrderEmail" },
-    { name: "sendSms", capability: "sendOrderSms" },
-    { name: "updateDashboard", capability: "updateOrderDashboard" },
+    { name: "sendEmail", type: "capability", capability: "sendOrderEmail" },
+    { name: "sendSms", type: "capability", capability: "sendOrderSms" },
+    { name: "updateDashboard", type: "capability", capability: "updateOrderDashboard" },
   ],
-  retry: { maxAttempts: 3, backoff: "exponential" },
+  retry: { attempts: 3, backoff: "exponential" },
 });
 ```
 
@@ -44,7 +44,7 @@ export const orderFulfillment = defineFlow({
 Executes a capability:
 
 ```typescript
-{ name: "validateOrder", capability: "validateOrder" }
+{ name: "validateOrder", type: "capability", capability: "validateOrder" }
 ```
 
 By default, each capability step receives the **merged flow input + flow state** as its input. You can also provide explicit `input` overrides with template references:
@@ -52,6 +52,7 @@ By default, each capability step receives the **merged flow input + flow state**
 ```typescript
 {
   name: "extractEvents",
+  type: "capability",
   capability: "extractTimelineEvents",
   input: {
     sourceType: "interview_message",          // literal value
@@ -81,9 +82,9 @@ Branches based on a condition:
 {
   name: "route",
   type: "conditional",
-  condition: "ctx.state.amount > 100",
-  ifTrue: "managerApproval",
-  ifFalse: "autoApprove",
+  if: "state.amount > 100",
+  then: "managerApproval",
+  else: "autoApprove",
 }
 ```
 
@@ -139,7 +140,6 @@ Pauses until a specific event is received:
   name: "waitForApproval",
   type: "wait",
   event: "refund.approved",
-  timeout: "24h",
 }
 ```
 
@@ -169,29 +169,28 @@ Emits an event as a flow step:
 
 The emitted payload is built from the original flow input merged with the current flow state. When both contain the same key, the current flow state wins.
 
-## Triggers
+## Triggers and Schedules
 
-| Trigger Type | Configuration | When It Fires |
-|-------------|--------------|--------------|
-| `event` | `{ type: "event", event: "order.placed" }` | When the named event is emitted |
-| `scheduled` | `{ type: "scheduled", cron: "0 0 * * *" }` | On cron schedule |
-| `manual` | `{ type: "manual" }` | Via `ctx.flows.start()` or API call |
+A flow definition can carry **either** a `trigger` (event-driven), **or** a `schedule` (cron), **or** neither (the flow runs only when started programmatically via `ctx.flows.start()` or the auto-routed start endpoint).
+
+| Field | Configuration | When the flow starts |
+|-------|---------------|---------------------|
+| `trigger` | `{ event: "order.placed" }` | When the named event is emitted (worker pool consumes from the outbox). |
+| `schedule` | `{ cron: "0 0 * * *" }` | On the cron schedule (handled by the scheduler). |
+| *(neither)* | — | Only via `ctx.flows.start(...)` or the auto-generated start route. |
 
 ## Retry Policy
 
 ```typescript
 retry: {
-  maxAttempts: 3,
-  backoff: "exponential",  // "fixed" | "exponential" | "linear"
-  initialDelay: 1000,      // ms
-  maxDelay: 60000,          // ms
+  attempts: 3,            // total attempts including the first
+  backoff: "exponential", // "fixed" | "exponential"
 }
 ```
 
-Retry behavior:
-- `fixed`: same delay between each retry
-- `linear`: delay increases linearly (1s, 2s, 3s...)
-- `exponential`: delay doubles (1s, 2s, 4s, 8s...)
+Backoff strategies:
+- `fixed` — same delay between each retry.
+- `exponential` — delay doubles between retries.
 
 ## Multi-Worker Safety & Leasing
 
@@ -320,4 +319,10 @@ app/flows/{domain}/{flow-name}/
 └── tests/
     └── {name}.test.ts
 ```
+
+---
+
+## SDK reference
+
+For every `defineFlow` option, the full step-type list, and the `FlowRetryPolicy` / `FlowTrigger` / `FlowSchedule` shapes, see [SDK Reference → defineFlow](../sdk-reference/define-functions.md#defineflow). This page covers the common case; the reference is exhaustive.
 

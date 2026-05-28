@@ -13,6 +13,12 @@ export const ${toCamelCase(name)} = defineCapability({
   kind: "${kind}",
   domain: "${domain}",
 
+  // Uncomment to expose this capability to AI agents over MCP.
+  // Requires \`pnpm add @plumbus/mcp\` and \`plumbus mcp serve\`.
+  // See node_modules/@plumbus/core/instructions/mcp.md
+  // exposeAs: ["mcp"],
+  // mcp: { description: "Agent-facing description of ${name}" },
+
   input: z.object({
     // TODO: define input schema
   }),
@@ -22,7 +28,7 @@ export const ${toCamelCase(name)} = defineCapability({
   }),
 
   access: {
-    roles: [],
+    roles: ["system"],
     scopes: [],
   },
 

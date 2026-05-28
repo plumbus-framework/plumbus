@@ -15,6 +15,7 @@ import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
 import { createAuditService } from '../audit/service.js';
+import { logHookError } from '../errors/hook-log.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import type { EntityRegistry } from '../data/registry.js';
@@ -167,7 +168,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const authAdapter =
     serverConfig.authAdapter ??
     createJwtAdapter({
-      secret: config.auth.secret ?? 'development-secret',
+      secret: config.auth.secret ?? 'development-secret-placeholder-32chars-min',
       issuer: config.auth.issuer,
       audience: config.auth.audience,
     });
@@ -346,7 +347,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
           },
           db,
         }),
-      ).catch(() => {});
+      ).catch((hookErr) => {
+        logHookError('onCapabilityError', hookErr);
+      });
       reply.status(statusCode).send({
         error: { code: 'internal', message },
       });

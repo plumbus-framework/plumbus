@@ -52,7 +52,7 @@ export const classifyTicket = definePrompt({
   }),
   model: {
     provider: "openai",
-    model: "gpt-4o-mini",
+    name: "gpt-4o-mini",
     temperature: 0.2,
     maxTokens: 256,
   },

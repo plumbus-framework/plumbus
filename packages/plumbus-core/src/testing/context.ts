@@ -1,7 +1,7 @@
 // ── Test Context Builder ──
 // Factory for building test-friendly ExecutionContexts with mock services.
 
-import type { ContextDependencies } from '../execution/context-factory.js';
+import type { ContextDependencies, ProgressService } from '../types/context.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { AuditService } from '../types/audit.js';
 import type {
@@ -446,6 +446,7 @@ export interface TestContextOptions {
   data?: Record<string, Record<string, unknown>[]>;
   /** Entity definitions for field-type validation on writes. */
   entities?: EntityDefinition[];
+  progress?: ProgressService;
   events?: EventService;
   flows?: FlowService;
   ai?: AIService | AIResponse;
@@ -478,6 +479,7 @@ export function createTestContext(options?: TestContextOptions): ExecutionContex
     logger: options?.logger ?? mockLogger(),
     time: timeService,
     config: options?.config ?? {},
+    progress: options?.progress ?? { report: () => {} },
   };
 
   return createExecutionContext(deps);

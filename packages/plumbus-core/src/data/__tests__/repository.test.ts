@@ -142,6 +142,32 @@ describe('createRepository', () => {
     await expect(repo.create({ title: 'X' } as any)).rejects.toThrow('requires auth.tenantId');
   });
 
+  it('records audit event when tenant context is missing (H6)', async () => {
+    const entity = makeEntity({ tenantScoped: true });
+    const table = generateDrizzleSchema(entity);
+    const db = makeMockDb();
+    const auth = makeAuth({ tenantId: undefined, userId: 'u-1' });
+    const audit = { record: vi.fn().mockResolvedValue(undefined) };
+
+    const repo = createRepository({
+      entity,
+      table,
+      db: db as any,
+      auth,
+      audit,
+    });
+
+    await expect(repo.findMany()).rejects.toThrow('requires auth.tenantId');
+    expect(audit.record).toHaveBeenCalledWith(
+      `${entity.name}.tenant_denied`,
+      expect.objectContaining({
+        operation: 'findMany',
+        actor: 'u-1',
+        reason: 'missing_tenant_context',
+      }),
+    );
+  });
+
   it('update calls db.update with set and where', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);

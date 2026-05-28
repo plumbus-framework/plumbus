@@ -2,32 +2,18 @@ import { createErrorService } from '../errors/index.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIService,
-  ConfigService,
-  DataService,
+  ContextDependencies,
   EventService,
   ExecutionContext,
   FlowService,
   LoggerService,
-  RequestMeta,
   SecurityService,
   TimeService,
 } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { TranslationService } from '../types/translation.js';
 
-export interface ContextDependencies {
-  auth: AuthContext;
-  data: DataService;
-  events?: EventService;
-  flows?: FlowService;
-  ai?: AIService;
-  audit?: AuditService;
-  logger?: LoggerService;
-  time?: TimeService;
-  config?: ConfigService;
-  translations?: TranslationService;
-  request?: RequestMeta;
-}
+export type { ContextDependencies } from '../types/context.js';
 
 const noopAudit: AuditService = {
   async record() {},
@@ -145,5 +131,6 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     security: createSecurityService(deps.auth),
     translations: deps.translations ?? noopTranslations,
     request: deps.request,
+    progress: deps.progress,
   };
 }

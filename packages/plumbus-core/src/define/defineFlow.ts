@@ -6,6 +6,8 @@ import type {
   FlowStep,
   FlowTrigger,
 } from '../types/flow.js';
+import { deepFreeze } from '../types/deep-freeze.js';
+import { throwDefineValidationError } from './validation-error.js';
 
 function isZodSchema(value: unknown): value is z.ZodTypeAny {
   return (
@@ -36,17 +38,21 @@ export function defineFlow<TInput extends z.ZodTypeAny, TState extends z.ZodType
   config: DefineFlowInput<TInput, TState>,
 ): FlowDefinition<TInput, TState> {
   if (!config.name) {
-    throw new Error('Flow name is required');
+    throwDefineValidationError('Flow name is required', { field: 'name' });
   }
   if (!config.domain) {
-    throw new Error('Flow domain is required');
+    throwDefineValidationError('Flow domain is required', { field: 'domain' });
   }
   if (!isZodSchema(config.input)) {
-    throw new Error(`Flow "${config.name}": input must be a Zod schema`);
+    throwDefineValidationError(`Flow "${config.name}": input must be a Zod schema`, {
+      field: 'input',
+    });
   }
   if (!Array.isArray(config.steps) || config.steps.length === 0) {
-    throw new Error(`Flow "${config.name}": at least one step is required`);
+    throwDefineValidationError(`Flow "${config.name}": at least one step is required`, {
+      field: 'steps',
+    });
   }
 
-  return Object.freeze({ ...config });
+  return deepFreeze({ ...config });
 }

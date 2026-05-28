@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 2;
+export const AGENT_WIRING_VERSION = 4;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -126,6 +126,7 @@ const CORE_INSTRUCTION_TOPICS = [
   'governance',
   'testing',
   'patterns',
+  'mcp',
 ] as const;
 
 const GUARDRAIL_LINES = [
@@ -177,10 +178,110 @@ const UI_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const CHAT_INSTRUCTION_REFERENCES = [
+  {
+    area: 'chat framework overview, package conventions, and critical rules',
+    path: 'node_modules/@plumbus/chat/instructions/framework.md',
+  },
+  {
+    area: 'adding a new chat with defineChat (recipe + full config shape)',
+    path: 'node_modules/@plumbus/chat/instructions/defining-chats.md',
+  },
+  {
+    area: 'configuring chat policy guards (audience, scope, behavioral, action, etc.)',
+    path: 'node_modules/@plumbus/chat/instructions/policies.md',
+  },
+  {
+    area: 'wiring chat context sources (knowledgeContext, capabilityContext, staticContext)',
+    path: 'node_modules/@plumbus/chat/instructions/context-sources.md',
+  },
+  {
+    area: 'testing chats with mockChatRuntime and pure UI helpers',
+    path: 'node_modules/@plumbus/chat/instructions/testing.md',
+  },
+  {
+    area: 'extending chat with custom prompts, context sources, or guards',
+    path: 'node_modules/@plumbus/chat/instructions/extending.md',
+  },
+] as const;
+
+const KNOWLEDGE_BASE_INSTRUCTION_REFERENCES = [
+  {
+    area: 'knowledge-base conventions, file map, and critical rules',
+    path: 'node_modules/@plumbus/knowledge-base/instructions/conventions.md',
+  },
+  {
+    area: 'defining knowledge sources and createKnowledgeRegistry',
+    path: 'node_modules/@plumbus/knowledge-base/instructions/defining-sources.md',
+  },
+  {
+    area: 'choosing KB providers (staticBlocks, ragCorpus, translationCatalog, etc.)',
+    path: 'node_modules/@plumbus/knowledge-base/instructions/providers.md',
+  },
+  {
+    area: 'wiring registry-backed knowledgeContext in chat',
+    path: 'node_modules/@plumbus/knowledge-base/instructions/chat-integration.md',
+  },
+  {
+    area: 'testing knowledge sources and registries',
+    path: 'node_modules/@plumbus/knowledge-base/instructions/testing.md',
+  },
+  {
+    area: 'knowledge-base instruction index and reading order',
+    path: 'node_modules/@plumbus/knowledge-base/instructions/README.md',
+  },
+] as const;
+
+const CHAT_UI_INSTRUCTION_REFERENCES = [
+  {
+    area: 'chat-ui package boundary (React-only), public exports, file map, critical rules',
+    path: 'node_modules/@plumbus/chat-ui/instructions/framework.md',
+  },
+  {
+    area: 'wiring <ChatPanel /> — sessionId, persistence pairing with the server, turnUrl override',
+    path: 'node_modules/@plumbus/chat-ui/instructions/wiring-chat-panel.md',
+  },
+  {
+    area: 'custom chat UIs — headless useChat, the pure helpers, readChatStream',
+    path: 'node_modules/@plumbus/chat-ui/instructions/custom-ui.md',
+  },
+  {
+    area: 'action confirmation — wiring chatConfirmAction directly (useChat.confirm is a v0.1 stub)',
+    path: 'node_modules/@plumbus/chat-ui/instructions/action-confirmation.md',
+  },
+  {
+    area: 'chat-ui instruction index and reading order',
+    path: 'node_modules/@plumbus/chat-ui/instructions/README.md',
+  },
+] as const;
+
+const MCP_INSTRUCTION_REFERENCES = [
+  {
+    area: 'MCP runtime overview, package boundary (core vs @plumbus/mcp), public exports, critical rules',
+    path: 'node_modules/@plumbus/mcp/instructions/framework.md',
+  },
+  {
+    area: 'exposing a capability as an MCP tool (exposeAs:[mcp], mcp.agents config, plumbus mcp serve)',
+    path: 'node_modules/@plumbus/mcp/instructions/expose-a-capability.md',
+  },
+  {
+    area: "long-running kind:'job' capabilities via MCP Tasks (mcpTaskEntity wiring, ctx.progress, cancellation)",
+    path: 'node_modules/@plumbus/mcp/instructions/tasks.md',
+  },
+  {
+    area: 'testing MCP capabilities with createTestMcpServer and mockMcpClient',
+    path: 'node_modules/@plumbus/mcp/instructions/testing.md',
+  },
+  {
+    area: 'MCP instruction index and reading order',
+    path: 'node_modules/@plumbus/mcp/instructions/README.md',
+  },
+] as const;
+
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled framework and UI instruction files in this project for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, knowledge-base, and mcp) for full SDK documentation.',
     );
     return;
   }
@@ -192,6 +293,22 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of UI_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of CHAT_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of CHAT_UI_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of KNOWLEDGE_BASE_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of MCP_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 }
@@ -385,9 +502,10 @@ When creating or modifying capabilities:
 - Always declare effects (data, events, external, ai)
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
+- To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\` and \`action\` kinds are eligible.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
-- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`
+- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`, \`node_modules/@plumbus/core/instructions/mcp.md\`, and \`node_modules/@plumbus/mcp/instructions/README.md\` (when MCP is installed)
 ${AGENT_WIRING_END_MARKER}
 `;
 }

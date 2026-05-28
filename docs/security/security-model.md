@@ -69,6 +69,27 @@ access: {
 5. If `tenantScoped: true` → verify `ctx.auth.tenantId` matches resource tenant
 6. If no policy is defined → **deny** (deny-by-default)
 
+### System role (flow engine)
+
+The flow engine runs capabilities with the `system` role. A capability must **opt in** by listing `system` in `access.roles` (scaffolded by default). The deprecated `auth.internal` flag is mapped to `system` for compatibility but is no longer a blanket bypass.
+
+For every flow step, the engine adds `system` to the execution auth context (if not already present). That means **user-triggered flows** can invoke capabilities that list `system` in `access.roles`—the capability contract is the gate, not whether the trigger was manual or automated. Treat `system` in `access.roles` as a high-trust opt-in and avoid granting it to capabilities that should only run under a human’s explicit roles.
+
+## MCP agent authentication
+
+External AI agents use MCP (`plumbus mcp serve`) with the same deny-by-default access model as HTTP. Agents authenticate via opaque tokens configured in `plumbus.config.ts` → `mcp.agents`, resolved by `createMcpAuthAdapter` in `@plumbus/mcp`.
+
+| Transport | Token |
+|-----------|--------|
+| HTTP | `Authorization: Bearer <token>` |
+| stdio | `PLUMBUS_MCP_TOKEN` |
+
+Resolved identity uses `provider: 'mcp'` and `userId` set to the configured `serviceAccountId`. Access then follows `serviceAccounts`, `scopes`, `roles`, and `tenantScoped` on each capability — same `evaluateAccess()` as HTTP.
+
+MCP follows the same per-capability `bypassTenantScope` rule as the HTTP route generator: when `access.tenantScoped: false`, the runtime calls `createDependencies(auth, { bypassTenantScope: true })`. Tenant-scoped capabilities (the default) still enforce tenant isolation. Scope-filtered `tools/list` is not implemented; all MCP-exposed tools appear in the list, with enforcement at `tools/call`.
+
+See [MCP agent authentication](../mcp/agent-authentication.md).
+
 ## Auth Adapters
 
 ### JWT Adapter
@@ -211,6 +232,8 @@ The bypass propagates through the route generator → data service → repositor
 - The route generator detects `capability.access.tenantScoped === false` and passes `{ bypassTenantScope: true }` to `createDependencies()`
 
 This is intentional for admin dashboards that need to view/manage data across all tenants while still requiring role-based authorization.
+
+Worker/flow data services no longer bypass tenant scoping automatically when `tenantId` is missing. Flow executions must carry a `tenantId`, or capabilities must declare `access.tenantScoped: false` for explicit cross-tenant admin routes.
 
 ## Field-Level Security
 

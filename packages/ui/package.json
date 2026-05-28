@@ -31,7 +31,8 @@
     "lint": "biome lint ./src",
     "format": "biome format --write ./src",
     "format:check": "biome format ./src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
   },
   "keywords": [
     "plumbus",
@@ -46,6 +47,9 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
   },
   "dependencies": {
     "@plumbus/core": "workspace:*",

@@ -83,4 +83,54 @@ describe('defineCapability', () => {
       'handler function is required',
     );
   });
+
+  it('accepts exposeAs mcp with description', () => {
+    const cap = defineCapability({
+      ...validConfig(),
+      description: 'Agent tool',
+      exposeAs: ['mcp'],
+      mcp: { dangerous: false, agentTags: ['users'] },
+    });
+    expect(cap.exposeAs).toEqual(['mcp']);
+    expect(Object.isFrozen(cap.mcp)).toBe(true);
+  });
+
+  it('throws on invalid mcp shape', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        description: 'x',
+        exposeAs: ['mcp'],
+        mcp: { dangerous: 'yes' } as any,
+      }),
+    ).toThrow('invalid mcp config');
+  });
+
+  it('throws when eventHandler is exposed via MCP', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        kind: 'eventHandler',
+        description: 'x',
+        exposeAs: ['mcp'],
+      }),
+    ).toThrow('eventHandler cannot be exposed via MCP');
+  });
+
+  it('throws when MCP-exposed without agent-facing description', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        exposeAs: ['mcp'],
+      }),
+    ).toThrow('MCP-exposed capabilities require');
+  });
+
+  it('tag-only exposure does not register as MCP without exposeAs', () => {
+    const cap = defineCapability({
+      ...validConfig(),
+      tags: ['mcp:expose'],
+    });
+    expect(cap.exposeAs).toBeUndefined();
+  });
 });

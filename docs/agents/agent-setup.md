@@ -44,8 +44,12 @@ plumbus init
        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Reads instruction files from:                               │
-│ node_modules/@plumbus/core/instructions/                     │
+│ node_modules/@plumbus/core/instructions/                    │
 │ node_modules/@plumbus/ui/instructions/                      │
+│ node_modules/@plumbus/chat/instructions/                    │
+│ node_modules/@plumbus/chat-ui/instructions/                 │
+│ node_modules/@plumbus/knowledge-base/instructions/          │
+│ node_modules/@plumbus/mcp/instructions/                     │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
 │  framework.md     ← Core patterns and conventions           │
@@ -59,6 +63,10 @@ plumbus init
 │  governance.md    ← Governance rules and compliance         │
 │  testing.md       ← Testing helpers and patterns            │
 │  patterns.md      ← Common code patterns                    │
+│  chat/*.md        ← Recipes for defineChat, guards,         │
+│                     context sources, testing, extending     │
+│  knowledge-base/*.md ← KB conventions, sources, providers,  │
+│                     chat wiring, testing (when installed)     │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
@@ -112,6 +120,8 @@ After initialization, your AI agent understands:
 | **Testing** | `runCapability()`, `simulateFlow()`, `mockAI()`, security asserts |
 | **Patterns** | Common implementation patterns and idioms |
 | **UI Generation** | How to generate clients, hooks, auth helpers, form hints, and Next.js scaffolds |
+| **Chat** | How to define chats, configure guards, pick context sources, test, and extend the runtime |
+| **Knowledge base** | How to define knowledge sources, pick providers, wire `knowledgeContext`, and test registries (when `@plumbus/knowledge-base` is installed) |
 
 ## Manual Setup
 
@@ -223,6 +233,22 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/ui/instructions/nextjs-template.md` | Next.js scaffold generation |
 | `node_modules/@plumbus/ui/instructions/testing.md` | Frontend testing guidance |
 | `node_modules/@plumbus/ui/instructions/patterns.md` | UI generation patterns |
+| `node_modules/@plumbus/chat-ui/instructions/README.md` | chat-ui instruction index (optional package) |
+| `node_modules/@plumbus/chat-ui/instructions/framework.md` | chat-ui package boundary, public exports, critical rules |
+| `node_modules/@plumbus/chat-ui/instructions/wiring-chat-panel.md` | `<ChatPanel />` recipe, persistence pairing, `turnUrl` |
+| `node_modules/@plumbus/chat-ui/instructions/custom-ui.md` | Headless `useChat`, pure helpers, `readChatStream` |
+| `node_modules/@plumbus/chat-ui/instructions/action-confirmation.md` | Wiring `chatConfirmAction` directly (the v0.1 `confirm()` stub) |
+| `node_modules/@plumbus/knowledge-base/instructions/README.md` | Knowledge-base instruction index (optional package) |
+| `node_modules/@plumbus/knowledge-base/instructions/conventions.md` | KB conventions, file map, critical rules |
+| `node_modules/@plumbus/knowledge-base/instructions/defining-sources.md` | `defineKnowledgeSource` + registry recipe |
+| `node_modules/@plumbus/knowledge-base/instructions/providers.md` | Built-in provider picker |
+| `node_modules/@plumbus/knowledge-base/instructions/chat-integration.md` | `knowledgeContext` wiring |
+| `node_modules/@plumbus/knowledge-base/instructions/testing.md` | KB test helpers |
+| `node_modules/@plumbus/mcp/instructions/README.md` | MCP instruction index (optional package) |
+| `node_modules/@plumbus/mcp/instructions/framework.md` | MCP package boundary, public exports, critical rules |
+| `node_modules/@plumbus/mcp/instructions/expose-a-capability.md` | `exposeAs: ['mcp']` recipe + agent token config |
+| `node_modules/@plumbus/mcp/instructions/tasks.md` | `kind: 'job'` over MCP Tasks (`mcpTaskEntity`, progress, cancel) |
+| `node_modules/@plumbus/mcp/instructions/testing.md` | `@plumbus/mcp/testing` helpers |
 
 ## Verifying Agent Setup
 

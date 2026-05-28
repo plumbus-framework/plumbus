@@ -136,6 +136,50 @@ All migration commands accept `--json` for machine-readable output.
 plumbus dev
 ```
 
+## Production server
+
+`plumbus start` is the production-mode counterpart to `plumbus dev`. It forces `environment: "production"`, runs `validateConfig` (which **fails fast** if `AUTH_SECRET` is missing or weak), and exposes `GET /health` + `GET /ready`.
+
+```bash
+plumbus start                      # defaults: port 3000, host 0.0.0.0
+plumbus start --port 8080 --host 127.0.0.1
+```
+
+Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`) are loaded automatically.
+
+## Translations
+
+```bash
+plumbus translation new <name>     # scaffold app/translations/<name>.translation.ts
+plumbus translation export         # --format json|xliff, --locale, --out-dir
+plumbus translation import         # --format json|xliff, --file or --dir
+plumbus translation status         # --json for CI; exits non-zero on incomplete locales
+```
+
+Wire `plumbus translation status` into CI to catch missing translations before release.
+
+## MCP (Model Context Protocol)
+
+Expose capabilities marked with `exposeAs: ['mcp']` to AI agents.
+
+```bash
+# Generate MCP tool manifest and skill files (always available, no install needed)
+plumbus mcp generate
+# → .plumbus/generated/mcp-manifest.json
+# → .plumbus/generated/skills/<domain>/<kebab-name>.md
+
+# Run an MCP server — requires `pnpm add @plumbus/mcp` (optional peer dep)
+plumbus mcp serve --stdio                        # Claude Desktop, Cursor, local agents
+plumbus mcp serve --http --port 3001             # remote agents over Streamable HTTP
+
+# Human-readable manifest dump for debugging
+plumbus mcp list-tools
+```
+
+If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @plumbus/mcp` and exits. Manifest generation works without the runtime.
+
+Read `node_modules/@plumbus/core/instructions/mcp.md` and `node_modules/@plumbus/mcp/instructions/README.md` for MCP.
+
 ## App Commands
 
 Run custom command scripts defined in your project's `app/commands/` directory. Use this for setup scripts, data migration tasks, and other one-off operations that need framework infrastructure (DB, config, password hashing).

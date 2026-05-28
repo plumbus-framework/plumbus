@@ -25,6 +25,14 @@ export {
   flowSchedulesTable,
 } from './schema.js';
 
+// ── Flow condition evaluation ──
+export {
+  evaluateFlowCondition,
+  FlowConditionError,
+  FLOW_CONDITION_SYNTAX_HINT,
+  normalizeFlowConditionExpression,
+} from './evaluate-condition.js';
+
 // ── Flow Step Executor ──
 export { buildHistoryEntry, executeStep } from './step-executor.js';
 export type { StepExecutorDeps, StepResult } from './step-executor.js';

@@ -821,14 +821,14 @@ describe('AI Provider Adapters', () => {
       expect(adapter.name).toBe('anthropic');
     });
 
-    it('falls back to OpenAI-compat adapter for unknown providers', () => {
-      const adapter = createProviderAdapter('ollama', {
-        provider: 'ollama',
-        apiKey: '',
-        baseUrl: 'http://localhost:11434/v1',
-      });
-      // Unknown providers use OpenAI-compatible adapter
-      expect(adapter.name).toBe('openai');
+    it('throws for unsupported provider names', () => {
+      expect(() =>
+        createProviderAdapter('ollama', {
+          provider: 'ollama',
+          apiKey: '',
+          baseUrl: 'http://localhost:11434/v1',
+        }),
+      ).toThrow(/Unsupported AI provider "ollama"/);
     });
   });
 

@@ -139,6 +139,23 @@ describe('StepExecutor', () => {
     expect(result.nextStep).toBe('approve');
   });
 
+  it('evaluates real flow conditions via evaluateFlowCondition', async () => {
+    const { evaluateFlowCondition } = await import('../evaluate-condition.js');
+    const step: ConditionalStep = {
+      name: 'check',
+      type: FlowStepType.Conditional,
+      if: 'state.amount > 100',
+      then: 'high',
+      else: 'low',
+    };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      evaluateCondition: (expr, state) => evaluateFlowCondition(expr, state),
+    };
+    const result = await executeStep(step, mockCtx, {}, { amount: 150 }, deps);
+    expect(result.nextStep).toBe('high');
+  });
+
   it('executes a conditional step — false branch', async () => {
     const step: ConditionalStep = {
       name: 'check',

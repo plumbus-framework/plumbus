@@ -150,7 +150,11 @@ export function registerMigrateCommand(program: Command): void {
         let prevId: string | undefined;
         if (snapshotFiles.length > 0) {
           const lastSnapshotFile = snapshotFiles[snapshotFiles.length - 1] as string;
-          prevSnapshot = JSON.parse(fs.readFileSync(path.join(metaDir, lastSnapshotFile), 'utf-8'));
+          const { parseDrizzleSnapshot } = await import('../migrate-snapshot-schema.js');
+          prevSnapshot = parseDrizzleSnapshot(
+            fs.readFileSync(path.join(metaDir, lastSnapshotFile), 'utf-8'),
+            lastSnapshotFile,
+          );
           prevId = prevSnapshot.prevId ?? prevSnapshot.id;
         }
 

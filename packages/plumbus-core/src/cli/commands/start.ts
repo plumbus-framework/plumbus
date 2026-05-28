@@ -3,6 +3,12 @@
 // Forces production environment and production-safe defaults.
 
 import type { Command } from 'commander';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import {
+  closeDatabaseConnection,
+  resolveDatabaseConnection,
+  type DatabaseConnection,
+} from '../../data/connection.js';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -19,6 +25,7 @@ import { createInMemoryQueue } from '../../events/queue.js';
 import { EventRegistry } from '../../events/registry.js';
 import { executeCapability } from '../../execution/capability-executor.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { evaluateFlowCondition } from '../../flows/evaluate-condition.js';
 import { FlowRegistry } from '../../flows/registry.js';
 import type { StepExecutorDeps } from '../../flows/step-executor.js';
 import type { PlumbusServer } from '../../server/bootstrap.js';
@@ -27,6 +34,7 @@ import type { AIService } from '../../types/context.js';
 import type { WorkerPool } from '../../worker/bootstrap.js';
 import { createWorkerPool } from '../../worker/bootstrap.js';
 import { discoverResources } from '../discover.js';
+import { logHookError } from '../../errors/hook-log.js';
 import { info, error as logError } from '../utils.js';
 
 export interface StartOptions {
@@ -45,7 +53,9 @@ export interface StartOptions {
  * - Requires `AUTH_SECRET` (fails fast if missing)
  * - No development warnings or verbose output
  */
-export async function startProductionServer(options: StartOptions & { db?: unknown }): Promise<{
+export async function startProductionServer(
+  options: StartOptions & { db?: PostgresJsDatabase; connection?: DatabaseConnection },
+): Promise<{
   server: PlumbusServer;
   shutdown: () => Promise<void>;
 }> {
@@ -92,26 +102,18 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
   }
 
   // Connect to database
-  let db = options.db;
-  if (!db) {
-    try {
-      const { drizzle } = await import('drizzle-orm/postgres-js');
-      const postgres = (await import('postgres')).default;
-      const sql = postgres({
-        host: config.database.host,
-        port: config.database.port,
-        database: config.database.database,
-        username: config.database.user,
-        password: config.database.password,
-      });
-      db = drizzle(sql);
+  let dbConnection: DatabaseConnection;
+  try {
+    dbConnection = await resolveDatabaseConnection(config.database, options);
+    if (dbConnection.sql) {
       info('Database connected');
-    } catch (err) {
-      throw new Error(
-        `Database connection failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
     }
+  } catch (err) {
+    throw new Error(
+      `Database connection failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
+  const db = dbConnection.db;
 
   // Try to load server extensions from app/server.ts (or app/server.js)
   // Register tsx so dynamic import of .ts files works
@@ -160,7 +162,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
 
   const server = createServer({
     config,
-    db: db as any,
+    db: db,
     capabilities,
     entities,
     events,
@@ -204,7 +206,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         ? (
             record: import('../../ai/cost-tracker.js').AICostRecord,
             costContext: import('../../types/context.js').AICostContext | undefined,
-          ) => onAICostRecorded?.(record, costContext, db as any)
+          ) => onAICostRecorded?.(record, costContext, db)
         : undefined;
       const workerAiServiceConfig: AIServiceConfig = {
         providers: providerAdapters,
@@ -221,7 +223,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
           workerAiService,
           workerAiServiceConfig,
           resolveAiOverrides,
-          db as any,
+          db,
         );
       }
     } else if (config.ai) {
@@ -234,7 +236,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         ? (
             record: import('../../ai/cost-tracker.js').AICostRecord,
             costContext: import('../../types/context.js').AICostContext | undefined,
-          ) => onAICostRecorded?.(record, costContext, db as any)
+          ) => onAICostRecorded?.(record, costContext, db)
         : undefined;
       workerAiService = createAIService(
         singleProviderConfig(adapter, {
@@ -258,20 +260,12 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
         }
         return executeCapability(capability, ctx, input);
       },
-      evaluateCondition: (expression, state) => {
-        try {
-          const stateObj = state && typeof state === 'object' ? state : {};
-          const fn = new Function('state', `return Boolean(${expression})`);
-          return fn(stateObj);
-        } catch {
-          return false;
-        }
-      },
+      evaluateCondition: (expression, state) => evaluateFlowCondition(expression, state),
     };
 
     workerPool = createWorkerPool({
       config,
-      db: db as any,
+      db: db,
       queue,
       consumers,
       flows,
@@ -285,9 +279,9 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
           provider: 'worker',
         };
         return entities.createDataService({
-          db: db as any,
+          db: db,
           auth: effectiveAuth,
-          bypassTenantScope: !effectiveAuth.tenantId,
+          bypassTenantScope: false,
         });
       },
       eventRegistry: events,
@@ -309,6 +303,7 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
       info('Worker pool stopped');
     }
     await server.stop();
+    await closeDatabaseConnection(dbConnection);
     info('Server stopped');
   };
 
@@ -329,7 +324,9 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
           message: err.message,
           stack: err.stack,
         }),
-      ).catch(() => {});
+      ).catch((hookErr) => {
+        logHookError('onProcessError', hookErr);
+      });
     });
     process.on('unhandledRejection', (reason) => {
       const message =
@@ -342,7 +339,9 @@ export async function startProductionServer(options: StartOptions & { db?: unkno
           message,
           stack,
         }),
-      ).catch(() => {});
+      ).catch((hookErr) => {
+        logHookError('onProcessError', hookErr);
+      });
     });
     info('Process-level error handlers registered');
   }

@@ -10,7 +10,7 @@ import { z } from "zod";
 
 export const orderPlaced = defineEvent({
   name: "order.placed",
-  schema: z.object({
+  payload: z.object({
     orderId: z.string().uuid(),
     customerId: z.string().uuid(),
     total: z.number().positive(),
@@ -115,14 +115,16 @@ This guarantees **at-least-once delivery** — events are never lost even if the
 Every event is wrapped in an envelope with metadata:
 
 ```typescript
-interface EventEnvelope {
+interface EventEnvelope<TPayload = unknown> {
   id: string;               // Unique event ID
   eventType: string;        // "order.placed"
-  payload: unknown;         // Event data
-  tenantId?: string;        // Tenant context
-  actor: string;            // Who triggered it
-  correlationId: string;    // Request trace ID
+  version: string;          // Event schema version (from `defineEvent({ version })`, defaults to "1")
   occurredAt: Date;         // When it happened
+  actor: string;            // Who triggered it (userId, service account, "system", etc.)
+  tenantId?: string;        // Tenant context, if scoped
+  correlationId: string;    // Request trace ID — same across the full request graph
+  causationId?: string;     // ID of the event/turn that caused this one (causal chain)
+  payload: TPayload;        // Event data, typed to the schema declared in `defineEvent`
 }
 ```
 
@@ -232,4 +234,10 @@ app/events/
 ├── refund-requested.event.ts
 └── user-created.event.ts
 ```
+
+---
+
+## SDK reference
+
+For every `defineEvent` option (`domain`, `version`, `tags`) and the full `EventEnvelope` shape, see [SDK Reference → defineEvent](../sdk-reference/define-functions.md#defineevent). This page covers the common case; the reference is exhaustive.
 

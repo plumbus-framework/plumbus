@@ -36,6 +36,30 @@ docs/
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding
 │   └── ui-generation.md
+├── knowledge-base/            Optional @plumbus/knowledge-base package (scoped providers + registry)
+│   ├── README.md
+│   ├── defining-sources.md
+│   ├── providers.md
+│   ├── usage-patterns.md
+│   ├── chat-integration.md
+│   ├── rag-via-core.md
+│   └── testing.md
+├── chat/                      Conversational runtime: defineChat, guards, context sources
+│   ├── README.md
+│   ├── defining-chats.md
+│   ├── policies.md
+│   ├── context-sources.md
+│   ├── testing.md
+│   ├── evaluations.md
+│   └── design/                10 design decisions (ADRs) explaining the framework's shape
+├── chat-ui/                   React hooks/components for the chat turn protocol
+│   └── README.md
+├── mcp/                       Serve capabilities to AI agents over MCP (stdio + HTTP)
+│   ├── overview.md
+│   ├── agent-authentication.md
+│   ├── expose-a-capability.md
+│   ├── transports.md
+│   └── skill-files.md
 ├── agents/                    Wiring AI coding agents to your project
 │   ├── agent-setup.md
 │   └── guardrails.md
@@ -55,6 +79,11 @@ docs/
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |
 | Review framework-first and git-safety rules for agents | [Agents → Guardrails](agents/guardrails.md) |
 | Generate a React frontend | [UI → Generation](ui/ui-generation.md) |
+| Add a chat surface to my app | [Chat → README](chat/README.md) |
+| Add registry-backed knowledge sources | [Knowledge Base → README](knowledge-base/README.md) |
+| Wire a React chat UI | [Chat UI → README](chat-ui/README.md) |
+| Serve capabilities to AI agents over MCP | [MCP → Overview](mcp/overview.md) |
+| Wire MCP tool-call metrics (Datadog, Prometheus, etc.) | [MCP → Transports → onMcpToolCall](mcp/transports.md#per-tool-call-observability--onmcptoolcall) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |

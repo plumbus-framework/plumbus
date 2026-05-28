@@ -38,6 +38,10 @@ export interface StoredChunk {
 export interface RetrievalQuery {
   query: string;
   tenantId?: string;
+  /** Named RAG corpus / collection (matched against chunk metadata.corpus) */
+  corpus?: string;
+  /** Metadata key-value filters (all keys must match) */
+  filter?: Record<string, unknown>;
   /** Max classification level allowed (default: no filter) */
   maxClassification?: string;
   /** Max results (default: 5) */
@@ -170,9 +174,23 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
         minScore,
       });
 
-      // 3. Deduplicate by documentId+chunkIndex
+      // 3. Corpus + metadata filter
+      const filtered = results.filter((r) => {
+        if (query.corpus) {
+          const c = r.metadata?.corpus ?? r.metadata?.collection;
+          if (c !== query.corpus) return false;
+        }
+        if (query.filter) {
+          for (const [k, v] of Object.entries(query.filter)) {
+            if (r.metadata?.[k] !== v) return false;
+          }
+        }
+        return true;
+      });
+
+      // 4. Deduplicate by documentId+chunkIndex
       const seen = new Set<string>();
-      const deduplicated = results.filter((r) => {
+      const deduplicated = filtered.filter((r) => {
         const key = `${r.documentId}:${r.chunkIndex}`;
         if (seen.has(key)) return false;
         seen.add(key);

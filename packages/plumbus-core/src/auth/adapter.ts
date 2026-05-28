@@ -45,7 +45,15 @@ const defaultClaimMapping: JwtClaimMapping = {
  * JWT-based auth adapter. Decodes, verifies HMAC-SHA256 signatures,
  * and validates JWT tokens, mapping claims to an AuthContext.
  */
+const MIN_JWT_SECRET_LENGTH = 32;
+
 export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
+  if (config.secret.length < MIN_JWT_SECRET_LENGTH) {
+    throw new Error(
+      `JWT secret must be at least ${MIN_JWT_SECRET_LENGTH} characters for HS256 verification`,
+    );
+  }
+
   const mapping = { ...defaultClaimMapping, ...config.claimMapping };
 
   return {

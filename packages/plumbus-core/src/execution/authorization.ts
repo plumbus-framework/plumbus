@@ -1,3 +1,4 @@
+import { resolveAuthRoles } from './auth-roles.js';
 import type { AccessPolicy, AuthContext } from '../types/security.js';
 
 export interface AuthorizationResult {
@@ -40,14 +41,11 @@ export function evaluateAccess(
     return { allowed: false, reason: 'Tenant context required' };
   }
 
-  // Internal callers (e.g. flow engine) skip role/scope checks
-  if (auth.internal) {
-    return { allowed: true };
-  }
+  const roles = resolveAuthRoles(auth);
 
   // Role check — caller must have at least one required role
   if (policy.roles && policy.roles.length > 0) {
-    const hasRole = policy.roles.some((r) => auth.roles.includes(r));
+    const hasRole = policy.roles.some((r) => roles.includes(r));
     if (!hasRole) {
       return {
         allowed: false,

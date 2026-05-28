@@ -6,6 +6,8 @@ import * as JSONC from 'jsonc-parser';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { buildMcpManifest, isMcpExposed, renderSkillFile } from '../../mcp/index.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { EntityDefinition } from '../../types/entity.js';
 import type { CapabilityKind } from '../../types/enums.js';
@@ -526,6 +528,24 @@ export function generateAll(
   };
   writeFile(path.join(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   generated.push('manifest.json');
+
+  // MCP manifest + skill files
+  const mcpRegistry = new CapabilityRegistry();
+  for (const cap of capabilities) {
+    if (isMcpExposed(cap)) {
+      mcpRegistry.register(cap);
+    }
+  }
+  const mcpManifest = buildMcpManifest(mcpRegistry);
+  writeFile(path.join(outputDir, 'mcp-manifest.json'), JSON.stringify(mcpManifest, null, 2));
+  generated.push('mcp-manifest.json');
+
+  for (const cap of capabilities.filter(isMcpExposed)) {
+    const skillDir = path.join(outputDir, 'skills', cap.domain);
+    const skillPath = path.join(skillDir, `${toKebabCase(cap.name)}.md`);
+    writeFile(skillPath, renderSkillFile(cap));
+    generated.push(path.join('skills', cap.domain, `${toKebabCase(cap.name)}.md`));
+  }
 
   // Entity types
   const entityTypesContent = generateEntityTypeFile(entities);

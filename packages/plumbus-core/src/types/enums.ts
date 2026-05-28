@@ -62,6 +62,14 @@ export const ErrorCode = {
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
+// ── Auth Role (well-known role names) ──
+export const AuthRole = {
+  /** Flow engine and trusted internal runners; capability must list in access.roles to allow. */
+  System: 'system',
+} as const;
+
+export type AuthRole = (typeof AuthRole)[keyof typeof AuthRole];
+
 // ── Governance Severity ──
 export const GovernanceSeverity = {
   Info: 'info',

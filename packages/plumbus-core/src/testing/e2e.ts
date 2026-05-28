@@ -67,7 +67,7 @@ function defaultTestConfig(overrides?: Partial<PlumbusConfig>): PlumbusConfig {
     environment: 'production',
     port: 0,
     database: { connectionString: 'postgresql://test:test@localhost:5432/test' },
-    auth: { secret: 'e2e-test-secret', providers: [] },
+    auth: { secret: 'e2e-test-secret-placeholder-32chars-min', providers: [] },
     ...overrides,
   } as PlumbusConfig;
 }

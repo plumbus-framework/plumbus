@@ -27,6 +27,12 @@ export {
   type FrameworkTableName,
   type TableDrift,
 } from './drift-inspector.js';
+export {
+  closeDatabaseConnection,
+  connectPostgresDatabase,
+  resolveDatabaseConnection,
+  type DatabaseConnection,
+} from './connection.js';
 export { EntityRegistry } from './registry.js';
 export { createRepository, type RepositoryOptions } from './repository.js';
 export { generateDrizzleSchema, generateSchemas } from './schema-generator.js';

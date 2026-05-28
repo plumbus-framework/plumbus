@@ -13,8 +13,58 @@ interface PlumbusConfig {
   aiProviders?: AIProvidersConfig;      // Multi-provider (takes precedence)
   auth: AuthAdapterConfig;
   complianceProfiles?: string[];
+  mcp?: McpConfig;                      // Optional MCP agent registry
 }
 ```
+
+## MCP Configuration
+
+`mcp.agents` registers tokens that AI agents present to call `exposeAs: ['mcp']` capabilities. Required only when serving MCP — `@plumbus/core` works without `@plumbus/mcp` installed.
+
+```typescript
+interface McpConfig {
+  agents?: Record<string, McpAgentConfig>;
+}
+
+interface McpAgentConfig {
+  serviceAccountId: string;
+  scopes: string[];
+  tenantId?: string;
+}
+```
+
+Each map key is the verbatim Bearer token the agent presents (either over HTTP `Authorization: Bearer <key>` or as `PLUMBUS_MCP_TOKEN` for stdio). Pick a high-entropy string — there is no separate "secret" field.
+
+```typescript
+mcp: {
+  agents: {
+    "sk-billing-agent-7c2f9": {
+      serviceAccountId: "billing-agent",
+      scopes: ["billing:read"],
+      tenantId: "tenant-uuid",
+    },
+  },
+}
+```
+
+When `mcp.agents` is empty or unset, `plumbus mcp serve` falls back to the JWT adapter and only `access.public: true` capabilities are callable. See [MCP agent authentication](../mcp/agent-authentication.md) for the full security model.
+
+Per-call observability: see [MCP transports → onMcpToolCall](../mcp/transports.md#per-tool-call-observability--onmcptoolcall).
+
+### Required entity for MCP-exposed jobs
+
+Apps that expose `kind: 'job'` capabilities via MCP must register `mcpTaskEntity` in their entity list:
+
+```ts
+import { mcpTaskEntity } from '@plumbus/mcp';
+
+export const entities = [
+  // ... your own entities ...
+  mcpTaskEntity,
+];
+```
+
+Without it, `tasks/*` calls will fail because there is no table to store task state. See [tasks-and-jobs.md](../mcp/tasks-and-jobs.md).
 
 ## Database Configuration
 

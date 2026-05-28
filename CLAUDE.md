@@ -39,6 +39,37 @@ The framework provides these packages to consumer apps. Consumers must **never**
 | playwright | `@plumbus/core/testing` | `dependencies` |
 | drizzle-kit | used by `plumbus migrate` | `dependencies` |
 
+### Optional add-on: `@plumbus/mcp`
+
+`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.4.x`). Apps that want to serve capabilities to AI agents install it explicitly:
+
+```
+pnpm add @plumbus/mcp
+```
+
+Apps that don't use MCP never install it. `plumbus mcp serve` prints an install hint when the package is missing. `plumbus generate` (which emits the MCP manifest + skill files) does **not** require `@plumbus/mcp`.
+
+### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
+
+`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It is a peer dependency of `@plumbus/core` (version-locked `0.1.x`). Apps that want a chat surface install it explicitly:
+
+```
+pnpm add @plumbus/chat
+pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
+```
+
+`@plumbus/chat-ui` peer-depends on `@plumbus/chat` and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
+
+### Optional add-on: `@plumbus/knowledge-base`
+
+`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It is an optional peer of `@plumbus/chat` (version-locked `0.1.x`). Apps that want named, reusable knowledge sources install it explicitly:
+
+```
+pnpm add @plumbus/knowledge-base
+```
+
+Apps that only need a single direct RAG corpus in chat can use `ragContext` from `@plumbus/chat` without installing KB. Vector ingest remains in `@plumbus/core` (`plumbus rag ingest`).
+
 ### From `@plumbus/ui`
 
 | Package | Provided by |

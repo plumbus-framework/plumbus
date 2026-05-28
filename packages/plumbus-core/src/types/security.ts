@@ -16,6 +16,8 @@ export interface AuthContext {
   provider: string;
   sessionId?: string;
   authenticatedAt?: Date;
-  /** When true, skip role/scope checks (e.g. flow-driven execution). Tenant scoping still enforced. */
+  /**
+   * @deprecated Use role {@link AuthRole.System} (`system`) instead. Still mapped to `system` for compatibility.
+   */
   internal?: boolean;
 }

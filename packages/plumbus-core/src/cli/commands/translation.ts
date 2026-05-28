@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
 import { translationTemplate } from '../templates/resources.js';
+import { findPlumbusProjectRoot, resolvePathWithinProject } from '../project-root.js';
 import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 
 // ── XLIFF 2.0 Serialization ──
@@ -227,20 +228,31 @@ export function registerTranslationCommand(program: Command): void {
         process.exit(1);
       }
 
-      const files: string[] = [];
-      if (opts.file) {
-        files.push(resolvePath(opts.file));
+      const projectRoot = findPlumbusProjectRoot();
+      if (!projectRoot) {
+        error('Not in a Plumbus project — run from project root (config/app.config.ts required)');
+        process.exit(1);
       }
-      if (opts.dir) {
-        const dirPath = resolvePath(opts.dir);
-        if (fs.existsSync(dirPath)) {
-          const entries = fs.readdirSync(dirPath);
-          for (const entry of entries) {
-            if (entry.endsWith('.json') || entry.endsWith('.xlf')) {
-              files.push(path.join(dirPath, entry));
+
+      const files: string[] = [];
+      try {
+        if (opts.file) {
+          files.push(resolvePathWithinProject(opts.file, projectRoot));
+        }
+        if (opts.dir) {
+          const dirPath = resolvePathWithinProject(opts.dir, projectRoot);
+          if (fs.existsSync(dirPath)) {
+            const entries = fs.readdirSync(dirPath);
+            for (const entry of entries) {
+              if (entry.endsWith('.json') || entry.endsWith('.xlf')) {
+                files.push(path.join(dirPath, entry));
+              }
             }
           }
         }
+      } catch (pathErr) {
+        error(pathErr instanceof Error ? pathErr.message : String(pathErr));
+        process.exit(1);
       }
 
       if (files.length === 0) {

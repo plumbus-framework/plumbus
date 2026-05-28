@@ -2,6 +2,7 @@
 // Loads PlumbusConfig from environment variables with defaults per environment.
 // Secrets from env vars (never hardcoded in source).
 
+import { ErrorDocUrls, ErrorHints } from '../errors/hints.js';
 import type {
   AIProviderConfig,
   AIProvidersConfig,
@@ -107,43 +108,65 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
 
 // ── Multi-Provider AI Config ──
 
-/** Scan for AI_{PROVIDER}_* env vars and build AIProvidersConfig */
+const SUPPORTED_AI_PROVIDERS = ['openai', 'anthropic'] as const;
+
+type SupportedAiProvider = (typeof SUPPORTED_AI_PROVIDERS)[number];
+
+function isSupportedAiProvider(name: string): name is SupportedAiProvider {
+  return (SUPPORTED_AI_PROVIDERS as readonly string[]).includes(name);
+}
+
+function readProviderConfig(
+  env: Record<string, string | undefined>,
+  name: SupportedAiProvider,
+): AIProviderConfig | undefined {
+  const prefix = `AI_${name.toUpperCase()}_`;
+  const apiKey = env[`${prefix}API_KEY`];
+  if (apiKey == null) {
+    return undefined;
+  }
+
+  const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
+  const dailyCostRaw = env[`${prefix}DAILY_COST_LIMIT`];
+  const timeoutRaw = env[`${prefix}REQUEST_TIMEOUT`];
+
+  return {
+    provider: name,
+    apiKey,
+    model: env[`${prefix}MODEL`] ?? undefined,
+    baseUrl: env[`${prefix}BASE_URL`] ?? undefined,
+    maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
+    dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
+    requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
+  };
+}
+
+/** Load openai + anthropic provider slots from env (H2). */
 export function loadMultiProviderConfig(
   env: Record<string, string | undefined>,
 ): AIProvidersConfig | undefined {
   const defaultProvider = env.AI_DEFAULT_PROVIDER;
   if (!defaultProvider) return undefined;
 
-  // Scan for AI_{NAME}_API_KEY patterns
-  const providerNames = new Set<string>();
-  for (const key of Object.keys(env)) {
-    const match = /^AI_([A-Z][A-Z0-9_]*)_API_KEY$/.exec(key);
-    if (match?.[1] != null) {
-      providerNames.add(match[1].toLowerCase());
+  const providers: Record<string, AIProviderConfig> = {};
+  for (const name of SUPPORTED_AI_PROVIDERS) {
+    const config = readProviderConfig(env, name);
+    if (config) {
+      providers[name] = config;
     }
   }
 
-  if (providerNames.size === 0) return undefined;
-
-  const providers: Record<string, AIProviderConfig> = {};
-  for (const name of providerNames) {
-    const prefix = `AI_${name.toUpperCase()}_`;
-    const apiKey = env[`${prefix}API_KEY`];
-    if (apiKey == null) continue;
-
-    const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
-    const dailyCostRaw = env[`${prefix}DAILY_COST_LIMIT`];
-    const timeoutRaw = env[`${prefix}REQUEST_TIMEOUT`];
-
-    providers[name] = {
-      provider: name,
-      apiKey,
-      model: env[`${prefix}MODEL`] ?? undefined,
-      baseUrl: env[`${prefix}BASE_URL`] ?? undefined,
-      maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
-      dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
-      requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
-    };
+  // Warn on deprecated dynamic provider env keys
+  for (const key of Object.keys(env)) {
+    const match = /^AI_([A-Z][A-Z0-9_]*)_API_KEY$/.exec(key);
+    if (match?.[1] != null) {
+      const name = match[1].toLowerCase();
+      if (!isSupportedAiProvider(name)) {
+        console.warn(
+          `[plumbus] Ignoring ${key}: ${ErrorHints.aiProviderEnv} (${ErrorDocUrls.aiIntegration})`,
+        );
+      }
+    }
   }
 
   if (Object.keys(providers).length === 0) return undefined;
@@ -200,7 +223,9 @@ function loadAuthConfig(
     issuer: env.AUTH_ISSUER ?? undefined,
     audience: env.AUTH_AUDIENCE ?? undefined,
     jwksUri: env.AUTH_JWKS_URI ?? undefined,
-    secret: env.AUTH_SECRET ?? (environment === 'development' ? 'development-secret' : undefined),
+    secret:
+      env.AUTH_SECRET ??
+      (environment === 'development' ? 'development-secret-placeholder-32chars-min' : undefined),
   };
 }
 
@@ -240,7 +265,15 @@ export function validateConfig(config: PlumbusConfig): ConfigValidationResult {
   }
 
   // Auth
-  if (config.environment === 'production' && config.auth.secret === 'development-secret') {
+  const devPlaceholderSecrets = [
+    'development-secret',
+    'development-secret-placeholder-32chars-min',
+  ];
+  if (
+    config.environment === 'production' &&
+    config.auth.secret != null &&
+    devPlaceholderSecrets.includes(config.auth.secret)
+  ) {
     errors.push('auth.secret must be changed from default in production');
   }
   if (config.environment === 'production' && !config.auth.secret && !config.auth.jwksUri) {

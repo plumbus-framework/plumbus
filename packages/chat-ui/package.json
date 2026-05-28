@@ -1,0 +1,45 @@
+{
+  "name": "@plumbus/chat-ui",
+  "version": "0.1.2",
+  "description": "React UI for @plumbus/chat",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/chat-ui"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "@plumbus/chat": "0.1.x",
+    "@plumbus/core": "^0.4.0 <0.5.0"
+  },
+  "devDependencies": {
+    "@plumbus/chat": "workspace:*",
+    "@plumbus/core": "workspace:*",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "jsdom": "^25.0.0",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT"
+}

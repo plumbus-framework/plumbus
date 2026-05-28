@@ -6,6 +6,7 @@ export {
   rulePromptMissingModelConfig,
   rulePromptMissingOutputSchema,
 } from './ai.js';
+export { mcpRules, ruleMcpMissingDescription } from './mcp.js';
 export {
   architectureRules,
   ruleEntityMissingDescription,

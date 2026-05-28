@@ -144,6 +144,42 @@ Errors are `PlumbusError` instances (extends `Error`) with `code`, `message`, an
 
 **Do not** use `throw new Error(...)` in capability handlers — always use `ctx.errors.*()` for proper HTTP status mapping and structured error responses.
 
+## MCP Exposure (Optional)
+
+A capability can be exposed to **external AI agents** as a Model Context Protocol tool by adding `exposeAs: ['mcp']`. The default is HTTP-only; MCP is opt-in per capability.
+
+```ts
+export const getRefund = defineCapability({
+  name: "getRefund",
+  kind: "query",
+  domain: "billing",
+  description: "Fetch a refund by id",
+
+  // Opt in to MCP exposure
+  exposeAs: ["mcp"],
+  mcp: {
+    description: "Look up a refund for billing support agents",  // agent-facing override
+    dangerous: false,           // sets MCP annotations.destructiveHint
+    agentTags: ["billing"],     // categorization hint for agent tool selection
+  },
+
+  // Restrict which agents may call this — service-account-style auth
+  access: {
+    serviceAccounts: ["billing-agent"],
+    tenantScoped: true,
+  },
+
+  // ...input, output, effects, handler unchanged
+});
+```
+
+**Rules when MCP-exposed:**
+- Only `kind: "query"` and `kind: "action"` may be exposed. `job` and `eventHandler` are rejected at `defineCapability()` time.
+- Either `description`, `mcp.description`, or `explanation.summary` is required.
+- Agent identity is controlled via `access.serviceAccounts` and `access.scopes`. Deny-by-default still holds.
+
+Read `node_modules/@plumbus/core/instructions/mcp.md` and `node_modules/@plumbus/mcp/instructions/README.md` for MCP (auth, transports, tasks, testing).
+
 ## Job Capabilities
 
 Capabilities with `kind: "job"` are for long-running operations. They return immediately with a job handle, and the work executes asynchronously.

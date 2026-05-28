@@ -67,7 +67,7 @@ function makeConfig(): PlumbusConfig {
       password: 'postgres',
     },
     queue: { host: 'localhost', port: 6379, prefix: 'plumbus:dev' },
-    auth: { provider: 'jwt', secret: 'test-secret' },
+    auth: { provider: 'jwt', secret: 'test-secret-placeholder-32chars-min' },
   };
 }
 

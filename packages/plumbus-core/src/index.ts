@@ -151,6 +151,7 @@ export { defineEvent } from './define/defineEvent.js';
 export { defineFlow } from './define/defineFlow.js';
 export { definePrompt } from './define/definePrompt.js';
 export { defineTranslation } from './define/defineTranslation.js';
+export { zodInputToJsonSchema } from './schema/zod-input-to-json-schema.js';
 // ── Error Utilities ──
 export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export {

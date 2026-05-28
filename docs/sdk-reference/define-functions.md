@@ -179,21 +179,21 @@ const onboarding = defineFlow({
     emailSent: z.boolean().default(false),
     welcomeKitDispatched: z.boolean().default(false),
   }),
-  trigger: { type: "event", event: "customer.created" },
+  trigger: { event: "customer.created" },
   steps: [
-    { name: "sendWelcomeEmail", capability: "sendWelcomeEmail" },
-    { name: "setupDefaults", capability: "setupCustomerDefaults" },
+    { name: "sendWelcomeEmail", type: "capability", capability: "sendWelcomeEmail" },
+    { name: "setupDefaults", type: "capability", capability: "setupCustomerDefaults" },
     {
       name: "checkTier",
       type: "conditional",
-      condition: "ctx.state.tier === 'enterprise'",
-      ifTrue: "assignAccountManager",
-      ifFalse: "sendSelfServeGuide",
+      if: "ctx.state.tier === 'enterprise'",
+      then: "assignAccountManager",
+      else: "sendSelfServeGuide",
     },
-    { name: "assignAccountManager", capability: "assignAccountManager" },
-    { name: "sendSelfServeGuide", capability: "sendSelfServeGuide" },
+    { name: "assignAccountManager", type: "capability", capability: "assignAccountManager" },
+    { name: "sendSelfServeGuide", type: "capability", capability: "sendSelfServeGuide" },
   ],
-  retry: { maxAttempts: 3, backoff: "exponential" },
+  retry: { attempts: 3, backoff: "exponential" },
 });
 ```
 
@@ -216,16 +216,16 @@ const onboarding = defineFlow({
 
 ```typescript
 // Capability step
-{ name: string; capability: string }
+{ name: string; type: "capability"; capability: string; input?: Record<string, unknown> }
 
 // Conditional step
-{ name: string; type: "conditional"; condition: string; ifTrue: string; ifFalse: string }
+{ name: string; type: "conditional"; if: string; then: string; else?: string }
 
 // Parallel step
 { name: string; type: "parallel"; branches: string[] }
 
 // Wait step
-{ name: string; type: "wait"; event: string; timeout?: string }
+{ name: string; type: "wait"; event: string }
 
 // Delay step
 { name: string; type: "delay"; duration: string }

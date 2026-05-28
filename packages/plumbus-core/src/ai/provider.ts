@@ -1168,7 +1168,8 @@ export function createProviderAdapter(
     case 'anthropic':
       return createAnthropicAdapter(cfg);
     default:
-      // Unknown providers: try OpenAI-compat adapter (covers Ollama, Azure, etc.)
-      return createOpenAIAdapter(cfg);
+      throw new Error(
+        `Unsupported AI provider "${name}". Only "openai" and "anthropic" are supported.`,
+      );
   }
 }

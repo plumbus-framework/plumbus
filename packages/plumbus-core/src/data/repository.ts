@@ -5,6 +5,7 @@ import type { AuditService } from '../types/audit.js';
 import type { QueryOptions, Repository } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldClassification } from '../types/enums.js';
+import { ErrorHints } from '../errors/hints.js';
 import type { AuthContext } from '../types/security.js';
 
 export interface RepositoryOptions {
@@ -35,10 +36,28 @@ export function createRepository<
   const isTenantScoped = entity.tenantScoped === true;
   const hasDeletedAt = 'deletedAt' in table;
 
+  async function assertTenantContext(operation: string): Promise<void> {
+    if (!isTenantScoped || bypassTenantScope) return;
+    if (auth.tenantId) return;
+    if (audit) {
+      await audit.record(`${entity.name}.tenant_denied`, {
+        operation,
+        actor: auth.userId,
+        reason: 'missing_tenant_context',
+      });
+    }
+    throw new Error(
+      `${ErrorHints.tenantContextRequired} Tenant-scoped entity "${entity.name}" requires auth.tenantId`,
+    );
+  }
+
   function tenantFilter(): SQL | undefined {
     if (!isTenantScoped || bypassTenantScope) return undefined;
     if (!auth.tenantId) {
-      throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
+      // assertTenantContext() should run before tenantFilter(); defensive only.
+      throw new Error(
+        `${ErrorHints.tenantContextRequired} Tenant-scoped entity "${entity.name}" requires auth.tenantId`,
+      );
     }
     const tenantCol = (table as any).tenantId;
     if (!tenantCol) return undefined;
@@ -72,6 +91,7 @@ export function createRepository<
 
   return {
     async findById(id: string): Promise<T | null> {
+      await assertTenantContext('findById');
       const conditions: SQL[] = [];
       const idCol = (table as any).id;
       if (idCol) {
@@ -90,13 +110,11 @@ export function createRepository<
     },
 
     async create(data: TCreate): Promise<T> {
+      await assertTenantContext('create');
       const record: Record<string, unknown> = { ...data };
 
       // Inject tenantId for tenant-scoped entities
-      if (isTenantScoped && !bypassTenantScope) {
-        if (!auth.tenantId) {
-          throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
-        }
+      if (isTenantScoped && !bypassTenantScope && auth.tenantId) {
         record.tenantId = auth.tenantId;
       }
 
@@ -108,13 +126,11 @@ export function createRepository<
 
     async createMany(records: TCreate[]): Promise<T[]> {
       if (records.length === 0) return [];
+      await assertTenantContext('createMany');
 
       const prepared = records.map((data) => {
         const record: Record<string, unknown> = { ...data };
-        if (isTenantScoped && !bypassTenantScope) {
-          if (!auth.tenantId) {
-            throw new Error(`Tenant-scoped entity "${entity.name}" requires auth.tenantId`);
-          }
+        if (isTenantScoped && !bypassTenantScope && auth.tenantId) {
           record.tenantId = auth.tenantId;
         }
         return record;
@@ -132,6 +148,7 @@ export function createRepository<
     },
 
     async update(id: string, updates: TUpdate): Promise<T> {
+      await assertTenantContext('update');
       const conditions: SQL[] = [];
       const idCol = (table as any).id;
       if (idCol) {
@@ -155,6 +172,7 @@ export function createRepository<
     },
 
     async delete(id: string): Promise<void> {
+      await assertTenantContext('delete');
       const conditions: SQL[] = [];
       const idCol = (table as any).id;
       if (idCol) {
@@ -177,6 +195,7 @@ export function createRepository<
     },
 
     async findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]> {
+      await assertTenantContext('findMany');
       const conditions: SQL[] = [];
 
       // Apply tenant filter
@@ -241,6 +260,7 @@ export function createRepository<
     },
 
     async count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number> {
+      await assertTenantContext('count');
       const conditions: SQL[] = [];
 
       const tf = tenantFilter();

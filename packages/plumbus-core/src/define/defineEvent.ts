@@ -1,5 +1,7 @@
 import type { z } from 'zod';
 import type { EventDefinition } from '../types/event.js';
+import { deepFreeze } from '../types/deep-freeze.js';
+import { throwDefineValidationError } from './validation-error.js';
 
 function isZodSchema(value: unknown): value is z.ZodTypeAny {
   return (
@@ -25,11 +27,13 @@ export function defineEvent<TPayload extends z.ZodTypeAny>(
   config: DefineEventInput<TPayload>,
 ): EventDefinition<TPayload> {
   if (!config.name) {
-    throw new Error('Event name is required');
+    throwDefineValidationError('Event name is required', { field: 'name' });
   }
   if (!isZodSchema(config.payload)) {
-    throw new Error(`Event "${config.name}": payload must be a Zod schema`);
+    throwDefineValidationError(`Event "${config.name}": payload must be a Zod schema`, {
+      field: 'payload',
+    });
   }
 
-  return Object.freeze({ ...config });
+  return deepFreeze({ ...config });
 }
