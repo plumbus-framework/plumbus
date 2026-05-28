@@ -41,7 +41,7 @@ readChatStream(Response)                           // async-iterable SSE parser
 ChatUiState, ChatUiMessage, ChatUiNotice, ChatUiStatus, ChatUiPendingConfirmation
 BuildTurnBodyArgs, TurnRequestBody
 
-useChatSession()                                   // PLACEHOLDER in v0.1 — returns local useState defaults; do not depend on the shape
+useChatSession()                                   // PLACEHOLDER — returns local useState defaults; do not depend on the shape
 ```
 
 ## File map (`src/`)
@@ -52,7 +52,7 @@ src/
 ├── hooks/
 │   ├── useChat.ts                    # state machine — fetch + applyChatEvent loop
 │   ├── useChat-helpers.ts            # pure helpers (applyChatEvent, buildTurnRequestBody, ...)
-│   └── useChatSession.ts             # v0.1 placeholder
+│   └── useChatSession.ts             # placeholder
 ├── components/
 │   ├── ChatPanel.tsx                 # high-level component
 │   ├── ChatMessages.tsx
@@ -65,9 +65,9 @@ src/
 
 ## Critical rules
 
-1. **Cookie auth only.** `useChat` and `<ChatPanel />` POST with `credentials: 'include'`. For Bearer-auth flows, copy the hook and swap the `fetch` call — do not add a `headers` option to the helper (out of scope for v0.1).
+1. **Cookie auth only.** `useChat` and `<ChatPanel />` POST with `credentials: 'include'`. For Bearer-auth flows, copy the hook and swap the `fetch` call — do not add a `headers` option to the helper (out of scope).
 2. **`persistence` must match the server.** The `<ChatPanel persistence="client" />` prop tells the panel to ship `clientHistory` on every turn. If the server-side chat was defined with `persistence: { messageContent: 'server' }`, the panel still ships history that the server ignores (wasted bytes). If the server is `'client'` and the panel says `'server'`, the model loses conversational context. See wiring-chat-panel.md.
-3. **`useChat.confirm()` is a UI stub.** In v0.1, calling `confirm(actionId)` only clears local state. Apps that need action confirmation must call the server-side `chatConfirmAction` capability directly. The hook surfaces `pendingConfirmation.schemaHash` exactly so apps can do this. See action-confirmation.md.
+3. **`useChat.confirm()` is a UI stub.** Calling `confirm(actionId)` only clears local state. Apps that need action confirmation must call the server-side `chatConfirmAction` capability directly. The hook surfaces `pendingConfirmation.schemaHash` exactly so apps can do this. See action-confirmation.md.
 4. **`useChatSession` is a placeholder.** It returns local `useState` defaults — `sessions` never populates. Kept on the barrel so a real multi-session API can land later without a breaking export change. Do not depend on its shape.
 5. **No subpath exports.** Everything imports from `@plumbus/chat-ui`. There is no `/testing` subpath (chat-ui has no test helpers of its own — use vitest jsdom and exercise the pure helpers directly).
 

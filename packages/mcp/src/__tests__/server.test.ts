@@ -13,7 +13,9 @@ import { buildMcpManifest } from '@plumbus/core/mcp';
 import { createMcpAuthAdapter } from '../auth/mcp-auth-adapter.js';
 import { createMcpServer } from '../server.js';
 import { createTestMcpServer } from '../testing/create-test-mcp-server.js';
-import type { McpServerConfig, McpToolCallInfo } from '../types.js';
+// Import the public types from the package barrel so this asserts they are
+// re-exported from `@plumbus/mcp` (the path docs tell consumers to use).
+import type { McpServerConfig, McpToolCallInfo } from '../index.js';
 
 describe('createMcpServer', () => {
   const mcpCap = defineCapability({

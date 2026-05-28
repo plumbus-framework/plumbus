@@ -60,7 +60,7 @@ Read these when you're an AI agent extending a Plumbus app that uses knowledge-b
 - `registry.list()` returns the same frozen definitions; mutating them throws in strict mode or silently fails elsewhere.
 - `registry.get(name)` returns a stable runtime wrapper around the provider frozen at boot.
 
-There is **no** parent/child registry, merge API, or dynamic registration in v0.1.0. To change sources, build a **new** registry (typically at app boot) and pass that instance to consumers. For tests, use `createTestRegistry` from `@plumbus/knowledge-base/testing` — same freeze semantics as production.
+There is **no** parent/child registry, merge API, or dynamic registration. To change sources, build a **new** registry (typically at app boot) and pass that instance to consumers. For tests, use `createTestRegistry` from `@plumbus/knowledge-base/testing` — same freeze semantics as production.
 
 `defineKnowledgeSource` also deep-freezes each definition when created.
 
@@ -93,7 +93,7 @@ Knowledge is rarely universal. Admin help ≠ user help. Hebrew ≠ English. Ten
 
 ```
   Tier 1 getBlock     "What text goes in the prompt?"
-  Tier 2 getTools     "What tools should an LLM see?" (chat v0.1.4 does not execute)
+  Tier 2 getTools     "What tools should an LLM see?" (chat does not execute these)
   Tier 3 search       "I will render hits myself"
 ```
 
@@ -130,7 +130,7 @@ Both are exported; they serve different tiers:
 
 - One-off `ctx.ai.retrieve` with no reuse — use `ragContext` or retrieve directly.
 - Write-heavy capabilities as knowledge — `capabilityBacked` is read-only only.
-- Mandatory framework install — KB is optional; no `ctx.knowledge` in v0.1.0.
+- Mandatory framework install — KB is optional; there is no `ctx.knowledge`.
 
 ## Custom providers
 
@@ -154,6 +154,6 @@ Implement `KnowledgeProvider` (`getBlock` required; `getTools` / `search` option
 - `@plumbus/chat` — [chat-integration.md](./chat-integration.md), [context-sources](../chat/context-sources.md)
 - `@plumbus/knowledge-base/testing` — [testing.md](./testing.md)
 
-## Deferred (v0.2+)
+## Out of scope
 
-Auto-discovery, file watching, governance, observability, `databaseCollection`, hybrid retrieval, chat tier-2 execution, registry merge/composition APIs.
+Not implemented: auto-discovery, file watching, governance, observability, `databaseCollection`, hybrid retrieval, chat tier-2 execution, registry merge/composition APIs.

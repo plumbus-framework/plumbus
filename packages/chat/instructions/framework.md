@@ -78,7 +78,7 @@ For the full conceptual documentation (when to use which primitive, design ratio
 - `/docs/chat/policies.md` — every policy slot
 - `/docs/chat/context-sources.md` — every context source helper
 - `/docs/chat/testing.md` — test patterns
-- `/docs/chat/evaluations.md` — v0.2 preview
+- `/docs/chat/evaluations.md` — eval harness (`defineChatEvaluation` / `runChatEvaluation`)
 - `/docs/chat/design/` — 10 decision records explaining why the framework is shaped the way it is
 
 The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do that). The files under `/docs/chat/` are EXPLANATORY (what it is, why it exists). Use both.

@@ -48,12 +48,12 @@ knowledgeContext({
     audience: turnCtx.audience,
     locale: turnCtx.locale,
     tenantId: turnCtx.tenantId,
-    custom: { projectId: turnCtx.session.metadata?.projectId ?? '' },
+    custom: { userId: turnCtx.userId },
   }),
 }),
 ```
 
-`TurnContext` today includes `sessionId`, `ordinal`, `userId`, `audience`, `locale`, `tenantId`, `userMessage`, `contextTokenBudget`, etc. Map any session metadata into `custom` for `documentCollection` frontmatter or `ragCorpus` filters.
+`TurnContext` today includes `sessionId`, `ordinal`, `userId`, `audience`, `locale`, `tenantId`, `userMessage`, `contextTokenBudget`, etc. Map any of these turn fields into `custom` for `documentCollection` frontmatter or `ragCorpus` filters.
 
 ## `queryFromTurn` — when required
 

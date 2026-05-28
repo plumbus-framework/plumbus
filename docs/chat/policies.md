@@ -11,10 +11,13 @@ preTurnGuards: audience → locale → behavioral → custom
                                                      ↓
                                               model call
                                                      ↓
-postTurnGuards: provenance → scope → privacy → action → behavioral (postflight)
+postTurnGuards: provenance → scope → privacy → action → behavioral (postflight) → customPostTurn
 ```
 
-The order is fixed — you can't reshuffle it. Custom guards run after built-ins.
+The order is fixed — you can't reshuffle it. Custom guards run at the end of their phase:
+
+- **`policy.custom`** runs at the end of the **pre-turn** phase (after `audience` → `locale` → `behavioral`), before context resolution and the model call. It sees the incoming turn but **not** the model's output.
+- **`policy.customPostTurn`** runs at the end of the **post-turn** phase (after all built-ins), with `state.modelOutput` available — for inspecting, redacting, or confirming based on the model's answer.
 
 Each guard returns one of three verdicts:
 
@@ -82,7 +85,7 @@ policy: { scope: { description: 'Caller\'s own billing only.', classifier: 'inli
 
 Reads the model's `inScope` boolean. If `false`, replaces `answer` with the localized refusal copy and emits `notice: chat.out_of_scope`. The classifier is **inline** — the model classifies and answers in one call (Decision 0001). No preflight LLM call, no second roundtrip. Tradeoff: refusal turns spend generation tokens. Empirically cheaper than preflight because most turns are in-scope.
 
-`policy.scope.classifier: 'custom'` is reserved for v0.2 (escape hatch for consumers with very high refusal rates).
+`policy.scope.classifier` accepts `'inline'` (the default) or `'custom'`, but the runtime only implements the inline path — `'custom'` is accepted by the schema and behaves identically to `'inline'` today.
 
 ### `privacy-guard` (post-turn)
 
@@ -90,7 +93,7 @@ Reads the model's `inScope` boolean. If `false`, replaces `answer` with the loca
 policy: { privacy: { redact: ['ssn', 'cardNumber', 'paymentMethodFullNumber'] } }
 ```
 
-Substring-replaces matching tokens in `output.answer` with `[REDACTED]`. **v0.1 limitation: substring match only — do NOT rely on this for real PII compliance.** Structured PII detection (regex patterns for emails, credit cards, phone numbers, etc.) is a v0.2+ concern.
+Substring-replaces matching tokens in `output.answer` with `[redacted]`. **Limitation: substring match only — do NOT rely on this for real PII compliance.** Structured PII detection (regex patterns for emails, credit cards, phone numbers, etc.) is not implemented.
 
 ### `provenance-guard` (post-turn)
 
@@ -132,15 +135,19 @@ The server-side confirmation capability (`chatConfirmAction`, auto-routed at `PO
 
 This `schemaHash` check is the security primitive: it guarantees that what the user confirmed is exactly what gets executed. The client carries `schemaHash` purely as a witness — the server is the only party that re-derives it from the live schema.
 
-> **v0.1 UI wiring gap.** `useChat`'s `confirm(actionId)` in `@plumbus/chat-ui` currently only clears local UI state — it does **not** call `chatConfirmAction` on the server. Apps that ship action-confirmation flows in v0.1 should read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash`) and call `chatConfirmAction` directly via the auto-routed endpoint. A first-party `useChat → chatConfirmAction` round-trip is planned for v0.2; see [`packages/chat-ui/src/hooks/useChat.ts`](../../packages/chat-ui/src/hooks/useChat.ts).
+> **UI wiring gap.** `useChat`'s `confirm(actionId)` in `@plumbus/chat-ui` only clears local UI state — it does **not** call `chatConfirmAction` on the server. Apps that ship action-confirmation flows should read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash`) and call `chatConfirmAction` directly via the auto-routed endpoint; see [`packages/chat-ui/src/hooks/useChat.ts`](../../packages/chat-ui/src/hooks/useChat.ts).
 
-## Custom guards (`policy.custom`)
+## Custom guards (`policy.custom`, `policy.customPostTurn`)
 
-Escape hatch for behavior the built-ins don't cover. Custom guards run after the built-ins in declaration order and have the same signature:
+Escape hatch for behavior the built-ins don't cover. Both slots take `Guard[]`, run in declaration order at the end of their phase, and share the same signature — the difference is **when** they run and therefore what they can see.
+
+### `policy.custom` — pre-turn (input gating)
+
+Runs after the pre-turn built-ins, **before the model call**. Receives `turnCtx` (including `userMessage`) and `state` (`policy`, `ctx`, `resolvedSources`, `clientHistory`) but **not** `state.modelOutput` (the model hasn't run yet). A `block` verdict ends the turn before any tokens are spent.
 
 ```ts
-const myGuard: Guard = async (turnCtx, state) => {
-  if (someCondition(state.modelOutput)) {
+const blockBannedTerms: Guard = async (turnCtx, _state) => {
+  if (turnCtx.userMessage?.toLowerCase().includes('forbidden')) {
     return {
       decision: 'block',
       reason: 'my.custom_violation',
@@ -150,9 +157,24 @@ const myGuard: Guard = async (turnCtx, state) => {
   return { decision: 'allow' };
 };
 
-defineChat({
-  policy: { custom: [myGuard] },
-});
+defineChat({ policy: { custom: [blockBannedTerms] } });
+```
+
+### `policy.customPostTurn` — post-turn (output moderation)
+
+Runs after all post-turn built-ins, with `state.modelOutput` available. Use it to inspect, redact, or require confirmation based on the model's answer.
+
+**Important — to change the response, mutate `state.modelOutput.answer`.** In the post-turn phase a `block` verdict emits its `emit` notice but does **not** suppress the answer (this is the same contract the built-in `privacy` and `scope` guards use). To redact or replace output, mutate `state.modelOutput.answer` directly:
+
+```ts
+const redactSecrets: Guard = async (_turnCtx, state) => {
+  if (state.modelOutput && typeof state.modelOutput.answer === 'string') {
+    state.modelOutput.answer = state.modelOutput.answer.replace(/\bsk-[a-z0-9]+\b/gi, '[redacted]');
+  }
+  return { decision: 'allow' };
+};
+
+defineChat({ policy: { customPostTurn: [redactSecrets] } });
 ```
 
 If you find yourself writing the same custom guard across multiple chats, file an issue — the right answer is usually a new built-in.

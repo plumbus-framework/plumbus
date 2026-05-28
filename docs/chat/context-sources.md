@@ -13,7 +13,7 @@ knowledgeContext({
 });
 ```
 
-Install `@plumbus/knowledge-base` and pass a `createKnowledgeRegistry({ sources })` instance. `tier: 'tools'` is **not** supported in chat v0.1.4 (throws at construction).
+Install `@plumbus/knowledge-base` and pass a `createKnowledgeRegistry({ sources })` instance. `tier: 'tools'` is **not** supported by chat (throws at construction).
 
 ## Direct RAG (`ragContext`)
 

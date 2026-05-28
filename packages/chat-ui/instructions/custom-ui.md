@@ -47,7 +47,7 @@ export function MyChat({ sessionId }: { sessionId: string }) {
   pendingConfirmation: ChatUiPendingConfirmation | null;
                                                     // { actionId, capabilityName, confirmationMessage, expiresAt, schemaHash? }
   send: (text: string, extras?: { sessionId?, locale?, extraBody? }) => Promise<void>;
-  confirm: (actionId: string) => Promise<void>;    // ⚠ UI stub in v0.1 — see action-confirmation.md
+  confirm: (actionId: string) => Promise<void>;    // ⚠ UI stub — see action-confirmation.md
   cancel: () => void;
 }
 ```

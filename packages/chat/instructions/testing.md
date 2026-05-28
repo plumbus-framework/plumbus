@@ -149,7 +149,7 @@ The hook (`useChat`) is a thin reducer wrapper — test the reducer, trust React
 - **Don't** snapshot full event sequences as strings. Assert structurally (`expect(types).toContain('turn.started')`).
 - **Don't** use real provider keys in tests. Always go through `mockAI`.
 - **Don't** seed `ChatTurn` rows manually without setting `ordinal` — the in-memory test layer doesn't auto-increment.
-- **Don't** assume eval framework assertions exist in v0.1. `defineChatEvaluation` is preview-only — see `/docs/chat/evaluations.md`.
+- **Don't** assume every eval assertion is enforced. `defineChatEvaluation` / `runChatEvaluation` exist, but only `expectNoticeEmitted` is fully wired (and `expectInScope` asserts turn-completion); `expectRefusalReason` and `expectGuardFired` are accepted but not checked — assert those off the `TraceRecorder`. See `/docs/chat/evaluations.md`.
 
 ## Trust Boundary
 
@@ -161,7 +161,7 @@ The hook (`useChat`) is a thin reducer wrapper — test the reducer, trust React
 | Context sources resolve in order with stable handles | Real RAG retrieval is finding the right chunks |
 | Persistence mode is honored end-to-end | The system prompt scales gracefully across topics |
 
-For answer-quality eval, that's the v0.2 eval framework — and even then, it's pipeline-correctness, not model-judge.
+For answer-quality eval you need a separate offline harness — the eval framework (`runChatEvaluation`) proves pipeline-correctness, not model-judge.
 
 ## Deeper Reference
 

@@ -11,7 +11,7 @@ The package is intentionally thin: a state-managing hook, a high-level panel com
   - [`instructions/framework.md`](../../packages/chat-ui/instructions/framework.md) — package boundary, exports, file map, critical rules
   - [`instructions/wiring-chat-panel.md`](../../packages/chat-ui/instructions/wiring-chat-panel.md) — default recipe with `<ChatPanel />`
   - [`instructions/custom-ui.md`](../../packages/chat-ui/instructions/custom-ui.md) — headless `useChat`, pure helpers, `readChatStream`
-  - [`instructions/action-confirmation.md`](../../packages/chat-ui/instructions/action-confirmation.md) — wiring `chatConfirmAction` directly (the v0.1 `confirm()` stub)
+  - [`instructions/action-confirmation.md`](../../packages/chat-ui/instructions/action-confirmation.md) — wiring `chatConfirmAction` directly (the `confirm()` stub)
 
 ## Glossary
 
@@ -99,7 +99,7 @@ By default the panel POSTs to `/chat/help/turn` with `credentials: 'include'` (c
 | `ConfirmationDialog` | component | Renders the model's `confirmationMessage` and exposes Confirm / Cancel callbacks. |
 | `SourceCitation` | component | A single cited source pill. |
 | `useChat` | hook | The state machine. Exposes `messages`, `status`, `notices`, `pendingConfirmation`, `send`, `confirm`, `cancel`. |
-| `useChatSession` | hook | **Placeholder in v0.1** — returns local `useState` defaults. Stub kept on the barrel so future API can land without a breaking export change. Do not depend on its shape. |
+| `useChatSession` | hook | **Placeholder** — returns local `useState` defaults. Stub kept on the barrel as a stable export point; `sessions` never populates. Do not depend on its shape. |
 | `applyChatEvent` | helper | Pure reducer: `(state, ChatEvent) → state`. Use this to roll your own hook. |
 | `buildTurnRequestBody` | helper | Pure: builds the POST body, including capped `clientHistory` for `persistence: 'client'`. |
 | `pushUserMessage`, `initialChatUiState` | helpers | Building blocks for custom hooks. |
@@ -153,7 +153,7 @@ Same arg shape as `<ChatPanel />` minus `className`. Returns:
 ```
 
 - `send(text, extras?)` POSTs a turn. Detects `Content-Type` on the response: `application/json` payloads are unmarshalled as `{ events: ChatEvent[] }`; anything else is read via `readChatStream`. The `extras.extraBody` map is merged into the POST body — use it to forward app-specific fields when `beforeTurn` on `registerChatRoutes` reads them.
-- `confirm(actionId)` is currently a UI-only stub (clears `pendingConfirmation` and sets status back to `idle`). It does **not** call the server-side `chatConfirmAction` capability. If you need action confirmation in v0.1, read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash` from the `confirmation_required` event) and call `chatConfirmAction` directly via the auto-routed `POST /api/chat/chat-confirm-action` endpoint with `{ actionId, capabilityName, schemaHash, execute: true }`. A first-party round-trip is planned for v0.2.
+- `confirm(actionId)` is currently a UI-only stub (clears `pendingConfirmation` and sets status back to `idle`). It does **not** call the server-side `chatConfirmAction` capability. For action confirmation, read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash` from the `confirmation_required` event) and call `chatConfirmAction` directly via the auto-routed `POST /api/chat/chat-confirm-action` endpoint with `{ actionId, capabilityName, schemaHash, execute: true }`.
 - `cancel()` resets `status` to `'idle'` without server interaction.
 
 ## Persistence pairing
@@ -197,7 +197,7 @@ The pure helpers are the same ones `useChat` uses internally — test them direc
 
 ## What's not here
 
-- **Action confirmation round-trip.** `confirm()` is a UI-only stub in v0.1 (see above).
+- **Action confirmation round-trip.** `confirm()` is a UI-only stub (see above).
 - **Multi-session management.** `useChatSession` is a placeholder; build your own list/picker on top of `useChat` if you need it.
 - **Bearer-token transport.** `useChat` and `<ChatPanel />` always send `credentials: 'include'`. For bearer-auth flows, copy the hook and swap the `fetch` call.
 - **A non-React client.** `readChatStream` is framework-agnostic; the rest of the package is React-only.

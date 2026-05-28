@@ -1,6 +1,6 @@
-# Recipe: Action confirmation (the v0.1 `confirm()` gap)
+# Recipe: Action confirmation (the `confirm()` gap)
 
-This is the most surprising part of `@plumbus/chat-ui` v0.1. **`useChat.confirm(actionId)` does NOT call the server.** It clears local `pendingConfirmation` state and sets `status = 'idle'`. Nothing else.
+This is the most surprising part of `@plumbus/chat-ui`. **`useChat.confirm(actionId)` does NOT call the server.** It clears local `pendingConfirmation` state and sets `status = 'idle'`. Nothing else.
 
 Apps that ship action-confirmation flows must call the server-side `chatConfirmAction` capability **directly**. The hook surfaces every field the server needs — `actionId`, `capabilityName`, `schemaHash` — so apps can wire the round-trip in ~20 lines.
 
@@ -114,11 +114,9 @@ body: JSON.stringify({
 }),
 ```
 
-## What's coming in v0.2
+## Why the recipe is required
 
-A first-party `useChat → chatConfirmAction` round-trip — likely a new `confirm(actionId, { execute })` that actually calls the server, plus an updated `<ConfirmationDialog />` that wires through `<ChatPanel />` correctly. The contract above (action capability shape, schemaHash check) will stay the same.
-
-Until then, **every action-confirmation flow needs the recipe above**. There is no shortcut.
+`useChat.confirm()` does not call the server, so **every action-confirmation flow needs the recipe above** — there is no shortcut. A first-party `useChat → chatConfirmAction` round-trip (likely a `confirm(actionId, { execute })` that calls the server, plus a `<ConfirmationDialog />` wired through `<ChatPanel />`) would supersede it; the contract above (action capability shape, schemaHash check) would stay the same.
 
 ## See also
 

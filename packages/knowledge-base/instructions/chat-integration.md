@@ -31,7 +31,7 @@ knowledgeContext({
     audience: t.audience,
     locale: t.locale,
     tenantId: t.tenantId,
-    custom: { projectId: t.session.metadata?.projectId },
+    custom: { userId: t.userId },
   }),
 });
 ```

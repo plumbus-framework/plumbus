@@ -22,5 +22,8 @@ export function compilePolicy(policy: ChatPolicy = {}): {
   if (policy.custom) {
     preTurnGuards.push(...policy.custom);
   }
+  if (policy.customPostTurn) {
+    postTurnGuards.push(...policy.customPostTurn);
+  }
   return { preTurnGuards, postTurnGuards };
 }

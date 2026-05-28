@@ -1,96 +1,132 @@
-# Chat evaluations (preview — v0.2)
+# Chat evaluations
 
-> **Status:** the eval framework lives in `src/eval/` but is **not** part of the v0.1 release. It will ship in v0.2 once at least one real consumer has stressed the v0.1 runtime in production. Reference scenarios authored before real failures are speculative; the v0.2 gate exists to make the eval suite actually useful. Treat the API below as unstable until tagged.
+`@plumbus/chat` includes a deterministic evaluation harness: declare scenarios with `defineChatEvaluation`, run them against a scripted model with `runChatEvaluation`, and assert on the events the runtime emits. Evaluations run in the same Vitest invocation as the rest of your tests — no network, no real model, no provider keys.
 
-## Why deterministic-only evals
+Exported from `@plumbus/chat/eval` (and from the package root).
 
-V0.1 of the eval framework asserts **runtime behavior**, not **answer quality**. Model-judge evaluation (an LLM scoring another LLM's output) is noisy, expensive, and prone to drifting in unpredictable ways. Trace assertions are cheap, deterministic, and force the runtime to make the right things observable.
+## What evaluations assert
 
-| Eval style | What it tests | When you reach for it |
-|---|---|---|
-| **Trace-based** (v0.2) | "Was the capability called? Is provenance present? Did the right guard fire?" | Every CI run. Cheap, fast, reliable. |
-| **Model-judge** (not in v0.1 or v0.2) | "Was the answer well-phrased?" | Out of scope. Use a separate offline harness. |
-| **Snapshot** (anti-pattern here) | "Exact string match against frozen output" | Don't. Prompt-builder churn would invalidate every snapshot. Assert structurally over the trace instead. |
+Evaluations check **runtime behavior via the event stream**, not answer quality. You assert "the runtime emitted a scope-refusal notice" or "the turn completed" — not "the prose was good." Answer-quality scoring is intentionally out of scope; pair the framework with a separate offline harness if you need that.
 
-## API shape (preview)
+## Defining an evaluation
 
 ```ts
 import { defineChatEvaluation } from '@plumbus/chat/eval';
+import { helpChat } from '../chats/help.chat.js';
 
-export const helpChatEvals = defineChatEvaluation({
+export const helpChatEval = defineChatEvaluation({
   name: 'help-chat',
   chat: helpChat,
   scenarios: [
     {
-      name: 'admin-only source not served to a user',
-      given: {
-        audience: 'user',
-        locale: 'en',
-        mockedSources: [
-          { id: 'admin-doc', metadata: { audience: 'admin' }, content: 'secret' },
-          { id: 'user-doc',  metadata: { audience: 'user' },  content: 'public' },
-        ],
-      },
-      when: { send: 'how do I do X?' },
-      then: [
-        expectInScope(true),
-        expectCitesSource('user-doc'),
-        expectGuardFired('audience-guard'),
-      ],
-    },
-    {
-      name: 'off-topic question emits localized refusal notice',
-      given: { audience: 'user', locale: 'he' },
-      when: { send: 'what is the weather?' },
-      then: [
-        expectInScope(false),
-        expectRefusalReason('off_topic'),
-        expectNoticeEmitted('chat.out_of_scope'),
-      ],
-    },
-    {
-      name: 'action request requires confirmation',
-      given: { audience: 'user', locale: 'en' },
-      when: { send: 'open a support ticket' },
-      then: [
-        expectActionRequested('openSupportTicket'),
-      ],
+      name: 'off-topic question emits a scope refusal notice',
+      given: { audience: 'user' },
+      when: { send: 'write me a poem about cats' },
+      then: [{ type: 'expectNoticeEmitted', code: 'chat.out_of_scope' }],
     },
   ],
 });
 ```
 
-## Assertion catalog
+A scenario is `{ name, given, when: { send }, then: ChatAssertion[] }`. Assertions are **plain objects** (`{ type, … }`), not function calls.
 
-All assertions read from `TraceRecorder.trace`:
+## Assertion types
 
-| Assertion | Reads from | Notes |
-|---|---|---|
-| `expectInScope(true \| false)` | `trace.modelOutput.inScope` | |
-| `expectRefusalReason(reason)` | `trace.modelOutput.refusalReason` | |
-| `expectCitesSource(sourceId)` | `trace.modelOutput.citedSources` after provenance guard | Already validated against runtime handles |
-| `expectGuardFired(name)` | `trace.guardVerdicts` | Match by guard function name |
-| `expectActionRequested(capName)` | `trace.modelOutput.requestedAction.capabilityName` | |
-| `expectNoticeEmitted(code)` | `trace.events.filter(e => e.type === 'notice').map(e => e.code)` | |
-| `expectBudgetRespected()` | `trace.events.some(e => e.type === 'turn.completed')` AND no `budget_exceeded` notice | |
+`ChatAssertion` is a union of four shapes. What each one checks today:
 
-## What evals don't catch
-
-- **Real RAG retrieval quality.** Scenarios use scripted providers and mocked context sources. They don't exercise actual embedding similarity.
-- **Provider-specific behavior.** Streaming inconsistencies, structured-output validation differences, throttling — all hidden behind `mockAI`.
-- **Concurrent turn races.** Behavioral cooldowns under concurrent turns need integration tests against real PG, not scripted unit tests.
-- **Answer quality.** A regressed answer that still says the right keywords passes `responseIncludes`. Documented gap.
-
-The v0.2 reference suite (3 scenarios as of preview) intentionally covers only the most cross-cutting pipeline guarantees: audience filter, scope refusal, action confirmation. The plan is to expand once MemoirAI (or another real consumer) surfaces actual production failures during v0.1 migration.
-
-## Where evals fit in CI
-
-Run them in the same Vitest invocation as unit tests — no separate harness. They're trace-based, so they need no network, no real model, no provider keys. The whole suite finishes in milliseconds.
-
-## Roadmap
-
-| Version | Eval surface |
+| Assertion | Checks |
 |---|---|
-| v0.1 (current) | Not exposed. The framework exists in `src/eval/` for development but is not stable API. |
-| v0.2 (preview) | `defineChatEvaluation` + 3 reference scenarios + `mockChatRuntime`. Expand reference set after first real consumer migration. |
-| Later | Possibly model-judge integration. Possibly an integration runner that hits real RAG. Both depend on demand. |
+| `{ type: 'expectNoticeEmitted', code }` | A `notice` event with the given `code` was emitted during the turn. |
+| `{ type: 'expectInScope', value }` | The turn reached `turn.completed` (i.e. wasn't blocked or failed before completing). The runner asserts completion; it does not branch on the `value` field. |
+| `{ type: 'expectRefusalReason', value }` | Accepted by the type but not checked by the runner — it passes unconditionally. To assert a refusal, use `expectNoticeEmitted` with the relevant code (e.g. `chat.out_of_scope`), or inspect the trace (below). |
+| `{ type: 'expectGuardFired', name }` | Accepted by the type but not checked by the runner — it passes unconditionally. Inspect the trace to assert guard verdicts. |
+
+`expectNoticeEmitted` is the fully-wired assertion; `expectInScope` asserts turn completion. To assert on refusal reasons, guard verdicts, model output, or cited sources, read them off a `TraceRecorder` (below) and use plain Vitest expectations.
+
+## Running evaluations
+
+```ts
+import { createTestContext, mockAI } from '@plumbus/core/testing';
+import { createSession } from '@plumbus/chat';
+import { runChatEvaluation } from '@plumbus/chat/eval';
+import { helpChatEval } from './help-chat.eval.js';
+
+it('help chat passes its evaluation', async () => {
+  const ctx = createTestContext({
+    auth: { roles: ['user'] },
+    ai: mockAI({
+      generate: {
+        inScope: false,
+        answer: '',
+        refusalReason: 'off_topic',
+        citedSources: [],
+        requestedAction: null,
+      },
+    }),
+  });
+  const session = await createSession(ctx, {
+    chatName: helpChatEval.chat.name,
+    userId: 'u1',
+    audience: 'user',
+    locale: 'en',
+  });
+
+  const results = await runChatEvaluation(helpChatEval, ctx, {
+    sessionId: session.id,
+    audience: 'user',
+    locale: 'en',
+  });
+
+  expect(results.every((r) => r.passed)).toBe(true);
+});
+```
+
+`runChatEvaluation(evaluation, ctx, { sessionId, audience, locale, trace? })` runs each scenario's `when.send` through the real turn pipeline (`runChatTurn`), collects the emitted events, checks the assertions, and returns one `EvalVerdict` per scenario:
+
+```ts
+interface EvalVerdict {
+  scenario: string;
+  passed: boolean;
+  failures: string[];   // one entry per failed assertion, with the assertion serialized
+}
+```
+
+The model is scripted by `mockAI` — the same structured output is returned for every turn in the run. `audience` and `locale` come from the `runChatEvaluation` opts. (Scenario `given` is stored on the definition as documentation of intent; the runner drives `audience` / `locale` from the opts, not from `given`.)
+
+## Tracing a turn
+
+`TraceRecorder` captures what happened inside a turn. Pass one to `runChatEvaluation({ …, trace })` (or to `runChatTurn({ traceRecorder })` directly), then assert on the trace with plain Vitest:
+
+```ts
+import { TraceRecorder } from '@plumbus/chat';
+
+const trace = new TraceRecorder();
+await runChatEvaluation(helpChatEval, ctx, { sessionId, audience: 'user', locale: 'en', trace });
+
+trace.trace.events          // every ChatEvent emitted, in order
+trace.trace.modelOutput     // structured model output: { inScope, answer, refusalReason, citedSources, requestedAction }
+trace.trace.guardVerdicts   // [{ name, verdict }] for each guard that ran
+trace.trace.resolvedSources // the resolved context sources for the turn
+trace.trace.systemPrompt    // the built system prompt
+```
+
+This is how you assert things the assertion catalog doesn't cover directly — e.g. `expect(trace.trace.modelOutput?.refusalReason).toBe('off_topic')` or `expect(trace.trace.guardVerdicts.map(g => g.name)).toContain('audience-guard')`.
+
+`mockChatRuntime` (from `@plumbus/chat/testing`) creates and returns a `TraceRecorder` for you — see [testing.md](./testing.md).
+
+## Reference evaluations
+
+The package ships three worked examples in `packages/chat/src/eval/__fixtures__/reference-evaluations.ts`, exercised by `reference-evaluations.test.ts`:
+
+- `audienceFilterEval` — an audience-scoped chat answering an in-scope message.
+- `scopeRefusalEval` — an off-topic message producing a `chat.out_of_scope` notice.
+- `actionConfirmationEval` — an action-enabled chat.
+
+Use them as templates for your own evaluations.
+
+## What evaluations don't catch
+
+- **Real RAG retrieval quality** — scenarios use scripted providers and mocked context sources, not real embedding similarity.
+- **Provider-specific behavior** — streaming quirks, structured-output validation differences, and throttling are all hidden behind `mockAI`.
+- **Concurrent-turn races** — behavioral cooldowns under concurrent turns need integration tests against a real Postgres, not scripted unit tests.
+- **Answer quality** — by design. Assert structurally over the event stream and trace, not against frozen output strings.

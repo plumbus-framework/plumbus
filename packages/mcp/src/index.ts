@@ -5,7 +5,7 @@ export { createMcpAuthAdapter, type McpAuthAdapterConfig } from './auth/mcp-auth
 export { parseBearerToken } from './auth/parse-bearer.js';
 export { resolveMcpAgentToken } from './auth/resolve-agent-token.js';
 export { createMcpServer, type CreateMcpServerOptions } from './server.js';
-export type { McpServerConfig } from './types.js';
+export type { McpServerConfig, McpToolCallInfo } from './types.js';
 export {
   registerMcpOnFastify,
   startHttpServer,

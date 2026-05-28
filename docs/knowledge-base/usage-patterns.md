@@ -78,7 +78,7 @@ for (const tool of tools) {
 }
 ```
 
-**Not supported in `@plumbus/chat@0.1.4`** — `knowledgeContext({ tier: 'tools' })` throws at construction. Plan for v0.2 or run tools in your own agent loop.
+**Not supported by `@plumbus/chat`** — `knowledgeContext({ tier: 'tools' })` throws at construction. Run tools in your own agent loop instead.
 
 ---
 

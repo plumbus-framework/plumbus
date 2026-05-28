@@ -6,6 +6,7 @@ import { createSession } from '../../session/service.js';
 import { staticContext } from '../../context/static-context.js';
 import { TraceRecorder } from '../../eval/trace.js';
 import type { ChatEvent } from '../../types/event.js';
+import type { Guard } from '../../types/policy.js';
 
 function collectEvents(): {
   push: (evt: ChatEvent) => void;
@@ -717,5 +718,85 @@ describe('runChatTurn — saveToDb: true with client-generated sessionId', () =>
     expect(sessions ?? []).toHaveLength(1);
     const turns = await ctx.data.ChatTurn?.findMany({ sessionId: sid });
     expect((turns ?? []).length).toBe(4);
+  });
+});
+
+describe('runChatTurn — custom guards (pre-turn vs post-turn)', () => {
+  it('runs policy.custom pre-turn (no modelOutput) and policy.customPostTurn post-turn (modelOutput present)', async () => {
+    const seen: Array<{ stage: string; hasOutput: boolean; answer?: unknown }> = [];
+    const preGuard: Guard = async (_turnCtx, state) => {
+      seen.push({ stage: 'pre', hasOutput: state.modelOutput !== undefined });
+      return { decision: 'allow' };
+    };
+    const postGuard: Guard = async (_turnCtx, state) => {
+      seen.push({
+        stage: 'post',
+        hasOutput: state.modelOutput !== undefined,
+        answer: state.modelOutput?.answer,
+      });
+      return { decision: 'allow' };
+    };
+    const ctx = createTestContext({ ai: mockAI({ generate: inScopeResponse }) });
+    const chat = defineChat({
+      name: 'test',
+      access: {},
+      instructions: ['x'],
+      policy: { custom: [preGuard], customPostTurn: [postGuard] },
+    });
+    const session = await newSession(ctx);
+    const events = collectEvents();
+
+    for await (const evt of runChatTurn(ctx, {
+      chatDefinition: chat,
+      sessionId: session.id,
+      userMessage: 'hi',
+      audience: 'user',
+      locale: 'en',
+    })) {
+      events.push(evt);
+    }
+
+    expect(seen).toEqual([
+      { stage: 'pre', hasOutput: false },
+      { stage: 'post', hasOutput: true, answer: 'Visit the Project page.' },
+    ]);
+    expect(events.byType('turn.completed')).toHaveLength(1);
+  });
+
+  it('a pre-turn custom guard blocks the turn before the model is called', async () => {
+    const { ai, callCount } = countingAI({ generate: inScopeResponse });
+    const blockGuard: Guard = async (turnCtx) =>
+      turnCtx.userMessage?.includes('block-me')
+        ? {
+            decision: 'block',
+            reason: 'my.blocked',
+            emit: { type: 'notice', code: 'my.blocked', message: 'Not allowed.' },
+          }
+        : { decision: 'allow' };
+    const ctx = createTestContext({ ai });
+    const chat = defineChat({
+      name: 'test',
+      access: {},
+      instructions: ['x'],
+      policy: { custom: [blockGuard] },
+    });
+    const session = await newSession(ctx);
+    const events = collectEvents();
+
+    for await (const evt of runChatTurn(ctx, {
+      chatDefinition: chat,
+      sessionId: session.id,
+      userMessage: 'block-me please',
+      audience: 'user',
+      locale: 'en',
+    })) {
+      events.push(evt);
+    }
+
+    expect(events.byType('turn.failed')).toHaveLength(1);
+    expect(events.byType('turn.completed')).toHaveLength(0);
+    // Blocked pre-turn → the model is never called.
+    expect(callCount.generate).toBe(0);
+    expect(callCount.streamGenerate).toBe(0);
   });
 });

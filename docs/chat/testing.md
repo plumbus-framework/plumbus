@@ -60,7 +60,7 @@ it('emits the expected event sequence for an in-scope question', async () => {
 `mockChatRuntime` returns `{ ctx, events, trace }`:
 - `ctx` is the test execution context (use `ctx.data.ChatTurn?.findMany(...)` to inspect persisted rows).
 - `events` is the full event sequence emitted.
-- `trace` is the `TraceRecorder` instance — see [`evaluations.md`](./evaluations.md) for assertion shapes.
+- `trace` is the `TraceRecorder` instance — inspect `trace.trace.events`, `trace.trace.modelOutput`, and `trace.trace.guardVerdicts`. See [`evaluations.md`](./evaluations.md) for the full eval harness.
 
 ## Scripting different model responses
 
@@ -114,13 +114,13 @@ Then run a turn that triggers the third refusal — the behavioral guard should 
 
 | What unit tests CAN prove | What unit tests CANNOT prove |
 |---|---|
-| Event sequence is correct | The model's answers are good (use `defineChatEvaluation` for that — v0.2) |
+| Event sequence is correct | The model's answers are good (answer-quality scoring is out of scope) |
 | Guards block / allow per policy | The model adheres to the system prompt's voice |
 | Pending actions are stored with `schemaHash` | The model's classification of `inScope` is calibrated |
 | Context sources resolve in order with stable handles | Real RAG retrieval is finding the right chunks |
 | Persistence mode is honored end-to-end | The system prompt scales gracefully across topics |
 
-The eval framework (v0.2) extends this with deterministic trace assertions over scripted scenarios — still pipeline-correctness, not answer-quality.
+The [eval harness](./evaluations.md) (`defineChatEvaluation` / `runChatEvaluation`) extends this with deterministic trace assertions over scripted scenarios — still pipeline-correctness, not answer-quality.
 
 ## Testing UI helpers without React
 

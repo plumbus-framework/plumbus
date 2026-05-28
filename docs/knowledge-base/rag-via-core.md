@@ -132,7 +132,7 @@ Per-call override on tier 3: `source.search(ctx, query, scope, { topK: 20 })`.
 - `inputSchema`: `{ query: string }`
 - `handler`: calls the same search function as tier 3
 
-Chat v0.1.4 does not execute these tools.
+Chat does not execute these tools.
 
 ## Errors
 

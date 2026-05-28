@@ -19,7 +19,14 @@ export interface ChatPolicy {
   provenance?: { required?: boolean; minSources?: number };
   behavioral?: { cooldowns: Cooldown[] };
   action?: { allowedCapabilities?: string[] };
+  /** Custom guards that run **pre-turn**, after the pre-turn built-ins and
+   * before the model call. They see `turnCtx` (incl. `userMessage`) but NOT
+   * `state.modelOutput`. Use for input gating (block before spending tokens). */
   custom?: Guard[];
+  /** Custom guards that run **post-turn**, after the built-ins and the model
+   * call. They receive `state.modelOutput` and can inspect it, mutate it (e.g.
+   * redact `modelOutput.answer`), emit a notice, or require confirmation. */
+  customPostTurn?: Guard[];
 }
 
 export type GuardVerdict =

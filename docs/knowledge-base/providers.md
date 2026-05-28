@@ -192,7 +192,7 @@ const hits = await registry.get('help-rag').search(ctx, 'how to pause interview'
 });
 ```
 
-**Tier 2 — tools (not executed by chat v0.1.4):**
+**Tier 2 — tools (not executed by chat):**
 
 ```ts
 const tools = await registry.get('help-rag').getTools(ctx, scope);

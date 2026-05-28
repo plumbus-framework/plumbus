@@ -44,7 +44,7 @@ Use this package when the app needs **named, scoped knowledge sources** shared a
 
 1. **Registry is frozen at boot** — no runtime `registry.add()`. Rebuild registry to change sources.
 2. **`ragCorpus` + chat** — always set `queryFromTurn` when `queryStrategy` is `'fromOpts'` (default).
-3. **`knowledgeContext({ tier: 'tools' })`** — throws at construction in chat v0.1.4; use tier 1 only.
+3. **`knowledgeContext({ tier: 'tools' })`** — throws at construction; use tier 1 only.
 4. **`capabilityBacked`** — stricter than chat `capabilityContext` (no `external` effects, `ai` must be false).
 5. **Duplicate source names** — `createKnowledgeRegistry` throws; fix at boot, not in handlers.
 6. **Two chat helpers** — `knowledgeContext({ registry, source })` (registry); `ragContext({ corpus, query })` (direct retrieve, no KB package).

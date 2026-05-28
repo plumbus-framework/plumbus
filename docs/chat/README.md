@@ -18,7 +18,7 @@ These docs are split in three:
 | [policies.md](./policies.md) | You need to understand the seven built-in guards and the order they fire in. |
 | [context-sources.md](./context-sources.md) | You're wiring up `knowledgeContext`, `capabilityContext`, or `staticContext`. |
 | [testing.md](./testing.md) | You're writing tests with `mockChatRuntime` or the pure UI helpers. |
-| [evaluations.md](./evaluations.md) | You want to know what `defineChatEvaluation` will look like in v0.2. |
+| [evaluations.md](./evaluations.md) | You're writing eval scenarios for a chat with `defineChatEvaluation` / `runChatEvaluation`. |
 | [../chat-ui/README.md](../chat-ui/README.md) | You're wiring `<ChatPanel />`, `useChat`, or the SSE client helpers in a React app. |
 
 ## Design docs
@@ -44,7 +44,7 @@ Read these when you're an AI agent extending a Plumbus app that uses chat. They 
 | A long-running multi-step workflow | `defineFlow` in `@plumbus/core` |
 | One-shot RAG-grounded answer with no chat surface | `ctx.ai.retrieve` + a normal capability |
 | **Multi-turn user conversation with scope, budgets, citations, and an event stream** | **`@plumbus/chat`** |
-| Conversational *agent* with autonomous tool selection | Not v0.1. Action confirmation is the closest primitive — model proposes a capability, runtime validates and asks the user. |
+| Conversational *agent* with autonomous tool selection | Not a chat primitive. Action confirmation is the closest — the model proposes a capability, the runtime validates and asks the user to confirm. |
 
 Use chat when the surface itself is the product: a help bot, customer support, in-product Q&A. If the AI work is upstream of a capability and the user never sees a chat, you don't need this package.
 
@@ -60,7 +60,7 @@ packages/chat/
     index.ts                          Public barrel
     define/
       defineChat.ts                   The declarative entrypoint
-      defineChatEvaluation.ts         (preview — v0.2 gate not yet passed)
+      defineChatEvaluation.ts         Declares eval scenarios (see evaluations.md)
     context/
       knowledge-context.ts            Wraps ctx.ai.retrieve over a registered RAG corpus
       capability-context.ts           Wraps a read capability (write-effect capabilities rejected)
@@ -72,12 +72,12 @@ packages/chat/
       audience-guard.ts               Strict-mode role check
       locale-guard.ts                 Locale normalization + whitelist
       scope-classifier.ts             Single-call structured-output refusal
-      privacy-guard.ts                Substring redaction (v0.1 limitation)
+      privacy-guard.ts                Substring redaction (current limitation — not regex/structured PII)
       provenance-guard.ts             Validates citations against runtime handles
       action-guard.ts                 Capability re-validation; pending-action store
       behavioral-guard.ts             Cooldown state read/increment
     budget/, history/, runtime/, session/, capabilities/, prompt/
-    eval/                             PREVIEW — v0.2 gate not yet passed
+    eval/                             runChatEvaluation + TraceRecorder (see evaluations.md)
     testing/                          mockChatRuntime helper
     events/                           Domain events (chat.turn.completed, etc.)
     internal/                         Private helpers
@@ -102,36 +102,32 @@ This package composes on core; it does not duplicate. Specifically:
 | Entity registry / Drizzle migrations | core | chat entities register through the same path as any consumer entity |
 | Prompts (`definePrompt`) | core | the generic `chat.turn` prompt is a normal Plumbus prompt; per-chat overrides plug into `AiConfig` admin overrides like every other prompt |
 
-## What v0.1 ships
+## What the package provides
 
 - `defineChat` with full policy DSL (audience, scope, reply, privacy, provenance, behavioral, action, custom guards).
 - Three built-in context sources + a translation-backed helper.
 - All five budget scopes + per-turn timeout.
-- Streaming runtime with event protocol.
+- Streaming runtime with a typed event protocol.
 - Pending-action confirmation with schema-hash re-validation.
-- React hook (`useChat`) and minimal components in `@plumbus/chat-ui`.
+- React hook (`useChat`) and components in `@plumbus/chat-ui`.
 - Session and turn persistence with opt-out for message content.
-
-## What's in source but NOT shipped in v0.1
-
-The eval framework (`defineChatEvaluation`, `TraceRecorder`, reference scenarios) and observability events (`chat.turn.completed`, etc.) are implemented in `src/eval/` and `src/events/`. They are explicitly held back from v0.1 — the plan gates them on at least one real consumer stressing the runtime in production. The reference eval scenarios will be more useful once they're informed by real failures, not invented from a whiteboard. Treat these surfaces as unstable until v0.2 is tagged.
+- Domain events (`chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent`) emitted by the runtime.
+- A deterministic evaluation harness (`defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder`) — see [evaluations.md](./evaluations.md).
 
 ## Public barrel: what each export is for
 
 `@plumbus/chat` exports more than the headline `defineChat` + `runChatTurn`. The full surface, grouped:
 
-| Group | Exports | Stable in v0.1 |
+| Group | Exports | Notes |
 |---|---|---|
-| Definition | `defineChat` | yes |
-| Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts` | yes |
-| Policy | `compilePolicy` | yes — public for advanced tooling; chats normally compile policies internally |
-| Context helpers | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations`, `resolveContextSources` | yes (`resolveContextSources` is advanced — for custom runtimes) |
-| Prompts | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | yes — overridable via `definePrompt` + AI Config admin |
-| Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | yes — auto-routed; `chatConfirmAction` is what the UI confirm round-trip will call in v0.2 |
-| Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | yes — register in your app's entity list |
+| Definition | `defineChat`, `defineChatEvaluation` | `defineChat` is the entrypoint; `defineChatEvaluation` declares eval scenarios |
+| Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts` | |
+| Policy | `compilePolicy` | public for advanced tooling; chats normally compile policies internally |
+| Context helpers | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations`, `resolveContextSources` | `resolveContextSources` is advanced — for custom runtimes |
+| Prompts | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | overridable via `definePrompt` + AI Config admin |
+| Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | auto-routed; `chatConfirmAction` is what a client calls to commit a pending action |
+| Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | register in your app's entity list |
 | Session service | `createSession`, `loadSession`, `appendTurn`, `aggregateForBudget`, `updateSessionBehavioralState`, `updateSessionSummary` | advanced — for custom turn pipelines / migrations; most apps never need these |
 | Runtime utilities | `ChatEventEmitter`, `validateCitations`, `stripInvalidFromAnswer`, `setTokenCounter` | advanced — only reach for these when wrapping the runtime or swapping the token counter (e.g. local tiktoken vs heuristic) |
-| Evals (preview) | `defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder` | **NOT stable in v0.1** — gated on a real consumer |
-| Events (preview) | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent` | **NOT stable in v0.1** — gated on the same milestone |
-
-Treat anything marked "NOT stable" as subject to change without a deprecation cycle until v0.2 tags. Everything else honours the package's standard semver.
+| Evaluation | `runChatEvaluation`, `TraceRecorder` | run scenarios against a scripted model and assert on the event stream — see [evaluations.md](./evaluations.md) |
+| Events | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent` | domain events emitted by the runtime; subscribe with an `eventHandler` capability |

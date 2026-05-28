@@ -111,18 +111,20 @@ Default ranker is `scopeSpecificityRanker` as described above.
 ```ts
 import { scopeSpecificityRanker, type ScoredBlock, type KnowledgeScope } from '@plumbus/knowledge-base';
 
-function preferFeatured(blocks: ScoredBlock[], scope: KnowledgeScope): ScoredBlock[] {
+// A ranker only sees `ScoredBlock` fields: { text, score, scope? }.
+// Here: start from scope specificity, then boost blocks whose text mentions "important".
+function preferImportant(blocks: ScoredBlock[], scope: KnowledgeScope): ScoredBlock[] {
   const ranked = scopeSpecificityRanker(blocks, scope);
   return [...ranked].sort((a, b) => {
-    const af = a.metadata?.featured === true ? 1 : 0;
-    const bf = b.metadata?.featured === true ? 1 : 0;
-    return bf - af;
+    const ai = a.text.toLowerCase().includes('important') ? 1 : 0;
+    const bi = b.text.toLowerCase().includes('important') ? 1 : 0;
+    return bi - ai;
   });
 }
 
 defineKnowledgeSource({
   name: 'featured-help',
-  provider: staticBlocks({ blocks: [...], ranker: preferFeatured }),
+  provider: staticBlocks({ blocks: [...], ranker: preferImportant }),
 });
 ```
 

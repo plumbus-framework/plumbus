@@ -1,6 +1,6 @@
 # Context Sources — Agent Recipe
 
-A chat's `context: [...]` array tells the runtime what data to inject into the model prompt each turn. Sources resolve **eagerly and in parallel** before the model call — no agentic mid-generation tool calls in v0.1.
+A chat's `context: [...]` array tells the runtime what data to inject into the model prompt each turn. Sources resolve **eagerly and in parallel** before the model call — no agentic mid-generation tool calls.
 
 ## Picker: which built-in to use
 
@@ -74,7 +74,7 @@ const helpKb = knowledgeContext({
 });
 ```
 
-`tier: 'tools'` throws at construction in v0.1.4.
+`tier: 'tools'` throws at construction.
 
 ### `ragContext` — direct RAG (no registry)
 
