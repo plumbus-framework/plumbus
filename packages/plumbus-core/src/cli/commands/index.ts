@@ -28,6 +28,7 @@
 //   verify     — Run governance rules
 
 export { registerAgentCommand } from './agent.js';
+export { registerBrowserExtensionCommand } from './browser-extension.js';
 export { registerCapabilityCommand } from './capability.js';
 export { registerCertifyCommand } from './certify.js';
 export { registerCreateCommand } from './create.js';

@@ -4,6 +4,8 @@ import { z } from 'zod';
 import type { FlowTriggerInput } from '../client-generator.js';
 import {
   generateCapabilityTypes,
+  capabilityClientFnName,
+  flowTriggerFnName,
   generateClientModule,
   generateErrorTypes,
   generateFlowTrigger,
@@ -275,6 +277,26 @@ describe('generateErrorTypes', () => {
     const code = generateErrorTypes();
     expect(code).toContain('export function isPlumbusApiError');
     expect(code).toContain('error is PlumbusApiError');
+  });
+});
+
+// ── client export names ──
+
+describe('capabilityClientFnName', () => {
+  it('matches generateTypedClient export name', () => {
+    const cap = makeCap({ name: 'list-all-orders' });
+    expect(capabilityClientFnName(cap)).toBe('listAllOrders');
+    const code = generateTypedClient(cap);
+    expect(code).toContain('export async function listAllOrders');
+  });
+});
+
+describe('flowTriggerFnName', () => {
+  it('matches generateFlowTrigger export name', () => {
+    const flow: FlowTriggerInput = { name: 'refund-flow', domain: 'billing' };
+    expect(flowTriggerFnName(flow)).toBe('startRefundFlow');
+    const code = generateFlowTrigger(flow);
+    expect(code).toContain('export async function startRefundFlow');
   });
 });
 

@@ -293,3 +293,18 @@ function rewriteImportsRecursive(dir: string, result: MigrationResult): void {
     }
   }
 }
+
+/** Walk up from startDir to find the nearest directory containing `.git`. */
+export function findGitRoot(startDir: string): string | null {
+  let dir = path.resolve(startDir);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, '.git'))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+}

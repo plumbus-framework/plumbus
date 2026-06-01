@@ -67,6 +67,8 @@ This produces framework-derived artifacts under `.plumbus/generated/`:
 
 These outputs are intended as contract artifacts. For frontend-ready source files, use `plumbus ui generate`.
 
+`capabilityClientFnName` and `flowTriggerFnName` are exported from `@plumbus/ui` for tooling (e.g. `plumbus browser-extension scaffold`) so registry keys stay aligned with generated client export names.
+
 ## API Client Functions
 
 Generated for each capability:

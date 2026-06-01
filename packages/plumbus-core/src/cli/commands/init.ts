@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 4;
+export const AGENT_WIRING_VERSION = 5;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -278,10 +278,17 @@ const MCP_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const BROWSER_EXTENSION_INSTRUCTION_REFERENCES = [
+  {
+    area: 'scaffolding a WXT Chrome/Firefox browser extension wired to capabilities (plumbus browser-extension scaffold; app-owned /api/auth/* + CORS; bearer token in browser.storage.local; explicit background capability registry)',
+    path: 'node_modules/@plumbus/browser-extension/instructions/browser-extension.md',
+  },
+] as const;
+
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, knowledge-base, and mcp) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, knowledge-base, mcp, and browser-extension) for full SDK documentation.',
     );
     return;
   }
@@ -309,6 +316,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of MCP_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of BROWSER_EXTENSION_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 }

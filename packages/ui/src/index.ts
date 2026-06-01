@@ -16,6 +16,8 @@ export {
 export type { ClientGeneratorConfig, FlowTriggerInput } from './generators/client-generator.js';
 // Client & Hooks Generators
 export {
+  capabilityClientFnName,
+  flowTriggerFnName,
   generateCapabilityTypes,
   generateClientModule,
   generateErrorTypes,

@@ -49,6 +49,16 @@ pnpm add @plumbus/mcp
 
 Apps that don't use MCP never install it. `plumbus mcp serve` prints an install hint when the package is missing. `plumbus generate` (which emits the MCP manifest + skill files) does **not** require `@plumbus/mcp`.
 
+### Optional add-on: `@plumbus/browser-extension`
+
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.4.0 <0.5.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+
+```
+pnpm add @plumbus/ui @plumbus/browser-extension
+```
+
+Then run `plumbus browser-extension scaffold`. The generated extension does not depend on `@plumbus/browser-extension` at runtime.
+
 ### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
 
 `@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It is a peer dependency of `@plumbus/core` (version-locked `0.1.x`). Apps that want a chat surface install it explicitly:

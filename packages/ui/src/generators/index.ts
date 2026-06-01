@@ -1,5 +1,7 @@
 // ── @plumbus/ui Generators Barrel ──
 export {
+  capabilityClientFnName,
+  flowTriggerFnName,
   generateCapabilityTypes,
   generateClientModule,
   generateErrorTypes,
