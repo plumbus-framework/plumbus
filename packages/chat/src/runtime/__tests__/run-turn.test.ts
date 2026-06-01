@@ -65,7 +65,8 @@ const refusalResponse = {
 };
 
 async function newSession(ctx: ReturnType<typeof createTestContext>) {
-  return createSession(ctx, { chatName: 'test', userId: 'u1', audience: 'user', locale: 'en' });
+  const userId = ctx.auth.userId ?? 'u1';
+  return createSession(ctx, { chatName: 'test', userId, audience: 'user', locale: 'en' });
 }
 
 describe('runChatTurn — event sequence', () => {

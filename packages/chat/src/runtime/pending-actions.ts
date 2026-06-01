@@ -1,5 +1,6 @@
 import type { ExecutionContext } from '@plumbus/core';
 import { chatPendingActionRepo } from '../internal/chat-repos.js';
+import { loadSession } from '../session/service.js';
 import type { PendingAction } from '../types/action.js';
 
 function repo(ctx: ExecutionContext) {
@@ -29,6 +30,10 @@ export async function confirmPending(
   if (new Date(row.expiresAt) < new Date()) {
     await repo(ctx).update(actionId, { status: 'expired' });
     throw ctx.errors.conflict('Action expired', { code: 'chat.action_expired', actionId });
+  }
+  const session = await loadSession(ctx, row.sessionId);
+  if (!session || session.userId !== ctx.auth.userId) {
+    throw ctx.errors.notFound('Pending action not found', { actionId });
   }
   const result = await execute(row.capabilityName, row.input);
   await repo(ctx).update(actionId, { status: 'confirmed' });

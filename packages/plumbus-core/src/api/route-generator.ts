@@ -2,9 +2,14 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AuthAdapter } from '../auth/adapter.js';
-import { errorToHttpResponse, unknownErrorToSsePayload } from '../errors/http.js';
+import {
+  errorToHttpResponse,
+  errorToSsePayload,
+  unknownErrorToSsePayload,
+} from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
+import { evaluateAccess } from '../execution/authorization.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -87,6 +92,20 @@ export function registerCapabilityRoute(
 
     // 4. Execute capability (jobs dispatched async via queue if available)
     if (capability.kind === 'job' && config.jobQueue) {
+      const parsed = capability.input.safeParse(input);
+      if (!parsed.success) {
+        const err = ctx.errors.validation('Invalid input', { capability: capability.name });
+        const { statusCode, body } = errorToHttpResponse(err);
+        return reply.status(statusCode).send(body);
+      }
+      const authz = evaluateAccess(capability.access, ctx.auth);
+      if (!authz.allowed) {
+        const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
+          capability: capability.name,
+        });
+        const { statusCode, body } = errorToHttpResponse(err);
+        return reply.status(statusCode).send(body);
+      }
       const jobId = crypto.randomUUID();
       await config.jobQueue.publish({
         id: jobId,
@@ -96,7 +115,7 @@ export function registerCapabilityRoute(
         actor: ctx.auth.userId ?? 'anonymous',
         tenantId: ctx.auth.tenantId,
         correlationId: jobId,
-        payload: input as Record<string, unknown>,
+        payload: parsed.data as Record<string, unknown>,
       });
       reply.status(202).send({ data: { jobId, status: 'accepted' } });
       return;
@@ -193,6 +212,33 @@ export function registerStreamingRoute(
     // 3. Extract input
     const input = (request.body ?? {}) as Record<string, unknown>;
 
+    const authz = evaluateAccess(capability.access, ctx.auth);
+    if (!authz.allowed) {
+      const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
+        capability: capability.name,
+      });
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      reply.raw.write(`data: ${JSON.stringify(errorToSsePayload(err))}\n\n`);
+      reply.raw.end();
+      return;
+    }
+    const parsed = capability.input.safeParse(input);
+    if (!parsed.success) {
+      const err = ctx.errors.validation('Invalid input', { capability: capability.name });
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      reply.raw.write(`data: ${JSON.stringify(errorToSsePayload(err))}\n\n`);
+      reply.raw.end();
+      return;
+    }
+
     // 4. Set SSE headers
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -201,7 +247,7 @@ export function registerStreamingRoute(
     });
 
     try {
-      for await (const event of streamHandler(ctx, input)) {
+      for await (const event of streamHandler(ctx, parsed.data as Record<string, unknown>)) {
         reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (err) {

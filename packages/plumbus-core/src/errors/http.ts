@@ -30,7 +30,7 @@ export function errorToHttpStatus(error: PlumbusErrorLike): number {
   return statusMap[error.code] ?? 500;
 }
 
-const GENERIC_INTERNAL_MESSAGE = 'An internal error occurred';
+export const GENERIC_INTERNAL_MESSAGE = 'An internal error occurred';
 
 export function errorToHttpResponse(error: PlumbusErrorLike): {
   statusCode: number;

@@ -158,6 +158,11 @@ export function createRepository<
       if (tf) conditions.push(tf);
 
       const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+      if (!where) {
+        throw new Error(
+          `Refusing to update "${entity.name}" without a WHERE predicate (no id and no tenant filter)`,
+        );
+      }
 
       const updateData: Record<string, unknown> = {
         ...updates,
@@ -182,6 +187,11 @@ export function createRepository<
       if (tf) conditions.push(tf);
 
       const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+      if (!where) {
+        throw new Error(
+          `Refusing to delete "${entity.name}" without a WHERE predicate (no id and no tenant filter)`,
+        );
+      }
 
       if (softDelete && hasDeletedAt) {
         await db

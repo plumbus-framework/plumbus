@@ -1,5 +1,6 @@
-import { createSign, generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { SignedXml } from 'xml-crypto';
 import { createSamlAdapter } from '../saml-adapter.js';
 
 const IDP_ENTITY_ID = 'https://idp.example.com';
@@ -8,6 +9,7 @@ const SP_ENTITY_ID = 'https://app.example.com';
 // Generate a test RSA key pair for signing assertions
 const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const certPem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
+const privateKeyPem = privateKey.export({ type: 'pkcs1', format: 'pem' }) as string;
 
 // Use SPKI public key format (real certs would be X.509, but crypto.createPublicKey accepts SPKI too)
 const certForAdapter = certPem;
@@ -29,12 +31,93 @@ function buildSamlResponse(opts: {
   notBefore?: string;
   notOnOrAfter?: string;
   skipSignature?: boolean;
+  includeConditions?: boolean;
 }): string {
   const issuer = opts.issuer ?? IDP_ENTITY_ID;
   const audience = opts.audience ?? SP_ENTITY_ID;
   const nameId = opts.nameId ?? 'user@example.com';
   const notBefore = opts.notBefore ?? pastISO(1);
   const notOnOrAfter = opts.notOnOrAfter ?? futureISO(10);
+
+  const assertionBody = buildAssertionBody({
+    issuer,
+    audience,
+    nameId,
+    attributes: opts.attributes,
+    notBefore,
+    notOnOrAfter,
+    includeConditions: opts.includeConditions,
+  });
+
+  if (opts.skipSignature) {
+    return `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+<saml:Assertion>${assertionBody}</saml:Assertion>
+</samlp:Response>`;
+  }
+
+  // Sign the assertion content
+  return signSamlResponse(assertionBody);
+}
+
+/** Sign a SAML response with arbitrary key material (for KeyInfo-override tests). */
+function signSamlResponseWithKey(
+  assertionBody: string,
+  opts: { privateKeyPem: string; publicCertPem: string; assertionId?: string },
+): string {
+  const id = opts.assertionId ?? `_${randomUUID().replace(/-/g, '')}`;
+  const issueInstant = new Date().toISOString();
+  const unsignedXml = `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${id}" Version="2.0" IssueInstant="${issueInstant}">
+${assertionBody}
+</saml:Assertion>
+</samlp:Response>`;
+
+  const sig = new SignedXml({
+    privateKey: opts.privateKeyPem,
+    publicCert: opts.publicCertPem,
+  });
+  sig.signatureAlgorithm = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
+  sig.canonicalizationAlgorithm = 'http://www.w3.org/2001/10/xml-exc-c14n#';
+  sig.addReference({
+    xpath: `//*[@ID='${id}']`,
+    transforms: [
+      'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
+      'http://www.w3.org/2001/10/xml-exc-c14n#',
+    ],
+    digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
+    uri: `#${id}`,
+  });
+  sig.computeSignature(unsignedXml, {
+    location: { reference: `//*[@ID='${id}']`, action: 'append' },
+  });
+  return sig.getSignedXml();
+}
+
+/** Sign a SAML response using xml-crypto (enveloped RSA-SHA256). */
+function signSamlResponse(assertionBody: string, assertionId?: string): string {
+  const id = assertionId ?? `_${randomUUID().replace(/-/g, '')}`;
+  return signSamlResponseWithKey(assertionBody, {
+    privateKeyPem,
+    publicCertPem: certForAdapter,
+    assertionId: id,
+  });
+}
+
+function buildAssertionBody(opts: {
+  issuer?: string;
+  audience?: string;
+  nameId?: string;
+  attributes?: Record<string, string[]>;
+  notBefore?: string;
+  notOnOrAfter?: string;
+  includeConditions?: boolean;
+}): string {
+  const issuer = opts.issuer ?? IDP_ENTITY_ID;
+  const audience = opts.audience ?? SP_ENTITY_ID;
+  const nameId = opts.nameId ?? 'user@example.com';
+  const notBefore = opts.notBefore ?? pastISO(1);
+  const notOnOrAfter = opts.notOnOrAfter ?? futureISO(10);
+  const includeConditions = opts.includeConditions ?? true;
 
   let attributeStatements = '';
   if (opts.attributes) {
@@ -49,44 +132,16 @@ function buildSamlResponse(opts: {
     attributeStatements = `<saml:AttributeStatement>${attrXml}</saml:AttributeStatement>`;
   }
 
-  const assertionBody = `<saml:Issuer>${issuer}</saml:Issuer>
-<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">
+  const conditions = includeConditions
+    ? `<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">
 <saml:AudienceRestriction><saml:Audience>${audience}</saml:Audience></saml:AudienceRestriction>
-</saml:Conditions>
+</saml:Conditions>`
+    : '';
+
+  return `<saml:Issuer>${issuer}</saml:Issuer>
+${conditions}
 <saml:Subject><saml:NameID>${nameId}</saml:NameID></saml:Subject>
 ${attributeStatements}`;
-
-  if (opts.skipSignature) {
-    return `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
-<saml:Assertion>${assertionBody}</saml:Assertion>
-</samlp:Response>`;
-  }
-
-  // Sign the assertion content
-  return signSamlResponse(assertionBody);
-}
-
-/** Sign a SAML response using RSA-SHA256 with enveloped signature. */
-function signSamlResponse(assertionBody: string): string {
-  // Build the SignedInfo referencing the assertion digest
-  const signedInfo = `<ds:SignedInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-<ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></ds:CanonicalizationMethod>
-<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"></ds:SignatureMethod>
-<ds:Reference><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"></ds:DigestMethod><ds:DigestValue>placeholder</ds:DigestValue></ds:Reference>
-</ds:SignedInfo>`;
-
-  const signer = createSign('RSA-SHA256');
-  signer.update(signedInfo);
-  const signatureValue = signer.sign(privateKey, 'base64');
-
-  const signature = `<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-${signedInfo}
-<ds:SignatureValue>${signatureValue}</ds:SignatureValue>
-</ds:Signature>`;
-
-  return `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
-<saml:Assertion>${assertionBody}${signature}</saml:Assertion>
-</samlp:Response>`;
 }
 
 function toBase64(xml: string): string {
@@ -196,6 +251,67 @@ describe('createSamlAdapter', () => {
     it('returns null for Bearer token without SAML content', async () => {
       const encoded = Buffer.from('not xml').toString('base64');
       expect(await adapter.authenticate(`Bearer ${encoded}`)).toBeNull();
+    });
+  });
+
+  describe('signature wrapping and tampering', () => {
+    it('rejects a wrapped forged assertion alongside a valid signed assertion', () => {
+      const valid = buildSamlResponse({ nameId: 'legitimate-user' });
+      const forgedBody = buildAssertionBody({
+        nameId: 'attacker',
+        attributes: {
+          'http://schemas.microsoft.com/ws/2008/06/identity/claims/role': ['admin'],
+        },
+      });
+      const wrapped = valid.replace(
+        '<samlp:Response',
+        `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+<saml:Assertion ID="_forged" Version="2.0">${forgedBody}</saml:Assertion>`,
+      );
+      expect(adapter.processSamlResponse(toBase64(wrapped))).toBeNull();
+    });
+
+    it('rejects responses with two assertions', () => {
+      const valid = buildSamlResponse({ nameId: 'user-1' });
+      const duplicate = valid.replace(
+        '</samlp:Response>',
+        `<saml:Assertion ID="_second" Version="2.0">${buildAssertionBody({ nameId: 'user-2' })}</saml:Assertion></samlp:Response>`,
+      );
+      expect(adapter.processSamlResponse(toBase64(duplicate))).toBeNull();
+    });
+
+    it('rejects tampered assertion content after signing', () => {
+      const valid = buildSamlResponse({ nameId: 'user-1' });
+      const tampered = valid.replace(
+        '<saml:NameID>user-1</saml:NameID>',
+        '<saml:NameID>attacker</saml:NameID>',
+      );
+      expect(adapter.processSamlResponse(toBase64(tampered))).toBeNull();
+    });
+
+    it('rejects assertions missing Conditions', () => {
+      const xml = buildSamlResponse({ nameId: 'user-1', includeConditions: false });
+      expect(adapter.processSamlResponse(toBase64(xml))).toBeNull();
+    });
+
+    it('rejects assertions signed with a non-IdP key (KeyInfo must not override pinned cert)', () => {
+      const attacker = generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const attackerCert = attacker.publicKey.export({ type: 'spki', format: 'pem' }) as string;
+      const attackerPrivate = attacker.privateKey.export({
+        type: 'pkcs1',
+        format: 'pem',
+      }) as string;
+      const body = buildAssertionBody({
+        nameId: 'attacker',
+        attributes: {
+          'http://schemas.microsoft.com/ws/2008/06/identity/claims/role': ['admin'],
+        },
+      });
+      const xml = signSamlResponseWithKey(body, {
+        privateKeyPem: attackerPrivate,
+        publicCertPem: attackerCert,
+      });
+      expect(adapter.processSamlResponse(toBase64(xml))).toBeNull();
     });
   });
 

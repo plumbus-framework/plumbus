@@ -217,6 +217,108 @@ describe('registerChatRoutes', () => {
     await app.close();
   });
 
+  it('returns 403 when chat access policy denies the caller', async () => {
+    const app = Fastify();
+    const chat = defineChat({
+      name: 'adminOnly',
+      access: { roles: ['admin'] },
+      streaming: false,
+      instructions: ['help'],
+    });
+
+    registerChatRoutes(
+      app,
+      {
+        authAdapter: {
+          authenticate: async () => ({
+            userId: 'u1',
+            roles: ['user'],
+            scopes: [],
+            provider: 'test',
+          }),
+        },
+        createDependencies: () => depsFromContext(createTestContext()),
+      } as never,
+      [chat],
+    );
+
+    await app.ready();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/chat/adminOnly/turn',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sessionId: '00000000-0000-4000-8000-000000000010',
+        userMessage: 'hi',
+        audience: 'user',
+        locale: 'en',
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('allows admin when chat access policy requires admin role', async () => {
+    const app = Fastify();
+    const chat = defineChat({
+      name: 'adminOnlyOk',
+      access: { roles: ['admin'] },
+      streaming: false,
+      instructions: ['help'],
+    });
+    const sharedCtx = createTestContext({
+      auth: { userId: 'admin-1', roles: ['admin'], scopes: [], provider: 'test' },
+      ai: mockAI({ generate: inScopeResponse }),
+    });
+    const sessionId = '00000000-0000-4000-8000-000000000011';
+    const now = sharedCtx.time.now();
+    await chatSessionRepo(sharedCtx).create({
+      id: sessionId,
+      chatName: 'adminOnlyOk',
+      userId: 'admin-1',
+      audience: 'user',
+      locale: 'en',
+      startedAt: now,
+      lastTurnAt: now,
+      status: 'active',
+      behavioralState: {},
+      summaryTurnCount: 0,
+    });
+
+    registerChatRoutes(
+      app,
+      {
+        authAdapter: {
+          authenticate: async () => ({
+            userId: 'admin-1',
+            roles: ['admin'],
+            scopes: [],
+            provider: 'test',
+          }),
+        },
+        createDependencies: () => depsFromContext(sharedCtx),
+      } as never,
+      [chat],
+    );
+
+    await app.ready();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/chat/adminOnlyOk/turn',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sessionId,
+        userMessage: 'hi',
+        audience: 'user',
+        locale: 'en',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
   it('returns 401 when authentication fails', async () => {
     const app = Fastify();
     const chat = defineChat({ name: 'help', access: {}, streaming: false, instructions: ['x'] });

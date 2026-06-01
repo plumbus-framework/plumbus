@@ -1,4 +1,10 @@
-import { createPublicKey, createVerify } from 'node:crypto';
+import {
+  DOMParser,
+  type Document as XmlDocument,
+  type Element as XmlElement,
+} from '@xmldom/xmldom';
+import { SignedXml } from 'xml-crypto';
+import * as xpath from 'xpath';
 import type { AuthContext } from '../types/security.js';
 import type { AuthAdapter } from './adapter.js';
 
@@ -41,6 +47,16 @@ const defaultAttributeMapping: SamlAttributeMapping = {
   displayName: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
 };
 
+const ASSERTION_XPATH =
+  "//*[local-name()='Assertion' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']";
+const SIGNATURE_XPATH =
+  "//*[local-name()='Signature' and namespace-uri()='http://www.w3.org/2000/09/xmldsig#']";
+
+/** Bridge @xmldom/xmldom nodes to xpath / xml-crypto DOM typings. */
+function asDomNode(node: XmlDocument | XmlElement): Node {
+  return node as unknown as Node;
+}
+
 /**
  * SAML 2.0 auth adapter. Two modes of operation:
  *
@@ -56,33 +72,24 @@ export function createSamlAdapter(
   const mapping = { ...defaultAttributeMapping, ...config.attributeMapping };
 
   function parseAssertion(xml: string): SamlAuthResult | null {
-    // Extract Issuer
-    const issuerMatch = xml.match(/<(?:saml2?:)?Issuer[^>]*>([^<]+)<\//);
-    if (!issuerMatch?.[1] || issuerMatch[1] !== config.issuer) {
+    let verifiedAssertion: XmlDocument | null;
+    try {
+      verifiedAssertion = verifySignedAssertion(xml, config.idpCertificate);
+    } catch {
       return null;
     }
+    if (!verifiedAssertion) return null;
 
-    // Validate signature
-    if (!validateSignature(xml, config.idpCertificate)) {
-      return null;
-    }
+    const issuer = readElementText(verifiedAssertion, 'Issuer');
+    if (!issuer || issuer !== config.issuer) return null;
 
-    // Check Conditions (audience + time)
-    if (!validateConditions(xml, config.audience)) {
-      return null;
-    }
+    if (!validateConditions(verifiedAssertion, config.audience)) return null;
 
-    // Extract NameID
-    const nameIdMatch = xml.match(/<(?:saml2?:)?NameID[^>]*>([^<]+)<\//);
-    const nameId = nameIdMatch?.[1] ?? '';
+    const nameId = readElementText(verifiedAssertion, 'NameID') ?? '';
+    const attributes = extractAttributes(verifiedAssertion);
 
-    // Extract attributes
-    const attributes = extractAttributes(xml);
-
-    // Map to AuthContext
     const userIdValues = attributes[mapping.userId] ?? [];
     const userId = userIdValues[0] ?? nameId;
-
     const roleValues = attributes[mapping.roles] ?? [];
     const tenantValues = attributes[mapping.tenantId] ?? [];
 
@@ -101,7 +108,6 @@ export function createSamlAdapter(
   return {
     async authenticate(authorizationHeader: string | undefined): Promise<AuthContext | null> {
       if (!authorizationHeader) return null;
-
       if (!authorizationHeader.startsWith('Bearer ')) return null;
       const encoded = authorizationHeader.slice(7);
 
@@ -132,142 +138,90 @@ export function createSamlAdapter(
   };
 }
 
-// ── XML Signature Validation ──
+function verifySignedAssertion(xml: string, certPem: string): XmlDocument | null {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml');
 
-function validateSignature(xml: string, certPem: string): boolean {
-  // Extract SignatureValue
-  const sigValueMatch = xml.match(/<(?:ds:)?SignatureValue[^>]*>\s*([A-Za-z0-9+/=\s]+?)\s*<\//);
-  if (!sigValueMatch?.[1]) return false;
+  const assertions = xpath.select(ASSERTION_XPATH, asDomNode(doc)) as Node[];
+  if (assertions.length !== 1) return null;
 
-  const signatureB64 = sigValueMatch[1].replace(/\s/g, '');
+  const signatures = xpath.select(SIGNATURE_XPATH, asDomNode(doc)) as Node[];
+  if (signatures.length !== 1) return null;
 
-  // Extract SignedInfo element for verification
-  const signedInfoMatch = xml.match(/<(?:ds:)?SignedInfo[\s\S]*?<\/(?:ds:)?SignedInfo>/);
-  if (!signedInfoMatch?.[0]) return false;
+  const sig = new SignedXml({ publicCert: normalizeCertificate(certPem) });
+  sig.loadSignature(signatures[0] as Node);
+  if (!sig.checkSignature(xml)) return null;
 
-  // Canonicalize SignedInfo (exclusive C14N — normalize namespace, whitespace)
-  const signedInfo = canonicalizeSignedInfo(signedInfoMatch[0], xml);
+  const signedRefs = sig.getSignedReferences();
+  if (signedRefs.length !== 1) return null;
 
-  // Extract signature algorithm (specifically from SignatureMethod, not CanonicalizationMethod)
-  const algMatch = signedInfo.match(/SignatureMethod\s+Algorithm="([^"]+)"/);
-  const sigAlg = algMatch?.[1] ?? '';
+  const verifiedDoc = new DOMParser().parseFromString(signedRefs[0] ?? '', 'text/xml');
+  const verifiedAssertions = xpath.select(ASSERTION_XPATH, asDomNode(verifiedDoc)) as Node[];
+  if (verifiedAssertions.length !== 1) return null;
 
-  let nodeAlg: string;
-  if (sigAlg.includes('rsa-sha256') || sigAlg.includes('RSA-SHA256')) {
-    nodeAlg = 'RSA-SHA256';
-  } else if (sigAlg.includes('rsa-sha1') || sigAlg.includes('RSA-SHA1')) {
-    nodeAlg = 'RSA-SHA1';
-  } else {
-    return false; // Unsupported algorithm
-  }
-
-  try {
-    const cert = normalizeCertificate(certPem);
-    const publicKey = createPublicKey(cert);
-    const verifier = createVerify(nodeAlg);
-    verifier.update(signedInfo);
-    return verifier.verify(publicKey, signatureB64, 'base64');
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Minimal exclusive C14N for SignedInfo.
- * Resolves the default SAML namespace prefix propagation needed for
- * enveloped signature verification.
- */
-function canonicalizeSignedInfo(signedInfo: string, fullXml: string): string {
-  let result = signedInfo;
-
-  // If SignedInfo uses namespace prefixes defined in ancestor elements,
-  // we need to include those namespace declarations
-  if (!result.includes('xmlns:ds') && fullXml.includes('xmlns:ds')) {
-    const dsNsMatch = fullXml.match(/xmlns:ds="([^"]+)"/);
-    if (dsNsMatch) {
-      result = result.replace(/<(?:ds:)?SignedInfo/, `<ds:SignedInfo xmlns:ds="${dsNsMatch[1]}"`);
-    }
-  }
-
-  // Normalize self-closing tags
-  result = result.replace(/<([^/][^>]*)\s*\/>/g, '<$1></$1>');
-
-  return result;
+  return verifiedDoc;
 }
 
 function normalizeCertificate(cert: string): string {
-  // If it already has PEM headers, return as-is
   if (cert.includes('-----BEGIN')) return cert;
-
-  // Strip whitespace and wrap in PEM
   const clean = cert.replace(/\s/g, '');
   const lines = clean.match(/.{1,64}/g) ?? [];
   return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----`;
 }
 
-// ── Conditions Validation ──
+function validateConditions(assertionDoc: XmlDocument, audience: string): boolean {
+  const conditionsNodes = xpath.select(
+    "//*[local-name()='Conditions' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",
+    asDomNode(assertionDoc),
+  ) as Node[];
+  if (conditionsNodes.length !== 1) return false;
 
-function validateConditions(xml: string, audience: string): boolean {
-  const conditionsMatch = xml.match(/<(?:saml2?:)?Conditions([^>]*)>/);
-  if (!conditionsMatch) return true; // No conditions = valid
-
-  const attrs = conditionsMatch[1] ?? '';
-
-  // Check NotBefore
-  const notBeforeMatch = attrs.match(/NotBefore="([^"]+)"/);
-  if (notBeforeMatch?.[1]) {
-    const notBefore = new Date(notBeforeMatch[1]).getTime();
-    // Allow 5 minutes clock skew
-    if (Date.now() < notBefore - 5 * 60 * 1000) return false;
+  const conditions = conditionsNodes[0] as unknown as XmlElement;
+  const notBefore = conditions.getAttribute('NotBefore');
+  if (notBefore) {
+    const notBeforeMs = new Date(notBefore).getTime();
+    if (Date.now() < notBeforeMs - 5 * 60 * 1000) return false;
   }
 
-  // Check NotOnOrAfter
-  const notOnOrAfterMatch = attrs.match(/NotOnOrAfter="([^"]+)"/);
-  if (notOnOrAfterMatch?.[1]) {
-    const notOnOrAfter = new Date(notOnOrAfterMatch[1]).getTime();
-    // Allow 5 minutes clock skew
-    if (Date.now() >= notOnOrAfter + 5 * 60 * 1000) return false;
-  }
+  const notOnOrAfter = conditions.getAttribute('NotOnOrAfter');
+  if (!notOnOrAfter) return false;
+  const notOnOrAfterMs = new Date(notOnOrAfter).getTime();
+  if (Date.now() >= notOnOrAfterMs + 5 * 60 * 1000) return false;
 
-  // Check AudienceRestriction
-  const audienceMatch = xml.match(
-    /<(?:saml2?:)?AudienceRestriction>[\s\S]*?<(?:saml2?:)?Audience>([^<]+)<\//,
-  );
-  if (audienceMatch?.[1] && audienceMatch[1] !== audience) {
-    return false;
-  }
+  const audienceNodes = xpath.select(
+    "//*[local-name()='Audience' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",
+    asDomNode(assertionDoc),
+  ) as Node[];
+  if (audienceNodes.length === 0) return false;
+  const audienceValue = audienceNodes[0]?.textContent?.trim();
+  if (!audienceValue || audienceValue !== audience) return false;
 
   return true;
 }
 
-// ── Attribute Extraction ──
+function readElementText(doc: XmlDocument, localName: string): string | undefined {
+  const nodes = xpath.select(
+    `//*[local-name()='${localName}' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']`,
+    asDomNode(doc),
+  ) as Node[];
+  const text = nodes[0]?.textContent?.trim();
+  return text || undefined;
+}
 
-function extractAttributes(xml: string): Record<string, string[]> {
+function extractAttributes(assertionDoc: XmlDocument): Record<string, string[]> {
   const attributes: Record<string, string[]> = {};
+  const attrNodes = xpath.select(
+    "//*[local-name()='Attribute' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",
+    asDomNode(assertionDoc),
+  ) as unknown as XmlElement[];
 
-  // Match all Attribute elements
-  const attrRegex =
-    /<(?:saml2?:)?Attribute\s+Name="([^"]+)"[^>]*>([\s\S]*?)<\/(?:saml2?:)?Attribute>/g;
-  let match: RegExpExecArray | null;
-
-  while (true) {
-    match = attrRegex.exec(xml);
-    if (!match) break;
-    const name = match[1];
-    const body = match[2];
-    if (!name || !body) continue;
-
-    const values: string[] = [];
-    const valueRegex = /<(?:saml2?:)?AttributeValue[^>]*>([^<]*)<\//g;
-    let valueMatch: RegExpExecArray | null;
-    while (true) {
-      valueMatch = valueRegex.exec(body);
-      if (!valueMatch) break;
-      if (valueMatch[1] !== undefined) {
-        values.push(valueMatch[1]);
-      }
-    }
-
+  for (const attr of attrNodes) {
+    const name = attr.getAttribute('Name');
+    if (!name) continue;
+    const valueNodes = xpath.select(
+      ".//*[local-name()='AttributeValue']",
+      asDomNode(attr),
+    ) as Node[];
+    const values = valueNodes.map((n) => n.textContent?.trim() ?? '').filter((v) => v.length > 0);
     attributes[name] = values;
   }
 

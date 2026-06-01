@@ -75,6 +75,23 @@ describe('SCIM Service', () => {
       expect(result.status).toBe(401);
     });
 
+    it('rejects requests with wrong-length token', async () => {
+      const { service } = createService();
+      const result = await service.createUser('Bearer short', {
+        userName: 'test@example.com',
+      });
+      expect(result.status).toBe(401);
+    });
+
+    it('accepts requests with correct token', async () => {
+      const { service } = createService();
+      const result = await service.createUser(AUTH, {
+        userName: 'test@example.com',
+        displayName: 'Test',
+      });
+      expect(result.status).toBe(201);
+    });
+
     it('rejects non-Bearer auth', async () => {
       const { service } = createService();
       const result = await service.createUser('Basic dXNlcjpwYXNz', {

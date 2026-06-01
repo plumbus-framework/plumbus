@@ -3,6 +3,8 @@
 // Apps provide a repository adapter; the framework handles SCIM schema mapping,
 // filtering, and response formatting.
 
+import { timingSafeEqual } from 'node:crypto';
+
 export interface ScimServiceConfig {
   /** Bearer token for authenticating SCIM requests from the IdP */
   bearerToken: string;
@@ -89,7 +91,10 @@ export function createScimService(config: ScimServiceConfig, repository: ScimUse
   function authenticateRequest(authorizationHeader: string | undefined): boolean {
     if (!authorizationHeader) return false;
     if (!authorizationHeader.startsWith('Bearer ')) return false;
-    return authorizationHeader.slice(7) === config.bearerToken;
+    const presented = Buffer.from(authorizationHeader.slice(7));
+    const expected = Buffer.from(config.bearerToken);
+    if (presented.length !== expected.length) return false;
+    return timingSafeEqual(presented, expected);
   }
 
   function toScimResource(user: ScimUser): ScimUserResource {

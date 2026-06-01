@@ -24,7 +24,7 @@ describe('reference chat evaluations', () => {
     });
     const session = await createSession(ctx, {
       chatName: audienceFilterEval.chat.name,
-      userId: 'u1',
+      userId: ctx.auth.userId ?? 'u1',
       audience: 'user',
       locale: 'en',
     });
@@ -50,7 +50,7 @@ describe('reference chat evaluations', () => {
     });
     const session = await createSession(ctx, {
       chatName: scopeRefusalEval.chat.name,
-      userId: 'u1',
+      userId: ctx.auth.userId ?? 'u1',
       audience: 'user',
       locale: 'en',
     });
@@ -76,7 +76,7 @@ describe('reference chat evaluations', () => {
     });
     const session = await createSession(ctx, {
       chatName: actionConfirmationEval.chat.name,
-      userId: 'u1',
+      userId: ctx.auth.userId ?? 'u1',
       audience: 'user',
       locale: 'en',
     });

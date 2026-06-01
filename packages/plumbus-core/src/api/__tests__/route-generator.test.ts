@@ -2,7 +2,11 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
-import { registerAllRoutes, registerCapabilityRoute } from '../route-generator.js';
+import {
+  registerAllRoutes,
+  registerCapabilityRoute,
+  registerStreamingRoute,
+} from '../route-generator.js';
 
 // ── Helpers ──
 
@@ -57,10 +61,11 @@ function makeMockConfig() {
   };
 }
 
-function makeMockRequest(query: Record<string, string> = {}) {
+function makeMockRequest(query: Record<string, string> = {}, body?: Record<string, unknown>) {
   return {
     headers: { authorization: 'Bearer test-token' },
     query,
+    body,
     ip: '127.0.0.1',
   };
 }
@@ -120,6 +125,168 @@ describe('registerCapabilityRoute', () => {
 
     expect(app.get).not.toHaveBeenCalled();
     expect(app.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('job capability with jobQueue', () => {
+  function makeJobSetup(
+    authRoles: string[] = ['admin'],
+    auth: { userId?: string; roles: string[] } | null = { userId: 'u1', roles: authRoles },
+  ) {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const authContext =
+      auth === null
+        ? { userId: undefined, roles: [], scopes: [], provider: 'anonymous' as const }
+        : {
+            userId: auth.userId ?? 'u1',
+            roles: auth.roles,
+            scopes: [],
+            provider: 'test' as const,
+            tenantId: 'tenant-1',
+          };
+    const config = {
+      ...makeMockConfig(),
+      authAdapter: {
+        authenticate: vi.fn().mockResolvedValue(auth === null ? null : authContext),
+      },
+      jobQueue: { publish },
+      createDependencies: vi.fn().mockReturnValue({
+        auth: authContext,
+        data: {},
+      }),
+    };
+    const cap = makeCapability({
+      kind: 'job',
+      name: 'processReport',
+      input: z.object({ reportId: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      access: { roles: ['admin'] },
+      handler: async () => ({ ok: true }),
+    });
+    const app = makeMockApp();
+    registerCapabilityRoute(app as any, cap, config as any);
+    const handler = app.post.mock.calls[0]?.[1];
+    return { handler, publish, cap };
+  }
+
+  it('returns 403 and does not publish when unauthorized', async () => {
+    const { handler, publish } = makeJobSetup(['viewer']);
+    const reply = makeMockReply();
+    await handler(makeMockRequest({}, { reportId: 'r1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 and does not publish for unauthenticated callers', async () => {
+    const { handler, publish } = makeJobSetup(['admin'], null);
+    const reply = makeMockReply();
+    await handler(makeMockRequest({}, { reportId: 'r1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 and does not publish when input is invalid', async () => {
+    const { handler, publish } = makeJobSetup();
+    const reply = makeMockReply();
+    await handler(makeMockRequest({}, {}), reply);
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('returns 202 and publishes when authorized with valid input', async () => {
+    const { handler, publish } = makeJobSetup();
+    const reply = makeMockReply();
+    await handler(makeMockRequest({}, { reportId: 'r1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(202);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls[0]?.[0]?.payload).toEqual({ reportId: 'r1' });
+  });
+});
+
+describe('registerStreamingRoute', () => {
+  function makeStreamingSetup(
+    authRoles: string[] = ['admin'],
+    auth: { userId?: string; roles: string[] } | null = { userId: 'u1', roles: authRoles },
+  ) {
+    const written: string[] = [];
+    const reply = {
+      raw: {
+        writeHead: vi.fn(),
+        write: vi.fn((chunk: string) => {
+          written.push(chunk);
+        }),
+        end: vi.fn(),
+      },
+    };
+    const authContext =
+      auth === null
+        ? { userId: undefined, roles: [], scopes: [], provider: 'anonymous' as const }
+        : {
+            userId: auth.userId ?? 'u1',
+            roles: auth.roles,
+            scopes: [],
+            provider: 'test' as const,
+            tenantId: 'tenant-1',
+          };
+    const config = {
+      ...makeMockConfig(),
+      authAdapter: {
+        authenticate: vi.fn().mockResolvedValue(auth === null ? null : authContext),
+      },
+      createDependencies: vi.fn().mockReturnValue({
+        auth: authContext,
+        data: {},
+      }),
+    };
+    const cap = makeCapability({
+      kind: 'action',
+      name: 'streamChat',
+      input: z.object({ prompt: z.string() }),
+      output: z.object({ text: z.string() }),
+      access: { roles: ['admin'] },
+      handler: async () => ({ text: 'ok' }),
+    });
+    const streamHandler = vi.fn(async function* () {
+      yield { type: 'token', content: 'hello' };
+    });
+    const app = makeMockApp();
+    registerStreamingRoute(app as any, cap, config as any, streamHandler);
+    const handler = app.post.mock.calls[0]?.[1];
+    return { handler, reply, written, streamHandler };
+  }
+
+  it('emits a single error SSE event when unauthorized', async () => {
+    const { handler, reply, written, streamHandler } = makeStreamingSetup(['viewer']);
+    await handler(
+      { headers: { authorization: 'Bearer t' }, body: { prompt: 'hi' }, ip: '127.0.0.1' },
+      reply,
+    );
+    expect(streamHandler).not.toHaveBeenCalled();
+    expect(written).toHaveLength(1);
+    const payload = JSON.parse(written[0]?.replace(/^data: /, '').trim() ?? '{}');
+    expect(payload.type).toBe('error');
+    expect(reply.raw.end).toHaveBeenCalled();
+  });
+
+  it('emits a single error SSE event when unauthenticated', async () => {
+    const { handler, reply, written, streamHandler } = makeStreamingSetup(['admin'], null);
+    await handler({ headers: {}, body: { prompt: 'hi' }, ip: '127.0.0.1' }, reply);
+    expect(streamHandler).not.toHaveBeenCalled();
+    expect(written).toHaveLength(1);
+    const payload = JSON.parse(written[0]?.replace(/^data: /, '').trim() ?? '{}');
+    expect(payload.type).toBe('error');
+    expect(reply.raw.end).toHaveBeenCalled();
+  });
+
+  it('emits a single error SSE event when input is invalid', async () => {
+    const { handler, reply, written, streamHandler } = makeStreamingSetup();
+    await handler({ headers: { authorization: 'Bearer t' }, body: {}, ip: '127.0.0.1' }, reply);
+    expect(streamHandler).not.toHaveBeenCalled();
+    expect(written).toHaveLength(1);
+    const payload = JSON.parse(written[0]?.replace(/^data: /, '').trim() ?? '{}');
+    expect(payload.type).toBe('error');
+    expect(payload.error?.code).toBe('validation');
+    expect(reply.raw.end).toHaveBeenCalled();
   });
 });
 

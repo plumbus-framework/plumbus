@@ -278,15 +278,17 @@ describe('generateProxy', () => {
     expect(file.content).not.toContain('export function middleware');
   });
 
-  it('includes auth protection when auth is enabled', () => {
+  it('documents API-layer auth instead of cookie gating when auth is enabled', () => {
     const file = generateProxy(makeConfig({ auth: true }));
-    expect(file.content).toContain('protectedPaths');
-    expect(file.content).toContain('auth_token');
-    expect(file.content).toContain('/login');
+    expect(file.content).toContain('NextResponse.next()');
+    expect(file.content).toContain('Plumbus API layer');
+    expect(file.content).not.toContain('protectedPaths');
+    expect(file.content).not.toContain('auth_token');
   });
 
-  it('omits auth protection when auth is false', () => {
+  it('passes through when auth is false', () => {
     const file = generateProxy(makeConfig({ auth: false }));
+    expect(file.content).toContain('NextResponse.next()');
     expect(file.content).not.toContain('protectedPaths');
     expect(file.content).not.toContain('auth_token');
   });

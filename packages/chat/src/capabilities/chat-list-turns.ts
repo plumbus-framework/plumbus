@@ -22,7 +22,7 @@ export const chatListTurns = defineCapability({
 
   async handler(ctx, input) {
     const turns = await chatTurnRepo(ctx).findMany(
-      { sessionId: input.sessionId },
+      { sessionId: input.sessionId, userId: ctx.auth.userId },
       { orderBy: 'ordinal', orderDir: 'asc', limit: input.limit ?? 50 },
     );
     return { turns: turns as unknown as Record<string, unknown>[] };

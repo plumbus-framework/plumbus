@@ -63,6 +63,26 @@ describe('AI Security Boundaries', () => {
     expect(result.redactedInput?.email).toBe('a@b.com'); // personal < sensitive redact threshold
   });
 
+  it('warns and redacts classified fields nested inside arrays of arrays', () => {
+    const result = checkPromptSecurity(
+      { data: [[{ ssn: '123-45-6789', name: 'Alice' }]] },
+      { entities, redactThreshold: 'highly_sensitive', warnThreshold: 'highly_sensitive' },
+    );
+    expect(result.safe).toBe(false);
+    expect(result.warnings.some((w) => w.field === 'data[0][0].ssn')).toBe(true);
+    expect(result.redactedInput?.data).toEqual([[{ ssn: '[REDACTED]', name: 'Alice' }]]);
+  });
+
+  it('warns and redacts classified fields nested inside arrays', () => {
+    const result = checkPromptSecurity(
+      { users: [{ ssn: '123-45-6789', name: 'Alice' }] },
+      { entities, redactThreshold: 'highly_sensitive', warnThreshold: 'highly_sensitive' },
+    );
+    expect(result.safe).toBe(false);
+    expect(result.warnings.some((w) => w.field === 'users[0].ssn')).toBe(true);
+    expect(result.redactedInput?.users).toEqual([{ ssn: '[REDACTED]', name: 'Alice' }]);
+  });
+
   it('returns safe with no entities configured', () => {
     const result = checkPromptSecurity({ ssn: '123', salary: 50000 });
     expect(result.safe).toBe(true);

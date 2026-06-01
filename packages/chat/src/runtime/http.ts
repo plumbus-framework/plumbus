@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@plumbus/core';
 import type { RouteGeneratorConfig } from '@plumbus/core';
-import { createExecutionContext } from '@plumbus/core';
+import { createExecutionContext, evaluateAccess } from '@plumbus/core';
 import { z } from '@plumbus/core/zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ChatDefinition } from '../types/chat.js';
@@ -101,6 +101,13 @@ export function registerChatRoutes(
       const overriddenTenant = opts?.audienceTenantOverride?.(parsed.data.audience, auth);
       if (overriddenTenant && !auth.tenantId) {
         auth = { ...auth, tenantId: overriddenTenant };
+      }
+
+      const authz = evaluateAccess(chat.access, auth);
+      if (!authz.allowed) {
+        return reply.status(403).send({
+          error: { code: 'forbidden', message: authz.reason ?? 'Access denied' },
+        });
       }
 
       try {

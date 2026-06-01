@@ -8,6 +8,7 @@ type AnyFn = (...args: any[]) => any;
 
 vi.mock('fastify', () => {
   const routes = new Map<string, AnyFn>();
+  let errorHandler: AnyFn | undefined;
   const app = {
     get: vi.fn((path: string, handler: AnyFn) => {
       routes.set(path, handler);
@@ -17,11 +18,17 @@ vi.mock('fastify', () => {
     delete: vi.fn(),
     register: vi.fn(),
     addHook: vi.fn(),
+    setErrorHandler: vi.fn((handler: AnyFn) => {
+      errorHandler = handler;
+    }),
     listen: vi.fn(
       async (opts: { host: string; port: number }) => `http://${opts.host}:${opts.port}`,
     ),
     close: vi.fn(async () => {}),
     _routes: routes,
+    get _errorHandler() {
+      return errorHandler;
+    },
   };
   return { default: vi.fn(() => app) };
 });
@@ -96,6 +103,7 @@ import { FlowRegistry } from '../../flows/registry.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import type { ServerConfig } from '../bootstrap.js';
 import { createServer } from '../bootstrap.js';
+import { GENERIC_INTERNAL_MESSAGE } from '../../errors/http.js';
 
 // ── Helpers ──
 
@@ -442,6 +450,43 @@ describe('Server Bootstrap', () => {
       );
       // The server should be created successfully with the resolver
       expect(server).toBeDefined();
+    });
+
+    it('sanitizes 5xx messages in Fastify error handler when onProcessError is set', async () => {
+      const onProcessError = vi.fn(async () => {});
+      const server = createServer(makeServerConfig({ onProcessError }));
+      const handler = (server.app as { _errorHandler?: AnyFn })._errorHandler;
+      expect(handler).toBeDefined();
+
+      const reply = {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      };
+      const err = Object.assign(new Error('secret database connection string'), {
+        statusCode: 500,
+      });
+      await handler?.(err, { url: '/x', method: 'GET', ip: '127.0.0.1' }, reply);
+
+      expect(reply.send).toHaveBeenCalledWith({
+        error: { code: 'internal', message: GENERIC_INTERNAL_MESSAGE },
+      });
+    });
+
+    it('returns original message for 4xx in Fastify error handler', async () => {
+      const onProcessError = vi.fn(async () => {});
+      const server = createServer(makeServerConfig({ onProcessError }));
+      const handler = (server.app as { _errorHandler?: AnyFn })._errorHandler;
+
+      const reply = {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      };
+      const err = Object.assign(new Error('bad request detail'), { statusCode: 400 });
+      await handler?.(err, { url: '/x', method: 'GET', ip: '127.0.0.1' }, reply);
+
+      expect(reply.send).toHaveBeenCalledWith({
+        error: { code: 'internal', message: 'bad request detail' },
+      });
     });
 
     it('calls resolver with DB before AI generate', async () => {

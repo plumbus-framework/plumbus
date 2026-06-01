@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@plumbus/core/testing';
 import { createTestContext } from '@plumbus/core/testing';
-import { appendTurn, aggregateForBudget, createSession } from '../service.js';
+import { appendTurn, aggregateForBudget, createSession, getOrCreateSession } from '../service.js';
 
 describe('session service', () => {
   it('createSession round-trips', async () => {
@@ -93,6 +93,26 @@ describe('session service', () => {
       { persistContent: false },
     );
     expect(row.content).toBe('');
+  });
+
+  it('getOrCreateSession rejects a different user for an existing session', async () => {
+    const ctx = createTestContext();
+    const session = await createSession(ctx, {
+      chatName: 'help',
+      userId: 'user-a',
+      audience: 'user',
+      locale: 'en',
+    });
+
+    await expect(
+      getOrCreateSession(ctx, {
+        sessionId: session.id,
+        chatName: 'help',
+        userId: 'user-b',
+        audience: 'user',
+        locale: 'en',
+      }),
+    ).rejects.toMatchObject({ code: 'notFound' });
   });
 
   it('aggregateForBudget sums', async () => {
