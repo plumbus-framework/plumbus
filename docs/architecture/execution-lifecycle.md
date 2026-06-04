@@ -80,6 +80,8 @@ This document traces the complete lifecycle of a request through the Plumbus fra
 
 ## Flow Execution Lifecycle
 
+For large binary or text payloads, keep flow `input` and `state` small and store bytes in an app entity — see [Passing large payloads by reference](../core-concepts/flows.md#passing-large-payloads-by-reference).
+
 ```
 ┌─────────────┐
 │   Trigger   │

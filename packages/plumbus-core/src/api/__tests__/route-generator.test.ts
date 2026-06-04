@@ -116,6 +116,21 @@ describe('registerCapabilityRoute', () => {
     expect(app.post.mock.calls[0]?.[0]).toBe('/api/users/process-report');
   });
 
+  it('registers snake_case capability names as kebab-case paths', () => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const cap = makeCapability({
+      kind: 'action',
+      name: 'create_install_enrollment',
+      domain: 'identity',
+    });
+
+    registerCapabilityRoute(app as any, cap, config);
+
+    expect(app.post).toHaveBeenCalledTimes(1);
+    expect(app.post.mock.calls[0]?.[0]).toBe('/api/identity/create-install-enrollment');
+  });
+
   it('skips eventHandler capabilities', () => {
     const app = makeMockApp();
     const config = makeMockConfig();

@@ -169,6 +169,76 @@ Emits an event as a flow step:
 
 The emitted payload is built from the original flow input merged with the current flow state. When both contain the same key, the current flow state wins.
 
+## Passing large payloads by reference
+
+Flow state is stored as a single `jsonb` column on `flow_executions`. After each step, the engine **merges** the step's successful output into that column and rewrites the **entire** value on every subsequent step boundary (and copies it into `flow_dead_letter` if the run is dead-lettered). A large string or object in a step's **return value** is therefore re-serialized and written to the database on every later step — even though the in-memory merge is only a shallow spread.
+
+**Convention:** store the bytes once in an app-defined entity via `ctx.data`, and pass only an **id** through flow state. `ctx.data` inside flow steps is tenant-scoped and audited like any other capability (see [Entities](./entities.md)).
+
+### Entity and flow definition
+
+```typescript
+import { defineEntity, defineFlow, field } from "@plumbus/core";
+
+export const Document = defineEntity({
+  name: "Document",
+  tenantScoped: true,
+  fields: {
+    id: field.id(),
+    body: field.json(),
+  },
+});
+
+export const processDocument = defineFlow({
+  name: "processDocument",
+  domain: "documents",
+  steps: [
+    { name: "storeDocument", type: "capability", capability: "storeDocument" },
+    {
+      name: "analyzeDocument",
+      type: "capability",
+      capability: "analyzeDocument",
+      input: { documentId: "$state.documentId" },
+    },
+  ],
+});
+```
+
+### Step handlers
+
+**Store once, return only the id** (only this object is merged into persisted state):
+
+```typescript
+// storeDocument capability
+const row = await ctx.data.Document.create({ body: bigBlob });
+return { documentId: row.id };
+```
+
+**Load on demand** (receives only the ref when `step.input` is declared as above):
+
+```typescript
+// analyzeDocument capability
+const doc = await ctx.data.Document.findById(input.documentId);
+// use doc.body ...
+```
+
+Use the same [`$input` / `$state` template syntax](#capability-step) as other capability steps.
+
+### What narrows input vs what persists
+
+Declaring `step.input` only controls what the **capability handler receives**; it does **not** remove keys from persisted flow state. Keep large values out of the step **return value** — narrowing input alone does not shrink the column.
+
+On downstream steps, prefer explicit `step.input` (for example `{ documentId: "$state.documentId" }`). Without it, the step receives the **full** merge of trigger input and state, including any leftover large fields.
+
+### Other places large data hurts
+
+- **Trigger input** — `ctx.flows.start(name, { body: bigBlob })` is written once to `flow_executions.input` but re-read every step, merged into default capability input, and copied on dead-letter. Keep large bytes out of **both** start input and step outputs.
+- **`eventEmit` steps** — the emitted event payload is the full input+state merge; a blob in state is published to the outbox too.
+- **Merge-only state** — there is no engine "delete from state"; once a key is merged in, every later step pays for it until a step **overwrites** that key (for example a cleanup step that returns `{ body: null }` only if you intentionally replace the value).
+- **Parallel branches** — branch outputs use the same merge rules; return only refs from parallel capability steps as well.
+
+Row lifecycle (retention, explicit delete) is the app's responsibility — use the entity's `retention` config or a final cleanup capability.
+
 ## Triggers and Schedules
 
 A flow definition can carry **either** a `trigger` (event-driven), **or** a `schedule` (cron), **or** neither (the flow runs only when started programmatically via `ctx.flows.start()` or the auto-routed start endpoint).

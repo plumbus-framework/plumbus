@@ -97,13 +97,46 @@ describe('StepExecutor', () => {
       deps,
     );
     expect(deps.executeCapability).toHaveBeenCalledWith('extract', mockCtx, {
-      projectId: 'p1',
-      messageId: 'm1',
-      metadataId: 'md1',
       sourceType: 'interview_message',
       sourceReferenceId: 'm1',
       cached: 'md1',
     });
+  });
+
+  it('keeps large state fields out of capability input when step.input narrows to a ref', async () => {
+    const largeBody = 'x'.repeat(100_000);
+    const step: CapabilityStep = {
+      name: 'analyzeDocument',
+      type: FlowStepType.Capability,
+      capability: 'analyzeDocument',
+      input: { documentId: '$state.documentId' },
+    };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+    };
+    await executeStep(step, mockCtx, {}, { documentId: 'doc-1', body: largeBody }, deps);
+    expect(deps.executeCapability).toHaveBeenCalledWith('analyzeDocument', mockCtx, {
+      documentId: 'doc-1',
+    });
+  });
+
+  it('only the reference enters the state merge when a step returns an id', async () => {
+    const step: CapabilityStep = {
+      name: 'storeDocument',
+      type: FlowStepType.Capability,
+      capability: 'storeDocument',
+    };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      executeCapability: vi.fn().mockResolvedValue({
+        success: true,
+        data: { documentId: 'doc-1' },
+      }),
+    };
+    const result = await executeStep(step, mockCtx, {}, {}, deps);
+    expect(result.status).toBe(StepStatus.Completed);
+    expect(result.data).toEqual({ documentId: 'doc-1' });
   });
 
   it('uses step.capability instead of step.name when provided', async () => {

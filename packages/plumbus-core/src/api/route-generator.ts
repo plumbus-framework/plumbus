@@ -259,11 +259,12 @@ export function registerStreamingRoute(
   });
 }
 
+/** Match `plumbus generate` / OpenAPI paths (camelCase and snake_case → kebab-case). */
 function toKebabCase(str: string): string {
   return str
-    .replace(/([A-Z])/g, '-$1')
-    .toLowerCase()
-    .replace(/^-/, '');
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase();
 }
 
 /**
