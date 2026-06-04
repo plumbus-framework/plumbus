@@ -78,6 +78,21 @@ export function checkPromptSecurity(
   const redactedInput = structuredClone(input);
   let needsRedaction = false;
 
+  function scanArray(arr: unknown[], redactTarget: unknown[], path: string): void {
+    arr.forEach((item, i) => {
+      const itemPath = `${path}[${i}]`;
+      if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+        scanObject(
+          item as Record<string, unknown>,
+          redactTarget[i] as Record<string, unknown>,
+          itemPath,
+        );
+      } else if (Array.isArray(item)) {
+        scanArray(item, redactTarget[i] as unknown[], itemPath);
+      }
+    });
+  }
+
   function scanObject(
     obj: Record<string, unknown>,
     redactTarget: Record<string, unknown>,
@@ -105,7 +120,6 @@ export function checkPromptSecurity(
         }
       }
 
-      // Recurse into nested objects
       const value = obj[key];
       if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
         scanObject(
@@ -113,6 +127,8 @@ export function checkPromptSecurity(
           redactTarget[key] as Record<string, unknown>,
           fullPath,
         );
+      } else if (Array.isArray(value)) {
+        scanArray(value, redactTarget[key] as unknown[], fullPath);
       }
     }
   }

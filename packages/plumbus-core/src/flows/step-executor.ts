@@ -98,18 +98,19 @@ function resolveStepPayload(
 
   if (!stepInput) return merged;
 
-  // Apply step-level overrides with template resolution
+  // When step.input is set, only the declared keys are passed (avoids strict Zod rejects).
+  const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(stepInput)) {
     if (typeof value === 'string' && value.startsWith('$input.')) {
-      merged[key] = inputObj[value.slice(7)];
+      resolved[key] = inputObj[value.slice(7)];
     } else if (typeof value === 'string' && value.startsWith('$state.')) {
-      merged[key] = stateObj[value.slice(7)];
+      resolved[key] = stateObj[value.slice(7)];
     } else {
-      merged[key] = value;
+      resolved[key] = value;
     }
   }
 
-  return merged;
+  return resolved;
 }
 
 async function executeCapabilityStep(

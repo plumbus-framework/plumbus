@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { definePrompt } from '@plumbus/core';
 import { z } from '@plumbus/core/zod';
 import { defineChat } from '../defineChat.js';
@@ -122,5 +122,16 @@ describe('defineChat', () => {
 
     expect(chat.prompt).toBeDefined();
     expect(chat.prompt?.name).toBe('custom.help.prompt');
+  });
+
+  it('warns when perTurn token or cost limits are configured', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    defineChat({
+      name: 'budgetChat',
+      access: {},
+      budget: { perTurn: { tokens: 6000, costUsd: 0.5 } },
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('budget.perTurn.tokens'));
+    warn.mockRestore();
   });
 });

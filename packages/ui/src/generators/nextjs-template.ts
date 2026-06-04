@@ -373,30 +373,18 @@ export function generateLoadingComponent(): GeneratedFile {
   };
 }
 
-/** Generate Next.js proxy for auth token forwarding (proxy.ts replaces middleware.ts in Next.js 16+) */
-export function generateProxy(config: NextjsTemplateConfig): GeneratedFile {
-  const protectedPaths =
-    config.auth !== false
-      ? `
-  // Protect routes that require authentication
-  const protectedPaths = ["/dashboard", "/settings"];
-  const isProtected = protectedPaths.some((p) => request.nextUrl.pathname.startsWith(p));
-
-  if (isProtected) {
-    const token = request.cookies.get("auth_token")?.value;
-    if (!token) {
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
-  }
-`
-      : '';
-
+/** Generate Next.js proxy (proxy.ts replaces middleware.ts in Next.js 16+) */
+export function generateProxy(_config: NextjsTemplateConfig): GeneratedFile {
   return {
     path: 'proxy.ts',
     content: `import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export function proxy(request: NextRequest) {${protectedPaths}
+export function proxy(request: NextRequest) {
+  // Authentication is enforced by the Plumbus API layer (deny-by-default capability access policies),
+  // using the Authorization: Bearer header. The session token is stored in localStorage and is NOT
+  // readable by Next.js middleware, so route gating cannot be done here. To gate routes at the edge,
+  // move the token to an HttpOnly cookie and validate its signature/expiry in this middleware.
   return NextResponse.next();
 }
 

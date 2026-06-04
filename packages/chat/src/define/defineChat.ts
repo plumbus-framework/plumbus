@@ -111,6 +111,13 @@ export function defineChat(config: ChatConfig): ChatDefinition {
     );
   }
 
+  const perTurn = config.budget?.perTurn;
+  if (perTurn?.tokens !== undefined || perTurn?.costUsd !== undefined) {
+    console.warn(
+      '[@plumbus/chat] defineChat: budget.perTurn.tokens and budget.perTurn.costUsd are not enforced at runtime; only budget.timeout.perTurnSeconds is applied in runChatTurn.',
+    );
+  }
+
   return deepFreeze({
     ...config,
     context: config.context ?? [],

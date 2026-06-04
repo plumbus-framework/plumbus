@@ -262,6 +262,42 @@ describe('createRepository', () => {
     await repo.create({ title: 'No audit' } as any);
   });
 
+  it('refuses update without WHERE when entity has no id and is not tenant-scoped', async () => {
+    const entity = makeEntity({
+      tenantScoped: false,
+      fields: { title: field.string({ required: true }) },
+    });
+    const table = {} as ReturnType<typeof generateDrizzleSchema>;
+    const db = makeMockDb();
+    const repo = createRepository({
+      entity,
+      table,
+      db: db as any,
+      auth: makeAuth(),
+    });
+
+    await expect(repo.update('any', { title: 'x' } as any)).rejects.toThrow(/Refusing to update/);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses delete without WHERE when entity has no id and is not tenant-scoped', async () => {
+    const entity = makeEntity({
+      tenantScoped: false,
+      fields: { title: field.string({ required: true }) },
+    });
+    const table = {} as ReturnType<typeof generateDrizzleSchema>;
+    const db = makeMockDb();
+    const repo = createRepository({
+      entity,
+      table,
+      db: db as any,
+      auth: makeAuth(),
+    });
+
+    await expect(repo.delete('any')).rejects.toThrow(/Refusing to delete/);
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
   it('bypassTenantScope skips tenant filtering for tenant-scoped entities', async () => {
     const entity = makeEntity({ tenantScoped: true });
     const table = generateDrizzleSchema(entity);

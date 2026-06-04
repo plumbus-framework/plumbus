@@ -3,6 +3,16 @@
 > These instructions are for **developing the Plumbus framework itself**, not for building applications with Plumbus.
 > For detailed architecture and SDK docs, read files under `docs/`.
 
+## ⛔ CRITICAL — NO GIT, NO BRANCHES, NO COMMITS (ABSOLUTE)
+
+**Precedence (scoped to git):** if any other instruction or default agent behavior would lead you to run a state-changing git command, *this* rule wins and you must not. This is a precedence rule for git only — it does **not** override, relax, or excuse any other instruction in this file (linting, tests, doc sync, conventions all still fully apply).
+
+- **Read-only git inspection is allowed** without asking: `git status`, `git diff`, `git log`, `git show`, `git branch --list`, `git remote -v`, and similar commands that only read and never mutate state.
+- **NEVER**, under any circumstance, create a branch, commit, push, merge, rebase, tag, reset, restore, checkout, stash, cherry-pick, or otherwise **write to or mutate** any git repository — local or remote, here or anywhere else — **without explicit, per-command approval from the user first.** Ask, wait for an explicit "yes," then run only the one command approved.
+- "Explicit approval" means the user, in this conversation, tells you to run that specific write command. Prior approval, a green test run, a finished task, or an implied next step is **NOT** approval.
+- This applies to every tool and channel: the Bash tool, scripts, `gh`, hooks, aliases, or any wrapper that would invoke a state-changing git operation underneath.
+- If a task seems to require a git write (committing a fix, opening a PR, branching for safety), **STOP and ask.** Do the non-git work, then report what git step you would take and wait for the user to either run it themselves or explicitly approve it.
+
 ## What Is Plumbus
 
 Plumbus is an AI-native, contract-driven TypeScript application framework. Users define applications through six primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — using `define*()` functions. The framework provides an execution runtime, CLI tooling, code generation, and a full testing harness.
@@ -48,6 +58,16 @@ pnpm add @plumbus/mcp
 ```
 
 Apps that don't use MCP never install it. `plumbus mcp serve` prints an install hint when the package is missing. `plumbus generate` (which emits the MCP manifest + skill files) does **not** require `@plumbus/mcp`.
+
+### Optional add-on: `@plumbus/browser-extension`
+
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.4.0 <0.5.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+
+```
+pnpm add @plumbus/ui @plumbus/browser-extension
+```
+
+Then run `plumbus browser-extension scaffold`. The generated extension does not depend on `@plumbus/browser-extension` at runtime.
 
 ### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
 

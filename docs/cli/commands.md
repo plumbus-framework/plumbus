@@ -26,6 +26,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus seed` | Run seed files to populate the database |
 | `plumbus agent` | AI agent brief and sync commands |
 | `plumbus ui` | Generate UI modules and Next.js frontends |
+| `plumbus browser-extension scaffold` | Scaffold a WXT Chrome/Firefox extension |
 | `plumbus upgrade` | Migrate legacy artifacts after framework upgrades |
 | `plumbus test` | Run tests using vitest (provided by the framework) |
 | `plumbus mcp serve` | Start MCP server (stdio or HTTP) for `exposeAs: ['mcp']` capabilities |
@@ -414,6 +415,32 @@ plumbus ui nextjs --force        # overwrites everything, including custom pages
 ```
 
 This prevents accidental destruction of custom frontend code when re-running the scaffold command.
+
+---
+
+### plumbus browser-extension scaffold
+
+Scaffold a WXT Chrome/Firefox extension that calls your Plumbus API with bearer tokens in `browser.storage.local`.
+
+```bash
+plumbus browser-extension scaffold [output-dir] [options]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--app-name <name>` | `string` | inferred from nearest `package.json` | Extension display name |
+| `--api-base-url <url>` | `string` | — | **Required.** Absolute `http:` or `https:` API base URL |
+| `--browser <target>` | `string` | `both` | `chrome`, `firefox`, or `both` — limits which `dev:*` / `build:*` / `zip:*` scripts are written to `package.json` |
+| `--force` | `boolean` | `false` | Overwrite existing scaffold shell files |
+| `--json` | `boolean` | `false` | Machine-readable result on stdout |
+
+**Requires** `pnpm add @plumbus/ui @plumbus/browser-extension` in the app. Emits:
+
+- Shell files (`wxt.config.ts`, `entrypoints/`, `src/auth-store.ts`, `src/invoke.ts`, …) — overwrite-protected unless `--force`
+- `src/client/api.ts` — always regenerated from capabilities (absolute URLs)
+- `wxt.config.ts` uses a `manifest` function so Firefox (Manifest V2) gets the API origin in `permissions` and Chrome (MV3) in `host_permissions`
+
+See `node_modules/@plumbus/browser-extension/instructions/browser-extension.md` for auth, CORS, and access-policy prerequisites.
 
 ---
 

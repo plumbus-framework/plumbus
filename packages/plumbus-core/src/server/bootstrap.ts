@@ -15,6 +15,7 @@ import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
 import { createAuditService } from '../audit/service.js';
+import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
@@ -350,8 +351,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       ).catch((hookErr) => {
         logHookError('onCapabilityError', hookErr);
       });
+      const clientMessage = statusCode >= 500 ? GENERIC_INTERNAL_MESSAGE : message;
       reply.status(statusCode).send({
-        error: { code: 'internal', message },
+        error: { code: 'internal', message: clientMessage },
       });
     });
   }

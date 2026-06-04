@@ -33,6 +33,16 @@ function toCamelCase(str: string): string {
   return pc.charAt(0).toLowerCase() + pc.slice(1);
 }
 
+/** Client export name for a capability (matches `generateTypedClient`). */
+export function capabilityClientFnName(cap: Pick<CapabilityContract, 'name'>): string {
+  return toCamelCase(cap.name);
+}
+
+/** Client export name for a flow trigger (matches `generateFlowTrigger`). */
+export function flowTriggerFnName(flow: FlowTriggerInput): string {
+  return `start${toPascalCase(flow.name)}`;
+}
+
 function httpMethod(kind: string): string {
   return kind === 'query' ? 'GET' : 'POST';
 }

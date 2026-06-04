@@ -53,7 +53,12 @@ export async function getOrCreateSession(
   },
 ): Promise<ChatSessionRow> {
   const existing = await loadSession(ctx, args.sessionId);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.userId !== args.userId) {
+      throw ctx.errors.notFound('Session not found', { sessionId: args.sessionId });
+    }
+    return existing;
+  }
   const now = ctx.time.now();
   try {
     return await repos(ctx).sessions.create({
@@ -74,7 +79,12 @@ export async function getOrCreateSession(
     // race; throwing surfaces a real "DB unreachable" failure separately
     // because loadSession would also throw.
     const after = await loadSession(ctx, args.sessionId);
-    if (after) return after;
+    if (after) {
+      if (after.userId !== args.userId) {
+        throw ctx.errors.notFound('Session not found', { sessionId: args.sessionId });
+      }
+      return after;
+    }
     throw new Error('chat.session_create_race_unresolved');
   }
 }
@@ -97,11 +107,17 @@ export async function aggregateForBudget(
   ctx: ExecutionContext,
   args: { sessionId?: string; userId?: string; tenantId?: string; since?: Date },
 ): Promise<{ turns: number; tokens: number; costUsd: number }> {
-  const { turns } = repos(ctx);
+  const { sessions, turns } = repos(ctx);
   const query: Partial<ChatTurnRow> = {};
   if (args.sessionId) query.sessionId = args.sessionId;
   if (args.userId) query.userId = args.userId;
-  const rows = await turns.findMany(query);
+  let rows = await turns.findMany(Object.keys(query).length > 0 ? query : undefined);
+  if (args.tenantId) {
+    const tenantSessionIds = new Set(
+      (await sessions.findMany({ tenantId: args.tenantId })).map((s) => s.id),
+    );
+    rows = rows.filter((r) => tenantSessionIds.has(r.sessionId));
+  }
   const since = args.since;
   const filtered = since ? rows.filter((r) => new Date(r.recordedAt) >= since) : rows;
   return {
