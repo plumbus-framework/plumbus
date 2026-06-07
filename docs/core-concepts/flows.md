@@ -234,7 +234,8 @@ On downstream steps, prefer explicit `step.input` (for example `{ documentId: "$
 
 - **Trigger input** — `ctx.flows.start(name, { body: bigBlob })` is written once to `flow_executions.input` but re-read every step, merged into default capability input, and copied on dead-letter. Keep large bytes out of **both** start input and step outputs.
 - **`eventEmit` steps** — the emitted event payload is the full input+state merge; a blob in state is published to the outbox too.
-- **Merge-only state** — there is no engine "delete from state"; once a key is merged in, every later step pays for it until a step **overwrites** that key (for example a cleanup step that returns `{ body: null }` only if you intentionally replace the value).
+- **Merge-only state** — there is no engine "delete from state"; once a key is merged in, every later step pays for it until a step **overwrites** that key with a smaller value. Returning `{ body: null }` replaces the value but the key remains in the jsonb object.
+- **Explicit `step.input` on consumers** — without `step.input`, a capability receives the full input+state merge, including any large fields still in state. Declare only the refs you need (for example `{ documentId: "$state.documentId" }`).
 - **Parallel branches** — branch outputs use the same merge rules; return only refs from parallel capability steps as well.
 
 Row lifecycle (retention, explicit delete) is the app's responsibility — use the entity's `retention` config or a final cleanup capability.

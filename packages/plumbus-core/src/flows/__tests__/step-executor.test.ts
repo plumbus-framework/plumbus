@@ -137,6 +137,7 @@ describe('StepExecutor', () => {
     const result = await executeStep(step, mockCtx, {}, {}, deps);
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.data).toEqual({ documentId: 'doc-1' });
+    expect(result.data).not.toHaveProperty('body');
   });
 
   it('uses step.capability instead of step.name when provided', async () => {
