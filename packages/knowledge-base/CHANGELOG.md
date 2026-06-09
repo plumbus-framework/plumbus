@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+### Documentation
+
+- README ecosystem table lists `@plumbus/api` (partner external API add-on).
+
 ## 0.1.0 — 2026-05-26
 
 Initial release.

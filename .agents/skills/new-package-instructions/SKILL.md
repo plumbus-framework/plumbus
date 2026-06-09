@@ -87,6 +87,7 @@ packages/<name>/instructions/
 1. Add `"instructions"` to `package.json` `files`
 2. Link instructions from package `README.md`
 3. Update `docs/` if a new topic area was added
+4. Add a publish step to [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) **after** any packages it peer-depends on (e.g. `@plumbus/api` after `@plumbus/core`)
 
 ### Step 3b: Register in `plumbus init` agent wiring
 
@@ -129,6 +130,8 @@ Before considering a new package done:
 - [ ] `AGENTS.md` / `CLAUDE.md` mention the optional add-on if consumer-facing
 - [ ] `init.ts` `*_INSTRUCTION_REFERENCES` registered and `AGENT_WIRING_VERSION` bumped
 - [ ] `init.test.ts` asserts instruction paths; `docs/agents/agent-setup.md` updated
+- [ ] `.github/workflows/publish.yml` includes the package (after its peer dependencies)
+- [ ] `CHANGELOG.md` has an entry for the release version
 
 ## Anti-patterns
 
