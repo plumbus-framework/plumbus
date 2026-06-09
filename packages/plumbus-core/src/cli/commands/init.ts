@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 5;
+export const AGENT_WIRING_VERSION = 6;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -127,6 +127,7 @@ const CORE_INSTRUCTION_TOPICS = [
   'testing',
   'patterns',
   'mcp',
+  'api',
 ] as const;
 
 const GUARDRAIL_LINES = [
@@ -278,6 +279,29 @@ const MCP_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const API_INSTRUCTION_REFERENCES = [
+  {
+    area: 'partner API runtime overview, package boundary (core vs @plumbus/api), public exports, critical rules',
+    path: 'node_modules/@plumbus/api/instructions/framework.md',
+  },
+  {
+    area: "exposing a capability as a partner API route (exposeAs:['api'], api metadata, registerApiRoutes)",
+    path: 'node_modules/@plumbus/api/instructions/expose-a-capability.md',
+  },
+  {
+    area: 'api.yaml manifest, validation, OpenAPI/docs generation, compatibility diff, plumbus api CLI',
+    path: 'node_modules/@plumbus/api/instructions/manifest-and-cli.md',
+  },
+  {
+    area: 'testing partner API routes with test intent, idempotency, and fixture validation',
+    path: 'node_modules/@plumbus/api/instructions/testing.md',
+  },
+  {
+    area: 'partner API instruction index and reading order',
+    path: 'node_modules/@plumbus/api/instructions/README.md',
+  },
+] as const;
+
 const BROWSER_EXTENSION_INSTRUCTION_REFERENCES = [
   {
     area: 'scaffolding a WXT Chrome/Firefox browser extension wired to capabilities (plumbus browser-extension scaffold; app-owned /api/auth/* + CORS; bearer token in browser.storage.local; explicit background capability registry)',
@@ -288,7 +312,7 @@ const BROWSER_EXTENSION_INSTRUCTION_REFERENCES = [
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, knowledge-base, mcp, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, knowledge-base, mcp, api, and browser-extension) for full SDK documentation.',
     );
     return;
   }
@@ -316,6 +340,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of MCP_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of API_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 
@@ -514,9 +542,10 @@ When creating or modifying capabilities:
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
 - To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\` and \`action\` kinds are eligible.
+- To expose a capability on the partner HTTP API, add \`exposeAs: ["api"]\` and optional \`api: { path, method, auth, ... }\`. Only \`query\` and \`action\` kinds are eligible.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
-- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`, \`node_modules/@plumbus/core/instructions/mcp.md\`, and \`node_modules/@plumbus/mcp/instructions/README.md\` (when MCP is installed)
+- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`, \`node_modules/@plumbus/core/instructions/mcp.md\`, \`node_modules/@plumbus/mcp/instructions/README.md\` (when MCP is installed), \`node_modules/@plumbus/core/instructions/api.md\`, and \`node_modules/@plumbus/api/instructions/README.md\` (when @plumbus/api is installed)
 ${AGENT_WIRING_END_MARKER}
 `;
 }

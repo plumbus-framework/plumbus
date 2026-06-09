@@ -1,5 +1,31 @@
 # @plumbus/core changelog
 
+## 0.4.2
+
+### Added
+
+- **Partner API exposure** — optional `exposeAs: ['api']` and inline `api` metadata on `defineCapability` (operationId, method, path, stability, auth scopes, idempotency, test intent).
+- **`@plumbus/api`** — optional peer dependency (version-locked `0.1.x`). Install with `pnpm add @plumbus/api` for manifest validation, OpenAPI/docs export, compatibility diff, test fixtures, and `registerApiRoutes()`.
+- **CLI `plumbus api`** — `validate`, `generate openapi`, `generate docs`, `diff`, `test-fixtures validate`. Commands lazy-load `@plumbus/api` and print an install hint when the package is missing.
+- **API governance** — advisory rules in `plumbus verify` for partner API surface (missing descriptions, public+test conflicts, etc.).
+- **Consumer AI guidance includes partner API** — `plumbus init` wires `@plumbus/api/instructions/*` and `instructions/api.md`. `AGENT_WIRING_VERSION` bumped to **6**.
+- **Flow docs** — convention for passing large payloads by reference through flow state (entity id, not inline blobs).
+- **Ecosystem READMEs** — sibling packages (`@plumbus/mcp`, `@plumbus/ui`, `@plumbus/chat`, `@plumbus/chat-ui`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`) patch-bumped so npm READMEs list `@plumbus/api`.
+
+### Upgrading existing projects
+
+After `pnpm add @plumbus/api`, refresh agent wiring if your project predates the current template:
+
+```bash
+plumbus init --patch --agent agents-md   # or: plumbus init --patch
+plumbus doctor
+```
+
+### Non-breaking
+
+- Capabilities without `exposeAs: ['api']` behave identically on convention routes and in tests.
+- Upgrading `@plumbus/core` does **not** install `@plumbus/api`; install it explicitly when you want a partner-facing API.
+
 ## 0.4.0
 
 ### Added

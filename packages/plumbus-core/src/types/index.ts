@@ -7,6 +7,14 @@
 export type { AuditRecord, AuditService } from './audit.js';
 // ── Capability ──
 export type {
+  ApiDeprecationConfig,
+  ApiDocsConfig,
+  ApiExposureConfig,
+  ApiHttpMethod,
+  ApiIdempotencyConfig,
+  ApiStability,
+  ApiTestConfig,
+  ApiTestMode,
   CapabilityAuditConfig,
   CapabilityContract,
   CapabilityEffects,

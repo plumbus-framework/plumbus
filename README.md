@@ -48,6 +48,7 @@ Optional add-on packages extend the core:
 - **MCP agent surface** — expose capabilities to AI agents over the Model Context Protocol (`@plumbus/mcp`)
 - **Conversational runtime** — `defineChat` with policy guards and context sources (`@plumbus/chat`, plus `@plumbus/chat-ui` for React clients)
 - **Knowledge sources** — scoped, registry-backed grounding for chat, capabilities, and search UIs (`@plumbus/knowledge-base`)
+- **Partner API contracts** — versioned external HTTP surface with OpenAPI, docs, and compatibility diff (`@plumbus/api`)
 
 ---
 
@@ -430,12 +431,14 @@ For a fuller explanation of the framework-first policy and destructive git safet
 
 | Package | Description |
 |---------|-------------|
-| [`@plumbus/core`](packages/plumbus-core/) | Core framework — types, SDK, runtime, execution engine, CLI, test utilities |
-| [`@plumbus/ui`](packages/ui/) | UI code generation — typed clients, React hooks, auth helpers, Next.js scaffolds |
-| [`@plumbus/mcp`](packages/mcp/) | Optional — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
-| [`@plumbus/chat`](packages/chat/) | Optional — chat primitive; `defineChat`, policy guards, context sources, budgets, evals |
-| [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol |
-| [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional — scoped knowledge providers and registry for registry-backed grounding |
+| [`@plumbus/core`](packages/plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance |
+| [`@plumbus/ui`](packages/ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds |
+| [`@plumbus/api`](packages/api/) | Optional peer `0.1.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
+| [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.4.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
+| [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
+| [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
+| [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.1.x` — scoped knowledge providers and registry for registry-backed grounding |
+| [`@plumbus/browser-extension`](packages/browser-extension/) | Optional `0.1.x` — dev-time WXT scaffolder for Chrome/Firefox extensions wired to your capabilities (with `@plumbus/ui`) |
 
 The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).
 
@@ -474,10 +477,12 @@ plumbus/
 │   │   ├── src/               # 9 source files
 │   │   ├── instructions/      # 7 AI agent instruction files
 │   │   └── package.json
+│   ├── api/                   # @plumbus/api — optional partner API contract layer
 │   ├── mcp/                   # @plumbus/mcp — optional MCP runtime
 │   ├── chat/                  # @plumbus/chat — optional chat primitive
 │   ├── chat-ui/               # @plumbus/chat-ui — optional React chat UI
-│   └── knowledge-base/        # @plumbus/knowledge-base — optional knowledge providers
+│   ├── knowledge-base/        # @plumbus/knowledge-base — optional knowledge providers
+│   └── browser-extension/     # @plumbus/browser-extension — optional extension scaffolder
 ├── design/                    # Architecture design documents
 ├── docs/                      # Documentation
 ├── turbo.json                 # Turborepo configuration

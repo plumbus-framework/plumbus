@@ -1,5 +1,11 @@
 # @plumbus/mcp changelog
 
+## 0.4.1
+
+### Documentation
+
+- README ecosystem table lists `@plumbus/api` (partner external API add-on).
+
 ## 0.4.0
 
 `@plumbus/mcp` is **version-locked** to `@plumbus/core` 0.4.x via `peerDependencies` (core lists mcp as an optional peer dependency). Install it explicitly alongside `@plumbus/core` when serving capabilities to AI agents.

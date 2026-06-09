@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Plumbus MCP runtime — expose capabilities to AI agents over Model Context Protocol",
   "type": "module",
   "main": "./dist/index.js",

@@ -19,6 +19,12 @@ export const ${toCamelCase(name)} = defineCapability({
   // exposeAs: ["mcp"],
   // mcp: { description: "Agent-facing description of ${name}" },
 
+  // Uncomment to expose this capability on the partner HTTP API.
+  // Requires \`pnpm add @plumbus/api\` and \`registerApiRoutes()\` in app bootstrap.
+  // See node_modules/@plumbus/core/instructions/api.md
+  // exposeAs: ["api"],
+  // api: { path: "/v1/${domain}/${name}", method: "GET" },
+
   input: z.object({
     // TODO: define input schema
   }),

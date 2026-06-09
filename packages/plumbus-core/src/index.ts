@@ -93,7 +93,12 @@ export {
 } from './ai/index.js';
 export type { RouteGeneratorConfig } from './api/index.js';
 // ── API (HTTP route generation) ──
-export { registerAllRoutes, registerCapabilityRoute, registerStreamingRoute } from './api/index.js';
+export {
+  isApiExposed,
+  registerAllRoutes,
+  registerCapabilityRoute,
+  registerStreamingRoute,
+} from './api/index.js';
 export type { AuditServiceConfig } from './audit/index.js';
 // ── Audit ──
 export { auditRecords, createAuditService } from './audit/index.js';
@@ -396,6 +401,7 @@ export type {
 // ── Governance Engine (advisory governance rules + policy reports) ──
 export {
   aiRules,
+  apiRules,
   applyOverrides,
   architectureRules,
   builtInProfiles,
@@ -409,6 +415,11 @@ export {
   ruleEntityTenantIsolation as govRuleEntityTenantIsolation,
   privacyRules,
   ruleAIWithoutExplanation,
+  ruleApiDeprecatedWithoutReplacement,
+  ruleApiMetadataWithoutExposure,
+  ruleApiMissingAuth,
+  ruleApiMissingOperationId,
+  ruleApiPublicMutationWithoutIdempotency,
   ruleCrossTenantDataAccess,
   ruleEntityMissingDescription,
   ruleExcessiveAIUsage,

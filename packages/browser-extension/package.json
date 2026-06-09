@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/browser-extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plumbus browser-extension scaffolder — emit wxt Chrome/Firefox extensions wired to capabilities",
   "type": "module",
   "main": "./dist/index.js",

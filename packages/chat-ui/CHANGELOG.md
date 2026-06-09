@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+### Documentation
+
+- README ecosystem table lists `@plumbus/api` (partner external API add-on).
+
 ## 0.1.2 — 2026-05-25
 
 - `buildTurnRequestBody` now propagates each message's `refusalReason` into the `clientHistory` wire payload. Required for `@plumbus/chat@0.1.2`'s `saveToDb: false` mode — server-side behavioral cooldown enforcement uses the per-message refusal flags from the wire when there's no DB state.

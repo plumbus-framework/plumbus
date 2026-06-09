@@ -133,4 +133,82 @@ describe('defineCapability', () => {
     });
     expect(cap.exposeAs).toBeUndefined();
   });
+
+  const validApiBlock = () => ({
+    operationId: 'getUser',
+    method: 'GET' as const,
+    path: '/users/{userId}',
+  });
+
+  it('accepts exposeAs api with valid api block', () => {
+    const cap = defineCapability({
+      ...validConfig(),
+      exposeAs: ['api'],
+      api: validApiBlock(),
+    });
+    expect(cap.exposeAs).toEqual(['api']);
+    expect(cap.api?.operationId).toBe('getUser');
+  });
+
+  it('rejects api metadata without exposeAs api', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        api: validApiBlock(),
+      }),
+    ).toThrow("api metadata requires exposeAs: ['api']");
+  });
+
+  it('rejects eventHandler exposed via api', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        kind: 'eventHandler',
+        exposeAs: ['api'],
+        api: validApiBlock(),
+      }),
+    ).toThrow('eventHandler cannot be exposed via API');
+  });
+
+  it('rejects job exposed via api', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        kind: 'job',
+        exposeAs: ['api'],
+        api: validApiBlock(),
+      }),
+    ).toThrow('job cannot be exposed via API');
+  });
+
+  it('rejects api exposure missing api block', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        exposeAs: ['api'],
+      }),
+    ).toThrow('API-exposed capabilities require an api block');
+  });
+
+  it('rejects invalid api config (missing path)', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        exposeAs: ['api'],
+        api: {
+          operationId: 'getUser',
+          method: 'GET',
+        } as any,
+      }),
+    ).toThrow('invalid api config');
+  });
+
+  it('freezes the api block', () => {
+    const cap = defineCapability({
+      ...validConfig(),
+      exposeAs: ['api'],
+      api: validApiBlock(),
+    });
+    expect(Object.isFrozen(cap.api)).toBe(true);
+  });
 });
