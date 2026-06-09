@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { CapabilityContract, McpExposureConfig } from '../types/capability.js';
+import type {
+  ApiExposureConfig,
+  CapabilityContract,
+  McpExposureConfig,
+} from '../types/capability.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { CapabilityKind } from '../types/enums.js';
 import { deepFreeze } from '../types/deep-freeze.js';
@@ -48,8 +52,9 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
     enabled?: boolean;
     summary?: string;
   };
-  exposeAs?: readonly 'mcp'[];
+  exposeAs?: readonly ('mcp' | 'api')[];
   mcp?: McpExposureConfig;
+  api?: ApiExposureConfig;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
@@ -62,7 +67,63 @@ const McpExposureConfigSchema = z
   })
   .strict();
 
-const ExposeAsSchema = z.array(z.enum(['mcp'])).optional();
+const ExposeAsSchema = z.array(z.enum(['mcp', 'api'])).optional();
+
+const ApiExposureConfigSchema = z
+  .object({
+    operationId: z.string(),
+    method: z.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
+    path: z.string(),
+    stability: z.enum(['experimental', 'beta', 'stable', 'deprecated', 'internal']).optional(),
+    auth: z
+      .object({
+        scopes: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+    idempotency: z
+      .object({
+        required: z.boolean(),
+        header: z.string(),
+        ttl: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    test: z
+      .object({
+        enabled: z.boolean(),
+        modes: z.array(z.enum(['validate-only', 'safe-reply'])),
+        defaultMode: z.enum(['validate-only', 'safe-reply']).optional(),
+        safeReply: z
+          .object({
+            fixture: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    docs: z
+      .object({
+        summary: z.string().optional(),
+        description: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+    deprecation: z
+      .object({
+        sunset: z.string().optional(),
+        replacement: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+function isApiExposedDraft(config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>): boolean {
+  return config.exposeAs?.includes('api') ?? false;
+}
 
 function hasAgentFacingDescription(
   config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>,
@@ -114,6 +175,41 @@ function validateMcpExposure(config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTy
   }
 }
 
+function validateApiExposure(config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>): void {
+  if (config.api !== undefined && !isApiExposedDraft(config)) {
+    throwDefineValidationError(
+      `Capability "${config.name}": api metadata requires exposeAs: ['api']`,
+      { field: 'api' },
+    );
+  }
+  if (!isApiExposedDraft(config)) {
+    return;
+  }
+  if (config.kind === 'eventHandler') {
+    throwDefineValidationError(
+      `Capability "${config.name}": eventHandler cannot be exposed via API`,
+      { field: 'exposeAs' },
+    );
+  }
+  if (config.kind === 'job') {
+    throwDefineValidationError(`Capability "${config.name}": job cannot be exposed via API`, {
+      field: 'exposeAs',
+    });
+  }
+  if (config.api === undefined) {
+    throwDefineValidationError(
+      `Capability "${config.name}": API-exposed capabilities require an api block with operationId, method, and path`,
+      { field: 'api' },
+    );
+  }
+  const apiResult = ApiExposureConfigSchema.safeParse(config.api);
+  if (!apiResult.success) {
+    throwDefineValidationError(`Capability "${config.name}": invalid api config`, {
+      field: 'api',
+    });
+  }
+}
+
 export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
   config: DefineCapabilityInput<TInput, TOutput>,
 ): CapabilityContract<TInput, TOutput> {
@@ -148,6 +244,7 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   }
 
   validateMcpExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
+  validateApiExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
 
   return deepFreeze({ ...config });
 }

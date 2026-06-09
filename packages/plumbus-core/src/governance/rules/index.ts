@@ -6,6 +6,14 @@ export {
   rulePromptMissingModelConfig,
   rulePromptMissingOutputSchema,
 } from './ai.js';
+export {
+  apiRules,
+  ruleApiDeprecatedWithoutReplacement,
+  ruleApiMetadataWithoutExposure,
+  ruleApiMissingAuth,
+  ruleApiMissingOperationId,
+  ruleApiPublicMutationWithoutIdempotency,
+} from './api.js';
 export { mcpRules, ruleMcpMissingDescription } from './mcp.js';
 export {
   architectureRules,

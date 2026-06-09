@@ -56,6 +56,18 @@ jobs:
             pnpm publish --access public --no-git-checks
           fi
 
+      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.4.x).
+      - name: Publish @plumbus/api
+        working-directory: packages/api
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
       - name: Publish @plumbus/knowledge-base
         working-directory: packages/knowledge-base
         run: |

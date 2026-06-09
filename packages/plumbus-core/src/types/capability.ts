@@ -26,9 +26,10 @@ export interface CapabilityExplanationConfig {
   summary?: string;
 }
 
-// ── MCP exposure (agent surface) ──
-export type CapabilityExposeAs = 'mcp';
+// ── Surface exposure ──
+export type CapabilityExposeAs = 'mcp' | 'api';
 
+// ── MCP exposure (agent surface) ──
 export interface McpExposureConfig {
   /** Agent-facing description override for MCP manifest and skills */
   description?: string;
@@ -36,6 +37,67 @@ export interface McpExposureConfig {
   dangerous?: boolean;
   /** Categorization hints for tool selection (manifest + skills) */
   agentTags?: readonly string[];
+}
+
+// ── API exposure (external-system surface) ──
+export const ApiStability = {
+  Experimental: 'experimental',
+  Beta: 'beta',
+  Stable: 'stable',
+  Deprecated: 'deprecated',
+  Internal: 'internal',
+} as const;
+export type ApiStability = (typeof ApiStability)[keyof typeof ApiStability];
+
+export const ApiHttpMethod = {
+  Get: 'GET',
+  Post: 'POST',
+  Patch: 'PATCH',
+  Put: 'PUT',
+  Delete: 'DELETE',
+} as const;
+export type ApiHttpMethod = (typeof ApiHttpMethod)[keyof typeof ApiHttpMethod];
+
+export type ApiTestMode = 'validate-only' | 'safe-reply';
+
+export interface ApiIdempotencyConfig {
+  required: boolean;
+  /** Header carrying the idempotency key. Default 'Idempotency-Key'. */
+  header: string;
+  /** Metadata only in v1 (no persistence). e.g. '24h'. */
+  ttl?: string;
+}
+
+export interface ApiTestConfig {
+  enabled: boolean;
+  modes: readonly ApiTestMode[];
+  defaultMode?: ApiTestMode;
+  safeReply?: { fixture?: string };
+}
+
+export interface ApiDocsConfig {
+  summary?: string;
+  description?: string;
+  tags?: readonly string[];
+}
+
+export interface ApiDeprecationConfig {
+  /** ISO 8601 date string. */
+  sunset?: string;
+  /** Replacement operationId or capability name. */
+  replacement?: string;
+}
+
+export interface ApiExposureConfig {
+  operationId: string;
+  method: ApiHttpMethod;
+  path: string;
+  stability?: ApiStability;
+  auth?: { scopes?: readonly string[] };
+  idempotency?: ApiIdempotencyConfig;
+  test?: ApiTestConfig;
+  docs?: ApiDocsConfig;
+  deprecation?: ApiDeprecationConfig;
 }
 
 // ── Capability Contract ──
@@ -62,6 +124,8 @@ export interface CapabilityContract<
   exposeAs?: readonly CapabilityExposeAs[];
   /** MCP-specific metadata when `exposeAs` includes `'mcp'` */
   mcp?: McpExposureConfig;
+  /** API-specific metadata when `exposeAs` includes `'api'` */
+  api?: ApiExposureConfig;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

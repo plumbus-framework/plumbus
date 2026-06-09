@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import {
   registerAgentCommand,
+  registerApiCommand,
   registerBrowserExtensionCommand,
   registerCapabilityCommand,
   registerCertifyCommand,
@@ -72,6 +73,7 @@ export function createCli(): Command {
   registerPromptCommand(program);
   registerGenerateCommand(program);
   registerMcpCommand(program);
+  registerApiCommand(program);
   registerMigrateCommand(program);
   registerDbCommand(program);
   registerVerifyCommand(program);

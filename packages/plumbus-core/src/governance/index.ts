@@ -25,9 +25,15 @@ export type {
 
 export {
   aiRules,
+  apiRules,
   architectureRules,
   privacyRules,
   ruleAIWithoutExplanation,
+  ruleApiDeprecatedWithoutReplacement,
+  ruleApiMetadataWithoutExposure,
+  ruleApiMissingAuth,
+  ruleApiMissingOperationId,
+  ruleApiPublicMutationWithoutIdempotency,
   ruleCapabilityMissingAccessPolicy,
   ruleCrossTenantDataAccess,
   ruleEntityMissingDescription,

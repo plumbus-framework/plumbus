@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Documentation
+
+- README ecosystem table lists `@plumbus/api` (partner external API add-on).
+
 ## 0.1.4 — 2026-05-26
 
 - `TurnContext.contextTokenBudget` and `TurnContext.userMessage` stamped in `run-turn.ts` before context resolution (registry-backed knowledge scope packing and RAG query plumbing).
