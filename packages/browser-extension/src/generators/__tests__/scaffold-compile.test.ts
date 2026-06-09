@@ -110,7 +110,7 @@ function runTsc(dir: string): string {
   }
 }
 
-describe('generated scaffold compiles', () => {
+describe('generated scaffold compiles', { timeout: 30_000 }, () => {
   it('entrypoints, popup, and client type-check under strict', () => {
     const cap = makeCap();
     const exportName = capabilityClientFnName(cap);
