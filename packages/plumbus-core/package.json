@@ -81,15 +81,20 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "peerDependencies": {
+    "@plumbus/api": "0.1.x",
     "@plumbus/mcp": "0.4.x"
   },
   "peerDependenciesMeta": {
+    "@plumbus/api": {
+      "optional": true
+    },
     "@plumbus/mcp": {
       "optional": true
     }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
+    "@plumbus/api": "workspace:*",
     "@plumbus/mcp": "workspace:*",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",

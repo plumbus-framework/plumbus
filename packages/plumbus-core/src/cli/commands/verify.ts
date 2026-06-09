@@ -6,6 +6,8 @@ import type { CapabilityContract } from '../../types/capability.js';
 import type { EntityDefinition } from '../../types/entity.js';
 import { FieldClassification, GovernanceSeverity } from '../../types/enums.js';
 import type { GovernanceSignal } from '../../types/governance.js';
+import { apiRules } from '../../governance/rules/api.js';
+import { createGovernanceRuleEngine } from '../../governance/rule-engine.js';
 import { discoverResources } from '../discover.js';
 import { info, error as logError, success, warn } from '../utils.js';
 
@@ -122,6 +124,18 @@ export function ruleEntityTenantIsolation(entities: EntityDefinition[]): Governa
   return signals;
 }
 
+function runApiGovernanceRules(capabilities: CapabilityContract[]): GovernanceSignal[] {
+  const engine = createGovernanceRuleEngine();
+  engine.registerMany(apiRules);
+  return engine.evaluate({
+    capabilities,
+    entities: [],
+    flows: [],
+    events: [],
+    prompts: [],
+  }).signals;
+}
+
 /** Run all governance rules against a system inventory */
 export function runGovernanceRules(
   capabilities: CapabilityContract[],
@@ -133,6 +147,7 @@ export function runGovernanceRules(
     ...ruleEntityFieldClassification(entities),
     ...ruleEncryptedSensitiveFields(entities),
     ...ruleEntityTenantIsolation(entities),
+    ...runApiGovernanceRules(capabilities),
   ];
 }
 

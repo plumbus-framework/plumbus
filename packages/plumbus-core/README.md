@@ -2,7 +2,7 @@
 
 **AI-native, contract-driven TypeScript application framework.**
 
-Define your application through six composable primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — and get deny-by-default security, advisory governance, audit trails, and managed AI integration out of the box. Two opt-in companion packages extend the surface: `@plumbus/chat` for conversational runtimes and `@plumbus/mcp` for serving capabilities to AI agents.
+Define your application through six composable primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — and get deny-by-default security, advisory governance, audit trails, and managed AI integration out of the box. Optional companion packages extend the surface for partner APIs, MCP agents, chat, knowledge, UI generation, and browser extensions — install only what you need.
 
 ## Install
 
@@ -157,6 +157,19 @@ Wire them up with `plumbus init --agent all`.
 ## Documentation
 
 Full documentation: [github.com/plumbus-framework/plumbus/docs](https://github.com/plumbus-framework/plumbus/tree/main/docs)
+
+## The Plumbus ecosystem
+
+| Package | Purpose | When to install |
+|---|---|---|
+| **`@plumbus/core`** | **You are here.** Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
+| [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
+| [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
+| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.4.x` — when exposing capabilities to MCP clients. |
+| [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
+| [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
+| [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
+| [`@plumbus/browser-extension`](../browser-extension/) | Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
 
 ## License
 

@@ -59,6 +59,16 @@ pnpm add @plumbus/mcp
 
 Apps that don't use MCP never install it. `plumbus mcp serve` prints an install hint when the package is missing. `plumbus generate` (which emits the MCP manifest + skill files) does **not** require `@plumbus/mcp`.
 
+### Optional add-on: `@plumbus/api`
+
+`@plumbus/api` is the partner-grade external API contract layer (manifest validation, OpenAPI export, docs generation, test intent, compatibility diff). It is an optional peer dependency of `@plumbus/core` (version-locked `0.1.x`). Apps that want a documented partner-facing API install it explicitly:
+
+```
+pnpm add @plumbus/api
+```
+
+Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.yaml` manifest, and call `registerApiRoutes()` from app bootstrap. `plumbus api validate` prints an install hint when the package is missing.
+
 ### Optional add-on: `@plumbus/browser-extension`
 
 `@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.4.0 <0.5.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
@@ -148,6 +158,7 @@ src/<module>/
 
 ## Adding New Features
 
+- **New package**: scaffold under `packages/<name>/` and follow [`.agents/skills/new-package-instructions/SKILL.md`](.agents/skills/new-package-instructions/SKILL.md) — every publishable package needs `instructions/`, README links, and `"instructions"` in `package.json` `files`
 - **New module**: create `src/<module>/index.ts` + `__tests__/` + re-export from `src/index.ts`
 - **New CLI command**: `src/cli/commands/<name>.ts` with `register<Name>Command()`, add export to `commands/index.ts`, register in `cli.ts`
 - **New define function**: `src/define/define<Primitive>.ts` + types in `src/types/` + validate with Zod + freeze output

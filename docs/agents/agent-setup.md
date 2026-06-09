@@ -50,6 +50,7 @@ plumbus init
 │ node_modules/@plumbus/chat-ui/instructions/                 │
 │ node_modules/@plumbus/knowledge-base/instructions/          │
 │ node_modules/@plumbus/mcp/instructions/                     │
+│ node_modules/@plumbus/api/instructions/                     │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
 │  framework.md     ← Core patterns and conventions           │
@@ -67,6 +68,8 @@ plumbus init
 │                     context sources, testing, extending     │
 │  knowledge-base/*.md ← KB conventions, sources, providers,  │
 │                     chat wiring, testing (when installed)     │
+│  api/*.md           ← Partner API expose, manifest, CLI,    │
+│                     testing (when @plumbus/api installed)   │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
@@ -122,6 +125,7 @@ After initialization, your AI agent understands:
 | **UI Generation** | How to generate clients, hooks, auth helpers, form hints, and Next.js scaffolds |
 | **Chat** | How to define chats, configure guards, pick context sources, test, and extend the runtime |
 | **Knowledge base** | How to define knowledge sources, pick providers, wire `knowledgeContext`, and test registries (when `@plumbus/knowledge-base` is installed) |
+| **Partner API** | How to expose capabilities with `exposeAs: ['api']`, maintain `api.yaml`, generate OpenAPI, and test partner routes (when `@plumbus/api` is installed) |
 
 ## Manual Setup
 
@@ -249,6 +253,11 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/mcp/instructions/expose-a-capability.md` | `exposeAs: ['mcp']` recipe + agent token config |
 | `node_modules/@plumbus/mcp/instructions/tasks.md` | `kind: 'job'` over MCP Tasks (`mcpTaskEntity`, progress, cancel) |
 | `node_modules/@plumbus/mcp/instructions/testing.md` | `@plumbus/mcp/testing` helpers |
+| `node_modules/@plumbus/api/instructions/README.md` | Partner API instruction index (optional package) |
+| `node_modules/@plumbus/api/instructions/framework.md` | API package boundary, public exports, critical rules |
+| `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |
+| `node_modules/@plumbus/api/instructions/manifest-and-cli.md` | `api.yaml`, validation, OpenAPI/docs, `plumbus api` CLI |
+| `node_modules/@plumbus/api/instructions/testing.md` | Test intent, idempotency, fixture validation |
 
 ## Verifying Agent Setup
 

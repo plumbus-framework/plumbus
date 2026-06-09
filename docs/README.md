@@ -60,6 +60,16 @@ docs/
 │   ├── expose-a-capability.md
 │   ├── transports.md
 │   └── skill-files.md
+├── api/                       Optional @plumbus/api package (partner API contracts, OpenAPI, diff)
+│   ├── README.md              Folder index — navigation, reading paths, agent instructions
+│   ├── overview.md            Mental model, install, quick start, request lifecycle
+│   ├── exposure-model.md      exposeAs, api metadata, auth, idempotency, eligible kinds
+│   ├── manifest.md            api.yaml field reference, validation error catalog
+│   ├── openapi.md             OpenAPI generation, envelopes, security schemes
+│   ├── test-intent.md         Partner sandbox testing, fixtures, containment rules
+│   ├── structure-policy.md    Tenant routing, GET semantics, public+test guard
+│   ├── compatibility.md       Breaking vs non-breaking diff, CI workflow
+│   └── governance.md          Advisory apiRules in plumbus verify
 ├── agents/                    Wiring AI coding agents to your project
 │   ├── agent-setup.md
 │   └── guardrails.md
@@ -84,6 +94,7 @@ docs/
 | Wire a React chat UI | [Chat UI → README](chat-ui/README.md) |
 | Serve capabilities to AI agents over MCP | [MCP → Overview](mcp/overview.md) |
 | Wire MCP tool-call metrics (Datadog, Prometheus, etc.) | [MCP → Transports → onMcpToolCall](mcp/transports.md#per-tool-call-observability--onmcptoolcall) |
+| Publish a partner-facing API with OpenAPI | [API → README](api/README.md) (start here) · [Overview](api/overview.md) · [packages/api/README.md](../packages/api/README.md) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |

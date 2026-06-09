@@ -4,6 +4,7 @@
 //
 // Available commands:
 //   agent      — Generate AI agent briefs for resources
+//   api        — External API contract validate, generate, diff
 //   capability — Scaffold a new capability
 //   certify    — Run compliance profile assessment
 //   create     — Scaffold a new Plumbus application
@@ -28,6 +29,7 @@
 //   verify     — Run governance rules
 
 export { registerAgentCommand } from './agent.js';
+export { registerApiCommand } from './api.js';
 export { registerBrowserExtensionCommand } from './browser-extension.js';
 export { registerCapabilityCommand } from './capability.js';
 export { registerCertifyCommand } from './certify.js';

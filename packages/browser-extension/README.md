@@ -156,15 +156,16 @@ The primary entry point is the CLI (`plumbus browser-extension scaffold`, shippe
 
 ## The Plumbus ecosystem
 
-| Package | Role |
-|---|---|
-| [`@plumbus/core`](../plumbus-core/) | The framework. Required peer. `ExecutionContext`, capabilities, entities, events, flows, prompts, RAG, audit, governance. |
-| [`@plumbus/ui`](../ui/) | Next.js scaffolds, typed API clients, React hooks. Supplies the client this package wires into the extension. |
-| **`@plumbus/browser-extension`** | **You are here.** WXT Chrome/Firefox extension scaffolder. |
-| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents. |
-| [`@plumbus/chat`](../chat/) | Server-side conversational runtime. |
-| [`@plumbus/chat-ui`](../chat-ui/) | React UI for `@plumbus/chat`. |
-| [`@plumbus/knowledge-base`](../knowledge-base/) | Audience-scoped knowledge providers + registry. |
+| Package | Purpose | When to install |
+|---|---|---|
+| [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
+| [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI (required alongside this package). |
+| [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
+| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.4.x` — when exposing capabilities to MCP clients. |
+| [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
+| [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
+| [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
+| **`@plumbus/browser-extension`** | **You are here.** Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
 
 ## Links
 

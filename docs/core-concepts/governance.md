@@ -90,6 +90,7 @@ import {
   architectureRules,
   aiRules,
   mcpRules,
+  apiRules,
 } from '@plumbus/core';
 
 const engine = createGovernanceRuleEngine();
@@ -99,6 +100,7 @@ engine.registerRules([
   ...architectureRules,
   ...aiRules,
   ...mcpRules,
+  ...apiRules,
 ]);
 
 const result = engine.evaluate(inventory);
