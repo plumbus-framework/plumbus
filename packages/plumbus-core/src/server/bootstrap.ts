@@ -64,7 +64,7 @@ export interface ServerConfig {
   port?: number;
   /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
   trustProxy?: boolean | string | string[] | number;
-  /** Jobs queue for async kind: 'job' capabilities (when worker pool is active). */
+  /** Jobs queue for async kind: 'job' capabilities (when API wires jobQueue). */
   jobQueue?: EventQueue;
   /** Expose Prometheus metrics at GET /metrics (colocated role=all deployments). */
   metrics?: PlumbusMetrics;

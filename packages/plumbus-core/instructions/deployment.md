@@ -197,6 +197,18 @@ npx plumbus worker start --health-port 3001
 
 **Redis is required** when API and worker run as separate replicas. Set `QUEUE_URL` or `REDIS_URL` on both containers.
 
+### Upgrading to 0.5 (workers and queues)
+
+When upgrading `@plumbus/core` to **0.5.x** from 0.4.x:
+
+1. **Migrate** — `plumbus migrate generate && plumbus migrate apply` (adds `job_executions`). Apply **before** job routes receive traffic.
+2. **HTTP job clients** — `kind: 'job'` `POST` routes return **202** with `{ data: { jobId, status: "accepted" } }` when job capabilities exist; poll `GET /api/jobs/:jobId`. Pre-0.5.0 often returned **200** synchronously.
+3. **Optional peers** — `pnpm add redis` for multi-replica production; `pnpm add cron-parser` if flows use schedule triggers.
+4. **Split deploy** — `PLUMBUS_RUNTIME_ROLE=api` on API containers plus `plumbus worker start` on worker containers; API-only without a worker enqueues but never executes.
+5. **`eventHandler`** — add `trigger: { event: "…" }` for auto-registration, or keep manual `ConsumerRegistry` wiring.
+
+Full monorepo checklist: `docs/upgrading-workers.md` (framework repo; not in the npm package).
+
 | Container | Command | Probes | Notes |
 |-----------|---------|--------|-------|
 | API | `plumbus start` | `GET /health`, `GET /ready` on port 3000 | Set `PLUMBUS_RUNTIME_ROLE=api` |

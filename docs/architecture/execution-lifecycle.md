@@ -263,7 +263,7 @@ POST /api/{domain}/{job-name}
           │                 │ markFailed       │
           │                 └──────────────────┘
           ▼
-   202 { jobId, status: "accepted" }
+   202 { data: { jobId, status: "accepted" } }
           │
           ▼ (client polls)
    GET /api/jobs/:jobId

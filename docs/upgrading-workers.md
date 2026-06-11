@@ -58,15 +58,17 @@ defineCapability({
 
 Run `plumbus verify` to surface handlers still missing `trigger.event`. If you intentionally register consumers manually in `app/server.ts`, no change is required — manual registrations take precedence.
 
-### 4. Update job status polling (optional)
+### 4. Update HTTP job clients (required if you call job routes)
 
-If your frontend or integrations poll for job completion, switch to the dedicated status endpoint:
+If your frontend or integrations call `POST` routes for `kind: 'job'` capabilities, they must handle **202** and poll the status endpoint (pre-0.5.0 often received **200** with the handler output synchronously):
 
 ```
 GET /api/jobs/:jobId
 ```
 
-The `202` response from job capability routes still returns `{ jobId, status: "accepted" }`. The new endpoint exposes `running`, `completed`, `failed`, output, and error details from `job_executions`.
+The `202` response body is `{ data: { jobId, status: "accepted" } }` (standard Plumbus envelope). `GET /api/jobs/:jobId` returns `{ data: { jobId, status, output, error, … } }` with statuses including `queued`, `running`, `completed`, `failed`, and `dead_lettered`.
+
+Job routes insert into `job_executions` before enqueueing — deploy migrations **before** traffic hits job endpoints or requests will fail at the database layer.
 
 ### 5. Choose a runtime topology
 
@@ -95,7 +97,7 @@ const queues = await resolveRuntimeQueues(config);
 jobQueue: queues.jobs,
 ```
 
-`plumbus mcp serve` wires this automatically when Redis is configured. Without Redis, MCP jobs execute in-process. Colocated setups (`plumbus start` with role `all`) wire `jobQueue` for HTTP automatically when a worker pool is active. See [MCP Tasks and Jobs](./mcp/tasks-and-jobs.md#shared-jobs-queue).
+`plumbus mcp serve` wires this automatically when Redis is configured. Without Redis, MCP jobs execute in-process. **HTTP and MCP differ:** colocated `plumbus start` / `plumbus dev` wire `jobQueue` for HTTP whenever job capabilities exist (in-memory or Redis), so job `POST` routes return **202** even without Redis. MCP receives `jobQueue` only when Redis is durable (`queues.isDurable`). See [MCP Tasks and Jobs](./mcp/tasks-and-jobs.md#shared-jobs-queue).
 
 ### 7. Add worker health probes (split deployments)
 
@@ -127,7 +129,7 @@ Existing `QUEUE_HOST`, `QUEUE_PORT`, and `QUEUE_PASSWORD` continue to work.
 | Change | Who is affected | Action |
 |--------|-----------------|--------|
 | **`job_executions` migration** | Any deploy | `plumbus migrate generate && plumbus migrate apply` before deploy |
-| **HTTP `kind: 'job'` → async 202** | Apps with job capabilities on default `plumbus start`/`dev` | Pre-0.5.0: jobs ran **synchronously** (HTTP **200** + output). 0.5.0: **202** + `{ jobId, status: "accepted" }` when a worker pool is active. Poll `GET /api/jobs/:jobId`. |
+| **HTTP `kind: 'job'` → async 202** | Apps with job capabilities on `plumbus start`/`dev` or `PLUMBUS_RUNTIME_ROLE=api` | Pre-0.5.0: jobs ran **synchronously** (HTTP **200** + output). 0.5.0: **202** + `{ data: { jobId, status: "accepted" } }` whenever the API wires `jobQueue` (not gated on worker pool). Poll `GET /api/jobs/:jobId`. On API-only replicas, also run `plumbus worker` or jobs never execute. |
 | **Broader worker pool activation** | Apps with `defineEvent`, `eventHandler`, `job`, or scheduled flows but no event-triggered flows | Background workers now start automatically (outbox dispatcher, consumers). Usually desirable; verify resource usage. |
 | **Jobs queue moved off events queue** | Custom consumers listening on the events queue for job work | Subscribe to the **jobs** queue or use framework consumers |
 | **`trigger` only on `eventHandler`** | Any capability | Adding `trigger` to non-`eventHandler` kinds throws at `defineCapability` time |

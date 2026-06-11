@@ -135,11 +135,13 @@ const cancelled = await client.request(
 
 Colocated `plumbus start` / `plumbus dev` (`PLUMBUS_RUNTIME_ROLE=all`) runs MCP and workers in one process — task dispatch behaves as before.
 
+**HTTP vs MCP (default colocated):** HTTP job routes return **202** and use `jobQueue` whenever job capabilities exist, even with in-memory queues. MCP only receives `jobQueue` when Redis is durable.
+
 When **MCP runs separately from workers** (split topology) and Redis is configured:
 
 - `plumbus mcp serve` passes `jobQueue` to `createMcpServer` when `resolveRuntimeQueues` returns `isDurable: true`.
 - `kind: 'job'` tools enqueue to the shared **jobs** queue; a `plumbus worker` process dequeues and executes.
-- Workers may load `createMcpJobCompletionSync` from `@plumbus/mcp` to update `mcp_task` rows when jobs complete off the MCP process.
+- The worker pool auto-imports `createMcpJobCompletionSync` from `@plumbus/mcp` when installed, updating `mcp_task` rows when jobs complete off the MCP process.
 
 Without Redis, MCP jobs stay **in-process** (no `jobQueue`). Install `redis` and run `plumbus worker start` for split deploys. See `docs/upgrading-workers.md` and `docs/mcp/tasks-and-jobs.md`.
 

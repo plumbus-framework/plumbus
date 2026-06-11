@@ -100,9 +100,9 @@ defineCapability({
 ```
 
 - Routed as `POST /api/{domain}/{kebab-name}`
-- Returns `202 Accepted` with `{ jobId, status: "accepted" }`
+- Returns `202 Accepted` with `{ data: { jobId, status: "accepted" } }` when the API wires `jobQueue` (any job capability — not gated on worker pool)
 - Creates a `job_executions` row and publishes to the shared jobs queue
-- Poll status: `GET /api/jobs/:jobId` (owner or admin)
+- Poll status: `GET /api/jobs/:jobId` → `{ data: { jobId, status, output, error, … } }` (owner or admin). Statuses include `dead_lettered`.
 
 ### Event Handler
 

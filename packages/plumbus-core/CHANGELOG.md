@@ -15,13 +15,13 @@
 ### Changed
 
 - **Worker pool gating** — `plumbus dev` / `plumbus start` start background workers when the app defines events, `eventHandler` or `job` capabilities, or scheduled flows (not only event-triggered flows).
-- **HTTP `kind: 'job'`** — when job capabilities exist and the worker pool is active, routes return **202** with `{ jobId, status: "accepted" }` and execute via the jobs queue (previously ran synchronously with **200** because `jobQueue` was not wired on the server).
+- **HTTP `kind: 'job'`** — when the API wires `jobQueue` (any job capability on `plumbus dev` / `plumbus start`, including `PLUMBUS_RUNTIME_ROLE=api` without a worker), routes return **202** with `{ data: { jobId, status: "accepted" } }` and enqueue via the jobs queue (previously ran synchronously with **200** because `jobQueue` was not wired on the server).
 - **Job dispatch** — jobs publish to the dedicated **jobs** queue with a `JobQueuePayload` envelope, not the events queue.
 - **Event handler security** — dequeue uses tenant binding from `event_outbox` (fail-closed); trusted replay via `plumbus events` ops.
 
 ### Upgrading
 
-See `docs/upgrading-workers.md` in the monorepo (published with the package docs). Required steps for most apps:
+See `docs/upgrading-workers.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Required steps for most apps:
 
 ```bash
 plumbus migrate generate && plumbus migrate apply

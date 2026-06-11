@@ -208,7 +208,7 @@ export const generateReport = defineCapability({
 });
 ```
 
-Job capabilities are exposed as `POST` endpoints. From **0.5.0**, when the app defines job capabilities and the worker pool is active (default on `plumbus dev` / `plumbus start`), routes return **`202 Accepted`** with `{ jobId, status: "accepted" }` and execute asynchronously via the jobs queue.
+Job capabilities are exposed as `POST` endpoints. From **0.5.0**, when the API wires `jobQueue` (any job capability on `plumbus dev` / `plumbus start` — including in-memory queues), routes return **`202 Accepted`** with `{ data: { jobId, status: "accepted" } }` and enqueue via the jobs queue. This is **not** gated on whether a worker pool runs in the same process; `PLUMBUS_RUNTIME_ROLE=api` still returns **202** but needs a separate `plumbus worker` to execute jobs.
 
 Poll completion with:
 
@@ -216,6 +216,6 @@ Poll completion with:
 GET /api/jobs/:jobId
 ```
 
-Status (`queued`, `running`, `completed`, `failed`), output, and errors come from the `job_executions` table. Run `plumbus migrate generate && plumbus migrate apply` before deploying.
+Response: `{ data: { jobId, status, output, error, … } }`. Status values include `queued`, `running`, `completed`, `failed`, and `dead_lettered` from `job_executions`. Run `plumbus migrate generate && plumbus migrate apply` **before** job traffic — routes fail at the DB layer if the table is missing.
 
-**Pre-0.5.0 note:** job routes often returned **200** with the handler output synchronously because the server did not wire a job queue. Update HTTP clients and integrations that assumed synchronous job responses.
+**Pre-0.5.0 note:** job routes often returned **200** with the handler output synchronously because the server did not wire a job queue. Update HTTP clients that assumed synchronous job responses. See `deployment.md` (Upgrading to 0.5) for the full checklist.

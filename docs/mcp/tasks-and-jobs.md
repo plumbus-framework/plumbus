@@ -86,7 +86,7 @@ const server = createMcpServer({
 | Set | Async dispatch — worker dequeues, updates `job_executions`, syncs `mcp_task` row on completion |
 | Omitted | In-process execution (backward compatible for dev and colocated `plumbus start`) |
 
-Colocated `plumbus start` (default `PLUMBUS_RUNTIME_ROLE=all`) wires `jobQueue` automatically when a worker pool is active. `plumbus mcp serve` passes `jobQueue` only when Redis is configured (`queues.isDurable`); otherwise MCP jobs run in-process. Split deployments (`PLUMBUS_RUNTIME_ROLE=api` + `plumbus worker`) require Redis and a running worker for async MCP jobs.
+Colocated `plumbus start` / `plumbus dev` wire `jobQueue` for **HTTP** whenever job capabilities exist (in-memory or Redis). `plumbus mcp serve` passes `jobQueue` only when Redis is configured (`queues.isDurable`); otherwise MCP jobs run in-process. Split deployments (`PLUMBUS_RUNTIME_ROLE=api` + `plumbus worker`) require Redis and a running worker for async MCP jobs.
 
 When jobs run in a worker process, `@plumbus/mcp`'s `createMcpJobCompletionSync` updates the `mcp_task` row on completion — install `@plumbus/mcp` in worker images that serve MCP jobs.
 
