@@ -48,7 +48,14 @@ export const ${toCamelCase(name)} = defineCapability({
   handler: async (ctx, input) => {
     // TODO: implement ${pascal}
     return {};
-  },
+  },${
+    kind === 'eventHandler'
+      ? `
+
+  // Optional: auto-register this handler on the events queue when workers run.
+  // trigger: { event: "your.domain.event" },`
+      : ''
+  }
 });
 `;
 }

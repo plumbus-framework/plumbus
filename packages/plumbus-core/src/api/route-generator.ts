@@ -9,6 +9,8 @@ import {
 } from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
+import { JobExecutionSource } from '../jobs/schema.js';
+import { dispatchQueuedJob } from '../jobs/dispatch.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
@@ -106,16 +108,13 @@ export function registerCapabilityRoute(
         const { statusCode, body } = errorToHttpResponse(err);
         return reply.status(statusCode).send(body);
       }
-      const jobId = crypto.randomUUID();
-      await config.jobQueue.publish({
-        id: jobId,
-        eventType: `job.${capability.domain}.${capability.name}`,
-        version: '1',
-        occurredAt: new Date(),
-        actor: ctx.auth.userId ?? 'anonymous',
-        tenantId: ctx.auth.tenantId,
-        correlationId: jobId,
-        payload: parsed.data as Record<string, unknown>,
+      const jobId = await dispatchQueuedJob({
+        db: config.db,
+        jobQueue: config.jobQueue,
+        capability,
+        input: parsed.data as Record<string, unknown>,
+        auth: ctx.auth,
+        source: JobExecutionSource.Http,
       });
       reply.status(202).send({ data: { jobId, status: 'accepted' } });
       return;

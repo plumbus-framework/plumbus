@@ -6,6 +6,7 @@ export { parseBearerToken } from './auth/parse-bearer.js';
 export { resolveMcpAgentToken } from './auth/resolve-agent-token.js';
 export { createMcpServer, type CreateMcpServerOptions } from './server.js';
 export type { McpServerConfig, McpToolCallInfo } from './types.js';
+export { createMcpJobCompletionSync } from './tasks/job-completion.js';
 export {
   registerMcpOnFastify,
   startHttpServer,

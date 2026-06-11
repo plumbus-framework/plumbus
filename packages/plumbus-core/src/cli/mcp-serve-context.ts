@@ -23,6 +23,8 @@ import type { PlumbusConfig } from '../types/config.js';
 import type { AuthContext } from '../types/security.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import type { LoggerService } from '../types/context.js';
+import { resolveRuntimeQueues } from '../runtime/queue-factory.js';
+import type { EventQueue } from '../events/queue.js';
 import { warn } from './utils.js';
 import { discoverResources } from './discover.js';
 
@@ -31,6 +33,8 @@ export interface McpServeContext {
   db: PostgresJsDatabase;
   capabilities: CapabilityRegistry;
   routeConfig: RouteGeneratorConfig;
+  jobQueue?: EventQueue;
+  closeQueues: () => Promise<void>;
   closeDb: () => Promise<void>;
 }
 
@@ -70,6 +74,8 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
 
   const dbConnection = await resolveDatabaseConnection(config.database, {});
   const db = dbConnection.db;
+
+  const queues = await resolveRuntimeQueues(config);
 
   const logger: LoggerService = {
     info: (msg: string) => console.log(msg),
@@ -145,6 +151,8 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
     db,
     capabilities,
     routeConfig,
+    ...(queues.isDurable ? { jobQueue: queues.jobs } : {}),
+    closeQueues: () => queues.close(),
     closeDb: async () => {
       await closeDatabaseConnection(dbConnection);
     },

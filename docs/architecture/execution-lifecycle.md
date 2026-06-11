@@ -235,6 +235,42 @@ For large binary or text payloads, keep flow `input` and `state` small and store
    Return validated output
 ```
 
+## Job Capability Lifecycle
+
+Async `kind: 'job'` capabilities follow a queue-backed path distinct from synchronous queries and actions:
+
+```
+POST /api/{domain}/{job-name}
+    │
+    ▼
+┌─────────────────────┐
+│ Access + validate   │
+│ input               │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐     ┌──────────────────┐
+│ INSERT              │     │ Publish to       │
+│ job_executions      │────▶│ jobs queue       │
+│ status: queued      │     └────────┬─────────┘
+└─────────┬───────────┘              │
+          │                          ▼
+          │                 ┌──────────────────┐
+          │                 │ Worker dequeues  │
+          │                 │ markRunning      │
+          │                 │ execute handler  │
+          │                 │ markCompleted /  │
+          │                 │ markFailed       │
+          │                 └──────────────────┘
+          ▼
+   202 { jobId, status: "accepted" }
+          │
+          ▼ (client polls)
+   GET /api/jobs/:jobId
+```
+
+MCP task dispatch with `jobQueue` configured follows the same enqueue path. See [Workers and Queues](./workers-and-queues.md).
+
 ## Context Assembly
 
 When a capability is about to execute, the framework assembles the execution context:

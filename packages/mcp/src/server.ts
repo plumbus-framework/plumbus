@@ -13,7 +13,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import {
+  JobExecutionSource,
   createExecutionContext,
+  dispatchQueuedJob,
   executeCapability,
   type AuthContext,
   type CapabilityContract,
@@ -216,6 +218,43 @@ export function createMcpServer(
         capabilityDomain: cap.domain,
         progressToken: progressToken !== undefined ? String(progressToken) : undefined,
       });
+
+      if (config.jobQueue) {
+        try {
+          await dispatchQueuedJob({
+            db: config.db,
+            jobQueue: config.jobQueue,
+            capability: cap as CapabilityContract,
+            input: (request.params.arguments ?? {}) as Record<string, unknown>,
+            auth: authContext,
+            jobId: taskId,
+            source: JobExecutionSource.Mcp,
+            correlationId: taskId,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(taskRowToWire(task)) }],
+          };
+        } catch (err) {
+          await markStatus(ctx, taskId, 'failed', {
+            errorJson: {
+              code: 'dispatch_failed',
+              message: err instanceof Error ? err.message : String(err),
+            },
+          }).catch(() => {});
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  code: 'dispatch_failed',
+                  message: err instanceof Error ? err.message : String(err),
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
 
       const bgDeps = config.createDependencies(authContext, { bypassTenantScope });
       const bgCtx = createExecutionContext(bgDeps);

@@ -18,9 +18,9 @@ export function createFlowTriggerHandler(config: {
    * Process an incoming event and start any triggered flows.
    * Returns the number of flows started.
    */
-  async function handleEvent(envelope: EventEnvelope): Promise<number> {
+  async function handleEvent(envelope: EventEnvelope): Promise<string[]> {
     const matchingFlows = registry.getByTriggerEvent(envelope.eventType);
-    if (matchingFlows.length === 0) return 0;
+    const executionIds: string[] = [];
 
     const auth: AuthContext = {
       userId: envelope.actor,
@@ -30,17 +30,16 @@ export function createFlowTriggerHandler(config: {
       provider: 'event-trigger',
     };
 
-    let started = 0;
     for (const flow of matchingFlows) {
-      await engine.start(flow.name, envelope.payload, auth, {
+      const exec = await engine.start(flow.name, envelope.payload, auth, {
         correlationId: envelope.correlationId,
         triggerEventId: envelope.id,
       });
-      started++;
+      executionIds.push(exec.id);
     }
 
-    const resumed = await engine.resumeWaitingByEvent(envelope.eventType, envelope.payload);
-    return started + resumed;
+    const resumedIds = await engine.resumeWaitingByEvent(envelope.eventType, envelope.payload);
+    return [...executionIds, ...resumedIds];
   }
 
   return { handleEvent };

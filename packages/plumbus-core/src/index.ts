@@ -295,6 +295,44 @@ export * from './types/index.js';
 export type { WorkerPool, WorkerPoolConfig } from './worker/index.js';
 // ── Worker Bootstrap ──
 export { createWorkerPool } from './worker/index.js';
+export type {
+  BuildWorkerAiServiceOptions,
+  RegisterCapabilityConsumersOptions,
+  ResolveRuntimeQueuesOptions,
+  RuntimeCommand,
+  RuntimeQueues,
+  ServerExtensions,
+} from './runtime/index.js';
+export {
+  RuntimeRole,
+  buildStepDeps,
+  buildWorkerAiService,
+  discoverRuntimeResources,
+  needsWorkerPool,
+  registerCapabilityConsumers,
+  resolveRuntimeQueues,
+  resolveRuntimeRole,
+  shouldStartApiServer,
+  shouldStartWorkerPool,
+  shouldUseRedisBackend,
+  tryCreateRedisClient,
+} from './runtime/index.js';
+export type {
+  CreateJobExecutionInput,
+  DispatchJobOptions,
+  JobExecutionRecord,
+  JobQueuePayload,
+  JobService,
+} from './jobs/index.js';
+export {
+  JobExecutionSource,
+  JobExecutionStatus,
+  createJobService,
+  dispatchQueuedJob,
+  jobEventType,
+  jobExecutionsTable,
+  registerJobStatusRoute,
+} from './jobs/index.js';
 
 // ┌────────────────────────────────────────────────────────────────────────┐
 // │ TIER 2 — Tooling & CLI Internals                                      │

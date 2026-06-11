@@ -22,4 +22,15 @@ export interface EventEnvelope<TPayload = unknown> {
   correlationId: string;
   causationId?: string;
   payload: TPayload;
+  /**
+   * Optional delivery metadata (not written to outbox). Used for trusted ops
+   * replay paths that bypass outbox tenant binding.
+   */
+  metadata?: Record<string, unknown>;
 }
+
+/** Actors allowed to deliver events without a matching outbox row (ops replay). */
+export const TrustedReplayActor = {
+  OpsRetry: 'ops-retry',
+  OutboxReplay: 'outbox-replay',
+} as const;

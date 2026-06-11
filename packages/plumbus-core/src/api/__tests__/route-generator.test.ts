@@ -161,6 +161,20 @@ describe('job capability with jobQueue', () => {
           };
     const config = {
       ...makeMockConfig(),
+      db: {
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([
+              {
+                id: 'job-test-id',
+                capabilityDomain: 'users',
+                capabilityName: 'processReport',
+                status: 'queued',
+              },
+            ]),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase,
       authAdapter: {
         authenticate: vi.fn().mockResolvedValue(auth === null ? null : authContext),
       },
@@ -214,7 +228,10 @@ describe('job capability with jobQueue', () => {
     await handler(makeMockRequest({}, { reportId: 'r1' }), reply);
     expect(reply.status).toHaveBeenCalledWith(202);
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish.mock.calls[0]?.[0]?.payload).toEqual({ reportId: 'r1' });
+    const envelope = publish.mock.calls[0]?.[0];
+    expect(envelope?.payload?.input).toEqual({ reportId: 'r1' });
+    expect(envelope?.payload?.jobExecutionId).toBeDefined();
+    expect(envelope?.payload?.auth).toBeUndefined();
   });
 });
 

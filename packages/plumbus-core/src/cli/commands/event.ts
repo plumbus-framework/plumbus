@@ -4,9 +4,13 @@
 import type { Command } from 'commander';
 import { eventTemplate } from '../templates/resources.js';
 import { error, exists, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
+import { registerEventsOpsCommands } from './events-ops.js';
 
 export function registerEventCommand(program: Command): void {
   const cmd = program.command('event').description('Manage events');
+
+  const events = program.command('events').description('Event runtime operations');
+  registerEventsOpsCommands(events);
 
   cmd
     .command('new <name>')

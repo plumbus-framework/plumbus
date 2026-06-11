@@ -37,3 +37,8 @@ export {
   ruleOverlyPermissiveRoles,
   securityRules,
 } from './security.js';
+export {
+  ruleEventHandlerMissingTrigger,
+  ruleEventHandlerSideEffects,
+  workerRules,
+} from './worker.js';

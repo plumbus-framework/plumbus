@@ -59,9 +59,11 @@ export function registerMcpCommand(program: Command): void {
         db: ctx.db,
         authAdapter: ctx.routeConfig.authAdapter,
         createDependencies: ctx.routeConfig.createDependencies,
+        jobQueue: ctx.jobQueue,
       };
 
       const shutdown = async (): Promise<void> => {
+        await ctx.closeQueues();
         await ctx.closeDb();
       };
 

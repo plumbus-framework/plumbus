@@ -21,9 +21,15 @@ export interface Histogram {
   getSum(labels?: MetricLabels): number;
 }
 
+export interface Gauge {
+  set(value: number, labels?: MetricLabels): void;
+  get(labels?: MetricLabels): number;
+}
+
 export interface MetricsRegistry {
   counter(name: string, help: string): Counter;
   histogram(name: string, help: string): Histogram;
+  gauge(name: string, help: string): Gauge;
   /** Prometheus-compatible text exposition */
   serialize(): string;
 }
@@ -40,6 +46,7 @@ function labelKey(labels?: MetricLabels): string {
 /** Create an in-memory metrics registry (Prometheus-style) */
 export function createMetricsRegistry(): MetricsRegistry {
   const counters = new Map<string, { help: string; values: Map<string, number> }>();
+  const gauges = new Map<string, { help: string; values: Map<string, number> }>();
   const histograms = new Map<
     string,
     { help: string; values: Map<string, { count: number; sum: number }> }
@@ -86,12 +93,37 @@ export function createMetricsRegistry(): MetricsRegistry {
       };
     },
 
+    gauge(name: string, help: string): Gauge {
+      let entry = gauges.get(name);
+      if (!entry) {
+        entry = { help, values: new Map() };
+        gauges.set(name, entry);
+      }
+      return {
+        set(value: number, labels?: MetricLabels) {
+          entry.values.set(labelKey(labels), value);
+        },
+        get(labels?: MetricLabels) {
+          return entry.values.get(labelKey(labels)) ?? 0;
+        },
+      };
+    },
+
     serialize(): string {
       const lines: string[] = [];
 
       for (const [name, entry] of counters) {
         lines.push(`# HELP ${name} ${entry.help}`);
         lines.push(`# TYPE ${name} counter`);
+        for (const [key, value] of entry.values) {
+          const labels = key ? `{${key}}` : '';
+          lines.push(`${name}${labels} ${value}`);
+        }
+      }
+
+      for (const [name, entry] of gauges) {
+        lines.push(`# HELP ${name} ${entry.help}`);
+        lines.push(`# TYPE ${name} gauge`);
         for (const [key, value] of entry.values) {
           const labels = key ? `{${key}}` : '';
           lines.push(`${name}${labels} ${value}`);
@@ -124,12 +156,15 @@ export interface PlumbusMetrics {
   eventEmitted: Counter;
   eventDelivered: Counter;
   eventFailed: Counter;
+  eventDeliveryDuration: Histogram;
   flowStarted: Counter;
   flowCompleted: Counter;
   flowFailed: Counter;
+  flowStepDuration: Histogram;
   aiRequestDuration: Histogram;
   aiRequestTotal: Counter;
-  queueDepth: Counter;
+  outboxPending: Gauge;
+  queueDepth: Gauge;
   registry: MetricsRegistry;
 }
 
@@ -151,15 +186,24 @@ export function createPlumbusMetrics(registry?: MetricsRegistry): PlumbusMetrics
     eventEmitted: reg.counter('plumbus_event_emitted_total', 'Total events emitted'),
     eventDelivered: reg.counter('plumbus_event_delivered_total', 'Total events delivered'),
     eventFailed: reg.counter('plumbus_event_failed_total', 'Total event delivery failures'),
+    eventDeliveryDuration: reg.histogram(
+      'plumbus_event_delivery_duration_ms',
+      'End-to-end event consumer delivery duration in milliseconds',
+    ),
     flowStarted: reg.counter('plumbus_flow_started_total', 'Total flows started'),
     flowCompleted: reg.counter('plumbus_flow_completed_total', 'Total flows completed'),
     flowFailed: reg.counter('plumbus_flow_failed_total', 'Total flows failed'),
+    flowStepDuration: reg.histogram(
+      'plumbus_flow_step_duration_ms',
+      'Flow step execution duration in milliseconds',
+    ),
     aiRequestDuration: reg.histogram(
       'plumbus_ai_request_duration_ms',
       'AI request duration in milliseconds',
     ),
     aiRequestTotal: reg.counter('plumbus_ai_request_total', 'Total AI requests'),
-    queueDepth: reg.counter('plumbus_queue_depth', 'Current queue depth'),
+    outboxPending: reg.gauge('plumbus_outbox_pending', 'Current outbox pending/retry rows'),
+    queueDepth: reg.gauge('plumbus_queue_depth', 'Current queue depth per logical queue'),
     registry: reg,
   };
 }

@@ -55,6 +55,7 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   exposeAs?: readonly ('mcp' | 'api')[];
   mcp?: McpExposureConfig;
   api?: ApiExposureConfig;
+  trigger?: { event: string; versionConstraint?: string };
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
@@ -245,6 +246,13 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
 
   validateMcpExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
   validateApiExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
+
+  if (config.trigger !== undefined && config.kind !== 'eventHandler') {
+    throwDefineValidationError(
+      `Capability "${config.name}": trigger is only valid for eventHandler capabilities`,
+      { field: 'trigger' },
+    );
+  }
 
   return deepFreeze({ ...config });
 }

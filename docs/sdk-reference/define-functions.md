@@ -66,7 +66,10 @@ const getUser = defineCapability({
 | `effects` | `EffectsDeclaration` | Yes | Side effect declarations |
 | `audit` | `AuditConfig` | No | Audit trail configuration |
 | `explanation` | `ExplanationConfig` | No | Explainability settings |
+| `trigger` | `EventHandlerTrigger` | No | **Only `kind: "eventHandler"`** — `{ event: string, versionConstraint?: string }` for auto-registration at worker startup (0.5+) |
 | `handler` | `(ctx, input) => Promise<output>` | Yes | Business logic implementation |
+
+`trigger` on non-`eventHandler` kinds throws at define time. Omit `trigger` to keep manual `ConsumerRegistry` wiring only.
 
 ### Returns
 

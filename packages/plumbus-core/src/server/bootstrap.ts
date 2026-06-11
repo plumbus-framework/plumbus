@@ -14,6 +14,8 @@ import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
+import type { EventQueue } from '../events/queue.js';
+import { registerJobStatusRoute } from '../jobs/routes.js';
 import { createAuditService } from '../audit/service.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
@@ -33,6 +35,7 @@ import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { TranslationDefinition } from '../types/translation.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
 
 // ── Server Config ──
 
@@ -61,6 +64,10 @@ export interface ServerConfig {
   port?: number;
   /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
   trustProxy?: boolean | string | string[] | number;
+  /** Jobs queue for async kind: 'job' capabilities (when worker pool is active). */
+  jobQueue?: EventQueue;
+  /** Expose Prometheus metrics at GET /metrics (colocated role=all deployments). */
+  metrics?: PlumbusMetrics;
   /** Called after all capability routes are registered. Use to add custom routes (e.g. streaming). */
   onRoutesRegistered?: (app: FastifyInstance, routeConfig: RouteGeneratorConfig) => void;
   /**
@@ -206,6 +213,10 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     }
   });
 
+  if (serverConfig.metrics) {
+    app.get('/metrics', async () => serverConfig.metrics?.registry.serialize());
+  }
+
   // AI service wiring
   let aiService: AIService | undefined;
 
@@ -315,10 +326,13 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       };
     },
     onCapabilityError: serverConfig.onCapabilityError,
+    jobQueue: serverConfig.jobQueue,
   };
 
   // Register all capability routes
   registerAllRoutes(app, capabilities.getAll(), routeConfig);
+
+  registerJobStatusRoute(app, { db, authAdapter });
 
   // Fastify-level error handler — catches malformed requests, timeouts, uncaught route errors
   if (serverConfig.onProcessError) {

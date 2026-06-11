@@ -15,6 +15,7 @@ import type { EventDefinition } from '../../types/event.js';
 import type { FieldDescriptor } from '../../types/fields.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import { discoverResources } from '../discover.js';
+import { jobEventType } from '../../jobs/types.js';
 import {
   detectMonorepoLayout,
   exists,
@@ -450,6 +451,31 @@ export function generateEntityTypeFile(entities: EntityDefinition[]): string {
   return `${header}\n${generateDataServiceMap(entities)}\n`;
 }
 
+/** Generate auto-registered queue consumer manifest from capabilities. */
+export function generateConsumerManifest(
+  capabilities: CapabilityContract[],
+): Record<string, unknown>[] {
+  const consumers: Record<string, unknown>[] = [];
+  for (const cap of capabilities) {
+    if (cap.kind === 'eventHandler' && cap.trigger?.event) {
+      consumers.push({
+        id: cap.name,
+        kind: 'eventHandler',
+        eventTypes: [cap.trigger.event],
+        versionConstraint: cap.trigger.versionConstraint,
+      });
+    }
+    if (cap.kind === 'job') {
+      consumers.push({
+        id: `job:${cap.domain}:${cap.name}`,
+        kind: 'job',
+        eventTypes: [jobEventType(cap.domain, cap.name)],
+      });
+    }
+  }
+  return consumers;
+}
+
 /** Run full code generation for a set of capabilities */
 export function generateAll(
   capabilities: CapabilityContract[],
@@ -528,6 +554,16 @@ export function generateAll(
   };
   writeFile(path.join(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   generated.push('manifest.json');
+
+  const consumerManifest = {
+    generatedAt: new Date().toISOString(),
+    consumers: generateConsumerManifest(capabilities),
+  };
+  writeFile(
+    path.join(outputDir, 'consumers-manifest.json'),
+    JSON.stringify(consumerManifest, null, 2),
+  );
+  generated.push('consumers-manifest.json');
 
   // MCP manifest + skill files
   const mcpRegistry = new CapabilityRegistry();

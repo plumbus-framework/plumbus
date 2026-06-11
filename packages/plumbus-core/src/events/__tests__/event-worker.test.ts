@@ -173,6 +173,7 @@ describe('EventWorker', () => {
     expect(worker.isRunning).toBe(true);
 
     await queue.publish(makeEnvelope());
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(handled).toEqual(['evt-1']);
 
     worker.stop();

@@ -1,6 +1,6 @@
 # Deployment
 
-Plumbus applications deploy as up to three services — a **backend** (Fastify API server), a **frontend** (Next.js), and optionally an **admin dashboard** (Next.js) — backed by PostgreSQL and Redis.
+Plumbus applications deploy as up to four services — a **backend** (Fastify API server), an optional **worker** (background queues), a **frontend** (Next.js), and optionally an **admin dashboard** (Next.js) — backed by PostgreSQL and Redis.
 
 ## Service Topology
 
@@ -11,16 +11,18 @@ Plumbus applications deploy as up to three services — a **backend** (Fastify A
 | :3001     |---->| :3002     |---->| :3000     |
 +-----------+     +-----------+     +-----+-----+
                                           |
-                                    +-----+-----+
-                                    |           |
-                                +---v---+  +----v--+
-                                |  PG   |  | Redis |
-                                | :5432 |  | :6379 |
-                                +-------+  +-------+
+              +---------------------------+---------------------------+
+              |                           |                           |
+        +-----v-----+               +-----v-----+               +-----v-----+
+        |  worker   |               |    PG     |               |   Redis   |
+        | (optional)|               |  :5432    |               |  :6379    |
+        |  :3001    |               +-----------+               +-----------+
+        +-----------+
 ```
 
 - **Frontend** and **admin** proxy API calls to the backend server-side. Browsers never connect directly to the backend.
-- **Backend** connects to PostgreSQL (data) and Redis (job queue, event dispatch).
+- **Backend** connects to PostgreSQL (data) and Redis (shared event/flow/job queues).
+- **Worker** (optional) runs `plumbus worker` for background processing. Omit when using colocated mode (`plumbus start` with default `PLUMBUS_RUNTIME_ROLE=all`). Required for horizontal scaling with `PLUMBUS_RUNTIME_ROLE=api`.
 
 ---
 
@@ -181,6 +183,53 @@ npx plumbus migrate apply
 
 Use `/ready` for container health checks and load balancer probes.
 
+### Split API + Worker Deployment
+
+For production deployments that scale API and background work independently:
+
+```bash
+# API container — no worker pool
+PLUMBUS_RUNTIME_ROLE=api npx plumbus start --port 3000
+
+# Worker container — no public API routes
+npx plumbus worker start --health-port 3001
+```
+
+**Redis is required** when API and worker run as separate replicas. Set `QUEUE_URL` or `REDIS_URL` on both containers.
+
+| Container | Command | Probes | Notes |
+|-----------|---------|--------|-------|
+| API | `plumbus start` | `GET /health`, `GET /ready` on port 3000 | Set `PLUMBUS_RUNTIME_ROLE=api` |
+| Worker | `plumbus worker start` | `GET /health`, `GET /ready` on `--health-port` (default 3001) | Exposes `/metrics` for Prometheus |
+
+Install optional peers in both images when needed:
+
+```dockerfile
+RUN npm install redis cron-parser
+```
+
+- `redis` — durable shared queues (required for split/multi-replica)
+- `cron-parser` — only if flows use `schedule` triggers
+
+Worker entrypoint example:
+
+```sh
+#!/bin/sh
+set -e
+exec npx plumbus worker start --health-port 3001
+```
+
+Worker health probes (Kubernetes):
+
+```yaml
+livenessProbe:
+  httpGet: { path: /health, port: 3001 }
+readinessProbe:
+  httpGet: { path: /ready, port: 3001 }
+```
+
+Colocated mode (single `plumbus start` process, no separate worker container) remains the default and requires no `PLUMBUS_RUNTIME_ROLE` override. See `docs/architecture/workers-and-queues.md` for runtime mode details.
+
 ---
 
 ## Frontend Deployment
@@ -243,6 +292,10 @@ After a standalone build, copy static files alongside the server:
 | `AI_OPENAI_MODEL` | No | `gpt-4o-mini` | Default OpenAI model |
 | `AI_DEFAULT_MODEL` | No | `gpt-4o` | Fallback model |
 | `TRUST_PROXY` | No | — | Set to `true` behind a reverse proxy so `request.ip` reflects `X-Forwarded-For` |
+| `PLUMBUS_RUNTIME_ROLE` | No | `all` | `api` for API-only replicas; use `plumbus worker` separately |
+| `QUEUE_URL` | No | — | Redis connection URL (preferred over host/port) |
+| `REDIS_URL` | No | — | Alias for `QUEUE_URL` |
+| `QUEUE_BACKEND` | No | auto | Force `memory` or `redis` queue backend |
 
 ### Frontend / Admin
 
@@ -264,6 +317,7 @@ After a standalone build, copy static files alongside the server:
 | Frontend | ~150-200 MB | > 400 MB |
 | Admin | ~150-200 MB | > 400 MB |
 | Backend | ~500-700 MB | > 1 GB |
+| Worker | ~500-700 MB | > 1 GB |
 
 If images exceed these sizes, you are likely not using `pnpm deploy` (Rule 5) or not stripping backend deps (Rule 7, Rule 14).
 
@@ -402,8 +456,13 @@ services:
     image: redis:7-alpine
   backend:
     build: { dockerfile: Dockerfile.backend }
+    environment: { PLUMBUS_RUNTIME_ROLE: api }
     depends_on: [postgres, redis]
     volumes: [uploads_data:/app/uploads]
+  worker:
+    build: { dockerfile: Dockerfile.backend }
+    command: ['npx', 'plumbus', 'worker', 'start', '--health-port', '3001']
+    depends_on: [postgres, redis]
   frontend:
     build: { dockerfile: Dockerfile.frontend }
     depends_on: [backend]
@@ -477,7 +536,8 @@ cookies().set("auth_token", token, {
 
 | Resource | Purpose |
 |----------|---------|
-| `Deployment` (backend) + `Service` | Plumbus API server — stateless, scales horizontally |
+| `Deployment` (backend) + `Service` | Plumbus API server — stateless, scales horizontally (`PLUMBUS_RUNTIME_ROLE=api`) |
+| `Deployment` (worker) + `Service` | Background worker pool — scales independently (`plumbus worker`) |
 | `Deployment` (frontend) + `Service` | Next.js user-facing app — stateless |
 | `Deployment` (admin) + `Service` | Next.js admin dashboard — stateless |
 | `Ingress` | Routes traffic: `/api` -> backend, `/` -> frontend, `/admin` -> admin |
@@ -521,7 +581,8 @@ readinessProbe:
 
 ### Scaling
 
-- **Backend**: Stateless — safe to scale. All replicas must share the same `AUTH_SECRET`.
+- **Backend**: Stateless — safe to scale. All replicas must share the same `AUTH_SECRET`. Set `PLUMBUS_RUNTIME_ROLE=api` and run separate worker replicas.
+- **Workers**: Stateless — scale independently. Require shared Redis (`QUEUE_URL`). Probe `/ready` on the worker health port.
 - **Frontends**: Stateless — scale freely behind a load balancer.
 - **Uploads**: Replace local `uploads/` with object storage (S3, GCS) or a `ReadWriteMany` PVC.
 - **PostgreSQL / Redis**: Use managed services (RDS, ElastiCache) — not the Docker Compose images.
@@ -539,7 +600,10 @@ readinessProbe:
 - [ ] Health checks on `/ready`
 - [ ] `config/app.config.ts` uses dynamic environment detection
 - [ ] AI provider API keys configured
-- [ ] Redis available for job queue
+- [ ] Redis available for shared queues (required for split API + worker)
+- [ ] `redis` npm package installed when using Redis backend
+- [ ] `cron-parser` installed if flows use schedule triggers
+- [ ] Worker health probes configured when running `plumbus worker` separately
 
 ### Docker — Image Size
 

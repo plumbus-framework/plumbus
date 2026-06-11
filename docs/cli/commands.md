@@ -10,6 +10,9 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus init` | Generate AI agent wiring files |
 | `plumbus dev` | Start development server with hot reload |
 | `plumbus start` | Start production server (no watchers, requires `AUTH_SECRET`) |
+| `plumbus worker` | Background worker process (split deployments) |
+| `plumbus events` | Outbox status, dead-letter ops, event replay |
+| `plumbus flow dead-letter` | List and retry failed flow executions |
 | `plumbus doctor` | Check environment readiness |
 | `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types, type registry |
 | `plumbus capability new` | Scaffold a new capability |
@@ -185,7 +188,7 @@ Existing project briefs are preserved by `plumbus init`; use `plumbus agent sync
 
 ### plumbus dev
 
-Start the development server with hot reload.
+Start the development server with hot reload. Runs API and worker pool colocated (default `PLUMBUS_RUNTIME_ROLE=all`) with **in-memory** queues regardless of Redis configuration.
 
 ```bash
 plumbus dev [options]
@@ -196,6 +199,8 @@ plumbus dev [options]
 | `-p, --port <number>` | `number` | `3000` | Server port |
 | `-H, --host <string>` | `string` | `0.0.0.0` | Server host |
 | `--json` | `boolean` | `false` | Output in JSON format |
+
+Override with `PLUMBUS_RUNTIME_ROLE=api` or `worker` to test split deployments locally (Redis recommended when splitting).
 
 ---
 
@@ -217,11 +222,118 @@ Behavior:
 - Loads `plumbus.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
 - Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`).
-- Starts a worker pool for event-triggered flows when any flow declares `trigger.event`.
+- Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
 - Exposes `GET /health` and `GET /ready`.
+- Registers `GET /api/jobs/:jobId` for async job status polling.
 
 Set `TRUST_PROXY=true` (or a specific IP/CIDR string) when running behind a load balancer so Fastify trusts `X-Forwarded-*` headers.
+
+Set `PLUMBUS_RUNTIME_ROLE=api` to run API-only (no worker pool). Run `plumbus worker` in a separate process. See [Workers and Queues](../architecture/workers-and-queues.md).
+
+---
+
+### plumbus worker
+
+Start a dedicated worker process for background queues, flows, and jobs. Used in split deployments alongside `PLUMBUS_RUNTIME_ROLE=api`.
+
+```bash
+plumbus worker start [options]   # default subcommand
+plumbus worker status [options]
+```
+
+#### `plumbus worker start`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--health-port <port>` | `string` | `3001` | Health and metrics HTTP port |
+| `-H, --host <host>` | `string` | `0.0.0.0` | Health server bind host |
+
+Exposes:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Liveness |
+| `GET /ready` | Readiness (database connected) |
+| `GET /metrics` | Prometheus-format metrics |
+
+Does **not** start the main Fastify API. Requires the same `app/`, `config/`, database, and Redis configuration as the API process.
+
+#### `plumbus worker status`
+
+Static configuration summary (does not connect to running workers).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | `boolean` | `false` | Output JSON |
+
+Reports `runtimeRole`, `needsWorkerPool`, `queueBackend`, `queueDurable`, `components` (dispatcher/eventWorker/jobWorker/flowRunner/scheduler/flowStepConsumer flags), and resource counts.
+
+Worker processes expose Prometheus-style metrics at `GET /metrics` on the health port (outbox depth, delivery counters, flow step duration, capability duration).
+
+---
+
+### plumbus events
+
+Operational commands for the event outbox and dead-letter queue.
+
+```bash
+plumbus events status [options]
+plumbus events dead-letter list [options]
+plumbus events dead-letter retry <id>
+plumbus events replay <eventId> [options]
+```
+
+#### `plumbus events status`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | `boolean` | `false` | Output JSON |
+
+Reports `outboxPending`, `deadLetterCount`, `oldestPendingAt`, `queueBackend`, and `queueDepths` (Redis only: events/flows/jobs pending+processing counts).
+
+#### `plumbus events dead-letter list`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--limit <n>` | `string` | `20` | Max rows |
+| `--json` | `boolean` | `false` | Output JSON |
+
+#### `plumbus events dead-letter retry <id>`
+
+Re-publish a dead-letter row to the events queue for reprocessing.
+
+#### `plumbus events replay <eventId>`
+
+Re-dispatch an outbox event to the queue.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--from <date>` | `string` | — | Bulk replay: re-dispatch up to 100 dispatched events from ISO date |
+| `--consumer <id>` | `string` | — | Clear idempotency for this consumer before replay (single event or bulk `--from`) |
+
+---
+
+### plumbus flow
+
+Flow scaffolding and dead-letter operations.
+
+```bash
+plumbus flow new <name> [options]
+plumbus flow dead-letter list [options]
+plumbus flow dead-letter retry <executionId>
+```
+
+#### `plumbus flow dead-letter list`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--limit <n>` | `string` | `20` | Max rows |
+| `--json` | `boolean` | `false` | Output JSON |
+
+#### `plumbus flow dead-letter retry <executionId>`
+
+Re-enqueue the next flow step for a failed execution after an operator fix.
 
 ---
 
@@ -448,9 +560,9 @@ See `node_modules/@plumbus/browser-extension/instructions/browser-extension.md` 
 
 ```bash
 plumbus capability new <name> [options]
-plumbus flow new <name> [options]
+plumbus flow new <name> [options]      # also: plumbus flow dead-letter (see above)
 plumbus entity new <name>
-plumbus event new <name>
+plumbus event new <name>               # also: plumbus events status/dead-letter/replay (see above)
 plumbus prompt new <name>
 ```
 
@@ -529,7 +641,7 @@ plumbus migrate rollback [options]   # Rollback last migration
 
 **Framework-managed tables:**
 
-Plumbus manages 9 internal tables: `audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `documents`, `document_chunks`. **Do not create these tables manually** — they are included in generated migrations automatically.
+Plumbus manages 10 internal tables: `audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `job_executions`, `documents`, `document_chunks`. **Do not create these tables manually** — they are included in generated migrations automatically.
 
 **Schema drift detection:**
 

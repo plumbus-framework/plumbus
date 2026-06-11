@@ -21,6 +21,7 @@ import { loadConfig } from '../../config/loader.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { buildMcpManifest, isMcpExposed } from '../../mcp/index.js';
 import { discoverResources } from '../discover.js';
+import { needsWorkerPool } from '../../runtime/bootstrap.js';
 import { toKebabCase } from '../utils.js';
 
 export interface DoctorCheck {
@@ -495,6 +496,95 @@ export async function checkPostgreSQL(): Promise<DoctorCheck> {
   }
 }
 
+/** Warn when split API deploy has background work but no colocated worker. */
+export async function checkSplitDeployWorker(): Promise<DoctorCheck> {
+  try {
+    const role = process.env.PLUMBUS_RUNTIME_ROLE?.toLowerCase();
+    if (role !== 'api') {
+      return { name: 'split-deploy', status: 'ok', message: 'Runtime role is not api-only' };
+    }
+    const resources = await discoverResources();
+    if (!needsWorkerPool(resources)) {
+      return {
+        name: 'split-deploy',
+        status: 'ok',
+        message: 'API-only role with no background work detected',
+      };
+    }
+    return {
+      name: 'split-deploy',
+      status: 'warn',
+      message:
+        'PLUMBUS_RUNTIME_ROLE=api with jobs, event handlers, or scheduled flows — run `plumbus worker` separately',
+    };
+  } catch {
+    return { name: 'split-deploy', status: 'warn', message: 'Could not evaluate split deploy' };
+  }
+}
+
+/** Warn when eventHandler capabilities lack trigger.event. */
+export async function checkEventHandlerTriggers(): Promise<DoctorCheck> {
+  try {
+    const resources = await discoverResources();
+    const missing = resources.capabilities.filter(
+      (cap) => cap.kind === 'eventHandler' && !cap.trigger?.event,
+    );
+    if (missing.length === 0) {
+      return {
+        name: 'event-handler-triggers',
+        status: 'ok',
+        message: 'All eventHandler capabilities declare trigger.event',
+      };
+    }
+    return {
+      name: 'event-handler-triggers',
+      status: 'warn',
+      message: `${missing.length} eventHandler(s) missing trigger.event: ${missing.map((c) => c.name).join(', ')}`,
+    };
+  } catch {
+    return {
+      name: 'event-handler-triggers',
+      status: 'warn',
+      message: 'Could not scan eventHandler triggers',
+    };
+  }
+}
+
+/** Warn when production uses in-memory queue (single-instance only). */
+export function checkProductionQueueBackend(): DoctorCheck {
+  try {
+    const config = loadConfig();
+    if (config.environment !== 'production' && config.environment !== 'staging') {
+      return {
+        name: 'queue-backend',
+        status: 'ok',
+        message: 'In-memory queue is acceptable in non-production environments',
+      };
+    }
+    const env = process.env;
+    const hasRedis =
+      Boolean(env.QUEUE_URL ?? env.REDIS_URL) ||
+      env.QUEUE_BACKEND === 'redis' ||
+      (config.queue.host !== 'localhost' && config.queue.host !== '127.0.0.1') ||
+      config.queue.password !== undefined;
+    if (hasRedis) {
+      return {
+        name: 'queue-backend',
+        status: 'ok',
+        message: 'Redis queue configuration detected for production',
+      };
+    }
+    return {
+      name: 'queue-backend',
+      status: 'warn',
+      message:
+        'Production is using in-memory queues (single-instance only). Configure Redis (QUEUE_URL or REDIS_URL) for multi-replica deployments.',
+    };
+  } catch {
+    return { name: 'queue-backend', status: 'warn', message: 'Could not evaluate queue backend' };
+  }
+}
+
 /** Check Redis connectivity */
 export async function checkRedis(): Promise<DoctorCheck> {
   try {
@@ -552,6 +642,7 @@ export function runDoctorChecks(): DoctorCheck[] {
     checkAppStructure(),
     checkAgentWiring(),
     checkLegacyArtifacts(),
+    checkProductionQueueBackend(),
     ...(mcpAgentsCheck ? [mcpAgentsCheck] : []),
   ];
 }
@@ -559,14 +650,17 @@ export function runDoctorChecks(): DoctorCheck[] {
 /** Run all doctor checks including async connectivity tests */
 export async function runFullDoctorChecks(): Promise<DoctorCheck[]> {
   const syncChecks = runDoctorChecks();
-  const [pgCheck, redisCheck, mcpPublicCheck, mcpSkillsCheck] = await Promise.all([
-    checkPostgreSQL(),
-    checkRedis(),
-    checkMcpPublicCapabilityFootgun(),
-    checkMcpSkillFilesFresh(),
-  ]);
+  const [pgCheck, redisCheck, mcpPublicCheck, mcpSkillsCheck, splitDeploy, eventHandlers] =
+    await Promise.all([
+      checkPostgreSQL(),
+      checkRedis(),
+      checkMcpPublicCapabilityFootgun(),
+      checkMcpSkillFilesFresh(),
+      checkSplitDeployWorker(),
+      checkEventHandlerTriggers(),
+    ]);
   const mcpAsync = [mcpPublicCheck, mcpSkillsCheck].filter((c): c is DoctorCheck => c !== null);
-  return [...syncChecks, pgCheck, redisCheck, ...mcpAsync];
+  return [...syncChecks, pgCheck, redisCheck, splitDeploy, eventHandlers, ...mcpAsync];
 }
 
 export function registerDoctorCommand(program: Command): void {

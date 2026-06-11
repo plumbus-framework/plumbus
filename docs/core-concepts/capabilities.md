@@ -101,7 +101,8 @@ defineCapability({
 
 - Routed as `POST /api/{domain}/{kebab-name}`
 - Returns `202 Accepted` with `{ jobId, status: "accepted" }`
-- Actual execution happens in background via event queue
+- Creates a `job_executions` row and publishes to the shared jobs queue
+- Poll status: `GET /api/jobs/:jobId` (owner or admin)
 
 ### Event Handler
 
@@ -109,6 +110,7 @@ defineCapability({
 defineCapability({
   name: "onOrderPlaced",
   kind: "eventHandler",
+  trigger: { event: "order.placed" },
   // ...
   handler: async (ctx, input) => {
     await ctx.data.Shipment.create({ orderId: input.orderId });
@@ -117,6 +119,7 @@ defineCapability({
 ```
 
 - Not exposed as HTTP route
+- Auto-registered as a queue consumer when `trigger.event` is set
 - Triggered by the event worker when a matching event arrives
 - Must declare `serviceAccounts` in access policy
 

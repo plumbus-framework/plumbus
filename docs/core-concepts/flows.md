@@ -370,7 +370,18 @@ The full history is accessible for debugging and audit.
 
 ## Dead Letter
 
-Failed flows that exhaust retries are sent to the dead letter queue:
+Failed flows that exhaust retries are sent to the `flow_dead_letter` table.
+
+### Operational CLI
+
+```bash
+plumbus flow dead-letter list [--limit 20] [--json]
+plumbus flow dead-letter retry <executionId>
+```
+
+`retry` re-enqueues the next step on the flows queue after an operator fix.
+
+### Programmatic API
 
 ```typescript
 import { sweepFailedFlows, deadLetterFlow } from "@plumbus/core";
@@ -381,6 +392,16 @@ await deadLetterFlow(executionId, "Manual intervention required");
 // Sweep all failed flows past retry limit
 await sweepFailedFlows(flowService);
 ```
+
+## Scheduled Flows
+
+Flows with a `schedule` trigger require the optional `cron-parser` peer dependency for `nextRunAt` computation:
+
+```bash
+pnpm add cron-parser
+```
+
+The flow scheduler runs in the worker pool. Split deployments need a `plumbus worker` process (or colocated `plumbus start` with role `all`).
 
 ## File Convention
 

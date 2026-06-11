@@ -1,5 +1,41 @@
 # @plumbus/core changelog
 
+## 0.5.0
+
+### Added
+
+- **Workers and queues runtime** — unified bootstrap with `PLUMBUS_RUNTIME_ROLE` (`all`, `api`, `worker`), three logical queues (`events`, `flows`, `jobs`), and `plumbus worker start` for split deployments.
+- **`job_executions` table** — durable job status, auth snapshot at dequeue, and `GET /api/jobs/:jobId` for polling completion.
+- **`eventHandler` auto-registration** — optional `trigger: { event, versionConstraint? }` on `defineCapability`; worker pool wires consumers when set. Manual `ConsumerRegistry` registrations still take precedence for the same id.
+- **Optional peer dependencies** — `redis` (durable queues) and `cron-parser` (scheduled flow triggers); in-memory fallbacks with startup warnings when missing.
+- **CLI** — `plumbus worker` (health/ready/metrics), `plumbus events` ops (replay, dead-letter), `plumbus flow dead-letter`.
+- **Runtime exports** — `resolveRuntimeQueues`, `registerCapabilityConsumers`, `dispatchQueuedJob`, `createJobService`, `registerJobStatusRoute`, `RuntimeRole`, and related helpers.
+- **Governance** — advisory rules for split deploy without worker, missing `trigger.event`, and job payload compatibility.
+
+### Changed
+
+- **Worker pool gating** — `plumbus dev` / `plumbus start` start background workers when the app defines events, `eventHandler` or `job` capabilities, or scheduled flows (not only event-triggered flows).
+- **HTTP `kind: 'job'`** — when job capabilities exist and the worker pool is active, routes return **202** with `{ jobId, status: "accepted" }` and execute via the jobs queue (previously ran synchronously with **200** because `jobQueue` was not wired on the server).
+- **Job dispatch** — jobs publish to the dedicated **jobs** queue with a `JobQueuePayload` envelope, not the events queue.
+- **Event handler security** — dequeue uses tenant binding from `event_outbox` (fail-closed); trusted replay via `plumbus events` ops.
+
+### Upgrading
+
+See `docs/upgrading-workers.md` in the monorepo (published with the package docs). Required steps for most apps:
+
+```bash
+plumbus migrate generate && plumbus migrate apply
+```
+
+Apps with `kind: 'job'` HTTP clients must poll `GET /api/jobs/:jobId` instead of expecting a synchronous **200** body. Split production deploys need Redis (`pnpm add redis`) and a `plumbus worker` process.
+
+### Non-breaking (default topology)
+
+- `plumbus dev` and `plumbus start` default to **`PLUMBUS_RUNTIME_ROLE=all`** — API and workers remain colocated.
+- In-memory queues remain the default when Redis is not configured.
+- `eventHandler` capabilities without `trigger.event` behave as before (manual registration only).
+- MCP job tasks without a durable Redis queue still execute in-process.
+
 ## 0.4.2
 
 ### Added

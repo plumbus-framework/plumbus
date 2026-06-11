@@ -208,4 +208,14 @@ export const generateReport = defineCapability({
 });
 ```
 
-Job capabilities are exposed as `POST` endpoints that return `202 Accepted` with the job output. The framework provides job status tracking and progress monitoring automatically.
+Job capabilities are exposed as `POST` endpoints. From **0.5.0**, when the app defines job capabilities and the worker pool is active (default on `plumbus dev` / `plumbus start`), routes return **`202 Accepted`** with `{ jobId, status: "accepted" }` and execute asynchronously via the jobs queue.
+
+Poll completion with:
+
+```
+GET /api/jobs/:jobId
+```
+
+Status (`queued`, `running`, `completed`, `failed`), output, and errors come from the `job_executions` table. Run `plumbus migrate generate && plumbus migrate apply` before deploying.
+
+**Pre-0.5.0 note:** job routes often returned **200** with the handler output synchronously because the server did not wire a job queue. Update HTTP clients and integrations that assumed synchronous job responses.

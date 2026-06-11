@@ -84,6 +84,14 @@ export interface FlowEngineConfig {
   flowHeartbeatIntervalMs?: number;
   /** Max executions to claim per poll cycle. Default: 50. */
   flowClaimBatchSize?: number;
+  /** When set, enqueue flow step wake messages (durable queue deployments). */
+  onFlowStepEnqueue?: (executionId: string, correlationId?: string) => Promise<void>;
+  /** When set, schedule delayed flow wake via Redis sorted set (durable deployments). */
+  onFlowDelayedSchedule?: (
+    executionId: string,
+    wakeAt: Date,
+    correlationId?: string,
+  ) => Promise<void>;
   /**
    * Optional logger used for diagnostic events (heartbeat ticks, unexpected
    * lease-extension failures, etc). If omitted, the engine is silent. The
@@ -154,6 +162,17 @@ export function createFlowEngine(config: FlowEngineConfig) {
   const heartbeatIntervalMs = config.flowHeartbeatIntervalMs ?? Math.floor(leaseDurationMs / 3);
   const claimBatchSize = config.flowClaimBatchSize ?? DEFAULT_CLAIM_BATCH_SIZE;
   const logger = config.logger;
+  const onFlowStepEnqueue = config.onFlowStepEnqueue;
+  const onFlowDelayedSchedule = config.onFlowDelayedSchedule;
+
+  async function maybeEnqueueFlowStep(
+    executionId: string,
+    correlationId?: string | null,
+  ): Promise<void> {
+    if (onFlowStepEnqueue) {
+      await onFlowStepEnqueue(executionId, correlationId ?? executionId);
+    }
+  }
 
   /**
    * AbortControllers for currently-executing steps in THIS engine instance,
@@ -217,6 +236,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       });
     }
 
+    await maybeEnqueueFlowStep(executionId, opts?.correlationId);
+
     return {
       id: executionId,
       flowName,
@@ -276,6 +297,42 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     return rows;
+  }
+
+  /**
+   * Claim a specific execution by ID (used by flow step queue consumer).
+   * Returns the row when claimed, undefined when not runnable or already leased.
+   */
+  async function claimExecution(executionId: string): Promise<FlowExecutionRow | undefined> {
+    const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
+
+    const result = await db.execute<Record<string, unknown>>(sql`
+      UPDATE flow_executions
+      SET status = ${FlowStatus.Running},
+          lease_owner = ${workerId},
+          lease_expires_at = now() + ${leaseDurationInterval}::interval,
+          updated_at = now()
+      WHERE id = ${executionId}
+        AND (
+             status = ${FlowStatus.Created}
+          OR (status = ${FlowStatus.Running} AND lease_expires_at < now())
+          OR (status = ${FlowStatus.Waiting} AND waiting_for_event IS NULL AND wake_at <= now())
+        )
+      RETURNING *
+    `);
+
+    const rows = result as unknown as FlowExecutionRow[];
+    const row = rows[0];
+    if (row && audit) {
+      await audit.record('flow.lease.claimed', {
+        executionId: row.id,
+        flowName: row.flowName,
+        workerId,
+        step: row.currentStep,
+        source: 'claimExecution',
+      });
+    }
+    return row;
   }
 
   /**
@@ -623,16 +680,20 @@ export function createFlowEngine(config: FlowEngineConfig) {
           err instanceof Error ? err.message : String(err),
         );
       }
+      const wakeAt = new Date(Date.now() + delayMs);
       await guardedUpdate(executionId, {
         status: FlowStatus.Waiting,
         state: nextState,
         stepHistory: history,
         currentStep: nextStep,
         waitingForEvent: null,
-        wakeAt: new Date(Date.now() + delayMs),
+        wakeAt,
         leaseOwner: null,
         leaseExpiresAt: null,
       });
+      if (onFlowDelayedSchedule) {
+        await onFlowDelayedSchedule(executionId, wakeAt, row.correlationId ?? executionId);
+      }
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Waiting };
     }
 
@@ -754,14 +815,16 @@ export function createFlowEngine(config: FlowEngineConfig) {
       leaseOwner: null,
       leaseExpiresAt: null,
     });
+
+    await maybeEnqueueFlowStep(executionId, row.correlationId);
   }
 
   /**
    * Resume all flows waiting on a specific event type.
    * Uses FOR UPDATE SKIP LOCKED to prevent duplicate resumes across workers.
-   * Returns the number of executions resumed.
+   * Returns execution IDs resumed.
    */
-  async function resumeWaitingByEvent(eventType: string, signal?: unknown): Promise<number> {
+  async function resumeWaitingByEvent(eventType: string, signal?: unknown): Promise<string[]> {
     const result = await db.execute<{ id: string }>(sql`
       UPDATE flow_executions
       SET status = ${FlowStatus.Created},
@@ -789,7 +852,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
       }
     }
 
-    return rows.length;
+    for (const row of rows) {
+      await maybeEnqueueFlowStep(row.id);
+    }
+
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -1030,6 +1097,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     resumeWaitingByEvent,
     listRunnable,
     claimNext,
+    claimExecution,
     cancel,
     status,
     markFailedFromRunner,

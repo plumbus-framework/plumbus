@@ -17,6 +17,8 @@ export interface QueueConfig {
   port: number;
   password?: string;
   prefix?: string;
+  /** Visibility timeout for Redis queue processing recovery (seconds, default 30). */
+  visibilityTimeoutSec?: number;
 }
 
 // ── AI Provider Config ──

@@ -18,6 +18,21 @@ See the [MCP Tasks specification](https://modelcontextprotocol.io/specification/
 
 ## Sequence
 
+With `jobQueue` configured, execution moves to the worker after dispatch:
+
+```
+client                          server                          worker
+  │  tools/call (_meta.taskMetadata)
+  ├──────────────────────────────▶
+  │                              │  createTask → mcp_task row
+  │                              ├──▶ dispatchQueuedJob → jobs queue
+  │  CreateTaskResult { taskId } │
+  ◀──────────────────────────────┤
+  │                              │              ◀── dequeue + executeCapability
+```
+
+Without `jobQueue`, the server executes in-process:
+
 ```
 client                          server                          worker
   │  tools/call (_meta.taskMetadata)
@@ -46,6 +61,34 @@ client                          server                          worker
 `tasks/result` returns the handler's output object **directly** at the JSON-RPC result root (for example `{ url: '...' }`), not wrapped in a `payload` field. The diagram's last line is shorthand for that object.
 
 Clients can poll `tasks/get` until `status` is terminal, or register `client.setNotificationHandler` for `notifications/tasks/status` (and `notifications/progress` when a `progressToken` was sent on the original `tools/call`).
+
+## Shared Jobs Queue
+
+When `jobQueue` is set on `McpServerConfig`, MCP task dispatch for `kind: 'job'` capabilities uses the same path as HTTP job routes — `dispatchQueuedJob` creates a `job_executions` row and publishes to the shared jobs queue. A worker process must be running to dequeue and execute.
+
+```typescript
+import { createMcpServer } from '@plumbus/mcp';
+import { resolveRuntimeQueues } from '@plumbus/core';
+
+const queues = await resolveRuntimeQueues(config);
+
+const server = createMcpServer({
+  registry,
+  db,
+  authAdapter,
+  createDependencies,
+  jobQueue: queues.jobs,
+});
+```
+
+| `jobQueue` | Behavior |
+|------------|----------|
+| Set | Async dispatch — worker dequeues, updates `job_executions`, syncs `mcp_task` row on completion |
+| Omitted | In-process execution (backward compatible for dev and colocated `plumbus start`) |
+
+Colocated `plumbus start` (default `PLUMBUS_RUNTIME_ROLE=all`) wires `jobQueue` automatically when a worker pool is active. `plumbus mcp serve` passes `jobQueue` only when Redis is configured (`queues.isDurable`); otherwise MCP jobs run in-process. Split deployments (`PLUMBUS_RUNTIME_ROLE=api` + `plumbus worker`) require Redis and a running worker for async MCP jobs.
+
+When jobs run in a worker process, `@plumbus/mcp`'s `createMcpJobCompletionSync` updates the `mcp_task` row on completion — install `@plumbus/mcp` in worker images that serve MCP jobs.
 
 ## Wiring
 

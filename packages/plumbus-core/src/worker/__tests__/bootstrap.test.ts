@@ -13,7 +13,7 @@ const mockFlowEngine = {
   start: vi.fn(async () => ({})),
   runNext: vi.fn(async () => ({})),
   listRunnable: vi.fn(async () => []),
-  resumeWaitingByEvent: vi.fn(async () => 0),
+  resumeWaitingByEvent: vi.fn(async () => []),
   resume: vi.fn(async () => {}),
   cancel: vi.fn(async () => {}),
 };

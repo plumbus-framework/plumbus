@@ -92,6 +92,18 @@ DB_SSL=false
 DB_POOL_SIZE=10
 ```
 
+## Runtime Role
+
+Control which subsystems start in the current process:
+
+```bash
+PLUMBUS_RUNTIME_ROLE=all     # API + workers (default for plumbus dev / plumbus start)
+PLUMBUS_RUNTIME_ROLE=api      # API only — run plumbus worker separately
+PLUMBUS_RUNTIME_ROLE=worker   # Workers only (implicit for plumbus worker)
+```
+
+See [Workers and Queues](../architecture/workers-and-queues.md).
+
 ## Queue Configuration
 
 ```typescript
@@ -100,6 +112,7 @@ interface QueueConfig {
   port: number;
   password?: string;
   prefix?: string;
+  visibilityTimeoutSec?: number;  // Redis visibility timeout (default 30)
 }
 ```
 
@@ -110,6 +123,25 @@ QUEUE_HOST=localhost
 QUEUE_PORT=6379
 QUEUE_PASSWORD=
 QUEUE_PREFIX=plumbus
+QUEUE_URL=redis://localhost:6379    # preferred — also REDIS_URL
+QUEUE_BACKEND=redis                 # force memory or redis
+```
+
+The runtime creates three logical queues (`events`, `flows`, `jobs`) sharing the same backend. `plumbus dev` always uses in-memory queues regardless of Redis configuration.
+
+## Optional Peer Dependencies
+
+Install only when your deployment needs them:
+
+| Package | Purpose |
+|---------|---------|
+| `redis` | Durable shared queues for production / split deployments |
+| `cron-parser` | Flow `schedule` trigger `nextRunAt` computation |
+| `@plumbus/mcp` | MCP server and MCP job completion sync in workers |
+| `@plumbus/api` | Partner API contract layer |
+
+```bash
+pnpm add redis cron-parser
 ```
 
 ## AI Provider Configuration

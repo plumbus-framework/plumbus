@@ -1,6 +1,11 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { AuthAdapter, CapabilityRegistry, ContextDependencies } from '@plumbus/core';
-import type { AuthContext } from '@plumbus/core';
+import type {
+  AuthAdapter,
+  AuthContext,
+  CapabilityRegistry,
+  ContextDependencies,
+  EventQueue,
+} from '@plumbus/core';
 
 /** Mirrors RouteGeneratorConfig (packages/plumbus-core/src/api/route-generator.ts). */
 export interface McpServerConfig {
@@ -31,6 +36,11 @@ export interface McpServerConfig {
    * stderr and never propagate to the MCP client. Mirrors `onAICostRecorded`.
    */
   onMcpToolCall?: (info: McpToolCallInfo) => void | Promise<void>;
+  /**
+   * When set, kind:job tasks with taskMetadata are dispatched to the shared jobs queue
+   * instead of executing in-process. Requires a worker process to dequeue.
+   */
+  jobQueue?: EventQueue;
 }
 
 export interface McpToolCallInfo {

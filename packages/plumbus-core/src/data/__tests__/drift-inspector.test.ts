@@ -7,12 +7,13 @@ import {
 } from '../drift-inspector.js';
 
 describe('FRAMEWORK_TABLE_NAMES', () => {
-  it('contains all 9 framework table names', () => {
-    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(9);
+  it('contains all 10 framework table names', () => {
+    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(10);
   });
 
   it('includes expected table names', () => {
     expect(FRAMEWORK_TABLE_NAMES).toContain('audit_records');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('job_executions');
     expect(FRAMEWORK_TABLE_NAMES).toContain('event_outbox');
     expect(FRAMEWORK_TABLE_NAMES).toContain('event_idempotency');
     expect(FRAMEWORK_TABLE_NAMES).toContain('event_dead_letter');

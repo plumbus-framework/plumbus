@@ -82,13 +82,21 @@
   },
   "peerDependencies": {
     "@plumbus/api": "0.1.x",
-    "@plumbus/mcp": "0.4.x"
+    "@plumbus/mcp": "0.4.x",
+    "cron-parser": "^4.9.0",
+    "redis": "^4.7.0"
   },
   "peerDependenciesMeta": {
     "@plumbus/api": {
       "optional": true
     },
     "@plumbus/mcp": {
+      "optional": true
+    },
+    "cron-parser": {
+      "optional": true
+    },
+    "redis": {
       "optional": true
     }
   },
