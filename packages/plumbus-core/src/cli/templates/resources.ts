@@ -109,7 +109,7 @@ export const ${toCamelCase(name)}Flow = defineFlow({
     {
       name: "step1",
       type: "capability",
-      capability: "TODO",
+      capability: "${domain}.stepName",
     },
   ],
 });

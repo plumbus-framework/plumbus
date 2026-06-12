@@ -16,11 +16,11 @@ export const refundApproval = defineFlow({
   state: z.object({ approved: z.boolean().default(false) }),
 
   steps: [
-    { type: "capability", name: "validateRefund" },
+    { type: "capability", name: "validateRefund", capability: "billing.validateRefund" },
     { type: "conditional", name: "checkAmount", if: "amount > 100", then: "managerApproval", else: "autoApprove" },
     { type: "wait", name: "managerApproval", event: "refund.approved" },
-    { type: "capability", name: "autoApprove" },
-    { type: "capability", name: "processRefund" },
+    { type: "capability", name: "autoApprove", capability: "billing.autoApprove" },
+    { type: "capability", name: "processRefund", capability: "billing.processRefund" },
     { type: "eventEmit", name: "notifyCustomer", event: "refund.completed" },
   ],
 
@@ -33,7 +33,7 @@ export const refundApproval = defineFlow({
 
 | Type | Purpose | Key Fields |
 |------|---------|-----------|
-| `capability` | Execute a named capability | `name` (capability name) |
+| `capability` | Execute a named capability | `name` (step id), `capability` (canonical `<domain>.<name>`) |
 | `conditional` | Branch based on condition | `if`, `then`, `else` |
 | `wait` | Pause until event or timeout | `event` |
 | `delay` | Pause for a fixed duration | `duration` (e.g., `"24h"`, `"5m"`) |
@@ -63,6 +63,14 @@ The `then` and `else` values reference step **names** within the same flow. Exec
 ```
 
 All branches execute concurrently. The flow waits for **all** branches to complete before advancing. If any branch fails, the entire parallel step fails.
+## Flow step auth and job blocking
+
+Flow capability steps run under the **caller's auth snapshot** stored in `flow_executions.auth_snapshot_json` — not auto-`system` on user-triggered flows. Capabilities must allow the original caller's roles/scopes (or `public`). Scheduled flows still run under explicit `system` auth from the scheduler.
+
+**Job capabilities** cannot run synchronously inside a flow step. Use job dispatch, events, or async consumers instead — the step executor returns `dependencyViolation` when a step references `kind: 'job'`.
+
+Flow steps are **not** subject to a parent capability's `effects.capabilities`; only handler-to-handler `ctx.capabilities.invoke` requires declared dependencies.
+
 ## State Management
 
 Flows maintain a `state` object persisted across steps. Each step can read and modify state through the flow execution context.

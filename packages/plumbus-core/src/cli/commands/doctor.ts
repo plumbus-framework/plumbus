@@ -22,7 +22,7 @@ import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { buildMcpManifest, isMcpExposed } from '../../mcp/index.js';
 import { discoverResources } from '../discover.js';
 import { needsWorkerPool } from '../../runtime/bootstrap.js';
-import { toKebabCase } from '../utils.js';
+import { capabilitySkillBasename } from '../utils.js';
 
 export interface DoctorCheck {
   name: string;
@@ -258,7 +258,7 @@ export async function checkMcpSkillFilesFresh(): Promise<DoctorCheck | null> {
           'generated',
           'skills',
           cap?.domain ?? 'unknown',
-          `${toKebabCase(tool.name)}.md`,
+          `${capabilitySkillBasename(cap ?? tool.name)}.md`,
         );
       }),
     );

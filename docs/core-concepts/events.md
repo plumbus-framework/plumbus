@@ -123,7 +123,7 @@ interface EventEnvelope<TPayload = unknown> {
   actor: string;            // Who triggered it (userId, service account, "system", etc.)
   tenantId?: string;        // Tenant context, if scoped
   correlationId: string;    // Request trace ID — same across the full request graph
-  causationId?: string;     // ID of the event/turn that caused this one (causal chain)
+  causationId?: string;     // Caller capability canonical name when emitted during nested invoke, or parent event/request id
   payload: TPayload;        // Event data, typed to the schema declared in `defineEvent`
 }
 ```

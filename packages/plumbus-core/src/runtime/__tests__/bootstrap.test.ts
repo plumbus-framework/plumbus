@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { createTestContext } from '../../testing/context.js';
+import { ErrorCode } from '../../types/enums.js';
+import type { CapabilityContract } from '../../types/capability.js';
 import {
+  buildStepDeps,
   needsJobQueuePublish,
   needsWorkerPool,
   resolveRuntimeRole,
@@ -88,5 +94,31 @@ describe('needsJobQueuePublish', () => {
         translations: [],
       }),
     ).toBe(false);
+  });
+});
+
+describe('buildStepDeps', () => {
+  it('rejects job capabilities synchronously in flow steps', async () => {
+    const job: CapabilityContract = {
+      name: 'generateReport',
+      kind: 'job',
+      domain: 'reports',
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'] },
+      handler: async () => ({ ok: true }),
+    } as CapabilityContract;
+
+    const registry = new CapabilityRegistry();
+    registry.register(job);
+    const stepDeps = buildStepDeps(registry);
+    const ctx = createTestContext({ auth: { roles: ['admin'] } });
+
+    const result = await stepDeps.executeCapability('reports.generateReport', ctx, {});
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe(ErrorCode.DependencyViolation);
+    expect((result.error.metadata as { reason?: string }).reason).toBe('unsupportedTargetKind');
   });
 });

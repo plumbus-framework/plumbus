@@ -24,6 +24,14 @@ export {
   ruleMissingAuditConfig,
 } from './architecture.js';
 export {
+  capabilityDependencyRules,
+  ruleCircularCapabilityDependency,
+  ruleDeepCapabilityChain,
+  ruleJobCapabilityDependency,
+  ruleMissingCapabilityDependency,
+  ruleNonCanonicalCapabilityReference,
+} from './capability-dependencies.js';
+export {
   privacyRules,
   ruleExcessiveDataRetention,
   ruleMissingFieldClassification,

@@ -11,6 +11,16 @@
 - **CLI** — `plumbus worker` (health/ready/metrics), `plumbus events` ops (replay, dead-letter), `plumbus flow dead-letter`.
 - **Runtime exports** — `resolveRuntimeQueues`, `registerCapabilityConsumers`, `dispatchQueuedJob`, `createJobService`, `registerJobStatusRoute`, `RuntimeRole`, and related helpers.
 - **Governance** — advisory rules for split deploy without worker, missing `trigger.event`, and job payload compatibility.
+- **`effects.capabilities` + `ctx.capabilities.invoke`** — sanctioned synchronous capability-to-capability composition with declared dependencies, cycle detection, and runtime `dependencyViolation` enforcement.
+- **Flow auth snapshot** — `flow_executions.auth_snapshot_json` stores the caller's `AuthContext` at start; step execution restores roles/scopes from the snapshot (not worker `system` auth).
+- **`dependencyViolation` error code** — undeclared invoke targets, cycles, missing capabilities, and synchronous job invoke attempts return structured `400` errors with actionable metadata.
+
+### Breaking
+
+- **Canonical capability names only** — registry keys, flow `step.capability`, `effects.capabilities`, `ctx.capabilities.invoke`, generated `RegisteredCapabilityName`, `capability-graph.md`, and MCP manifest tool names use `<domain>.<capabilityName>` (e.g. `billing.approveRefund`). Short local names (`approveRefund`) are no longer valid references outside `defineCapability({ name })`.
+- **Flow step auth** — user-triggered flows no longer auto-inject the `system` role on every step. Steps run under the stored auth snapshot; capabilities must list the caller's actual roles (or `public`) — not rely on implicit `system` elevation.
+- **Job blocking in flows and invoke** — `kind: 'job'` capabilities cannot run synchronously inside flow steps or via `ctx.capabilities.invoke`; use job dispatch, events, or async consumers instead.
+- **Handler `__runtime` invoker stripping** — `invokeCapability`, `resolveCapability`, and `invocationEmitScope` are no longer exposed on handler-visible `ctx.__runtime`; use `ctx.capabilities.invoke` only.
 
 ### Changed
 
@@ -28,6 +38,13 @@ plumbus migrate generate && plumbus migrate apply
 ```
 
 Apps with `kind: 'job'` HTTP clients must poll `GET /api/jobs/:jobId` instead of expecting a synchronous **200** body. Split production deploys need Redis (`pnpm add redis`) and a `plumbus worker` process.
+
+For canonical capability names, `effects.capabilities`, and invoke policy, see `docs/upgrading-capability-names.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Summary:
+
+1. Update flow `step.capability`, `effects.capabilities`, and `ctx.capabilities.invoke` strings to `<domain>.<name>`.
+2. Run `plumbus generate` to refresh `RegisteredCapabilityName`, `mcp-manifest.json`, and `capability-graph.md`.
+3. Run `plumbus verify` — `architecture.non-canonical-capability-reference` and related dependency rules flag stale references.
+4. Run `plumbus migrate generate && plumbus migrate apply` if upgrading to the `auth_snapshot_json` column for flow executions.
 
 ### Non-breaking (default topology)
 

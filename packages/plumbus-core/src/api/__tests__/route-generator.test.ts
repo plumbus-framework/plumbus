@@ -339,6 +339,42 @@ describe('registerAllRoutes', () => {
   });
 });
 
+describe('HTTP correlation ID propagation', () => {
+  it('sets correlationId on createDependencies deps from x-correlation-id', async () => {
+    const app = makeMockApp();
+    const deps = {
+      auth: {
+        userId: 'u1',
+        roles: ['admin'],
+        scopes: [],
+        provider: 'test',
+        tenantId: 'tenant-1',
+      },
+      data: {},
+    };
+    const createDependencies = vi.fn().mockReturnValue(deps);
+    const config = { ...makeMockConfig(), createDependencies };
+    const cap = makeCapability({ kind: 'query' });
+
+    registerCapabilityRoute(app as any, cap, config);
+
+    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const request = {
+      headers: {
+        authorization: 'Bearer test-token',
+        'x-correlation-id': 'corr-from-client',
+      },
+      query: { id: '1' },
+      ip: '127.0.0.1',
+    };
+    const reply = makeMockReply();
+
+    await registeredHandler(request, reply);
+
+    expect(deps.correlationId).toBe('corr-from-client');
+  });
+});
+
 describe('GET query param coercion', () => {
   it('coerces numeric query params from strings to numbers', async () => {
     const app = makeMockApp();

@@ -26,6 +26,11 @@ import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import { createEventEmitter } from '../events/emitter.js';
 import type { EventRegistry } from '../events/registry.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import {
+  createInvocationEmitScope,
+  resolveInvocationCausationId,
+} from '../execution/invocation-emit-scope.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createFlowEngine } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
@@ -311,7 +316,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         audit,
         bypassTenantScope: options?.bypassTenantScope,
       });
-      const eventService = createEventEmitter({ db, auth, registry: events, audit });
+      const invocationEmitScope = createInvocationEmitScope();
+      const eventService = createEventEmitter({
+        db,
+        auth,
+        registry: events,
+        audit,
+        getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
+      });
 
       return {
         auth,
@@ -323,6 +335,8 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         logger,
         config: config as unknown as Record<string, unknown>,
         translations: createTranslationService(translationRegistry, defaultLocale),
+        invocationEmitScope,
+        ...buildCapabilityRuntimeDeps(capabilities),
       };
     },
     onCapabilityError: serverConfig.onCapabilityError,

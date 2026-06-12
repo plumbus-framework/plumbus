@@ -15,6 +15,11 @@ import { EntityRegistry } from '../data/registry.js';
 import { createEventEmitter } from '../events/emitter.js';
 import { EventRegistry } from '../events/registry.js';
 import { CapabilityRegistry } from '../execution/capability-registry.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import {
+  createInvocationEmitScope,
+  resolveInvocationCausationId,
+} from '../execution/invocation-emit-scope.js';
 import { createFlowEngine } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
 import { FlowRegistry } from '../flows/registry.js';
@@ -130,7 +135,14 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
         audit,
         bypassTenantScope: options?.bypassTenantScope,
       });
-      const eventService = createEventEmitter({ db, auth, registry: events, audit });
+      const invocationEmitScope = createInvocationEmitScope();
+      const eventService = createEventEmitter({
+        db,
+        auth,
+        registry: events,
+        audit,
+        getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
+      });
 
       return {
         auth,
@@ -142,6 +154,8 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
         logger,
         config: config as unknown as Record<string, unknown>,
         translations: createTranslationService(translationRegistry, defaultLocale),
+        invocationEmitScope,
+        ...buildCapabilityRuntimeDeps(capabilities),
       };
     },
   };

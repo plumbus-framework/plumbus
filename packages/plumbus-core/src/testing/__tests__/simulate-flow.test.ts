@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { FlowStatus, StepStatus } from '../../flows/state-machine.js';
-import { FlowStepType } from '../../types/enums.js';
+import { ErrorCode, FlowStepType } from '../../types/enums.js';
+import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import { createTestContext, mockEvents } from '../context.js';
 import { simulateFlow } from '../simulate-flow.js';
@@ -276,5 +277,51 @@ describe('simulateFlow', () => {
     );
     expect(result.status).toBe(FlowStatus.Completed);
     expect(executed).toEqual(['step1', 'step2']);
+  });
+
+  it('rejects job capability steps when capabilities registry is provided', async () => {
+    const job: CapabilityContract = {
+      name: 'generateReport',
+      kind: 'job',
+      domain: 'reports',
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'] },
+      handler: async () => ({ ok: true }),
+    } as CapabilityContract;
+
+    const flow: FlowDefinition = {
+      name: 'report-flow',
+      domain: 'reports',
+      input: z.object({}),
+      steps: [
+        {
+          name: 'runJob',
+          type: FlowStepType.Capability,
+          capability: 'reports.generateReport',
+        },
+      ],
+    };
+
+    const result = await simulateFlow(
+      flow,
+      {},
+      {
+        auth: { roles: ['admin'] },
+        capabilities: [job],
+      },
+    );
+
+    expect(result.status).toBe(FlowStatus.Failed);
+    expect(result.history[0]?.status).toBe(StepStatus.Failed);
+    const stepResult = result.stepResults.get('runJob');
+    expect(stepResult?.status).toBe(StepStatus.Failed);
+    const error = JSON.parse(stepResult?.error ?? '{}') as {
+      code?: string;
+      metadata?: { reason?: string };
+    };
+    expect(error.code).toBe(ErrorCode.DependencyViolation);
+    expect(error.metadata?.reason).toBe('unsupportedTargetKind');
   });
 });

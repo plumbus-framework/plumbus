@@ -35,6 +35,7 @@ vi.mock('../../data/connection.js', () => ({
   closeDatabaseConnection: vi.fn(async () => {}),
 }));
 
+import { createExecutionContext } from '../../execution/context-factory.js';
 import { buildMcpServeContext } from '../mcp-serve-context.js';
 
 describe('buildMcpServeContext jobQueue wiring', () => {
@@ -70,5 +71,32 @@ describe('buildMcpServeContext jobQueue wiring', () => {
     const ctx = await buildMcpServeContext();
 
     expect(ctx.jobQueue).toBe(jobsQueue);
+  });
+});
+
+describe('buildMcpServeContext capability invoke wiring', () => {
+  beforeEach(() => {
+    resolveRuntimeQueues.mockReset();
+    resolveRuntimeQueues.mockResolvedValue({
+      jobs: { publish: vi.fn() },
+      isDurable: false,
+      close: vi.fn(async () => {}),
+    });
+  });
+
+  it('wires buildCapabilityRuntimeDeps into createDependencies', async () => {
+    const ctx = await buildMcpServeContext();
+    const deps = ctx.routeConfig.createDependencies({
+      userId: 'u1',
+      roles: [],
+      scopes: [],
+      provider: 'test',
+    });
+    const executionCtx = createExecutionContext(deps);
+
+    expect(deps.invokeCapability).toBeTypeOf('function');
+    expect(deps.resolveCapability).toBeTypeOf('function');
+    expect(deps.invocationEmitScope).toBeDefined();
+    expect(executionCtx.__runtime?.invokeCapability).toBeTypeOf('function');
   });
 });

@@ -108,7 +108,7 @@ describe('StepExecutor', () => {
     const step: CapabilityStep = {
       name: 'analyzeDocument',
       type: FlowStepType.Capability,
-      capability: 'analyzeDocument',
+      capability: 'docs.analyzeDocument',
       input: { documentId: '$state.documentId' },
     };
     const deps: StepExecutorDeps = {
@@ -116,7 +116,7 @@ describe('StepExecutor', () => {
       executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
     };
     await executeStep(step, mockCtx, {}, { documentId: 'doc-1', body: largeBody }, deps);
-    expect(deps.executeCapability).toHaveBeenCalledWith('analyzeDocument', mockCtx, {
+    expect(deps.executeCapability).toHaveBeenCalledWith('docs.analyzeDocument', mockCtx, {
       documentId: 'doc-1',
     });
   });
@@ -125,7 +125,7 @@ describe('StepExecutor', () => {
     const step: CapabilityStep = {
       name: 'storeDocument',
       type: FlowStepType.Capability,
-      capability: 'storeDocument',
+      capability: 'docs.storeDocument',
     };
     const deps: StepExecutorDeps = {
       ...defaultDeps,
@@ -144,16 +144,20 @@ describe('StepExecutor', () => {
     const step: CapabilityStep = {
       name: 'extractMetadata',
       type: FlowStepType.Capability,
-      capability: 'extractMessageMetadata',
+      capability: 'messages.extractMessageMetadata',
     };
     const deps: StepExecutorDeps = {
       ...defaultDeps,
       executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
     };
     await executeStep(step, mockCtx, { projectId: 'p1' }, {}, deps);
-    expect(deps.executeCapability).toHaveBeenCalledWith('extractMessageMetadata', mockCtx, {
-      projectId: 'p1',
-    });
+    expect(deps.executeCapability).toHaveBeenCalledWith(
+      'messages.extractMessageMetadata',
+      mockCtx,
+      {
+        projectId: 'p1',
+      },
+    );
   });
 
   it('executes a conditional step — true branch', async () => {

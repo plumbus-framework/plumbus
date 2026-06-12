@@ -199,10 +199,17 @@ export type {
 } from './execution/index.js';
 // ── Execution Engine ──
 export {
+  buildCapabilityRuntimeDeps,
   CapabilityRegistry,
   createExecutionContext,
   evaluateAccess,
   executeCapability,
+  getCanonicalCapabilityName,
+  isCanonicalCapabilityName,
+} from './execution/index.js';
+export type {
+  DependencyViolationMetadata,
+  DependencyViolationReason,
 } from './execution/index.js';
 export type {
   AIInvocationExplanation,

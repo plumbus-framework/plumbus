@@ -8,6 +8,7 @@ import {
   findPlumbusProjectRoot,
   formatOutput,
   migrateUiLegacyStructure,
+  capabilitySkillBasename,
   toCamelCase,
   toKebabCase,
   toPascalCase,
@@ -31,6 +32,16 @@ describe('CLI utilities', () => {
   describe('toCamelCase', () => {
     it('converts kebab-case', () => expect(toCamelCase('my-app')).toBe('myApp'));
     it('converts PascalCase', () => expect(toCamelCase('MyApp')).toBe('myApp'));
+  });
+
+  describe('capabilitySkillBasename', () => {
+    it('uses short capability name from contract', () => {
+      expect(capabilitySkillBasename({ name: 'getInvoice' })).toBe('get-invoice');
+    });
+
+    it('strips domain prefix from canonical tool names', () => {
+      expect(capabilitySkillBasename('billing.getInvoice')).toBe('get-invoice');
+    });
   });
 
   describe('formatOutput', () => {

@@ -17,6 +17,7 @@ import {
   createExecutionContext,
   dispatchQueuedJob,
   executeCapability,
+  getCanonicalCapabilityName,
   type AuthContext,
   type CapabilityContract,
   type ExecutionContext,
@@ -214,7 +215,7 @@ export function createMcpServer(
       const task = await createTask(ctx, {
         id: taskId,
         userId: authContext.userId,
-        capabilityName: cap.name,
+        capabilityName: getCanonicalCapabilityName(cap),
         capabilityDomain: cap.domain,
         progressToken: progressToken !== undefined ? String(progressToken) : undefined,
       });
@@ -318,7 +319,7 @@ export function createMcpServer(
           if (config.onMcpToolCall) {
             void (async () =>
               config.onMcpToolCall?.({
-                capabilityName: cap.name,
+                capabilityName: getCanonicalCapabilityName(cap),
                 domain: cap.domain,
                 durationMs: Date.now() - taskStart,
                 status: finalStatus,
@@ -385,7 +386,7 @@ export function createMcpServer(
       if (config.onMcpToolCall) {
         void (async () =>
           config.onMcpToolCall?.({
-            capabilityName: cap.name,
+            capabilityName: getCanonicalCapabilityName(cap),
             domain: cap.domain,
             durationMs,
             status: result.success ? 'success' : 'error',
@@ -402,7 +403,7 @@ export function createMcpServer(
       if (!result.success && config.onCapabilityError) {
         void (async () =>
           config.onCapabilityError?.({
-            capabilityName: cap.name,
+            capabilityName: getCanonicalCapabilityName(cap),
             domain: cap.domain,
             errorCode: result.error.code,
             errorMessage: result.error.message,

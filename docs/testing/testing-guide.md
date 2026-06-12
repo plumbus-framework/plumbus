@@ -74,6 +74,9 @@ interface RunCapabilityOptions {
   time?: TimeService | Date;              // Pin "now" for deterministic tests
   config?: Record<string, unknown>;       // Stub ctx.config
 
+  // Capability registry for nested invoke
+  capabilities?: CapabilityContract[];    // Wire ctx.capabilities.invoke in tests
+
   // Escape hatch
   ctx?: ExecutionContext;                 // Bypass everything above and provide a full custom context
 }
@@ -105,6 +108,21 @@ const result = await runCapability(createTimelineEvent, input, {
 
 When `entities` is provided, the mock data store validates every `create()` and `update()` call against the entity's field descriptors. A `field.number()` column rejects non-integer values, `field.enum()` rejects invalid values, etc.
 
+## Canonical capability names in tests
+
+Registry lookups, `runCapability`, `simulateFlow` step overrides, and `ctx.capabilities.invoke` use **canonical names** (`<domain>.<capabilityName>`). Pass the capability definition object to `runCapability(getUser, …)` when possible; when using string keys (e.g. `capabilityResults`), use canonical names.
+
+Register capabilities for nested invoke or production-like flow step execution:
+
+```typescript
+const ctx = createTestContext({
+  capabilities: [getInvoice, chargeCard],
+  auth: { roles: ["billing"], tenantId: "t-1" },
+});
+
+await ctx.capabilities.invoke("billing.getInvoice", { invoiceId: "inv_1" });
+```
+
 ## Testing Flows
 
 ### simulateFlow
@@ -118,11 +136,11 @@ import { orderFulfillment } from "../flows/orders/order-fulfillment/flow.js";
 describe("orderFulfillment", () => {
   it("completes all steps when payment succeeds", async () => {
     const result = await simulateFlow(orderFulfillment, { orderId: "o-1" }, {
-      auth: { roles: ["system"], tenantId: "t-1" },
+      auth: { roles: ["admin"], tenantId: "t-1" },
       capabilityResults: {
-        validateOrder: { success: true, data: { valid: true } },
-        processPayment: { success: true, data: { paymentStatus: "success" } },
-        createShipment: { success: true, data: { shipmentId: "s-1" } },
+        "orders.validateOrder": { success: true, data: { valid: true } },
+        "billing.processPayment": { success: true, data: { paymentStatus: "success" } },
+        "shipping.createShipment": { success: true, data: { shipmentId: "s-1" } },
       },
       conditionResults: {
         checkInventory: true,
@@ -136,9 +154,9 @@ describe("orderFulfillment", () => {
   it("cancels order when payment fails", async () => {
     const result = await simulateFlow(orderFulfillment, { orderId: "o-1" }, {
       capabilityResults: {
-        validateOrder: { success: true },
-        processPayment: { success: true, data: { paymentStatus: "failed" } },
-        cancelOrder: { success: true },
+        "orders.validateOrder": { success: true },
+        "billing.processPayment": { success: true, data: { paymentStatus: "failed" } },
+        "orders.cancelOrder": { success: true },
       },
       conditionResults: {
         checkInventory: false,
@@ -151,6 +169,20 @@ describe("orderFulfillment", () => {
   });
 });
 ```
+
+### Job blocking in flow simulation
+
+When you pass `capabilities` in `simulateFlow` options, the simulator uses the same job-blocking step executor as production. A flow step that references a `kind: 'job'` capability fails with `dependencyViolation` / `unsupportedTargetKind`:
+
+```typescript
+const result = await simulateFlow(reportFlow, {}, {
+  capabilities: [generateReportJob],
+  auth: { roles: ["admin"] },
+});
+expect(result.status).toBe("failed");
+```
+
+Use `capabilityResults` to stub step outputs without registering real handlers; use `capabilities` when you need real invoke behavior or production-like step execution.
 
 ### FlowSimulationResult
 

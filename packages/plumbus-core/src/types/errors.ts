@@ -16,4 +16,5 @@ export interface ErrorService {
   forbidden(message: string, metadata?: Record<string, unknown>): PlumbusErrorLike;
   conflict(message: string, metadata?: Record<string, unknown>): PlumbusErrorLike;
   internal(message: string, metadata?: Record<string, unknown>): PlumbusErrorLike;
+  dependencyViolation(message: string, metadata?: Record<string, unknown>): PlumbusErrorLike;
 }

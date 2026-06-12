@@ -9,6 +9,10 @@ Version-locked with `@plumbus/core` **0.5.x** via `peerDependencies`.
 - **`jobQueue` on `McpServerConfig`** — when Redis is durable, `kind: 'job'` task dispatch enqueues to the shared jobs queue instead of running in-process only.
 - **`createMcpJobCompletionSync`** — worker-side hook to complete MCP task rows when jobs dequeue on a separate worker process.
 
+### Breaking
+
+- **Canonical MCP tool names** — `tools/list` and `tools/call` use `<domain>.<capabilityName>` (e.g. `billing.getRefund`), matching the capability registry and generated manifest. Agents and integrations that called tools by short local `name` must update to canonical names after `plumbus generate`.
+
 ### Changed
 
 - **`plumbus mcp serve`** — wires `jobQueue` automatically when `resolveRuntimeQueues` returns `isDurable: true`; without Redis, MCP jobs stay in-process (unchanged from 0.4.x).

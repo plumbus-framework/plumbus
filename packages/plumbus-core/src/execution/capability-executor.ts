@@ -5,6 +5,13 @@ import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { PlumbusErrorLike } from '../types/errors.js';
 import { evaluateAccess } from './authorization.js';
+import { getCanonicalCapabilityName } from './canonical-name.js';
+import {
+  createCapabilityInvokeService,
+  createUnavailableCapabilityService,
+  stripHandlerRuntime,
+  type CapabilityInvocationRuntime,
+} from './capability-invocation.js';
 
 export interface ExecutionResult<T = unknown> {
   success: true;
@@ -22,7 +29,7 @@ export type CapabilityResult<T = unknown> = ExecutionResult<T> | ExecutionFailur
  * Execute a capability through the full pipeline:
  * 1. Validate input
  * 2. Evaluate access policy
- * 3. Execute handler
+ * 3. Execute handler (with scoped ctx.capabilities)
  * 4. Validate output
  * 5. Record audit
  */
@@ -31,14 +38,16 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   ctx: ExecutionContext,
   rawInput: unknown,
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
+  const canonicalName = getCanonicalCapabilityName(capability);
+
   // 1. Validate input against schema
   const inputResult = capability.input.safeParse(rawInput);
   if (!inputResult.success) {
     const error = ctx.errors.validation('Invalid input', {
-      capability: capability.name,
+      capability: canonicalName,
       issues: inputResult.error.issues,
     });
-    await recordAudit(ctx, capability, 'failure', { error });
+    await recordAudit(ctx, capability, canonicalName, 'failure', { error });
     return { success: false, error };
   }
 
@@ -48,20 +57,44 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   const authResult = evaluateAccess(capability.access, ctx.auth);
   if (!authResult.allowed) {
     const error = ctx.errors.forbidden(authResult.reason ?? 'Access denied', {
-      capability: capability.name,
+      capability: canonicalName,
     });
-    await recordAudit(ctx, capability, 'denied', { error });
+    await recordAudit(ctx, capability, canonicalName, 'denied', { error });
     return { success: false, error };
   }
 
-  // 3. Execute handler
+  // 3. Execute handler with scoped capabilities service (invoker not exposed on __runtime)
+  const invoker = ctx.__runtime?.invokeCapability;
+  const resolveCapability = ctx.__runtime?.resolveCapability;
+  const emitScope = ctx.__runtime?.invocationEmitScope;
+  const invocationRuntime: CapabilityInvocationRuntime | undefined =
+    invoker && resolveCapability
+      ? { invoker: invoker as CapabilityInvocationRuntime['invoker'], resolveCapability, emitScope }
+      : undefined;
+
+  const handlerCtx: ExecutionContext = {
+    ...ctx,
+    capabilities: invocationRuntime
+      ? createCapabilityInvokeService(
+          capability as unknown as CapabilityContract<z.ZodTypeAny, z.ZodTypeAny>,
+          ctx,
+          invocationRuntime,
+        )
+      : createUnavailableCapabilityService(ctx),
+    __runtime: stripHandlerRuntime(ctx.__runtime),
+  };
+
+  if (emitScope) {
+    emitScope.executingCapability = canonicalName;
+  }
+
   let rawOutput: z.infer<TOutput>;
   try {
-    rawOutput = await capability.handler(ctx, input);
+    rawOutput = await capability.handler(handlerCtx, input);
   } catch (err) {
     // If the handler threw a PlumbusError, surface it directly
     if (isPlumbusError(err)) {
-      await recordAudit(ctx, capability, 'failure', { error: err });
+      await recordAudit(ctx, capability, canonicalName, 'failure', { error: err });
       return { success: false, error: err };
     }
 
@@ -70,7 +103,7 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
       const error = ctx.errors.internal(
         'AI provider temporarily unavailable. Please try again in a moment.',
         {
-          capability: capability.name,
+          capability: canonicalName,
           message: err.message,
           provider: err.providerName,
           retryAttempts: err.attempts,
@@ -79,16 +112,13 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
           httpStatus: statusCode,
         },
       );
-      ctx.logger.error(
-        `Capability "${capability.name}" failed due to transient AI provider error`,
-        {
-          error: err.message,
-          provider: err.providerName,
-          upstreamStatusCode: err.statusCode,
-          attempts: err.attempts,
-        },
-      );
-      await recordAudit(ctx, capability, 'failure', { error });
+      ctx.logger.error(`Capability "${canonicalName}" failed due to transient AI provider error`, {
+        error: err.message,
+        provider: err.providerName,
+        upstreamStatusCode: err.statusCode,
+        attempts: err.attempts,
+      });
+      await recordAudit(ctx, capability, canonicalName, 'failure', { error });
       return { success: false, error };
     }
 
@@ -100,32 +130,36 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
         ? err.message
         : String(err);
     const error = ctx.errors.internal('Capability execution failed', {
-      capability: capability.name,
+      capability: canonicalName,
       message: errorMessage,
     });
-    ctx.logger.error(`Capability "${capability.name}" threw an error`, {
+    ctx.logger.error(`Capability "${canonicalName}" threw an error`, {
       error: errorMessage,
     });
-    await recordAudit(ctx, capability, 'failure', { error });
+    await recordAudit(ctx, capability, canonicalName, 'failure', { error });
     return { success: false, error };
+  } finally {
+    if (emitScope) {
+      emitScope.executingCapability = undefined;
+    }
   }
 
   // 4. Validate output against schema
   const outputResult = capability.output.safeParse(rawOutput);
   if (!outputResult.success) {
     const error = ctx.errors.internal('Invalid output from capability', {
-      capability: capability.name,
+      capability: canonicalName,
       issues: outputResult.error.issues,
     });
-    ctx.logger.error(`Capability "${capability.name}" returned invalid output`, {
+    ctx.logger.error(`Capability "${canonicalName}" returned invalid output`, {
       issues: outputResult.error.issues,
     });
-    await recordAudit(ctx, capability, 'failure', { error });
+    await recordAudit(ctx, capability, canonicalName, 'failure', { error });
     return { success: false, error };
   }
 
   // 5. Record success audit
-  await recordAudit(ctx, capability, 'success');
+  await recordAudit(ctx, capability, canonicalName, 'success');
 
   return { success: true, data: outputResult.data as z.infer<TOutput> };
 }
@@ -133,26 +167,31 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
 async function recordAudit(
   ctx: ExecutionContext,
   capability: CapabilityContract<any, any>,
+  canonicalName: string,
   outcome: 'success' | 'failure' | 'denied',
   metadata?: Record<string, unknown>,
 ): Promise<void> {
-  // Skip if audit is explicitly disabled for this capability
   if (capability.audit?.enabled === false) return;
 
-  const auditEvent = capability.audit?.event ?? `capability.${capability.name}`;
+  const auditEvent = capability.audit?.event ?? `capability.${canonicalName}`;
+  const stack = ctx.__runtime?.capabilityStack ?? [];
+  const caller = ctx.__runtime?.invocationCaller;
+  const correlationId = ctx.__runtime?.correlationId;
 
   try {
     await ctx.audit.record(auditEvent, {
-      capability: capability.name,
+      capability: canonicalName,
       domain: capability.domain,
       kind: capability.kind,
       outcome,
       actor: ctx.auth.userId,
       tenantId: ctx.auth.tenantId,
+      ...(caller ? { caller } : {}),
+      ...(stack.length > 0 ? { capabilityStack: stack } : {}),
+      ...(correlationId ? { correlationId } : {}),
       ...metadata,
     });
   } catch {
-    // Audit failures should not break capability execution
-    ctx.logger.error(`Failed to record audit for capability "${capability.name}"`);
+    ctx.logger.error(`Failed to record audit for capability "${canonicalName}"`);
   }
 }

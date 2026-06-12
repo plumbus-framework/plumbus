@@ -164,6 +164,8 @@ Capability handler
                               flows queue ──▶ step consumer
 ```
 
+**Flow step auth:** `flow_executions.auth_snapshot_json` stores the caller's `AuthContext` at start time. Step execution restores roles/scopes from that snapshot — not from the worker's `system` auth — so user-triggered flows enforce the same access policies as the original HTTP or API caller.
+
 All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` or `createRedisQueue`). Redis queues use atomic Lua rewrap on dequeue and a single shared client quit on shutdown. Legacy processing entries without `dequeuedAt` are requeued on recovery. A configurable visibility timeout (`queue.visibilityTimeoutSec`, default 30 seconds) handles poison-message recovery.
 
 The flow step queue consumer calls `claimExecution(executionId)` before `runNext` to prevent double execution alongside the DB poll loop.

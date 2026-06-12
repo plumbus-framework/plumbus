@@ -590,9 +590,11 @@ plumbus verify [options]
 
 Evaluates rules across categories:
 - **Security** — access policies, tenant isolation, encryption
-- **Architecture** — excessive effects, flow complexity
+- **Architecture** — excessive effects, flow complexity, non-canonical capability references, direct capability handler imports (source scan under `app/capabilities/`)
 - **Privacy** — field classification, PII in logs, data retention
 - **AI** — explainability, excessive usage, cost controls
+
+The source scan uses the current working directory as the app root (same as `plumbus generate`).
 
 ---
 

@@ -161,9 +161,33 @@ effects: {
   data: ["Order"],                     // Entities written (governance reads this to gate write access)
   events: ["order.updated"],           // Events emitted
   external: ["payment-gateway"],       // External service calls
+  capabilities: ["billing.getInvoice"], // Canonical names this capability may invoke via ctx.capabilities.invoke
   ai: false,                           // `true` if the handler calls `ctx.ai.*`
 }
 ```
+
+## Capability-to-capability invocation
+
+Capabilities may **not** import and call another capability's handler directly. The only sanctioned path for synchronous composition is `ctx.capabilities.invoke(name, input)`.
+
+- **Canonical names:** use `<domain>.<capabilityName>` everywhere — e.g. `billing.approveRefund`. The local `name` field in `defineCapability` stays short (`approveRefund`); the framework derives the canonical name from `domain` + `name`.
+- **Declared dependencies:** the target must appear in `effects.capabilities`. Undeclared calls, cycles, missing targets, and job targets produce `dependencyViolation` errors at runtime.
+- **Full pipeline:** nested calls run through `executeCapability` (validation, access, audit, output validation). The callee inherits the caller's auth, transaction scope, and correlation context.
+- **Handler surface:** capability handlers receive `ctx.capabilities.invoke` only. Internal registry invokers are not exposed on `ctx.__runtime` — bypassing the policy layer is not supported.
+- **Nested events:** when a callee emits via `ctx.events.emit()`, the outbox envelope's `causationId` is set to the caller's canonical capability name (or the executing capability when not nested).
+- **Job capabilities** cannot be invoked synchronously — use job dispatch, flows, or events. Flow `capability` steps reject `kind: 'job'` targets at runtime.
+- **Flows remain preferred** for multi-step orchestration. Use `ctx.capabilities.invoke` when you need a callee's result in the same execution path.
+
+```typescript
+handler: async (ctx, input) => {
+  const invoice = await ctx.capabilities.invoke("billing.getInvoice", {
+    id: input.invoiceId,
+  });
+  // ...
+};
+```
+
+See [upgrading-capability-names](../upgrading-capability-names.md) when migrating existing apps to canonical names.
 
 ## Error Handling
 
@@ -224,7 +248,7 @@ export type ApproveRefundOutput = {
   approvedAt: string;
 };
 
-export type CapabilityName = "approveRefund" | "getInvoice";
+export type CapabilityName = "billing.approveRefund" | "billing.getInvoice";
 ```
 
 The `CapabilityName` type can be used for type-safe capability references (e.g. with `runCapability`).

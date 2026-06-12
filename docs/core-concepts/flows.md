@@ -13,8 +13,8 @@ export const orderFulfillment = defineFlow({
   description: "Process an order from payment to delivery",
   trigger: { event: "order.placed" },
   steps: [
-    { name: "validateOrder", type: "capability", capability: "validateOrder" },
-    { name: "processPayment", type: "capability", capability: "processPayment" },
+    { name: "validateOrder", type: "capability", capability: "orders.validateOrder" },
+    { name: "processPayment", type: "capability", capability: "billing.processPayment" },
     {
       name: "checkInventory",
       type: "conditional",
@@ -22,16 +22,16 @@ export const orderFulfillment = defineFlow({
       then: "createShipment",
       else: "cancelOrder",
     },
-    { name: "createShipment", type: "capability", capability: "createShipment" },
-    { name: "cancelOrder", type: "capability", capability: "cancelOrder" },
+    { name: "createShipment", type: "capability", capability: "shipping.createShipment" },
+    { name: "cancelOrder", type: "capability", capability: "orders.cancelOrder" },
     {
       name: "notifyAll",
       type: "parallel",
       branches: ["sendEmail", "sendSms", "updateDashboard"],
     },
-    { name: "sendEmail", type: "capability", capability: "sendOrderEmail" },
-    { name: "sendSms", type: "capability", capability: "sendOrderSms" },
-    { name: "updateDashboard", type: "capability", capability: "updateOrderDashboard" },
+    { name: "sendEmail", type: "capability", capability: "notifications.sendOrderEmail" },
+    { name: "sendSms", type: "capability", capability: "notifications.sendOrderSms" },
+    { name: "updateDashboard", type: "capability", capability: "orders.updateOrderDashboard" },
   ],
   retry: { attempts: 3, backoff: "exponential" },
 });
@@ -41,11 +41,17 @@ export const orderFulfillment = defineFlow({
 
 ### Capability Step
 
-Executes a capability:
+Executes a capability by **canonical name** (`<domain>.<capabilityName>`):
 
 ```typescript
-{ name: "validateOrder", type: "capability", capability: "validateOrder" }
+{ name: "validateOrder", type: "capability", capability: "orders.validateOrder" }
 ```
+
+Flow `capability` steps use the flow runtime — they are **not** subject to a parent capability's `effects.capabilities`. Only handler-to-handler calls via `ctx.capabilities.invoke` require declared dependencies (see [capabilities](./capabilities.md#capability-to-capability-invocation)).
+
+**Job capabilities** cannot run synchronously inside a flow step. Use job dispatch, an event-triggered flow, or an async job consumer instead — the flow step executor returns `dependencyViolation` / `unsupportedTargetKind` when a step references a `kind: 'job'` capability.
+
+Flow step execution does **not** inherit the worker's `system` roles. When a flow starts, the framework stores the caller's full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step (with `actor` / `tenant_id` from the row). Scheduled and worker-owned flows still run under explicit `system` auth from the worker bootstrap; user-triggered flows keep the caller's roles and scopes.
 
 By default, each capability step receives the **merged flow input + flow state** as its input. You can also provide explicit `input` overrides with template references:
 
@@ -53,7 +59,7 @@ By default, each capability step receives the **merged flow input + flow state**
 {
   name: "extractEvents",
   type: "capability",
-  capability: "extractTimelineEvents",
+  capability: "timeline.extractTimelineEvents",
   input: {
     sourceType: "interview_message",          // literal value
     sourceReferenceId: "$input.messageId",    // resolved from flow input
@@ -329,6 +335,8 @@ plumbus migrate apply
 ```
 
 The preflight is also exported as `assertFlowLeaseColumns(db)` for consumers that bootstrap their own worker entry points and want to surface the same error explicitly.
+
+`auth_snapshot_json` is included in generated migrations for new installs and upgrades. Rows created before the column exists fall back to worker auth for roles until migrated; run `plumbus migrate generate` and `plumbus migrate apply` after upgrading framework versions that add this column.
 
 ## Flow State Machine
 

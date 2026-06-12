@@ -1,3 +1,4 @@
+import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { zodInputToJsonSchema } from '../schema/zod-input-to-json-schema.js';
 import type { CapabilityContract } from '../types/capability.js';
@@ -27,8 +28,8 @@ function isMcpEligible(cap: CapabilityContract): boolean {
 export function buildMcpToolDefinition(cap: CapabilityContract): McpToolDefinition {
   const agentTags = cap.mcp?.agentTags;
   const tool: McpToolDefinition = {
-    name: cap.name,
-    description: cap.mcp?.description ?? cap.description ?? cap.name,
+    name: getCanonicalCapabilityName(cap),
+    description: cap.mcp?.description ?? cap.description ?? getCanonicalCapabilityName(cap),
     inputSchema: zodInputToJsonSchema(cap.input),
     annotations: {
       destructiveHint: cap.mcp?.dangerous ?? false,

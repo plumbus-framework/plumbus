@@ -303,7 +303,7 @@ describe('Worker Bootstrap', () => {
         name: 'testFlow',
         domain: 'test',
         input: { safeParse: () => ({ success: true, data: {} }) } as any,
-        steps: [{ name: 'step1', type: 'capability', capability: 'testCap' }],
+        steps: [{ name: 'step1', type: 'capability', capability: 'test.testCap' }],
         trigger: { event: 'test.event_occurred' },
       } as any);
 

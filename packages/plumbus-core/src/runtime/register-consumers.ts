@@ -10,6 +10,7 @@ import type { EventRegistry } from '../events/registry.js';
 import { outboxTable } from '../events/outbox.js';
 import { TrustedReplayActor, type EventEnvelope } from '../types/event.js';
 import { CapabilityKind } from '../types/enums.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
@@ -123,6 +124,7 @@ async function resolveEventHandlerTenantId(
 function buildConsumerContext(
   opts: RegisterCapabilityConsumersOptions,
   auth: AuthContext,
+  eventMeta?: { correlationId?: string; causationId?: string },
 ): ReturnType<typeof createExecutionContext> {
   const audit = createAuditService({ db: opts.db, auth });
   const data = opts.entities.createDataService({ db: opts.db, auth, audit });
@@ -131,8 +133,11 @@ function buildConsumerContext(
     auth,
     registry: opts.events,
     audit,
+    correlationId: eventMeta?.correlationId,
+    causationId: eventMeta?.causationId,
   });
   const flows = opts.flowEngine ? createFlowService(opts.flowEngine, auth) : undefined;
+  const capRuntime = buildCapabilityRuntimeDeps(opts.capabilities);
 
   return createExecutionContext({
     auth,
@@ -143,6 +148,8 @@ function buildConsumerContext(
     audit,
     logger: opts.logger,
     config: opts.config as unknown as Record<string, unknown>,
+    correlationId: eventMeta?.correlationId,
+    ...capRuntime,
   });
 }
 
@@ -177,7 +184,10 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
           if (!parsed.success) {
             throw new Error(`Event payload validation failed for handler "${cap.name}"`);
           }
-          const ctx = buildConsumerContext(opts, auth);
+          const ctx = buildConsumerContext(opts, auth, {
+            correlationId: envelope.correlationId,
+            causationId: envelope.id,
+          });
           const started = Date.now();
           const result = await executeCapability(cap, ctx, parsed.data);
           opts.metrics?.capabilityDuration.observe(Date.now() - started, {
@@ -254,7 +264,10 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
             throw new Error(`Job "${payload.jobExecutionId}" claim failed — will retry`);
           }
 
-          const ctx = buildConsumerContext(opts, auth);
+          const ctx = buildConsumerContext(opts, auth, {
+            correlationId: envelope.correlationId,
+            causationId: envelope.id,
+          });
           const jobInput = record.inputJson ?? payload.input;
           const parsed = cap.input.safeParse(jobInput);
           if (!parsed.success) {

@@ -56,6 +56,7 @@ app/prompts/<name>.prompt.ts
 - **Don't** emit events outside of capabilities — the outbox pattern requires a capability transaction.
 - **Don't** bypass `ctx.auth` checks — the framework evaluates access policies before your handler runs.
 - **Don't** bypass `ctx.*` subsystems with custom infrastructure layers unless the framework explicitly documents that extension point.
+- **Don't** import another capability module and call its `.handler` or `executeCapability` directly — declare the dependency in `effects.capabilities` and use `ctx.capabilities.invoke('<domain>.<name>', input)`.
 - **Don't** mutate the `ctx` object — it is scoped and controlled by the framework.
 - **Don't** import framework internals — use only the public SDK surface (`defineCapability`, `defineFlow`, etc.).
 - **Don't** store secrets in code — use `ctx.config` and environment variables.

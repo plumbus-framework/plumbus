@@ -154,5 +154,6 @@ To roll back to pre-0.5.0 behavior:
 ## See Also
 
 - [Workers and Queues](./architecture/workers-and-queues.md) — full runtime reference
+- [Upgrading capability names](./upgrading-capability-names.md) — canonical names, `effects.capabilities`, flow auth snapshot, invoke policy (same 0.5.x release)
 - [CLI Commands](./cli/commands.md) — `plumbus worker`, `plumbus events`, `plumbus flow dead-letter`
 - [Deployment](../packages/plumbus-core/instructions/deployment.md) — worker container templates

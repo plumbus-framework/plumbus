@@ -13,6 +13,11 @@ import { discoverResources } from '../cli/discover.js';
 import { CapabilityKind } from '../types/enums.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
+import {
+  buildDependencyViolationMessage,
+  type DependencyViolationMetadata,
+} from '../execution/capability-invocation.js';
 import { evaluateFlowCondition } from '../flows/evaluate-condition.js';
 import type { StepExecutorDeps } from '../flows/step-executor.js';
 import type { ServerConfig } from '../server/bootstrap.js';
@@ -101,6 +106,16 @@ export function buildStepDeps(capabilities: CapabilityRegistry): StepExecutorDep
           success: false,
           error: { code: 'not_found', message: `Capability "${capabilityName}" not found` },
         };
+      }
+      if (capability.kind === CapabilityKind.Job) {
+        const metadata: DependencyViolationMetadata = {
+          target: getCanonicalCapabilityName(capability),
+          reason: 'unsupportedTargetKind',
+          capabilityStack: ctx.__runtime?.capabilityStack ?? [],
+        };
+        const message = buildDependencyViolationMessage(metadata);
+        const error = ctx.errors.dependencyViolation(message, { ...metadata });
+        return { success: false, error };
       }
       return executeCapability(capability, ctx, input);
     },

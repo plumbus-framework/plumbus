@@ -17,6 +17,8 @@ interface ExecutionContext {
   time: TimeService;           // Clock abstraction
   config: ConfigService;       // App configuration
   security: SecurityService;   // Authorization helpers
+  translations: TranslationService; // i18n catalog
+  capabilities: CapabilityService; // Nested capability invocation (handlers only)
   request?: RequestMeta;       // HTTP metadata (HTTP callers only)
   state?: unknown;             // Flow state (flows only)
   step?: string;               // Current step (flows only)
@@ -30,6 +32,37 @@ interface ExecutionContext {
 | Property | Description |
 |----------|-------------|
 | `ctx.progress` | Present only when running under an MCP task. Capability handlers call `ctx.progress?.report({ progress, total?, message? })` to emit `notifications/progress` to the connected MCP client. `undefined` outside MCP task context. |
+| `ctx.capabilities` | Present in capability handlers and other framework-managed server contexts with a wired capability registry. **Not** for UI/client code. |
+| `ctx.translations` | Locale-aware `t(key)` helper backed by registered translation catalogs. |
+
+---
+
+## ctx.capabilities
+
+Invoke another capability synchronously through the full execution pipeline. Targets must be declared in the caller's `effects.capabilities` using canonical names (`<domain>.<capabilityName>`).
+
+```typescript
+interface CapabilityService {
+  invoke(name: RegisteredCapabilityName, input: unknown): Promise<unknown>;
+}
+```
+
+```typescript
+handler: async (ctx, input) => {
+  const profile = await ctx.capabilities.invoke("users.getProfile", {
+    userId: input.userId,
+  });
+  return { profile };
+};
+```
+
+- Returns unwrapped output on success; throws structured `PlumbusError` on failure.
+- Inherits caller auth, transaction scope, and correlation metadata.
+- HTTP requests propagate `X-Correlation-Id` or `X-Request-Id` into `ctx.__runtime.correlationId` and audit metadata when present.
+- Nested `ctx.events.emit()` calls set `causationId` to the invoking capability's canonical name.
+- **Job** capabilities cannot be invoke targets — use job dispatch or flows.
+- Do **not** import other capability modules, call `.handler` directly, or use internal `ctx.__runtime` invokers — handlers only get the policy-enforced `ctx.capabilities` surface.
+- Flow steps should use flow `capability` step types rather than `ctx.capabilities.invoke` unless the runtime context explicitly supports it.
 
 ---
 

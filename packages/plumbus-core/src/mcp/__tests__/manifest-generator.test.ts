@@ -33,7 +33,7 @@ describe('buildMcpManifest', () => {
 
     const manifest = buildMcpManifest(registry);
     expect(manifest.tools).toHaveLength(1);
-    expect(manifest.tools[0]?.name).toBe('getRefund');
+    expect(manifest.tools[0]?.name).toBe('billing.getRefund');
   });
 
   it('serializes input schema and annotations', () => {

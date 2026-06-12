@@ -9,7 +9,12 @@ import { EventRegistry } from '../registry.js';
  * to verify emitter logic without a real PostgreSQL connection.
  */
 
-function setup(opts?: { audit?: boolean; correlationId?: string; causationId?: string }) {
+function setup(opts?: {
+  audit?: boolean;
+  correlationId?: string;
+  causationId?: string;
+  getCausationId?: () => string | undefined;
+}) {
   const insertedRows: any[] = [];
   const auditRecords: any[] = [];
 
@@ -48,6 +53,7 @@ function setup(opts?: { audit?: boolean; correlationId?: string; causationId?: s
     audit,
     correlationId: opts?.correlationId,
     causationId: opts?.causationId,
+    getCausationId: opts?.getCausationId,
   };
 
   const emitter = createEventEmitter(config);
@@ -93,6 +99,19 @@ describe('EventEmitter', () => {
     await emitter.emit('order.created', { orderId: 'abc' });
     expect(insertedRows[0].correlationId).toBe('corr-x');
     expect(insertedRows[0].causationId).toBe('cause-y');
+  });
+
+  it('resolves causationId dynamically via getCausationId', async () => {
+    let caller = 'orders.createOrder';
+    const { emitter, insertedRows } = setup({
+      getCausationId: () => caller,
+    });
+    await emitter.emit('order.created', { orderId: 'abc' });
+    expect(insertedRows[0].causationId).toBe('orders.createOrder');
+
+    caller = 'billing.chargeCard';
+    await emitter.emit('order.created', { orderId: 'def' });
+    expect(insertedRows[1].causationId).toBe('billing.chargeCard');
   });
 
   it('records audit when audit service is provided', async () => {

@@ -25,8 +25,10 @@ export interface McpExposureConfig {
 
 ## Tool identity
 
-- **MCP tool name:** `cap.name` (same as capability registry and HTTP path segment after kebab-case conversion in routes).
-- **HTTP path:** `/api/{domain}/{kebab-name}` — unchanged.
+- **MCP tool name:** canonical `<domain>.<capabilityName>` (e.g. `billing.getRefund`) — same as the capability registry key and `plumbus generate` manifest `tools[].name`.
+- **HTTP path:** `/api/{domain}/{kebab-name}` — unchanged; routes still use kebab-case of the local `name` field.
+
+After upgrading, run `plumbus generate` and update agent configs that referenced short local names. See [Upgrading capability names](../upgrading-capability-names.md).
 
 ## Access for agents
 

@@ -15,6 +15,7 @@ import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
@@ -402,6 +403,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         audit: systemAudit,
         logger,
         config: poolConfig.config as unknown as Record<string, unknown>,
+        ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
       });
 
       for (const row of claimed) {
@@ -501,6 +503,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       audit: systemAudit,
       logger,
       config: poolConfig.config as unknown as Record<string, unknown>,
+      ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
     });
   }
 

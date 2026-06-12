@@ -24,10 +24,10 @@ describe('createTestMcpServer', () => {
     const { client, close } = await createTestMcpServer({ capabilities: [echo] });
     try {
       const tools = await client.listTools();
-      expect(tools.tools.find((t) => t.name === 'echo')).toBeDefined();
+      expect(tools.tools.find((t) => t.name === 'test.echo')).toBeDefined();
 
       const result = await client.callTool({
-        name: 'echo',
+        name: 'test.echo',
         arguments: { message: 'hi' },
       });
       const content = (result.content as Array<{ type: string; text: string }>)[0];

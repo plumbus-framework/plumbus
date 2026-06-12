@@ -12,6 +12,7 @@ import type { EventQueue } from '../events/queue.js';
 import { JobExecutionSource } from '../jobs/schema.js';
 import { dispatchQueuedJob } from '../jobs/dispatch.js';
 import { evaluateAccess } from '../execution/authorization.js';
+import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -82,11 +83,13 @@ export function registerCapabilityRoute(
     // 2. Build execution context
     const bypassTenantScope = capability.access?.tenantScoped === false;
     const deps = config.createDependencies(authContext, { bypassTenantScope });
+    deps.correlationId = resolveRequestCorrelationId(request.headers);
     deps.request = {
       sourceIp: request.ip,
       userAgent: request.headers['user-agent'],
     };
     const ctx: ExecutionContext = createExecutionContext(deps);
+    const canonicalName = getCanonicalCapabilityName(capability);
 
     // 3. Extract input (query params for GET, body for POST)
     const input =
@@ -96,14 +99,14 @@ export function registerCapabilityRoute(
     if (capability.kind === 'job' && config.jobQueue) {
       const parsed = capability.input.safeParse(input);
       if (!parsed.success) {
-        const err = ctx.errors.validation('Invalid input', { capability: capability.name });
+        const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
         const { statusCode, body } = errorToHttpResponse(err);
         return reply.status(statusCode).send(body);
       }
       const authz = evaluateAccess(capability.access, ctx.auth);
       if (!authz.allowed) {
         const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
-          capability: capability.name,
+          capability: canonicalName,
         });
         const { statusCode, body } = errorToHttpResponse(err);
         return reply.status(statusCode).send(body);
@@ -202,11 +205,13 @@ export function registerStreamingRoute(
     // 2. Build context
     const bypassTenantScope = capability.access?.tenantScoped === false;
     const deps = config.createDependencies(authContext, { bypassTenantScope });
+    deps.correlationId = resolveRequestCorrelationId(request.headers);
     deps.request = {
       sourceIp: request.ip,
       userAgent: request.headers['user-agent'],
     };
     const ctx: ExecutionContext = createExecutionContext(deps);
+    const canonicalName = getCanonicalCapabilityName(capability);
 
     // 3. Extract input
     const input = (request.body ?? {}) as Record<string, unknown>;
@@ -214,7 +219,7 @@ export function registerStreamingRoute(
     const authz = evaluateAccess(capability.access, ctx.auth);
     if (!authz.allowed) {
       const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
-        capability: capability.name,
+        capability: canonicalName,
       });
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -227,7 +232,7 @@ export function registerStreamingRoute(
     }
     const parsed = capability.input.safeParse(input);
     if (!parsed.success) {
-      const err = ctx.errors.validation('Invalid input', { capability: capability.name });
+      const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -256,6 +261,18 @@ export function registerStreamingRoute(
 
     reply.raw.end();
   });
+}
+
+function resolveRequestCorrelationId(
+  headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+  for (const key of ['x-correlation-id', 'x-request-id']) {
+    const value = headers[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 /** Match `plumbus generate` / OpenAPI paths (camelCase and snake_case → kebab-case). */

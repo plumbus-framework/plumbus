@@ -116,6 +116,7 @@ interface FlowExecutionRow {
   wakeAt: Date | null;
   actor: string;
   tenantId: string | null;
+  authSnapshotJson: unknown;
   correlationId: string | null;
   triggerEventId: string | null;
   createdAt: Date;
@@ -126,6 +127,23 @@ interface FlowExecutionRow {
 }
 
 /** Type-safe partial update payload for flow executions. */
+/** Step auth from stored snapshot; falls back to worker auth for legacy rows. */
+function resolveFlowStepAuth(row: FlowExecutionRow, workerAuth: AuthContext): AuthContext {
+  const snapshot = row.authSnapshotJson as AuthContext | null | undefined;
+  if (snapshot) {
+    return {
+      ...snapshot,
+      userId: row.actor ?? snapshot.userId,
+      tenantId: row.tenantId ?? snapshot.tenantId,
+    };
+  }
+  return {
+    ...workerAuth,
+    tenantId: row.tenantId ?? workerAuth.tenantId,
+    userId: row.actor ?? workerAuth.userId,
+  };
+}
+
 interface FlowExecutionUpdate {
   status?: string;
   input?: unknown;
@@ -222,6 +240,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       stepHistory: [],
       actor: auth.userId ?? 'system',
       tenantId: auth.tenantId ?? null,
+      authSnapshotJson: auth,
       correlationId: opts?.correlationId ?? null,
       triggerEventId: opts?.triggerEventId ?? null,
     } satisfies typeof flowExecutionsTable.$inferInsert);
@@ -471,13 +490,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
     }
 
-    // Build flow-scoped context with tenant-aware auth from stored execution
-    const flowAuth: AuthContext = {
-      ...ctx.auth,
-      tenantId: row.tenantId ?? ctx.auth.tenantId,
-      userId: row.actor ?? ctx.auth.userId,
-      roles: ctx.auth.roles.includes('system') ? ctx.auth.roles : [...ctx.auth.roles, 'system'],
-    };
+    // Build flow-scoped context from stored auth snapshot (not worker systemAuth roles)
+    const flowAuth = resolveFlowStepAuth(row, ctx.auth);
     const flowData = config.createDataService ? config.createDataService(flowAuth) : ctx.data;
     const flowEvents = createEventService ? createEventService(flowAuth) : ctx.events;
 

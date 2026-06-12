@@ -9,6 +9,8 @@ export interface CapabilityEffects {
   events: string[];
   external: string[];
   flows?: string[];
+  /** Canonical capability names this capability may invoke via ctx.capabilities.invoke */
+  capabilities?: string[];
   ai: boolean;
 }
 
