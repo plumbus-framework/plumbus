@@ -1,14 +1,23 @@
 {
   "name": "@plumbus/chat",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Plumbus chat primitive — policy, context sources, guards, budgets, evals.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./testing": { "types": "./dist/testing/index.d.ts", "default": "./dist/testing/index.js" },
-    "./eval": { "types": "./dist/eval/index.d.ts", "default": "./dist/eval/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./eval": {
+      "types": "./dist/eval/index.d.ts",
+      "default": "./dist/eval/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",
@@ -19,7 +28,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -32,7 +46,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "^0.4.0 <0.5.0",
+    "@plumbus/core": "^0.5.0 <0.6.0",
     "@plumbus/knowledge-base": "^0.1.0"
   },
   "devDependencies": {
@@ -42,8 +56,12 @@
     "vitest": "^3.2.4"
   },
   "peerDependenciesMeta": {
-    "fastify": { "optional": true },
-    "@plumbus/knowledge-base": { "optional": true }
+    "fastify": {
+      "optional": true
+    },
+    "@plumbus/knowledge-base": {
+      "optional": true
+    }
   },
   "license": "MIT"
 }

@@ -1,13 +1,19 @@
 {
   "name": "@plumbus/knowledge-base",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Plumbus knowledge-base primitive — scoped knowledge providers and registry.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./testing": { "types": "./dist/testing/index.d.ts", "default": "./dist/testing/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",
@@ -18,7 +24,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -31,7 +42,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "^0.4.0 <0.5.0"
+    "@plumbus/core": "^0.5.0 <0.6.0"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",

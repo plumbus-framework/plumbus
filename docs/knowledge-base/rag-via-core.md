@@ -25,7 +25,7 @@
 | `executeCapability` | Used by `capabilityBacked`, not by `ragCorpus` |
 | `plumbus rag ingest` | **Only** supported ingest CLI for corpora |
 
-Verified against `@plumbus/core@0.4.x` — see [`packages/knowledge-base/instructions/preflight-v1.md`](../../packages/knowledge-base/instructions/preflight-v1.md) (internal v1 implementation QA record).
+Verified against `@plumbus/core@0.5.x` — see [`packages/knowledge-base/instructions/preflight-v1.md`](../../packages/knowledge-base/instructions/preflight-v1.md) (internal v1 implementation QA record).
 
 ## End-to-end: ingest → chat grounding
 

@@ -39,12 +39,16 @@ plumbus migrate generate && plumbus migrate apply
 
 Apps with `kind: 'job'` HTTP clients must poll `GET /api/jobs/:jobId` instead of expecting a synchronous **200** body. Split production deploys need Redis (`pnpm add redis`) and a `plumbus worker` process.
 
-For canonical capability names, `effects.capabilities`, and invoke policy, see `docs/upgrading-capability-names.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Summary:
+For canonical capability names, `effects.capabilities`, and invoke policy, see `docs/upgrading-capability-names.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Consumer apps also ship `instructions/upgrading-0.5-capabilities.md` (agent-facing checklist). Summary:
 
 1. Update flow `step.capability`, `effects.capabilities`, and `ctx.capabilities.invoke` strings to `<domain>.<name>`.
 2. Run `plumbus generate` to refresh `RegisteredCapabilityName`, `mcp-manifest.json`, and `capability-graph.md`.
 3. Run `plumbus verify` — `architecture.non-canonical-capability-reference` and related dependency rules flag stale references.
 4. Run `plumbus migrate generate && plumbus migrate apply` if upgrading to the `auth_snapshot_json` column for flow executions.
+
+### Developer experience
+
+- **Consumer AI guidance — 0.5 capability upgrade** — new `instructions/upgrading-0.5-capabilities.md` (canonical names, invoke policy, flow auth snapshot, migration checklist). `plumbus init` wires it into Copilot, Cursor, and AGENTS.md. `AGENT_WIRING_VERSION` bumped to **7**. Run `plumbus init --patch` on existing projects.
 
 ### Non-breaking (default topology)
 

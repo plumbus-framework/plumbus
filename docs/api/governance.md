@@ -151,7 +151,7 @@ A capability can pass governance (warnings only) but fail `plumbus api validate`
 
 ## Agent wiring
 
-Consumer apps initialized with `plumbus init` at **`AGENT_WIRING_VERSION` 6** reference `@plumbus/api/instructions/*` when the package is installed. Run `plumbus init --patch` to refresh older projects.
+Consumer apps initialized with `plumbus init` at **`AGENT_WIRING_VERSION` 7** reference `@plumbus/api/instructions/*` and `instructions/upgrading-0.5-capabilities.md` when the package is installed. Run `plumbus init --patch` to refresh older projects.
 
 Core agent instructions at `node_modules/@plumbus/core/instructions/api.md` point to both package instructions and these docs.
 

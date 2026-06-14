@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/knowledge-base.svg)](https://www.npmjs.com/package/@plumbus/knowledge-base)
 [![license](https://img.shields.io/npm/l/@plumbus/knowledge-base.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.4](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.4-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![peer: @plumbus/chat 0.1.x](https://img.shields.io/badge/peer-%40plumbus%2Fchat%200.1.x-blue)](https://www.npmjs.com/package/@plumbus/chat)
 
 ## What is this?
@@ -61,7 +61,7 @@ pnpm add @plumbus/knowledge-base
 ```
 
 Peers:
-- `@plumbus/core` `^0.4.0 <0.5.0` — required (`ctx`, RAG, capabilities, translations)
+- `@plumbus/core` `^0.5.0 <0.6.0` — required (`ctx`, RAG, capabilities, translations)
 - `@plumbus/chat` `^0.1.4 <0.2.0` — required only if you wire knowledge into chat via `knowledgeContext`
 
 ## Quickstart
@@ -146,7 +146,7 @@ Only `getBlock` (tier 1) is required on a provider. `ragCorpus` implements all t
 | [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
 | [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
 | [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
-| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.4.x` — when exposing capabilities to MCP clients. |
+| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface (required if wiring `knowledgeContext`). |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | **`@plumbus/knowledge-base`** | **You are here.** Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |

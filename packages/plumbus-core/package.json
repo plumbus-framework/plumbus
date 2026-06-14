@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -82,7 +82,7 @@
   },
   "peerDependencies": {
     "@plumbus/api": "0.1.x",
-    "@plumbus/mcp": "0.4.x",
+    "@plumbus/mcp": "0.5.x",
     "cron-parser": "^4.9.0",
     "redis": "^4.7.0"
   },

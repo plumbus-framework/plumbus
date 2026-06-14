@@ -16,7 +16,7 @@ describe('plumbus init', () => {
     it('generates reference-mode instructions', () => {
       const content = generateCopilotInstructions(false);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('plumbus:agent-wiring version=6');
+      expect(content).toContain('plumbus:agent-wiring version=7');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('git checkout');
       expect(content).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
@@ -45,6 +45,9 @@ describe('plumbus init', () => {
         'node_modules/@plumbus/browser-extension/instructions/browser-extension.md',
       );
       expect(content).toContain('node_modules/@plumbus/core/instructions/capabilities.md');
+      expect(content).toContain(
+        'node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md',
+      );
       expect(content).toContain('Edit Zones');
       expect(content).toContain('plumbus ui generate');
       expect(content).toContain('Documentation Maintenance');
@@ -56,7 +59,7 @@ describe('plumbus init', () => {
     it('generates inline-mode instructions', () => {
       const content = generateCopilotInstructions(true);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('plumbus:agent-wiring version=6');
+      expect(content).toContain('plumbus:agent-wiring version=7');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
@@ -70,7 +73,7 @@ describe('plumbus init', () => {
       expect(content).toContain('---');
       expect(content).toContain('description:');
       expect(content).toContain('globs: app/**');
-      expect(content).toContain('plumbus:agent-wiring version=6');
+      expect(content).toContain('plumbus:agent-wiring version=7');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('git reset');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
@@ -83,8 +86,12 @@ describe('plumbus init', () => {
       const content = generateCursorCapabilityRule();
       expect(content).toContain('globs: app/capabilities/**');
       expect(content).toContain('defineCapability()');
-      expect(content).toContain('plumbus:agent-wiring version=6');
+      expect(content).toContain('plumbus:agent-wiring version=7');
+      expect(content).toContain('ctx.capabilities.invoke');
       expect(content).toContain('exposeAs: ["api"]');
+      expect(content).toContain(
+        'node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md',
+      );
       expect(content).toContain('node_modules/@plumbus/api/instructions/README.md');
       expect(content).toContain('custom service, controller, route, or worker');
       expect(content).toContain('git clean');
@@ -96,7 +103,7 @@ describe('plumbus init', () => {
     it('generates agent-agnostic reference format', () => {
       const content = generateAgentsMd(false);
       expect(content).toContain('AGENTS.md');
-      expect(content).toContain('plumbus:agent-wiring version=6');
+      expect(content).toContain('plumbus:agent-wiring version=7');
       expect(content).toContain('Directory Structure');
       expect(content).toContain('Edit Zones');
       expect(content).toContain('Non-Negotiable Guardrails');
@@ -112,7 +119,7 @@ describe('plumbus init', () => {
 
     it('generates inline format', () => {
       const content = generateAgentsMd(true);
-      expect(content).toContain('plumbus:agent-wiring version=6');
+      expect(content).toContain('plumbus:agent-wiring version=7');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
@@ -228,7 +235,7 @@ describe('plumbus init', () => {
         const updated = readFileSync(filePath, 'utf-8');
 
         expect(results[0]?.action).toBe('replaced');
-        expect(updated).toContain('plumbus:agent-wiring version=6');
+        expect(updated).toContain('plumbus:agent-wiring version=7');
         expect(updated).not.toBe('custom instructions');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });

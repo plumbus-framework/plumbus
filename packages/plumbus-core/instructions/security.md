@@ -24,6 +24,15 @@ access: {
 
 If any check fails → **403 Forbidden** with audit record.
 
+## Flow auth snapshot (0.5+)
+
+Flow capability steps run under the **caller's stored auth snapshot**, not the worker's `system` identity. When a flow starts, the framework persists the full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step (with `actor` / `tenant_id` from the execution row).
+
+- **User-triggered flows** (HTTP, API, manual `ctx.flows.start`) — steps enforce the original caller's roles and scopes. Capabilities must list those roles in `access.roles` (or `public: true`). There is no implicit `system` elevation on every step.
+- **Scheduled / worker-owned flows** — still run under explicit `system` auth from the scheduler or worker bootstrap.
+
+If flow steps return **403** after upgrading to 0.5.x, audit `access.roles` on step target capabilities. See `upgrading-0.5-capabilities.md` for the migration checklist.
+
 ## Auth Context (`ctx.auth`)
 
 | Property | Type | Description |

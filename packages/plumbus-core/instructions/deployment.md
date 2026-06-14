@@ -197,17 +197,26 @@ npx plumbus worker start --health-port 3001
 
 **Redis is required** when API and worker run as separate replicas. Set `QUEUE_URL` or `REDIS_URL` on both containers.
 
-### Upgrading to 0.5 (workers and queues)
+### Upgrading to 0.5 (workers, queues, and capability invocation)
 
 When upgrading `@plumbus/core` to **0.5.x** from 0.4.x:
 
-1. **Migrate** — `plumbus migrate generate && plumbus migrate apply` (adds `job_executions`). Apply **before** job routes receive traffic.
+**Capability invocation (canonical names, invoke policy, flow auth):** read `node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md` for the agent-facing migration playbook. Summary:
+
+1. **Canonical names** — update flow `step.capability`, `effects.capabilities`, `ctx.capabilities.invoke`, tests, and MCP references to `<domain>.<name>`.
+2. **Invoke policy** — declare `effects.capabilities`; replace direct handler imports with `ctx.capabilities.invoke`.
+3. **Flow auth snapshot** — user-triggered flow steps run under the caller's stored roles (no auto-`system`); fix `access.roles` on step targets.
+4. **Regenerate and verify** — `plumbus generate` then `plumbus verify`.
+
+**Workers and queues:**
+
+1. **Migrate** — `plumbus migrate generate && plumbus migrate apply` (adds `job_executions` and `auth_snapshot_json` on `flow_executions`). Apply **before** job routes and new flow executions receive traffic.
 2. **HTTP job clients** — `kind: 'job'` `POST` routes return **202** with `{ data: { jobId, status: "accepted" } }` when job capabilities exist; poll `GET /api/jobs/:jobId`. Pre-0.5.0 often returned **200** synchronously.
 3. **Optional peers** — `pnpm add redis` for multi-replica production; `pnpm add cron-parser` if flows use schedule triggers.
 4. **Split deploy** — `PLUMBUS_RUNTIME_ROLE=api` on API containers plus `plumbus worker start` on worker containers; API-only without a worker enqueues but never executes.
 5. **`eventHandler`** — add `trigger: { event: "…" }` for auto-registration, or keep manual `ConsumerRegistry` wiring.
 
-Full monorepo checklist: `docs/upgrading-workers.md` (framework repo; not in the npm package).
+Full monorepo checklists: `docs/upgrading-workers.md` and `docs/upgrading-capability-names.md` (framework repo; not in the npm package).
 
 | Container | Command | Probes | Notes |
 |-----------|---------|--------|-------|

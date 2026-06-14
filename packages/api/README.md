@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/api.svg)](https://www.npmjs.com/package/@plumbus/api)
 [![license](https://img.shields.io/npm/l/@plumbus/api.svg)](./LICENSE)
-[![peer: @plumbus/core 0.4.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.4.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.5.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![OpenAPI 3.0.3](https://img.shields.io/badge/OpenAPI-3.0.3-6BA539)](https://www.openapis.org)
 
 ## What is this?
@@ -52,7 +52,7 @@ Plumbus already has typed capability contracts. This package projects them into 
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked `0.1.x`; requires `@plumbus/core` `0.4.x`). Implements manifest validation, route registration, OpenAPI/docs generation, compatibility diff, test intent, and idempotency. OAuth gateways, rate limiting, and durable idempotency stores are app-owned — see [Key gotchas](#key-gotchas).
+Optional peer of `@plumbus/core` (version-locked `0.1.x`; requires `@plumbus/core` `0.5.x`). Implements manifest validation, route registration, OpenAPI/docs generation, compatibility diff, test intent, and idempotency. OAuth gateways, rate limiting, and durable idempotency stores are app-owned — see [Key gotchas](#key-gotchas).
 
 ## Install
 
@@ -69,7 +69,7 @@ plumbus doctor                           # confirms wiring is current
 
 `@plumbus/core` works without `@plumbus/api` — default convention routes and `plumbus generate` still run. Install this package when you want a **published partner API** with manifest validation, OpenAPI export, and `registerApiRoutes()`. `plumbus api validate` prints an install hint when the package is missing.
 
-Peer: `@plumbus/core` `0.4.x`. The framework provides Zod and Vitest transitively — do not add them to your own `package.json` for API work.
+Peer: `@plumbus/core` `0.5.x`. The framework provides Zod and Vitest transitively — do not add them to your own `package.json` for API work.
 
 ## Quick start
 
@@ -227,7 +227,7 @@ All commands accept `--manifest <path>` (default `./api.yaml`) and `--json` wher
 | [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
 | [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
 | **`@plumbus/api`** | **You are here.** Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
-| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.4.x` — when exposing capabilities to MCP clients. |
+| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |

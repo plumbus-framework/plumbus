@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/browser-extension.svg)](https://www.npmjs.com/package/@plumbus/browser-extension)
 [![license](https://img.shields.io/npm/l/@plumbus/browser-extension.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.4](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.4-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![scaffolds: WXT · Chrome + Firefox](https://img.shields.io/badge/scaffolds-WXT%20%C2%B7%20Chrome%20%2B%20Firefox-7c5cff)](https://wxt.dev)
 
 ## What is this?
@@ -58,7 +58,7 @@ extension/
 
 ## Status
 
-Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `^0.4.0 <0.5.0`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
+Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `^0.5.0 <0.6.0`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
 
 Out of scope (the scaffold deliberately does not invent these): OAuth/cookie auth, cross-site cookies, refresh-token rotation, and offline capability execution.
 
@@ -161,7 +161,7 @@ The primary entry point is the CLI (`plumbus browser-extension scaffold`, shippe
 | [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
 | [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI (required alongside this package). |
 | [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
-| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.4.x` — when exposing capabilities to MCP clients. |
+| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |

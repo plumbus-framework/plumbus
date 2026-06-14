@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/browser-extension",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Plumbus browser-extension scaffolder — emit wxt Chrome/Firefox extensions wired to capabilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,12 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
@@ -22,7 +27,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "keywords": ["plumbus", "browser-extension", "wxt", "chrome-extension"],
+  "keywords": [
+    "plumbus",
+    "browser-extension",
+    "wxt",
+    "chrome-extension"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -36,7 +46,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "^0.4.0 <0.5.0"
+    "@plumbus/core": "^0.5.0 <0.6.0"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",
