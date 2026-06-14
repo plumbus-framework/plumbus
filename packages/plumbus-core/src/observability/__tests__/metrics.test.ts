@@ -167,7 +167,7 @@ describe('Observability', () => {
   });
 
   describe('PlumbusMetrics', () => {
-    it('creates all 14 standard metrics', () => {
+    it('creates all standard worker/runtime metrics', () => {
       const metrics = createPlumbusMetrics();
       expect(metrics.requestDuration).toBeDefined();
       expect(metrics.requestTotal).toBeDefined();
@@ -177,12 +177,25 @@ describe('Observability', () => {
       expect(metrics.eventEmitted).toBeDefined();
       expect(metrics.eventDelivered).toBeDefined();
       expect(metrics.eventFailed).toBeDefined();
+      expect(metrics.eventDeliveryDuration).toBeDefined();
       expect(metrics.flowStarted).toBeDefined();
       expect(metrics.flowCompleted).toBeDefined();
       expect(metrics.flowFailed).toBeDefined();
+      expect(metrics.flowStepDuration).toBeDefined();
       expect(metrics.aiRequestDuration).toBeDefined();
       expect(metrics.aiRequestTotal).toBeDefined();
+      expect(metrics.outboxPending).toBeDefined();
       expect(metrics.queueDepth).toBeDefined();
+    });
+
+    it('serializes gauge metrics', () => {
+      const metrics = createPlumbusMetrics();
+      metrics.outboxPending.set(3);
+      metrics.queueDepth.set(7, { queue: 'events' });
+      const output = metrics.registry.serialize();
+      expect(output).toContain('# TYPE plumbus_outbox_pending gauge');
+      expect(output).toContain('plumbus_outbox_pending 3');
+      expect(output).toContain('plumbus_queue_depth{queue="events"} 7');
     });
 
     it('exposes registry for serialization', () => {

@@ -38,7 +38,7 @@ describe('MCP tasks for kind:job', () => {
     });
     try {
       const createResult = (await client.callTool({
-        name: 'slowReport',
+        name: 'reports.slowReport',
         arguments: { items: 3 },
         _meta: { taskMetadata: {} },
       } as any)) as any;
@@ -95,7 +95,7 @@ describe('MCP tasks for kind:job', () => {
     });
     try {
       const created = (await client.callTool({
-        name: 'longJob',
+        name: 'reports.longJob',
         arguments: {},
         _meta: { taskMetadata: {} },
       } as any)) as any;

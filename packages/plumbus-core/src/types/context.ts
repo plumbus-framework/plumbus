@@ -4,11 +4,14 @@ import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
 import type {
   RegisteredAppConfig,
+  RegisteredCapabilityName,
   RegisteredEntities,
   RegisteredEventName,
   RegisteredEventPayloadMap,
   RegisteredFlowName,
 } from './registry.js';
+import type { InvocationEmitScope } from '../execution/invocation-emit-scope.js';
+import type { CapabilityContract } from './capability.js';
 import type { AuthContext } from './security.js';
 import type { TranslationService } from './translation.js';
 
@@ -278,6 +281,33 @@ export interface TimeService {
 // ── Config Service ──
 export type ConfigService = RegisteredAppConfig;
 
+// ── Capability Service (nested invocation) ──
+export interface CapabilityService {
+  invoke(name: RegisteredCapabilityName, input: unknown): Promise<unknown>;
+}
+
+// ── Internal runtime metadata (not part of public SDK docs) ──
+export interface ExecutionRuntimeMetadata {
+  invokeCapability?: (
+    name: string,
+    ctx: ExecutionContext,
+    input: unknown,
+  ) => Promise<
+    | { success: true; data: unknown }
+    | {
+        success: false;
+        error: { code: string; message: string; metadata?: Record<string, unknown> };
+      }
+  >;
+  resolveCapability?: (name: string) => CapabilityContract | undefined;
+  capabilityStack?: readonly string[];
+  correlationId?: string;
+  /** Canonical name of the capability that invoked the current handler (for nested audit/events). */
+  invocationCaller?: string;
+  /** @internal Mutable emit causation scope — not visible to capability handlers. */
+  invocationEmitScope?: InvocationEmitScope;
+}
+
 // ── Security Service ──
 export interface SecurityService {
   /** Check if the current user has a specific role */
@@ -308,6 +338,11 @@ export interface ContextDependencies {
   translations?: TranslationService;
   request?: RequestMeta;
   progress?: ProgressService;
+  invokeCapability?: ExecutionRuntimeMetadata['invokeCapability'];
+  resolveCapability?: ExecutionRuntimeMetadata['resolveCapability'];
+  correlationId?: string;
+  /** @internal Wired by server/MCP bootstrap for nested event causation. */
+  invocationEmitScope?: ExecutionRuntimeMetadata['invocationEmitScope'];
 }
 
 // ── Request Metadata ──
@@ -332,8 +367,11 @@ export interface ExecutionContext {
   config: ConfigService;
   security: SecurityService;
   translations: TranslationService;
+  capabilities: CapabilityService;
   /** HTTP request metadata (IP, User-Agent) — present when invoked via HTTP */
   request?: RequestMeta;
+  /** @internal Runtime-only invocation state — not part of the public SDK surface. */
+  __runtime?: ExecutionRuntimeMetadata;
 
   /** Worker process identity — present when running inside a flow worker */
   workerId?: string;

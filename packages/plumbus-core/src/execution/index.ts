@@ -18,3 +18,22 @@ export { evaluateAccess } from './authorization.js';
 export type { AuthorizationResult } from './authorization.js';
 
 export { CapabilityRegistry } from './capability-registry.js';
+
+export {
+  getCanonicalCapabilityName,
+  isCanonicalCapabilityName,
+} from './canonical-name.js';
+export type { CanonicalCapabilityRef } from './canonical-name.js';
+
+export {
+  buildCapabilityRuntimeDeps,
+  buildDependencyViolationMessage,
+  buildRegistryInvoker,
+  createCapabilityInvokeService,
+  createUnavailableCapabilityService,
+} from './capability-invocation.js';
+export type {
+  DependencyViolationMetadata,
+  DependencyViolationReason,
+  InternalCapabilityInvoker,
+} from './capability-invocation.js';

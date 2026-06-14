@@ -936,6 +936,82 @@ describe('FlowEngine — flow-step ctx.flows.start propagates flowAuth', () => {
     // The captured ctx given to the step also has flowAuth (sanity).
     expect(capturedCtx?.auth?.tenantId).toBe('t-A');
     expect(capturedCtx?.auth?.userId).toBe('real-user');
-    expect(capturedCtx?.auth?.roles).toContain('system');
+    expect(capturedCtx?.auth?.roles).toEqual(callerAuth.roles);
+    expect(capturedCtx?.auth?.roles).not.toEqual(workerBaseCtx.auth.roles);
+  });
+
+  it('stores auth snapshot on start and restores caller roles during runNext', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'role-check',
+        domain: 'test',
+        input: z.object({}),
+        steps: [{ name: 'only', type: FlowStepType.Capability }],
+      }),
+    );
+
+    const callerAuth = {
+      userId: 'human',
+      tenantId: 't-1',
+      roles: ['billing_manager'],
+      scopes: ['refunds:approve'],
+      provider: 'http',
+    };
+
+    const db = mockDb();
+    const engine = createFlowEngine({
+      db,
+      registry,
+      stepDeps: {
+        executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+        evaluateCondition: vi.fn().mockReturnValue(true),
+      },
+    });
+
+    const exec = await engine.start('role-check', {}, callerAuth);
+    expect(db._inserts[0]?.authSnapshotJson).toEqual(callerAuth);
+
+    let stepAuth: unknown;
+    const engineWithCapture = createFlowEngine({
+      db,
+      registry,
+      stepDeps: {
+        executeCapability: vi.fn().mockImplementation(async (_name, ctx) => {
+          stepAuth = ctx.auth;
+          return { success: true, data: {} };
+        }),
+        evaluateCondition: vi.fn().mockReturnValue(true),
+      },
+    });
+
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engineWithCapture.runNext(
+      exec.id,
+      makeCtx({
+        auth: {
+          userId: 'system-flow-runner',
+          roles: ['system'],
+          scopes: [],
+          provider: 'worker',
+        },
+      }),
+    );
+
+    expect(stepAuth).toMatchObject({
+      userId: 'human',
+      tenantId: 't-1',
+      roles: ['billing_manager'],
+      scopes: ['refunds:approve'],
+      provider: 'http',
+    });
   });
 });

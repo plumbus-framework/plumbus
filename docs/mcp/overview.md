@@ -44,7 +44,7 @@ defineCapability({
 | `@plumbus/core` | Contract fields, `plumbus generate` manifest/skills, CLI `plumbus mcp *` | Always |
 | `@plumbus/mcp` | Runtime server (stdio + Streamable HTTP), `createMcpAuthAdapter` | `pnpm add @plumbus/mcp` when you want to serve agents |
 
-`@plumbus/mcp` is an optional peer of `@plumbus/core` (version-locked `0.4.x`). `plumbus mcp serve` prints an install hint if the package is missing.
+`@plumbus/mcp` is an optional peer of `@plumbus/core` (version-locked `0.5.x`). `plumbus mcp serve` prints an install hint if the package is missing.
 
 ## Two reading paths
 
@@ -65,7 +65,7 @@ The Plumbus-core surface (the `exposeAs` field and `plumbus mcp *` CLI) is also 
 4. Configure `mcp.agents` in `plumbus.config.ts` (see [agent-authentication.md](./agent-authentication.md)).
 5. `plumbus mcp serve --stdio` or `plumbus mcp serve --http --port 3001`.
 
-`tools/list` returns all MCP-exposed tools; **access is enforced on `tools/call`** (scope-filtered listing is deferred).
+`tools/list` returns all MCP-exposed tools with **canonical** names (`<domain>.<capabilityName>`); **access is enforced on `tools/call`** (scope-filtered listing is deferred). See [expose-a-capability](./expose-a-capability.md#tool-identity) and [upgrading capability names](../upgrading-capability-names.md).
 
 ## Related docs
 

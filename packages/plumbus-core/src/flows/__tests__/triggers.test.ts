@@ -25,7 +25,7 @@ describe('FlowTriggerHandler', () => {
         started.push({ name, input, auth, opts });
         return { id: 'exec-1', flowName: name, status: 'created' };
       }),
-      resumeWaitingByEvent: vi.fn().mockResolvedValue(0),
+      resumeWaitingByEvent: vi.fn().mockResolvedValue([]),
     } as any;
 
     const handler = createFlowTriggerHandler({ registry, engine });
@@ -41,8 +41,8 @@ describe('FlowTriggerHandler', () => {
       payload: { orderId: 'abc' },
     };
 
-    const count = await handler.handleEvent(envelope);
-    expect(count).toBe(1);
+    const executionIds = await handler.handleEvent(envelope);
+    expect(executionIds).toEqual(['exec-1']);
     expect(started).toHaveLength(1);
     expect(started[0].name).toBe('on-order-created');
     expect(started[0].auth.userId).toBe('user-1');
@@ -54,7 +54,7 @@ describe('FlowTriggerHandler', () => {
     const registry = new FlowRegistry();
     const engine = {
       start: vi.fn(),
-      resumeWaitingByEvent: vi.fn().mockResolvedValue(0),
+      resumeWaitingByEvent: vi.fn().mockResolvedValue([]),
     } as any;
     const handler = createFlowTriggerHandler({ registry, engine });
 
@@ -68,8 +68,8 @@ describe('FlowTriggerHandler', () => {
       payload: {},
     };
 
-    const count = await handler.handleEvent(envelope);
-    expect(count).toBe(0);
+    const executionIds = await handler.handleEvent(envelope);
+    expect(executionIds).toEqual([]);
     expect(engine.start).not.toHaveBeenCalled();
   });
 
@@ -96,11 +96,11 @@ describe('FlowTriggerHandler', () => {
 
     const engine = {
       start: vi.fn().mockResolvedValue({ id: 'x', flowName: 'x', status: 'created' }),
-      resumeWaitingByEvent: vi.fn().mockResolvedValue(0),
+      resumeWaitingByEvent: vi.fn().mockResolvedValue([]),
     } as any;
 
     const handler = createFlowTriggerHandler({ registry, engine });
-    const count = await handler.handleEvent({
+    const executionIds = await handler.handleEvent({
       id: 'evt-3',
       eventType: 'order.created',
       version: '1',
@@ -110,7 +110,7 @@ describe('FlowTriggerHandler', () => {
       payload: {},
     });
 
-    expect(count).toBe(2);
+    expect(executionIds).toHaveLength(2);
     expect(engine.start).toHaveBeenCalledTimes(2);
   });
 });

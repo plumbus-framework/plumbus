@@ -131,6 +131,20 @@ const cancelled = await client.request(
 - Don't reuse the inline `tools/call` `ctx` in the background — the runtime creates a fresh `bgCtx` with its own `signal` and `progress`. Tests covering both paths should reflect this.
 - Don't rely on `notifications/tasks/status` being delivered to multiple clients — notifications are session-scoped (the same MCP server instance).
 
+## Shared jobs queue (split deploy, 0.5+)
+
+Colocated `plumbus start` / `plumbus dev` (`PLUMBUS_RUNTIME_ROLE=all`) runs MCP and workers in one process — task dispatch behaves as before.
+
+**HTTP vs MCP (default colocated):** HTTP job routes return **202** and use `jobQueue` whenever job capabilities exist, even with in-memory queues. MCP only receives `jobQueue` when Redis is durable.
+
+When **MCP runs separately from workers** (split topology) and Redis is configured:
+
+- `plumbus mcp serve` passes `jobQueue` to `createMcpServer` when `resolveRuntimeQueues` returns `isDurable: true`.
+- `kind: 'job'` tools enqueue to the shared **jobs** queue; a `plumbus worker` process dequeues and executes.
+- The worker pool auto-imports `createMcpJobCompletionSync` from `@plumbus/mcp` when installed, updating `mcp_task` rows when jobs complete off the MCP process.
+
+Without Redis, MCP jobs stay **in-process** (no `jobQueue`). Install `redis` and run `plumbus worker start` for split deploys. See `docs/upgrading-workers.md` and `docs/mcp/tasks-and-jobs.md`.
+
 ## Module-scope abort registry
 
 The runtime keeps `taskAbortRegistry: Map<string, AbortController>` at module scope. This is acceptable for the supported single-process / pinned-LB deployment topology. Multi-instance deployments with shared task state need a per-server registry — tracked as a future v0.x follow-up.

@@ -4,9 +4,14 @@
 import type { Command } from 'commander';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { EntityDefinition } from '../../types/entity.js';
+import type { EventDefinition } from '../../types/event.js';
+import type { FlowDefinition } from '../../types/flow.js';
 import { FieldClassification, GovernanceSeverity } from '../../types/enums.js';
 import type { GovernanceSignal } from '../../types/governance.js';
+import { scanCapabilityDirectImports } from '../../governance/capability-source-scan.js';
+import { architectureRules } from '../../governance/rules/architecture.js';
 import { apiRules } from '../../governance/rules/api.js';
+import { workerRules } from '../../governance/rules/worker.js';
 import { createGovernanceRuleEngine } from '../../governance/rule-engine.js';
 import { discoverResources } from '../discover.js';
 import { info, error as logError, success, warn } from '../utils.js';
@@ -124,14 +129,19 @@ export function ruleEntityTenantIsolation(entities: EntityDefinition[]): Governa
   return signals;
 }
 
-function runApiGovernanceRules(capabilities: CapabilityContract[]): GovernanceSignal[] {
+function runPackagedGovernanceRules(
+  capabilities: CapabilityContract[],
+  entities: EntityDefinition[],
+  flows: FlowDefinition[],
+  events: EventDefinition[],
+): GovernanceSignal[] {
   const engine = createGovernanceRuleEngine();
-  engine.registerMany(apiRules);
+  engine.registerMany([...apiRules, ...workerRules, ...architectureRules]);
   return engine.evaluate({
     capabilities,
-    entities: [],
-    flows: [],
-    events: [],
+    entities,
+    flows,
+    events,
     prompts: [],
   }).signals;
 }
@@ -140,6 +150,9 @@ function runApiGovernanceRules(capabilities: CapabilityContract[]): GovernanceSi
 export function runGovernanceRules(
   capabilities: CapabilityContract[],
   entities: EntityDefinition[],
+  events: EventDefinition[] = [],
+  flows: FlowDefinition[] = [],
+  appRoot?: string,
 ): GovernanceSignal[] {
   return [
     ...ruleCapabilityAccessPolicy(capabilities),
@@ -147,7 +160,8 @@ export function runGovernanceRules(
     ...ruleEntityFieldClassification(entities),
     ...ruleEncryptedSensitiveFields(entities),
     ...ruleEntityTenantIsolation(entities),
-    ...runApiGovernanceRules(capabilities),
+    ...runPackagedGovernanceRules(capabilities, entities, flows, events),
+    ...scanCapabilityDirectImports(appRoot),
   ];
 }
 
@@ -161,16 +175,22 @@ export function registerVerifyCommand(program: Command): void {
 
       let capabilities: CapabilityContract[] = [];
       let entities: EntityDefinition[] = [];
+      let events: EventDefinition[] = [];
+      let flows: FlowDefinition[] = [];
       try {
         const resources = await discoverResources();
         capabilities = resources.capabilities;
         entities = resources.entities;
-        info(`Discovered ${capabilities.length} capability(ies), ${entities.length} entity(ies)`);
+        events = resources.events;
+        flows = resources.flows;
+        info(
+          `Discovered ${capabilities.length} capability(ies), ${entities.length} entity(ies), ${events.length} event(s)`,
+        );
       } catch {
         warn('Could not auto-discover resources (app/ directory may not exist)');
       }
 
-      const signals = runGovernanceRules(capabilities, entities);
+      const signals = runGovernanceRules(capabilities, entities, events, flows, process.cwd());
 
       if (opts.json) {
         console.log(

@@ -1,12 +1,15 @@
 {
   "name": "@plumbus/chat-ui",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "React UI for @plumbus/chat",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",
@@ -15,7 +18,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -30,7 +38,7 @@
   "peerDependencies": {
     "react": ">=19",
     "@plumbus/chat": "0.1.x",
-    "@plumbus/core": "^0.4.0 <0.5.0"
+    "@plumbus/core": "^0.5.0 <0.6.0"
   },
   "devDependencies": {
     "@plumbus/chat": "workspace:*",

@@ -37,6 +37,16 @@ export function toKebabCase(str: string): string {
     .toLowerCase();
 }
 
+/** Skill file basename for a capability (short name or canonical `domain.name`). */
+export function capabilitySkillBasename(ref: { name: string } | string): string {
+  if (typeof ref === 'string') {
+    const dot = ref.indexOf('.');
+    const shortName = dot > 0 ? ref.slice(dot + 1) : ref;
+    return toKebabCase(shortName);
+  }
+  return toKebabCase(ref.name);
+}
+
 /** Convert a string to PascalCase */
 export function toPascalCase(str: string): string {
   return str

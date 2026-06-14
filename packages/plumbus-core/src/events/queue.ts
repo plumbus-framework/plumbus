@@ -80,7 +80,23 @@ export interface RedisClient {
   rpoplpush?(source: string, destination: string): Promise<string | null>;
   lrem(key: string, count: number, value: string): Promise<number>;
   lrange(key: string, start: number, stop: number): Promise<string[]>;
+  llen?(key: string): Promise<number>;
+  zadd?(key: string, score: number, member: string): Promise<number>;
+  zrangebyscore?(
+    key: string,
+    min: number,
+    max: number,
+    options?: { limit?: number },
+  ): Promise<string[]>;
+  zrem?(key: string, member: string): Promise<number>;
+  ping?(): Promise<string>;
+  eval?(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
   quit(): Promise<unknown>;
+}
+
+export interface RedisQueueOptions extends Partial<RedisQueueConfig> {
+  /** When false, close() does not quit the shared Redis client (default: true). */
+  ownsClient?: boolean;
 }
 
 /**
@@ -95,39 +111,113 @@ export interface RedisClient {
  * if the consumer crashes, unacknowledged events remain in the
  * processing list and can be recovered.
  */
-export function createRedisQueue(
-  client: RedisClient,
-  config?: Partial<RedisQueueConfig>,
-): EventQueue {
+interface ProcessingEntry {
+  raw: string;
+  dequeuedAt: number;
+}
+
+function parseProcessingEntry(raw: string): ProcessingEntry {
+  try {
+    const parsed = JSON.parse(raw) as { envelope?: string; dequeuedAt?: number };
+    if (typeof parsed.envelope === 'string' && typeof parsed.dequeuedAt === 'number') {
+      return { raw, dequeuedAt: parsed.dequeuedAt };
+    }
+  } catch {
+    /* legacy plain envelope payload */
+  }
+  return { raw, dequeuedAt: 0 };
+}
+
+function wrapForProcessing(envelopeJson: string): string {
+  return JSON.stringify({ envelope: envelopeJson, dequeuedAt: Date.now() });
+}
+
+function unwrapEnvelope(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as { envelope?: string };
+    if (typeof parsed.envelope === 'string') {
+      return parsed.envelope;
+    }
+  } catch {
+    /* legacy */
+  }
+  return raw;
+}
+
+export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions): EventQueue {
   const prefix = config?.prefix ?? 'plumbus:events';
   const pollIntervalMs = config?.pollIntervalMs ?? 1000;
+  const visibilityTimeoutMs = (config?.visibilityTimeoutSec ?? 30) * 1000;
+  const ownsClient = config?.ownsClient ?? true;
   const queueKey = `${prefix}:pending`;
   const processingKey = `${prefix}:processing`;
+
+  const REWRAP_SCRIPT = `
+local raw = redis.call('RPOPLPUSH', KEYS[1], KEYS[2])
+if not raw then return nil end
+local wrapped = cjson.encode({ envelope = raw, dequeuedAt = tonumber(ARGV[1]) })
+redis.call('LREM', KEYS[2], 1, raw)
+redis.call('LPUSH', KEYS[2], wrapped)
+return wrapped
+`;
+
+  async function dequeueWrapped(): Promise<string | null> {
+    if (client.eval) {
+      const result = await client.eval(REWRAP_SCRIPT, {
+        keys: [queueKey, processingKey],
+        arguments: [String(Date.now())],
+      });
+      return typeof result === 'string' ? result : null;
+    }
+
+    let raw: string | null = null;
+    if (client.rpoplpush) {
+      raw = await client.rpoplpush(queueKey, processingKey);
+    } else if (client.brpoplpush) {
+      raw = await client.brpoplpush(queueKey, processingKey, 0);
+    }
+    if (!raw) return null;
+
+    const wrapped = wrapForProcessing(raw);
+    await client.lrem(processingKey, 1, raw);
+    await client.lpush(processingKey, wrapped);
+    return wrapped;
+  }
 
   const subscribers: Array<(envelope: EventEnvelope) => Promise<void>> = [];
   let closed = false;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false;
 
+  async function recoverStaleProcessing(): Promise<void> {
+    const processing = await client.lrange(processingKey, 0, -1);
+    const now = Date.now();
+    for (const entry of processing) {
+      const { raw, dequeuedAt } = parseProcessingEntry(entry);
+      const isLegacy = dequeuedAt === 0;
+      const isStale = isLegacy || (dequeuedAt > 0 && now - dequeuedAt >= visibilityTimeoutMs);
+      if (isStale) {
+        await client.lrem(processingKey, 1, raw);
+        await client.lpush(queueKey, unwrapEnvelope(raw));
+      }
+    }
+  }
+
   async function pollOnce(): Promise<void> {
     if (closed || polling || subscribers.length === 0) return;
     polling = true;
 
     try {
-      // Move one item from pending to processing atomically
-      let raw: string | null = null;
-      if (client.rpoplpush) {
-        raw = await client.rpoplpush(queueKey, processingKey);
-      } else if (client.brpoplpush) {
-        raw = await client.brpoplpush(queueKey, processingKey, 0);
-      }
+      await recoverStaleProcessing();
 
+      const raw = await dequeueWrapped();
       if (!raw) {
         polling = false;
         return;
       }
 
-      const envelope = JSON.parse(raw) as EventEnvelope;
+      const envelopeJson = unwrapEnvelope(raw);
+      const envelope = JSON.parse(envelopeJson) as EventEnvelope;
       // Restore Date object
       if (typeof envelope.occurredAt === 'string') {
         envelope.occurredAt = new Date(envelope.occurredAt);
@@ -183,7 +273,9 @@ export function createRedisQueue(
         pollTimer = null;
       }
       subscribers.length = 0;
-      await client.quit();
+      if (ownsClient) {
+        await client.quit();
+      }
     },
   };
 }

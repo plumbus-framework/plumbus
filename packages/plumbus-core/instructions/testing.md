@@ -15,7 +15,7 @@ import { runCapability, simulateFlow, mockAI, createTestContext } from "@plumbus
 Execute a capability in an isolated test environment:
 
 ```ts
-const result = await runCapability("getUser", {
+const result = await runCapability(getUser, {
   input: { userId: "usr_123" },
   auth: { userId: "admin_1", roles: ["admin"], scopes: [], provider: "test" },
   data: {
@@ -69,6 +69,17 @@ const ctx = createTestContext({
     User: [{ id: "usr_1", name: "Alice" }],
     Order: [],
   },
+  // Register capabilities for ctx.capabilities.invoke (canonical names)
+  capabilities: [getInvoice, chargeCard],
+});
+```
+
+Use **canonical names** (`users.getUser`, `billing.getInvoice`) in flow `capabilityResults` keys and invoke calls. Pass `capabilities` to `simulateFlow` when you need production-like step execution (including job blocking for `kind: 'job'` steps):
+
+```ts
+const execution = await simulateFlow(myFlow, input, {
+  capabilities: [validateOrder, processPayment],
+  auth: { roles: ["admin"], tenantId: "t-1" },
 });
 ```
 

@@ -51,7 +51,7 @@ The framework provides these packages to consumer apps. Consumers must **never**
 
 ### Optional add-on: `@plumbus/mcp`
 
-`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.4.x`). Apps that want to serve capabilities to AI agents install it explicitly:
+`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.5.x`). Apps that want to serve capabilities to AI agents install it explicitly:
 
 ```
 pnpm add @plumbus/mcp
@@ -71,7 +71,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/browser-extension`
 
-`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.4.0 <0.5.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.5.0 <0.6.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
 
 ```
 pnpm add @plumbus/ui @plumbus/browser-extension
@@ -192,6 +192,9 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/ai/` — prompts, RAG, cost tracking
 - `docs/testing/` — test utilities, patterns, examples
 - `packages/plumbus-core/instructions/deployment.md` — production deployment, Docker, environment variables
+- `packages/plumbus-core/instructions/upgrading-0.5-capabilities.md` — consumer agent playbook for 0.5.x capability invocation breaking changes
+- `docs/upgrading-workers.md` — 0.5.0 workers/queues migration and breaking-behavior checklist
+- `docs/upgrading-capability-names.md` — canonical capability names, invoke policy, flow auth snapshot
 
 ## Documentation — CRITICAL
 

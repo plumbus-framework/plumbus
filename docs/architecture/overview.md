@@ -134,6 +134,18 @@ observability/  cli/
              worker/
 ```
 
+## Runtime Topology
+
+Plumbus supports three deployment patterns for background work. See [Workers and Queues](./workers-and-queues.md) for the full reference.
+
+| Mode | Command | Queues |
+|------|---------|--------|
+| In-memory colocated | `plumbus dev` | In-memory, API + workers in one process |
+| Redis colocated | `plumbus start` + Redis | Durable, API + workers in one process |
+| Split API + worker | `PLUMBUS_RUNTIME_ROLE=api` + `plumbus worker` | Shared Redis, independent scaling |
+
+Background subsystems — outbox dispatch, event consumers, flow steps, scheduled flows, and job capabilities — run in the **worker pool**. The pool starts automatically when the app defines events, flows with triggers, `eventHandler` capabilities, or `job` capabilities.
+
 ## Key Design Principles
 
 ### 1. Contract-Driven Development

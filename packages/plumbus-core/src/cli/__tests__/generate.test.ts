@@ -10,6 +10,7 @@ import type { FlowDefinition } from '../../types/flow.js';
 import {
   ensureTsconfigIncludesGenerated,
   generateAll,
+  generateCapabilityGraphMarkdown,
   generateCapabilityNameType,
   generateCapabilityTypes,
   generateClientFunction,
@@ -140,11 +141,57 @@ describe('generateCapabilityTypes', () => {
   });
 });
 
+describe('generateCapabilityGraphMarkdown', () => {
+  it('emits mermaid edges from effects.capabilities', () => {
+    const caps = [
+      mockCapability({
+        name: 'createOrder',
+        effects: {
+          data: [],
+          events: [],
+          external: [],
+          ai: false,
+          capabilities: ['billing.getInvoice'],
+        },
+      }),
+      mockCapability({ name: 'getInvoice' }),
+    ];
+    const md = generateCapabilityGraphMarkdown(caps);
+    expect(md).toContain('billing.createOrder');
+    expect(md).toContain('billing.getInvoice');
+    expect(md).toContain('```mermaid');
+  });
+
+  it('includes declared data and event effect nodes', () => {
+    const caps = [
+      mockCapability({
+        name: 'createOrder',
+        effects: {
+          data: ['Order'],
+          events: ['order.created'],
+          external: ['payment-gateway'],
+          ai: true,
+          capabilities: ['billing.getInvoice'],
+        },
+      }),
+    ];
+    const md = generateCapabilityGraphMarkdown(caps);
+    expect(md).toContain('|data|');
+    expect(md).toContain('data:Order');
+    expect(md).toContain('|event|');
+    expect(md).toContain('event:order.created');
+    expect(md).toContain('|external|');
+    expect(md).toContain('|ai|');
+  });
+});
+
 describe('generateCapabilityNameType', () => {
   it('generates a union type of capability names', () => {
     const caps = [mockCapability({ name: 'getInvoice' }), mockCapability({ name: 'createOrder' })];
     const result = generateCapabilityNameType(caps);
-    expect(result).toBe('export type CapabilityName = "getInvoice" | "createOrder";');
+    expect(result).toBe(
+      'export type CapabilityName = "billing.getInvoice" | "billing.createOrder";',
+    );
   });
 
   it('generates never for empty capabilities', () => {
@@ -193,7 +240,8 @@ describe('plumbus generate', () => {
   describe('generateManifestEntry', () => {
     it('includes all contract metadata', () => {
       const entry = generateManifestEntry(mockCapability());
-      expect(entry.name).toBe('getInvoice');
+      expect(entry.name).toBe('billing.getInvoice');
+      expect(entry.localName).toBe('getInvoice');
       expect(entry.kind).toBe('query');
       expect(entry.domain).toBe('billing');
     });
@@ -208,6 +256,7 @@ describe('plumbus generate', () => {
       expect(generated).toContain('clients/hooks.ts');
       expect(generated).toContain('openapi.json');
       expect(generated).toContain('manifest.json');
+      expect(generated).toContain('capability-graph.md');
       expect(generated).toContain('entity-types.ts');
     });
   });
@@ -437,7 +486,7 @@ describe('generatePlumbusDeclaration', () => {
 
     expect(result).toContain('declare module "@plumbus/core"');
     expect(result).toContain('interface PlumbusRegistry');
-    expect(result).toContain('capabilityName: "getInvoice" | "createOrder"');
+    expect(result).toContain('capabilityName: "billing.getInvoice" | "billing.createOrder"');
     expect(result).toContain('eventName: "user.created"');
     expect(result).toContain('flowName: "onboardUser"');
     expect(result).toContain('User: Repository<UserRecord, UserCreateInput, UserUpdateInput>');

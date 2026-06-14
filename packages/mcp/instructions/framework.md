@@ -1,6 +1,6 @@
 # @plumbus/mcp — Framework
 
-`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.4.x`).
+`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.5.x`).
 
 ## Package boundary
 

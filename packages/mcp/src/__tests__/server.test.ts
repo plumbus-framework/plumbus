@@ -95,7 +95,7 @@ describe('createMcpServer', () => {
 
   it('buildMcpManifest lists only MCP tools', () => {
     const manifest = buildMcpManifest(registry);
-    expect(manifest.tools.map((t) => t.name).sort()).toEqual(['echo', 'restricted']);
+    expect(manifest.tools.map((t) => t.name).sort()).toEqual(['test.echo', 'test.restricted']);
   });
 
   it('creates MCP server instance', () => {
@@ -123,7 +123,7 @@ describe('createMcpServer', () => {
       }),
     );
 
-    const result = await client.callTool({ name: 'echo', arguments: { message: 'hi' } });
+    const result = await client.callTool({ name: 'test.echo', arguments: { message: 'hi' } });
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text?: string }>;
     const text = content[0];
@@ -142,7 +142,7 @@ describe('createMcpServer', () => {
       }),
     );
 
-    const result = await client.callTool({ name: 'restricted', arguments: {} });
+    const result = await client.callTool({ name: 'test.restricted', arguments: {} });
     expect(result.isError).toBe(true);
   });
 
@@ -238,13 +238,13 @@ describe('createMcpServer tenant isolation (e2e)', () => {
     await client.connect(clientTransport);
 
     const denied = await client.callTool({
-      name: 'getTenantResource',
+      name: 'billing.getTenantResource',
       arguments: { resourceTenantId: 'tenant-2' },
     });
     expect(denied.isError).toBe(true);
 
     const allowed = await client.callTool({
-      name: 'getTenantResource',
+      name: 'billing.getTenantResource',
       arguments: { resourceTenantId: 'tenant-1' },
     });
     expect(allowed.isError).toBeFalsy();
@@ -282,9 +282,9 @@ describe('onMcpToolCall hook', () => {
       onMcpToolCall: (info) => calls.push(info),
     });
     try {
-      await client.callTool({ name: 'echo-for-hook', arguments: { message: 'hi' } });
+      await client.callTool({ name: 'test.echo-for-hook', arguments: { message: 'hi' } });
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.capabilityName).toBe('echo-for-hook');
+      expect(calls[0]?.capabilityName).toBe('test.echo-for-hook');
       expect(calls[0]?.status).toBe('success');
       expect(calls[0]?.durationMs).toBeGreaterThanOrEqual(0);
       expect(calls[0]?.provider).toBe('mcp');
@@ -301,7 +301,7 @@ describe('onMcpToolCall hook', () => {
       onMcpToolCall: (info) => calls.push(info),
     });
     try {
-      await client.callTool({ name: 'echo-for-hook', arguments: { wrong: 'shape' } });
+      await client.callTool({ name: 'test.echo-for-hook', arguments: { wrong: 'shape' } });
       expect(calls).toHaveLength(1);
       expect(calls[0]?.status).toBe('error');
       expect(calls[0]?.errorCode).toBeDefined();

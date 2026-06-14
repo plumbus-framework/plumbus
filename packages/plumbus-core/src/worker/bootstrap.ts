@@ -15,6 +15,7 @@ import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
@@ -24,10 +25,17 @@ import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
 import { createFlowScheduler } from '../flows/scheduler.js';
 import type { StepExecutorDeps } from '../flows/step-executor.js';
+import { createFlowDelayedPromoter, scheduleDelayedFlowWake } from '../flows/flow-delayed.js';
+import { createFlowStepConsumer } from '../flows/step-consumer.js';
 import { createFlowTriggerHandler } from '../flows/triggers.js';
+import type { RedisClient } from '../events/queue.js';
+import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import type { EntityRegistry } from '../data/registry.js';
+import { registerCapabilityConsumers } from '../runtime/register-consumers.js';
 import type { AuditService } from '../types/audit.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, DataService, LoggerService } from '../types/context.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { AuthContext } from '../types/security.js';
 
 // ── Error description helper ──
@@ -114,8 +122,35 @@ export interface WorkerPoolConfig {
   config: PlumbusConfig;
   /** Database connection */
   db: PostgresJsDatabase;
-  /** Event queue */
+  /** Events queue (outbox dispatcher + domain event delivery) */
   queue: EventQueue;
+  /** Jobs queue (async kind: 'job' capabilities). Defaults to queue when omitted. */
+  jobsQueue?: EventQueue;
+  /** Flows queue (step wake notifications). Defaults to queue when omitted. */
+  flowsQueue?: EventQueue;
+  /** When true, flow poll loop runs at reconciliation interval (queue handles immediate wake). */
+  queuesDurable?: boolean;
+  /** Close all queue backends (e.g. shared Redis connection). */
+  onQueuesClose?: () => Promise<void>;
+  /** Redis client for delayed flow promotion (durable deployments). */
+  redisClient?: RedisClient;
+  /** Flows queue Redis prefix for delayed sorted set. */
+  flowsPrefix?: string;
+  /** Refresh queue depth gauges (durable deployments). */
+  refreshQueueDepths?: () => Promise<void>;
+  /** Enqueue a flow step wake after flow start/trigger (optional). */
+  onFlowStepEnqueue?: (executionId: string, correlationId?: string) => Promise<void>;
+  /** Capability registry for auto consumer registration. */
+  capabilities?: CapabilityRegistry;
+  /** Entity registry for auto consumer registration. */
+  entities?: EntityRegistry;
+  /** Sync MCP task status when MCP-sourced jobs complete (optional @plumbus/mcp). */
+  onMcpJobComplete?: (
+    jobId: string,
+    result: 'completed' | 'failed',
+    payload?: unknown,
+    error?: unknown,
+  ) => Promise<void>;
   /** Consumer registry */
   consumers: ConsumerRegistry;
   /** Flow registry */
@@ -126,6 +161,8 @@ export interface WorkerPoolConfig {
   audit?: AuditService;
   /** Optional logger */
   logger?: LoggerService;
+  /** Runtime metrics (optional — wired to worker /metrics endpoint). */
+  metrics?: PlumbusMetrics;
   /** Outbox poll interval ms (default: 1000) */
   outboxPollIntervalMs?: number;
   /** Scheduler poll interval ms (default: 60000) */
@@ -165,6 +202,8 @@ export interface WorkerPool {
   stop(): Promise<void>;
   /** Whether any worker is running */
   readonly isRunning: boolean;
+  /** Flow engine instance (for tests and consumer registration). */
+  readonly flowEngine: ReturnType<typeof createFlowEngine>;
 }
 
 /** Create and configure a worker pool with all background processes */
@@ -178,24 +217,42 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     audit,
     outboxPollIntervalMs = 1000,
     schedulerPollIntervalMs = 60_000,
-    flowPollIntervalMs = 1000,
+    flowPollIntervalMs: flowPollIntervalMsConfig = 1000,
     enableDispatcher = true,
     enableEventWorker = true,
     enableScheduler = true,
     enableFlowRunner = true,
   } = poolConfig;
 
+  const jobsQueue = poolConfig.jobsQueue ?? queue;
+  const flowsQueue = poolConfig.flowsQueue ?? queue;
+  const flowPollIntervalMs = poolConfig.queuesDurable
+    ? Math.max(flowPollIntervalMsConfig, 30_000)
+    : flowPollIntervalMsConfig;
+
   const logger = poolConfig.logger ?? createWorkerLogger();
+  const metrics = poolConfig.metrics;
   const eventRegistry = poolConfig.eventRegistry;
 
   // Idempotency service for event worker
   const idempotency = createIdempotencyService(db);
 
+  const systemWorkerAuth: AuthContext = {
+    userId: 'system-worker',
+    roles: ['system'],
+    scopes: [],
+    provider: 'worker',
+  };
+  const workerAudit =
+    audit ?? createAuditService({ db, auth: systemWorkerAuth, component: 'event-worker' });
+
   // Outbox dispatcher
   const dispatcherConfig: DispatcherConfig = {
     db,
     queue,
+    audit: workerAudit,
     pollIntervalMs: outboxPollIntervalMs,
+    metrics,
   };
   const dispatcher = enableDispatcher ? createOutboxDispatcher(dispatcherConfig) : null;
 
@@ -205,8 +262,22 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     queue,
     consumers,
     idempotency,
+    audit: workerAudit,
+    metrics,
   };
   const eventWorker = enableEventWorker ? createEventWorker(eventWorkerConfig) : null;
+
+  const jobEventWorker =
+    enableEventWorker && jobsQueue !== queue
+      ? createEventWorker({
+          db,
+          queue: jobsQueue,
+          consumers,
+          idempotency,
+          audit: workerAudit,
+          metrics,
+        })
+      : null;
 
   // Flow engine + scheduler
   const { createDataService } = poolConfig;
@@ -222,6 +293,18 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     flowHeartbeatIntervalMs: poolConfig.flowHeartbeatIntervalMs,
     flowClaimBatchSize: poolConfig.flowClaimBatchSize,
     logger,
+    onFlowStepEnqueue: poolConfig.queuesDurable ? poolConfig.onFlowStepEnqueue : undefined,
+    onFlowDelayedSchedule:
+      poolConfig.queuesDurable && poolConfig.redisClient && poolConfig.flowsPrefix
+        ? async (executionId, wakeAt) => {
+            await scheduleDelayedFlowWake({
+              client: poolConfig.redisClient as RedisClient,
+              flowsPrefix: poolConfig.flowsPrefix as string,
+              executionId,
+              wakeAt,
+            });
+          }
+        : undefined,
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
     createEventService: eventRegistry
       ? (auth) =>
@@ -234,6 +317,22 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       : undefined,
   };
   const flowEngine = createFlowEngine(flowEngineConfig);
+
+  if (poolConfig.capabilities && poolConfig.entities && eventRegistry) {
+    registerCapabilityConsumers({
+      capabilities: poolConfig.capabilities,
+      consumers,
+      events: eventRegistry,
+      entities: poolConfig.entities,
+      db,
+      config: poolConfig.config,
+      flowEngine,
+      aiService: poolConfig.aiService,
+      logger,
+      metrics,
+      onMcpJobComplete: poolConfig.onMcpJobComplete,
+    });
+  }
 
   // Auto-register flow trigger consumer for all event-triggered flows
   const triggerEventTypes = new Set<string>();
@@ -304,6 +403,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         audit: systemAudit,
         logger,
         config: poolConfig.config as unknown as Record<string, unknown>,
+        ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
       });
 
       for (const row of claimed) {
@@ -375,9 +475,72 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
   }
 
+  function buildFlowRunnerContext(): import('../types/context.js').ExecutionContext {
+    const systemAuth = {
+      userId: 'system-flow-runner',
+      roles: ['system'],
+      scopes: [],
+      provider: 'worker',
+    };
+    const systemAudit = audit ?? createAuditService({ db, auth: systemAuth });
+    const dataService = poolConfig.createDataService
+      ? poolConfig.createDataService()
+      : ({} as DataService);
+    const eventService = eventRegistry
+      ? createEventEmitter({
+          db,
+          auth: systemAuth,
+          registry: eventRegistry,
+          audit: systemAudit,
+        })
+      : undefined;
+    return createExecutionContext({
+      auth: systemAuth,
+      data: dataService,
+      events: eventService,
+      flows: createFlowService(flowEngine, systemAuth),
+      ai: poolConfig.aiService,
+      audit: systemAudit,
+      logger,
+      config: poolConfig.config as unknown as Record<string, unknown>,
+      ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
+    });
+  }
+
+  const flowStepConsumer =
+    enableFlowRunner && flowsQueue
+      ? createFlowStepConsumer({
+          flowsQueue,
+          engine: flowEngine,
+          buildContext: buildFlowRunnerContext,
+          logger,
+          metrics,
+          onReenqueue: poolConfig.onFlowStepEnqueue
+            ? async (executionId) => {
+                await poolConfig.onFlowStepEnqueue?.(executionId);
+              }
+            : undefined,
+        })
+      : null;
+
+  const flowDelayedPromoter =
+    enableFlowRunner && poolConfig.queuesDurable && poolConfig.redisClient && poolConfig.flowsPrefix
+      ? createFlowDelayedPromoter({
+          client: poolConfig.redisClient,
+          flowsPrefix: poolConfig.flowsPrefix,
+          flowsQueue,
+          logger,
+        })
+      : null;
+
+  let depthRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let running = false;
 
   return {
+    get flowEngine() {
+      return flowEngine;
+    },
+
     async start() {
       if (running) return;
 
@@ -418,6 +581,37 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         logger.info('Event delivery worker started');
       }
 
+      if (jobEventWorker) {
+        jobEventWorker.start();
+        logger.info('Job delivery worker started');
+      }
+
+      if (flowStepConsumer) {
+        flowStepConsumer.start();
+        logger.info('Flow step queue consumer started');
+      }
+
+      if (flowDelayedPromoter) {
+        flowDelayedPromoter.start();
+        logger.info('Flow delayed wake promoter started');
+      }
+
+      if (poolConfig.refreshQueueDepths && metrics) {
+        const refresh = async () => {
+          try {
+            await poolConfig.refreshQueueDepths?.();
+          } catch (err) {
+            logger.warn('Queue depth refresh failed', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        };
+        await refresh();
+        depthRefreshTimer = setInterval(() => {
+          void refresh();
+        }, 15_000);
+      }
+
       logger.info('Worker pool started');
     },
 
@@ -442,12 +636,36 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         logger.info('Outbox dispatcher stopped');
       }
 
+      if (flowStepConsumer) {
+        flowStepConsumer.stop();
+        logger.info('Flow step queue consumer stopped');
+      }
+
+      if (flowDelayedPromoter) {
+        flowDelayedPromoter.stop();
+        logger.info('Flow delayed wake promoter stopped');
+      }
+
+      if (depthRefreshTimer) {
+        clearInterval(depthRefreshTimer);
+        depthRefreshTimer = null;
+      }
+
+      if (jobEventWorker && jobEventWorker !== eventWorker) {
+        jobEventWorker.stop();
+        logger.info('Job delivery worker stopped');
+      }
+
       if (eventWorker) {
         eventWorker.stop();
         logger.info('Event delivery worker stopped');
       }
 
-      await queue.close();
+      if (poolConfig.onQueuesClose) {
+        await poolConfig.onQueuesClose();
+      } else {
+        await queue.close();
+      }
       logger.info('Queue closed');
 
       running = false;

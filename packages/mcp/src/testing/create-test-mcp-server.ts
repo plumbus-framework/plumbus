@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
+  buildCapabilityRuntimeDeps,
   CapabilityRegistry,
   type AuthContext,
   type CapabilityContract,
@@ -65,6 +66,7 @@ export async function createTestMcpServer(
   };
 
   const sharedCtx = createTestContext(opts);
+  const capRuntime = buildCapabilityRuntimeDeps(registry);
 
   const createDependencies = (
     auth: AuthContext,
@@ -81,6 +83,7 @@ export async function createTestMcpServer(
       config: sharedCtx.config,
       translations: sharedCtx.translations,
       ai: sharedCtx.ai,
+      ...capRuntime,
     };
   };
 

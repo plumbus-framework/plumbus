@@ -13,8 +13,11 @@ docs/
 │   └── tutorial.md
 ├── architecture/              System design, diagrams, data flow
 │   ├── overview.md
+│   ├── workers-and-queues.md
 │   ├── execution-lifecycle.md
 │   └── diagrams.md
+├── upgrading-workers.md       0.5.0 workers/queues migration guide
+├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
 ├── core-concepts/             Deep dives into each primitive
 │   ├── capabilities.md
 │   ├── entities.md
@@ -84,6 +87,9 @@ docs/
 | Install Plumbus and create my first app | [Getting Started → Installation](getting-started/installation.md) |
 | Understand the development workflow | [Getting Started → Development Workflow](getting-started/development-workflow.md) |
 | Understand how the system works | [Architecture → Overview](architecture/overview.md) |
+| Configure workers and queues | [Architecture → Workers and Queues](architecture/workers-and-queues.md) |
+| Migrate to 0.5.0 workers model | [Upgrading Workers](upgrading-workers.md) |
+| Migrate to canonical capability names | [Upgrading Capability Names](upgrading-capability-names.md) |
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |
 | See all CLI commands | [CLI → Commands](cli/commands.md) |
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |

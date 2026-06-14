@@ -23,6 +23,7 @@ export const getUser = defineCapability({
     data: ["User"],
     events: [],
     external: [],
+    capabilities: [], // canonical invoke targets: ["billing.getInvoice"]
     ai: false,
   },
 
@@ -106,10 +107,34 @@ Every capability must declare its side effects in the `effects` field:
 - `data` — entity names this capability reads from or writes to
 - `events` — event types this capability may emit
 - `external` — external integrations this capability calls (APIs, services)
+- `capabilities` — canonical names (`<domain>.<name>`) this handler may invoke via `ctx.capabilities.invoke`
 - `flows` — flow names this capability may start (optional)
 - `ai` — whether this capability uses AI operations
 
 Effects are used by governance rules to analyze the system.
+
+## Capability-to-capability invocation
+
+The only sanctioned path for synchronous composition is `ctx.capabilities.invoke`:
+
+```ts
+handler: async (ctx, input) => {
+  const invoice = await ctx.capabilities.invoke("billing.getInvoice", {
+    invoiceId: input.invoiceId,
+  });
+  return { invoice };
+}
+```
+
+Rules:
+
+- Declare every invoke target in `effects.capabilities` using **canonical names** (`billing.getInvoice`, not `getInvoice`).
+- Undeclared calls, cycles, missing targets, and synchronous job invokes fail at runtime with `dependencyViolation`.
+- Do **not** import other capability handlers or call `.handler` directly — `plumbus verify` flags direct handler imports.
+- Handler-visible `ctx.__runtime` does not expose internal invokers; use `ctx.capabilities.invoke` only.
+- Prefer flows for multi-step orchestration; use invoke when you need a callee's result in the same execution path.
+
+The local `name` field in `defineCapability` stays short (`getInvoice`); the framework derives the canonical registry key from `domain` + `name`. Run `plumbus generate` after changes so `RegisteredCapabilityName` and manifests stay in sync.
 
 ## Explanation Tracking
 
@@ -208,4 +233,14 @@ export const generateReport = defineCapability({
 });
 ```
 
-Job capabilities are exposed as `POST` endpoints that return `202 Accepted` with the job output. The framework provides job status tracking and progress monitoring automatically.
+Job capabilities are exposed as `POST` endpoints. From **0.5.0**, when the API wires `jobQueue` (any job capability on `plumbus dev` / `plumbus start` — including in-memory queues), routes return **`202 Accepted`** with `{ data: { jobId, status: "accepted" } }` and enqueue via the jobs queue. This is **not** gated on whether a worker pool runs in the same process; `PLUMBUS_RUNTIME_ROLE=api` still returns **202** but needs a separate `plumbus worker` to execute jobs.
+
+Poll completion with:
+
+```
+GET /api/jobs/:jobId
+```
+
+Response: `{ data: { jobId, status, output, error, … } }`. Status values include `queued`, `running`, `completed`, `failed`, and `dead_lettered` from `job_executions`. Run `plumbus migrate generate && plumbus migrate apply` **before** job traffic — routes fail at the DB layer if the table is missing.
+
+**Pre-0.5.0 note:** job routes often returned **200** with the handler output synchronously because the server did not wire a job queue. Update HTTP clients that assumed synchronous job responses. See `deployment.md` (Upgrading to 0.5) for the full checklist.

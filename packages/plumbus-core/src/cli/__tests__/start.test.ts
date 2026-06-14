@@ -31,6 +31,25 @@ vi.mock('../../server/bootstrap.js', () => ({
   })),
 }));
 
+const closeQueues = vi.fn(async () => {});
+
+vi.mock('../../runtime/queue-factory.js', () => ({
+  resolveRuntimeQueues: vi.fn(async () => ({
+    events: {},
+    flows: {},
+    jobs: {},
+    backend: 'memory',
+    isDurable: false,
+    close: closeQueues,
+  })),
+}));
+
+vi.mock('../../runtime/start-worker-pool.js', () => ({
+  startWorkerPool: vi.fn(async () => ({
+    stop: vi.fn(async () => {}),
+  })),
+}));
+
 import { createServer } from '../../server/bootstrap.js';
 import { startProductionServer } from '../commands/start.js';
 import { discoverResources } from '../discover.js';
@@ -41,6 +60,8 @@ describe('CLI start command', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(createServer).mockClear();
     vi.mocked(discoverResources).mockClear();
+    closeQueues.mockClear();
+    delete process.env.PLUMBUS_RUNTIME_ROLE;
     // Production config requires these
     process.env.DB_PASSWORD = 'test-password';
     process.env.AUTH_SECRET = 'test-secret-that-is-long-enough-for-production';
@@ -99,5 +120,14 @@ describe('CLI start command', () => {
   it('returns shutdown function', async () => {
     const { shutdown } = await startProductionServer({ db: {} as never });
     expect(typeof shutdown).toBe('function');
+  });
+
+  it('closes queues on shutdown even when worker pool is not started', async () => {
+    process.env.PLUMBUS_RUNTIME_ROLE = 'api';
+    const { shutdown } = await startProductionServer({ db: {} as never });
+
+    await shutdown();
+
+    expect(closeQueues).toHaveBeenCalledTimes(1);
   });
 });

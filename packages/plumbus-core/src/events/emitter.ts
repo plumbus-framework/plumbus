@@ -16,6 +16,8 @@ export interface EventEmitterConfig {
   correlationId?: string;
   /** Optional causation ID linking to the originating event */
   causationId?: string;
+  /** Resolve causation at emit time (e.g. nested capability invocation caller). */
+  getCausationId?: () => string | undefined;
 }
 
 /**
@@ -24,7 +26,11 @@ export interface EventEmitterConfig {
  * and records audit entries for each emission.
  */
 export function createEventEmitter(config: EventEmitterConfig): EventService {
-  const { db, auth, registry, audit, correlationId, causationId } = config;
+  const { db, auth, registry, audit, correlationId, causationId, getCausationId } = config;
+
+  function resolveCausationId(): string | undefined {
+    return getCausationId?.() ?? causationId;
+  }
 
   return {
     async emit(eventName: string, payload: unknown): Promise<void> {
@@ -46,7 +52,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
         actor: auth.userId ?? 'anonymous',
         tenantId: auth.tenantId,
         correlationId: correlationId ?? randomUUID(),
-        causationId,
+        causationId: resolveCausationId(),
         payload: payload as Record<string, unknown>,
       };
 
@@ -96,7 +102,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
           actor: auth.userId ?? 'anonymous',
           tenantId: auth.tenantId,
           correlationId: correlationId ?? randomUUID(),
-          causationId,
+          causationId: resolveCausationId(),
           payload: payload as Record<string, unknown>,
         };
       });

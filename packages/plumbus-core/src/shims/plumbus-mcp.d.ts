@@ -15,6 +15,7 @@ import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuthContext } from '../types/security.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
+import type { EventQueue } from '../events/queue.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { FastifyInstance } from 'fastify';
@@ -57,7 +58,17 @@ export interface McpServerConfig {
     tenantId?: string;
   }) => void | Promise<void>;
   requestTimeoutMs?: number;
+  jobQueue?: EventQueue;
 }
+
+export declare function createMcpJobCompletionSync(
+  deps: ContextDependencies,
+): (
+  jobId: string,
+  result: 'completed' | 'failed',
+  payload?: unknown,
+  error?: unknown,
+) => Promise<void>;
 
 export interface CreateMcpServerOptions {
   name?: string;

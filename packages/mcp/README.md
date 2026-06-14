@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/mcp.svg)](https://www.npmjs.com/package/@plumbus/mcp)
 [![license](https://img.shields.io/npm/l/@plumbus/mcp.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.4](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.4-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.5.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![MCP spec: tools + tasks](https://img.shields.io/badge/MCP-tools%20%2B%20tasks-7c5cff)](https://modelcontextprotocol.io)
 
 ## What is this?
@@ -42,7 +42,7 @@ Plumbus already has all of that for HTTP. This package routes it through MCP. **
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked `0.4.x`). Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
+Optional peer of `@plumbus/core` (version-locked `0.5.x`). Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
 
 ## Install
 
@@ -233,7 +233,7 @@ Full matrix and rationale: [`docs/mcp/overview.md`](../../docs/mcp/overview.md#m
 | [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
 | [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
 | [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
-| **`@plumbus/mcp`** | **You are here.** MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.4.x` — when exposing capabilities to MCP clients. |
+| **`@plumbus/mcp`** | **You are here.** MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |

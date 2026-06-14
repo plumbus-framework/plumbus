@@ -1,20 +1,22 @@
 import type { CapabilityContract } from '../types/capability.js';
+import { getCanonicalCapabilityName } from './canonical-name.js';
 
 /**
  * Registry that holds all discovered/registered capabilities,
- * indexed by name for lookup during execution and route generation.
+ * indexed by canonical name (`<domain>.<capabilityName>`) for lookup during execution.
  */
 export class CapabilityRegistry {
   private capabilities = new Map<string, CapabilityContract>();
 
   /**
-   * Register a capability contract. Throws on duplicate names.
+   * Register a capability contract. Throws on duplicate canonical names.
    */
   register(capability: CapabilityContract): void {
-    if (this.capabilities.has(capability.name)) {
-      throw new Error(`Capability "${capability.name}" is already registered`);
+    const canonical = getCanonicalCapabilityName(capability);
+    if (this.capabilities.has(canonical)) {
+      throw new Error(`Capability "${canonical}" is already registered`);
     }
-    this.capabilities.set(capability.name, capability);
+    this.capabilities.set(canonical, capability);
   }
 
   /**
@@ -27,7 +29,7 @@ export class CapabilityRegistry {
   }
 
   /**
-   * Get a capability by name.
+   * Get a capability by canonical name.
    */
   get(name: string): CapabilityContract | undefined {
     return this.capabilities.get(name);
@@ -48,9 +50,14 @@ export class CapabilityRegistry {
   }
 
   /**
-   * Check if a capability is registered.
+   * Check if a capability is registered by canonical name.
    */
   has(name: string): boolean {
     return this.capabilities.has(name);
+  }
+
+  /** Canonical names of all registered capabilities. */
+  getCanonicalNames(): string[] {
+    return Array.from(this.capabilities.keys());
   }
 }

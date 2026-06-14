@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { eq, lte } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { LoggerService } from '../types/context.js';
@@ -141,7 +142,28 @@ export function createFlowScheduler(config: SchedulerConfig) {
  * Supports wildcards, specific values, ranges (1-5), step values,
  * comma-separated lists, and day/month name abbreviations.
  */
+const localRequire = createRequire(import.meta.url);
+
+function tryCronParserNext(cron: string, from: Date): Date | undefined {
+  try {
+    const cronParser = localRequire('cron-parser') as {
+      parseExpression: (
+        expression: string,
+        options?: { currentDate?: Date },
+      ) => { next: () => { toDate: () => Date } };
+    };
+    return cronParser.parseExpression(cron, { currentDate: from }).next().toDate();
+  } catch {
+    return undefined;
+  }
+}
+
 export function computeNextRun(cron: string, from: Date): Date {
+  const parsed = tryCronParserNext(cron, from);
+  if (parsed) {
+    return parsed;
+  }
+
   // Parse simple interval patterns like "every:60m", "every:24h", "every:1d"
   const match = cron.match(/^every:(\d+)([mhd])$/);
   if (match) {

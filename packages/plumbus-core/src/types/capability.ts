@@ -9,6 +9,8 @@ export interface CapabilityEffects {
   events: string[];
   external: string[];
   flows?: string[];
+  /** Canonical capability names this capability may invoke via ctx.capabilities.invoke */
+  capabilities?: string[];
   ai: boolean;
 }
 
@@ -100,6 +102,12 @@ export interface ApiExposureConfig {
   deprecation?: ApiDeprecationConfig;
 }
 
+// ── Event Handler Trigger (optional — auto-registers consumer when present) ──
+export interface EventHandlerTrigger {
+  event: string;
+  versionConstraint?: string;
+}
+
 // ── Capability Contract ──
 export interface CapabilityContract<
   TInput extends z.ZodTypeAny = z.ZodTypeAny,
@@ -126,6 +134,8 @@ export interface CapabilityContract<
   mcp?: McpExposureConfig;
   /** API-specific metadata when `exposeAs` includes `'api'` */
   api?: ApiExposureConfig;
+  /** Event subscription for kind: 'eventHandler' — optional; enables auto-registration */
+  trigger?: EventHandlerTrigger;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

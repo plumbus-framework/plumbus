@@ -2,7 +2,10 @@
 // Factory for building test-friendly ExecutionContexts with mock services.
 
 import type { ContextDependencies, ProgressService } from '../types/context.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import { CapabilityRegistry } from '../execution/capability-registry.js';
 import { createExecutionContext } from '../execution/context-factory.js';
+import type { CapabilityContract } from '../types/capability.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIDocument,
@@ -454,6 +457,8 @@ export interface TestContextOptions {
   logger?: LoggerService;
   time?: TimeService | Date;
   config?: Record<string, unknown>;
+  /** Register capabilities for nested ctx.capabilities.invoke in tests. */
+  capabilities?: CapabilityContract[];
 }
 
 /**
@@ -469,6 +474,15 @@ export function createTestContext(options?: TestContextOptions): ExecutionContex
   const timeService: TimeService =
     options?.time instanceof Date ? fixedTime(options.time) : (options?.time ?? fixedTime());
 
+  const capRuntime =
+    options?.capabilities && options.capabilities.length > 0
+      ? (() => {
+          const registry = new CapabilityRegistry();
+          registry.registerAll(options.capabilities);
+          return buildCapabilityRuntimeDeps(registry);
+        })()
+      : {};
+
   const deps: ContextDependencies = {
     auth: createTestAuth(options?.auth),
     data: createTestData(options?.data, options?.entities),
@@ -480,6 +494,7 @@ export function createTestContext(options?: TestContextOptions): ExecutionContex
     time: timeService,
     config: options?.config ?? {},
     progress: options?.progress ?? { report: () => {} },
+    ...capRuntime,
   };
 
   return createExecutionContext(deps);

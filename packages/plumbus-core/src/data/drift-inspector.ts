@@ -10,7 +10,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { EntityDefinition } from '../types/entity.js';
 import { collectSchemas } from './migration.js';
 
-/** The 9 framework-managed table names (actual DB names). */
+/** Framework-managed table names (actual DB names). */
 export const FRAMEWORK_TABLE_NAMES = [
   'audit_records',
   'event_outbox',
@@ -19,6 +19,7 @@ export const FRAMEWORK_TABLE_NAMES = [
   'flow_executions',
   'flow_dead_letter',
   'flow_schedules',
+  'job_executions',
   'documents',
   'document_chunks',
 ] as const;

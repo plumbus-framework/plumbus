@@ -7,7 +7,9 @@
 | Node.js | ≥ 20 | Runtime |
 | pnpm | ≥ 10 | Package manager |
 | PostgreSQL | ≥ 14 | Data persistence |
-| Redis | ≥ 7 (optional) | Event queues, background jobs |
+| Redis | ≥ 7 (optional) | Shared event/flow/job queues for production and split deployments |
+| `redis` npm package | optional peer | Required in app `package.json` when using Redis-backed queues |
+| `cron-parser` npm package | optional peer | Required when flows use `schedule` triggers |
 | TypeScript | ≥ 5.7 | Type system |
 
 ## Install the CLI
@@ -130,4 +132,6 @@ export const config: PlumbusConfig = {
 
 - [Quick Start →](quick-start.md) — Build your first capability in 5 minutes
 - [Tutorial →](tutorial.md) — Build a complete feature end-to-end
+- [Workers and Queues →](../architecture/workers-and-queues.md) — Runtime modes, split deployments, optional peers
+- [Upgrading Workers →](../upgrading-workers.md) — Migrate to 0.5.0 workers/queues model
 

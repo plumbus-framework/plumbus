@@ -32,6 +32,12 @@ Plumbus governance is **advisory, not blocking** — "guardrails, not gates." Ru
 - Capabilities with too many side effects
 - Flows with excessive branching depth
 - Large handler implementations (complexity warning)
+- **`architecture.non-canonical-capability-reference`** — flow `step.capability` or `effects.capabilities` entries missing `<domain>.<name>` prefix
+- **`architecture.missing-capability-dependency`** — declared invoke target not registered
+- **`architecture.circular-capability-dependency`** — cycle in `effects.capabilities` graph
+- **`architecture.deep-capability-chain`** — deep nested invoke chains (info; consider a flow)
+- **`architecture.job-capability-dependency`** — `kind: 'job'` declared as synchronous invoke target
+- **`architecture.direct-capability-handler-import`** — capability module imports another handler (source scan under `app/capabilities/`)
 
 ### AI
 - Prompts receiving sensitive classified data

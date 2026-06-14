@@ -434,7 +434,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/core`](packages/plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance |
 | [`@plumbus/ui`](packages/ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds |
 | [`@plumbus/api`](packages/api/) | Optional peer `0.1.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
-| [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.4.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
+| [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.5.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
 | [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.1.x` — scoped knowledge providers and registry for registry-backed grounding |

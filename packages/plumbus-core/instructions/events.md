@@ -76,6 +76,7 @@ export const onOrderPlaced = defineCapability({
   name: "onOrderPlaced",
   kind: "eventHandler",
   domain: "fulfillment",
+  trigger: { event: "order.placed" }, // auto-registers at worker startup (0.5+)
   // ...
   handler: async (ctx, event) => {
     // event is the typed payload
@@ -83,6 +84,16 @@ export const onOrderPlaced = defineCapability({
   },
 });
 ```
+
+### Auto-registration (`trigger.event`)
+
+From **0.5.0**, set `trigger: { event: "<event.name>", versionConstraint?: "..." }` on `eventHandler` capabilities. The worker pool registers a queue consumer automatically — no manual `ConsumerRegistry` entry required.
+
+- **Manual registration still works** and takes precedence when the consumer id equals the capability name.
+- **`plumbus verify`** and **`plumbus doctor`** warn when `eventHandler` capabilities omit `trigger.event` (advisory).
+- **`trigger` is only valid on `kind: "eventHandler"`** — other kinds throw at define time.
+
+Dequeue uses tenant binding from the `event_outbox` row (fail-closed). Do not push forged messages to Redis; use `plumbus events replay` or `plumbus events dead-letter retry` for operational recovery.
 
 ## Idempotency
 

@@ -135,6 +135,12 @@ For large binary or text payloads, keep flow `input` and `state` small and store
 └──────────────────────────────────────────────────────────┘
 ```
 
+Capability steps reference targets by **canonical name** (`orders.validateOrder`). Step auth comes from `flow_executions.auth_snapshot_json` — not worker `system` roles on user-triggered flows. Job capabilities cannot run synchronously inside a step.
+
+### Nested capability invocation
+
+When a capability handler calls `ctx.capabilities.invoke`, the framework runs the callee through the same pipeline (access, validation, audit) with inherited auth and correlation metadata. Targets must be listed in the caller's `effects.capabilities`. Undeclared calls, cycles, missing targets, and synchronous job invokes return `dependencyViolation`. Handler-visible `ctx.__runtime` does not expose internal invokers — only `ctx.capabilities.invoke` is supported in application code. Prefer flows for multi-step orchestration; use invoke when a callee's result is needed in the same execution path.
+
 ## Event Processing Pipeline
 
 ```
@@ -234,6 +240,42 @@ For large binary or text payloads, keep flow `input` and `state` small and store
          ▼
    Return validated output
 ```
+
+## Job Capability Lifecycle
+
+Async `kind: 'job'` capabilities follow a queue-backed path distinct from synchronous queries and actions:
+
+```
+POST /api/{domain}/{job-name}
+    │
+    ▼
+┌─────────────────────┐
+│ Access + validate   │
+│ input               │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐     ┌──────────────────┐
+│ INSERT              │     │ Publish to       │
+│ job_executions      │────▶│ jobs queue       │
+│ status: queued      │     └────────┬─────────┘
+└─────────┬───────────┘              │
+          │                          ▼
+          │                 ┌──────────────────┐
+          │                 │ Worker dequeues  │
+          │                 │ markRunning      │
+          │                 │ execute handler  │
+          │                 │ markCompleted /  │
+          │                 │ markFailed       │
+          │                 └──────────────────┘
+          ▼
+   202 { data: { jobId, status: "accepted" } }
+          │
+          ▼ (client polls)
+   GET /api/jobs/:jobId
+```
+
+MCP task dispatch with `jobQueue` configured follows the same enqueue path. See [Workers and Queues](./workers-and-queues.md).
 
 ## Context Assembly
 

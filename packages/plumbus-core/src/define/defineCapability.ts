@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  getCanonicalCapabilityName,
+  isCanonicalCapabilityName,
+} from '../execution/canonical-name.js';
 import type {
   ApiExposureConfig,
   CapabilityContract,
@@ -40,6 +44,7 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
     events: string[];
     external: string[];
     flows?: string[];
+    capabilities?: string[];
     ai: boolean;
   };
   audit?: {
@@ -55,6 +60,7 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   exposeAs?: readonly ('mcp' | 'api')[];
   mcp?: McpExposureConfig;
   api?: ApiExposureConfig;
+  trigger?: { event: string; versionConstraint?: string };
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
@@ -246,5 +252,48 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   validateMcpExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
   validateApiExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
 
+  if (config.trigger !== undefined && config.kind !== 'eventHandler') {
+    throwDefineValidationError(
+      `Capability "${config.name}": trigger is only valid for eventHandler capabilities`,
+      { field: 'trigger' },
+    );
+  }
+
+  validateCapabilityDependencies(
+    config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>,
+  );
+
   return deepFreeze({ ...config });
+}
+
+function validateCapabilityDependencies(
+  config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>,
+): void {
+  const deps = config.effects.capabilities;
+  if (deps === undefined) {
+    return;
+  }
+
+  const self = getCanonicalCapabilityName({ domain: config.domain, name: config.name });
+
+  for (const dep of deps) {
+    if (typeof dep !== 'string' || dep.trim().length === 0) {
+      throwDefineValidationError(
+        `Capability "${config.name}": effects.capabilities entries must be non-empty canonical capability names`,
+        { field: 'effects.capabilities' },
+      );
+    }
+    if (!isCanonicalCapabilityName(dep)) {
+      throwDefineValidationError(
+        `Capability "${config.name}": effects.capabilities entry "${dep}" must use canonical format <domain>.<capabilityName>`,
+        { field: 'effects.capabilities' },
+      );
+    }
+    if (dep === self) {
+      throwDefineValidationError(
+        `Capability "${config.name}": cannot declare a dependency on itself in effects.capabilities`,
+        { field: 'effects.capabilities' },
+      );
+    }
+  }
 }

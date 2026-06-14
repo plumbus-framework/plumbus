@@ -81,7 +81,7 @@ pnpm add @plumbus/api
 
 `@plumbus/core` works without `@plumbus/api`. Install this package when you want a published partner API. `plumbus api validate` prints an install hint when the package is missing.
 
-Peer dependency: `@plumbus/core` `0.4.x` (version-locked `0.1.x` for `@plumbus/api`). Zod and Vitest are provided transitively by core — do not add them to your app's `package.json` for API work.
+Peer dependency: `@plumbus/core` `0.5.x` (version-locked `0.1.x` for `@plumbus/api`). Zod and Vitest are provided transitively by core — do not add them to your app's `package.json` for API work.
 
 Current `plumbus init` wiring already references `@plumbus/api/instructions/*`; installing the package makes those paths resolvable. If your project's agent files predate the current template, refresh them after install:
 

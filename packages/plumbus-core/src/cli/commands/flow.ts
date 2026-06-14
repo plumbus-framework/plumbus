@@ -3,11 +3,60 @@
 
 import type { Command } from 'commander';
 import * as path from 'node:path';
+import { desc } from 'drizzle-orm';
+import { loadConfig } from '../../config/loader.js';
+import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/connection.js';
+import { flowDeadLetterTable } from '../../flows/schema.js';
+import { enqueueFlowStep } from '../../flows/flow-queue.js';
+import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
 import { flowTemplate, flowTestTemplate } from '../templates/resources.js';
-import { error, exists, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
+import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 
 export function registerFlowCommand(program: Command): void {
   const cmd = program.command('flow').description('Manage flows');
+
+  const dlq = cmd.command('dead-letter').description('Flow dead-letter operations');
+
+  dlq
+    .command('list')
+    .description('List flow dead-letter rows')
+    .option('--limit <n>', 'Max rows', '20')
+    .option('--json', 'Output JSON')
+    .action(async (opts: { limit?: string; json?: boolean }) => {
+      const limit = parseInt(opts.limit ?? '20', 10);
+      const config = loadConfig();
+      const connection = await resolveDatabaseConnection(config.database, {});
+      try {
+        const rows = await connection.db
+          .select()
+          .from(flowDeadLetterTable)
+          .orderBy(desc(flowDeadLetterTable.failedAt))
+          .limit(limit);
+        if (opts.json) {
+          console.log(JSON.stringify(rows, null, 2));
+          return;
+        }
+        for (const row of rows) {
+          info(`${row.executionId} flow=${row.flowName} retries=${row.retryCount}`);
+        }
+      } finally {
+        await closeDatabaseConnection(connection);
+      }
+    });
+
+  dlq
+    .command('retry <executionId>')
+    .description('Re-enqueue a flow step after operator fix')
+    .action(async (executionId: string) => {
+      const config = loadConfig();
+      const queues = await resolveRuntimeQueues(config);
+      try {
+        await enqueueFlowStep(queues.flows, executionId);
+        success(`Re-enqueued flow step for execution ${executionId}`);
+      } finally {
+        await queues.close();
+      }
+    });
 
   cmd
     .command('new <name>')

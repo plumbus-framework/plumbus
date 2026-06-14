@@ -91,9 +91,13 @@ If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @p
 
 When `mcp.agents` is **empty or unset**, `plumbus mcp serve` falls back to the JWT adapter (with a startup warning). Calls without a JWT then resolve to an anonymous `AuthContext` (`provider: 'anonymous'`, no scopes). Only `access.public: true` tools execute under that identity. **Never ship that configuration in production** — `plumbus doctor` warns when `mcp.agents` is empty and `@plumbus/mcp` is installed.
 
+## Tool names (canonical)
+
+MCP tool names use the **canonical** `<domain>.<capabilityName>` form (e.g. `billing.getRefund`), matching the capability registry and `plumbus generate` manifest — not the short local `name` field alone. After upgrading, run `plumbus generate` and update agent configs that referenced short names.
+
 ## What an agent sees
 
-- **`tools/list`** — every capability with `exposeAs: ['mcp']`. Each tool: `name`, `description` (`mcp.description` overrides `description`), `inputSchema` (JSON Schema from Zod input), `annotations` (`destructiveHint`, `readOnlyHint`).
+- **`tools/list`** — every capability with `exposeAs: ['mcp']`. Each tool: `name` (canonical), `description` (`mcp.description` overrides `description`), `inputSchema` (JSON Schema from Zod input), `annotations` (`destructiveHint`, `readOnlyHint`).
 - **`tools/call`** — full Plumbus pipeline runs: Zod input validation → access policy → handler → Zod output validation → audit.
 - **Errors** map to `{ isError: true, content: [{ type: 'text', text: JSON.stringify(error) }] }` preserving the `PlumbusError` code.
 

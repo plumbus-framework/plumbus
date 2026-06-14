@@ -32,6 +32,8 @@ export const flowExecutionsTable = pgTable(
     wakeAt: timestamp('wake_at', { withTimezone: true }),
     actor: text('actor').notNull(),
     tenantId: text('tenant_id'),
+    /** Caller auth at enqueue time (roles/scopes/provider); used for step execution instead of worker auth. */
+    authSnapshotJson: jsonb('auth_snapshot_json'),
     correlationId: text('correlation_id'),
     triggerEventId: text('trigger_event_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

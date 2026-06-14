@@ -2,6 +2,7 @@
 // Simulate flow execution in-memory without requiring a database or queue.
 // Walks through steps sequentially, tracking state and step history.
 
+import { CapabilityRegistry } from '../execution/capability-registry.js';
 import { FlowStatus, type StepHistoryEntry, StepStatus } from '../flows/state-machine.js';
 import {
   buildHistoryEntry,
@@ -9,6 +10,7 @@ import {
   type StepExecutorDeps,
   type StepResult,
 } from '../flows/step-executor.js';
+import { buildStepDeps } from '../runtime/bootstrap.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import { createTestContext, type TestContextOptions } from './context.js';
@@ -69,10 +71,19 @@ export async function simulateFlow(
     }
   }
 
+  // When capabilities are registered, use the same job-blocking step deps as production
+  let registryStepDeps: StepExecutorDeps | undefined;
+  if (options?.capabilities && options.capabilities.length > 0) {
+    const registry = new CapabilityRegistry();
+    registry.registerAll(options.capabilities);
+    registryStepDeps = buildStepDeps(registry);
+  }
+
   // Build step deps with configurable results
   const stepDeps: StepExecutorDeps = {
     executeCapability:
       options?.stepDeps?.executeCapability ??
+      registryStepDeps?.executeCapability ??
       (async (name) => {
         // Match by capability name first, then fall back to step name
         const stepName = capToStepName.get(name);

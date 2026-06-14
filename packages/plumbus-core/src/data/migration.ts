@@ -8,6 +8,7 @@ import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
 import { auditRecords } from '../audit/schema.js';
 import { deadLetterTable, idempotencyTable, outboxTable } from '../events/outbox.js';
 import { flowDeadLetterTable, flowExecutionsTable, flowSchedulesTable } from '../flows/schema.js';
+import { jobExecutionsTable } from '../jobs/schema.js';
 import type { EntityDefinition } from '../types/entity.js';
 import { generateDrizzleSchema } from './schema-generator.js';
 
@@ -248,6 +249,7 @@ export function collectSchemas(
   schemas.__flow_executions = flowExecutionsTable as unknown as PgTableWithColumns<any>;
   schemas.__flow_dead_letter = flowDeadLetterTable as unknown as PgTableWithColumns<any>;
   schemas.__flow_schedules = flowSchedulesTable as unknown as PgTableWithColumns<any>;
+  schemas.__job_executions = jobExecutionsTable as unknown as PgTableWithColumns<any>;
   // RAG tables
   schemas.__documents = documentsTable as unknown as PgTableWithColumns<any>;
   schemas.__document_chunks = documentChunksTable as unknown as PgTableWithColumns<any>;

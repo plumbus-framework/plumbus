@@ -12,6 +12,7 @@ import type {
 } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { TranslationService } from '../types/translation.js';
+import { createUnavailableCapabilityService } from './capability-invocation.js';
 
 export type { ContextDependencies } from '../types/context.js';
 
@@ -117,7 +118,14 @@ function createSecurityService(auth: AuthContext): SecurityService {
  * Missing optional services are replaced with safe defaults/stubs.
  */
 export function createExecutionContext(deps: ContextDependencies): ExecutionContext {
-  return {
+  const baseRuntime = {
+    invokeCapability: deps.invokeCapability,
+    resolveCapability: deps.resolveCapability,
+    correlationId: deps.correlationId,
+    invocationEmitScope: deps.invocationEmitScope,
+  };
+
+  const ctx: ExecutionContext = {
     auth: deps.auth,
     data: deps.data,
     events: deps.events ?? noopEvents,
@@ -132,5 +140,11 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     translations: deps.translations ?? noopTranslations,
     request: deps.request,
     progress: deps.progress,
+    capabilities: createUnavailableCapabilityService({} as ExecutionContext),
+    __runtime: baseRuntime,
   };
+
+  ctx.capabilities = createUnavailableCapabilityService(ctx);
+
+  return ctx;
 }

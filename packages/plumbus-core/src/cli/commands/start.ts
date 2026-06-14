@@ -9,31 +9,28 @@ import {
   resolveDatabaseConnection,
   type DatabaseConnection,
 } from '../../data/connection.js';
-import * as fs from 'node:fs';
-import { createRequire } from 'node:module';
-import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import type { AIServiceConfig } from '../../ai/ai-service.js';
-import { createAIService, singleProviderConfig } from '../../ai/ai-service.js';
-import { createCostTracker } from '../../ai/cost-tracker.js';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
-import { createProviderAdapter } from '../../ai/provider.js';
 import { loadConfig, validateConfig } from '../../config/loader.js';
 import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
-import { createInMemoryQueue } from '../../events/queue.js';
 import { EventRegistry } from '../../events/registry.js';
-import { executeCapability } from '../../execution/capability-executor.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
-import { evaluateFlowCondition } from '../../flows/evaluate-condition.js';
 import { FlowRegistry } from '../../flows/registry.js';
-import type { StepExecutorDeps } from '../../flows/step-executor.js';
 import type { PlumbusServer } from '../../server/bootstrap.js';
-import { createServer, wrapAIServiceWithDynamicOverrides } from '../../server/bootstrap.js';
-import type { AIService } from '../../types/context.js';
+import { createServer } from '../../server/bootstrap.js';
+import {
+  discoverRuntimeResources,
+  needsJobQueuePublish,
+  needsWorkerPool,
+  resolveRuntimeRole,
+  shouldStartApiServer,
+  shouldStartWorkerPool,
+} from '../../runtime/bootstrap.js';
+import { loadServerExtensions } from '../../runtime/load-extensions.js';
+import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
+import { startWorkerPool } from '../../runtime/start-worker-pool.js';
+import { createPlumbusMetrics } from '../../observability/metrics.js';
 import type { WorkerPool } from '../../worker/bootstrap.js';
-import { createWorkerPool } from '../../worker/bootstrap.js';
-import { discoverResources } from '../discover.js';
 import { logHookError } from '../../errors/hook-log.js';
 import { info, error as logError } from '../utils.js';
 
@@ -47,16 +44,13 @@ export interface StartOptions {
  * Discovers resources from app/, populates registries, connects to DB,
  * and starts the Fastify server with production defaults.
  *
- * Unlike `plumbus dev`, this command:
- * - Forces `environment: "production"`
- * - Defaults host to `0.0.0.0` (accepts external connections)
- * - Requires `AUTH_SECRET` (fails fast if missing)
- * - No development warnings or verbose output
+ * Default runtime role is `all` (API + workers in-process) for backward compatibility.
+ * Set PLUMBUS_RUNTIME_ROLE=api for API-only; run `plumbus worker` separately.
  */
 export async function startProductionServer(
   options: StartOptions & { db?: PostgresJsDatabase; connection?: DatabaseConnection },
 ): Promise<{
-  server: PlumbusServer;
+  server?: PlumbusServer;
   shutdown: () => Promise<void>;
 }> {
   const config = loadConfig({ environment: 'production' });
@@ -69,19 +63,19 @@ export async function startProductionServer(
   const port = parseInt(options.port ?? '3000', 10);
   const host = options.host ?? '0.0.0.0';
   const serverUrl = `http://${host}:${port}`;
+  const runtimeRole = resolveRuntimeRole('start');
 
   info('Plumbus Production Server');
   info(`Server URL: ${serverUrl}`);
+  info(`Runtime role: ${runtimeRole}`);
 
-  // Auto-discover resources from app/ directory
   info('Discovering resources from app/ ...');
-  const resources = await discoverResources();
+  const resources = await discoverRuntimeResources();
   info(
     `Found ${resources.capabilities.length} capabilities, ${resources.entities.length} entities, ` +
       `${resources.flows.length} flows, ${resources.events.length} events, ${resources.prompts.length} prompts`,
   );
 
-  // Populate registries
   const capabilities = new CapabilityRegistry();
   capabilities.registerAll(resources.capabilities);
 
@@ -101,7 +95,6 @@ export async function startProductionServer(
     promptRegistry.register(prompt);
   }
 
-  // Connect to database
   let dbConnection: DatabaseConnection;
   try {
     dbConnection = await resolveDatabaseConnection(config.database, options);
@@ -115,183 +108,60 @@ export async function startProductionServer(
   }
   const db = dbConnection.db;
 
-  // Try to load server extensions from app/server.ts (or app/server.js)
-  // Register tsx so dynamic import of .ts files works
-  let unregisterTsx: (() => void) | undefined;
-  try {
-    const req = createRequire(import.meta.url);
-    const tsxPath = req.resolve('tsx/esm/api');
-    const tsx = await import(pathToFileURL(tsxPath).href);
-    unregisterTsx = tsx.register();
-  } catch {
-    // tsx not available; only .js extensions will work
-  }
-
-  let onRoutesRegistered: import('../../server/bootstrap.js').ServerConfig['onRoutesRegistered'];
-  let resolveAiOverrides: import('../../server/bootstrap.js').ServerConfig['resolveAiOverrides'];
-  let onCapabilityError: import('../../server/bootstrap.js').ServerConfig['onCapabilityError'];
-  let onProcessError: import('../../server/bootstrap.js').ServerConfig['onProcessError'];
-  let onAICostRecorded: import('../../server/bootstrap.js').ServerConfig['onAICostRecorded'];
-  let enableStrictStructuredOutputs:
-    | import('../../server/bootstrap.js').ServerConfig['enableStrictStructuredOutputs']
-    | undefined;
-  let onFlowError: import('../../worker/bootstrap.js').WorkerPoolConfig['onFlowError'];
-  for (const ext of ['app/server.ts', 'app/server.js']) {
-    const extPath = path.resolve(process.cwd(), ext);
-    if (fs.existsSync(extPath)) {
-      try {
-        const mod = await import(pathToFileURL(extPath).href);
-        onRoutesRegistered = mod.onRoutesRegistered ?? mod.default?.onRoutesRegistered;
-        resolveAiOverrides = mod.resolveAiOverrides ?? mod.default?.resolveAiOverrides;
-        onCapabilityError = mod.onCapabilityError ?? mod.default?.onCapabilityError;
-        onProcessError = mod.onProcessError ?? mod.default?.onProcessError;
-        onAICostRecorded = mod.onAICostRecorded ?? mod.default?.onAICostRecorded;
-        enableStrictStructuredOutputs =
-          mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
-        onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
-        if (onRoutesRegistered) {
-          info(`Loaded server extensions from ${ext}`);
-        }
-      } catch (err) {
-        info(`Failed to load ${ext}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      break;
-    }
-  }
-  unregisterTsx?.();
-
-  const server = createServer({
-    config,
-    db: db,
-    capabilities,
-    entities,
-    events,
-    consumers,
-    flows,
-    translations: resources.translations,
-    promptRegistry,
-    host,
-    port,
-    onRoutesRegistered,
-    resolveAiOverrides,
-    onCapabilityError,
-    onProcessError,
-    onAICostRecorded,
-    enableStrictStructuredOutputs,
-    ...(process.env.TRUST_PROXY && {
-      trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
-    }),
+  const extensions = await loadServerExtensions();
+  const queues = await resolveRuntimeQueues(config, {
+    onWarning: (message) => info(`Queue: ${message}`),
   });
+  const workerNeeded = needsWorkerPool(resources) && shouldStartWorkerPool(runtimeRole);
+  const jobQueueNeeded = shouldStartApiServer(runtimeRole) && needsJobQueuePublish(resources);
+  const metrics = workerNeeded ? createPlumbusMetrics() : undefined;
 
-  // Graceful shutdown handler
+  let server: PlumbusServer | undefined;
+  if (shouldStartApiServer(runtimeRole)) {
+    server = createServer({
+      config,
+      db: db,
+      capabilities,
+      entities,
+      events,
+      consumers,
+      flows,
+      translations: resources.translations,
+      promptRegistry,
+      host,
+      port,
+      onRoutesRegistered: extensions.onRoutesRegistered,
+      resolveAiOverrides: extensions.resolveAiOverrides,
+      onCapabilityError: extensions.onCapabilityError,
+      onProcessError: extensions.onProcessError,
+      onAICostRecorded: extensions.onAICostRecorded,
+      enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
+      jobQueue: jobQueueNeeded ? queues.jobs : undefined,
+      metrics,
+      ...(process.env.TRUST_PROXY && {
+        trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,
+      }),
+    });
+  }
+
   let shuttingDown = false;
   let workerPool: WorkerPool | undefined;
 
-  // Start worker pool if flows with triggers exist
-  if (flows.getAll().some((f) => f.trigger?.event)) {
-    const queue = createInMemoryQueue();
-
-    // Build AI service for worker
-    let workerAiService: AIService | undefined;
-    if (config.aiProviders) {
-      const providerAdapters: Record<string, ReturnType<typeof createProviderAdapter>> = {};
-      for (const [name, provCfg] of Object.entries(config.aiProviders.providers)) {
-        providerAdapters[name] = createProviderAdapter(name, provCfg);
-      }
-      const costTracker = createCostTracker({
-        maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
-        dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
-      });
-      const workerOnAICostRecorded = onAICostRecorded
-        ? (
-            record: import('../../ai/cost-tracker.js').AICostRecord,
-            costContext: import('../../types/context.js').AICostContext | undefined,
-          ) => onAICostRecorded?.(record, costContext, db)
-        : undefined;
-      const workerAiServiceConfig: AIServiceConfig = {
-        providers: providerAdapters,
-        defaultProvider: config.aiProviders.defaultProvider,
-        defaultModel: config.aiProviders.defaultModel,
-        costTracker,
-        promptRegistry,
-        onAICostRecorded: workerOnAICostRecorded,
-        enableStrictStructuredOutputs,
-      };
-      workerAiService = createAIService(workerAiServiceConfig);
-      if (resolveAiOverrides) {
-        workerAiService = wrapAIServiceWithDynamicOverrides(
-          workerAiService,
-          workerAiServiceConfig,
-          resolveAiOverrides,
-          db,
-        );
-      }
-    } else if (config.ai) {
-      const adapter = createProviderAdapter(config.ai.provider, config.ai);
-      const costTracker = createCostTracker({
-        maxTokensPerRequest: config.ai.maxTokensPerRequest,
-        dailyCostLimit: config.ai.dailyCostLimit,
-      });
-      const workerOnAICostRecorded = onAICostRecorded
-        ? (
-            record: import('../../ai/cost-tracker.js').AICostRecord,
-            costContext: import('../../types/context.js').AICostContext | undefined,
-          ) => onAICostRecorded?.(record, costContext, db)
-        : undefined;
-      workerAiService = createAIService(
-        singleProviderConfig(adapter, {
-          costTracker,
-          promptRegistry,
-          onAICostRecorded: workerOnAICostRecorded,
-          enableStrictStructuredOutputs,
-        }),
-      );
-    }
-
-    // Build step executor deps
-    const stepDeps: StepExecutorDeps = {
-      executeCapability: async (capabilityName, ctx, input) => {
-        const capability = capabilities.get(capabilityName);
-        if (!capability) {
-          return {
-            success: false,
-            error: { code: 'not_found', message: `Capability "${capabilityName}" not found` },
-          };
-        }
-        return executeCapability(capability, ctx, input);
-      },
-      evaluateCondition: (expression, state) => evaluateFlowCondition(expression, state),
-    };
-
-    workerPool = createWorkerPool({
+  if (workerNeeded) {
+    workerPool = await startWorkerPool({
       config,
-      db: db,
-      queue,
-      consumers,
+      db,
+      queues,
+      capabilities,
+      entities,
+      events,
       flows,
-      stepDeps,
-      aiService: workerAiService,
-      createDataService: (auth) => {
-        const effectiveAuth = auth ?? {
-          userId: 'system-flow-runner',
-          roles: ['system'],
-          scopes: [],
-          provider: 'worker',
-        };
-        return entities.createDataService({
-          db: db,
-          auth: effectiveAuth,
-          bypassTenantScope: false,
-        });
-      },
-      eventRegistry: events,
-      onFlowError,
+      consumers,
+      promptRegistry,
+      extensions,
+      metrics,
     });
-
-    await workerPool.start();
-    info(
-      `Worker pool started (${flows.getAll().filter((f) => f.trigger?.event).length} event-triggered flows)`,
-    );
+    info('Worker pool started');
   }
 
   const shutdown = async () => {
@@ -302,7 +172,10 @@ export async function startProductionServer(
       await workerPool.stop();
       info('Worker pool stopped');
     }
-    await server.stop();
+    if (server) {
+      await server.stop();
+    }
+    await queues.close();
     await closeDatabaseConnection(dbConnection);
     info('Server stopped');
   };
@@ -313,9 +186,8 @@ export async function startProductionServer(
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
-  // Process-level error handlers — catch crashes that bypass capability/flow hooks
-  if (onProcessError) {
-    const errorHook = onProcessError;
+  if (extensions.onProcessError) {
+    const errorHook = extensions.onProcessError;
     process.on('uncaughtException', (err) => {
       logError(`Uncaught exception: ${err.message}`);
       Promise.resolve(
@@ -346,11 +218,14 @@ export async function startProductionServer(
     info('Process-level error handlers registered');
   }
 
-  // Start listening
-  const address = await server.start();
-  info(`Server listening on ${address}`);
-  info(`Health: ${serverUrl}/health`);
-  info(`Ready: ${serverUrl}/ready`);
+  if (server) {
+    const address = await server.start();
+    info(`Server listening on ${address}`);
+    info(`Health: ${serverUrl}/health`);
+    info(`Ready: ${serverUrl}/ready`);
+  } else {
+    info('API server disabled (worker-only role)');
+  }
 
   return { server, shutdown };
 }

@@ -1,12 +1,16 @@
 import { and, eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { AuditService } from '../types/audit.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { EventQueue } from './queue.js';
 
 export interface DispatcherConfig {
   db: PostgresJsDatabase;
   queue: EventQueue;
+  audit?: AuditService;
+  metrics?: PlumbusMetrics;
   /** Poll interval in milliseconds (default: 1000) */
   pollIntervalMs?: number;
   /** Max rows to fetch per poll (default: 100) */
@@ -33,6 +37,8 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     maxRetries = 5,
     backoffBaseMs = 1000,
     backoffMaxMs = 60_000,
+    metrics,
+    audit,
   } = config;
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -77,6 +83,9 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
       ];
 
       let dispatched = 0;
+      const pendingCount = rows.length + failedRows.length;
+      metrics?.outboxPending.set(pendingCount);
+
       for (const row of allRows) {
         const claimed = await db
           .update(outboxTable)
@@ -101,15 +110,37 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         };
 
         try {
+          await audit?.record('event.dispatch.attempt', {
+            eventId: row.id,
+            eventType: row.eventType,
+            tenantId: row.tenantId,
+            outcome: 'pending',
+          });
           await queue.publish(envelope);
           await db
             .update(outboxTable)
             .set({ status: 'dispatched', dispatchedAt: new Date() })
             .where(eq(outboxTable.id, row.id));
           dispatched++;
+          metrics?.eventEmitted.inc({ eventType: row.eventType });
+          await audit?.record('event.dispatch.dispatched', {
+            eventId: row.id,
+            eventType: row.eventType,
+            tenantId: row.tenantId,
+            outcome: 'success',
+          });
         } catch (err) {
           const retryCount = parseInt(row.retryCount, 10) + 1;
           const errorMsg = err instanceof Error ? err.message : String(err);
+
+          await audit?.record('event.dispatch.failed', {
+            eventId: row.id,
+            eventType: row.eventType,
+            tenantId: row.tenantId,
+            retryCount,
+            error: errorMsg,
+            outcome: retryCount >= maxRetries ? 'dead_lettered' : 'retry',
+          });
 
           if (retryCount >= maxRetries) {
             // Move to dead-letter

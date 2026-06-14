@@ -13,7 +13,7 @@ const mockFlowEngine = {
   start: vi.fn(async () => ({})),
   runNext: vi.fn(async () => ({})),
   listRunnable: vi.fn(async () => []),
-  resumeWaitingByEvent: vi.fn(async () => 0),
+  resumeWaitingByEvent: vi.fn(async () => []),
   resume: vi.fn(async () => {}),
   cancel: vi.fn(async () => {}),
 };
@@ -303,7 +303,7 @@ describe('Worker Bootstrap', () => {
         name: 'testFlow',
         domain: 'test',
         input: { safeParse: () => ({ success: true, data: {} }) } as any,
-        steps: [{ name: 'step1', type: 'capability', capability: 'testCap' }],
+        steps: [{ name: 'step1', type: 'capability', capability: 'test.testCap' }],
         trigger: { event: 'test.event_occurred' },
       } as any);
 

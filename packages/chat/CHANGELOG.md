@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+### Changed
+
+- Peer dependency `@plumbus/core` updated to `^0.5.0 <0.6.0` for the **0.5.0** release (workers/queues, canonical capability names, flow auth snapshot).
+
 ## 0.1.6
 
 ### Documentation

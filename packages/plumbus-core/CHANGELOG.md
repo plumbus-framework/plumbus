@@ -1,5 +1,62 @@
 # @plumbus/core changelog
 
+## 0.5.0
+
+### Added
+
+- **Workers and queues runtime** — unified bootstrap with `PLUMBUS_RUNTIME_ROLE` (`all`, `api`, `worker`), three logical queues (`events`, `flows`, `jobs`), and `plumbus worker start` for split deployments.
+- **`job_executions` table** — durable job status, auth snapshot at dequeue, and `GET /api/jobs/:jobId` for polling completion.
+- **`eventHandler` auto-registration** — optional `trigger: { event, versionConstraint? }` on `defineCapability`; worker pool wires consumers when set. Manual `ConsumerRegistry` registrations still take precedence for the same id.
+- **Optional peer dependencies** — `redis` (durable queues) and `cron-parser` (scheduled flow triggers); in-memory fallbacks with startup warnings when missing.
+- **CLI** — `plumbus worker` (health/ready/metrics), `plumbus events` ops (replay, dead-letter), `plumbus flow dead-letter`.
+- **Runtime exports** — `resolveRuntimeQueues`, `registerCapabilityConsumers`, `dispatchQueuedJob`, `createJobService`, `registerJobStatusRoute`, `RuntimeRole`, and related helpers.
+- **Governance** — advisory rules for split deploy without worker, missing `trigger.event`, and job payload compatibility.
+- **`effects.capabilities` + `ctx.capabilities.invoke`** — sanctioned synchronous capability-to-capability composition with declared dependencies, cycle detection, and runtime `dependencyViolation` enforcement.
+- **Flow auth snapshot** — `flow_executions.auth_snapshot_json` stores the caller's `AuthContext` at start; step execution restores roles/scopes from the snapshot (not worker `system` auth).
+- **`dependencyViolation` error code** — undeclared invoke targets, cycles, missing capabilities, and synchronous job invoke attempts return structured `400` errors with actionable metadata.
+
+### Breaking
+
+- **Canonical capability names only** — registry keys, flow `step.capability`, `effects.capabilities`, `ctx.capabilities.invoke`, generated `RegisteredCapabilityName`, `capability-graph.md`, and MCP manifest tool names use `<domain>.<capabilityName>` (e.g. `billing.approveRefund`). Short local names (`approveRefund`) are no longer valid references outside `defineCapability({ name })`.
+- **Flow step auth** — user-triggered flows no longer auto-inject the `system` role on every step. Steps run under the stored auth snapshot; capabilities must list the caller's actual roles (or `public`) — not rely on implicit `system` elevation.
+- **Job blocking in flows and invoke** — `kind: 'job'` capabilities cannot run synchronously inside flow steps or via `ctx.capabilities.invoke`; use job dispatch, events, or async consumers instead.
+- **Handler `__runtime` invoker stripping** — `invokeCapability`, `resolveCapability`, and `invocationEmitScope` are no longer exposed on handler-visible `ctx.__runtime`; use `ctx.capabilities.invoke` only.
+
+### Changed
+
+- **Worker pool gating** — `plumbus dev` / `plumbus start` start background workers when the app defines events, `eventHandler` or `job` capabilities, or scheduled flows (not only event-triggered flows).
+- **HTTP `kind: 'job'`** — when the API wires `jobQueue` (any job capability on `plumbus dev` / `plumbus start`, including `PLUMBUS_RUNTIME_ROLE=api` without a worker), routes return **202** with `{ data: { jobId, status: "accepted" } }` and enqueue via the jobs queue (previously ran synchronously with **200** because `jobQueue` was not wired on the server).
+- **Job dispatch** — jobs publish to the dedicated **jobs** queue with a `JobQueuePayload` envelope, not the events queue.
+- **Event handler security** — dequeue uses tenant binding from `event_outbox` (fail-closed); trusted replay via `plumbus events` ops.
+
+### Upgrading
+
+See `docs/upgrading-workers.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Required steps for most apps:
+
+```bash
+plumbus migrate generate && plumbus migrate apply
+```
+
+Apps with `kind: 'job'` HTTP clients must poll `GET /api/jobs/:jobId` instead of expecting a synchronous **200** body. Split production deploys need Redis (`pnpm add redis`) and a `plumbus worker` process.
+
+For canonical capability names, `effects.capabilities`, and invoke policy, see `docs/upgrading-capability-names.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Consumer apps also ship `instructions/upgrading-0.5-capabilities.md` (agent-facing checklist). Summary:
+
+1. Update flow `step.capability`, `effects.capabilities`, and `ctx.capabilities.invoke` strings to `<domain>.<name>`.
+2. Run `plumbus generate` to refresh `RegisteredCapabilityName`, `mcp-manifest.json`, and `capability-graph.md`.
+3. Run `plumbus verify` — `architecture.non-canonical-capability-reference` and related dependency rules flag stale references.
+4. Run `plumbus migrate generate && plumbus migrate apply` if upgrading to the `auth_snapshot_json` column for flow executions.
+
+### Developer experience
+
+- **Consumer AI guidance — 0.5 capability upgrade** — new `instructions/upgrading-0.5-capabilities.md` (canonical names, invoke policy, flow auth snapshot, migration checklist). `plumbus init` wires it into Copilot, Cursor, and AGENTS.md. `AGENT_WIRING_VERSION` bumped to **7**. Run `plumbus init --patch` on existing projects.
+
+### Non-breaking (default topology)
+
+- `plumbus dev` and `plumbus start` default to **`PLUMBUS_RUNTIME_ROLE=all`** — API and workers remain colocated.
+- In-memory queues remain the default when Redis is not configured.
+- `eventHandler` capabilities without `trigger.event` behave as before (manual registration only).
+- MCP job tasks without a durable Redis queue still execute in-process.
+
 ## 0.4.2
 
 ### Added

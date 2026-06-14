@@ -21,8 +21,8 @@ describe('CapabilityRegistry', () => {
     const cap = makeCap('getUser', 'users');
     reg.register(cap);
 
-    expect(reg.get('getUser')).toBe(cap);
-    expect(reg.has('getUser')).toBe(true);
+    expect(reg.get('users.getUser')).toBe(cap);
+    expect(reg.has('users.getUser')).toBe(true);
   });
 
   it('throws on duplicate registration', () => {
@@ -30,7 +30,7 @@ describe('CapabilityRegistry', () => {
     reg.register(makeCap('getUser'));
 
     expect(() => reg.register(makeCap('getUser'))).toThrow(
-      'Capability "getUser" is already registered',
+      'Capability "core.getUser" is already registered',
     );
   });
 

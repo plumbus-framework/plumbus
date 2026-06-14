@@ -123,7 +123,7 @@ interface EventEnvelope<TPayload = unknown> {
   actor: string;            // Who triggered it (userId, service account, "system", etc.)
   tenantId?: string;        // Tenant context, if scoped
   correlationId: string;    // Request trace ID — same across the full request graph
-  causationId?: string;     // ID of the event/turn that caused this one (causal chain)
+  causationId?: string;     // Caller capability canonical name when emitted during nested invoke, or parent event/request id
   payload: TPayload;        // Event data, typed to the schema declared in `defineEvent`
 }
 ```
@@ -132,12 +132,15 @@ interface EventEnvelope<TPayload = unknown> {
 
 ### Via Event Handler Capability
 
+Declare `trigger.event` on the capability contract. At worker startup, Plumbus auto-registers the handler as a queue consumer — no manual `ConsumerRegistry` wiring required.
+
 ```typescript
 defineCapability({
   name: "onOrderPlaced",
   kind: "eventHandler",
   domain: "shipping",
-  // ...
+  trigger: { event: "order.placed" },
+  input: orderPlaced.payload, // optional — validates envelope payload
   access: { serviceAccounts: ["event-worker"] },
   handler: async (ctx, input) => {
     await ctx.data.Shipment.create({
@@ -147,6 +150,8 @@ defineCapability({
   },
 });
 ```
+
+`plumbus verify` warns when an `eventHandler` lacks `trigger.event` (`worker.event-handler-missing-trigger`). Manual `ConsumerRegistry` registrations with the same consumer id take precedence over auto-registration.
 
 ### Via Consumer Registry
 
@@ -182,29 +187,20 @@ The idempotency service uses a dedicated database table to track processed event
 
 ## Event Queue Options
 
-### In-Memory Queue
+The runtime resolves three shared queues — `events`, `flows`, and `jobs` — through `resolveRuntimeQueues()`. You rarely instantiate queues manually; `plumbus dev`, `plumbus start`, and `plumbus worker` wire them automatically.
 
-```typescript
-import { createInMemoryQueue } from "@plumbus/core";
+| Backend | When selected | Best for |
+|---------|---------------|----------|
+| In-memory | `plumbus dev` (always), or production without Redis | Development, single-instance |
+| Redis | `QUEUE_URL` / `REDIS_URL` set, non-default host, or `QUEUE_BACKEND=redis` | Production, split API + worker |
 
-const queue = createInMemoryQueue();
+Install the optional `redis` peer dependency for durable queues:
+
+```bash
+pnpm add redis
 ```
 
-Best for: development, testing, single-instance deployments.
-
-### Redis Queue
-
-```typescript
-import { createRedisQueue } from "@plumbus/core";
-
-const queue = createRedisQueue({
-  host: "localhost",
-  port: 6379,
-  queueName: "plumbus-events",
-});
-```
-
-Best for: production, multi-instance deployments.
+See [Workers and Queues](../architecture/workers-and-queues.md) for runtime modes and `PLUMBUS_RUNTIME_ROLE`.
 
 ## Dead Letter Queue
 
@@ -224,6 +220,16 @@ Dead Letter Table
     ├─ error message
     ├─ failedAt
     └─ original envelope
+```
+
+### Operational CLI
+
+```bash
+plumbus events status                        # backlog + DLQ count
+plumbus events dead-letter list [--limit 20]
+plumbus events dead-letter retry <id>        # re-publish to events queue
+plumbus events replay <eventId>              # re-dispatch from outbox (trusted replay actor)
+plumbus events replay <eventId> --from 2026-01-01T00:00:00Z  # bulk replay
 ```
 
 ## File Convention

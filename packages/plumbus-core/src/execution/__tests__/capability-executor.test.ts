@@ -195,9 +195,9 @@ describe('executeCapability', () => {
     await executeCapability(cap, ctx, { id: 'u1' });
 
     expect(audit.record).toHaveBeenCalledWith(
-      'capability.getUser',
+      'capability.users.getUser',
       expect.objectContaining({
-        capability: 'getUser',
+        capability: 'users.getUser',
         outcome: 'success',
       }),
     );
@@ -212,7 +212,7 @@ describe('executeCapability', () => {
     await executeCapability(cap, ctx, { id: 'u1' });
 
     expect(audit.record).toHaveBeenCalledWith(
-      'capability.getUser',
+      'capability.users.getUser',
       expect.objectContaining({
         outcome: 'denied',
       }),
@@ -230,7 +230,7 @@ describe('executeCapability', () => {
     await executeCapability(cap, ctx, { id: 'u1' });
 
     expect(audit.record).toHaveBeenCalledWith(
-      'capability.getUser',
+      'capability.users.getUser',
       expect.objectContaining({
         outcome: 'failure',
       }),

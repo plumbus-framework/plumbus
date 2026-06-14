@@ -24,6 +24,7 @@ Plumbus uses an **Advisory-First Governance** model — the framework detects ri
 - Capabilities with excessive side effects
 - Flows with too many steps or excessive branching
 - Missing audit configuration
+- `eventHandler` capabilities without `trigger.event` (`worker.event-handler-missing-trigger`)
 
 ### AI
 - Prompts without explainability tracking

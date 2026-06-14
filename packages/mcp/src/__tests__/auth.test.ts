@@ -152,7 +152,7 @@ describe('MCP tools/call with createMcpAuthAdapter', () => {
     const client = new Client({ name: 'test', version: '1.0.0' });
     await client.connect(clientTransport);
     const result = await client.callTool({
-      name: 'getTenantResource',
+      name: 'billing.getTenantResource',
       arguments: args,
     });
     return {

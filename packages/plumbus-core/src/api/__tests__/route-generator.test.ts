@@ -161,6 +161,20 @@ describe('job capability with jobQueue', () => {
           };
     const config = {
       ...makeMockConfig(),
+      db: {
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([
+              {
+                id: 'job-test-id',
+                capabilityDomain: 'users',
+                capabilityName: 'processReport',
+                status: 'queued',
+              },
+            ]),
+          }),
+        }),
+      } as unknown as PostgresJsDatabase,
       authAdapter: {
         authenticate: vi.fn().mockResolvedValue(auth === null ? null : authContext),
       },
@@ -214,7 +228,10 @@ describe('job capability with jobQueue', () => {
     await handler(makeMockRequest({}, { reportId: 'r1' }), reply);
     expect(reply.status).toHaveBeenCalledWith(202);
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish.mock.calls[0]?.[0]?.payload).toEqual({ reportId: 'r1' });
+    const envelope = publish.mock.calls[0]?.[0];
+    expect(envelope?.payload?.input).toEqual({ reportId: 'r1' });
+    expect(envelope?.payload?.jobExecutionId).toBeDefined();
+    expect(envelope?.payload?.auth).toBeUndefined();
   });
 });
 
@@ -319,6 +336,42 @@ describe('registerAllRoutes', () => {
 
     expect(app.get).toHaveBeenCalledTimes(1);
     expect(app.post).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('HTTP correlation ID propagation', () => {
+  it('sets correlationId on createDependencies deps from x-correlation-id', async () => {
+    const app = makeMockApp();
+    const deps = {
+      auth: {
+        userId: 'u1',
+        roles: ['admin'],
+        scopes: [],
+        provider: 'test',
+        tenantId: 'tenant-1',
+      },
+      data: {},
+    };
+    const createDependencies = vi.fn().mockReturnValue(deps);
+    const config = { ...makeMockConfig(), createDependencies };
+    const cap = makeCapability({ kind: 'query' });
+
+    registerCapabilityRoute(app as any, cap, config);
+
+    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const request = {
+      headers: {
+        authorization: 'Bearer test-token',
+        'x-correlation-id': 'corr-from-client',
+      },
+      query: { id: '1' },
+      ip: '127.0.0.1',
+    };
+    const reply = makeMockReply();
+
+    await registeredHandler(request, reply);
+
+    expect(deps.correlationId).toBe('corr-from-client');
   });
 });
 

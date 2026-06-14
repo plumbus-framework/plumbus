@@ -29,6 +29,7 @@ const getUser = defineCapability({
     data: ["User"],
     events: [],
     external: [],
+    capabilities: ["billing.getInvoice"], // canonical invoke targets for ctx.capabilities.invoke
     ai: false,
   },
   audit: {
@@ -66,7 +67,23 @@ const getUser = defineCapability({
 | `effects` | `EffectsDeclaration` | Yes | Side effect declarations |
 | `audit` | `AuditConfig` | No | Audit trail configuration |
 | `explanation` | `ExplanationConfig` | No | Explainability settings |
+| `trigger` | `EventHandlerTrigger` | No | **Only `kind: "eventHandler"`** — `{ event: string, versionConstraint?: string }` for auto-registration at worker startup (0.5+) |
 | `handler` | `(ctx, input) => Promise<output>` | Yes | Business logic implementation |
+
+`trigger` on non-`eventHandler` kinds throws at define time. Omit `trigger` to keep manual `ConsumerRegistry` wiring only.
+
+### EffectsDeclaration
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `data` | `string[]` | Entity names read or written |
+| `events` | `string[]` | Event types that may be emitted |
+| `external` | `string[]` | External integrations called |
+| `capabilities` | `string[]` | Canonical names (`<domain>.<name>`) this handler may invoke via `ctx.capabilities.invoke` |
+| `flows` | `string[]` | Flow names this capability may start (optional) |
+| `ai` | `boolean` | Whether AI operations are used |
+
+Undeclared `ctx.capabilities.invoke` targets fail at runtime with `dependencyViolation`. Job capabilities cannot appear in `capabilities` — use job dispatch, flows, or events. `plumbus verify` flags missing targets, cycles, non-canonical names, and job invoke declarations.
 
 ### Returns
 

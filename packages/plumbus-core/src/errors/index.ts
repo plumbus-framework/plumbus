@@ -58,6 +58,8 @@ export function createErrorService(): ErrorService {
     forbidden: (message, metadata) => createError(ErrorCode.Forbidden, message, metadata),
     conflict: (message, metadata) => createError(ErrorCode.Conflict, message, metadata),
     internal: (message, metadata) => createError(ErrorCode.Internal, message, metadata),
+    dependencyViolation: (message, metadata) =>
+      createError(ErrorCode.DependencyViolation, message, metadata),
   };
 }
 

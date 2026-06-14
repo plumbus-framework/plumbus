@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 6;
+export const AGENT_WIRING_VERSION = 7;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -309,6 +309,13 @@ const BROWSER_EXTENSION_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const UPGRADE_INSTRUCTION_REFERENCES = [
+  {
+    area: 'upgrading to 0.5.x capability invocation (canonical names, invoke policy, flow auth snapshot)',
+    path: 'node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md',
+  },
+] as const;
+
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
@@ -348,6 +355,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of BROWSER_EXTENSION_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of UPGRADE_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 }
@@ -538,14 +549,15 @@ globs: app/capabilities/**
 When creating or modifying capabilities:
 - Capability code is the primary home for business logic in Plumbus.
 - Use \`defineCapability()\` from @plumbus/core
-- Always declare effects (data, events, external, ai)
+- Always declare effects (data, events, external, capabilities, ai)
+- Declare invoke targets in \`effects.capabilities\` (canonical \`<domain>.<name>\`) and call them with \`ctx.capabilities.invoke\` — never import other handlers directly
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
 - To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\` and \`action\` kinds are eligible.
 - To expose a capability on the partner HTTP API, add \`exposeAs: ["api"]\` and optional \`api: { path, method, auth, ... }\`. Only \`query\` and \`action\` kinds are eligible.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
-- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`, \`node_modules/@plumbus/core/instructions/mcp.md\`, \`node_modules/@plumbus/mcp/instructions/README.md\` (when MCP is installed), \`node_modules/@plumbus/core/instructions/api.md\`, and \`node_modules/@plumbus/api/instructions/README.md\` (when @plumbus/api is installed)
+- Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`, \`node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md\` (when migrating pre-0.5 invoke/name patterns), \`node_modules/@plumbus/core/instructions/mcp.md\`, \`node_modules/@plumbus/mcp/instructions/README.md\` (when MCP is installed), \`node_modules/@plumbus/core/instructions/api.md\`, and \`node_modules/@plumbus/api/instructions/README.md\` (when @plumbus/api is installed)
 ${AGENT_WIRING_END_MARKER}
 `;
 }

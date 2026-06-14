@@ -69,11 +69,16 @@ access: {
 5. If `tenantScoped: true` → verify `ctx.auth.tenantId` matches resource tenant
 6. If no policy is defined → **deny** (deny-by-default)
 
-### System role (flow engine)
+### Flow step auth (auth snapshot)
 
-The flow engine runs capabilities with the `system` role. A capability must **opt in** by listing `system` in `access.roles` (scaffolded by default). The deprecated `auth.internal` flag is mapped to `system` for compatibility but is no longer a blanket bypass.
+Flow capability steps run under the **caller's stored auth snapshot**, not the worker's `system` identity. When a flow starts, the framework persists the full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step (with `actor` / `tenant_id` from the execution row).
 
-For every flow step, the engine adds `system` to the execution auth context (if not already present). That means **user-triggered flows** can invoke capabilities that list `system` in `access.roles`—the capability contract is the gate, not whether the trigger was manual or automated. Treat `system` in `access.roles` as a high-trust opt-in and avoid granting it to capabilities that should only run under a human’s explicit roles.
+- **User-triggered flows** (HTTP, API, `ctx.flows.start` from a capability) keep the original caller's `roles`, `scopes`, and `tenantId`. Capabilities invoked by flow steps must allow that identity — the engine does **not** auto-inject `system` on user flows.
+- **Scheduled and worker-owned flows** still run under explicit `system` auth from the scheduler or worker bootstrap.
+
+The deprecated `auth.internal` flag is mapped to `system` for compatibility but is no longer a blanket bypass. List `system` in `access.roles` only for capabilities that should run under scheduler/worker automation — not as a shortcut for user-triggered orchestration.
+
+See [Flows → Capability Step](../core-concepts/flows.md#capability-step) and [Upgrading capability names](../upgrading-capability-names.md).
 
 ## MCP agent authentication
 

@@ -17,4 +17,4 @@ Plumbus capabilities can be exposed to external AI agents as MCP tools. **Contra
 - **`plumbus generate`** — MCP manifest + skill files (no `@plumbus/mcp` install required).
 - **`plumbus mcp serve` / `list-tools` / `mcp generate`** — CLI entry points; `mcp.agents` in `plumbus.config.ts`.
 
-Install the runtime when serving agents: `pnpm add @plumbus/mcp` (optional peer of `@plumbus/core`, version-locked `0.4.x`).
+Install the runtime when serving agents: `pnpm add @plumbus/mcp` (optional peer of `@plumbus/core`, version-locked `0.5.x`).

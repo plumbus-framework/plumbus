@@ -54,3 +54,4 @@ export { registerTranslationCommand } from './translation.js';
 export { registerUiCommand } from './ui.js';
 export { registerUpgradeCommand } from './upgrade.js';
 export { registerVerifyCommand } from './verify.js';
+export { registerWorkerCommand } from './worker.js';
