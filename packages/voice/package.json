@@ -1,0 +1,80 @@
+{
+  "name": "@plumbus/voice",
+  "version": "0.1.0",
+  "description": "Plumbus realtime voice runtime — defineVoice, provider registry, session routes, and cost ledger integration.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "typecheck": "tsc --noEmit",
+    "smoke": "pnpm build && node --import tsx scripts/voice-smoke.ts",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/voice"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "^0.6.0 <0.7.0",
+    "livekit-client": "^2.0.0"
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "fastify": "^5.0.0",
+    "livekit-client": "^2.19.2",
+    "tsx": "^4.21.0",
+    "vitest": "^3.2.4"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    },
+    "livekit-client": {
+      "optional": true
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/websocket": "^11.2.0",
+    "@livekit/agents": "^1.4.6",
+    "@livekit/rtc-node": "^0.13.29",
+    "livekit-server-sdk": "^2.15.4",
+    "ws": "^8.21.0"
+  }
+}

@@ -39,6 +39,26 @@ describe('Cost Tracker', () => {
       expect(records[0]?.cost).toBe(0.001);
     });
 
+    it('records voice/media operations with media usage metadata', () => {
+      const tracker = createCostTracker();
+      tracker.record({
+        model: 'whisper-1',
+        provider: 'openai',
+        operation: 'transcribe',
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        mediaUsage: { audioInputSeconds: 12.5, participantMinutes: 0.21 },
+        cost: 0.0031,
+        latencyMs: 800,
+      });
+
+      const record = tracker.getRecords()[0];
+      expect(record?.operation).toBe('transcribe');
+      expect(record?.mediaUsage).toEqual({
+        audioInputSeconds: 12.5,
+        participantMinutes: 0.21,
+      });
+    });
+
     it('tracks daily usage with cost available', () => {
       const tracker = createCostTracker();
       tracker.record({
@@ -182,6 +202,25 @@ describe('Cost Tracker', () => {
         estimatedTokens: 1000,
       });
       expect(result.allowed).toBe(true);
+    });
+
+    it('enforces daily cost limit using estimated USD for media pre-checks', () => {
+      const budget: BudgetConfig = { dailyCostLimit: 1 };
+      const tracker = createCostTracker(budget);
+
+      tracker.record({
+        model: 'gpt-4o',
+        provider: 'openai',
+        operation: 'generate',
+        usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        cost: 0.8,
+        latencyMs: 200,
+      });
+
+      const result = tracker.checkBudget({ estimatedCostUsd: 0.25 });
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('Daily cost limit reached');
+      expect(result.reason).toContain('$1.0500');
     });
   });
 

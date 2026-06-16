@@ -63,6 +63,8 @@ const mockGenerateWithUsage = vi.fn(async () => ({
 }));
 
 const mockAIService = {
+  recordProviderCost: vi.fn(async () => {}),
+  checkProviderCostBudget: vi.fn(),
   generate: vi.fn(async () => ({ answer: 'test' })),
   generateWithUsage: mockGenerateWithUsage,
   streamGenerate: vi.fn(async function* () {

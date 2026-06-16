@@ -90,6 +90,16 @@ pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 
 `@plumbus/chat-ui` peer-depends on `@plumbus/chat` and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
 
+### Optional add-on: `@plumbus/voice`
+
+`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, transport/STT/TTS providers, cost helpers). It is a peer dependency of `@plumbus/core` (version-locked `0.1.x`). Apps that want speech input/output install it explicitly:
+
+```
+pnpm add @plumbus/voice
+```
+
+Use it when the product needs speech I/O around an app-owned brain hook. It complements `@plumbus/chat` text surfaces; it is not a speech-to-speech replacement for Plumbus primitives. Start with `docs/voice/` for the runtime, transport, security, and testing guidance.
+
 ### Optional add-on: `@plumbus/knowledge-base`
 
 `@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It is an optional peer of `@plumbus/chat` (version-locked `0.1.x`). Apps that want named, reusable knowledge sources install it explicitly:

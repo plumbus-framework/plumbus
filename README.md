@@ -47,6 +47,7 @@ Optional add-on packages extend the core:
 
 - **MCP agent surface** — expose capabilities to AI agents over the Model Context Protocol (`@plumbus/mcp`)
 - **Conversational runtime** — `defineChat` with policy guards and context sources (`@plumbus/chat`, plus `@plumbus/chat-ui` for React clients)
+- **Realtime voice runtime** — `defineVoice` with transport/STT/TTS providers and session routing (`@plumbus/voice`)
 - **Knowledge sources** — scoped, registry-backed grounding for chat, capabilities, and search UIs (`@plumbus/knowledge-base`)
 - **Partner API contracts** — versioned external HTTP surface with OpenAPI, docs, and compatibility diff (`@plumbus/api`)
 
@@ -438,6 +439,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
 | [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.1.x` — scoped knowledge providers and registry for registry-backed grounding |
+| [`@plumbus/voice`](packages/voice/) | Optional peer `0.1.x` — real-time voice runtime; `defineVoice`, STT/TTS/transport providers, session worker, cost ledger |
 | [`@plumbus/browser-extension`](packages/browser-extension/) | Optional `0.1.x` — dev-time WXT scaffolder for Chrome/Firefox extensions wired to your capabilities (with `@plumbus/ui`) |
 
 The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).

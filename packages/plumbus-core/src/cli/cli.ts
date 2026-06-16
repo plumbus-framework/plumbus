@@ -20,6 +20,7 @@ import {
   registerGenerateCommand,
   registerInitCommand,
   registerMcpCommand,
+  registerVoiceCommand,
   registerMigrateCommand,
   registerPromptCommand,
   registerRagCommand,
@@ -74,6 +75,7 @@ export function createCli(): Command {
   registerPromptCommand(program);
   registerGenerateCommand(program);
   registerMcpCommand(program);
+  registerVoiceCommand(program);
   registerApiCommand(program);
   registerMigrateCommand(program);
   registerDbCommand(program);

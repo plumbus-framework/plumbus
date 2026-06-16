@@ -12,6 +12,8 @@ import type { CapabilityContract } from '../types/capability.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
+import type { AuthAdapter } from '../auth/adapter.js';
+import type { RouteGeneratorConfig } from '../api/route-generator.js';
 
 // ── E2E Config ──
 
@@ -20,6 +22,10 @@ export interface E2EServerOptions {
   capabilities?: CapabilityContract[];
   /** Config overrides */
   config?: Partial<PlumbusConfig>;
+  /** Optional auth adapter override for protected routes */
+  authAdapter?: AuthAdapter;
+  /** Optional hook for registering custom routes in tests */
+  onRoutesRegistered?: (app: PlumbusServer['app'], routeConfig: RouteGeneratorConfig) => void;
   /** Port (default: random available) */
   port?: number;
   /** Suppress server logs in test output */
@@ -118,6 +124,8 @@ export async function createE2EServer(options?: E2EServerOptions): Promise<E2ESe
     host: '127.0.0.1',
     port,
     logger: silentLogger(),
+    authAdapter: options?.authAdapter,
+    onRoutesRegistered: options?.onRoutesRegistered,
   });
 
   const address = await server.start();

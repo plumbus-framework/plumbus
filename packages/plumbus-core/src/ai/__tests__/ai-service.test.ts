@@ -947,6 +947,54 @@ describe('AI Service (ctx.ai)', () => {
       expect(hookCalls[0]?.ctx).toEqual({ projectId: 'p1', operationName: 'test' });
     });
 
+    it('recordProviderCost records voice/media cost rows and forwards cost context', async () => {
+      const provider = createMockProvider();
+      const costTracker = createCostTracker();
+      const hookCalls: Array<{ record: AICostRecord; ctx: AICostContext | undefined }> = [];
+
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          costTracker,
+          defaultModel: 'mock-model',
+          onAICostRecorded: (record, ctx) => {
+            hookCalls.push({ record, ctx });
+          },
+        }),
+      );
+
+      await service.recordProviderCost(
+        {
+          model: 'livekit-cloud',
+          provider: 'livekit',
+          operation: 'transport',
+          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          mediaUsage: { connectionMinutes: 2, participantMinutes: 4 },
+          cost: 0.08,
+          latencyMs: 120_000,
+        },
+        { projectId: 'voice-project', serviceArea: 'voice', operationName: 'voice.transport' },
+      );
+
+      expect(costTracker.getRecords()).toHaveLength(1);
+      expect(costTracker.getRecords()[0]).toMatchObject({
+        operation: 'transport',
+        status: 'success',
+        mediaUsage: { connectionMinutes: 2, participantMinutes: 4 },
+        cost: 0.08,
+      });
+      expect(hookCalls).toHaveLength(1);
+      expect(hookCalls[0]?.record.operation).toBe('transport');
+      expect(hookCalls[0]?.record.mediaUsage).toEqual({
+        connectionMinutes: 2,
+        participantMinutes: 4,
+      });
+      expect(hookCalls[0]?.ctx).toEqual({
+        projectId: 'voice-project',
+        serviceArea: 'voice',
+        operationName: 'voice.transport',
+      });
+    });
+
     it('records status=failed with AIValidationError.usage when validation exhausts retries', async () => {
       const provider = createMockProvider({
         complete: vi.fn(async () => ({
@@ -1345,7 +1393,7 @@ describe('AI Service (ctx.ai)', () => {
         record(entry) {
           seen.push(entry);
         },
-        checkBudget() {
+        checkBudget(_config) {
           return { allowed: true };
         },
         getDailyUsage() {

@@ -102,7 +102,7 @@ describe('generateCopilotInstructions', () => {
     const content = generateCopilotInstructions(false);
 
     expect(content).toContain('Plumbus');
-    expect(content).toContain('plumbus:agent-wiring version=7');
+    expect(content).toContain('plumbus:agent-wiring version=8');
     expect(content).toContain('Non-Negotiable Guardrails');
     expect(content).toContain('git checkout');
     expect(content).toContain('capabilities');
@@ -113,7 +113,7 @@ describe('generateCopilotInstructions', () => {
     const content = generateCopilotInstructions(true);
 
     expect(content).toContain('Plumbus');
-    expect(content).toContain('plumbus:agent-wiring version=7');
+    expect(content).toContain('plumbus:agent-wiring version=8');
     expect(content).toContain('Non-Negotiable Guardrails');
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -82,7 +82,7 @@
   },
   "peerDependencies": {
     "@plumbus/api": "0.1.x",
-    "@plumbus/mcp": "0.5.x",
+    "@plumbus/mcp": "0.5.x || 0.6.x",
     "cron-parser": "^4.9.0",
     "redis": "^4.7.0"
   },
@@ -104,6 +104,7 @@
     "@biomejs/biome": "^2.4.6",
     "@plumbus/api": "workspace:*",
     "@plumbus/mcp": "workspace:*",
+    "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",
     "typescript": "^5.7.0"

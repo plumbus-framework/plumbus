@@ -57,6 +57,19 @@ docs/
 │   └── design/                10 design decisions (ADRs) explaining the framework's shape
 ├── chat-ui/                   React hooks/components for the chat turn protocol
 │   └── README.md
+├── voice/                     Optional @plumbus/voice package (realtime speech I/O runtime)
+│   ├── README.md
+│   ├── defining-voices.md
+│   ├── configuration.md
+│   ├── providers.md
+│   ├── transports.md
+│   ├── client-stt.md
+│   ├── local-providers.md
+│   ├── cost-tracking.md
+│   ├── testing.md
+│   ├── security.md
+│   └── design/
+│       └── providers.md
 ├── mcp/                       Serve capabilities to AI agents over MCP (stdio + HTTP)
 │   ├── overview.md
 │   ├── agent-authentication.md
@@ -98,6 +111,7 @@ docs/
 | Add a chat surface to my app | [Chat → README](chat/README.md) |
 | Add registry-backed knowledge sources | [Knowledge Base → README](knowledge-base/README.md) |
 | Wire a React chat UI | [Chat UI → README](chat-ui/README.md) |
+| Add a realtime voice surface | [Voice → README](voice/README.md) |
 | Serve capabilities to AI agents over MCP | [MCP → Overview](mcp/overview.md) |
 | Wire MCP tool-call metrics (Datadog, Prometheus, etc.) | [MCP → Transports → onMcpToolCall](mcp/transports.md#per-tool-call-observability--onmcptoolcall) |
 | Publish a partner-facing API with OpenAPI | [API → README](api/README.md) (start here) · [Overview](api/overview.md) · [packages/api/README.md](../packages/api/README.md) |

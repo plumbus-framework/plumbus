@@ -460,6 +460,12 @@ export function wrapAIServiceWithDynamicOverrides(
   }
 
   return {
+    recordProviderCost(entry, costContext) {
+      return base.recordProviderCost(entry, costContext);
+    },
+    checkProviderCostBudget(config) {
+      return base.checkProviderCostBudget(config);
+    },
     async generate(params) {
       await refreshOverrides();
       return base.generate(params);
