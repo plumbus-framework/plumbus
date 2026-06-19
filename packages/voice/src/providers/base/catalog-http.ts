@@ -116,7 +116,10 @@ function normalizeVoiceItem(
   };
 }
 
-function pickString(record: Record<string, unknown>, fields: readonly string[]): string | undefined {
+function pickString(
+  record: Record<string, unknown>,
+  fields: readonly string[],
+): string | undefined {
   for (const field of fields) {
     const value = record[field];
     if (typeof value === 'string' && value.length > 0) {

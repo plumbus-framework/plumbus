@@ -1,3 +1,4 @@
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { STTProviderCatalogEntry } from '../../types/provider.js';
 import type { VoiceProviderCredentials } from '../../types/provider.js';
 import type { VoiceSttConfig } from '../../types/voice.js';
@@ -12,13 +13,9 @@ import type {
 import {
   Deferred,
   estimateAudioSeconds,
+  parseAudioFormat,
   readOption,
-  resolveRuntimeWebSocketFactory,
-  resolveWebSocketUrl,
   roundMetric,
-  toVendorAudioFormat,
-  type RuntimeWebSocket,
-  type RuntimeWebSocketFactory,
 } from './shared.js';
 
 const SONIOX_STT_DESCRIPTOR: STTProviderCatalogEntry = {
@@ -33,71 +30,100 @@ const SONIOX_STT_DESCRIPTOR: STTProviderCatalogEntry = {
   knownModels: [...SONIOX_STT_MODELS],
 };
 
+/**
+ * Minimal structural surface of the official `@soniox/node` real-time STT session
+ * we use. We go through the SDK (not a hand-rolled WebSocket) so token spacing,
+ * `<end>`/`<fin>` control-marker handling, endpoint detection, keepalive, and
+ * reconnection match Soniox's reference behavior.
+ */
+interface SonioxRealtimeToken {
+  text?: string;
+  is_final?: boolean;
+  confidence?: number;
+  language?: string;
+}
+
+interface SonioxRealtimeResult {
+  tokens?: SonioxRealtimeToken[];
+  finished?: boolean;
+}
+
+interface SonioxSttSession {
+  connect(): Promise<void>;
+  sendAudio(data: Uint8Array): void;
+  finalize(options?: { trailing_silence_ms?: number }): void;
+  finish(): Promise<void>;
+  close(): void;
+  on(event: string, handler: (...args: any[]) => void): unknown;
+}
+
+interface SonioxRealtimeApiLike {
+  stt(config: Record<string, unknown>, options?: Record<string, unknown>): SonioxSttSession;
+}
+
+interface SonioxClientLike {
+  realtime: SonioxRealtimeApiLike;
+}
+
+type SonioxClientFactory = (apiKey: string) => SonioxClientLike;
+
 class SonioxSTTProvider implements STTProvider {
   readonly capabilities = SONIOX_STT_DESCRIPTOR;
   readonly #apiKey: string;
-  readonly #baseUrl: string | undefined;
-  readonly #createWebSocket: RuntimeWebSocketFactory;
   readonly #model: string;
   readonly #enableEndpointDetection: boolean;
-  readonly #languageHintsStrict: boolean;
   #audioInputSeconds = 0;
   #connectArgs: STTProviderConnectArgs | undefined;
+  #sessionId: string | undefined;
+  #session: SonioxSttSession | undefined;
+  #sessionPromise: Promise<SonioxSttSession> | undefined;
   #finalText = '';
   #nonFinalText = '';
-  #openPromise: Promise<void> | undefined;
+  #latestConfidence: number | undefined;
+  #latestLanguage: string | undefined;
+  #firstTranscriptLogged = false;
   #pendingFinalize: Deferred<STTProviderTranscriptEvent | undefined> | undefined;
-  #sessionId: string | undefined;
-  #socket: RuntimeWebSocket | undefined;
-  #endpointNotified = false;
 
   constructor(
-    credentials: VoiceProviderCredentials,
+    private readonly credentials: VoiceProviderCredentials,
     private readonly voiceSlice: VoiceSttConfig,
   ) {
     if (!credentials.apiKey) {
-      throw new Error('Soniox STT provider requires an apiKey');
+      throw new PlumbusError(
+        ErrorCode.DependencyViolation,
+        'Soniox STT provider requires an apiKey',
+      );
     }
     this.#apiKey = credentials.apiKey;
-    this.#baseUrl = credentials.baseUrl;
-    this.#createWebSocket = resolveRuntimeWebSocketFactory(credentials, voiceSlice);
     this.#model =
-      voiceSlice.model ??
-      readOption<string>(voiceSlice.options, 'model') ??
-      'stt-rt-preview';
+      voiceSlice.model ?? readOption<string>(voiceSlice.options, 'model') ?? 'stt-rt-v5';
     this.#enableEndpointDetection =
       readOption<boolean>(voiceSlice.options, 'enableEndpointDetection') ?? true;
-    this.#languageHintsStrict =
-      readOption<boolean>(voiceSlice.options, 'languageHintsStrict') ?? false;
   }
 
   connect(args: STTProviderConnectArgs): void {
     this.#sessionId = args.sessionId;
     this.#connectArgs = args;
-    this.#endpointNotified = false;
   }
 
   async sendAudio(audio: STTProviderAudioChunk): Promise<void> {
-    await this.#ensureSocket(audio.contentType);
+    const session = await this.#ensureSession(audio.contentType);
     this.#audioInputSeconds += estimateAudioSeconds(audio);
-    this.#socket?.send(audio.chunk);
+    session.sendAudio(audio.chunk);
   }
 
   onClientTranscript(_event: STTProviderTranscriptEvent): void {}
 
   async finalize(): Promise<STTProviderTranscriptEvent | undefined> {
-    await this.#ensureSocket();
-    if (!this.#socket) {
-      return undefined;
+    const session = await this.#ensureSession();
+    if (this.#currentText().trim().length > 0 && !this.#pendingFinalize) {
+      const event = this.#buildFinalEvent();
+      this.#resetUtterance();
+      return event;
     }
-
-    if (this.#currentText().length > 0 && !this.#pendingFinalize) {
-      return this.#buildFinalEvent();
-    }
-
     const pending = new Deferred<STTProviderTranscriptEvent | undefined>();
     this.#pendingFinalize = pending;
-    this.#socket.send(JSON.stringify({ type: 'finalize' }));
+    session.finalize();
     return pending.promise;
   }
 
@@ -105,7 +131,6 @@ class SonioxSTTProvider implements STTProvider {
     if (this.#audioInputSeconds <= 0) {
       return [];
     }
-
     return [
       {
         provider: this.capabilities.id,
@@ -121,156 +146,190 @@ class SonioxSTTProvider implements STTProvider {
   disconnect(): void {
     this.#pendingFinalize?.resolve(this.#buildFinalEvent());
     this.#pendingFinalize = undefined;
-    this.#socket?.close();
-    this.#socket = undefined;
-    this.#openPromise = undefined;
+    try {
+      this.#session?.close();
+    } catch {
+      // ignore close errors on a torn-down session
+    }
+    this.#session = undefined;
+    this.#sessionPromise = undefined;
   }
 
-  #ensureSocket(contentType?: string): Promise<void> {
-    if (this.#openPromise) {
-      return this.#openPromise;
+  #ensureSession(contentType?: string): Promise<SonioxSttSession> {
+    if (this.#session) {
+      return Promise.resolve(this.#session);
+    }
+    if (this.#sessionPromise) {
+      return this.#sessionPromise;
     }
     if (!this.#connectArgs?.sessionId) {
-      throw new Error('Soniox STT provider must be connected before streaming audio');
+      throw new PlumbusError(
+        ErrorCode.DependencyViolation,
+        'Soniox STT provider must be connected before streaming audio',
+      );
     }
 
-    const url = resolveWebSocketUrl(
-      this.#baseUrl,
-      'wss://stt-rt.soniox.com',
-      '/transcribe-websocket',
-    );
-    const socket = this.#createWebSocket(url);
-    this.#socket = socket;
-    this.#openPromise = new Promise<void>((resolve, reject) => {
-      socket.once('open', () => {
-        try {
-          const contextTerms = readOption<string[]>(this.voiceSlice.options, 'contextTerms');
-          const config: Record<string, unknown> = {
-            api_key: this.#apiKey,
-            audio_format: toVendorAudioFormat(contentType),
-            language_hints: this.voiceSlice.languages,
-            language_hints_strict: this.#languageHintsStrict,
-            model: this.#model,
-            enable_endpoint_detection: this.#enableEndpointDetection,
-          };
-          if (Array.isArray(contextTerms) && contextTerms.length > 0) {
-            config.context = { terms: contextTerms };
-          }
-          socket.send(JSON.stringify(config));
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
+    this.#sessionPromise = (async () => {
+      const factory = await resolveSonioxClientFactory(this.credentials);
+      const client = factory(this.#apiKey);
+      const audio = parseAudioFormat(contentType);
+      const contextTerms = readOption<string[]>(this.voiceSlice.options, 'contextTerms');
+      const maxEndpointDelayMs = readOption<number>(this.voiceSlice.options, 'maxEndpointDelayMs');
+      const config: Record<string, unknown> = {
+        model: this.#model,
+        audio_format: 'pcm_s16le',
+        sample_rate: audio.sampleRate,
+        num_channels: audio.channels,
+        language_hints: this.voiceSlice.languages,
+        enable_endpoint_detection: this.#enableEndpointDetection,
+      };
+      if (typeof maxEndpointDelayMs === 'number') {
+        config.max_endpoint_delay_ms = maxEndpointDelayMs;
+      }
+      if (Array.isArray(contextTerms) && contextTerms.length > 0) {
+        config.context = { terms: contextTerms };
+      }
+      const session = client.realtime.stt(config);
+      this.#wireSession(session);
+      await session.connect();
+      console.info('[voice-stt] soniox session connected', {
+        sessionId: this.#sessionId,
+        model: this.#model,
+        sampleRate: audio.sampleRate,
+        channels: audio.channels,
+        via: 'sdk',
       });
-      socket.once('error', reject);
+      this.#session = session;
+      return session;
+    })();
+
+    try {
+      return this.#sessionPromise;
+    } catch (error) {
+      this.#sessionPromise = undefined;
+      throw error;
+    }
+  }
+
+  #wireSession(session: SonioxSttSession): void {
+    session.on('result', (result: SonioxRealtimeResult) => {
+      this.#ingestResult(result);
     });
-    socket.on('message', (data) => {
-      const message = parseSonioxMessage(data);
-      if (!message) {
-        return;
-      }
-      if (message.error_code) {
-        const error = new Error(message.error_message ?? message.error_code);
-        this.#pendingFinalize?.reject(error);
-        return;
-      }
-      if (isEndpointMessage(message)) {
-        void this.#notifyEndpoint();
-      }
-      this.#ingestTokens(message.tokens);
-      if (message.finished) {
-        this.#pendingFinalize?.resolve(this.#buildFinalEvent());
-        this.#pendingFinalize = undefined;
-      }
-      if (isEndpointMessage(message)) {
-        void this.#notifyEndpoint();
-      }
+    session.on('endpoint', () => {
+      void this.#handleEndpoint();
     });
-    socket.on('error', (error) => {
-      this.#pendingFinalize?.reject(error);
-    });
-    socket.on('close', () => {
+    session.on('finalized', () => {
       if (this.#pendingFinalize) {
         this.#pendingFinalize.resolve(this.#buildFinalEvent());
         this.#pendingFinalize = undefined;
+        this.#resetUtterance();
       }
-      this.#socket = undefined;
-      this.#openPromise = undefined;
     });
-    return this.#openPromise;
+    session.on('error', (error: Error) => {
+      console.error('[voice-stt] soniox error', {
+        sessionId: this.#sessionId,
+        message: error?.message ?? String(error),
+      });
+      this.#pendingFinalize?.reject(error instanceof Error ? error : new Error(String(error)));
+      this.#pendingFinalize = undefined;
+    });
   }
 
-  #ingestTokens(tokens: unknown): void {
-    if (!Array.isArray(tokens)) {
-      return;
-    }
-
+  #ingestResult(result: SonioxRealtimeResult): void {
+    const tokens = Array.isArray(result.tokens) ? result.tokens : [];
     const finalized: string[] = [];
     const pending: string[] = [];
-    let endpointDetected = false;
+    let minConfidence: number | undefined;
+    let detectedLanguage: string | undefined;
     for (const token of tokens) {
-      if (!token || typeof token !== 'object') continue;
-      const text = typeof (token as { text?: unknown }).text === 'string' ? (token as { text: string }).text : '';
+      const text = typeof token.text === 'string' ? token.text : '';
       if (!text) continue;
-      if ((token as { is_final?: unknown }).is_final === true) {
+      if (typeof token.confidence === 'number') {
+        minConfidence =
+          minConfidence === undefined
+            ? token.confidence
+            : Math.min(minConfidence, token.confidence);
+      }
+      if (typeof token.language === 'string') {
+        detectedLanguage = token.language;
+      }
+      if (token.is_final === true) {
         finalized.push(text);
       } else {
         pending.push(text);
       }
-      if ((token as { is_endpoint?: unknown }).is_endpoint === true) {
-        endpointDetected = true;
-      }
     }
 
-    let finalChanged = false;
+    if (minConfidence !== undefined) {
+      this.#latestConfidence = minConfidence;
+    }
+    if (detectedLanguage) {
+      this.#latestLanguage = detectedLanguage;
+    }
     if (finalized.length > 0) {
       this.#finalText += finalized.join('');
-      finalChanged = true;
     }
     this.#nonFinalText = pending.join('');
+
     const current = this.#currentText();
-    if (current.length > 0) {
+    if (current.trim().length > 0) {
+      if (!this.#firstTranscriptLogged) {
+        this.#firstTranscriptLogged = true;
+        console.info('[voice-stt] first soniox transcript received', {
+          sessionId: this.#sessionId,
+          via: 'sdk',
+        });
+      }
       void this.#connectArgs?.onTranscript?.({
         text: current,
         final: false,
+        confidence: this.#latestConfidence,
+        language: this.#latestLanguage,
       });
-    }
-
-    if (finalChanged) {
-      const finalEvent = this.#buildFinalEvent();
-      if (finalEvent) {
-        void this.#connectArgs?.onTranscript?.(finalEvent);
-      }
-    }
-
-    if (endpointDetected) {
-      void this.#notifyEndpoint();
-    }
-
-    if (this.#pendingFinalize && this.#nonFinalText.length === 0) {
-      this.#pendingFinalize.resolve(this.#buildFinalEvent());
-      this.#pendingFinalize = undefined;
     }
   }
 
-  async #notifyEndpoint(): Promise<void> {
-    if (this.#endpointNotified) return;
-    this.#endpointNotified = true;
+  async #handleEndpoint(): Promise<void> {
+    const event = this.#buildFinalEvent();
+    if (event) {
+      void this.#connectArgs?.onTranscript?.(event);
+    }
+    if (this.#pendingFinalize) {
+      this.#pendingFinalize.resolve(event);
+      this.#pendingFinalize = undefined;
+    }
+    console.info('[voice-stt] soniox endpoint', {
+      sessionId: this.#sessionId,
+      transcriptChars: this.#currentText().trim().length,
+    });
+    // Reset per-utterance state synchronously (before awaiting the consumer) so the
+    // next utterance's tokens start clean even if results arrive immediately.
+    this.#resetUtterance();
     await this.#connectArgs?.onEndpoint?.();
   }
 
   #buildFinalEvent(): STTProviderTranscriptEvent | undefined {
-    if (this.#finalText.length === 0) {
+    const text = this.#currentText().trim();
+    if (text.length === 0) {
       return undefined;
     }
     return {
-      text: this.#finalText,
+      text,
       final: true,
+      confidence: this.#latestConfidence,
+      language: this.#latestLanguage,
     };
   }
 
   #currentText(): string {
     return `${this.#finalText}${this.#nonFinalText}`;
+  }
+
+  #resetUtterance(): void {
+    this.#finalText = '';
+    this.#nonFinalText = '';
+    this.#latestConfidence = undefined;
+    this.#latestLanguage = undefined;
   }
 }
 
@@ -281,43 +340,24 @@ export const SONIOX_STT_REGISTRATION: STTProviderRegistration = {
   },
 };
 
-function parseSonioxMessage(
-  payload: Buffer | ArrayBuffer | Buffer[],
-): {
-  error_code?: string;
-  error_message?: string;
-  tokens?: unknown;
-  finished?: boolean;
-  endpoint?: boolean;
-  speech_end?: boolean;
-} | undefined {
-  const text = payloadToText(payload);
-  if (!text) {
-    return undefined;
+async function resolveSonioxClientFactory(
+  credentials: VoiceProviderCredentials,
+): Promise<SonioxClientFactory> {
+  const injected = (credentials.options as Record<string, unknown> | undefined)
+    ?.sonioxClientFactory;
+  if (typeof injected === 'function') {
+    return injected as SonioxClientFactory;
   }
-  return JSON.parse(text) as {
-    error_code?: string;
-    error_message?: string;
-    tokens?: unknown;
-    finished?: boolean;
-    endpoint?: boolean;
-    speech_end?: boolean;
+  const imported = (await import('@soniox/node')) as {
+    SonioxNodeClient?: new (options: { api_key: string }) => SonioxClientLike;
+    default?: { SonioxNodeClient?: new (options: { api_key: string }) => SonioxClientLike };
   };
-}
-
-function isEndpointMessage(message: {
-  endpoint?: boolean;
-  speech_end?: boolean;
-}): boolean {
-  return message.endpoint === true || message.speech_end === true;
-}
-
-function payloadToText(payload: Buffer | ArrayBuffer | Buffer[]): string {
-  if (Array.isArray(payload)) {
-    return Buffer.concat(payload).toString('utf-8');
+  const ClientCtor = imported.SonioxNodeClient ?? imported.default?.SonioxNodeClient;
+  if (typeof ClientCtor !== 'function') {
+    throw new PlumbusError(
+      ErrorCode.DependencyViolation,
+      'Unable to load SonioxNodeClient from @soniox/node',
+    );
   }
-  if (payload instanceof ArrayBuffer) {
-    return Buffer.from(payload).toString('utf-8');
-  }
-  return payload.toString('utf-8');
+  return (apiKey) => new ClientCtor({ api_key: apiKey });
 }

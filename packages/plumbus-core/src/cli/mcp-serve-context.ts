@@ -2,9 +2,7 @@
 // Builds registries, DB, auth, and RouteGeneratorConfig-compatible deps for MCP runtime.
 
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
-import { createCostTracker } from '../ai/cost-tracker.js';
-import { createProviderAdapter } from '../ai/provider.js';
+import { PromptRegistry } from '../ai/prompt-registry.js';
 import { createAuditService } from '../audit/service.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import type { AuthAdapter } from '../auth/adapter.js';
@@ -28,6 +26,8 @@ import type { PlumbusConfig } from '../types/config.js';
 import type { AuthContext } from '../types/security.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import type { LoggerService } from '../types/context.js';
+import { buildWorkerAiService } from '../runtime/bootstrap.js';
+import { loadServerExtensions } from '../runtime/load-extensions.js';
 import { resolveRuntimeQueues } from '../runtime/queue-factory.js';
 import type { EventQueue } from '../events/queue.js';
 import { warn } from './utils.js';
@@ -68,6 +68,11 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
   const capabilities = new CapabilityRegistry();
   capabilities.registerAll(resources.capabilities);
 
+  const promptRegistry = new PromptRegistry();
+  for (const prompt of resources.prompts) {
+    promptRegistry.register(prompt);
+  }
+
   const entities = new EntityRegistry();
   entities.registerAll(resources.entities);
 
@@ -93,20 +98,16 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
   const defaultLocale = resources.translations?.[0]?.defaultLocale ?? 'en';
 
   const authAdapter = await resolveMcpServeAuthAdapter(config);
+  const extensions = await loadServerExtensions();
 
-  let aiService: import('../types/context.js').AIService | undefined;
-  if (config.ai) {
-    const adapter = createProviderAdapter(config.ai.provider, config.ai);
-    const costTracker = createCostTracker({
-      maxTokensPerRequest: config.ai.maxTokensPerRequest,
-      dailyCostLimit: config.ai.dailyCostLimit,
-    });
-    aiService = createAIService(
-      singleProviderConfig(adapter, {
-        costTracker,
-      }),
-    );
-  }
+  const aiService = buildWorkerAiService({
+    config,
+    db,
+    promptRegistry,
+    onAICostRecorded: extensions.onAICostRecorded,
+    resolveAiOverrides: extensions.resolveAiOverrides,
+    enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
+  });
 
   const requestFlowEngine = createFlowEngine({
     db,

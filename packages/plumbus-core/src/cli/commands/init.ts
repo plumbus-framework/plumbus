@@ -289,6 +289,10 @@ const VOICE_INSTRUCTION_REFERENCES = [
     area: 'securing voice session routes, tokens, catalog endpoints, and client STT trust boundaries',
     path: 'node_modules/@plumbus/voice/instructions/security.md',
   },
+  {
+    area: 'extending voice with custom providers, hooks, and runtime adapters',
+    path: 'node_modules/@plumbus/voice/instructions/extending.md',
+  },
 ] as const;
 
 const MCP_INSTRUCTION_REFERENCES = [

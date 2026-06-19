@@ -70,13 +70,13 @@ const VOICE_PRICING: Readonly<Record<string, VoicePricingEntry>> = {
     unit: 'characters',
     usdPerUnit: 0.000024,
   },
-  'eleven_flash_v2_5': {
+  eleven_flash_v2_5: {
     model: 'eleven_flash_v2_5',
     operation: 'synthesize',
     unit: 'characters',
     usdPerUnit: 0.000016,
   },
-  'eleven_v3': {
+  eleven_v3: {
     model: 'eleven_v3',
     operation: 'synthesize',
     unit: 'characters',

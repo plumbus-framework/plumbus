@@ -10,8 +10,9 @@ import {
   TrackPublishOptions,
   type RemoteTrack,
 } from '@livekit/rtc-node';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomAgentDispatch, RoomConfiguration } from 'livekit-server-sdk';
 import type { VoiceProviderCredentials } from '../../types/provider.js';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { VoiceTransportConfig } from '../../types/voice.js';
 import type { TransportProviderCapabilities } from '../base/capabilities.js';
 import type { TransportProviderRegistration } from '../base/provider-registration.js';
@@ -22,7 +23,7 @@ const DEFAULT_AUDIO_FORMAT = 'pcm16;rate=16000;channels=1';
 const DEFAULT_DATA_TOPIC = 'voice.events';
 const DEFAULT_SESSION_TTL_SECONDS = 3600;
 const MAX_SESSION_TTL_SECONDS = 7200;
-const DEFAULT_AGENT_AUDIO_TRACK_NAME = 'dvora-voice';
+const DEFAULT_AGENT_AUDIO_TRACK_NAME = 'agent-voice';
 const DEFAULT_ROOM_USER = 'voiceUser';
 
 export interface LiveKitSessionMetadata {
@@ -44,6 +45,8 @@ export interface MintLiveKitParticipantTokenArgs {
   ttlSeconds?: number;
   metadata?: string;
   attributes?: Record<string, string>;
+  agentName?: string;
+  agentMetadata?: string;
 }
 
 export interface MintLiveKitSessionArgs {
@@ -115,6 +118,16 @@ export async function mintLiveKitParticipantToken(
     canSubscribe: true,
     canPublishData: true,
   });
+  if (args.agentName) {
+    accessToken.roomConfig = new RoomConfiguration({
+      agents: [
+        new RoomAgentDispatch({
+          agentName: args.agentName,
+          metadata: args.agentMetadata ?? args.metadata ?? '',
+        }),
+      ],
+    });
+  }
   return accessToken.toJwt();
 }
 
@@ -134,15 +147,17 @@ export class LiveKitTransportProvider implements TransportProvider {
 
   async mintSession(args: MintLiveKitSessionArgs): Promise<TransportProviderSession> {
     const sessionId =
-      args.sessionId ??
-      `livekit:${args.voiceName}:${args.userId ?? 'anonymous'}:${randomUUID()}`;
+      args.sessionId ?? `livekit:${args.voiceName}:${args.userId ?? 'anonymous'}:${randomUUID()}`;
+    const serializedMetadata = serializeMetadata(args.metadata);
     const metadata = await this.createSessionMetadata(args.voiceName, args.userId, {
       room: args.roomName,
       identity: args.identity,
       ttlSeconds: args.tokenTtlSeconds,
-      metadata: serializeMetadata(args.metadata),
+      metadata: serializedMetadata,
       attributes: args.attributes,
       sessionId,
+      agentName: args.voiceName,
+      agentMetadata: serializedMetadata,
     });
     return {
       sessionId,
@@ -153,7 +168,10 @@ export class LiveKitTransportProvider implements TransportProvider {
 
   async connectWorker(args: ConnectLiveKitWorkerArgs): Promise<LiveKitWorkerConnection> {
     if (args.signal?.aborted) {
-      throw new Error('LiveKit worker connection aborted before connect');
+      throw new PlumbusError(
+        ErrorCode.Cancelled,
+        'LiveKit worker connection aborted before connect',
+      );
     }
 
     const metadata = await this.createSessionMetadata(args.voiceName, args.identity, {
@@ -269,6 +287,8 @@ export class LiveKitTransportProvider implements TransportProvider {
       attributes?: Record<string, string>;
       audioTrackName?: string;
       sessionId?: string;
+      agentName?: string;
+      agentMetadata?: string;
     } = {},
   ): Promise<LiveKitSessionMetadata> {
     const url = requireString(this.credentials.url, 'LiveKit url');
@@ -276,8 +296,7 @@ export class LiveKitTransportProvider implements TransportProvider {
     const apiSecret = requireString(this.credentials.apiSecret, 'LiveKit apiSecret');
     const sessionId =
       overrides.sessionId ?? `livekit:${voiceName}:${userId ?? 'anonymous'}:${randomUUID()}`;
-    const room =
-      overrides.room ?? resolveRoomName(this.voiceSlice, voiceName, userId, sessionId);
+    const room = overrides.room ?? resolveRoomName(this.voiceSlice, voiceName, userId, sessionId);
     const identity = overrides.identity ?? resolveIdentity(voiceName, userId);
     const audioFormat = normalizeAudioFormat(this.voiceSlice.audioFormat);
     const audioTrackName =
@@ -294,6 +313,8 @@ export class LiveKitTransportProvider implements TransportProvider {
         ttlSeconds: overrides.ttlSeconds ?? resolveLiveKitTokenTtlSeconds(this.voiceSlice.options),
         metadata: overrides.metadata,
         attributes: sanitizeAttributes(overrides.attributes),
+        agentName: overrides.agentName,
+        agentMetadata: overrides.agentMetadata ?? overrides.metadata,
       });
     }
 
@@ -401,12 +422,16 @@ function resolveAgentAudioTrackName(
 
 function resolveLiveKitTokenTtlSeconds(options: Record<string, unknown> | undefined): number {
   const value = options?.tokenTtlSeconds;
-  return typeof value === 'number' && value > 0 ? clampTokenTtlSeconds(value) : DEFAULT_SESSION_TTL_SECONDS;
+  return typeof value === 'number' && value > 0
+    ? clampTokenTtlSeconds(value)
+    : DEFAULT_SESSION_TTL_SECONDS;
 }
 
 function resolveWorkerTokenTtlSeconds(options: Record<string, unknown> | undefined): number {
   const value = options?.workerTokenTtlSeconds;
-  return typeof value === 'number' && value > 0 ? clampTokenTtlSeconds(value) : DEFAULT_SESSION_TTL_SECONDS;
+  return typeof value === 'number' && value > 0
+    ? clampTokenTtlSeconds(value)
+    : DEFAULT_SESSION_TTL_SECONDS;
 }
 
 function clampTokenTtlSeconds(value: number): number {
@@ -415,7 +440,7 @@ function clampTokenTtlSeconds(value: number): number {
 
 function requireString(value: string | undefined, label: string): string {
   if (!value) {
-    throw new Error(`${label} is required`);
+    throw new PlumbusError(ErrorCode.Validation, `${label} is required`);
   }
   return value;
 }
@@ -426,7 +451,8 @@ function sanitizeAttributes(
   if (!attributes) return undefined;
   return Object.fromEntries(
     Object.entries(attributes).filter(
-      (entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string',
+      (entry): entry is [string, string] =>
+        typeof entry[0] === 'string' && typeof entry[1] === 'string',
     ),
   );
 }

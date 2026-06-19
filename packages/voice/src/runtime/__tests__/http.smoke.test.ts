@@ -38,7 +38,11 @@ describe('voice http smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(
@@ -77,7 +81,11 @@ describe('voice http smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(
@@ -120,7 +128,11 @@ describe('voice http smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(
@@ -173,7 +185,11 @@ describe('voice http smoke', () => {
       transport: { provider: 'livekit' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(
@@ -225,7 +241,11 @@ describe('voice http smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(

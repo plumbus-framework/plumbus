@@ -7,7 +7,10 @@ import type {
   VoiceProviderValidationIssue,
 } from '../types/provider.js';
 import { listVoiceProviderCatalog } from '../catalog/list-catalog.js';
-import type { STTProviderCapabilities, TransportProviderCapabilities } from './base/capabilities.js';
+import type {
+  STTProviderCapabilities,
+  TransportProviderCapabilities,
+} from './base/capabilities.js';
 import type {
   STTProviderRegistration,
   TTSProviderRegistration,

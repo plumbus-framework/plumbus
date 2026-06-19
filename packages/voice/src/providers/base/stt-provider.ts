@@ -29,7 +29,10 @@ export interface STTProvider {
   connect(args: STTProviderConnectArgs): Promise<void> | void;
   sendAudio?(audio: STTProviderAudioChunk): Promise<void> | void;
   onClientTranscript?(event: STTProviderTranscriptEvent): Promise<void> | void;
-  finalize?(): Promise<STTProviderTranscriptEvent | undefined> | STTProviderTranscriptEvent | undefined;
+  finalize?():
+    | Promise<STTProviderTranscriptEvent | undefined>
+    | STTProviderTranscriptEvent
+    | undefined;
   usage?(): VoiceUsageRecord[];
   disconnect?(): Promise<void> | void;
 }

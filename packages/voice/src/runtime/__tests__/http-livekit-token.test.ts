@@ -4,6 +4,16 @@ import { createTestContext } from '@plumbus/core/testing';
 import { defineVoice } from '../../define/defineVoice.js';
 import { registerVoiceRoutes } from '../http.js';
 
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const payloadSegment = token.split('.')[1];
+  if (!payloadSegment) {
+    throw new Error('JWT payload segment missing');
+  }
+  const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  return JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as Record<string, unknown>;
+}
+
 function depsFromAuth(auth: {
   userId?: string;
   roles: string[];
@@ -33,16 +43,20 @@ describe('livekit token route', () => {
   it('merges beforeSession.livekit metadata into the minted token response', async () => {
     const app = Fastify();
     const voice = defineVoice({
-      name: 'dvora',
+      name: 'assistant',
       access: {},
       transport: {
         provider: 'livekit',
         mode: 'continuous',
-        options: { agentAudioTrackName: 'dvora-voice' },
+        options: { agentAudioTrackName: 'agent-voice' },
       },
       stt: { provider: 'soniox', languages: ['he', 'en'] },
       tts: { provider: 'deepdub', voiceId: 'voice-1', locale: 'he-IL' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(
@@ -93,7 +107,7 @@ describe('livekit token route', () => {
     await app.ready();
     const res = await app.inject({
       method: 'POST',
-      url: '/api/voice/dvora/token',
+      url: '/api/voice/assistant/token',
       headers: { authorization: 'Bearer user-token' },
       payload: { sessionId: 'session-abc' },
     });
@@ -109,12 +123,20 @@ describe('livekit token route', () => {
     expect(body.transport).toBe('livekit');
     expect(body.room).toBe('session-abc');
     expect(body.token.split('.')).toHaveLength(3);
-    expect(body.agentAudioTrackName).toBe('dvora-voice');
+    expect(body.agentAudioTrackName).toBe('agent-voice');
     expect(body.execution).toEqual({
       userId: 'user-1',
       tenantId: 'tenant-1',
       input: { projectId: 'proj-1' },
     });
+
+    const payload = decodeJwtPayload(body.token);
+    const roomConfig = payload.roomConfig as {
+      agents?: Array<{ agentName?: string; metadata?: string }>;
+    };
+    expect(roomConfig.agents?.[0]?.agentName).toBe('assistant');
+    expect(roomConfig.agents?.[0]?.metadata).toContain('proj-1');
+    expect(roomConfig.agents?.[0]?.metadata).toContain('he');
 
     await app.close();
   });

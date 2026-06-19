@@ -39,8 +39,7 @@ export function summarizeVoiceTurnCosts(
     (value): value is number => value !== null,
   );
   const costAvailable = parts.length > 0 || inWindow.some((entry) => entry.record.cost !== null);
-  const totalUsd =
-    parts.length > 0 ? roundUsd(parts.reduce((sum, value) => sum + value, 0)) : null;
+  const totalUsd = parts.length > 0 ? roundUsd(parts.reduce((sum, value) => sum + value, 0)) : null;
 
   return {
     sessionId,
@@ -54,11 +53,7 @@ export function summarizeVoiceTurnCosts(
   };
 }
 
-function matchesTurn(
-  entry: VoiceCostLedgerEntry,
-  sessionId: string,
-  turnId: string,
-): boolean {
+function matchesTurn(entry: VoiceCostLedgerEntry, sessionId: string, turnId: string): boolean {
   const context = entry.costContext;
   if (context?.relatedEntityId !== sessionId) {
     return false;

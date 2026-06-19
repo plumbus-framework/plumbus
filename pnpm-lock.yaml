@@ -273,6 +273,9 @@ importers:
 
   packages/voice:
     dependencies:
+      '@deepdub/node':
+        specifier: ^2.0.0
+        version: 2.0.0
       '@fastify/websocket':
         specifier: ^11.2.0
         version: 11.2.0
@@ -282,6 +285,9 @@ importers:
       '@livekit/rtc-node':
         specifier: ^0.13.29
         version: 0.13.29
+      '@soniox/node':
+        specifier: ^2.1.1
+        version: 2.1.1
       livekit-server-sdk:
         specifier: ^2.15.4
         version: 2.15.4
@@ -416,6 +422,11 @@ packages:
 
   '@datastructures-js/deque@1.0.8':
     resolution: {integrity: sha512-PSBhJ2/SmeRPRHuBv7i/fHWIdSC3JTyq56qb+Rq0wjOagi0/fdV5/B/3Md5zFZus/W6OkSPMaxMKKMNMrSmubg==}
+
+  '@deepdub/node@2.0.0':
+    resolution: {integrity: sha512-+Fyskp4mwif3ty0x3AUICJXXRG/S6n9hhLBYwj01Er4NpVkims2kk2oEYrGD0El3Z+cvCafY7XJkOOcEFuzeyA==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
@@ -1730,6 +1741,9 @@ packages:
   '@schummar/icu-type-parser@1.21.5':
     resolution: {integrity: sha512-bXHSaW5jRTmke9Vd0h5P7BtWZG9Znqb8gSDxZnxaGSJnGwPLDPfS+3g0BKzeWqzgZPsIVZkM7m2tbo18cm5HBw==}
 
+  '@soniox/node@2.1.1':
+    resolution: {integrity: sha512-vPXDJ58nTMxAiFMZD3DqQd2owsuySAZ4PKH++woNz0GSX6o8C66VFfn4vzJ9PcnwdmpUzRZrZcdgiNzkippLKA==}
+
   '@swc/core-darwin-arm64@1.15.18':
     resolution: {integrity: sha512-+mIv7uBuSaywN3C9LNuWaX1jJJ3SKfiJuE6Lr3bd+/1Iv8oMU7oLBjYMluX1UrEPzwN2qCdY6Io0yVicABoCwQ==}
     engines: {node: '>=10'}
@@ -2265,6 +2279,10 @@ packages:
 
   dom-accessibility-api@0.5.16:
     resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   drizzle-kit@0.31.9:
     resolution: {integrity: sha512-GViD3IgsXn7trFyBUUHyTFBpH/FsHTxYJ66qdbVggxef4UBPHRYxQaRzYLTuekYnk9i5FIEL9pbBIwMqX/Uwrg==}
@@ -3726,6 +3744,15 @@ snapshots:
 
   '@datastructures-js/deque@1.0.8': {}
 
+  '@deepdub/node@2.0.0':
+    dependencies:
+      commander: 12.1.0
+      dotenv: 16.6.1
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@drizzle-team/brocli@0.10.2': {}
 
   '@emnapi/runtime@1.9.1':
@@ -4702,6 +4729,8 @@ snapshots:
 
   '@schummar/icu-type-parser@1.21.5': {}
 
+  '@soniox/node@2.1.1': {}
+
   '@swc/core-darwin-arm64@1.15.18':
     optional: true
 
@@ -5147,6 +5176,8 @@ snapshots:
   detect-libc@2.1.2: {}
 
   dom-accessibility-api@0.5.16: {}
+
+  dotenv@16.6.1: {}
 
   drizzle-kit@0.31.9:
     dependencies:

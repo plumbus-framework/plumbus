@@ -34,7 +34,7 @@ export type { AICostContext };
  * Framework-level hook fired after every AI call completes (success or
  * failure) and the in-memory cost tracker has been updated. Consumers wire
  * this in through `ServerConfig.onAICostRecorded` to persist per-call spend
- * to their own ledger (see MemoirAi's `project_cost_ledger`).
+ * to their own ledger (e.g. an app-owned per-project cost ledger).
  */
 export type OnAICostRecorded = (
   record: AICostRecord,

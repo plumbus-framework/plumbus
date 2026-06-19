@@ -5,11 +5,7 @@ import type {
   VoicePersonaOption,
   VoiceProviderCredentials,
 } from '../../types/provider.js';
-import type {
-  VoiceSttConfig,
-  VoiceTransportConfig,
-  VoiceTtsConfig,
-} from '../../types/voice.js';
+import type { VoiceSttConfig, VoiceTransportConfig, VoiceTtsConfig } from '../../types/voice.js';
 import type { STTProvider } from './stt-provider.js';
 import type { TransportProvider } from './transport-provider.js';
 import type { TTSProvider } from './tts-provider.js';

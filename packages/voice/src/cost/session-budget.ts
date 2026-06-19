@@ -12,11 +12,17 @@ export interface VoiceSessionBudgetCheck {
 export interface VoiceSessionBudget {
   readonly config: VoiceSessionBudgetConfig;
   readonly state: Readonly<VoiceSessionBudgetState>;
-  check(nextUsage?: Partial<VoiceMediaUsage> & { concurrentStreams?: number; sttCharacters?: number }): VoiceSessionBudgetCheck;
-  record(usage: Partial<VoiceMediaUsage> & { concurrentStreams?: number; sttCharacters?: number }): VoiceSessionBudgetState;
+  check(
+    nextUsage?: Partial<VoiceMediaUsage> & { concurrentStreams?: number; sttCharacters?: number },
+  ): VoiceSessionBudgetCheck;
+  record(
+    usage: Partial<VoiceMediaUsage> & { concurrentStreams?: number; sttCharacters?: number },
+  ): VoiceSessionBudgetState;
 }
 
-export function createVoiceSessionBudget(config: VoiceSessionBudgetConfig = {}): VoiceSessionBudget {
+export function createVoiceSessionBudget(
+  config: VoiceSessionBudgetConfig = {},
+): VoiceSessionBudget {
   const state: VoiceSessionBudgetState = {
     connectionMinutes: 0,
     participantMinutes: 0,

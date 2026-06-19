@@ -8,6 +8,13 @@ export interface DeliveryTone {
   warmth?: 'low' | 'medium' | 'high';
   energy?: 'low' | 'medium' | 'high';
   emotion?: string;
+  /**
+   * Preferred speaker gender for this turn's synthesis. Lets a per-turn
+   * `resolveTone` hook drive the voice gender dynamically (e.g. from a detected
+   * subject gender). Providers that support a gender control (Deepdub) prefer
+   * this over their static voice option; providers that don't simply ignore it.
+   */
+  targetGender?: string;
 }
 
 export interface VoiceTransportConfig {

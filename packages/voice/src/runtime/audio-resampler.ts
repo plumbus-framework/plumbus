@@ -34,10 +34,7 @@ export function resamplePcm16(
   source: AudioFormatSpec,
   target: AudioFormatSpec,
 ): Uint8Array {
-  if (
-    source.sampleRate === target.sampleRate &&
-    source.channels === target.channels
-  ) {
+  if (source.sampleRate === target.sampleRate && source.channels === target.channels) {
     return audio;
   }
 
@@ -137,7 +134,11 @@ function linearResample(
   return output;
 }
 
-function convertChannels(samples: Float32Array, sourceChannels: number, targetChannels: number): Float32Array {
+function convertChannels(
+  samples: Float32Array,
+  sourceChannels: number,
+  targetChannels: number,
+): Float32Array {
   if (sourceChannels === targetChannels) {
     return samples;
   }

@@ -30,7 +30,7 @@ export async function runStreamingTurnPipeline(
 ): Promise<{ responseText: string }> {
   const chunker = createSentenceChunker();
   const utteranceQueue: string[] = [];
-  let utteranceWaiters: Array<() => void> = [];
+  const utteranceWaiters: Array<() => void> = [];
   let brainDone = false;
   let brainError: Error | undefined;
   let playingEmitted = false;
@@ -64,9 +64,10 @@ export async function runStreamingTurnPipeline(
       if (!delta || args.abortSignal?.aborted) return;
       capturedDeltas.push(delta);
       void args.onAssistantDelta?.(delta);
-      const cleaned = stripVoiceAssistantMarkers(delta);
-      if (!cleaned) return;
-      enqueueUtterances(chunker.push(cleaned));
+      // Push the RAW delta so inter-word spaces (which streaming tokens carry as
+      // leading whitespace) are preserved. Sentinel markers are stripped per complete
+      // sentence below, not per delta — trimming each delta would mash words together.
+      enqueueUtterances(chunker.push(delta));
     })
     .then((responseText) => {
       enqueueUtterances(chunker.flush());
@@ -86,9 +87,12 @@ export async function runStreamingTurnPipeline(
       const utterance = await nextUtterance();
       if (!utterance) break;
 
+      const cleanedUtterance = stripVoiceAssistantMarkers(utterance);
+      if (!cleanedUtterance) continue;
+
       const preprocessed = args.preprocessForTts
-        ? await args.preprocessForTts(utterance)
-        : utterance;
+        ? await args.preprocessForTts(cleanedUtterance)
+        : cleanedUtterance;
       const ttsText = applyDeliveryToneToText(args.ttsProvider, preprocessed, args.mappedTone.tone);
 
       if (args.ttsProvider.capabilities.execution === 'client') {

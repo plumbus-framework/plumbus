@@ -42,7 +42,10 @@ export function setVoiceSessionState(
   return session;
 }
 
-export function toVoiceSessionHello(session: VoiceRuntimeSession, sttMode: 'client' | 'server' = 'server') {
+export function toVoiceSessionHello(
+  session: VoiceRuntimeSession,
+  sttMode: 'client' | 'server' = 'server',
+) {
   return createSessionHelloEvent({
     sessionId: session.id,
     transport: session.transport,

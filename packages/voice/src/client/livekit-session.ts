@@ -11,6 +11,7 @@ export interface LiveKitVoiceSessionOptions {
   voiceName: string;
   tokenUrl: string;
   authHeader?: string;
+  tokenRequestBody?: Record<string, unknown>;
   onEvent?: (event: VoiceEvent | Record<string, unknown>) => void;
   onAudioChunk?: (chunk: Uint8Array) => void;
 }
@@ -55,7 +56,7 @@ export async function createLiveKitVoiceSession(
       'content-type': 'application/json',
       ...(options.authHeader ? { authorization: options.authHeader } : {}),
     },
-    body: JSON.stringify({ voiceName: options.voiceName }),
+    body: JSON.stringify({ voiceName: options.voiceName, ...options.tokenRequestBody }),
   });
   if (!tokenResponse.ok) {
     throw new Error(`Failed to mint LiveKit voice token (${tokenResponse.status})`);
@@ -65,28 +66,127 @@ export async function createLiveKitVoiceSession(
   const agentAudioTrackName = resolveAgentAudioTrackName(body);
   const room = new livekit.Room();
   const audioCaptureCleanups = new Map<string, () => void>();
+  const attachedAudioElements = new Map<string, HTMLMediaElement>();
+  let activeAgentAudioTrackSid: string | undefined;
 
-  room.on(livekit.RoomEvent.DataReceived, (payload) => {
+  room.on(livekit.RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
     const parsed = parseLiveKitVoiceDataPayload(payload);
-    options.onEvent?.(coerceVoiceEvent(parsed));
+    const event = coerceVoiceEvent(parsed);
+    console.info('[voice-client] data event received', {
+      type: typeof event === 'object' && event !== null ? event.type : undefined,
+      topic,
+    });
+    options.onEvent?.(event);
   });
+
+  const releaseAgentAudio = (trackSid: string) => {
+    audioCaptureCleanups.get(trackSid)?.();
+    audioCaptureCleanups.delete(trackSid);
+    const element = attachedAudioElements.get(trackSid);
+    if (element) {
+      try {
+        (element as HTMLMediaElement).pause?.();
+      } catch {
+        // ignore
+      }
+      element.remove?.();
+      attachedAudioElements.delete(trackSid);
+      console.info('[voice-client] removed agent audio sink', {
+        trackSid,
+        sinkCount: attachedAudioElements.size,
+      });
+    }
+    if (activeAgentAudioTrackSid === trackSid) {
+      activeAgentAudioTrackSid = undefined;
+    }
+  };
+
+  const removeAllAgentAudioSinks = () => {
+    for (const trackSid of [...attachedAudioElements.keys()]) {
+      releaseAgentAudio(trackSid);
+    }
+    for (const cleanup of audioCaptureCleanups.values()) {
+      cleanup();
+    }
+    audioCaptureCleanups.clear();
+    activeAgentAudioTrackSid = undefined;
+  };
 
   const subscribeAgentAudio = (
     track: import('livekit-client').RemoteTrack,
     publication: import('livekit-client').RemoteTrackPublication,
   ) => {
-    if (!livekit.isAudioTrack(track) || !options.onAudioChunk) {
+    if (!livekit.isAudioTrack(track)) {
+      console.info('[voice-client] ignored non-audio track', {
+        trackName: publication.trackName,
+      });
       return;
     }
     if (!isAgentAudioPublication(publication, agentAudioTrackName)) {
+      console.info('[voice-client] ignored remote audio track', {
+        trackName: publication.trackName,
+        expectedTrackName: agentAudioTrackName,
+      });
       return;
     }
 
-    audioCaptureCleanups.get(publication.trackSid)?.();
-    audioCaptureCleanups.set(
-      publication.trackSid,
-      startRemoteAudioPcm16Capture(track, options.onAudioChunk),
-    );
+    if (
+      activeAgentAudioTrackSid === publication.trackSid &&
+      attachedAudioElements.has(publication.trackSid)
+    ) {
+      console.info('[voice-client] ignored duplicate agent audio subscription', {
+        trackSid: publication.trackSid,
+      });
+      return;
+    }
+
+    if (attachedAudioElements.size > 0) {
+      console.info('[voice-client] removing stale agent audio sinks', {
+        count: attachedAudioElements.size,
+      });
+      removeAllAgentAudioSinks();
+    }
+
+    console.info('[voice-client] subscribed to agent audio track', {
+      trackName: publication.trackName,
+      trackSid: publication.trackSid,
+    });
+
+    // Primary, reliable playback path: attach the remote track to a media
+    // element so the browser decodes and plays it directly. Web Audio capture
+    // of a remote WebRTC track is unreliable across browsers (Chrome only
+    // pumps the graph when the track is also sunk to a media element), so it
+    // must never be the sole playback path.
+    attachedAudioElements.get(publication.trackSid)?.remove?.();
+    const element = track.attach();
+    element.autoplay = true;
+    if ('muted' in element) {
+      (element as HTMLMediaElement).muted = false;
+    }
+    if (typeof document !== 'undefined' && document.body) {
+      element.style.display = 'none';
+      document.body.appendChild(element);
+    }
+    void (element as HTMLMediaElement).play?.()?.catch?.(() => {
+      // Autoplay can be blocked until the next user gesture; the toggle click
+      // that starts the session normally satisfies the gesture requirement.
+    });
+    attachedAudioElements.set(publication.trackSid, element);
+    activeAgentAudioTrackSid = publication.trackSid;
+    console.info('[voice-client] agent audio sink attached', {
+      trackSid: publication.trackSid,
+      sinkCount: attachedAudioElements.size,
+    });
+
+    // Optional, best-effort PCM hook (e.g. waveform visualization). Never the
+    // audible playback path — the capture graph stays muted.
+    if (options.onAudioChunk) {
+      audioCaptureCleanups.get(publication.trackSid)?.();
+      audioCaptureCleanups.set(
+        publication.trackSid,
+        startRemoteAudioPcm16Capture(track, options.onAudioChunk),
+      );
+    }
   };
 
   const scanExistingAgentTracks = () => {
@@ -103,12 +203,17 @@ export async function createLiveKitVoiceSession(
     subscribeAgentAudio(track, publication);
   });
 
+  room.on(livekit.RoomEvent.TrackUnsubscribed, (_track, publication) => {
+    releaseAgentAudio(publication.trackSid);
+  });
+
   return {
     async connect() {
+      removeAllAgentAudioSinks();
       await room.connect(body.url, body.token);
       await room.localParticipant.setMicrophoneEnabled(true, {
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: false,
         autoGainControl: true,
       });
       scanExistingAgentTracks();
@@ -118,10 +223,7 @@ export async function createLiveKitVoiceSession(
       await room.localParticipant.publishData(encoded, { reliable: true });
     },
     async disconnect() {
-      for (const cleanup of audioCaptureCleanups.values()) {
-        cleanup();
-      }
-      audioCaptureCleanups.clear();
+      removeAllAgentAudioSinks();
       await room.disconnect();
     },
     ptt: {
@@ -148,7 +250,12 @@ function startRemoteAudioPcm16Capture(
   silentGain.gain.value = 0;
 
   processor.onaudioprocess = (event) => {
-    onChunk(normalizeBrowserCapturedPcm16(event.inputBuffer.getChannelData(0), event.inputBuffer.sampleRate));
+    onChunk(
+      normalizeBrowserCapturedPcm16(
+        event.inputBuffer.getChannelData(0),
+        event.inputBuffer.sampleRate,
+      ),
+    );
   };
 
   source.connect(processor);

@@ -18,9 +18,7 @@ export interface TransportProviderMintSessionArgs {
 export interface TransportProvider {
   mintSession(args: TransportProviderMintSessionArgs): Promise<TransportProviderSession>;
   publishAudio?(audio: Uint8Array): Promise<void> | void;
-  subscribeRemote?(
-    onAudio: (audio: Uint8Array) => Promise<void> | void,
-  ): Promise<void> | void;
+  subscribeRemote?(onAudio: (audio: Uint8Array) => Promise<void> | void): Promise<void> | void;
   sendData?(payload: unknown): Promise<void> | void;
   disconnect?(): Promise<void> | void;
 }

@@ -61,7 +61,7 @@ describe('plumbus ui helpers', () => {
 
   it('generates a Next.js scaffold with generated modules', () => {
     const files = generateNextjsAppFiles(
-      'MemoirAI',
+      'AcmeApp',
       [mockCapability()],
       [mockFlow()],
       mockUiGenerators(),

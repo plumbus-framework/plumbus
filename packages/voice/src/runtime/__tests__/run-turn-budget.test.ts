@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { createTestContext, mockAI } from '@plumbus/core/testing';
+import { describe, expect, it, vi } from 'vitest';
 import { defineVoice } from '../../define/defineVoice.js';
 import {
   createMockSTTProvider,
@@ -27,7 +27,11 @@ describe('runVoiceTurn budget pre-check', () => {
       transport: { provider: 'mock-transport' },
       stt: { provider: 'mock-stt' },
       tts: { provider: 'mock-tts' },
-      brain: { async run() { return { text: 'should not run' }; } },
+      brain: {
+        async run() {
+          return { text: 'should not run' };
+        },
+      },
     });
 
     const sttProvider = createMockSTTProvider({
@@ -56,7 +60,7 @@ describe('runVoiceTurn budget pre-check', () => {
     expect(events.some((event) => event.type === 'turn.completed')).toBe(false);
   });
 
-  it('proceeds with STT connect when budget pre-check passes', async () => {
+  it('proceeds with the turn when the budget pre-check passes', async () => {
     let connected = false;
     const checkProviderCostBudget = vi.fn();
     const ai = {
@@ -72,7 +76,11 @@ describe('runVoiceTurn budget pre-check', () => {
       transport: { provider: 'mock-transport' },
       stt: { provider: 'mock-stt' },
       tts: { provider: 'mock-tts' },
-      brain: { async run() { return { text: 'Hello there' }; } },
+      brain: {
+        async run() {
+          return { text: 'Hello there' };
+        },
+      },
     });
 
     const sttProvider = createMockSTTProvider({
@@ -94,7 +102,9 @@ describe('runVoiceTurn budget pre-check', () => {
     }
 
     expect(checkProviderCostBudget).toHaveBeenCalled();
-    expect(connected).toBe(true);
+    // A caller-supplied transcript must NOT reconnect the (shared) STT provider —
+    // reconnecting would clobber a session controller's onTranscript/onEndpoint.
+    expect(connected).toBe(false);
     expect(events.some((event) => event.type === 'turn.completed')).toBe(true);
   });
 });

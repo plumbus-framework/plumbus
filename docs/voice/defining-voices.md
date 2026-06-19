@@ -65,6 +65,13 @@ Two hooks shape delivery without leaking provider-specific knobs into app code:
 
 The runtime resolves the tone once, then each TTS adapter maps it through `mapDeliveryTone(...)`.
 
+`DeliveryTone` carries the delivery axes (`pace`, `warmth`, `energy`, `emotion`) plus an
+optional `targetGender`. Returning a `targetGender` from `resolveTone` lets an app drive the
+synthesized voice gender per turn — e.g. reading an already-detected subject gender from
+`ctx` and returning `{ profile, targetGender }`. Adapters that support a gender control
+(Deepdub) prefer this per-turn value over their statically configured voice option and fall
+back to the static option when it is absent; adapters without a gender control ignore it.
+
 ## `preprocessForTts`
 
 Use `preprocessForTts(text, ctx)` for last-mile normalization before synthesis, for example:

@@ -9,13 +9,43 @@ import {
   parseAudioFormatSpec,
   type AudioFormatSpec,
 } from './audio-resampler.js';
+import {
+  assessHearingRepairNeeded,
+  speakDirectUtterance,
+  type HearingRepairReason,
+} from './hearing-repair.js';
+import {
+  applyPcm16InputGain,
+  analyzePcm16Levels,
+  resolvePcm16InputGainOptions,
+} from './pcm-input-gain.js';
 import { runVoiceTurn } from './run-turn.js';
-import { createVoiceRuntimeSession, setVoiceSessionState, toVoiceSessionHello, type VoiceRuntimeSession } from './session.js';
+import {
+  createVoiceRuntimeSession,
+  setVoiceSessionState,
+  toVoiceSessionHello,
+  type VoiceRuntimeSession,
+} from './session.js';
 import type { VoiceDefinition } from '../types/voice.js';
 import type { VoiceEvent } from '../types/event.js';
 import { createAgentStateEvent } from './events.js';
 
 export type SttMode = 'client' | 'server';
+
+/** Peak dBFS above which incoming mic audio counts as real speech energy. */
+const SPEECH_ENERGY_PEAK_DB = -45;
+
+/**
+ * Failsafe silence (ms) after the last transcript before a server-STT turn fires,
+ * used only if the provider never emits an endpoint. Kept longer than Soniox's
+ * `max_endpoint_delay_ms` so the real endpoint signal wins in normal operation.
+ */
+const DEFAULT_SERVER_SILENCE_MS = 4000;
+
+/** Remove Soniox control markers (`<end>`, `<fin>`) from transcript text (defensive). */
+function stripEndpointMarkers(text: string): string {
+  return text.replace(/<end>|<fin>/gi, '');
+}
 
 export function resolveSttMode(voice: VoiceDefinition): SttMode {
   return voice.stt.provider === 'web-speech' ? 'client' : 'server';
@@ -47,10 +77,17 @@ export class VoiceSessionController {
   readonly continuousMode: boolean;
   #turnCount = 0;
   #turnInFlight = false;
+  #repairInFlight = false;
   #pendingTranscript: string | undefined;
   #pendingLanguage: string | undefined;
+  #pendingConfidence: number | undefined;
+  #serverTurnTimer?: ReturnType<typeof setTimeout>;
   #listening = false;
   #sttConnected = false;
+  #firstAudioLogged = false;
+  #firstSpeechLevelLogged = false;
+  #lowLevelWarningLogged = false;
+  #hadSpeechEnergyInWindow = false;
   #turnAbort?: AbortController;
 
   constructor(private readonly options: VoiceSessionControllerOptions) {
@@ -88,21 +125,32 @@ export class VoiceSessionController {
   }
 
   async #handleEndpoint(): Promise<void> {
-    if (!this.continuousMode || this.#turnInFlight) {
-      return;
-    }
-    if (!this.#pendingTranscript?.trim()) {
-      return;
-    }
-    await this.runTurn();
+    // An explicit end-of-speech signal from the provider triggers the turn
+    // immediately; the silence-debounce in #handleServerStreamingTranscript is the
+    // fallback for providers/configs that do not emit one.
+    await this.#triggerServerTurn('endpoint');
+  }
+
+  #resetListeningWindow(): void {
+    this.#hadSpeechEnergyInWindow = false;
   }
 
   async #handleServerTranscript(event: STTProviderTranscriptEvent): Promise<void> {
     this.options.onActivity?.();
 
+    if (this.sttMode === 'server') {
+      await this.#handleServerStreamingTranscript(event);
+      return;
+    }
+
+    await this.#handleClientContinuousTranscript(event);
+  }
+
+  async #handleClientContinuousTranscript(event: STTProviderTranscriptEvent): Promise<void> {
     if (event.final) {
       this.#pendingTranscript = event.text;
       this.#pendingLanguage = event.language;
+      this.#pendingConfidence = event.confidence;
       const charCheck = this.options.budget?.check({ sttCharacters: event.text.length });
       if (charCheck && !charCheck.allowed) {
         await this.options.onEvent({
@@ -120,7 +168,22 @@ export class VoiceSessionController {
         confidence: event.confidence,
       });
 
-      if (this.continuousMode && !this.#turnInFlight) {
+      if (this.continuousMode && !this.#turnInFlight && !this.#repairInFlight) {
+        const repair = this.#assessRepair({
+          transcript: event.text,
+          confidence: event.confidence,
+          language: event.language,
+          trigger: 'final',
+        });
+        if (repair.needed && repair.prompt) {
+          this.#pendingTranscript = undefined;
+          this.#pendingLanguage = undefined;
+          this.#pendingConfidence = undefined;
+          this.#resetListeningWindow();
+          await this.#runHearingRepair(repair.reason ?? 'uncertain_name', repair.prompt);
+          return;
+        }
+        this.#resetListeningWindow();
         await this.runTurn();
       }
       return;
@@ -144,10 +207,122 @@ export class VoiceSessionController {
     });
   }
 
+  /**
+   * Server STT (the @soniox/node SDK) emits a clean transcript per utterance and a
+   * reliable `endpoint` event at end-of-speech. We keep the latest utterance text as
+   * the pending transcript and trigger the turn on the endpoint (see #handleEndpoint),
+   * with a long silence failsafe in case an endpoint is ever missed.
+   */
+  async #handleServerStreamingTranscript(event: STTProviderTranscriptEvent): Promise<void> {
+    const text = stripEndpointMarkers(typeof event.text === 'string' ? event.text : '').trim();
+    this.#pendingLanguage = event.language;
+    this.#pendingConfidence = event.confidence;
+
+    if (text.length > 0) {
+      const charCheck = this.options.budget?.check({ sttCharacters: text.length });
+      if (charCheck && !charCheck.allowed) {
+        await this.options.onEvent({
+          type: 'error',
+          code: 'voice.session_budget_exceeded',
+          message: charCheck.reason ?? 'Voice session budget exceeded',
+        });
+        return;
+      }
+      this.#pendingTranscript = text;
+      await this.options.onEvent({
+        type: event.final ? 'stt.final' : 'stt.partial',
+        text,
+        language: event.language,
+        confidence: event.confidence,
+      });
+    }
+
+    this.#scheduleServerTurn();
+  }
+
+  #serverSilenceMs(): number {
+    const configured = this.options.voice.stt.options?.endpointSilenceMs;
+    return typeof configured === 'number' && configured > 0
+      ? configured
+      : DEFAULT_SERVER_SILENCE_MS;
+  }
+
+  #clearServerTurnTimer(): void {
+    if (this.#serverTurnTimer) {
+      clearTimeout(this.#serverTurnTimer);
+      this.#serverTurnTimer = undefined;
+    }
+  }
+
+  #scheduleServerTurn(): void {
+    this.#clearServerTurnTimer();
+    const timer = setTimeout(() => {
+      this.#serverTurnTimer = undefined;
+      void this.#triggerServerTurn('silence');
+    }, this.#serverSilenceMs());
+    timer.unref?.();
+    this.#serverTurnTimer = timer;
+  }
+
+  async #triggerServerTurn(source: 'endpoint' | 'silence'): Promise<void> {
+    this.#clearServerTurnTimer();
+    if (!this.continuousMode || this.#turnInFlight || this.#repairInFlight) {
+      return;
+    }
+
+    const utterance = (this.#pendingTranscript ?? '').trim();
+    if (!utterance) {
+      const repair = this.#assessRepair({
+        transcript: '',
+        trigger: 'endpoint',
+        hadSpeechEnergy: this.#hadSpeechEnergyInWindow,
+      });
+      this.#resetListeningWindow();
+      if (repair.needed && repair.prompt) {
+        await this.#runHearingRepair(repair.reason ?? 'empty', repair.prompt);
+      }
+      return;
+    }
+
+    const repair = this.#assessRepair({
+      transcript: utterance,
+      confidence: this.#pendingConfidence,
+      language: this.#pendingLanguage,
+      trigger: 'endpoint',
+    });
+    if (repair.needed && repair.prompt) {
+      this.#pendingTranscript = undefined;
+      this.#pendingLanguage = undefined;
+      this.#pendingConfidence = undefined;
+      this.#resetListeningWindow();
+      await this.#runHearingRepair(repair.reason ?? 'uncertain_name', repair.prompt);
+      return;
+    }
+
+    this.options.budget?.record({ sttCharacters: utterance.length });
+    this.#pendingTranscript = utterance;
+    this.#resetListeningWindow();
+    console.info('[voice-session] turn trigger', {
+      source,
+      sessionId: this.session.id,
+      turn: this.#turnCount + 1,
+      chars: utterance.length,
+    });
+    await this.runTurn();
+  }
+
   async handleAudioChunk(chunk: Uint8Array, contentType?: string): Promise<void> {
     this.options.onActivity?.();
     if (this.sttMode === 'client') {
       return;
+    }
+
+    if (!this.#firstAudioLogged) {
+      this.#firstAudioLogged = true;
+      console.info('[voice-session] first audio chunk received', {
+        sessionId: this.session.id,
+        bytes: chunk.byteLength,
+      });
     }
 
     await this.#ensureServerSttConnected();
@@ -166,7 +341,37 @@ export class VoiceSessionController {
       { ...targetFormat, format: 'pcm16' },
     );
 
-    const seconds = normalized.data.byteLength / (2 * normalized.channels * normalized.sampleRate);
+    const gainOptions = resolvePcm16InputGainOptions(this.options.voice.stt.options);
+    const inputLevels = analyzePcm16Levels(normalized.data);
+    const hasSpeechEnergy =
+      Number.isFinite(inputLevels.peakDb) && inputLevels.peakDb > SPEECH_ENERGY_PEAK_DB;
+    if (hasSpeechEnergy) {
+      this.#hadSpeechEnergyInWindow = true;
+      if (!this.#firstSpeechLevelLogged) {
+        this.#firstSpeechLevelLogged = true;
+        console.info('[voice-session] first speech-energy audio level', {
+          sessionId: this.session.id,
+          peakDb: roundDb(inputLevels.peakDb),
+          rmsDb: roundDb(inputLevels.rmsDb),
+        });
+      }
+    } else if (!this.#lowLevelWarningLogged && Number.isFinite(inputLevels.peakDb)) {
+      this.#lowLevelWarningLogged = true;
+      console.warn('[voice-session] low input audio level (no speech energy detected yet)', {
+        sessionId: this.session.id,
+        peakDb: roundDb(inputLevels.peakDb),
+        rmsDb: roundDb(inputLevels.rmsDb),
+      });
+    }
+
+    const gained =
+      gainOptions.enableInputNormalization || (gainOptions.inputGainDb ?? 0) > 0
+        ? applyPcm16InputGain(normalized.data, gainOptions)
+        : { data: normalized.data, stats: inputLevels, appliedGainDb: 0 };
+
+    const sttChunk = gained.data;
+
+    const seconds = sttChunk.byteLength / (2 * normalized.channels * normalized.sampleRate);
     const budgetCheck = this.options.budget?.check({ audioInputSeconds: seconds });
     if (budgetCheck && !budgetCheck.allowed) {
       await this.options.onEvent({
@@ -179,9 +384,70 @@ export class VoiceSessionController {
     this.options.budget?.record({ audioInputSeconds: seconds });
 
     await this.options.sttProvider.sendAudio?.({
-      chunk: normalized.data,
+      chunk: sttChunk,
       contentType: `pcm16;rate=${normalized.sampleRate};channels=${normalized.channels}`,
     });
+  }
+
+  #assessRepair(args: {
+    transcript?: string;
+    confidence?: number;
+    language?: string;
+    trigger?: 'endpoint' | 'final';
+    hadSpeechEnergy?: boolean;
+  }) {
+    const sttOptions = this.options.voice.stt.options;
+    const lowConfidenceThreshold =
+      typeof sttOptions?.lowConfidenceThreshold === 'number'
+        ? sttOptions.lowConfidenceThreshold
+        : undefined;
+    return assessHearingRepairNeeded({
+      transcript: args.transcript,
+      confidence: args.confidence,
+      language: args.language ?? this.#getSessionLanguage(),
+      lowConfidenceThreshold,
+      trigger: args.trigger,
+      hadSpeechEnergy: args.hadSpeechEnergy,
+    });
+  }
+
+  #getSessionLanguage(): string | undefined {
+    const language = this.options.brainInput?.language;
+    return typeof language === 'string' ? language : undefined;
+  }
+
+  async #runHearingRepair(reason: HearingRepairReason, prompt: string): Promise<void> {
+    if (this.#repairInFlight || this.#turnInFlight) {
+      return;
+    }
+
+    this.#repairInFlight = true;
+    this.#listening = false;
+    console.info('[voice-session] hearing repair', {
+      sessionId: this.session.id,
+      reason,
+      promptLength: prompt.length,
+    });
+
+    try {
+      setVoiceSessionState(this.session, 'Synthesizing');
+      await this.options.onEvent(createAgentStateEvent('Synthesizing'));
+      await speakDirectUtterance({
+        text: prompt,
+        ttsProvider: this.options.ttsProvider,
+        transportProvider: this.options.transportProvider,
+        onEvent: this.options.onEvent,
+        onAudioChunk: this.options.onAudioChunk,
+        abortSignal: this.#turnAbort?.signal,
+      });
+    } finally {
+      this.#repairInFlight = false;
+      if (this.continuousMode) {
+        setVoiceSessionState(this.session, 'Listening');
+        this.#listening = true;
+        await this.options.onEvent(createAgentStateEvent('Listening'));
+      }
+    }
   }
 
   async handleControlMessage(payload: Record<string, unknown>): Promise<void> {
@@ -202,15 +468,15 @@ export class VoiceSessionController {
     if (type === 'stt.final') {
       const text = typeof payload.text === 'string' ? payload.text : '';
       this.#pendingTranscript = text;
-      this.#pendingLanguage =
-        typeof payload.language === 'string' ? payload.language : undefined;
+      this.#pendingLanguage = typeof payload.language === 'string' ? payload.language : undefined;
+      this.#pendingConfidence =
+        typeof payload.confidence === 'number' ? payload.confidence : undefined;
       if (this.options.voice.stt.provider === 'web-speech') {
         await this.options.sttProvider.onClientTranscript?.({
           text,
           final: true,
           language: this.#pendingLanguage,
-          confidence:
-            typeof payload.confidence === 'number' ? payload.confidence : undefined,
+          confidence: typeof payload.confidence === 'number' ? payload.confidence : undefined,
         });
       }
       await this.#handleServerTranscript({
@@ -270,11 +536,11 @@ export class VoiceSessionController {
     const pendingLanguage = this.#pendingLanguage;
     this.#pendingTranscript = undefined;
     this.#pendingLanguage = undefined;
+    this.#pendingConfidence = undefined;
 
     try {
       const language =
-        pendingLanguage ??
-        (typeof payload.language === 'string' ? payload.language : undefined);
+        pendingLanguage ?? (typeof payload.language === 'string' ? payload.language : undefined);
       const input =
         typeof payload.input === 'object' && payload.input !== null
           ? (payload.input as Record<string, unknown>)
@@ -328,6 +594,7 @@ export class VoiceSessionController {
   }
 
   async dispose(): Promise<void> {
+    this.#clearServerTurnTimer();
     this.#turnAbort?.abort();
     await this.options.sttProvider.disconnect?.();
     await this.options.ttsProvider.flush?.();
@@ -344,4 +611,11 @@ export class VoiceSessionController {
     });
     await this.options.onEvent(createAgentStateEvent('Idle'));
   }
+}
+
+function roundDb(value: number): number {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  return Math.round(value * 10) / 10;
 }

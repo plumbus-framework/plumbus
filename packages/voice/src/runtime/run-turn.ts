@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { TransportProvider } from '../providers/base/transport-provider.js';
 import type { STTProvider } from '../providers/base/stt-provider.js';
 import type { TTSProvider } from '../providers/base/tts-provider.js';
@@ -67,30 +68,38 @@ export async function* runVoiceTurn(
     });
     ctx.ai.checkProviderCostBudget({ estimatedCostUsd: budgetEstimate.estimatedCostUsd });
 
-    await sttProvider.connect?.({
-      sessionId: args.sessionId,
-      signal: args.abortSignal,
-      onTranscript: async (event) => {
-        if (event.final) {
+    const hasSuppliedTranscript = Boolean(args.transcript && args.transcript.trim().length > 0);
+
+    // Only (re)connect the STT provider when we still need to finalize server-side
+    // audio ourselves. When the caller already supplied a transcript (e.g. the voice
+    // session controller in continuous mode), reconnecting here would overwrite the
+    // controller's onTranscript/onEndpoint callbacks on a shared provider and break
+    // every turn after the first.
+    if (!hasSuppliedTranscript) {
+      await sttProvider.connect?.({
+        sessionId: args.sessionId,
+        signal: args.abortSignal,
+        onTranscript: async (event) => {
+          if (event.final) {
+            await args.onEvent?.({
+              type: 'stt.final',
+              text: event.text,
+              language: event.language,
+              confidence: event.confidence,
+            });
+            return;
+          }
           await args.onEvent?.({
-            type: 'stt.final',
+            type: 'stt.partial',
             text: event.text,
             language: event.language,
             confidence: event.confidence,
           });
-          return;
-        }
-        await args.onEvent?.({
-          type: 'stt.partial',
-          text: event.text,
-          language: event.language,
-          confidence: event.confidence,
-        });
-      },
-    });
+        },
+      });
+    }
 
-    const finalizedTranscript =
-      args.transcript && args.transcript.trim().length > 0 ? undefined : await sttProvider.finalize?.();
+    const finalizedTranscript = hasSuppliedTranscript ? undefined : await sttProvider.finalize?.();
     const transcriptText = finalizedTranscript?.text ?? args.transcript ?? '';
     const transcriptLanguage = finalizedTranscript?.language ?? args.language;
     const transcriptSource =
@@ -271,6 +280,7 @@ async function runBrainWithDeltas(
   transcript: { text: string; language?: string },
   onDelta: (delta: string) => void,
 ): Promise<string> {
+  let deltaEmitted = false;
   const brainResult = await voice.brain.run(ctx, {
     transcript: transcript.text,
     language: transcript.language,
@@ -279,6 +289,7 @@ async function runBrainWithDeltas(
     signal: args.abortSignal,
     onAssistantDelta(delta: string) {
       if (!delta || args.abortSignal?.aborted) return;
+      deltaEmitted = true;
       void onDelta(delta);
     },
   });
@@ -289,6 +300,7 @@ async function runBrainWithDeltas(
       if (args.abortSignal?.aborted) break;
       if (typeof chunk === 'string' && chunk.length > 0) {
         streamed += chunk;
+        deltaEmitted = true;
         await onDelta(chunk);
       }
     }
@@ -297,7 +309,9 @@ async function runBrainWithDeltas(
 
   const extracted = extractAssistantText(brainResult);
   if (extracted) {
-    await onDelta(extracted);
+    if (!deltaEmitted) {
+      await onDelta(extracted);
+    }
     return extracted;
   }
   return '';
@@ -393,7 +407,8 @@ function requireProvider<T>(
   providerId: string,
 ): T {
   if (!provider) {
-    throw new Error(
+    throw new PlumbusError(
+      ErrorCode.NotFound,
       `Missing ${kind} provider "${providerId}" — inject a real provider via create${kind === 'stt' ? 'STT' : kind === 'tts' ? 'TTS' : 'Transport'}Provider()`,
     );
   }

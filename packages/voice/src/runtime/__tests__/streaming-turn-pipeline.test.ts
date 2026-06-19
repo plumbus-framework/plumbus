@@ -13,7 +13,11 @@ describe('streaming turn pipeline', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'mock-stt' },
       tts: { provider: 'mock-tts' },
-      brain: { async run() { return { text: 'unused' }; } },
+      brain: {
+        async run() {
+          return { text: 'unused' };
+        },
+      },
     });
 
     const ttsProvider = createMockTTSProvider({
@@ -42,5 +46,90 @@ describe('streaming turn pipeline', () => {
 
     expect(result.responseText).toContain('First sentence');
     expect(events.some((entry) => entry.startsWith('tts:'))).toBe(true);
+  });
+
+  it('preserves inter-word spaces from streaming deltas (does not mash words)', async () => {
+    const ttsTexts: string[] = [];
+    const voice = defineVoice({
+      name: 'spaceVoice',
+      access: {},
+      transport: { provider: 'websocket' },
+      stt: { provider: 'mock-stt' },
+      tts: { provider: 'mock-tts' },
+      brain: {
+        async run() {
+          return { text: 'unused' };
+        },
+      },
+    });
+
+    const ttsProvider = createMockTTSProvider({
+      async *synthesizeStream(text: string) {
+        ttsTexts.push(text);
+        yield Uint8Array.from([1]);
+      },
+    });
+
+    await runStreamingTurnPipeline({
+      ctx: createTestContext(),
+      voice,
+      sessionId: 'session-spaces',
+      transcriptText: 'hi',
+      ttsProvider,
+      transportProvider: createMockTransportProvider(),
+      mappedTone: { tone: undefined, providerParams: {} },
+      // Mimic OpenAI streaming: tokens carry leading spaces as word boundaries.
+      runBrain: async (onDelta) => {
+        for (const token of ['כן', ',', ' שומעים', ' אותך', '.']) {
+          await onDelta(token);
+        }
+        return 'כן, שומעים אותך.';
+      },
+    });
+
+    const spoken = ttsTexts.join(' ');
+    expect(spoken).toContain('שומעים אותך');
+    expect(spoken).not.toContain('שומעיםאותך');
+  });
+
+  it('strips sentinel markers at the sentence level', async () => {
+    const ttsTexts: string[] = [];
+    const voice = defineVoice({
+      name: 'markerVoice',
+      access: {},
+      transport: { provider: 'websocket' },
+      stt: { provider: 'mock-stt' },
+      tts: { provider: 'mock-tts' },
+      brain: {
+        async run() {
+          return { text: 'unused' };
+        },
+      },
+    });
+
+    const ttsProvider = createMockTTSProvider({
+      async *synthesizeStream(text: string) {
+        ttsTexts.push(text);
+        yield Uint8Array.from([1]);
+      },
+    });
+
+    await runStreamingTurnPipeline({
+      ctx: createTestContext(),
+      voice,
+      sessionId: 'session-markers',
+      transcriptText: 'hi',
+      ttsProvider,
+      transportProvider: createMockTransportProvider(),
+      mappedTone: { tone: undefined, providerParams: {} },
+      runBrain: async (onDelta) => {
+        await onDelta('Goodbye now. [END_SESSION]');
+        return 'Goodbye now. [END_SESSION]';
+      },
+    });
+
+    const spoken = ttsTexts.join(' ');
+    expect(spoken).toContain('Goodbye now.');
+    expect(spoken).not.toContain('[END_SESSION]');
   });
 });

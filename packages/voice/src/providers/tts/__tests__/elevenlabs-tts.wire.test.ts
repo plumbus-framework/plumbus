@@ -53,7 +53,10 @@ describe('ElevenLabs TTS wire protocol', () => {
       emotion: 'sad',
     });
     const chunks: Uint8Array[] = [];
-    for await (const chunk of provider.synthesizeStream!(text ?? 'Shalom', provider.mapDeliveryTone({}))) {
+    for await (const chunk of provider.synthesizeStream(
+      text ?? 'Shalom',
+      provider.mapDeliveryTone({}),
+    )) {
       chunks.push(chunk);
     }
 

@@ -3,7 +3,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createProviderRegistry } from '../../providers/registry.js';
-import { createSTTProvider, createTransportProvider, createTTSProvider } from '../../providers/factory.js';
+import {
+  createSTTProvider,
+  createTransportProvider,
+  createTTSProvider,
+} from '../../providers/factory.js';
 
 const live = process.env.VOICE_LIVE_TEST === '1';
 const fixtures: Array<{ close(): Promise<void> }> = [];
@@ -106,7 +110,8 @@ describe.runIf(live)('voice live integration', () => {
     });
 
     const chunks: Uint8Array[] = [];
-    for await (const chunk of provider.synthesizeStream?.('shalom', provider.mapDeliveryTone({})) ?? []) {
+    for await (const chunk of provider.synthesizeStream?.('shalom', provider.mapDeliveryTone({})) ??
+      []) {
       chunks.push(chunk);
     }
     expect(chunks.length).toBeGreaterThan(0);

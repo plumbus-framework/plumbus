@@ -1,9 +1,12 @@
 import {
   createExecutionContext,
   evaluateAccess,
+  ErrorCode,
+  PlumbusError,
   type ExecutionContext,
   type RouteGeneratorConfig,
 } from '@plumbus/core';
+import { z } from '@plumbus/core/zod';
 import websocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
@@ -16,13 +19,13 @@ import {
   createTTSProvider,
   createTransportProvider,
 } from '../providers/factory.js';
-import {
+import type {
   WebSocketTransportProvider,
-  type AttachWebSocketTransportArgs,
+  AttachWebSocketTransportArgs,
 } from '../providers/transport/websocket-transport.js';
-import {
+import type {
   LiveKitTransportProvider,
-  type LiveKitSessionMetadata,
+  LiveKitSessionMetadata,
 } from '../providers/transport/livekit-transport.js';
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from '../security/session-token.js';
 import { checkWebSocketOrigin } from '../security/ws-origin.js';
@@ -30,11 +33,38 @@ import type { RegisterVoiceRoutesOpts, VoiceBeforeSessionResult } from '../types
 import type { VoiceDefinition } from '../types/voice.js';
 import { registerVoiceCatalogRoutes } from './http-catalog.js';
 import { createVoiceSessionBudget } from '../cost/session-budget.js';
-import {
-  resolveSttMode,
-  VoiceSessionController,
-} from './voice-session-controller.js';
+import { resolveSttMode, VoiceSessionController } from './voice-session-controller.js';
 import { createVoiceSessionLifecycle } from './session-lifecycle.js';
+
+const voiceSessionBodySchema = z
+  .object({
+    voiceName: z.string().optional(),
+  })
+  .passthrough();
+
+function parseVoiceSessionBody(
+  body: unknown,
+): Record<string, unknown> | { error: { status: number; body: unknown } } {
+  const parsed = voiceSessionBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          error: 'voice.invalid_request_body',
+          issues: parsed.error.issues,
+        },
+      },
+    };
+  }
+  return parsed.data;
+}
+
+function isParsedBodyError(
+  parsedBody: Record<string, unknown> | { error: { status: number; body: unknown } },
+): parsedBody is { error: { status: number; body: unknown } } {
+  return 'error' in parsedBody;
+}
 
 function isBeforeSessionError(
   before: VoiceBeforeSessionResult | undefined,
@@ -57,6 +87,14 @@ export function registerVoiceRoutes(
   voices: VoiceDefinition[],
   opts: RegisterVoiceRoutesOpts,
 ): void {
+  const needsWebsocketPlugin = voices.some((voice) => voice.transport.provider === 'websocket');
+  const canNestRegister = typeof app.register === 'function';
+
+  if (!needsWebsocketPlugin || !canNestRegister) {
+    registerVoiceRoutesOnApp(app, routeConfig, voices, opts);
+    return;
+  }
+
   void app.register(async (voiceApp) => {
     await voiceApp.register(websocket);
     registerVoiceRoutesOnApp(voiceApp, routeConfig, voices, opts);
@@ -85,7 +123,11 @@ function registerVoiceRoutesOnApp(
       }
 
       const { ctx, auth } = authResult;
-      const before = await opts.beforeSession?.(ctx, voice, req.body);
+      const parsedBody = parseVoiceSessionBody(req.body ?? {});
+      if (isParsedBodyError(parsedBody)) {
+        return reply.status(parsedBody.error.status).send(parsedBody.error.body);
+      }
+      const before = await opts.beforeSession?.(ctx, voice, parsedBody);
       if (isBeforeSessionError(before)) {
         return reply.status(before.error.status).send(before.error.body);
       }
@@ -147,7 +189,11 @@ function registerVoiceRoutesOnApp(
       }
 
       const { ctx, auth } = authResult;
-      const before = await opts.beforeSession?.(ctx, voice, req.body);
+      const parsedBody = parseVoiceSessionBody(req.body ?? {});
+      if (isParsedBodyError(parsedBody)) {
+        return reply.status(parsedBody.error.status).send(parsedBody.error.body);
+      }
+      const before = await opts.beforeSession?.(ctx, voice, parsedBody);
       if (isBeforeSessionError(before)) {
         return reply.status(before.error.status).send(before.error.body);
       }
@@ -249,19 +295,15 @@ function registerVoiceRoutesOnApp(
       });
     }
 
-    app.get(
-      `/api/voice/${voiceName}/stream`,
-      { websocket: true },
-      (socket, req) => {
-        void handleVoiceWebSocket(socket, req, {
-          voice,
-          voiceName,
-          routeConfig,
-          opts,
-          registry,
-        });
-      },
-    );
+    app.get(`/api/voice/${voiceName}/stream`, { websocket: true }, (socket, req) => {
+      void handleVoiceWebSocket(socket, req, {
+        voice,
+        voiceName,
+        routeConfig,
+        opts,
+        registry,
+      });
+    });
   }
 
   void byName;
@@ -367,8 +409,7 @@ async function handleVoiceWebSocket(
       args.opts.sessionLifecycle?.maxSessionDurationSeconds ??
       args.opts.sessionBudget?.maxSessionDurationSeconds,
     idleTimeoutSeconds:
-      args.opts.sessionLifecycle?.idleTimeoutSeconds ??
-      args.opts.sessionBudget?.idleTimeoutSeconds,
+      args.opts.sessionLifecycle?.idleTimeoutSeconds ?? args.opts.sessionBudget?.idleTimeoutSeconds,
     onIdleTimeout: async () => {
       lifecycle.stop();
       await controller.notifyTransportLost('Voice session idle timeout exceeded');
@@ -463,7 +504,11 @@ async function authenticateVoiceRequest(
   cookieNames: string[],
   voice: VoiceDefinition,
 ): Promise<
-  | { ok: true; ctx: ExecutionContext; auth: NonNullable<Awaited<ReturnType<RouteGeneratorConfig['authAdapter']['authenticate']>>> }
+  | {
+      ok: true;
+      ctx: ExecutionContext;
+      auth: NonNullable<Awaited<ReturnType<RouteGeneratorConfig['authAdapter']['authenticate']>>>;
+    }
   | { ok: false; status: number; body: unknown }
 > {
   const token = resolveAuthToken(req, cookieNames);
@@ -522,7 +567,8 @@ function resolveSessionTokenSecret(
     return fromConfig;
   }
 
-  throw new Error(
+  throw new PlumbusError(
+    ErrorCode.DependencyViolation,
     'Voice session token secret is required — set RegisterVoiceRoutesOpts.sessionTokenSecret or ctx.config.voiceSessionTokenSecret',
   );
 }

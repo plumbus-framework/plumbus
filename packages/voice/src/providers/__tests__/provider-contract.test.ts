@@ -89,7 +89,9 @@ describe('built-in provider contracts', () => {
     expect(provider.capabilities.kind).toBe('tts');
     expect(provider.capabilities.execution).toBe(execution);
     expect(mapped).toBeTruthy();
-    expect(typeof provider.synthesizeStream).toBe(execution === 'client' ? 'undefined' : 'function');
+    expect(typeof provider.synthesizeStream).toBe(
+      execution === 'client' ? 'undefined' : 'function',
+    );
     expect(Array.isArray(provider.usage?.())).toBe(true);
   });
 
@@ -107,11 +109,13 @@ describe('built-in provider contracts', () => {
 
     expect(provider.capabilities.deliveryMode).toBe('inline-text-tags');
     expect(provider.capabilities.streaming).toBe(false);
-    expect(provider.applyDeliveryToText?.('Shalom', {
-      pace: 'slow',
-      energy: 'low',
-      emotion: 'sad',
-    })).toContain('[sad]');
+    expect(
+      provider.applyDeliveryToText?.('Shalom', {
+        pace: 'slow',
+        energy: 'low',
+        emotion: 'sad',
+      }),
+    ).toContain('[sad]');
   });
 
   it('uses native params for ElevenLabs flash models', () => {

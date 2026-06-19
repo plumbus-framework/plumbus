@@ -6,7 +6,11 @@ import { createTestContext } from '@plumbus/core/testing';
 import { defineVoice } from '../../define/defineVoice.js';
 import { createProviderRegistry } from '../../providers/registry.js';
 import { registerVoiceRoutes } from '../http.js';
-import { createMockSTTProvider, createMockTTSProvider, pcmSampleFrames } from '../../testing/index.js';
+import {
+  createMockSTTProvider,
+  createMockTTSProvider,
+  pcmSampleFrames,
+} from '../../testing/index.js';
 
 describe('voice e2e', () => {
   let server: E2EServerContext | undefined;
@@ -23,7 +27,9 @@ describe('voice e2e', () => {
       stt: {
         'openai-whisper': createMockSTTProvider({
           usage() {
-            return [{ provider: 'openai-whisper', kind: 'transcribe', quantity: 2, unit: 'seconds' }];
+            return [
+              { provider: 'openai-whisper', kind: 'transcribe', quantity: 2, unit: 'seconds' },
+            ];
           },
         }),
       },
@@ -136,7 +142,9 @@ describe('voice e2e', () => {
 
         socket.once('open', () => {
           socket.send(pcmSampleFrames.pulse16kMono);
-          socket.send(JSON.stringify({ type: 'stt.final', text: 'start interview', language: 'en' }));
+          socket.send(
+            JSON.stringify({ type: 'stt.final', text: 'start interview', language: 'en' }),
+          );
           socket.send(JSON.stringify({ type: 'ptt.up', language: 'en' }));
         });
 
@@ -156,6 +164,9 @@ describe('voice e2e', () => {
 
     expect(result.turnCompleted).toBe(true);
     expect(result.binaryCount).toBeGreaterThan(0);
-    expect(recordedCosts.map((entry) => entry.operation).sort()).toEqual(['synthesize', 'transcribe']);
+    expect(recordedCosts.map((entry) => entry.operation).sort()).toEqual([
+      'synthesize',
+      'transcribe',
+    ]);
   });
 });

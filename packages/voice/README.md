@@ -144,7 +144,7 @@ Do not invent a new adapter just to point at a Whisper-compatible local endpoint
   - [`configuration.md`](../../docs/voice/configuration.md) — credential shapes, config loading, catalog endpoints
   - [`providers.md`](../../docs/voice/providers.md) — built-ins, catalog API, custom registration
   - [`transports.md`](../../docs/voice/transports.md) — LiveKit vs raw WebSocket
-  - [`dvora-integration.md`](../../docs/voice/dvora-integration.md) — Dvora/LiveKit continuous voice stacks
+  - [`livekit-continuous-voice.md`](../../docs/voice/livekit-continuous-voice.md) — continuous (always-listening) LiveKit voice stacks
   - [`client-stt.md`](../../docs/voice/client-stt.md) — Web Speech trust boundary + wire protocol
   - [`local-providers.md`](../../docs/voice/local-providers.md) — Whisper sidecars and browser TTS
   - [`cost-tracking.md`](../../docs/voice/cost-tracking.md) — cost rows, rollups, `cost: null`

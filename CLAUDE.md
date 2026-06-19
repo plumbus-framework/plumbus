@@ -92,7 +92,7 @@ pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 
 ### Optional add-on: `@plumbus/voice`
 
-`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, transport/STT/TTS providers, cost helpers). It is a peer dependency of `@plumbus/core` (version-locked `0.1.x`). Apps that want speech input/output install it explicitly:
+`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, transport/STT/TTS providers, cost helpers). It is a peer dependency of `@plumbus/core` (version-locked `^0.6.x`). Apps that want speech input/output install it explicitly:
 
 ```
 pnpm add @plumbus/voice

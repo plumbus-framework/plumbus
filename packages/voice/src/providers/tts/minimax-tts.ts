@@ -375,7 +375,7 @@ async function waitForSocketOpen(socket: TTSWebSocket, label: string) {
 async function* createMiniMaxMessageStream(
   socket: TTSWebSocket,
 ): AsyncIterable<Record<string, unknown>> {
-  const queue: Array<Record<string, unknown>> = [];
+  const queue: Record<string, unknown>[] = [];
   let closed = false;
   let failure: Error | undefined;
   let notify: (() => void) | undefined;
@@ -406,7 +406,10 @@ async function* createMiniMaxMessageStream(
       });
       continue;
     }
-    yield queue.shift()!;
+    const chunk = queue.shift();
+    if (chunk) {
+      yield chunk;
+    }
   }
 }
 

@@ -39,6 +39,12 @@ export const DEEPDUB_TTS_MODELS: readonly VoiceModelOption[] = [
     costModelKey: 'deepdub-phantom-x',
     recommended: 'live',
   },
+  {
+    id: 'dd-etts-3.2',
+    displayName: 'Deepdub eTTS 3.2',
+    streaming: true,
+    costModelKey: 'deepdub-phantom-x',
+  },
 ];
 
 export const OPENAI_TTS_MODELS: readonly VoiceModelOption[] = [

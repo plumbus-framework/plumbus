@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeVoiceTurnCosts, type VoiceCostLedgerEntry } from '../summarize-voice-turn-costs.js';
+import {
+  summarizeVoiceTurnCosts,
+  type VoiceCostLedgerEntry,
+} from '../summarize-voice-turn-costs.js';
 
 function entry(
   operation: 'transcribe' | 'synthesize' | 'generate',
@@ -31,10 +34,7 @@ describe('summarizeVoiceTurnCosts', () => {
     const sessionId = 'session-1';
     const turnId = 'turn-1';
     const summary = summarizeVoiceTurnCosts(
-      [
-        entry('transcribe', 0.01, sessionId, turnId),
-        entry('synthesize', 0.02, sessionId, turnId),
-      ],
+      [entry('transcribe', 0.01, sessionId, turnId), entry('synthesize', 0.02, sessionId, turnId)],
       sessionId,
       turnId,
       { transportUsd: 0.06, turnCount: 2 },

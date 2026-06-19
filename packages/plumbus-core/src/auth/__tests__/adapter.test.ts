@@ -250,10 +250,10 @@ describe('signJwt', () => {
       sub: 'user-42',
       roles: ['owner'],
       tenantId: 'tenant-1',
-      issuer: 'memoir-ai',
+      issuer: 'example-app',
     });
 
-    const adapter = createJwtAdapter({ secret, issuer: 'memoir-ai' });
+    const adapter = createJwtAdapter({ secret, issuer: 'example-app' });
     const auth = await adapter.authenticate(`Bearer ${token}`);
     expect(auth).not.toBeNull();
     expect(auth?.userId).toBe('user-42');

@@ -3,6 +3,7 @@ import type {
   VoicePersonaOption,
   VoiceProviderCredentials,
 } from '../../types/provider.js';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { DeliveryTone, VoiceTtsConfig } from '../../types/voice.js';
 import { ELEVENLABS_TTS_MODELS, getVoiceModelOption } from '../../catalog/static-models.js';
 import { fetchCatalogJson, normalizeVoiceList } from '../base/catalog-http.js';
@@ -178,7 +179,8 @@ export const ELEVENLABS_TTS_REGISTRATION: TTSProviderRegistration = {
 };
 
 export function createElevenLabsCapabilities(modelId?: string): TTSProviderCatalogEntry {
-  const resolvedModel = getVoiceModelOption(ELEVENLABS_TTS_MODELS, modelId)?.id ?? 'eleven_flash_v2_5';
+  const resolvedModel =
+    getVoiceModelOption(ELEVENLABS_TTS_MODELS, modelId)?.id ?? 'eleven_flash_v2_5';
   const isV3 = resolvedModel === 'eleven_v3';
 
   return {
@@ -237,7 +239,10 @@ function resolveElevenLanguageCode(voiceSlice: VoiceTtsConfig): string | undefin
 function assertFlashLocaleSupported(voiceSlice: VoiceTtsConfig): void {
   const languageCode = resolveElevenLanguageCode(voiceSlice);
   if (languageCode === 'heb' || voiceSlice.locale?.toLowerCase().startsWith('he')) {
-    throw new Error('ElevenLabs flash does not support Hebrew; use eleven_v3, Deepdub, or MiniMax.');
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      'ElevenLabs flash does not support Hebrew; use eleven_v3, Deepdub, or MiniMax.',
+    );
   }
 }
 
@@ -257,7 +262,7 @@ async function waitForSocketOpen(socket: TTSWebSocket, label: string) {
 }
 
 async function* streamSocketJson(socket: TTSWebSocket): AsyncIterable<Record<string, unknown>> {
-  const queue: Array<Record<string, unknown>> = [];
+  const queue: Record<string, unknown>[] = [];
   let closed = false;
   let failure: Error | undefined;
   let notify: (() => void) | undefined;

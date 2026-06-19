@@ -32,8 +32,33 @@ interface MockPublication {
   track?: MockAudioTrack;
 }
 
+interface MockMediaElement {
+  autoplay: boolean;
+  muted: boolean;
+  style: { display: string };
+  play: () => Promise<void>;
+  pause: () => void;
+  remove: () => void;
+}
+
 interface MockAudioTrack {
   mediaStreamTrack: MediaStreamTrack;
+  attach: () => MockMediaElement;
+}
+
+function createMockAudioTrack(): MockAudioTrack {
+  const element: MockMediaElement = {
+    autoplay: false,
+    muted: true,
+    style: { display: '' },
+    play: vi.fn(async () => undefined),
+    pause: vi.fn(),
+    remove: vi.fn(),
+  };
+  return {
+    mediaStreamTrack: {} as MediaStreamTrack,
+    attach: vi.fn(() => element),
+  };
 }
 
 vi.mock('livekit-client', () => ({
@@ -41,6 +66,7 @@ vi.mock('livekit-client', () => ({
   RoomEvent: {
     DataReceived: 'dataReceived',
     TrackSubscribed: 'trackSubscribed',
+    TrackUnsubscribed: 'trackUnsubscribed',
   },
   isAudioTrack: vi.fn(() => true),
 }));
@@ -91,21 +117,27 @@ describe('createLiveKitVoiceSession', () => {
     mockRoom.disconnect.mockClear();
     latestProcessor = { onaudioprocess: null };
 
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        url: 'wss://livekit.example.test',
-        token: 'lk-token',
-        room: 'voice-room',
-        identity: 'user-1',
-        agentAudioTrackName: 'dvora-voice',
-      }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          url: 'wss://livekit.example.test',
+          token: 'lk-token',
+          room: 'voice-room',
+          identity: 'user-1',
+          agentAudioTrackName: 'agent-voice',
+        }),
+      })),
+    );
 
     vi.stubGlobal('AudioContext', MockAudioContext as never);
-    vi.stubGlobal('MediaStream', class MediaStream {
-      constructor(public readonly tracks: MediaStreamTrack[]) {}
-    });
+    vi.stubGlobal(
+      'MediaStream',
+      class MediaStream {
+        constructor(public readonly tracks: MediaStreamTrack[]) {}
+      },
+    );
     vi.stubGlobal('TextEncoder', TextEncoder);
     vi.stubGlobal('TextDecoder', TextDecoder);
   });
@@ -121,8 +153,8 @@ describe('createLiveKitVoiceSession', () => {
     const events: unknown[] = [];
 
     const session = await createLiveKitVoiceSession({
-      voiceName: 'dvora',
-      tokenUrl: '/api/voice/dvora/token',
+      voiceName: 'assistant',
+      tokenUrl: '/api/voice/assistant/token',
       onAudioChunk: (chunk) => {
         audioChunks.push(chunk);
       },
@@ -133,15 +165,16 @@ describe('createLiveKitVoiceSession', () => {
 
     await session.connect();
 
-    const track: MockAudioTrack = { mediaStreamTrack: {} as MediaStreamTrack };
+    const track: MockAudioTrack = createMockAudioTrack();
     const publication: MockPublication = {
       trackSid: 'track-1',
-      trackName: 'dvora-voice',
+      trackName: 'agent-voice',
       isSubscribed: true,
       track,
     };
     emitRoomEvent('trackSubscribed', track, publication);
 
+    expect(track.attach).toHaveBeenCalledTimes(1);
     expect(latestProcessor.onaudioprocess).toBeTypeOf('function');
     latestProcessor.onaudioprocess?.({
       inputBuffer: {
@@ -150,8 +183,8 @@ describe('createLiveKitVoiceSession', () => {
       },
     });
     expect(audioChunks.length).toBe(1);
-    expect(audioChunks[0]!.byteLength).toBeGreaterThan(0);
-    expect(audioChunks[0]!.byteLength % 2).toBe(0);
+    expect(audioChunks[0]?.byteLength).toBeGreaterThan(0);
+    expect(audioChunks[0]?.byteLength % 2).toBe(0);
 
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'agent.state', state: 'Listening' }),
@@ -163,11 +196,51 @@ describe('createLiveKitVoiceSession', () => {
     expect(mockRoom.disconnect).toHaveBeenCalled();
   });
 
+  it('keeps only one agent audio sink across duplicate track subscriptions', async () => {
+    const { createLiveKitVoiceSession } = await import('../livekit-session.js');
+    const session = await createLiveKitVoiceSession({
+      voiceName: 'assistant',
+      tokenUrl: '/api/voice/assistant/token',
+    });
+
+    await session.connect();
+
+    const firstTrack = createMockAudioTrack();
+    const firstPublication: MockPublication = {
+      trackSid: 'track-1',
+      trackName: 'agent-voice',
+      isSubscribed: true,
+      track: firstTrack,
+    };
+    emitRoomEvent('trackSubscribed', firstTrack, firstPublication);
+
+    const secondTrack = createMockAudioTrack();
+    const secondPublication: MockPublication = {
+      trackSid: 'track-2',
+      trackName: 'agent-voice',
+      isSubscribed: true,
+      track: secondTrack,
+    };
+    emitRoomEvent('trackSubscribed', secondTrack, secondPublication);
+
+    expect(firstTrack.attach).toHaveBeenCalledTimes(1);
+    expect(secondTrack.attach).toHaveBeenCalledTimes(1);
+    const firstElement = firstTrack.attach.mock.results[0]?.value as MockMediaElement;
+    const secondElement = secondTrack.attach.mock.results[0]?.value as MockMediaElement;
+    expect(firstElement.remove).toHaveBeenCalled();
+    expect(secondElement.remove).not.toHaveBeenCalled();
+
+    emitRoomEvent('trackSubscribed', secondTrack, secondPublication);
+    expect(secondTrack.attach).toHaveBeenCalledTimes(1);
+
+    await session.disconnect();
+  });
+
   it('publishes push-to-talk control frames over LiveKit data', async () => {
     const { createLiveKitVoiceSession } = await import('../livekit-session.js');
     const session = await createLiveKitVoiceSession({
-      voiceName: 'dvora',
-      tokenUrl: '/api/voice/dvora/token',
+      voiceName: 'assistant',
+      tokenUrl: '/api/voice/assistant/token',
     });
 
     await session.connect();
@@ -176,10 +249,10 @@ describe('createLiveKitVoiceSession', () => {
 
     expect(mockLocalParticipant.publishData).toHaveBeenCalledTimes(2);
     const downPayload = JSON.parse(
-      new TextDecoder().decode(mockLocalParticipant.publishData.mock.calls[0]![0] as Uint8Array),
+      new TextDecoder().decode(mockLocalParticipant.publishData.mock.calls[0]?.[0] as Uint8Array),
     );
     const upPayload = JSON.parse(
-      new TextDecoder().decode(mockLocalParticipant.publishData.mock.calls[1]![0] as Uint8Array),
+      new TextDecoder().decode(mockLocalParticipant.publishData.mock.calls[1]?.[0] as Uint8Array),
     );
     expect(downPayload).toEqual({ type: 'ptt.down' });
     expect(upPayload).toEqual({ type: 'ptt.up', transcript: 'shalom' });

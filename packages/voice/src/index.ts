@@ -42,7 +42,13 @@ export type {
   VoiceRoomSessionHandle,
 } from './runtime/worker.js';
 export { createVoiceExecutionContext } from './runtime/create-voice-execution-context.js';
-export { createVoiceAgentEntry, stopActiveVoiceAgentSessions, startVoiceAgentWorker } from './runtime/livekit-agent-worker.js';
+export {
+  createVoiceAgentEntry,
+  stopActiveVoiceAgentSessions,
+  startVoiceAgentWorker,
+  bootstrapVoiceAgentConfigsFromModule,
+  PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE_ENV,
+} from './runtime/livekit-agent-worker.js';
 export { runStreamingTurnPipeline } from './runtime/streaming-turn-pipeline.js';
 export { stripVoiceAssistantMarkers } from './runtime/assistant-text.js';
 export { mintLiveKitParticipantToken } from './providers/transport/livekit-transport.js';
@@ -52,6 +58,5 @@ export { resolveVoiceOpenAICredentials } from './config/resolve-openai-credentia
 export {
   applyDeliveryToneToText,
   mapDeliveryToneForProvider,
-  mapToneToTtsParams,
 } from './runtime/tone-mapper.js';
 export * from './cost/index.js';

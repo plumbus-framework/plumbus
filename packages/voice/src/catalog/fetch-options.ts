@@ -142,7 +142,8 @@ async function fetchTtsProviderOptions(
   if (!credentials.apiKey) {
     return {
       ...fallback,
-      source: fallback.voices.length > 0 ? 'static' : (registration.descriptor.voicesSource ?? 'static'),
+      source:
+        fallback.voices.length > 0 ? 'static' : (registration.descriptor.voicesSource ?? 'static'),
     };
   }
 

@@ -40,7 +40,10 @@ export class WebSocketTransportProvider implements TransportProvider {
 
   constructor(private readonly voiceSlice: VoiceTransportConfig) {}
 
-  async mintSession(args: { voiceName: string; userId?: string }): Promise<TransportProviderSession> {
+  async mintSession(args: {
+    voiceName: string;
+    userId?: string;
+  }): Promise<TransportProviderSession> {
     return {
       sessionId: `websocket:${args.voiceName}:${args.userId ?? 'anonymous'}:${randomUUID()}`,
       transport: 'websocket',

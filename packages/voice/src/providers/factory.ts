@@ -1,10 +1,6 @@
 import { PlumbusError, ErrorCode } from '@plumbus/core';
 import type { VoiceProviderCredentials, VoiceProvidersConfig } from '../types/provider.js';
-import type {
-  VoiceSttConfig,
-  VoiceTransportConfig,
-  VoiceTtsConfig,
-} from '../types/voice.js';
+import type { VoiceSttConfig, VoiceTransportConfig, VoiceTtsConfig } from '../types/voice.js';
 import type { VoiceProviderRegistry } from './registry.js';
 import type { STTProvider } from './base/stt-provider.js';
 import type { TTSProvider } from './base/tts-provider.js';
@@ -29,13 +25,27 @@ export interface CreateTransportProviderArgs extends VoiceFactoryArgs {
 }
 
 export function createSTTProvider(args: CreateSTTProviderArgs): STTProvider {
-  const registration = resolveRegisteredProvider(args.registry.stt, args.voiceSlice.provider, 'stt');
-  return registration.create(resolveProviderCredentials(args, args.voiceSlice.provider), args.voiceSlice);
+  const registration = resolveRegisteredProvider(
+    args.registry.stt,
+    args.voiceSlice.provider,
+    'stt',
+  );
+  return registration.create(
+    resolveProviderCredentials(args, args.voiceSlice.provider),
+    args.voiceSlice,
+  );
 }
 
 export function createTTSProvider(args: CreateTTSProviderArgs): TTSProvider {
-  const registration = resolveRegisteredProvider(args.registry.tts, args.voiceSlice.provider, 'tts');
-  return registration.create(resolveProviderCredentials(args, args.voiceSlice.provider), args.voiceSlice);
+  const registration = resolveRegisteredProvider(
+    args.registry.tts,
+    args.voiceSlice.provider,
+    'tts',
+  );
+  return registration.create(
+    resolveProviderCredentials(args, args.voiceSlice.provider),
+    args.voiceSlice,
+  );
 }
 
 export function createTransportProvider(args: CreateTransportProviderArgs): TransportProvider {
@@ -44,7 +54,10 @@ export function createTransportProvider(args: CreateTransportProviderArgs): Tran
     args.voiceSlice.provider,
     'transport',
   );
-  return registration.create(resolveProviderCredentials(args, args.voiceSlice.provider), args.voiceSlice);
+  return registration.create(
+    resolveProviderCredentials(args, args.voiceSlice.provider),
+    args.voiceSlice,
+  );
 }
 
 function resolveRegisteredProvider<T>(

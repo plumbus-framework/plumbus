@@ -22,9 +22,7 @@ export interface VoiceTestContextResult {
   recordedCosts: RecordedVoiceCost[];
 }
 
-export function createVoiceTestContext(
-  options: TestContextOptions = {},
-): VoiceTestContextResult {
+export function createVoiceTestContext(options: TestContextOptions = {}): VoiceTestContextResult {
   const recordedCosts: RecordedVoiceCost[] = [];
   const baseAi = options.ai ?? mockAI();
   const baseAiRecordProviderCost =
@@ -34,8 +32,7 @@ export function createVoiceTestContext(
     typeof baseAi.recordProviderCost === 'function'
       ? baseAi.recordProviderCost.bind(baseAi)
       : undefined;
-  const upstreamRecordProviderCost =
-    baseAiRecordProviderCost;
+  const upstreamRecordProviderCost = baseAiRecordProviderCost;
 
   const ctx = createTestContext({
     ...options,

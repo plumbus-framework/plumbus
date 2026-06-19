@@ -13,7 +13,9 @@ export function checkWebSocketOrigin(
   }
 
   if (!origin) {
-    return policy.allowWithoutOrigin ? { ok: true } : { ok: false, reason: 'Missing Origin header' };
+    return policy.allowWithoutOrigin
+      ? { ok: true }
+      : { ok: false, reason: 'Missing Origin header' };
   }
 
   return allowlist.includes(origin)

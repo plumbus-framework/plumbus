@@ -50,7 +50,7 @@ describe('MiniMax TTS wire protocol', () => {
     });
 
     const chunks: Uint8Array[] = [];
-    for await (const chunk of provider.synthesizeStream!('Shalom', provider.mapDeliveryTone({}))) {
+    for await (const chunk of provider.synthesizeStream('Shalom', provider.mapDeliveryTone({}))) {
       chunks.push(chunk);
     }
 
@@ -69,18 +69,22 @@ describe('MiniMax TTS wire protocol', () => {
           const payload = JSON.parse(data) as { event?: string };
           if (payload.event === 'task_start') {
             queueMicrotask(() =>
-              listeners.get('message')?.forEach((fn) => fn(JSON.stringify({ event: 'task_started' }))),
+              listeners.get('message')?.forEach((fn) => {
+                fn(JSON.stringify({ event: 'task_started' }));
+              }),
             );
           }
           if (payload.event === 'task_continue') {
             const audioHex = Buffer.from([5, 6, 7, 8]).toString('hex');
             queueMicrotask(() =>
-              listeners.get('message')?.forEach((fn) =>
-                fn(JSON.stringify({ event: 'task_continued', data: { audio: audioHex } })),
-              ),
+              listeners.get('message')?.forEach((fn) => {
+                fn(JSON.stringify({ event: 'task_continued', data: { audio: audioHex } }));
+              }),
             );
             queueMicrotask(() =>
-              listeners.get('message')?.forEach((fn) => fn(JSON.stringify({ event: 'task_finished' }))),
+              listeners.get('message')?.forEach((fn) => {
+                fn(JSON.stringify({ event: 'task_finished' }));
+              }),
             );
           }
         },
@@ -121,7 +125,7 @@ describe('MiniMax TTS wire protocol', () => {
     });
 
     const chunks: Uint8Array[] = [];
-    for await (const chunk of provider.synthesizeStream!('Shalom', provider.mapDeliveryTone({}))) {
+    for await (const chunk of provider.synthesizeStream('Shalom', provider.mapDeliveryTone({}))) {
       chunks.push(chunk);
     }
 

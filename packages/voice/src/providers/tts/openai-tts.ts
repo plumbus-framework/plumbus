@@ -4,12 +4,7 @@ import type { DeliveryTone, VoiceTtsConfig } from '../../types/voice.js';
 import { OPENAI_TTS_MODELS, OPENAI_TTS_VOICES } from '../../catalog/static-models.js';
 import type { TTSProviderRegistration } from '../base/provider-registration.js';
 import type { TTSProvider } from '../base/tts-provider.js';
-import {
-  assertOkResponse,
-  joinUrl,
-  readResponseChunks,
-  resolveTtsFetch,
-} from './wire.js';
+import { assertOkResponse, joinUrl, readResponseChunks, resolveTtsFetch } from './wire.js';
 
 const OPENAI_TTS_DESCRIPTOR: TTSProviderCatalogEntry = {
   id: 'openai',

@@ -7,7 +7,7 @@ export const CLIENT_AGENT_AUDIO_FORMAT = {
   format: 'pcm16' as const,
 };
 
-export const DEFAULT_AGENT_AUDIO_TRACK_NAME = 'dvora-voice';
+export const DEFAULT_AGENT_AUDIO_TRACK_NAME = 'agent-voice';
 
 const VOICE_EVENT_TYPES = new Set<VoiceEvent['type']>([
   'session.hello',
@@ -25,9 +25,10 @@ const VOICE_EVENT_TYPES = new Set<VoiceEvent['type']>([
   'error',
 ]);
 
-export function resolveAgentAudioTrackName(
-  metadata: { agentAudioTrackName?: string; audioTrackName?: string },
-): string {
+export function resolveAgentAudioTrackName(metadata: {
+  agentAudioTrackName?: string;
+  audioTrackName?: string;
+}): string {
   const configured = metadata.agentAudioTrackName ?? metadata.audioTrackName;
   return typeof configured === 'string' && configured.length > 0
     ? configured
@@ -69,16 +70,15 @@ export function float32SamplesToPcm16(samples: Float32Array): Uint8Array {
   return bytes;
 }
 
-export function normalizeBrowserCapturedPcm16(samples: Float32Array, sampleRate: number): Uint8Array {
+export function normalizeBrowserCapturedPcm16(
+  samples: Float32Array,
+  sampleRate: number,
+): Uint8Array {
   const pcmAtSourceRate = float32SamplesToPcm16(samples);
   if (sampleRate === CLIENT_AGENT_AUDIO_FORMAT.sampleRate) {
     return pcmAtSourceRate;
   }
-  return resamplePcm16(
-    pcmAtSourceRate,
-    { sampleRate, channels: 1 },
-    CLIENT_AGENT_AUDIO_FORMAT,
-  );
+  return resamplePcm16(pcmAtSourceRate, { sampleRate, channels: 1 }, CLIENT_AGENT_AUDIO_FORMAT);
 }
 
 export function isAgentAudioPublication(

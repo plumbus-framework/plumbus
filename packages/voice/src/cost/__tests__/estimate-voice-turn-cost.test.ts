@@ -10,7 +10,11 @@ describe('estimateVoiceTurnCost', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'soniox', model: 'stt-rt-preview' },
       tts: { provider: 'minimax', model: 'speech-2.8-turbo', voiceId: 'voice-1' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     const estimate = estimateVoiceTurnCost({
@@ -33,7 +37,11 @@ describe('estimateVoiceTurnCost', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     const estimate = estimateVoiceTurnCost({
@@ -54,7 +62,11 @@ describe('estimateVoiceTurnCost', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'openai-whisper', model: 'gpt-4o-transcribe' },
       tts: { provider: 'openai', model: 'tts-1-hd', voiceId: 'alloy' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     const estimate = estimateVoiceTurnCost({

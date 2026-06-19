@@ -20,7 +20,7 @@ These docs are split in three:
 | [local-providers.md](./local-providers.md) | You want a self-hosted Whisper sidecar or browser-native TTS. |
 | [cost-tracking.md](./cost-tracking.md) | You need STT/TTS/transport spend to land in the shared AI ledger. |
 | [testing.md](./testing.md) | You're writing smoke, route, websocket, or e2e tests. |
-| [dvora-integration.md](./dvora-integration.md) | You're wiring MemoirAi/Dvora-style LiveKit continuous Hebrew voice. |
+| [livekit-continuous-voice.md](./livekit-continuous-voice.md) | You're wiring a continuous (always-listening) LiveKit voice stack. |
 | [security.md](./security.md) | You're exposing voice routes on a real app and need the S1-S10 threat model. |
 | [design/providers.md](./design/providers.md) | You need the capability model, tone mapping rules, or ElevenLabs dual-model behavior. |
 

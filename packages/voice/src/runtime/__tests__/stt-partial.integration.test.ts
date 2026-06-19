@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { createTestContext } from '@plumbus/core/testing';
 import { defineVoice } from '../../define/defineVoice.js';
 import { runVoiceTurn } from '../run-turn.js';
-import { createMockSTTProvider, createMockTTSProvider, createMockTransportProvider } from '../../testing/mock-providers.js';
+import {
+  createMockSTTProvider,
+  createMockTTSProvider,
+  createMockTransportProvider,
+} from '../../testing/mock-providers.js';
 
 describe('runVoiceTurn stt.partial wiring', () => {
   it('forwards streaming STT partials through onEvent', async () => {
@@ -30,7 +34,11 @@ describe('runVoiceTurn stt.partial wiring', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'mock-stt' },
       tts: { provider: 'mock-tts' },
-      brain: { async run() { return { text: 'reply' }; } },
+      brain: {
+        async run() {
+          return { text: 'reply' };
+        },
+      },
     });
 
     for await (const event of runVoiceTurn(ctx, {

@@ -27,7 +27,7 @@ await recordVoiceCost(
     },
     latencyMs: 120_000,
     costContext: {
-      projectId: 'memoir',
+      projectId: 'acme',
       serviceArea: 'voice',
       operationName: 'voice.transport',
     },

@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  calculateVoiceCost,
-  createVoiceSessionBudget,
-  recordVoiceCost,
-} from '../../index.js';
+import { calculateVoiceCost, createVoiceSessionBudget, recordVoiceCost } from '../../index.js';
 
 describe('voice pricing smoke', () => {
   it('calculates cost for a known voice model and returns 0 for unknown models', () => {

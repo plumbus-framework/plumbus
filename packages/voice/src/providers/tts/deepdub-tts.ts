@@ -1,18 +1,10 @@
-import { randomUUID } from 'node:crypto';
-import type { TTSProviderCatalogEntry } from '../../types/provider.js';
-import type { VoiceProviderCredentials } from '../../types/provider.js';
-import type { DeliveryTone, VoiceTtsConfig } from '../../types/voice.js';
+import type { TtsParams } from '@deepdub/node';
 import { DEEPDUB_TTS_MODELS } from '../../catalog/static-models.js';
+import type { TTSProviderCatalogEntry, VoiceProviderCredentials } from '../../types/provider.js';
+import type { DeliveryTone, VoiceTtsConfig } from '../../types/voice.js';
 import { fetchCatalogJson, normalizeVoiceList } from '../base/catalog-http.js';
 import type { TTSProviderRegistration } from '../base/provider-registration.js';
 import type { TTSProvider } from '../base/tts-provider.js';
-import type { TTSWebSocket } from './wire.js';
-import {
-  decodeBase64Audio,
-  httpToWebSocketUrl,
-  resolveTtsWebSocketFactory,
-  socketMessageToString,
-} from './wire.js';
 
 const DEEPDUB_TTS_DESCRIPTOR: TTSProviderCatalogEntry = {
   id: 'deepdub',
@@ -30,124 +22,28 @@ const DEEPDUB_TTS_DESCRIPTOR: TTSProviderCatalogEntry = {
   voicesSource: 'live-api',
 };
 
-interface ActiveGeneration {
-  generationId: string;
-  queue: Uint8Array[];
-  closed: boolean;
-  failure?: Error;
-  notify?: () => void;
-  abortRequested: boolean;
+/**
+ * Minimal structural surface of the official `@deepdub/node` SDK client we use.
+ * We synthesize through the SDK (not a hand-rolled WebSocket) so the request and
+ * audio handling are byte-for-byte identical to Deepdub Studio / the SDK example,
+ * which is the configuration that pronounces Hebrew correctly.
+ */
+interface DeepdubSdkClient {
+  connect(): Promise<unknown>;
+  generateToBuffer(text: string, params?: TtsParams): Promise<unknown>;
+  disconnect?(): void;
 }
 
-class DeepdubConnection {
-  readonly #socket: TTSWebSocket;
-  readonly #generations = new Map<string, ActiveGeneration>();
-  #openPromise: Promise<void> | undefined;
-  #closed = false;
-
-  constructor(socket: TTSWebSocket) {
-    this.#socket = socket;
-    socket.on('message', (data) => {
-      const message = JSON.parse(socketMessageToString(data)) as Record<string, unknown>;
-      let generationId =
-        typeof message.generationId === 'string'
-          ? message.generationId
-          : typeof message.generation_id === 'string'
-            ? message.generation_id
-            : undefined;
-      if (!generationId && this.#generations.size === 1) {
-        generationId = [...this.#generations.keys()][0];
-      }
-      const generation = generationId ? this.#generations.get(generationId) : undefined;
-      if (!generation) return;
-
-      if (message.error) {
-        generation.failure = new Error(
-          typeof message.error === 'string' ? message.error : 'Deepdub websocket request failed',
-        );
-        generation.closed = true;
-        generation.notify?.();
-        return;
-      }
-
-      const chunk = typeof message.data === 'string' ? decodeBase64Audio(message.data) : undefined;
-      if (chunk && chunk.length > 0) {
-        generation.queue.push(chunk);
-        generation.notify?.();
-      }
-      if (message.isFinished === true) {
-        generation.closed = true;
-        generation.notify?.();
-      }
-    });
-    socket.on('close', () => {
-      this.#closed = true;
-      for (const generation of this.#generations.values()) {
-        generation.closed = true;
-        generation.notify?.();
-      }
-    });
-    socket.on('error', (error) => {
-      for (const generation of this.#generations.values()) {
-        generation.failure = error;
-        generation.closed = true;
-        generation.notify?.();
-      }
-    });
-  }
-
-  async ensureOpen(label: string): Promise<void> {
-    if (this.#openPromise) return this.#openPromise;
-    this.#openPromise = waitForSocketOpen(this.#socket, label);
-    return this.#openPromise;
-  }
-
-  startGeneration(generationId: string): ActiveGeneration {
-    const generation: ActiveGeneration = {
-      generationId,
-      queue: [],
-      closed: false,
-      abortRequested: false,
-    };
-    this.#generations.set(generationId, generation);
-    return generation;
-  }
-
-  send(payload: Record<string, unknown>): void {
-    this.#socket.send(JSON.stringify(payload));
-  }
-
-  abortGeneration(generationId: string): void {
-    const generation = this.#generations.get(generationId);
-    if (!generation) return;
-    generation.abortRequested = true;
-    generation.closed = true;
-    generation.notify?.();
-    this.#generations.delete(generationId);
-    this.send({ action: 'abort', generationId, realtime: true });
-  }
-
-  abortAll(): void {
-    for (const generationId of [...this.#generations.keys()]) {
-      this.abortGeneration(generationId);
-    }
-  }
-
-  close(): void {
-    this.abortAll();
-    this.#socket.close();
-    this.#closed = true;
-  }
-
-  get closed(): boolean {
-    return this.#closed;
-  }
-}
+type DeepdubClientFactory = (
+  apiKey: string,
+  options: { protocol: 'websocket' },
+) => DeepdubSdkClient;
 
 class DeepdubTTSProvider implements TTSProvider {
   readonly capabilities = DEEPDUB_TTS_DESCRIPTOR;
   #characters = 0;
-  #connection: DeepdubConnection | undefined;
+  #client: DeepdubSdkClient | undefined;
+  #connectPromise: Promise<DeepdubSdkClient> | undefined;
 
   constructor(
     private readonly credentials: VoiceProviderCredentials,
@@ -163,77 +59,103 @@ class DeepdubTTSProvider implements TTSProvider {
       temperature: mapEnergy(tone.energy),
       promptBoost: Boolean(tone.emotion && tone.emotion !== 'neutral'),
       locale: this.voiceSlice.locale,
+      // Per-turn gender override (e.g. detected subject gender). Falls through to
+      // the static voice option in `#buildGenerationParams` when not provided.
+      targetGender: tone.targetGender,
     };
   }
 
   async *synthesizeStream(text: string, params: unknown, signal?: AbortSignal) {
     this.#characters += text.length;
-    const mapped = isDeepdubToneParams(params) ? params : this.mapDeliveryTone({});
-    const connection = await this.#getConnection();
-    const generationId = randomUUID();
-    const generation = connection.startGeneration(generationId);
+    const client = await this.#getClient();
+    const options = this.#buildGenerationParams(params);
+
+    const queue: Uint8Array[] = [];
+    let wake: (() => void) | undefined;
+    let finished = false;
+    let failure: Error | undefined;
+    let firstChunkLogged = false;
 
     const onAbort = () => {
-      connection.abortGeneration(generationId);
+      finished = true;
+      wake?.();
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    try {
-      connection.send({
-        action: 'text-to-speech',
-        generationId,
-        realtime: true,
-        model: mapped.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.0',
-        targetText: text,
-        locale: mapped.locale ?? this.voiceSlice.locale ?? 'en-US',
-        voicePromptId: mapped.voiceId,
-        format: resolveDeepdubFormat(this.voiceSlice.options),
-        sampleRate: resolveSampleRate(this.voiceSlice.options, 16_000),
-        tempo: mapped.tempo,
-        variance: mapped.variance,
-        temperature: mapped.temperature,
-        promptBoost: mapped.promptBoost,
+    console.info('[voice-tts] deepdub synthesis requested', {
+      characters: text.length,
+      model: options.model,
+      locale: options.locale,
+      via: 'sdk',
+    });
+
+    const generation = client
+      .generateToBuffer(text, {
+        ...options,
+        headerless: true,
+        onChunk: (chunk: Uint8Array) => {
+          if (!chunk || chunk.length === 0) return;
+          if (!firstChunkLogged) {
+            firstChunkLogged = true;
+            console.info('[voice-tts] first deepdub audio chunk received', {
+              bytes: chunk.byteLength,
+            });
+          }
+          queue.push(chunk);
+          wake?.();
+        },
+      })
+      .then(() => {
+        finished = true;
+        wake?.();
+      })
+      .catch((error: unknown) => {
+        failure = error instanceof Error ? error : new Error(String(error));
+        finished = true;
+        wake?.();
       });
 
-      while (!generation.closed || generation.queue.length > 0) {
-        if (signal?.aborted || generation.abortRequested) {
-          connection.abortGeneration(generationId);
-          return;
-        }
-        if (generation.failure) {
-          throw generation.failure;
-        }
-        if (generation.queue.length > 0) {
-          yield generation.queue.shift()!;
+    try {
+      while (true) {
+        if (signal?.aborted) return;
+        if (queue.length > 0) {
+          const chunk = queue.shift();
+          if (chunk) {
+            yield chunk;
+          }
           continue;
         }
-        if (generation.closed) {
-          break;
-        }
+        if (failure) throw failure;
+        if (finished) break;
         await new Promise<void>((resolve) => {
-          generation.notify = resolve;
+          wake = resolve;
         });
+        wake = undefined;
       }
-
-      if (generation.failure) {
-        throw generation.failure;
-      }
+      if (failure) throw failure;
+      console.info('[voice-tts] deepdub synthesis finished', {
+        producedAudio: firstChunkLogged,
+        via: 'sdk',
+      });
     } finally {
       signal?.removeEventListener('abort', onAbort);
+      void generation.catch(() => undefined);
     }
   }
 
-  abortGeneration(generationId: string): void {
-    this.#connection?.abortGeneration(generationId);
-  }
+  abortGeneration(): void {}
 
-  abortAll(): void {
-    this.#connection?.abortAll();
-  }
+  abortAll(): void {}
 
   async flush(): Promise<void> {
-    this.#connection?.close();
-    this.#connection = undefined;
+    const client = this.#client;
+    this.#client = undefined;
+    this.#connectPromise = undefined;
+    try {
+      client?.disconnect?.();
+    } catch {
+      // ignore disconnect errors on a torn-down client
+    }
   }
 
   usage() {
@@ -252,20 +174,57 @@ class DeepdubTTSProvider implements TTSProvider {
     ];
   }
 
-  async #getConnection(): Promise<DeepdubConnection> {
-    if (this.#connection && !this.#connection.closed) {
-      return this.#connection;
+  #buildGenerationParams(params: unknown): TtsParams {
+    const toneParams = isDeepdubToneParams(params) ? params : undefined;
+    const generationParams: TtsParams = {
+      voicePromptId: toneParams?.voiceId ?? this.voiceSlice.voiceId,
+      model:
+        toneParams?.model ?? this.voiceSlice.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.2',
+      locale: toneParams?.locale ?? this.voiceSlice.locale ?? 'en-US',
+    };
+    // Prefer a per-turn gender from the resolved tone (detected subject gender);
+    // fall back to the statically configured voice option.
+    const targetGender =
+      resolveDynamicGender(toneParams) ?? resolveDeepdubGender(this.voiceSlice.options);
+    if (targetGender) {
+      generationParams.targetGender = targetGender;
     }
+    const accentControl = resolveDeepdubAccentControl(this.voiceSlice.options);
+    if (accentControl) {
+      generationParams.accentControl = accentControl;
+    }
+    // Delivery-shaping params are only sent when a tone profile is active. With the
+    // default tone (none resolved) we omit them so Deepdub uses its own defaults —
+    // matching the SDK example that produces correct Hebrew.
+    if (toneParams) {
+      generationParams.tempo = toneParams.tempo;
+      generationParams.variance = toneParams.variance;
+      generationParams.temperature = toneParams.temperature;
+      generationParams.promptBoost = toneParams.promptBoost;
+    }
+    return generationParams;
+  }
 
-    const url = resolveDeepdubWebSocketUrl(this.credentials.baseUrl);
-    const socketFactory = resolveTtsWebSocketFactory(this.credentials);
-    const socket = socketFactory(url, {
-      headers: { 'x-api-key': this.credentials.apiKey ?? '' },
-    });
-    const connection = new DeepdubConnection(socket);
-    await connection.ensureOpen('Deepdub');
-    this.#connection = connection;
-    return connection;
+  async #getClient(): Promise<DeepdubSdkClient> {
+    if (this.#client) {
+      return this.#client;
+    }
+    if (this.#connectPromise) {
+      return this.#connectPromise;
+    }
+    this.#connectPromise = (async () => {
+      const factory = await resolveDeepdubClientFactory(this.credentials);
+      const client = factory(this.credentials.apiKey ?? '', { protocol: 'websocket' });
+      await client.connect();
+      this.#client = client;
+      return client;
+    })();
+    try {
+      return await this.#connectPromise;
+    } catch (error) {
+      this.#connectPromise = undefined;
+      throw error;
+    }
   }
 }
 
@@ -322,42 +281,62 @@ interface DeepdubToneParams {
   temperature?: number;
   promptBoost?: boolean;
   locale?: string;
+  targetGender?: string;
 }
 
 function isDeepdubToneParams(value: unknown): value is DeepdubToneParams {
   return typeof value === 'object' && value !== null;
 }
 
-function resolveDeepdubWebSocketUrl(baseUrl: string | undefined): string {
-  if (!baseUrl) {
-    return 'wss://wsapi.deepdub.ai/open';
+function resolveDynamicGender(toneParams: DeepdubToneParams | undefined): string | undefined {
+  const gender = toneParams?.targetGender;
+  return typeof gender === 'string' && gender.length > 0 ? gender : undefined;
+}
+
+function resolveDeepdubGender(options: VoiceTtsConfig['options']): string | undefined {
+  const configured = options?.targetGender;
+  return typeof configured === 'string' && configured.length > 0 ? configured : undefined;
+}
+
+function resolveDeepdubAccentControl(
+  options: VoiceTtsConfig['options'],
+): TtsParams['accentControl'] {
+  const configured = options?.accentControl;
+  if (!configured || typeof configured !== 'object') {
+    return undefined;
   }
-
-  const normalized = httpToWebSocketUrl(baseUrl);
-  return normalized.endsWith('/open') ? normalized : `${normalized.replace(/\/+$/, '')}/open`;
+  const record = configured as Record<string, unknown>;
+  if (
+    typeof record.accentBaseLocale === 'string' &&
+    typeof record.accentLocale === 'string' &&
+    typeof record.accentRatio === 'number'
+  ) {
+    return {
+      accentBaseLocale: record.accentBaseLocale,
+      accentLocale: record.accentLocale,
+      accentRatio: record.accentRatio,
+    };
+  }
+  return undefined;
 }
 
-function resolveDeepdubFormat(options: VoiceTtsConfig['options']): string {
-  const configured = options?.format;
-  return typeof configured === 'string' && configured.length > 0 ? configured : 'wav';
-}
-
-function resolveSampleRate(options: VoiceTtsConfig['options'], fallback: number): number {
-  const configured = options?.sampleRate;
-  return typeof configured === 'number' ? configured : fallback;
-}
-
-async function waitForSocketOpen(socket: TTSWebSocket, label: string) {
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    socket.on('open', () => {
-      settled = true;
-      resolve();
-    });
-    socket.on('error', (error) => {
-      if (!settled) {
-        reject(new Error(`${label} websocket failed to connect: ${error.message}`));
-      }
-    });
-  });
+async function resolveDeepdubClientFactory(
+  credentials: VoiceProviderCredentials,
+): Promise<DeepdubClientFactory> {
+  const injected = (credentials.options as Record<string, unknown> | undefined)
+    ?.deepdubClientFactory;
+  if (typeof injected === 'function') {
+    return injected as DeepdubClientFactory;
+  }
+  const imported = (await import('@deepdub/node')) as {
+    DeepdubClient?: new (apiKey: string, options: { protocol: 'websocket' }) => DeepdubSdkClient;
+    default?: {
+      DeepdubClient?: new (apiKey: string, options: { protocol: 'websocket' }) => DeepdubSdkClient;
+    };
+  };
+  const ClientCtor = imported.DeepdubClient ?? imported.default?.DeepdubClient;
+  if (typeof ClientCtor !== 'function') {
+    throw new Error('Unable to load DeepdubClient from @deepdub/node');
+  }
+  return (apiKey, options) => new ClientCtor(apiKey, options);
 }

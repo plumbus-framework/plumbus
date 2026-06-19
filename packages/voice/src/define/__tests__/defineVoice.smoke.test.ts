@@ -9,7 +9,11 @@ describe('defineVoice smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'hello' }; } },
+      brain: {
+        async run() {
+          return { text: 'hello' };
+        },
+      },
       toneProfiles: {
         calm: { pace: 'slow', warmth: 'high' },
       },
@@ -29,7 +33,11 @@ describe('defineVoice smoke', () => {
         transport: { provider: 'websocket' },
         stt: { provider: 'web-speech' },
         tts: { provider: 'browser-tts' },
-        brain: { async run() { return { text: 'hello' }; } },
+        brain: {
+          async run() {
+            return { text: 'hello' };
+          },
+        },
       }),
     ).toThrow(/defineVoice/);
   });

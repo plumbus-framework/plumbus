@@ -38,7 +38,11 @@ describe('voice catalog smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(

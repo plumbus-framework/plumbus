@@ -131,10 +131,7 @@ export async function* readResponseChunks(
   }
 }
 
-export async function assertOkResponse(
-  response: TTSFetchResponse,
-  url: string,
-): Promise<void> {
+export async function assertOkResponse(response: TTSFetchResponse, url: string): Promise<void> {
   if (response.ok) {
     return;
   }

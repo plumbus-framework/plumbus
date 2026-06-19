@@ -2,11 +2,8 @@ import type { ExecutionContext, RouteGeneratorConfig } from '@plumbus/core';
 import { createExecutionContext, type ContextDependencies } from '@plumbus/core';
 
 export interface CreateVoiceExecutionContextArgs {
-  voiceName: string;
-  sessionId: string;
   userId?: string;
   tenantId?: string;
-  input?: Record<string, unknown>;
   createDependencies: (auth: {
     userId: string;
     tenantId?: string;

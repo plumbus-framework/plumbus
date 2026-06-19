@@ -1,11 +1,15 @@
 import type { VoiceProvidersConfig } from '../types/provider.js';
 import { resolveVoiceOpenAICredentials } from '../config/resolve-openai-credentials.js';
 
-export function resolveVoiceProviders(config: {
-  voice?: { providers?: VoiceProvidersConfig['providers'] };
-  aiProviders?: { providers?: { openai?: { apiKey?: string; baseUrl?: string; model?: string } } };
-  ai?: { apiKey?: string; baseUrl?: string; model?: string };
-} = {}): VoiceProvidersConfig {
+export function resolveVoiceProviders(
+  config: {
+    voice?: { providers?: VoiceProvidersConfig['providers'] };
+    aiProviders?: {
+      providers?: { openai?: { apiKey?: string; baseUrl?: string; model?: string } };
+    };
+    ai?: { apiKey?: string; baseUrl?: string; model?: string };
+  } = {},
+): VoiceProvidersConfig {
   const voiceConfig = config.voice;
   const configured = voiceConfig?.providers ?? {};
 

@@ -10,10 +10,13 @@ const originalGlobals = {
   SpeechRecognition: globalThis.SpeechRecognition,
   webkitSpeechRecognition: (globalThis as typeof globalThis & { webkitSpeechRecognition?: unknown })
     .webkitSpeechRecognition,
-  speechSynthesis: (globalThis as typeof globalThis & { speechSynthesis?: unknown }).speechSynthesis,
-  SpeechSynthesisUtterance: (globalThis as typeof globalThis & {
-    SpeechSynthesisUtterance?: unknown;
-  }).SpeechSynthesisUtterance,
+  speechSynthesis: (globalThis as typeof globalThis & { speechSynthesis?: unknown })
+    .speechSynthesis,
+  SpeechSynthesisUtterance: (
+    globalThis as typeof globalThis & {
+      SpeechSynthesisUtterance?: unknown;
+    }
+  ).SpeechSynthesisUtterance,
 };
 
 afterEach(() => {

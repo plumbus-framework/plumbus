@@ -1,4 +1,5 @@
 import type { STTProviderCatalogEntry } from '../../types/provider.js';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { VoiceProviderCredentials } from '../../types/provider.js';
 import type { VoiceSttConfig } from '../../types/voice.js';
 import { OPENAI_REALTIME_STT_MODELS } from '../../catalog/static-models.js';
@@ -57,17 +58,17 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
     private readonly voiceSlice: VoiceSttConfig,
   ) {
     if (!credentials.apiKey) {
-      throw new Error('OpenAI Realtime STT provider requires an apiKey');
+      throw new PlumbusError(
+        ErrorCode.Validation,
+        'OpenAI Realtime STT provider requires an apiKey',
+      );
     }
     this.#apiKey = credentials.apiKey;
     this.#baseUrl = credentials.baseUrl;
     this.#createWebSocket = resolveRuntimeWebSocketFactory(credentials, voiceSlice);
     this.#delay = readOption<string>(voiceSlice.options, 'delay');
     this.#language = voiceSlice.languages?.[0];
-    this.#model =
-      voiceSlice.model ??
-      OPENAI_REALTIME_STT_MODELS[0]?.id ??
-      'gpt-realtime-whisper';
+    this.#model = voiceSlice.model ?? OPENAI_REALTIME_STT_MODELS[0]?.id ?? 'gpt-realtime-whisper';
   }
 
   connect(args: STTProviderConnectArgs): void {
@@ -129,7 +130,10 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
       return this.#openPromise;
     }
     if (!this.#connectArgs?.sessionId) {
-      throw new Error('OpenAI Realtime STT provider must be connected before streaming audio');
+      throw new PlumbusError(
+        ErrorCode.DependencyViolation,
+        'OpenAI Realtime STT provider must be connected before streaming audio',
+      );
     }
 
     const url = resolveWebSocketUrl(

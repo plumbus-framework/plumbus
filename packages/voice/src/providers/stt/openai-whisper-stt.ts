@@ -1,4 +1,5 @@
 import type { STTProviderCatalogEntry } from '../../types/provider.js';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { VoiceProviderCredentials } from '../../types/provider.js';
 import type { VoiceSttConfig } from '../../types/voice.js';
 import { OPENAI_WHISPER_STT_MODELS } from '../../catalog/static-models.js';
@@ -54,15 +55,15 @@ class OpenAIWhisperSTTProvider implements STTProvider {
     private readonly voiceSlice: VoiceSttConfig,
   ) {
     if (!credentials.apiKey) {
-      throw new Error('OpenAI Whisper STT provider requires an apiKey');
+      throw new PlumbusError(
+        ErrorCode.Validation,
+        'OpenAI Whisper STT provider requires an apiKey',
+      );
     }
     this.#apiKey = credentials.apiKey;
     this.#baseUrl = resolveHttpBaseUrl(credentials, 'https://api.openai.com/v1');
     this.#fetch = resolveRuntimeFetch(credentials, voiceSlice);
-    this.#model =
-      voiceSlice.model ??
-      OPENAI_WHISPER_STT_MODELS[0]?.id ??
-      'whisper-1';
+    this.#model = voiceSlice.model ?? OPENAI_WHISPER_STT_MODELS[0]?.id ?? 'whisper-1';
     this.#prompt = readOption<string>(voiceSlice.options, 'prompt');
   }
 
@@ -112,7 +113,10 @@ class OpenAIWhisperSTTProvider implements STTProvider {
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI transcription request failed with status ${response.status}`);
+      throw new PlumbusError(
+        ErrorCode.Internal,
+        `OpenAI transcription request failed with status ${response.status}`,
+      );
     }
 
     const payload = (await response.json()) as { text?: unknown };

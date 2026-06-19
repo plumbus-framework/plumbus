@@ -54,7 +54,7 @@
 The following landed in source ahead of the v0.2 gate but are not part of v0.1
 and have not been tagged. They live in the package because they were built as
 part of one Phase but the gate is real: per the implementation plan, a real
-consumer (e.g. MemoirAI's help-bot migration) must stress v0.1 in production
+consumer (e.g. a production help-bot migration) must stress v0.1 in production
 before v0.2 ships, so the eval scenarios are informed by actual failures rather
 than synthetic guesses. Treat the surface below as unstable until v0.2 is
 tagged.

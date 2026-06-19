@@ -36,6 +36,8 @@
   ],
   "scripts": {
     "build": "tsc -b",
+    "build:voice-cli": "node scripts/build-voice-cli.mjs",
+    "pretest": "pnpm run build:voice-cli",
     "dev": "tsc -b --watch",
     "test": "vitest run",
     "test:watch": "vitest",

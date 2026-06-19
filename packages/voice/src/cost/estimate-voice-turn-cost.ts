@@ -52,9 +52,7 @@ export function estimateVoiceTurnCost(
   const sttModelKey = resolveSttCostModelKey(input.voice.stt);
   const ttsModelKey = resolveTtsCostModelKey(input.voice.tts);
 
-  const sttCostUsd = sttModelKey
-    ? calculateVoiceCost(sttModelKey, { audioInputSeconds })
-    : 0;
+  const sttCostUsd = sttModelKey ? calculateVoiceCost(sttModelKey, { audioInputSeconds }) : 0;
   const ttsCostUsd = ttsModelKey ? calculateVoiceCost(ttsModelKey, { characters }) : 0;
 
   return {
@@ -90,9 +88,7 @@ function resolveTtsCostModelKey(tts: VoiceTtsConfig): string | undefined {
     return option.costModelKey;
   }
   if (tts.provider === 'minimax') {
-    return tts.model === 'speech-2.8-hd'
-      ? 'minimax-speech-2.8-hd'
-      : 'minimax-speech-2.8-turbo';
+    return tts.model === 'speech-2.8-hd' ? 'minimax-speech-2.8-hd' : 'minimax-speech-2.8-turbo';
   }
   return option?.id ?? tts.model;
 }

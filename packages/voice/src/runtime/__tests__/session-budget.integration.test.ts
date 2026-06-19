@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { createTestContext } from '@plumbus/core/testing';
 import { defineVoice } from '../../define/defineVoice.js';
 import { createVoiceSessionBudget } from '../../cost/session-budget.js';
-import { createMockSTTProvider, createMockTTSProvider, createMockTransportProvider } from '../../testing/mock-providers.js';
+import {
+  createMockSTTProvider,
+  createMockTTSProvider,
+  createMockTransportProvider,
+} from '../../testing/mock-providers.js';
 import { VoiceSessionController } from '../voice-session-controller.js';
 import type { VoiceEvent } from '../../types/event.js';
 
@@ -15,7 +19,11 @@ describe('voice session budget integration', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'mock-stt' },
       tts: { provider: 'mock-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     const controller = new VoiceSessionController({
@@ -51,7 +59,11 @@ describe('voice session budget integration', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'mock-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     const controller = new VoiceSessionController({

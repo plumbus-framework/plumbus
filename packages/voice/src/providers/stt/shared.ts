@@ -23,7 +23,10 @@ export type RuntimeFetch = (
 export interface RuntimeWebSocket {
   send(data: string | Uint8Array | Buffer): void;
   close(code?: number, reason?: string): void;
-  on(event: 'message', listener: (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => void): this;
+  on(
+    event: 'message',
+    listener: (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => void,
+  ): this;
   on(event: 'error', listener: (error: Error) => void): this;
   on(event: 'close', listener: (code: number, reason: Buffer) => void): this;
   once(event: 'open', listener: () => void): this;
@@ -203,10 +206,7 @@ export function toBlobPart(bytes: Uint8Array): Buffer {
   return Buffer.from(bytes);
 }
 
-export function toBlob(
-  parts: Array<Uint8Array | ArrayBuffer | Buffer>,
-  type: string,
-): Blob {
+export function toBlob(parts: Array<Uint8Array | ArrayBuffer | Buffer>, type: string): Blob {
   return new Blob(parts as ConstructorParameters<typeof Blob>[0], { type });
 }
 

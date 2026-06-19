@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { DEFAULT_AGENT_AUDIO_TRACK_NAME } from '../client/livekit-session-helpers.js';
 import { createProviderRegistry, validateVoiceProviders } from '../providers/registry.js';
 import {
   createSTTProvider,
@@ -9,10 +11,10 @@ import {
 import { recordLiveKitTransportCost } from '../cost/record-livekit-transport.js';
 import { createVoiceSessionBudget } from '../cost/session-budget.js';
 import type { VoiceSessionBudgetConfig } from '../types/cost.js';
-import {
+import type {
   LiveKitTransportProvider,
-  type ConnectLiveKitWorkerArgs,
-  type LiveKitWorkerConnection,
+  ConnectLiveKitWorkerArgs,
+  LiveKitWorkerConnection,
 } from '../providers/transport/livekit-transport.js';
 import type { VoiceDefinition } from '../types/voice.js';
 import type { VoiceProvidersConfig } from '../types/provider.js';
@@ -49,6 +51,18 @@ export interface VoiceRoomSessionHandle {
   stop(): Promise<void>;
 }
 
+export function mergeRoomBrainInput(
+  brainInput: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...brainInput,
+    ...(typeof metadata.projectId === 'string' ? { projectId: metadata.projectId } : {}),
+    ...(typeof metadata.sessionId === 'string' ? { sessionId: metadata.sessionId } : {}),
+    ...(typeof metadata.language === 'string' ? { language: metadata.language } : {}),
+  };
+}
+
 export async function joinVoiceRoomSession(
   options: JoinVoiceRoomSessionOptions,
 ): Promise<VoiceRoomSessionHandle> {
@@ -58,7 +72,10 @@ export async function joinVoiceRoomSession(
   });
   if (!validation.ok) {
     const detail = validation.issues.map((issue) => issue.message).join('; ');
-    throw new Error(`Voice room session cannot start with invalid providers: ${detail}`);
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `Voice room session cannot start with invalid providers: ${detail}`,
+    );
   }
 
   const registry = options.registry ?? createProviderRegistry();
@@ -75,8 +92,7 @@ export async function joinVoiceRoomSession(
     sessionId,
     userId,
     tenantId:
-      options.tenantId ??
-      (typeof metadata.tenantId === 'string' ? metadata.tenantId : undefined),
+      options.tenantId ?? (typeof metadata.tenantId === 'string' ? metadata.tenantId : undefined),
     metadata,
   });
 
@@ -107,12 +123,7 @@ export async function joinVoiceRoomSession(
     ttsProvider,
     transportProvider: transport,
     budget,
-    brainInput: {
-      ...options.brainInput,
-      ...(typeof metadata.projectId === 'string' ? { projectId: metadata.projectId } : {}),
-      ...(typeof metadata.sessionId === 'string' ? { interviewSessionId: metadata.sessionId } : {}),
-      ...(typeof metadata.language === 'string' ? { language: metadata.language } : {}),
-    },
+    brainInput: mergeRoomBrainInput(options.brainInput, metadata),
     onEvent: async (event) => {
       await transport.sendData(event);
     },
@@ -161,7 +172,9 @@ export async function joinVoiceRoomSession(
 
 function resolveAgentTrackName(voice: VoiceDefinition): string {
   const configured = voice.transport.options?.agentAudioTrackName;
-  return typeof configured === 'string' && configured.length > 0 ? configured : 'dvora-voice';
+  return typeof configured === 'string' && configured.length > 0
+    ? configured
+    : DEFAULT_AGENT_AUDIO_TRACK_NAME;
 }
 
 export interface StartVoiceWorkerOptions {
@@ -193,7 +206,10 @@ export async function startVoiceWorker(
   options: StartVoiceWorkerOptions,
 ): Promise<VoiceWorkerHandle> {
   if (!options.createExecutionContext) {
-    throw new Error('startVoiceWorker requires createExecutionContext');
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      'startVoiceWorker requires createExecutionContext',
+    );
   }
 
   const livekitVoices = options.voices.filter((voice) => voice.transport.provider === 'livekit');

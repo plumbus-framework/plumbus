@@ -34,7 +34,7 @@ describe('voice catalog smoke', () => {
           async json() {
             return {
               voices: [
-                { id: 'dvora', displayName: 'Dvora', locale: 'he-IL' },
+                { id: 'atlas', displayName: 'Atlas', locale: 'he-IL' },
                 { id: 'eden', displayName: 'Eden', locale: 'en-US' },
               ],
             };
@@ -74,7 +74,7 @@ describe('voice catalog smoke', () => {
 
     expect(first.source).toBe('live-api');
     expect(first.partial).toBe(false);
-    expect(first.voices.map((voice) => voice.id)).toEqual(['dvora', 'eden']);
+    expect(first.voices.map((voice) => voice.id)).toEqual(['atlas', 'eden']);
     expect(second.cached).toBe(true);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });

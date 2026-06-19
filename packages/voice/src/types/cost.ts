@@ -9,7 +9,10 @@ export interface AICostContextLike {
 }
 
 export type VoiceUsageKind = 'transcribe' | 'synthesize' | 'transport' | 'other';
-export type VoiceCostOperation = Extract<AICostRecord['operation'], 'transcribe' | 'synthesize' | 'transport'>;
+export type VoiceCostOperation = Extract<
+  AICostRecord['operation'],
+  'transcribe' | 'synthesize' | 'transport'
+>;
 
 export interface VoiceMediaUsage {
   audioInputSeconds?: number;

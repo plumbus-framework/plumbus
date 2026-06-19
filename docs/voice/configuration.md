@@ -107,15 +107,19 @@ For domain vocabulary (product names, Hebrew proper nouns), pass `contextTerms` 
 ```ts
 stt: {
   provider: 'soniox',
+  model: 'stt-rt-v5',
   languages: ['he'],
   options: {
-    contextTerms: ['Dvora', 'MemoirAi'],
+    contextTerms: ['AcmeApp', 'ProductName'],
     enableEndpointDetection: true,
+    maxEndpointDelayMs: 3000,
   },
 },
 ```
 
 The Soniox adapter maps this to `context.terms` in the realtime websocket config.
+For raw PCM streams, it also sends `audio_format`, `sample_rate`, and `num_channels`
+so Soniox can decode the forwarded LiveKit audio frames.
 
 ## Route options
 

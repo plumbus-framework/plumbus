@@ -91,37 +91,39 @@ describe('voice websocket smoke', () => {
     expect(sessionRes.status).toBe(200);
     const session = (await sessionRes.json()) as { wsUrl: string; sessionToken: string };
 
-    const frames = await new Promise<{ texts: string[]; binaryCount: number }>((resolve, reject) => {
-      const texts: string[] = [];
-      let binaryCount = 0;
-      const socket = new WebSocket(session.wsUrl, [`voice-session.${session.sessionToken}`], {
-        origin: 'https://voice.test',
-      });
+    const frames = await new Promise<{ texts: string[]; binaryCount: number }>(
+      (resolve, reject) => {
+        const texts: string[] = [];
+        let binaryCount = 0;
+        const socket = new WebSocket(session.wsUrl, [`voice-session.${session.sessionToken}`], {
+          origin: 'https://voice.test',
+        });
 
-      socket.once('open', () => {
-        socket.send(pcmSampleFrames.silent16kMono);
-        socket.send(JSON.stringify({ type: 'stt.final', text: 'hello voice', language: 'en' }));
-        socket.send(JSON.stringify({ type: 'ptt.up', language: 'en' }));
-      });
+        socket.once('open', () => {
+          socket.send(pcmSampleFrames.silent16kMono);
+          socket.send(JSON.stringify({ type: 'stt.final', text: 'hello voice', language: 'en' }));
+          socket.send(JSON.stringify({ type: 'ptt.up', language: 'en' }));
+        });
 
-      socket.on('message', (data, isBinary) => {
-        if (isBinary) {
-          binaryCount += 1;
-        } else {
-          texts.push(data.toString());
-        }
+        socket.on('message', (data, isBinary) => {
+          if (isBinary) {
+            binaryCount += 1;
+          } else {
+            texts.push(data.toString());
+          }
 
-        if (
-          texts.some((frame) => frame.includes('"type":"session.hello"')) &&
-          texts.some((frame) => frame.includes('"type":"turn.completed"'))
-        ) {
-          socket.close();
-          resolve({ texts, binaryCount });
-        }
-      });
+          if (
+            texts.some((frame) => frame.includes('"type":"session.hello"')) &&
+            texts.some((frame) => frame.includes('"type":"turn.completed"'))
+          ) {
+            socket.close();
+            resolve({ texts, binaryCount });
+          }
+        });
 
-      socket.once('error', reject);
-    });
+        socket.once('error', reject);
+      },
+    );
 
     expect(frames.texts.some((frame) => frame.includes('"type":"session.hello"'))).toBe(true);
     expect(frames.texts.some((frame) => frame.includes('"type":"turn.completed"'))).toBe(true);
@@ -138,7 +140,11 @@ describe('voice websocket smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'web-speech' },
       tts: { provider: 'browser-tts' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     registerVoiceRoutes(

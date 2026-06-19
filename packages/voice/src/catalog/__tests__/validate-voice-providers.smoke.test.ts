@@ -10,7 +10,11 @@ describe('validateVoiceProviders smoke', () => {
       transport: { provider: 'websocket' },
       stt: { provider: 'soniox' },
       tts: { provider: 'openai', model: 'tts-1', voiceId: 'alloy' },
-      brain: { async run() { return { text: 'ok' }; } },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
     });
 
     const result = validateVoiceProviders({

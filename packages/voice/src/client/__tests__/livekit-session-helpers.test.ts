@@ -12,14 +12,16 @@ import {
 
 describe('livekit session helpers', () => {
   it('resolves agent audio track name from token metadata', () => {
-    expect(resolveAgentAudioTrackName({ agentAudioTrackName: 'custom-voice' })).toBe('custom-voice');
+    expect(resolveAgentAudioTrackName({ agentAudioTrackName: 'custom-voice' })).toBe(
+      'custom-voice',
+    );
     expect(resolveAgentAudioTrackName({ audioTrackName: 'legacy-voice' })).toBe('legacy-voice');
-    expect(resolveAgentAudioTrackName({})).toBe('dvora-voice');
+    expect(resolveAgentAudioTrackName({})).toBe('agent-voice');
   });
 
   it('matches agent audio publications by track name', () => {
-    expect(isAgentAudioPublication({ trackName: 'dvora-voice' }, 'dvora-voice')).toBe(true);
-    expect(isAgentAudioPublication({ trackName: 'mic' }, 'dvora-voice')).toBe(false);
+    expect(isAgentAudioPublication({ trackName: 'agent-voice' }, 'agent-voice')).toBe(true);
+    expect(isAgentAudioPublication({ trackName: 'mic' }, 'agent-voice')).toBe(false);
   });
 
   it('parses LiveKit data payloads and coerces known voice events', () => {
@@ -49,13 +51,7 @@ describe('livekit session helpers', () => {
 
   it('converts float32 samples to little-endian pcm16 bytes', () => {
     const pcm = float32SamplesToPcm16(new Float32Array([0, 1, -1]));
-    expect(pcm).toEqual(
-      Uint8Array.from([
-        0x00, 0x00,
-        0xff, 0x7f,
-        0x00, 0x80,
-      ]),
-    );
+    expect(pcm).toEqual(Uint8Array.from([0x00, 0x00, 0xff, 0x7f, 0x00, 0x80]));
   });
 
   it('resamples browser-captured pcm16 to 16kHz mono transport format', () => {

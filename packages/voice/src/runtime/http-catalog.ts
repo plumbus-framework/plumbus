@@ -31,7 +31,14 @@ export function registerVoiceCatalogRoutes(
     const params = req.params as { kind: 'transport' | 'stt' | 'tts'; providerId: string };
     const options =
       params.kind === 'transport'
-        ? { providerId: params.providerId, kind: 'stt' as const, models: [], voices: [], source: 'static' as const, partial: false }
+        ? {
+            providerId: params.providerId,
+            kind: 'stt' as const,
+            models: [],
+            voices: [],
+            source: 'static' as const,
+            partial: false,
+          }
         : await fetchVoiceProviderOptions({
             kind: params.kind,
             providerId: params.providerId,

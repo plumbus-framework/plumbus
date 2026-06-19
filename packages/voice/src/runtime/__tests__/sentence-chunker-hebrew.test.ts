@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { splitSentenceChunks } from '../sentence-chunker.js';
 
-describe('sentence chunker dvora boundaries', () => {
+describe('sentence chunker Hebrew boundaries', () => {
   it('splits on Hebrew sof pasuq and paragraph breaks', () => {
     expect(splitSentenceChunks('שלום עולם׃ More text')).toEqual(['שלום עולם׃', 'More text']);
     expect(splitSentenceChunks('First block\n\nSecond block')).toEqual([

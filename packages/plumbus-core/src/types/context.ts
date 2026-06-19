@@ -197,10 +197,7 @@ export interface AIService {
    * Pre-check shared daily/per-request budgets before non-token provider work
    * such as voice STT/TTS/transport adapters.
    */
-  checkProviderCostBudget(config?: {
-    estimatedTokens?: number;
-    estimatedCostUsd?: number;
-  }): void;
+  checkProviderCostBudget(config?: { estimatedTokens?: number; estimatedCostUsd?: number }): void;
 
   generate(config: {
     prompt: string;

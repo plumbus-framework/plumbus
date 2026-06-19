@@ -43,11 +43,7 @@ export interface RegisterVoiceRoutesOpts {
     voice: VoiceDefinition,
     rawBody: unknown,
   ) => Promise<VoiceBeforeSessionResult | undefined>;
-  afterSession?: (
-    ctx: ExecutionContext,
-    voice: VoiceDefinition,
-    session: unknown,
-  ) => Promise<void>;
+  afterSession?: (ctx: ExecutionContext, voice: VoiceDefinition, session: unknown) => Promise<void>;
 }
 
 export type RegisterVoiceRoutes = (
