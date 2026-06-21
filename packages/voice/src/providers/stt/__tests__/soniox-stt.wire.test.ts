@@ -51,6 +51,7 @@ function makeFactory(session: FakeSonioxSession, captured: { config?: Record<str
 function createSonioxProvider(
   session: FakeSonioxSession,
   captured: { config?: Record<string, unknown> },
+  extraOptions: Record<string, unknown> = {},
 ) {
   const registry = createProviderRegistry();
   return createSTTProvider({
@@ -71,6 +72,7 @@ function createSonioxProvider(
         enableEndpointDetection: true,
         maxEndpointDelayMs: 3000,
         contextTerms: ['AcmeApp'],
+        ...extraOptions,
       },
     },
   });
@@ -100,6 +102,20 @@ describe('Soniox STT via @soniox/node SDK', () => {
       max_endpoint_delay_ms: 3000,
       context: { terms: ['AcmeApp'] },
     });
+  });
+
+  it('maps endpointSensitivity to endpoint_sensitivity in the Soniox config', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured, { endpointSensitivity: -0.3 });
+
+    await provider.connect?.({ sessionId: 'soniox-sensitivity' });
+    await provider.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+
+    expect(captured.config?.endpoint_sensitivity).toBe(-0.3);
   });
 
   it('emits clean partial transcripts and fires onEndpoint with the final utterance', async () => {
@@ -139,6 +155,72 @@ describe('Soniox STT via @soniox/node SDK', () => {
     expect(transcripts.every((t) => !t.text.includes('<end>'))).toBe(true);
   });
 
+  it('fires onEndpoint from the in-stream <end> token without the endpoint event', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured);
+
+    const transcripts: STTLike[] = [];
+    let endpoints = 0;
+    await provider.connect?.({
+      sessionId: 'soniox-end-token',
+      onTranscript: (event) => {
+        transcripts.push({ text: event.text, final: event.final });
+      },
+      onEndpoint: () => {
+        endpoints += 1;
+      },
+    });
+    await provider.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+
+    // Soniox delivers the endpoint as a control token in the result stream.
+    session.emit('result', {
+      tokens: [
+        { text: 'שלום', is_final: true, confidence: 0.95, language: 'he' },
+        { text: '<end>', is_final: true },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(endpoints).toBe(1);
+    const final = transcripts.find((t) => t.final);
+    expect(final?.text).toBe('שלום');
+    expect(transcripts.every((t) => !t.text.includes('<end>'))).toBe(true);
+  });
+
+  it('does not double-fire onEndpoint when both the <end> token and endpoint event arrive', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured);
+
+    let endpoints = 0;
+    await provider.connect?.({
+      sessionId: 'soniox-end-dup',
+      onTranscript: () => {},
+      onEndpoint: () => {
+        endpoints += 1;
+      },
+    });
+    await provider.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+
+    session.emit('result', {
+      tokens: [
+        { text: 'hi', is_final: true },
+        { text: '<end>', is_final: true },
+      ],
+    });
+    session.emit('endpoint');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(endpoints).toBe(1);
+  });
+
   it('resets utterance state between endpoints (second utterance is independent)', async () => {
     const session = new FakeSonioxSession();
     const captured: { config?: Record<string, unknown> } = {};
@@ -166,6 +248,64 @@ describe('Soniox STT via @soniox/node SDK', () => {
     expect(finals).toContain('first');
     expect(finals).toContain('second');
     expect(finals.some((t) => t.includes('firstsecond'))).toBe(false);
+  });
+
+  it('preserves Hebrew inter-word spacing across streamed final and pending tokens', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured);
+
+    const transcripts: string[] = [];
+    let endpointText = '';
+    await provider.connect?.({
+      sessionId: 'soniox-he-spacing',
+      onTranscript: (event) => {
+        transcripts.push(event.text);
+      },
+      onEndpoint: () => {
+        endpointText = transcripts.at(-1) ?? '';
+      },
+    });
+    await provider.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+
+    // Soniox streams Hebrew with leading spaces on word tokens.
+    session.emit('result', {
+      tokens: [{ text: 'את', is_final: true, language: 'he' }],
+    });
+    session.emit('result', {
+      tokens: [{ text: ' המעבר', is_final: true, language: 'he' }],
+    });
+    session.emit('result', {
+      tokens: [{ text: ' עצמו', is_final: true, language: 'he' }],
+    });
+    session.emit('result', {
+      tokens: [
+        { text: ' אני', is_final: true, language: 'he' },
+        { text: ' לא', is_final: false, language: 'he' },
+      ],
+    });
+    session.emit('result', {
+      tokens: [
+        { text: ' לא', is_final: true, language: 'he' },
+        { text: ' זוכר', is_final: false, language: 'he' },
+      ],
+    });
+    session.emit('result', {
+      tokens: [
+        { text: ' זוכר', is_final: true, language: 'he' },
+        { text: ' בשלמותו', is_final: true, language: 'he' },
+        { text: '<end>', is_final: true },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const expected = 'את המעבר עצמו אני לא זוכר בשלמותו';
+    expect(transcripts.at(-1)).toBe(expected);
+    expect(endpointText).toBe(expected);
+    expect(transcripts.every((t) => !t.includes('<end>'))).toBe(true);
   });
 });
 

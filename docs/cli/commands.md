@@ -13,6 +13,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus worker` | Background worker process (split deployments) |
 | `plumbus events` | Outbox status, dead-letter ops, event replay |
 | `plumbus flow dead-letter` | List and retry failed flow executions |
+| `plumbus flow schedule list` | List scheduled flows with cron and next/last run times |
 | `plumbus doctor` | Check environment readiness |
 | `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types, type registry |
 | `plumbus capability new` | Scaffold a new capability |
@@ -320,9 +321,20 @@ Flow scaffolding and dead-letter operations.
 
 ```bash
 plumbus flow new <name> [options]
+plumbus flow schedule list [options]
 plumbus flow dead-letter list [options]
 plumbus flow dead-letter retry <executionId>
 ```
+
+#### `plumbus flow schedule list`
+
+List scheduled flows, merging code-defined `schedule.cron` values with runtime rows from `flow_schedules` (`next_run_at`, `last_run_at`, `enabled`).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--json` | `boolean` | `false` | Output JSON (`{ "schedules": [...] }`) |
+
+Human output includes `synced=false` for flows registered in code but not yet synced to the database (worker has not started). Synced rows show `next` and `last` ISO timestamps when present.
 
 #### `plumbus flow dead-letter list`
 

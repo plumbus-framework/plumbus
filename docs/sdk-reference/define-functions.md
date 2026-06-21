@@ -229,6 +229,28 @@ const onboarding = defineFlow({
 | `schedule` | `FlowSchedule` | No | Cron schedule config |
 | `retry` | `FlowRetryPolicy` | No | Retry policy |
 
+### FlowSchedule
+
+```typescript
+interface FlowSchedule {
+  cron: string; // 5-field cron or interval: "every:60m" | "every:24h" | "every:1d"
+}
+```
+
+Use **`schedule`** instead of **`trigger`** when the flow should run on a timer. The scheduler passes `{}` as flow input, so use `input: z.object({})` (or optional fields only). Full walkthrough: [Flows → Scheduled flow example](../core-concepts/flows.md#scheduled-flow-example).
+
+```typescript
+const nightlyCleanup = defineFlow({
+  name: "nightlyCleanup",
+  domain: "maintenance",
+  input: z.object({}),
+  schedule: { cron: "0 0 * * *" },
+  steps: [
+    { name: "purgeExpired", type: "capability", capability: "maintenance.purgeExpired" },
+  ],
+});
+```
+
 ### Flow Step Types
 
 ```typescript

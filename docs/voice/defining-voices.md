@@ -105,7 +105,7 @@ Clients and servers exchange JSON control frames (and binary audio on WebSocket 
 | `assistant.delta` | streamed assistant text from `brain.run` |
 | `agent.state` | `Idle`, `Listening`, `Transcribing`, `AwaitingLLM`, `Synthesizing`, `Playing` |
 | `agent.tone` | active tone profile id (debug/UX) |
-| `tts.speak` | client TTS instruction (`browser-tts`) |
+| `tts.speak` | client TTS instruction (`browser-tts`), or server TTS when sent as a **control** frame (`{ type: 'tts.speak', text }`) to replay assistant text without a brain turn |
 | `turn.completed` / `turn.failed` | turn outcome |
 | `error` | structured failure (`transport_lost`, budget exceeded, etc.) |
 

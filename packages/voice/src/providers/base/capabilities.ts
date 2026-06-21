@@ -22,6 +22,13 @@ export interface STTProviderCapabilities extends ProviderDescriptor {
   execution: STTExecutionSite;
   streaming: boolean;
   languages: 'multilingual' | string[];
+  /**
+   * True when the provider emits a reliable end-of-speech signal (via
+   * `onEndpoint`). The continuous-session controller then drives turns purely
+   * from that signal and skips its silence-timer failsafe (unless an app
+   * explicitly re-enables it with a positive `stt.options.endpointSilenceMs`).
+   */
+  endpointDetection?: boolean;
 }
 
 export interface TTSProviderCapabilities extends ProviderDescriptor {

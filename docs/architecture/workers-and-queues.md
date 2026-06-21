@@ -272,6 +272,7 @@ pnpm add @plumbus/mcp             # MCP integration
 | `plumbus events replay <eventId>` | Re-dispatch an outbox event (`--consumer` clears idempotency for that consumer first) |
 | `plumbus flow dead-letter list` | List failed flow executions |
 | `plumbus flow dead-letter retry <executionId>` | Re-enqueue a flow step |
+| `plumbus flow schedule list` | List scheduled flows with cron, next/last run, and sync status |
 
 See [CLI → Commands](../cli/commands.md) for full option reference.
 

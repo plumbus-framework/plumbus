@@ -18,17 +18,25 @@ interface Harness {
   endpoint: () => Promise<void>;
 }
 
-async function makeServerSttHarness(endpointSilenceMs = 10_000): Promise<Harness> {
+async function makeServerSttHarness(
+  endpointSilenceMs = 10_000,
+  opts: { endpointDetection?: boolean; endpointGraceMs?: number } = {},
+): Promise<Harness> {
   const brainTranscripts: string[] = [];
   const sttFinals: string[] = [];
   let onTranscript: ((event: STTProviderTranscriptEvent) => Promise<void>) | undefined;
   let onEndpoint: (() => Promise<void>) | undefined;
 
+  const sttOptions: Record<string, unknown> = { endpointSilenceMs };
+  if (typeof opts.endpointGraceMs === 'number') {
+    sttOptions.endpointGraceMs = opts.endpointGraceMs;
+  }
+
   const voice = defineVoice({
     name: 'endpointVoice',
     access: {},
     transport: { provider: 'livekit', mode: 'continuous' },
-    stt: { provider: 'mock-stt', options: { endpointSilenceMs } },
+    stt: { provider: 'mock-stt', options: sttOptions },
     tts: { provider: 'mock-tts' },
     brain: {
       async run(_ctx, args) {
@@ -38,12 +46,18 @@ async function makeServerSttHarness(endpointSilenceMs = 10_000): Promise<Harness
     },
   });
 
-  const sttProvider = createMockSTTProvider({
+  const baseProvider = createMockSTTProvider({
     connect(args) {
       onTranscript = args.onTranscript;
       onEndpoint = args.onEndpoint;
     },
   });
+  const sttProvider = opts.endpointDetection
+    ? {
+        ...baseProvider,
+        capabilities: { ...baseProvider.capabilities, endpointDetection: true },
+      }
+    : baseProvider;
 
   const controller = new VoiceSessionController({
     voice,
@@ -107,6 +121,31 @@ describe('VoiceSessionController server STT endpoint wiring', () => {
     expect(h.brainTranscripts).toEqual(['מה שלומך']);
   });
 
+  it('skips the silence failsafe for providers with reliable endpoint detection', async () => {
+    // No explicit failsafe window; the provider declares endpointDetection, so the
+    // timer must NOT be scheduled — only an explicit endpoint should fire a turn.
+    const h = await makeServerSttHarness(0, { endpointDetection: true });
+
+    await h.emit({ text: 'מה', final: false });
+    await h.emit({ text: 'מה שלומך', final: false });
+
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    expect(h.controller.turnCount).toBe(0);
+
+    await h.endpoint();
+    expect(h.controller.turnCount).toBe(1);
+    expect(h.brainTranscripts).toEqual(['מה שלומך']);
+  });
+
+  it('re-enables the silence failsafe when an app sets a positive endpointSilenceMs', async () => {
+    // Even a reliable-endpoint provider honors an explicit opt-in failsafe.
+    const h = await makeServerSttHarness(30, { endpointDetection: true });
+
+    await h.emit({ text: 'מה שלומך', final: false });
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    expect(h.controller.turnCount).toBe(1);
+  });
+
   it('defensively strips any leaked <end>/<fin> markers before the brain/chat', async () => {
     const h = await makeServerSttHarness();
 
@@ -115,5 +154,49 @@ describe('VoiceSessionController server STT endpoint wiring', () => {
 
     expect(h.brainTranscripts).toEqual(['שלום עולם']);
     expect(h.sttFinals.join('|')).not.toContain('<end>');
+  });
+
+  it('defers the endpoint turn until the grace window elapses', async () => {
+    const h = await makeServerSttHarness(0, { endpointDetection: true, endpointGraceMs: 50 });
+
+    await h.emit({ text: 'מה שלומך', final: false });
+    await h.endpoint();
+    expect(h.controller.turnCount).toBe(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(h.controller.turnCount).toBe(1);
+    expect(h.brainTranscripts).toEqual(['מה שלומך']);
+  });
+
+  it('cancels a deferred endpoint turn when the user resumes speaking', async () => {
+    const h = await makeServerSttHarness(0, { endpointDetection: true, endpointGraceMs: 50 });
+
+    await h.emit({ text: 'מה', final: false });
+    await h.endpoint();
+    await h.emit({ text: 'more', final: false });
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(h.controller.turnCount).toBe(0);
+
+    await h.endpoint();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(h.controller.turnCount).toBe(1);
+    expect(h.brainTranscripts).toEqual(['מה more']);
+  });
+
+  it('stitches resumed speech onto the deferred utterance across the grace window', async () => {
+    const h = await makeServerSttHarness(0, { endpointDetection: true, endpointGraceMs: 50 });
+
+    await h.emit({ text: 'part one', final: false });
+    await h.endpoint();
+    await h.emit({ text: 'part two', final: false });
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(h.controller.turnCount).toBe(0);
+
+    await h.endpoint();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(h.controller.turnCount).toBe(1);
+    expect(h.brainTranscripts).toEqual(['part one part two']);
   });
 });

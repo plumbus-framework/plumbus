@@ -256,6 +256,78 @@ A flow definition can carry **either** a `trigger` (event-driven), **or** a `sch
 | `schedule` | `{ cron: "0 0 * * *" }` | On the cron schedule (handled by the scheduler). |
 | *(neither)* | — | Only via `ctx.flows.start(...)` or the auto-generated start route. |
 
+Do not combine `trigger` and `schedule` on the same flow — pick one initiation model.
+
+### Scheduled flow example
+
+Use `schedule.cron` when work should run on a timer (nightly cleanup, hourly sync, etc.). The flow scheduler lives in the **worker pool** and writes run state to the `flow_schedules` table.
+
+```typescript
+import { defineFlow } from "@plumbus/core";
+import { z } from "zod";
+
+export const nightlyCleanup = defineFlow({
+  name: "nightlyCleanup",
+  domain: "maintenance",
+  description: "Purge expired records every day at midnight",
+  input: z.object({}), // scheduler starts the flow with {} — no event payload
+  schedule: { cron: "0 0 * * *" }, // every day at 00:00 (5-field cron)
+  steps: [
+    {
+      name: "purgeExpired",
+      type: "capability",
+      capability: "maintenance.purgeExpired",
+    },
+  ],
+});
+```
+
+Register the flow in your app registry (same as event-triggered flows). On worker startup, the scheduler syncs registered schedules into `flow_schedules` and polls for due runs.
+
+**Cron formats**
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| 5-field cron | `"0 0 * * *"` | Every day at midnight (`minute hour day month weekday`) |
+| 5-field cron | `"*/15 * * * *"` | Every 15 minutes |
+| Interval | `"every:60m"` | Every 60 minutes |
+| Interval | `"every:24h"` | Every 24 hours |
+| Interval | `"every:1d"` | Every 1 day |
+
+Fields: minute (0–59), hour (0–23), day-of-month (1–31), month (1–12), day-of-week (0–6, Sunday = 0). Wildcards, ranges, steps, and lists are supported. With `cron-parser` installed, expressions are delegated to that library first.
+
+**Runtime requirements**
+
+1. **Worker pool** — `plumbus dev` / `plumbus start` (role `all`) or a dedicated `plumbus worker start` process. See [Workers and queues](../architecture/workers-and-queues.md).
+2. **`cron-parser` (recommended)** — accurate `nextRunAt` for production cron:
+
+   ```bash
+   pnpm add cron-parser
+   ```
+
+3. **Migrations** — `flow_schedules` is included in generated migrations; run `plumbus migrate generate` then `plumbus migrate apply`.
+
+**Auth and capabilities**
+
+Scheduled runs start with empty input `{}` under **system** auth (`roles: ['system']`, provider `scheduler`). Capabilities invoked by scheduled steps must allow that identity — for example:
+
+```typescript
+access: {
+  roles: ["system"],
+  // or: serviceAccounts: ["scheduler"],
+}
+```
+
+User-scoped data in scheduled steps still respects tenant rules on `ctx.data`; there is no end-user `AuthContext` on cron-triggered runs.
+
+**Operational notes**
+
+- Inspect schedules: `plumbus flow schedule list` (or `--json`). Merges app definitions with `flow_schedules` run state.
+- Default poll interval: `schedulerPollIntervalMs` = 60_000 (1 minute). Tune in worker config — see [configuration](../sdk-reference/configuration.md#worker-pool).
+- First sync of a new schedule sets `nextRunAt` to **now**, so the first run happens on the next poll (not necessarily exactly at cron boundary).
+- Verify the scheduler is active: `plumbus worker status` reports a `scheduler` component when scheduled flows are registered.
+- Split deployments (API-only + worker-only) need Redis for durable queues when running multiple replicas — see [upgrading-workers](../upgrading-workers.md).
+
 ## Retry Policy
 
 ```typescript
@@ -400,16 +472,6 @@ await deadLetterFlow(executionId, "Manual intervention required");
 // Sweep all failed flows past retry limit
 await sweepFailedFlows(flowService);
 ```
-
-## Scheduled Flows
-
-Flows with a `schedule` trigger require the optional `cron-parser` peer dependency for `nextRunAt` computation:
-
-```bash
-pnpm add cron-parser
-```
-
-The flow scheduler runs in the worker pool. Split deployments need a `plumbus worker` process (or colocated `plumbus start` with role `all`).
 
 ## File Convention
 

@@ -29,6 +29,8 @@ import {
 import type { VoiceDefinition } from '../types/voice.js';
 import type { VoiceEvent } from '../types/event.js';
 import { createAgentStateEvent } from './events.js';
+import { resolveDeliveryTone } from './delivery-tone.js';
+import { mapDeliveryToneForProvider } from './tone-mapper.js';
 
 export type SttMode = 'client' | 'server';
 
@@ -36,11 +38,25 @@ export type SttMode = 'client' | 'server';
 const SPEECH_ENERGY_PEAK_DB = -45;
 
 /**
- * Failsafe silence (ms) after the last transcript before a server-STT turn fires,
- * used only if the provider never emits an endpoint. Kept longer than Soniox's
- * `max_endpoint_delay_ms` so the real endpoint signal wins in normal operation.
+ * Failsafe silence (ms) after the last transcript before a server-STT turn fires.
+ * Only used for providers that do NOT declare reliable endpoint detection
+ * (`capabilities.endpointDetection`), or when an app explicitly re-enables the
+ * failsafe via a positive `stt.options.endpointSilenceMs`. Providers like Soniox
+ * drive turns from their own end-of-speech signal and skip this timer entirely.
  */
 const DEFAULT_SERVER_SILENCE_MS = 4000;
+
+/** Default reflective-pause duration before a backchannel continuer (ms). */
+const DEFAULT_BACKCHANNEL_PAUSE_MS = 900;
+
+/** Minimum pending transcript length before a backchannel may fire. */
+const DEFAULT_BACKCHANNEL_MIN_TRANSCRIPT_CHARS = 40;
+
+/** Minimum gap between backchannel continuers (ms). */
+const DEFAULT_BACKCHANNEL_COOLDOWN_MS = 6000;
+
+/** Fallback continuer when no phrase pool is configured. */
+const DEFAULT_BACKCHANNEL_PHRASES = ['mm-hm'] as const;
 
 /** Remove Soniox control markers (`<end>`, `<fin>`) from transcript text (defensive). */
 function stripEndpointMarkers(text: string): string {
@@ -78,10 +94,13 @@ export class VoiceSessionController {
   #turnCount = 0;
   #turnInFlight = false;
   #repairInFlight = false;
+  #directSpeakInFlight = false;
   #pendingTranscript: string | undefined;
   #pendingLanguage: string | undefined;
   #pendingConfidence: number | undefined;
   #serverTurnTimer?: ReturnType<typeof setTimeout>;
+  #endpointGraceTimer?: ReturnType<typeof setTimeout>;
+  #deferredEndpointTranscript?: string;
   #listening = false;
   #sttConnected = false;
   #firstAudioLogged = false;
@@ -89,6 +108,11 @@ export class VoiceSessionController {
   #lowLevelWarningLogged = false;
   #hadSpeechEnergyInWindow = false;
   #turnAbort?: AbortController;
+  #lastSpeechEnergyAt?: number;
+  #lastBackchannelAt?: number;
+  #backchannelInFlight = false;
+  #backchannelAbort?: AbortController;
+  #backchannelTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly options: VoiceSessionControllerOptions) {
     this.session = createVoiceRuntimeSession({
@@ -122,13 +146,36 @@ export class VoiceSessionController {
       },
     });
     this.#sttConnected = true;
+
+    const endpointOnly = this.#serverEndpointIsReliable();
+    console.info('[voice-session] server STT endpoint mode', {
+      sessionId: this.session.id,
+      provider: this.options.sttProvider.capabilities.id,
+      mode: endpointOnly ? 'provider-endpoint-only' : 'silence-failsafe',
+      ...(endpointOnly ? {} : { silenceMs: this.#serverSilenceMs() }),
+    });
   }
 
   async #handleEndpoint(): Promise<void> {
-    // An explicit end-of-speech signal from the provider triggers the turn
-    // immediately; the silence-debounce in #handleServerStreamingTranscript is the
-    // fallback for providers/configs that do not emit one.
-    await this.#triggerServerTurn('endpoint');
+    // After Soniox signals end-of-speech we wait a short grace window before
+    // starting the turn. If the user resumes speaking during that window
+    // (a new transcript arrives, see #handleServerStreamingTranscript) the
+    // pending turn is cancelled so we do not answer a half-finished sentence.
+    this.#clearBackchannelTimer();
+    this.#abortBackchannelInFlight();
+    const graceMs = this.#endpointGraceMs();
+    if (graceMs <= 0) {
+      await this.#triggerServerTurn('endpoint');
+      return;
+    }
+    this.#clearEndpointGraceTimer();
+    this.#deferredEndpointTranscript = this.#pendingTranscript;
+    const timer = setTimeout(() => {
+      this.#endpointGraceTimer = undefined;
+      void this.#triggerServerTurn('endpoint');
+    }, graceMs);
+    timer.unref?.();
+    this.#endpointGraceTimer = timer;
   }
 
   #resetListeningWindow(): void {
@@ -219,6 +266,11 @@ export class VoiceSessionController {
     this.#pendingConfidence = event.confidence;
 
     if (text.length > 0) {
+      // The user is speaking again after an endpoint: cancel the deferred turn
+      // and keep listening so the full utterance is captured.
+      this.#clearEndpointGraceTimer();
+      this.#abortBackchannelInFlight();
+      this.#clearBackchannelTimer();
       const charCheck = this.options.budget?.check({ sttCharacters: text.length });
       if (charCheck && !charCheck.allowed) {
         await this.options.onEvent({
@@ -228,7 +280,13 @@ export class VoiceSessionController {
         });
         return;
       }
-      this.#pendingTranscript = text;
+      const deferred = this.#deferredEndpointTranscript?.trim();
+      if (deferred) {
+        this.#pendingTranscript = `${deferred} ${text}`;
+        this.#deferredEndpointTranscript = undefined;
+      } else {
+        this.#pendingTranscript = text;
+      }
       await this.options.onEvent({
         type: event.final ? 'stt.final' : 'stt.partial',
         text,
@@ -247,6 +305,19 @@ export class VoiceSessionController {
       : DEFAULT_SERVER_SILENCE_MS;
   }
 
+  /**
+   * True when the STT provider emits a reliable end-of-speech signal and the
+   * voice has not disabled endpoint detection. Such providers (e.g. Soniox)
+   * drive turns purely from `onEndpoint`, so the silence-timer failsafe is not
+   * scheduled.
+   */
+  #serverEndpointIsReliable(): boolean {
+    if (!this.options.sttProvider.capabilities.endpointDetection) {
+      return false;
+    }
+    return this.options.voice.stt.options?.enableEndpointDetection !== false;
+  }
+
   #clearServerTurnTimer(): void {
     if (this.#serverTurnTimer) {
       clearTimeout(this.#serverTurnTimer);
@@ -254,8 +325,186 @@ export class VoiceSessionController {
     }
   }
 
+  #endpointGraceMs(): number {
+    const configured = this.options.voice.stt.options?.endpointGraceMs;
+    return typeof configured === 'number' && configured >= 0 ? configured : 0;
+  }
+
+  #clearEndpointGraceTimer(): void {
+    if (this.#endpointGraceTimer) {
+      clearTimeout(this.#endpointGraceTimer);
+      this.#endpointGraceTimer = undefined;
+    }
+  }
+
+  #clearDeferredEndpointTranscript(): void {
+    this.#deferredEndpointTranscript = undefined;
+  }
+
+  #backchannelEnabled(): boolean {
+    return this.options.voice.stt.options?.backchannelEnabled === true;
+  }
+
+  #backchannelPauseMs(): number {
+    const configured = this.options.voice.stt.options?.backchannelPauseMs;
+    return typeof configured === 'number' && configured > 0
+      ? configured
+      : DEFAULT_BACKCHANNEL_PAUSE_MS;
+  }
+
+  #backchannelMinTranscriptChars(): number {
+    const configured = this.options.voice.stt.options?.backchannelMinTranscriptChars;
+    return typeof configured === 'number' && configured >= 0
+      ? configured
+      : DEFAULT_BACKCHANNEL_MIN_TRANSCRIPT_CHARS;
+  }
+
+  #backchannelCooldownMs(): number {
+    const configured = this.options.voice.stt.options?.backchannelCooldownMs;
+    return typeof configured === 'number' && configured >= 0
+      ? configured
+      : DEFAULT_BACKCHANNEL_COOLDOWN_MS;
+  }
+
+  #backchannelPhrases(): string[] {
+    const configured = this.options.voice.stt.options?.backchannelPhrases;
+    if (Array.isArray(configured)) {
+      const phrases = configured.filter((value): value is string => typeof value === 'string');
+      const trimmed = phrases.map((phrase) => phrase.trim()).filter((phrase) => phrase.length > 0);
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+    return [...DEFAULT_BACKCHANNEL_PHRASES];
+  }
+
+  #clearBackchannelTimer(): void {
+    if (this.#backchannelTimer) {
+      clearTimeout(this.#backchannelTimer);
+      this.#backchannelTimer = undefined;
+    }
+  }
+
+  #abortBackchannelInFlight(): void {
+    if (this.#backchannelAbort) {
+      this.#backchannelAbort.abort();
+      this.#backchannelAbort = undefined;
+    }
+    this.#backchannelInFlight = false;
+  }
+
+  #clearBackchannelState(): void {
+    this.#clearBackchannelTimer();
+    this.#abortBackchannelInFlight();
+  }
+
+  #canConsiderBackchannel(): boolean {
+    if (!this.#backchannelEnabled()) {
+      return false;
+    }
+    if (!this.continuousMode || !this.#listening) {
+      return false;
+    }
+    if (
+      this.#turnInFlight ||
+      this.#repairInFlight ||
+      this.#directSpeakInFlight ||
+      this.#backchannelInFlight
+    ) {
+      return false;
+    }
+    if (this.#endpointGraceTimer) {
+      return false;
+    }
+    const transcript = (this.#pendingTranscript ?? '').trim();
+    if (transcript.length < this.#backchannelMinTranscriptChars()) {
+      return false;
+    }
+    const cooldownMs = this.#backchannelCooldownMs();
+    if (
+      this.#lastBackchannelAt !== undefined &&
+      Date.now() - this.#lastBackchannelAt < cooldownMs
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  #scheduleBackchannelTimer(): void {
+    this.#clearBackchannelTimer();
+    if (!this.#canConsiderBackchannel()) {
+      return;
+    }
+    const pauseMs = this.#backchannelPauseMs();
+    const timer = setTimeout(() => {
+      this.#backchannelTimer = undefined;
+      void this.#tryEmitBackchannel();
+    }, pauseMs);
+    timer.unref?.();
+    this.#backchannelTimer = timer;
+  }
+
+  async #tryEmitBackchannel(): Promise<void> {
+    const lastSpeechAt = this.#lastSpeechEnergyAt;
+    if (lastSpeechAt === undefined) {
+      return;
+    }
+    const silenceMs = Date.now() - lastSpeechAt;
+    if (silenceMs < this.#backchannelPauseMs()) {
+      return;
+    }
+    if (!this.#canConsiderBackchannel()) {
+      return;
+    }
+
+    const phrases = this.#backchannelPhrases();
+    const phrase = phrases[Math.floor(Math.random() * phrases.length)] ?? phrases[0];
+    if (!phrase) {
+      return;
+    }
+
+    this.#backchannelInFlight = true;
+    this.#backchannelAbort = new AbortController();
+    const abortSignal = this.#backchannelAbort.signal;
+
+    console.info('[voice-session] backchannel', {
+      sessionId: this.session.id,
+      phrase,
+      silenceMs,
+    });
+
+    try {
+      await speakDirectUtterance({
+        text: phrase,
+        ttsProvider: this.options.ttsProvider,
+        transportProvider: this.options.transportProvider,
+        onEvent: this.options.onEvent,
+        onAudioChunk: this.options.onAudioChunk,
+        abortSignal,
+        emitAssistantText: false,
+        announcePlaying: false,
+      });
+      if (!abortSignal.aborted) {
+        this.#lastBackchannelAt = Date.now();
+      }
+    } finally {
+      if (this.#backchannelAbort?.signal === abortSignal) {
+        this.#backchannelAbort = undefined;
+      }
+      this.#backchannelInFlight = false;
+    }
+  }
+
   #scheduleServerTurn(): void {
     this.#clearServerTurnTimer();
+    const explicitSilenceMs = this.options.voice.stt.options?.endpointSilenceMs;
+    const explicitFailsafe = typeof explicitSilenceMs === 'number' && explicitSilenceMs > 0;
+    // Providers with reliable endpoint detection drive turns from the endpoint
+    // signal alone; only schedule the silence failsafe for providers that lack
+    // it, or when an app explicitly opts back in via a positive endpointSilenceMs.
+    if (this.#serverEndpointIsReliable() && !explicitFailsafe) {
+      return;
+    }
     const timer = setTimeout(() => {
       this.#serverTurnTimer = undefined;
       void this.#triggerServerTurn('silence');
@@ -266,6 +515,8 @@ export class VoiceSessionController {
 
   async #triggerServerTurn(source: 'endpoint' | 'silence'): Promise<void> {
     this.#clearServerTurnTimer();
+    this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     if (!this.continuousMode || this.#turnInFlight || this.#repairInFlight) {
       return;
     }
@@ -347,6 +598,9 @@ export class VoiceSessionController {
       Number.isFinite(inputLevels.peakDb) && inputLevels.peakDb > SPEECH_ENERGY_PEAK_DB;
     if (hasSpeechEnergy) {
       this.#hadSpeechEnergyInWindow = true;
+      this.#abortBackchannelInFlight();
+      this.#lastSpeechEnergyAt = Date.now();
+      this.#scheduleBackchannelTimer();
       if (!this.#firstSpeechLevelLogged) {
         this.#firstSpeechLevelLogged = true;
         console.info('[voice-session] first speech-energy audio level', {
@@ -450,6 +704,45 @@ export class VoiceSessionController {
     }
   }
 
+  async #runClientSpeak(text: string): Promise<void> {
+    if (this.#repairInFlight || this.#directSpeakInFlight) {
+      return;
+    }
+
+    if (this.#turnInFlight) {
+      await this.bargeIn('Client replay interrupted active turn');
+    }
+
+    this.#directSpeakInFlight = true;
+    this.#listening = false;
+
+    try {
+      setVoiceSessionState(this.session, 'Synthesizing');
+      await this.options.onEvent(createAgentStateEvent('Synthesizing'));
+      const resolvedTone = await resolveDeliveryTone(this.options.ctx, this.options.voice, {
+        userTranscript: text,
+        language: this.#getSessionLanguage(),
+        sessionId: this.session.id,
+      });
+      const mappedTone = mapDeliveryToneForProvider(this.options.ttsProvider, resolvedTone);
+      await speakDirectUtterance({
+        text,
+        ttsProvider: this.options.ttsProvider,
+        transportProvider: this.options.transportProvider,
+        onEvent: this.options.onEvent,
+        onAudioChunk: this.options.onAudioChunk,
+        ttsParams: mappedTone.providerParams,
+      });
+    } finally {
+      this.#directSpeakInFlight = false;
+      if (this.continuousMode) {
+        setVoiceSessionState(this.session, 'Listening');
+        this.#listening = true;
+        await this.options.onEvent(createAgentStateEvent('Listening'));
+      }
+    }
+  }
+
   async handleControlMessage(payload: Record<string, unknown>): Promise<void> {
     this.options.onActivity?.();
     const type = typeof payload.type === 'string' ? payload.type : '';
@@ -493,6 +786,14 @@ export class VoiceSessionController {
       return;
     }
 
+    if (type === 'tts.speak') {
+      const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+      if (text) {
+        await this.#runClientSpeak(text);
+      }
+      return;
+    }
+
     if (type === 'ptt.down') {
       this.#listening = true;
       setVoiceSessionState(this.session, 'Listening');
@@ -511,6 +812,9 @@ export class VoiceSessionController {
     }
 
     this.#turnAbort?.abort();
+    this.#clearEndpointGraceTimer();
+    this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     await this.options.ttsProvider.abortAll?.();
     await this.options.onEvent({
       type: 'turn.interrupted',
@@ -527,6 +831,9 @@ export class VoiceSessionController {
     }
 
     this.#turnInFlight = true;
+    this.#clearEndpointGraceTimer();
+    this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     this.#listening = false;
     const turnId = randomUUID();
     this.#turnCount += 1;
@@ -595,6 +902,9 @@ export class VoiceSessionController {
 
   async dispose(): Promise<void> {
     this.#clearServerTurnTimer();
+    this.#clearEndpointGraceTimer();
+    this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     this.#turnAbort?.abort();
     await this.options.sttProvider.disconnect?.();
     await this.options.ttsProvider.flush?.();

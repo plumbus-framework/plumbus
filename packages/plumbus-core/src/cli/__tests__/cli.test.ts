@@ -62,6 +62,14 @@ describe('CLI', () => {
     expect(commandNames).toContain('doctor');
   });
 
+  it('registers flow schedule list subcommand', () => {
+    const program = createCli();
+    const schedule = findSubcommand(program, 'flow', 'schedule');
+    expect(schedule).toBeDefined();
+    const list = schedule?.commands?.find((c: { name: () => string }) => c.name() === 'list');
+    expect(list).toBeDefined();
+  });
+
   describe('preAction project guard', () => {
     it('skips guard for exempt command: create', async () => {
       const mockedAssert = await getMockedAssert();

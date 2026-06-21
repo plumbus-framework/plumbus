@@ -59,25 +59,37 @@ export async function speakDirectUtterance(args: {
   onEvent?: (event: VoiceEvent) => void | Promise<void>;
   onAudioChunk?: (chunk: Uint8Array) => void | Promise<void>;
   abortSignal?: AbortSignal;
+  ttsParams?: unknown;
+  /** When false, skip assistant.delta and tts.speak (audio-only continuers). Default true. */
+  emitAssistantText?: boolean;
+  /** When false, do not emit agent.state Playing (UI stays in Listening). Default true. */
+  announcePlaying?: boolean;
 }): Promise<void> {
-  await args.onEvent?.({ type: 'assistant.delta', text: args.text });
-  await args.onEvent?.({ type: 'tts.speak', text: args.text });
+  const emitAssistantText = args.emitAssistantText !== false;
+  const announcePlaying = args.announcePlaying !== false;
+
+  if (emitAssistantText) {
+    await args.onEvent?.({ type: 'assistant.delta', text: args.text });
+    await args.onEvent?.({ type: 'tts.speak', text: args.text });
+  }
 
   if (!args.ttsProvider.synthesizeStream) {
-    await args.onEvent?.(createAgentStateEvent('Playing'));
+    if (announcePlaying) {
+      await args.onEvent?.(createAgentStateEvent('Playing'));
+    }
     return;
   }
 
   let playingEmitted = false;
   for await (const audioChunk of args.ttsProvider.synthesizeStream(
     args.text,
-    {},
+    args.ttsParams ?? {},
     args.abortSignal,
   )) {
     if (args.abortSignal?.aborted) {
       return;
     }
-    if (!playingEmitted) {
+    if (announcePlaying && !playingEmitted) {
       await args.onEvent?.(createAgentStateEvent('Playing'));
       playingEmitted = true;
     }

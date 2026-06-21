@@ -89,30 +89,52 @@ class DeepdubTTSProvider implements TTSProvider {
       via: 'sdk',
     });
 
-    const generation = client
-      .generateToBuffer(text, {
-        ...options,
-        headerless: true,
-        onChunk: (chunk: Uint8Array) => {
-          if (!chunk || chunk.length === 0) return;
-          if (!firstChunkLogged) {
-            firstChunkLogged = true;
-            console.info('[voice-tts] first deepdub audio chunk received', {
-              bytes: chunk.byteLength,
-            });
-          }
-          queue.push(chunk);
-          wake?.();
-        },
-      })
+    const generation = this.#startGeneration(client, text, options, (chunk) => {
+      if (!chunk || chunk.length === 0) return;
+      if (!firstChunkLogged) {
+        firstChunkLogged = true;
+        console.info('[voice-tts] first deepdub audio chunk received', {
+          bytes: chunk.byteLength,
+        });
+      }
+      queue.push(chunk);
+      wake?.();
+    })
       .then(() => {
         finished = true;
         wake?.();
       })
-      .catch((error: unknown) => {
-        failure = error instanceof Error ? error : new Error(String(error));
-        finished = true;
-        wake?.();
+      .catch(async (error: unknown) => {
+        if (!isDeepdubDisconnectedError(error)) {
+          failure = error instanceof Error ? error : new Error(String(error));
+          finished = true;
+          wake?.();
+          return;
+        }
+        console.warn('[voice-tts] deepdub websocket dropped — reconnecting once', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        this.#resetClient();
+        try {
+          const retryClient = await this.#getClient();
+          await this.#startGeneration(retryClient, text, options, (chunk) => {
+            if (!chunk || chunk.length === 0) return;
+            if (!firstChunkLogged) {
+              firstChunkLogged = true;
+              console.info('[voice-tts] first deepdub audio chunk received', {
+                bytes: chunk.byteLength,
+              });
+            }
+            queue.push(chunk);
+            wake?.();
+          });
+          finished = true;
+          wake?.();
+        } catch (retryError: unknown) {
+          failure = retryError instanceof Error ? retryError : new Error(String(retryError));
+          finished = true;
+          wake?.();
+        }
       });
 
     try {
@@ -148,6 +170,10 @@ class DeepdubTTSProvider implements TTSProvider {
   abortAll(): void {}
 
   async flush(): Promise<void> {
+    this.#resetClient();
+  }
+
+  #resetClient(): void {
     const client = this.#client;
     this.#client = undefined;
     this.#connectPromise = undefined;
@@ -156,6 +182,19 @@ class DeepdubTTSProvider implements TTSProvider {
     } catch {
       // ignore disconnect errors on a torn-down client
     }
+  }
+
+  #startGeneration(
+    client: DeepdubSdkClient,
+    text: string,
+    options: TtsParams,
+    onChunk: (chunk: Uint8Array) => void,
+  ): Promise<unknown> {
+    return client.generateToBuffer(text, {
+      ...options,
+      headerless: true,
+      onChunk,
+    });
   }
 
   usage() {
@@ -318,6 +357,14 @@ function resolveDeepdubAccentControl(
     };
   }
   return undefined;
+}
+
+function isDeepdubDisconnectedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes('WebSocket is not connected') &&
+    error.message.includes('connect() first')
+  );
 }
 
 async function resolveDeepdubClientFactory(

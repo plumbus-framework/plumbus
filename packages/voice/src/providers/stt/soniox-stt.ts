@@ -18,6 +18,11 @@ import {
   roundMetric,
 } from './shared.js';
 
+/** Soniox in-stream control token marking end-of-speech. */
+const SONIOX_ENDPOINT_MARKER = '<end>';
+/** Soniox in-stream control token marking finalization completion. */
+const SONIOX_FINALIZED_MARKER = '<fin>';
+
 const SONIOX_STT_DESCRIPTOR: STTProviderCatalogEntry = {
   id: 'soniox',
   kind: 'stt',
@@ -27,6 +32,7 @@ const SONIOX_STT_DESCRIPTOR: STTProviderCatalogEntry = {
   execution: 'server',
   streaming: true,
   languages: 'multilingual',
+  endpointDetection: true,
   knownModels: [...SONIOX_STT_MODELS],
 };
 
@@ -82,6 +88,7 @@ class SonioxSTTProvider implements STTProvider {
   #latestConfidence: number | undefined;
   #latestLanguage: string | undefined;
   #firstTranscriptLogged = false;
+  #endpointInFlight = false;
   #pendingFinalize: Deferred<STTProviderTranscriptEvent | undefined> | undefined;
 
   constructor(
@@ -175,6 +182,10 @@ class SonioxSTTProvider implements STTProvider {
       const audio = parseAudioFormat(contentType);
       const contextTerms = readOption<string[]>(this.voiceSlice.options, 'contextTerms');
       const maxEndpointDelayMs = readOption<number>(this.voiceSlice.options, 'maxEndpointDelayMs');
+      const endpointSensitivity = readOption<number>(
+        this.voiceSlice.options,
+        'endpointSensitivity',
+      );
       const config: Record<string, unknown> = {
         model: this.#model,
         audio_format: 'pcm_s16le',
@@ -185,6 +196,9 @@ class SonioxSTTProvider implements STTProvider {
       };
       if (typeof maxEndpointDelayMs === 'number') {
         config.max_endpoint_delay_ms = maxEndpointDelayMs;
+      }
+      if (typeof endpointSensitivity === 'number') {
+        config.endpoint_sensitivity = endpointSensitivity;
       }
       if (Array.isArray(contextTerms) && contextTerms.length > 0) {
         config.context = { terms: contextTerms };
@@ -237,13 +251,32 @@ class SonioxSTTProvider implements STTProvider {
 
   #ingestResult(result: SonioxRealtimeResult): void {
     const tokens = Array.isArray(result.tokens) ? result.tokens : [];
+    if (process.env.VOICE_STT_DEBUG_TOKENS === 'true') {
+      console.info('[voice-stt] soniox raw tokens', {
+        sessionId: this.#sessionId,
+        tokens: tokens.map((t) => ({ text: t.text, is_final: t.is_final })),
+      });
+    }
     const finalized: string[] = [];
     const pending: string[] = [];
     let minConfidence: number | undefined;
     let detectedLanguage: string | undefined;
+    // Soniox marks end-of-speech / finalization with in-stream control tokens
+    // (`<end>` / `<fin>`). We treat the `<end>` token as the authoritative
+    // endpoint signal (in addition to the SDK's derived `endpoint` event) so a
+    // turn fires the moment Soniox detects the boundary — never relying on the
+    // controller's silence-timer failsafe when Soniox has spoken.
+    let sawEndpointMarker = false;
     for (const token of tokens) {
       const text = typeof token.text === 'string' ? token.text : '';
       if (!text) continue;
+      if (text === SONIOX_ENDPOINT_MARKER) {
+        sawEndpointMarker = true;
+        continue;
+      }
+      if (text === SONIOX_FINALIZED_MARKER) {
+        continue;
+      }
       if (typeof token.confidence === 'number') {
         minConfidence =
           minConfidence === undefined
@@ -266,6 +299,14 @@ class SonioxSTTProvider implements STTProvider {
     if (detectedLanguage) {
       this.#latestLanguage = detectedLanguage;
     }
+    const hadTextBefore = this.#currentText().trim().length > 0;
+    if (finalized.length > 0 || pending.length > 0) {
+      // New speech after a prior endpoint starts a fresh utterance, so allow the
+      // next endpoint to fire.
+      if (!hadTextBefore) {
+        this.#endpointInFlight = false;
+      }
+    }
     if (finalized.length > 0) {
       this.#finalText += finalized.join('');
     }
@@ -287,9 +328,20 @@ class SonioxSTTProvider implements STTProvider {
         language: this.#latestLanguage,
       });
     }
+
+    if (sawEndpointMarker) {
+      void this.#handleEndpoint();
+    }
   }
 
   async #handleEndpoint(): Promise<void> {
+    // The endpoint can be observed twice for one utterance — once from the `<end>`
+    // control token in the result stream and once from the SDK's derived
+    // `endpoint` event. Fire the downstream turn only once per utterance.
+    if (this.#endpointInFlight) {
+      return;
+    }
+    this.#endpointInFlight = true;
     const event = this.#buildFinalEvent();
     if (event) {
       void this.#connectArgs?.onTranscript?.(event);

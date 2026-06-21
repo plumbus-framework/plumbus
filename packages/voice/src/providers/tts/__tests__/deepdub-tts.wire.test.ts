@@ -136,4 +136,40 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
     const call = captured[0];
     expect(call?.params.targetGender).toBe('male');
   });
+
+  it('reconnects once when the Deepdub websocket drops before synthesis', async () => {
+    const captured: CapturedCall[] = [];
+    let connectCount = 0;
+    let generateCount = 0;
+    const provider = createDeepdubProvider(
+      (apiKey: string, opts: { protocol: 'websocket' }) => ({
+        async connect() {
+          connectCount += 1;
+          return {};
+        },
+        async generateToBuffer(text: string, params: Record<string, unknown> = {}) {
+          generateCount += 1;
+          if (generateCount === 1) {
+            throw new Error('WebSocket is not connected. Call connect() first.');
+          }
+          captured.push({ apiKey, opts, text, params });
+          const onChunk = params.onChunk as ((c: Uint8Array) => void) | undefined;
+          onChunk?.(Buffer.from([1, 2, 3, 4]));
+          return Buffer.from([1, 2, 3, 4]);
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of provider.synthesizeStream('שלום', undefined)) {
+      chunks.push(chunk);
+    }
+
+    expect(connectCount).toBe(2);
+    expect(generateCount).toBe(2);
+    expect(captured).toHaveLength(1);
+    expect(chunks).toHaveLength(1);
+  });
 });

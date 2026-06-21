@@ -101,8 +101,36 @@ transport: {
 - Optional `stt.options.contextTerms` supplies domain vocabulary to providers
   that support a context/terms bias.
 - `VoiceSessionController` auto-runs turns on STT endpoint/final events
+- Soniox signals end-of-speech via its in-stream `<end>` control token (and the
+  SDK's derived `endpoint` event); the provider forwards this as `onEndpoint`.
+  Because Soniox declares `capabilities.endpointDetection`, the controller drives
+  turns purely from that signal and does **not** schedule a silence-timer
+  failsafe. Providers without reliable endpoint detection still use the failsafe
+  (`stt.options.endpointSilenceMs`, default 4000 ms); apps can force the failsafe
+  back on for any provider by setting a positive `endpointSilenceMs`.
+- Optional `stt.options.endpointSensitivity` (Soniox SDK range `-1`..`1`, default
+  `0`) tunes how eagerly the provider declares end-of-speech; negative values wait
+  longer before emitting `<end>`.
+- Optional `stt.options.endpointGraceMs` (milliseconds, default `0`) defers the
+  turn after `onEndpoint` so a user who resumes speaking within the window does not
+  trigger a half-finished utterance. The grace timer is cleared on new transcript
+  audio, barge-in, turn start, and session teardown. If speech resumes during the
+  grace window, the controller prepends the deferred utterance (captured at endpoint
+  time) onto the resumed STT fragment so the full answer reaches the brain.
+- Optional `stt.options.backchannelEnabled` (default `false`) emits short
+  audio-only continuers ("mm-hm", "כן") during reflective pauses mid-utterance
+  without starting a brain turn or polluting the chat transcript. Tuned via
+  `backchannelPauseMs` (default `900`), `backchannelMinTranscriptChars`
+  (default `40`), `backchannelCooldownMs` (default `6000`), and
+  `backchannelPhrases` (phrase pool). Backchannels are suppressed while endpoint
+  grace is active, a turn is in flight, or the user resumes speaking (which
+  aborts an in-flight continuer). `speakDirectUtterance` supports
+  `emitAssistantText: false` and `announcePlaying: false` for this mode.
 - Call `bargeIn()` (or send `{ type: 'barge.in' }` over LiveKit data) to
   interrupt playback
+- Send `{ type: 'tts.speak', text: '<utterance>' }` over LiveKit data (or
+  `session.sendControl`) to replay assistant text through server TTS without
+  starting a brain turn — used for message replay in voice-enabled UIs
 
 ### Sensitive listening and hearing repair
 
