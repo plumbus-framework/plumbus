@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VoiceSessionController } from '../voice-session-controller.js';
 import { defineVoice } from '../../define/defineVoice.js';
-import { createTestContext } from '@plumbus/core/testing';
+import { createTestContext, mockAI } from '@plumbus/core/testing';
 import {
   createMockSTTProvider,
   createMockTTSProvider,
@@ -36,7 +36,7 @@ function createBackchannelVoice(overrides: Record<string, unknown> = {}) {
         ...overrides,
       },
     },
-    tts: { provider: 'mock-tts' },
+    tts: { provider: 'deepdub', model: 'dd-etts-3.2', voiceId: 'voice-1' },
     brain: {
       async run(_ctx, args) {
         return { text: `brain:${args.transcript ?? ''}` };
@@ -61,6 +61,7 @@ describe('voice session backchannel', () => {
     vi.useFakeTimers();
     const ttsTexts: string[] = [];
     const events: Array<{ type: string; text?: string; state?: string }> = [];
+    const recordedCosts: Array<{ operationName?: string }> = [];
 
     let transcriptHandler:
       | ((event: { text: string; final?: boolean }) => void | Promise<void>)
@@ -81,8 +82,20 @@ describe('voice session backchannel', () => {
     const controller = new VoiceSessionController({
       voice,
       sessionId: 'backchannel-pause',
-      ctx: createTestContext(),
-      brainInput: { language: 'he' },
+      ctx: createTestContext({
+        ai: {
+          ...mockAI(),
+          async recordProviderCost(_entry: unknown, costContext?: { operationName?: string }) {
+            recordedCosts.push({
+              operationName: costContext?.operationName,
+            });
+          },
+        },
+      }),
+      brainInput: {
+        language: 'he',
+        projectId: '00000000-0000-4000-a000-000000000001',
+      },
       sttProvider,
       ttsProvider: createMockTTSProvider({
         async *synthesizeStream(text) {
@@ -118,6 +131,7 @@ describe('voice session backchannel', () => {
     expect(events.some((event) => event.type === 'agent.state' && event.state === 'Playing')).toBe(
       false,
     );
+    expect(recordedCosts.some((entry) => entry.operationName === 'voice.backchannel')).toBe(true);
 
     await controller.dispose();
   });
@@ -182,6 +196,59 @@ describe('voice session backchannel', () => {
     expect(controller.turnCount).toBe(0);
     expect(ttsTexts.length).toBe(1);
     expect(['מהמ', 'כן']).toContain(ttsTexts[0]);
+
+    await controller.dispose();
+  });
+
+  it('selects backchannel phrases by detected language', async () => {
+    vi.useFakeTimers();
+    const ttsTexts: string[] = [];
+
+    let transcriptHandler:
+      | ((event: { text: string; final?: boolean; language?: string }) => void | Promise<void>)
+      | undefined;
+
+    const voice = createBackchannelVoice({
+      backchannelPhrases: { he: ['מהמ'], en: ['mm-hm'] },
+    });
+
+    const baseProvider = createMockSTTProvider({
+      connect(args) {
+        transcriptHandler = args.onTranscript;
+      },
+    });
+    const sttProvider = {
+      ...baseProvider,
+      capabilities: { ...baseProvider.capabilities, endpointDetection: true },
+    };
+
+    const controller = new VoiceSessionController({
+      voice,
+      sessionId: 'backchannel-lang',
+      ctx: createTestContext(),
+      brainInput: { language: 'he' },
+      sttProvider,
+      ttsProvider: createMockTTSProvider({
+        async *synthesizeStream(text) {
+          ttsTexts.push(text);
+          yield new Uint8Array([1, 2]);
+        },
+      }),
+      transportProvider: createMockTransportProvider(),
+      onEvent: async () => {},
+    });
+
+    await controller.hello();
+    await transcriptHandler?.({
+      text: 'I was born in Jerusalem and grew up there',
+      final: false,
+      language: 'en',
+    });
+    await controller.handleAudioChunk(speechChunk);
+    await vi.advanceTimersByTimeAsync(30);
+    await flushMicrotasks();
+
+    expect(ttsTexts).toEqual(['mm-hm']);
 
     await controller.dispose();
   });

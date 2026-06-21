@@ -121,8 +121,10 @@ transport: {
   audio-only continuers ("mm-hm", "כן") during reflective pauses mid-utterance
   without starting a brain turn or polluting the chat transcript. Tuned via
   `backchannelPauseMs` (default `900`), `backchannelMinTranscriptChars`
-  (default `40`), `backchannelCooldownMs` (default `6000`), and
-  `backchannelPhrases` (phrase pool). Backchannels are suppressed while endpoint
+  (default `40`),   `backchannelCooldownMs` (default `6000`), and `backchannelPhrases` (flat
+  `string[]` or language-keyed map such as `{ he: [...], en: [...] }`). The
+  controller picks the pool from Soniox-detected `#pendingLanguage`, falling back
+  to session language. Backchannels are suppressed while endpoint
   grace is active, a turn is in flight, or the user resumes speaking (which
   aborts an in-flight continuer). `speakDirectUtterance` supports
   `emitAssistantText: false` and `announcePlaying: false` for this mode.

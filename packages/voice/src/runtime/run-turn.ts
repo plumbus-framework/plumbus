@@ -239,15 +239,20 @@ export async function* runVoiceTurn(
       yield* emit(args, createAgentStateEvent('Idle'));
     }
 
+    const projectId = readBrainProjectId(args.input);
     await recordProviderUsage(ctx, sttProvider, transcript.billable, {
       sessionId: args.sessionId,
       turnId,
       text: transcript.text,
+      projectId,
+      stt: voice.stt,
     });
     await recordProviderUsage(ctx, ttsProvider, true, {
       sessionId: args.sessionId,
       turnId,
       text: responseText,
+      projectId,
+      tts: voice.tts,
     });
   } catch (error) {
     if (args.abortSignal?.aborted) {
@@ -428,4 +433,9 @@ function extractAssistantText(result: unknown): string {
   if ('content' in result && typeof result.content === 'string') return result.content;
 
   return JSON.stringify(result);
+}
+
+function readBrainProjectId(input: Record<string, unknown> | undefined): string | undefined {
+  const projectId = input?.projectId;
+  return typeof projectId === 'string' && projectId.length > 0 ? projectId : undefined;
 }

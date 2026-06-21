@@ -144,7 +144,7 @@ class SonioxSTTProvider implements STTProvider {
         kind: 'transcribe' as const,
         quantity: roundMetric(this.#audioInputSeconds),
         unit: 'seconds' as const,
-        model: this.voiceSlice.model ?? 'soniox-stt',
+        model: 'soniox-stt',
         metadata: { sessionId: this.#sessionId },
       },
     ];

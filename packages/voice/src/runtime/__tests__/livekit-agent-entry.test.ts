@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ErrorCode, PlumbusError } from '@plumbus/core';
 import { createTestContext } from '@plumbus/core/testing';
 import type { JobContext } from '@livekit/agents';
 import { EventEmitter } from 'node:events';
 import { defineVoice } from '../../define/defineVoice.js';
+import * as recordLiveKitTransportModule from '../../cost/record-livekit-transport.js';
 import { createProviderRegistry } from '../../providers/registry.js';
 import { createMockSTTProvider, createMockTTSProvider } from '../../testing/mock-providers.js';
 import type { VoiceSttConfig } from '../../types/voice.js';
@@ -145,6 +146,80 @@ describe('createVoiceAgentEntry', () => {
     expect(events.slice(0, 2)).toEqual(['connect', 'waitForParticipant']);
     expect(capturedSttSlice?.languages).toEqual(['he']);
     expect(capturedSttSlice?.options?.languageHintsStrict).toBeUndefined();
+  });
+
+  it('records LiveKit transport cost on shutdown when projectId is present', async () => {
+    const recordTransport = vi
+      .spyOn(recordLiveKitTransportModule, 'recordLiveKitTransportCost')
+      .mockResolvedValue(undefined);
+    let shutdownCallback: (() => Promise<void>) | undefined;
+
+    const registry = createProviderRegistry({
+      includeBuiltins: false,
+      stt: {
+        'mock-stt': createMockSTTProvider(),
+      },
+      tts: {
+        'mock-tts': createMockTTSProvider(),
+      },
+    });
+    const voice = defineVoice({
+      name: 'assistant',
+      access: { roles: ['user'] },
+      transport: {
+        provider: 'livekit',
+        mode: 'continuous',
+        audioFormat: 'pcm16;rate=16000;channels=1',
+      },
+      stt: { provider: 'mock-stt', languages: ['he'] },
+      tts: { provider: 'mock-tts', voiceId: 'voice-1' },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
+    });
+    const room = new EventEmitter() as EventEmitter & {
+      name?: string;
+      localParticipant?: { publishData: () => Promise<void> };
+    };
+    room.name = 'room-session-1';
+    room.localParticipant = { publishData: async () => {} };
+    const ctx = {
+      room,
+      async connect() {},
+      async waitForParticipant() {
+        return {
+          identity: 'user-42',
+          metadata: JSON.stringify({
+            projectId: 'proj-9',
+            sessionId: 'room-session-1',
+          }),
+        };
+      },
+      addShutdownCallback(callback: () => Promise<void>) {
+        shutdownCallback = callback;
+      },
+    } as unknown as JobContext;
+    const entry = createVoiceAgentEntry({
+      voice,
+      providers: { providers: {} },
+      createDependencies: () => createTestContext(),
+      registry,
+    });
+
+    await entry.entry(ctx);
+    expect(shutdownCallback).toBeTypeOf('function');
+    await shutdownCallback?.();
+
+    expect(recordTransport).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        sessionId: 'room-session-1',
+        costContext: expect.objectContaining({ projectId: 'proj-9' }),
+      }),
+    );
+    recordTransport.mockRestore();
   });
 });
 

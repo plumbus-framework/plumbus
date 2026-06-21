@@ -64,7 +64,7 @@ export function estimateVoiceTurnCost(
   };
 }
 
-function resolveSttCostModelKey(stt: VoiceSttConfig): string | undefined {
+export function resolveSttCostModelKey(stt: VoiceSttConfig): string | undefined {
   if (FREE_STT_PROVIDERS.has(stt.provider)) {
     return undefined;
   }
@@ -77,7 +77,7 @@ function resolveSttCostModelKey(stt: VoiceSttConfig): string | undefined {
   return option?.costModelKey ?? option?.id ?? stt.model;
 }
 
-function resolveTtsCostModelKey(tts: VoiceTtsConfig): string | undefined {
+export function resolveTtsCostModelKey(tts: VoiceTtsConfig): string | undefined {
   if (FREE_TTS_PROVIDERS.has(tts.provider)) {
     return undefined;
   }

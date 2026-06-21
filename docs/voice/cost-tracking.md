@@ -2,6 +2,35 @@
 
 Voice spend belongs in the same AI ledger as text prompts. `@plumbus/voice` does not create a parallel billing system; it writes STT/TTS/transport usage into the shared `onAICostRecorded` flow.
 
+## Required `costContext.projectId`
+
+Ledger rows are written only when `costContext.projectId` is present. Thread it from the voice brain input (for example `brainInput.projectId` on LiveKit participant metadata) through:
+
+- `recordProviderUsage()` — per-turn STT and TTS after `runVoiceTurn()`
+- `recordLiveKitTransportCost()` — on LiveKit agent shutdown
+- `recordDirectUtteranceCost()` — auxiliary TTS (backchannels, hearing repair, `tts.speak` replay)
+
+Without `projectId`, `onAICostRecorded` skips the row silently.
+
+## Operation names
+
+Use stable `costContext.operationName` values (not turn UUIDs):
+
+| Operation | When |
+|-----------|------|
+| `voice.transcribe` | STT usage after a turn |
+| `voice.synthesize` | Main reply TTS after a turn |
+| `voice.transport` | LiveKit session on agent shutdown |
+| `voice.backchannel` | Continuer TTS during a pause |
+| `voice.hearing_repair` | Repair-prompt TTS |
+| `voice.replay` | Client `tts.speak` replay |
+
+App-owned LLM adjuncts (for example `interview.classify_tone`) should pass the same `costContext` shape into `ctx.ai.generateWithUsage` or call `recordAICost` directly.
+
+## Model pricing keys
+
+Provider `usage()` may report vendor model IDs (`stt-rt-v5`, `dd-etts-3.2`). `recordProviderUsage()` maps them to ledger pricing keys via `resolveSttCostModelKey` / `resolveTtsCostModelKey` (for example `soniox-stt`, `deepdub-phantom-x`) so `calculateVoiceCost` returns non-null USD.
+
 ## Operations
 
 Use these `operation` values:

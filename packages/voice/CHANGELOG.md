@@ -7,7 +7,7 @@
 - STT providers can declare `capabilities.endpointDetection`. When a provider (e.g. Soniox) sets it and endpoint detection is enabled, the continuous-session controller drives turns purely from the provider's `onEndpoint` signal and no longer schedules its silence-timer failsafe. Apps can re-enable the failsafe with a positive `stt.options.endpointSilenceMs`.
 - Soniox STT maps `stt.options.endpointSensitivity` to the SDK's `endpoint_sensitivity` field.
 - `VoiceSessionController` supports `stt.options.endpointGraceMs` to defer endpoint-triggered turns; resumed speech within the grace window cancels the pending turn and is stitched onto the deferred utterance.
-- Optional `stt.options.backchannelEnabled` emits audio-only continuers during reflective pauses without a brain turn; tuned via `backchannelPauseMs`, `backchannelMinTranscriptChars`, `backchannelCooldownMs`, and `backchannelPhrases`. `speakDirectUtterance` accepts `emitAssistantText` and `announcePlaying` (default `true`) for audio-only backchannels.
+- Optional `stt.options.backchannelEnabled` emits audio-only continuers during reflective pauses without a brain turn; tuned via `backchannelPauseMs`, `backchannelMinTranscriptChars`, `backchannelCooldownMs`, and `backchannelPhrases` (flat array or `{ he, en, default }` map). `speakDirectUtterance` accepts `emitAssistantText` and `announcePlaying` (default `true`) for audio-only backchannels.
 
 ### Fixed
 
@@ -18,7 +18,8 @@
 
 ### Added
 
-- Backchannel continuers: `stt.options.backchannelEnabled` plus pause/min-chars/cooldown/phrases tuning; audio-only via `speakDirectUtterance({ emitAssistantText: false, announcePlaying: false })`.
+- Backchannel continuers: `stt.options.backchannelEnabled` plus pause/min-chars/cooldown/phrases tuning; phrases may be a flat array or language-keyed map (`{ he: [...], en: [...] }`); audio-only via `speakDirectUtterance({ emitAssistantText: false, announcePlaying: false })`.
+- `streaming-turn-pipeline` awaits `onAssistantDelta` so text data frames flush before TTS audio is published.
 - Client `tts.speak` control now resolves the voice's delivery tone (including a per-turn `targetGender`) before synthesis, so message replay matches the same voice/gender as live turns.
 - `VOICE_STT_DEBUG_TOKENS=true` logs raw Soniox token payloads for STT diagnostics.
 

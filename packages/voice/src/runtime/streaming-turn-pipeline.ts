@@ -21,7 +21,7 @@ export interface StreamingTurnPipelineArgs {
   onEvent?: (event: VoiceEvent) => Promise<void> | void;
   onAudioChunk?: (chunk: Uint8Array) => Promise<void> | void;
   onAssistantDelta?: (delta: string) => Promise<void> | void;
-  runBrain: (onDelta: (delta: string) => void) => Promise<string>;
+  runBrain: (onDelta: (delta: string) => void | Promise<void>) => Promise<string>;
   preprocessForTts?: (text: string) => Promise<string>;
 }
 
@@ -60,10 +60,10 @@ export async function runStreamingTurnPipeline(
   };
 
   const brainPromise = args
-    .runBrain((delta) => {
+    .runBrain(async (delta) => {
       if (!delta || args.abortSignal?.aborted) return;
       capturedDeltas.push(delta);
-      void args.onAssistantDelta?.(delta);
+      await args.onAssistantDelta?.(delta);
       // Push the RAW delta so inter-word spaces (which streaming tokens carry as
       // leading whitespace) are preserved. Sentinel markers are stripped per complete
       // sentence below, not per delta — trimming each delta would mash words together.

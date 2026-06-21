@@ -15,4 +15,8 @@ export type {
   EstimateVoiceTurnCostInput,
   EstimateVoiceTurnCostResult,
 } from './estimate-voice-turn-cost.js';
-export { estimateVoiceTurnCost } from './estimate-voice-turn-cost.js';
+export {
+  estimateVoiceTurnCost,
+  resolveSttCostModelKey,
+  resolveTtsCostModelKey,
+} from './estimate-voice-turn-cost.js';

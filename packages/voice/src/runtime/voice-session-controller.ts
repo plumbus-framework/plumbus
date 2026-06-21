@@ -20,6 +20,7 @@ import {
   resolvePcm16InputGainOptions,
 } from './pcm-input-gain.js';
 import { runVoiceTurn } from './run-turn.js';
+import { recordDirectUtteranceCost } from './record-provider-usage.js';
 import {
   createVoiceRuntimeSession,
   setVoiceSessionState,
@@ -366,7 +367,7 @@ export class VoiceSessionController {
       : DEFAULT_BACKCHANNEL_COOLDOWN_MS;
   }
 
-  #backchannelPhrases(): string[] {
+  #backchannelPhrasesForLanguage(language?: string): string[] {
     const configured = this.options.voice.stt.options?.backchannelPhrases;
     if (Array.isArray(configured)) {
       const phrases = configured.filter((value): value is string => typeof value === 'string');
@@ -374,7 +375,34 @@ export class VoiceSessionController {
       if (trimmed.length > 0) {
         return trimmed;
       }
+      return [...DEFAULT_BACKCHANNEL_PHRASES];
     }
+
+    if (configured && typeof configured === 'object' && !Array.isArray(configured)) {
+      const map = configured as Record<string, unknown>;
+      const prefix = language?.trim().toLowerCase().slice(0, 2);
+      const candidates: unknown[] = [];
+      if (prefix) {
+        candidates.push(map[prefix]);
+      }
+      candidates.push(map.default);
+      for (const value of Object.values(map)) {
+        candidates.push(value);
+      }
+      for (const candidate of candidates) {
+        if (!Array.isArray(candidate)) {
+          continue;
+        }
+        const phrases = candidate.filter((value): value is string => typeof value === 'string');
+        const trimmed = phrases
+          .map((phrase) => phrase.trim())
+          .filter((phrase) => phrase.length > 0);
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+    }
+
     return [...DEFAULT_BACKCHANNEL_PHRASES];
   }
 
@@ -457,7 +485,8 @@ export class VoiceSessionController {
       return;
     }
 
-    const phrases = this.#backchannelPhrases();
+    const language = this.#pendingLanguage ?? this.#getSessionLanguage();
+    const phrases = this.#backchannelPhrasesForLanguage(language);
     const phrase = phrases[Math.floor(Math.random() * phrases.length)] ?? phrases[0];
     if (!phrase) {
       return;
@@ -471,6 +500,7 @@ export class VoiceSessionController {
       sessionId: this.session.id,
       phrase,
       silenceMs,
+      language,
     });
 
     try {
@@ -486,6 +516,7 @@ export class VoiceSessionController {
       });
       if (!abortSignal.aborted) {
         this.#lastBackchannelAt = Date.now();
+        await this.#recordAuxiliaryTtsCost(phrase, 'voice.backchannel');
       }
     } finally {
       if (this.#backchannelAbort?.signal === abortSignal) {
@@ -670,6 +701,25 @@ export class VoiceSessionController {
     return typeof language === 'string' ? language : undefined;
   }
 
+  #getBrainProjectId(): string | undefined {
+    const projectId = this.options.brainInput?.projectId;
+    return typeof projectId === 'string' && projectId.length > 0 ? projectId : undefined;
+  }
+
+  async #recordAuxiliaryTtsCost(
+    text: string,
+    operationName: 'voice.backchannel' | 'voice.hearing_repair' | 'voice.replay',
+  ): Promise<void> {
+    await recordDirectUtteranceCost(this.options.ctx, {
+      text,
+      projectId: this.#getBrainProjectId(),
+      sessionId: this.session.id,
+      operationName,
+      tts: this.options.voice.tts,
+      provider: this.options.voice.tts.provider,
+    });
+  }
+
   async #runHearingRepair(reason: HearingRepairReason, prompt: string): Promise<void> {
     if (this.#repairInFlight || this.#turnInFlight) {
       return;
@@ -694,6 +744,7 @@ export class VoiceSessionController {
         onAudioChunk: this.options.onAudioChunk,
         abortSignal: this.#turnAbort?.signal,
       });
+      await this.#recordAuxiliaryTtsCost(prompt, 'voice.hearing_repair');
     } finally {
       this.#repairInFlight = false;
       if (this.continuousMode) {
@@ -733,6 +784,7 @@ export class VoiceSessionController {
         onAudioChunk: this.options.onAudioChunk,
         ttsParams: mappedTone.providerParams,
       });
+      await this.#recordAuxiliaryTtsCost(text, 'voice.replay');
     } finally {
       this.#directSpeakInFlight = false;
       if (this.continuousMode) {

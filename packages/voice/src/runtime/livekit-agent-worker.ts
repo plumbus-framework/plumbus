@@ -24,6 +24,7 @@ import { ErrorCode, PlumbusError, createExecutionContext } from '@plumbus/core';
 import { createProviderRegistry, validateVoiceProviders } from '../providers/registry.js';
 import { createSTTProvider, createTTSProvider } from '../providers/factory.js';
 import { createVoiceSessionBudget } from '../cost/session-budget.js';
+import { recordLiveKitTransportCost } from '../cost/record-livekit-transport.js';
 import type { VoiceSessionBudgetConfig } from '../types/cost.js';
 import type { VoiceDefinition } from '../types/voice.js';
 import type { VoiceProvidersConfig } from '../types/provider.js';
@@ -323,6 +324,7 @@ async function runVoiceAgentEntry(ctx: JobContext, config: VoiceAgentRuntimeConf
   const { voice, providers, createDependencies, sessionBudget, registry } = config;
 
   await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
+  const connectedAt = new Date();
 
   console.info('[voice-agent] job started', {
     voice: voice.name,
@@ -434,6 +436,18 @@ async function runVoiceAgentEntry(ctx: JobContext, config: VoiceAgentRuntimeConf
 
   ctx.addShutdownCallback(async () => {
     activeSessions.delete(controller);
+    if (participantContext.projectId) {
+      await recordLiveKitTransportCost(executionCtx, {
+        sessionId,
+        connectedAt,
+        disconnectedAt: new Date(),
+        costContext: {
+          projectId: participantContext.projectId,
+          relatedEntityType: 'InterviewSession',
+          relatedEntityId: sessionId,
+        },
+      });
+    }
     await controller.dispose();
   });
 }

@@ -10,11 +10,24 @@ import {
 
 describe('runVoiceTurn smoke', () => {
   it('completes one mocked turn and records transcribe + synthesize usage', async () => {
-    const recordedCosts: Array<{ operation: string; provider: string }> = [];
+    const recordedCosts: Array<{
+      operation: string;
+      provider: string;
+      model?: string;
+      costContext?: Record<string, unknown>;
+    }> = [];
     const ai = {
       ...mockAI(),
-      async recordProviderCost(entry: { operation: string; provider: string }) {
-        recordedCosts.push({ operation: entry.operation, provider: entry.provider });
+      async recordProviderCost(
+        entry: { operation: string; provider: string; model?: string },
+        costContext?: Record<string, unknown>,
+      ) {
+        recordedCosts.push({
+          operation: entry.operation,
+          provider: entry.provider,
+          model: entry.model,
+          costContext,
+        });
       },
     };
     const ctx = createTestContext({
@@ -58,6 +71,7 @@ describe('runVoiceTurn smoke', () => {
       voiceDefinition: voice,
       sessionId: '00000000-0000-4000-8000-000000000001',
       transcript: 'hi there',
+      input: { projectId: '00000000-0000-4000-a000-000000000001' },
       sttProvider,
       ttsProvider,
       transportProvider,
@@ -68,8 +82,22 @@ describe('runVoiceTurn smoke', () => {
     expect(events.some((event) => event.type === 'turn.completed')).toBe(true);
     expect(events.some((event) => event.type === 'agent.tone')).toBe(true);
     expect(recordedCosts).toEqual([
-      { operation: 'transcribe', provider: 'mock-stt' },
-      { operation: 'synthesize', provider: 'mock-tts' },
+      expect.objectContaining({
+        operation: 'transcribe',
+        provider: 'mock-stt',
+        costContext: expect.objectContaining({
+          projectId: '00000000-0000-4000-a000-000000000001',
+          operationName: 'voice.transcribe',
+        }),
+      }),
+      expect.objectContaining({
+        operation: 'synthesize',
+        provider: 'mock-tts',
+        costContext: expect.objectContaining({
+          projectId: '00000000-0000-4000-a000-000000000001',
+          operationName: 'voice.synthesize',
+        }),
+      }),
     ]);
   });
 });

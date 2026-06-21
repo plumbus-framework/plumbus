@@ -1,8 +1,18 @@
 import type { ExecutionContext } from '@plumbus/core';
+import {
+  resolveSttCostModelKey,
+  resolveTtsCostModelKey,
+} from '../cost/estimate-voice-turn-cost.js';
 import { recordVoiceCost } from '../cost/record-voice-cost.js';
 import type { STTProvider } from '../providers/base/stt-provider.js';
 import type { TTSProvider } from '../providers/base/tts-provider.js';
 import type { VoiceCostOperation, VoiceMediaUsage } from '../types/cost.js';
+import type { VoiceSttConfig, VoiceTtsConfig } from '../types/voice.js';
+
+export type DirectUtteranceCostOperation =
+  | 'voice.backchannel'
+  | 'voice.hearing_repair'
+  | 'voice.replay';
 
 export async function recordProviderUsage(
   ctx: ExecutionContext,
@@ -12,6 +22,9 @@ export async function recordProviderUsage(
     sessionId: string;
     turnId: string;
     text?: string;
+    projectId?: string;
+    stt?: VoiceSttConfig;
+    tts?: VoiceTtsConfig;
   },
 ): Promise<void> {
   if (!billable) return;
@@ -20,7 +33,8 @@ export async function recordProviderUsage(
   for (const record of usageRecords) {
     const operation = mapUsageKind(record.kind);
     const mediaUsage = mapMediaUsage(record, args.text);
-    const model = record.model ?? record.provider;
+    const rawModel = record.model ?? record.provider;
+    const model = resolvePricingModelKey(operation, rawModel, args);
 
     await recordVoiceCost(ctx, {
       operation,
@@ -29,12 +43,75 @@ export async function recordProviderUsage(
       mediaUsage,
       latencyMs: 0,
       costContext: {
+        projectId: args.projectId,
         serviceArea: 'voice',
-        operationName: args.turnId,
+        operationName: resolveOperationName(operation),
+        relatedEntityType: 'InterviewSession',
         relatedEntityId: args.sessionId,
       },
     });
   }
+}
+
+export async function recordDirectUtteranceCost(
+  ctx: ExecutionContext,
+  args: {
+    text: string;
+    projectId?: string;
+    sessionId: string;
+    operationName: DirectUtteranceCostOperation;
+    tts: VoiceTtsConfig;
+    provider: string;
+  },
+): Promise<void> {
+  const characters = args.text.trim().length;
+  if (characters === 0) {
+    return;
+  }
+
+  const model = resolveTtsCostModelKey(args.tts);
+  if (!model) {
+    return;
+  }
+
+  await recordVoiceCost(ctx, {
+    operation: 'synthesize',
+    provider: args.provider,
+    model,
+    mediaUsage: { characters },
+    latencyMs: 0,
+    costContext: {
+      projectId: args.projectId,
+      serviceArea: 'voice',
+      operationName: args.operationName,
+      relatedEntityType: 'InterviewSession',
+      relatedEntityId: args.sessionId,
+    },
+  });
+}
+
+function resolvePricingModelKey(
+  operation: VoiceCostOperation,
+  rawModel: string,
+  args: { stt?: VoiceSttConfig; tts?: VoiceTtsConfig },
+): string {
+  if (operation === 'transcribe' && args.stt) {
+    return resolveSttCostModelKey(args.stt) ?? rawModel;
+  }
+  if (operation === 'synthesize' && args.tts) {
+    return resolveTtsCostModelKey(args.tts) ?? rawModel;
+  }
+  return rawModel;
+}
+
+function resolveOperationName(operation: VoiceCostOperation): string {
+  if (operation === 'transcribe') {
+    return 'voice.transcribe';
+  }
+  if (operation === 'synthesize') {
+    return 'voice.synthesize';
+  }
+  return 'voice.transport';
 }
 
 function mapUsageKind(kind: string): VoiceCostOperation {

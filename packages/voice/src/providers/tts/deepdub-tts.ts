@@ -1,5 +1,5 @@
 import type { TtsParams } from '@deepdub/node';
-import { DEEPDUB_TTS_MODELS } from '../../catalog/static-models.js';
+import { DEEPDUB_TTS_MODELS, getVoiceModelOption } from '../../catalog/static-models.js';
 import type { TTSProviderCatalogEntry, VoiceProviderCredentials } from '../../types/provider.js';
 import type { DeliveryTone, VoiceTtsConfig } from '../../types/voice.js';
 import { fetchCatalogJson, normalizeVoiceList } from '../base/catalog-http.js';
@@ -208,7 +208,10 @@ class DeepdubTTSProvider implements TTSProvider {
         kind: 'synthesize' as const,
         quantity: this.#characters,
         unit: 'characters' as const,
-        model: this.voiceSlice.model ?? DEEPDUB_TTS_MODELS[0]?.costModelKey ?? 'deepdub-phantom-x',
+        model:
+          getVoiceModelOption(DEEPDUB_TTS_MODELS, this.voiceSlice.model)?.costModelKey ??
+          DEEPDUB_TTS_MODELS[0]?.costModelKey ??
+          'deepdub-phantom-x',
       },
     ];
   }

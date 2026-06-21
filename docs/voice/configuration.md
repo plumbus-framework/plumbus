@@ -134,6 +134,8 @@ stt: {
     backchannelMinTranscriptChars: 40,
     backchannelCooldownMs: 6000,
     backchannelPhrases: ['mm-hm', 'I see'],
+    // Or language-keyed pools (selected from detected/session language):
+    // backchannelPhrases: { he: ['מהמ', 'כן'], en: ['mm-hm', 'I see'] },
   },
 },
 ```
