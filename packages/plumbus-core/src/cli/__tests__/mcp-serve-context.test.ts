@@ -14,6 +14,7 @@ vi.mock('../discover.js', () => ({
     entities: [],
     flows: [],
     events: [],
+    prompts: [],
     translations: [],
   })),
 }));

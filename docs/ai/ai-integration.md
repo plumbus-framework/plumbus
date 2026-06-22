@@ -587,6 +587,19 @@ For the voice-specific runtime, provider, and security guidance, see:
 - [`docs/voice/cost-tracking.md`](../voice/cost-tracking.md)
 - [`docs/voice/security.md`](../voice/security.md)
 
+### Upgrading to `@plumbus/core` 0.6.0
+
+`0.6.0` widens `AICostRecord.operation` with `transcribe`, `synthesize`, and `transport`. That is a **type-level breaking change** for apps that exhaustively `switch` on `operation` or persist it against a closed four-value set. Runtime behavior for existing text-AI workloads is unchanged.
+
+**If you own a cost ledger or dashboard:**
+
+1. Extend filters, enums, and exhaustive switches to include the three new operation kinds.
+2. Allow optional `mediaUsage` on stored rows (seconds, characters, participant-minutes).
+3. Route voice/media spend through `ctx.ai.recordProviderCost(...)` so `onAICostRecorded` stays the single hook.
+4. Pre-check shared USD caps with `ctx.ai.checkProviderCostBudget({ estimatedCostUsd })` before opening realtime sessions or calling STT/TTS.
+
+`@plumbus/voice` `0.2.x` peers on `@plumbus/core` `^0.6.0 <0.7.0`. Other optional add-ons (`@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, `@plumbus/api`) declare `^0.5.0 <0.7.0` or `0.5.x || 0.6.x` and install alongside core **0.6.x**.
+
 ### Deterministic sampling with `seed`
 
 For OpenAI-compatible providers (including xAI Grok), pass `seed` to pin reproducible output. Combined with `temperature: 0`, identical `{ seed, temperature, model, prompt }` tuples produce the same tokens. Ignored by providers that do not support it.

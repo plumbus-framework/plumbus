@@ -2,6 +2,10 @@
 
 ## 0.6.0
 
+### Breaking
+
+- **`AICostRecord.operation` union widened** — the type now includes `transcribe`, `synthesize`, and `transport` in addition to `generate`, `extract`, `classify`, and `embed`. Update exhaustive `switch` statements, persisted filters, and dashboards that assume the previous four-value union.
+
 ### Added
 
 - **Voice/media cost operations** — `AICostRecord.operation` now also supports `transcribe`, `synthesize`, and `transport`, and cost rows can carry optional `mediaUsage` (`audioInputSeconds`, `audioOutputSeconds`, `characters`, `connectionMinutes`, `participantMinutes`).
@@ -11,8 +15,8 @@
 
 ### Upgrading
 
-- If you persist or filter `AICostRecord.operation`, update dashboards and exhaustive switch statements to handle `transcribe`, `synthesize`, and `transport`.
 - Voice/media integrations should call `ctx.ai.recordProviderCost(...)` instead of importing AI-service internals or maintaining a separate ledger path.
+- See [`docs/ai/ai-integration.md`](../../docs/ai/ai-integration.md#upgrading-to-plumbuscore-060) for ledger and budget migration notes.
 
 ## 0.5.0
 

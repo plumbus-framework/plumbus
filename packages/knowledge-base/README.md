@@ -61,7 +61,7 @@ pnpm add @plumbus/knowledge-base
 ```
 
 Peers:
-- `@plumbus/core` `^0.5.0 <0.6.0` — required (`ctx`, RAG, capabilities, translations)
+- `@plumbus/core` `^0.5.0 <0.7.0` — required (`ctx`, RAG, capabilities, translations)
 - `@plumbus/chat` `^0.1.4 <0.2.0` — required only if you wire knowledge into chat via `knowledgeContext`
 
 ## Quickstart

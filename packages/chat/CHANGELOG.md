@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+### Changed
+
+- Peer dependency `@plumbus/core` widened to `^0.5.0 <0.7.0` so chat installs alongside `@plumbus/core` **0.6.x** (voice/media cost ledger release).
+
 ## 0.1.7
 
 ### Changed

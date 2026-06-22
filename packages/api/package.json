@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/api",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Plumbus external API contract layer — partner-grade API exposure, OpenAPI, docs, and test intent",
   "type": "module",
   "main": "./dist/index.js",
@@ -45,7 +45,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.5.x"
+    "@plumbus/core": "0.5.x || 0.6.x"
   },
   "dependencies": {
     "fastify": "^5.8.2",

@@ -51,7 +51,7 @@ The framework provides these packages to consumer apps. Consumers must **never**
 
 ### Optional add-on: `@plumbus/mcp`
 
-`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.5.x`). Apps that want to serve capabilities to AI agents install it explicitly:
+`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.5.x || 0.6.x`). Apps that want to serve capabilities to AI agents install it explicitly:
 
 ```
 pnpm add @plumbus/mcp
@@ -71,7 +71,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/browser-extension`
 
-`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.5.0 <0.6.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.5.0 <0.7.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
 
 ```
 pnpm add @plumbus/ui @plumbus/browser-extension
