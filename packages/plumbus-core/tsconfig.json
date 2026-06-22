@@ -7,7 +7,8 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "baseUrl": ".",
     "paths": {
-      "@plumbus/mcp": ["./src/shims/plumbus-mcp.js"]
+      "@plumbus/mcp": ["./src/shims/plumbus-mcp.js"],
+      "@plumbus/voice": ["./src/shims/plumbus-voice.js"]
     }
   },
   "include": ["src", "src/shims/**/*.d.ts"],
