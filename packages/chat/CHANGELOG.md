@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+### Changed
+
+- Peer dependency `@plumbus/core` widened to `^0.5.0 <0.7.0` so chat installs alongside `@plumbus/core` **0.6.x** (voice/media cost ledger release).
+
 ## 0.1.7
 
 ### Changed
@@ -54,7 +60,7 @@
 The following landed in source ahead of the v0.2 gate but are not part of v0.1
 and have not been tagged. They live in the package because they were built as
 part of one Phase but the gate is real: per the implementation plan, a real
-consumer (e.g. MemoirAI's help-bot migration) must stress v0.1 in production
+consumer (e.g. a production help-bot migration) must stress v0.1 in production
 before v0.2 ships, so the eval scenarios are informed by actual failures rather
 than synthetic guesses. Treat the surface below as unstable until v0.2 is
 tagged.

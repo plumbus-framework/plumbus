@@ -58,7 +58,7 @@ extension/
 
 ## Status
 
-Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `^0.5.0 <0.6.0`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
+Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `^0.5.0 <0.7.0`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
 
 Out of scope (the scaffold deliberately does not invent these): OAuth/cookie auth, cross-site cookies, refresh-token rotation, and offline capability execution.
 
@@ -165,6 +165,7 @@ The primary entry point is the CLI (`plumbus browser-extension scaffold`, shippe
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
+| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.1.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
 | **`@plumbus/browser-extension`** | **You are here.** Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
 
 ## Links

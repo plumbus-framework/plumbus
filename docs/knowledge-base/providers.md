@@ -150,7 +150,7 @@ locale: en
 Interview sessions can be paused and resumed.
 ```
 
-The **built-in** frontmatter parser recognizes only `audience`, `locale`, and `tenantId` (top-level `KnowledgeScope` fields). Other YAML keys are ignored unless you pass `frontmatterParser` to map them — typically into `scope.custom`. Matching then uses the same rules as `staticBlocks`: e.g. request `{ audience: 'user', custom: { projectId: 'memoir-42' } }` matches a block whose parsed scope is `{ audience: 'user', custom: { projectId: 'memoir-42' } }`.
+The **built-in** frontmatter parser recognizes only `audience`, `locale`, and `tenantId` (top-level `KnowledgeScope` fields). Other YAML keys are ignored unless you pass `frontmatterParser` to map them — typically into `scope.custom`. Matching then uses the same rules as `staticBlocks`: e.g. request `{ audience: 'user', custom: { projectId: 'project-42' } }` matches a block whose parsed scope is `{ audience: 'user', custom: { projectId: 'project-42' } }`.
 
 **Operational notes:**
 

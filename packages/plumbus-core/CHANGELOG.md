@@ -1,5 +1,23 @@
 # @plumbus/core changelog
 
+## 0.6.0
+
+### Breaking
+
+- **`AICostRecord.operation` union widened** — the type now includes `transcribe`, `synthesize`, and `transport` in addition to `generate`, `extract`, `classify`, and `embed`. Update exhaustive `switch` statements, persisted filters, and dashboards that assume the previous four-value union.
+
+### Added
+
+- **Voice/media cost operations** — `AICostRecord.operation` now also supports `transcribe`, `synthesize`, and `transport`, and cost rows can carry optional `mediaUsage` (`audioInputSeconds`, `audioOutputSeconds`, `characters`, `connectionMinutes`, `participantMinutes`).
+- **`ctx.ai.recordProviderCost(entry, costContext?)`** — public AI service method for recording provider-side spend when a workload does not flow through `generate*`, `extract`, or `classify` (for example STT/TTS/realtime transport). It uses the same in-memory tracker and `onAICostRecorded` hook path as text AI calls.
+- **`ctx.ai.checkProviderCostBudget({ estimatedTokens?, estimatedCostUsd? })`** — pre-check shared daily/per-request budgets before voice/media provider work.
+- **Media-aware budget pre-checks** — `CostTracker.checkBudget()` now accepts `estimatedCostUsd` so voice/media layers can pre-check shared daily USD caps before opening a session or issuing a provider call.
+
+### Upgrading
+
+- Voice/media integrations should call `ctx.ai.recordProviderCost(...)` instead of importing AI-service internals or maintaining a separate ledger path.
+- See [`docs/ai/ai-integration.md`](../../docs/ai/ai-integration.md#upgrading-to-plumbuscore-060) for ledger and budget migration notes.
+
 ## 0.5.0
 
 ### Added

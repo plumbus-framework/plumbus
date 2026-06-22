@@ -11,19 +11,19 @@ export const helpChat = defineChat({
   name: 'help',
   access: { roles: ['user'] },
   instructions: [
-    'You are the MemoirAI help assistant.',
+    'You are the AcmeApp help assistant.',
     'Answer questions about how to use the product.',
     'You DO NOT perform actions on behalf of the user.',
   ],
   context: [
     knowledgeContext({
-      corpus: 'memoir-docs',
+      corpus: 'product-docs',
       query: (turnCtx) => turnCtx.userMessage,
     }),
   ],
   policy: {
     audience: { roles: ['user', 'admin'], mode: 'strict' },
-    scope: { description: 'Help with MemoirAI product usage only.' },
+    scope: { description: 'Help with AcmeApp product usage only.' },
   },
   budget: { perSession: { userMessages: 35 } },
 });
@@ -110,7 +110,7 @@ import { z } from '@plumbus/core/zod';
 const helpBotPrompt = definePrompt({
   name: 'help.chat',                          // gets its own AiConfig admin row
   domain: 'support',
-  description: `You are the MemoirAI help bot. [...200 lines of system body...]`,
+  description: `You are the AcmeApp help bot. [...200 lines of system body...]`,
   input: z.object({ systemPrompt: z.string(), userMessage: z.string() }),
   output: z.object({
     inScope: z.boolean(),                     // base fields are mandatory

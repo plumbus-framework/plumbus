@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -36,6 +36,8 @@
   ],
   "scripts": {
     "build": "tsc -b",
+    "build:voice-cli": "node scripts/build-voice-cli.mjs",
+    "pretest": "pnpm run build:voice-cli",
     "dev": "tsc -b --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -82,7 +84,7 @@
   },
   "peerDependencies": {
     "@plumbus/api": "0.1.x",
-    "@plumbus/mcp": "0.5.x",
+    "@plumbus/mcp": "0.5.x || 0.6.x",
     "cron-parser": "^4.9.0",
     "redis": "^4.7.0"
   },
@@ -104,8 +106,10 @@
     "@biomejs/biome": "^2.4.6",
     "@plumbus/api": "workspace:*",
     "@plumbus/mcp": "workspace:*",
+    "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",
+    "esbuild": "^0.25.12",
     "typescript": "^5.7.0"
   }
 }

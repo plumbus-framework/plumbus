@@ -1133,6 +1133,8 @@ function wrapAiWithDefaultSignal(ai: AIService, defaultSignal: AbortSignal): AIS
   });
 
   return {
+    recordProviderCost: (entry, costContext) => ai.recordProviderCost(entry, costContext),
+    checkProviderCostBudget: (config) => ai.checkProviderCostBudget(config),
     generate: (params) => ai.generate(withSignal(params)),
     generateWithUsage: (params) => ai.generateWithUsage(withSignal(params)),
     streamGenerate: (params) => ai.streamGenerate(withSignal(params)),

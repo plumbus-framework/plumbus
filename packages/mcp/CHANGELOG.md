@@ -1,5 +1,11 @@
 # @plumbus/mcp changelog
 
+## 0.5.1
+
+### Changed
+
+- Peer dependency `@plumbus/core` widened to `0.5.x || 0.6.x` for `@plumbus/core` **0.6.x** compatibility.
+
 ## 0.5.0
 
 Version-locked with `@plumbus/core` **0.5.x** via `peerDependencies`.

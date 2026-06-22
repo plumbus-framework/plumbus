@@ -18,6 +18,7 @@ docs/
 │   └── diagrams.md
 ├── upgrading-workers.md       0.5.0 workers/queues migration guide
 ├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
+│   (0.6.0 AI cost ledger: see ai/ai-integration.md → Upgrading to @plumbus/core 0.6.0)
 ├── core-concepts/             Deep dives into each primitive
 │   ├── capabilities.md
 │   ├── entities.md
@@ -57,6 +58,19 @@ docs/
 │   └── design/                10 design decisions (ADRs) explaining the framework's shape
 ├── chat-ui/                   React hooks/components for the chat turn protocol
 │   └── README.md
+├── voice/                     Optional @plumbus/voice package (realtime speech I/O runtime)
+│   ├── README.md
+│   ├── defining-voices.md
+│   ├── configuration.md
+│   ├── providers.md
+│   ├── transports.md
+│   ├── client-stt.md
+│   ├── local-providers.md
+│   ├── cost-tracking.md
+│   ├── testing.md
+│   ├── security.md
+│   └── design/
+│       └── providers.md
 ├── mcp/                       Serve capabilities to AI agents over MCP (stdio + HTTP)
 │   ├── overview.md
 │   ├── agent-authentication.md
@@ -90,6 +104,7 @@ docs/
 | Configure workers and queues | [Architecture → Workers and Queues](architecture/workers-and-queues.md) |
 | Migrate to 0.5.0 workers model | [Upgrading Workers](upgrading-workers.md) |
 | Migrate to canonical capability names | [Upgrading Capability Names](upgrading-capability-names.md) |
+| Migrate AI cost ledgers to 0.6.0 voice/media operations | [AI → Upgrading to 0.6.0](ai/ai-integration.md#upgrading-to-plumbuscore-060) |
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |
 | See all CLI commands | [CLI → Commands](cli/commands.md) |
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |
@@ -98,6 +113,7 @@ docs/
 | Add a chat surface to my app | [Chat → README](chat/README.md) |
 | Add registry-backed knowledge sources | [Knowledge Base → README](knowledge-base/README.md) |
 | Wire a React chat UI | [Chat UI → README](chat-ui/README.md) |
+| Add a realtime voice surface | [Voice → README](voice/README.md) |
 | Serve capabilities to AI agents over MCP | [MCP → Overview](mcp/overview.md) |
 | Wire MCP tool-call metrics (Datadog, Prometheus, etc.) | [MCP → Transports → onMcpToolCall](mcp/transports.md#per-tool-call-observability--onmcptoolcall) |
 | Publish a partner-facing API with OpenAPI | [API → README](api/README.md) (start here) · [Overview](api/overview.md) · [packages/api/README.md](../packages/api/README.md) |

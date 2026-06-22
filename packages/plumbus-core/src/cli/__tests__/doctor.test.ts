@@ -186,7 +186,7 @@ describe('plumbus doctor', () => {
 
       const check = checkAgentWiring();
       expect(check.status).toBe('ok');
-      expect(check.message).toContain('template version 7');
+      expect(check.message).toContain('template version 8');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

@@ -33,7 +33,7 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Peer-locked to `@plumbus/core` `^0.5.0 <0.6.0`. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
+Peer-locked to `@plumbus/core` `^0.5.0 <0.7.0`. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
 
 ## Install
 
@@ -41,7 +41,7 @@ Peer-locked to `@plumbus/core` `^0.5.0 <0.6.0`. The surface is implemented end-t
 pnpm add @plumbus/chat
 ```
 
-Required peer: `@plumbus/core` `^0.5.0 <0.6.0`. The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
+Required peer: `@plumbus/core` `^0.5.0 <0.7.0`. The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
 
 For the React UI, also install [`@plumbus/chat-ui`](../chat-ui/). For registry-backed knowledge sources, [`@plumbus/knowledge-base`](../knowledge-base/).
 
@@ -136,6 +136,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 | **`@plumbus/chat`** | **You are here.** Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
+| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.1.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
 | [`@plumbus/browser-extension`](../browser-extension/) | Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
 
 ## Links

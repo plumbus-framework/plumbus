@@ -11,6 +11,7 @@ import { enqueueFlowStep } from '../../flows/flow-queue.js';
 import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
 import { flowTemplate, flowTestTemplate } from '../templates/resources.js';
 import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
+import { formatFlowScheduleLine, listFlowSchedules } from './flow-schedule-list.js';
 
 export function registerFlowCommand(program: Command): void {
   const cmd = program.command('flow').description('Manage flows');
@@ -41,6 +42,32 @@ export function registerFlowCommand(program: Command): void {
         }
       } finally {
         await closeDatabaseConnection(connection);
+      }
+    });
+
+  const schedule = cmd.command('schedule').description('Flow schedule operations');
+
+  schedule
+    .command('list')
+    .description('List scheduled flows and their cron timings')
+    .option('--json', 'Output JSON')
+    .action(async (opts: { json?: boolean }) => {
+      try {
+        const schedules = await listFlowSchedules();
+        if (opts.json) {
+          console.log(JSON.stringify({ schedules }, null, 2));
+          return;
+        }
+        if (schedules.length === 0) {
+          info('No scheduled flows registered');
+          return;
+        }
+        for (const entry of schedules) {
+          info(formatFlowScheduleLine(entry));
+        }
+      } catch (err) {
+        error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
       }
     });
 

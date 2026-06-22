@@ -43,6 +43,12 @@ const noopFlows: FlowService = {
 };
 
 const noopAI: AIService = {
+  async recordProviderCost() {
+    throw new Error('AI service not configured');
+  },
+  checkProviderCostBudget() {
+    throw new Error('AI service not configured');
+  },
   async generate() {
     throw new Error('AI service not configured');
   },

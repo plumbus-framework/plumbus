@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+### Changed
+
+- Peer dependency `@plumbus/core` widened to `^0.5.0 <0.7.0` for `@plumbus/core` **0.6.x** compatibility.
+
 ## 0.1.4
 
 ### Changed

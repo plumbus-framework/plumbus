@@ -43,6 +43,7 @@ export { registerFlowCommand } from './flow.js';
 export { registerGenerateCommand } from './generate.js';
 export { registerInitCommand } from './init.js';
 export { registerMcpCommand } from './mcp.js';
+export { registerVoiceCommand } from './voice.js';
 export { registerDbCommand, registerMigrateCommand } from './migrate.js';
 export { registerPromptCommand } from './prompt.js';
 export { registerRagCommand } from './rag.js';

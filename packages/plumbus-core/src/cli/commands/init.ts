@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 7;
+export const AGENT_WIRING_VERSION = 8;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -256,6 +256,45 @@ const CHAT_UI_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const VOICE_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice runtime overview, package boundary, file map, and critical rules',
+    path: 'node_modules/@plumbus/voice/instructions/framework.md',
+  },
+  {
+    area: 'wiring client-side STT with web-speech and transcript relay',
+    path: 'node_modules/@plumbus/voice/instructions/client-stt.md',
+  },
+  {
+    area: 'choosing local or self-hosted voice providers',
+    path: 'node_modules/@plumbus/voice/instructions/local-providers.md',
+  },
+  {
+    area: 'adding a new voice with defineVoice and registerVoiceRoutes',
+    path: 'node_modules/@plumbus/voice/instructions/defining-voices.md',
+  },
+  {
+    area: 'picking STT, TTS, and transport providers for a voice surface',
+    path: 'node_modules/@plumbus/voice/instructions/providers.md',
+  },
+  {
+    area: 'tagging voice STT, TTS, and transport spend in the shared AI ledger',
+    path: 'node_modules/@plumbus/voice/instructions/cost-tracking.md',
+  },
+  {
+    area: 'testing voice routes, websocket handshakes, and mock runtimes',
+    path: 'node_modules/@plumbus/voice/instructions/testing.md',
+  },
+  {
+    area: 'securing voice session routes, tokens, catalog endpoints, and client STT trust boundaries',
+    path: 'node_modules/@plumbus/voice/instructions/security.md',
+  },
+  {
+    area: 'extending voice with custom providers, hooks, and runtime adapters',
+    path: 'node_modules/@plumbus/voice/instructions/extending.md',
+  },
+] as const;
+
 const MCP_INSTRUCTION_REFERENCES = [
   {
     area: 'MCP runtime overview, package boundary (core vs @plumbus/mcp), public exports, critical rules',
@@ -319,7 +358,7 @@ const UPGRADE_INSTRUCTION_REFERENCES = [
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, knowledge-base, mcp, api, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, knowledge-base, mcp, api, and browser-extension) for full SDK documentation.',
     );
     return;
   }
@@ -339,6 +378,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of CHAT_UI_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 

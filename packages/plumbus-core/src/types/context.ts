@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { AICostRecordInput } from '../ai/cost-tracker.js';
 import type { ChatMessage } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
@@ -185,6 +186,19 @@ export interface AICostContext {
 
 // ── AI Service ──
 export interface AIService {
+  /**
+   * Record provider-side spend directly when a caller already has normalized
+   * cost metadata (for example voice/media adapters that do not flow through
+   * token-based `generate*` helpers).
+   */
+  recordProviderCost(entry: AICostRecordInput, costContext?: AICostContext): Promise<void>;
+
+  /**
+   * Pre-check shared daily/per-request budgets before non-token provider work
+   * such as voice STT/TTS/transport adapters.
+   */
+  checkProviderCostBudget(config?: { estimatedTokens?: number; estimatedCostUsd?: number }): void;
+
   generate(config: {
     prompt: string;
     input: Record<string, unknown>;

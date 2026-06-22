@@ -34,7 +34,7 @@ export type { AICostContext };
  * Framework-level hook fired after every AI call completes (success or
  * failure) and the in-memory cost tracker has been updated. Consumers wire
  * this in through `ServerConfig.onAICostRecorded` to persist per-call spend
- * to their own ledger (see MemoirAi's `project_cost_ledger`).
+ * to their own ledger (e.g. an app-owned per-project cost ledger).
  */
 export type OnAICostRecorded = (
   record: AICostRecord,
@@ -178,7 +178,7 @@ export function createAIService(config: AIServiceConfig): AIService {
    * id/timestamp generation mirror what `createCostTracker` does internally
    * so the hook gets a fully-formed `AICostRecord`.
    */
-  async function recordCost(
+  async function recordProviderCost(
     entry: AICostRecordInput,
     costContext: AICostContext | undefined,
   ): Promise<void> {
@@ -213,11 +213,12 @@ export function createAIService(config: AIServiceConfig): AIService {
     };
   }
 
-  function checkBudget(estimatedTokens?: number): void {
+  function checkBudget(estimatedTokens?: number, estimatedCostUsd?: number): void {
     if (!costTracker) return;
     const result = costTracker.checkBudget({
       tenantId: config.budget?.tenantId,
       estimatedTokens,
+      estimatedCostUsd,
     });
     if (!result.allowed) {
       throw new Error(`AI budget exceeded: ${result.reason}`);
@@ -414,7 +415,7 @@ export function createAIService(config: AIServiceConfig): AIService {
               cacheWriteTokens: failureUsage.cacheWriteTokens,
             })
           : null;
-      await recordCost(
+      await recordProviderCost(
         {
           model: resolvedModel,
           provider: activeProvider.name,
@@ -436,7 +437,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     const latencyMs = performance.now() - start;
 
     // Track cost (success path)
-    await recordCost(
+    await recordProviderCost(
       {
         model: resolvedModel,
         provider: activeProvider.name,
@@ -493,6 +494,12 @@ export function createAIService(config: AIServiceConfig): AIService {
   }
 
   return {
+    recordProviderCost,
+
+    checkProviderCostBudget(config = {}) {
+      checkBudget(config.estimatedTokens, config.estimatedCostUsd);
+    },
+
     async generate(params: {
       prompt: string;
       input: Record<string, unknown>;
@@ -654,7 +661,7 @@ export function createAIService(config: AIServiceConfig): AIService {
                   },
                 )
               : null;
-            await recordCost(
+            await recordProviderCost(
               {
                 model: resolvedModel,
                 provider: activeProvider.name,
@@ -685,7 +692,7 @@ export function createAIService(config: AIServiceConfig): AIService {
                 cacheWriteTokens: errUsage.cacheWriteTokens,
               })
             : null;
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -725,7 +732,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         (providerFinishReason === 'length' || providerFinishReason === 'max_tokens')
       ) {
         const failureUsage = streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -753,7 +760,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Build the final validated result
       if (singleTextField) {
         // Plain text mode — wrap the accumulated text in the schema field
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -800,7 +807,7 @@ export function createAIService(config: AIServiceConfig): AIService {
                     },
                   )
                 : null;
-            await recordCost(
+            await recordProviderCost(
               {
                 model: resolvedModel,
                 provider: activeProvider.name,
@@ -862,7 +869,7 @@ export function createAIService(config: AIServiceConfig): AIService {
                     },
                   )
                 : null;
-            await recordCost(
+            await recordProviderCost(
               {
                 model: resolvedModel,
                 provider: activeProvider.name,
@@ -885,7 +892,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         const successUsage = validationFellBackToNonStreaming
           ? sumUsage(streamUsage, fallbackUsage)
           : (streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -908,7 +915,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           validationFallbackFired: validationFellBackToNonStreaming,
         };
       } else {
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -967,7 +974,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           err instanceof AIValidationError
             ? err.usage
             : (getTypedAIErrorUsage(err) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -987,7 +994,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       const latencyMs = performance.now() - start;
 
-      await recordCost(
+      await recordProviderCost(
         {
           model: resolvedModel,
           provider: activeProvider.name,
@@ -1061,7 +1068,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           err instanceof AIValidationError
             ? err.usage
             : (getTypedAIErrorUsage(err) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
-        await recordCost(
+        await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
@@ -1084,7 +1091,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Filter to only valid labels
       const result = validated.data.filter((l: string) => params.labels.includes(l));
 
-      await recordCost(
+      await recordProviderCost(
         {
           model: resolvedModel,
           provider: activeProvider.name,

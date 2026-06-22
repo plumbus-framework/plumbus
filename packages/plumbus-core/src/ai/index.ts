@@ -24,6 +24,11 @@ export {
   type DailyUsage,
   type UsageSyncResult,
 } from './cost-tracker.js';
+export {
+  deriveLedgerUsage,
+  type DerivedLedgerUsage,
+  type LedgerUsageKind,
+} from './derive-ledger-usage.js';
 // Explainability
 export {
   createExplainabilityTracker,

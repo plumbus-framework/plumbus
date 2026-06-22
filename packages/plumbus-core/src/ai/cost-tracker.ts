@@ -13,7 +13,14 @@ export interface AICostRecord {
   model: string;
   provider: string;
   promptName?: string;
-  operation: 'generate' | 'extract' | 'classify' | 'embed';
+  operation:
+    | 'generate'
+    | 'extract'
+    | 'classify'
+    | 'embed'
+    | 'transcribe'
+    | 'synthesize'
+    | 'transport';
   /**
    * True when the call originally streamed but fell back to a non-streaming
    * retry after the streamed text failed JSON/schema validation. Both the
@@ -23,6 +30,17 @@ export interface AICostRecord {
    */
   fallbackUsed?: boolean;
   usage: TokenUsage;
+  /**
+   * Optional provider-native media billing units for non-token workloads such
+   * as speech-to-text, text-to-speech, or realtime transport.
+   */
+  mediaUsage?: {
+    audioInputSeconds?: number;
+    audioOutputSeconds?: number;
+    characters?: number;
+    connectionMinutes?: number;
+    participantMinutes?: number;
+  };
   /** Actual cost from provider API, or null if API unavailable */
   cost: number | null;
   latencyMs: number;
@@ -61,7 +79,15 @@ export type AICostRecordInput = Omit<AICostRecord, 'id' | 'timestamp' | 'status'
 // ── Cost Tracker ──
 export interface CostTracker {
   record(entry: AICostRecordInput): void;
-  checkBudget(config: { tenantId?: string; estimatedTokens?: number }): BudgetCheckResult;
+  checkBudget(config: {
+    tenantId?: string;
+    estimatedTokens?: number;
+    /**
+     * Optional normalized USD estimate for non-token workloads. Voice/media
+     * layers can compute this ahead of time and pre-check shared daily caps.
+     */
+    estimatedCostUsd?: number;
+  }): BudgetCheckResult;
   getDailyUsage(tenantId?: string): DailyUsage;
   getRecords(): AICostRecord[];
   /** Fetch actual costs from provider usage APIs and update records */
@@ -138,17 +164,18 @@ export function createCostTracker(
       if (budget?.dailyCostLimit) {
         const daily = getTodayRecords();
         const { total, available } = sumCost(daily);
-        if (!available) {
+        const projectedTotal = total + (config.estimatedCostUsd ?? 0);
+        if (!available && config.estimatedCostUsd == null) {
           return {
             allowed: true,
             reason:
               'Cost data unavailable — usage API not configured. Dollar-based budget cannot be enforced.',
           };
         }
-        if (total >= budget.dailyCostLimit) {
+        if (projectedTotal >= budget.dailyCostLimit) {
           return {
             allowed: false,
-            reason: `Daily cost limit reached ($${total.toFixed(4)} / $${budget.dailyCostLimit})`,
+            reason: `Daily cost limit reached ($${projectedTotal.toFixed(4)} / $${budget.dailyCostLimit})`,
           };
         }
       }
@@ -156,17 +183,18 @@ export function createCostTracker(
       if (budget?.perTenantDailyLimit && config.tenantId) {
         const tenantDaily = getTodayRecords(config.tenantId);
         const { total, available } = sumCost(tenantDaily);
-        if (!available) {
+        const projectedTotal = total + (config.estimatedCostUsd ?? 0);
+        if (!available && config.estimatedCostUsd == null) {
           return {
             allowed: true,
             reason:
               'Cost data unavailable — usage API not configured. Tenant budget cannot be enforced.',
           };
         }
-        if (total >= budget.perTenantDailyLimit) {
+        if (projectedTotal >= budget.perTenantDailyLimit) {
           return {
             allowed: false,
-            reason: `Tenant daily cost limit reached ($${total.toFixed(4)} / $${budget.perTenantDailyLimit})`,
+            reason: `Tenant daily cost limit reached ($${projectedTotal.toFixed(4)} / $${budget.perTenantDailyLimit})`,
           };
         }
       }

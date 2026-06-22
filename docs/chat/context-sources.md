@@ -106,4 +106,4 @@ The resolver issues stable runtime handles (`src_a`, `src_b`, …) to each conte
 
 ## Corpus prerequisite (Decision 0010)
 
-`ctx.ai.retrieve({ corpus, query, filter? })` requires `@plumbus/core` `^0.5.0 <0.6.0`. The `corpus` arg was added to core specifically for this package. If you're on an older core, either upgrade or write a custom `ContextSource` that calls your retriever directly.
+`ctx.ai.retrieve({ corpus, query, filter? })` requires `@plumbus/core` `^0.5.0 <0.7.0`. The `corpus` arg was added to core specifically for this package. If you're on an older core, either upgrade or write a custom `ContextSource` that calls your retriever directly.

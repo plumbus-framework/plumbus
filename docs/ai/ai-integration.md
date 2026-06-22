@@ -17,9 +17,9 @@ Plumbus provides a structured AI runtime with typed prompts, output validation, 
 │  └────┬─────┘  └──────┬───────┘  └────────┬─────────┘  │
 │       │               │                   │             │
 │  ┌────▼───────────────▼───────────────────▼──────────┐  │
-│  │              ctx.ai Service                       │  │
-│  │  generate() | generateWithUsage() | streamGenerate()  │  │
-│  │  extract() | classify() | retrieve()                  │  │
+│  │              ctx.ai Service                           │  │
+│  │  recordProviderCost() | generate() | generateWithUsage()  │  │
+│  │  streamGenerate() | extract() | classify() | retrieve()   │  │
 │  └───────────────────────────────────────────────────┘  │
 │                                                         │
 │  ┌─────────────┐  ┌────────────┐  ┌─────────────────┐  │
@@ -459,23 +459,43 @@ The framework detects this automatically based on the model name and total input
 ### Budget Enforcement
 
 ```typescript
-import { createCostTracker, estimateCost } from "@plumbus/core";
+import { createCostTracker } from "@plumbus/core";
 
 const tracker = createCostTracker({
-  dailyBudget: 50.00,
-  currency: "USD",
+  dailyCostLimit: 50.0,
 });
 
-// Pre-check budget
-const check = tracker.checkBudget(estimateCost("gpt-4o-mini", 1000, 500));
+// Token-oriented pre-check
+const check = tracker.checkBudget({
+  tenantId: "project-123",
+  estimatedTokens: 1500,
+});
 if (!check.allowed) {
   console.error(check.reason);
 }
 ```
 
+`checkBudget()` now also accepts `estimatedCostUsd` for non-token workloads. Voice/media layers should calculate normalized USD with their own pricing helper, then pre-check the shared daily cap before opening a realtime session or calling STT/TTS:
+
+```typescript
+const mediaCheck = tracker.checkBudget({
+  tenantId: "project-123",
+  estimatedCostUsd: 0.42,
+});
+```
+
+Inside an `ExecutionContext`, prefer the AI service helper:
+
+```typescript
+ctx.ai.checkProviderCostBudget({
+  estimatedCostUsd: 0.42,
+});
+```
+
 Cost records (`AICostRecord`) include:
-- `promptName`, `provider`, `model`, `operation` (`"generate" | "extract" | "classify" | "embed"`)
+- `promptName`, `provider`, `model`, `operation` (`"generate" | "extract" | "classify" | "embed" | "transcribe" | "synthesize" | "transport"`)
 - `usage` — input/output token counts including `cachedInputTokens` / `cacheWriteTokens`
+- `mediaUsage` — optional voice/media billing units (`audioInputSeconds`, `audioOutputSeconds`, `characters`, `connectionMinutes`, `participantMinutes`)
 - `cost` (USD) and `latencyMs`
 - `timestamp`, `tenantId`, `actor`
 - `status` — `"success" | "failed" | "refused" | "incomplete"`. Failed rows still represent real provider-side spend and count toward `dailyCostLimit`. Defaults to `"success"` for records created without an explicit status.
@@ -524,6 +544,61 @@ createServer({
 ```
 
 Hook errors are caught and logged; they never propagate to the AI caller.
+
+### Voice / Media Costs
+
+Voice integrations should write into the same ledger as text AI calls instead of maintaining a separate cost path. Use `ctx.ai.recordProviderCost(...)` when the provider interaction did not flow through `generate*`, `extract`, or `classify`:
+
+```typescript
+await ctx.ai.recordProviderCost(
+  {
+    model: "livekit-cloud",
+    provider: "livekit",
+    operation: "transport",
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    mediaUsage: {
+      connectionMinutes: sessionMinutes,
+      participantMinutes: sessionMinutes * participantCount,
+    },
+    cost: transportUsd,
+    latencyMs: sessionDurationMs,
+  },
+  {
+    projectId,
+    serviceArea: "voice",
+    operationName: "voice.transport",
+    relatedEntityType: "VoiceSession",
+    relatedEntityId: sessionId,
+  },
+);
+```
+
+Typical voice operations are:
+
+- `transcribe` for STT usage, usually with `mediaUsage.audioInputSeconds`
+- `synthesize` for TTS usage, usually with `mediaUsage.characters` and/or `mediaUsage.audioOutputSeconds`
+- `transport` for realtime session infrastructure, usually with `mediaUsage.connectionMinutes` and `mediaUsage.participantMinutes`
+
+This keeps `onAICostRecorded` hooks, tenant rollups, and budget dashboards on one shared cost schema across text and voice workloads.
+
+For the voice-specific runtime, provider, and security guidance, see:
+
+- [`docs/voice/README.md`](../voice/README.md)
+- [`docs/voice/cost-tracking.md`](../voice/cost-tracking.md)
+- [`docs/voice/security.md`](../voice/security.md)
+
+### Upgrading to `@plumbus/core` 0.6.0
+
+`0.6.0` widens `AICostRecord.operation` with `transcribe`, `synthesize`, and `transport`. That is a **type-level breaking change** for apps that exhaustively `switch` on `operation` or persist it against a closed four-value set. Runtime behavior for existing text-AI workloads is unchanged.
+
+**If you own a cost ledger or dashboard:**
+
+1. Extend filters, enums, and exhaustive switches to include the three new operation kinds.
+2. Allow optional `mediaUsage` on stored rows (seconds, characters, participant-minutes).
+3. Route voice/media spend through `ctx.ai.recordProviderCost(...)` so `onAICostRecorded` stays the single hook.
+4. Pre-check shared USD caps with `ctx.ai.checkProviderCostBudget({ estimatedCostUsd })` before opening realtime sessions or calling STT/TTS.
+
+`@plumbus/voice` `0.2.x` peers on `@plumbus/core` `^0.6.0 <0.7.0`. Other optional add-ons (`@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, `@plumbus/api`) declare `^0.5.0 <0.7.0` or `0.5.x || 0.6.x` and install alongside core **0.6.x**.
 
 ### Deterministic sampling with `seed`
 

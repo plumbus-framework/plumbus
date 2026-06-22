@@ -143,6 +143,8 @@ export interface AIResponse {
 /** Create a mock AI service with configurable responses */
 export function mockAI(responses?: AIResponse): AIService {
   return {
+    async recordProviderCost() {},
+    checkProviderCostBudget() {},
     async generate(_config) {
       if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };

@@ -95,9 +95,9 @@ Default when `mapScope` omitted: `scopeToRetrieveFilter(scope)`:
 ```ts
 scopeToRetrieveFilter({
   audience: 'user',
-  custom: { projectId: 'memoir-42', docType: 'faq' },
+  custom: { projectId: 'project-42', docType: 'faq' },
 });
-// → { audience: 'user', projectId: 'memoir-42', docType: 'faq' }
+// → { audience: 'user', projectId: 'project-42', docType: 'faq' }
 ```
 
 Ingest must store the same metadata keys on chunks (e.g. `projectId` in document metadata). A mismatch between ingest tags and `mapScope` / `scopeFromTurn` is the most common cause of "RAG returns nothing."
