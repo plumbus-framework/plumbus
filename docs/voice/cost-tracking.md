@@ -31,6 +31,10 @@ App-owned LLM adjuncts (for example `interview.classify_tone`) should pass the s
 
 Provider `usage()` may report vendor model IDs (`stt-rt-v5`, `dd-etts-3.2`). `recordProviderUsage()` maps them to ledger pricing keys via `resolveSttCostModelKey` / `resolveTtsCostModelKey` (for example `soniox-stt`, `deepdub-phantom-x`) so `calculateVoiceCost` returns non-null USD.
 
+## Persisting usage in app ledgers
+
+`AICostRecord` carries optional `mediaUsage` (seconds, characters, participant-minutes) alongside token counts. When writing to an app-owned ledger (for example via `onAICostRecorded`), call **`deriveLedgerUsage(record)`** from `@plumbus/core` to map the hook payload to `{ usageKind, usageQuantity, usageQuantitySecondary? }` — STT → `audio_seconds`, TTS → `characters`, transport → `participant_minutes`, otherwise → `llm_tokens` with provider-reported in/out tokens. Quantities are often fractional (for example `32.4` audio seconds); store them in decimal/double-precision columns, not integers.
+
 ## Operations
 
 Use these `operation` values:
