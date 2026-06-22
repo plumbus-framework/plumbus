@@ -53,6 +53,9 @@ for (const target of targets) {
   );
 
   if (result.status !== 0) {
+    if (result.error) {
+      console.error(`build-voice-cli: failed to run esbuild for ${target.entry}:`, result.error.message);
+    }
     process.exit(result.status ?? 1);
   }
 }
@@ -78,5 +81,8 @@ const deriveDecl = spawnSync(
 );
 
 if (deriveDecl.status !== 0) {
+  if (deriveDecl.error) {
+    console.error('build-voice-cli: failed to emit derive-ledger-usage declarations:', deriveDecl.error.message);
+  }
   process.exit(deriveDecl.status ?? 1);
 }

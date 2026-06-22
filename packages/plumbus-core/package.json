@@ -109,6 +109,7 @@
     "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",
     "@vitest/browser": "^3.0.0",
+    "esbuild": "^0.25.12",
     "typescript": "^5.7.0"
   }
 }
