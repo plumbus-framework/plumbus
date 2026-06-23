@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import {
   AudioFrame,
   AudioSource,
-  AudioStream,
   LocalAudioTrack,
   Room,
   RoomEvent,
@@ -18,6 +17,8 @@ import type { TransportProviderCapabilities } from '../base/capabilities.js';
 import type { TransportProviderRegistration } from '../base/provider-registration.js';
 import type { TransportProvider, TransportProviderSession } from '../base/transport-provider.js';
 import { consumeAudioStream } from '../../runtime/consume-audio-stream.js';
+import { createInboundAudioStream } from '../../runtime/noise-cancellation/create-inbound-audio-stream.js';
+import { readNoiseCancellationFromTransportOptions } from '../../runtime/noise-cancellation/parse-noise-cancellation.js';
 
 const DEFAULT_AUDIO_FORMAT = 'pcm16;rate=16000;channels=1';
 const DEFAULT_DATA_TOPIC = 'voice.events';
@@ -333,7 +334,9 @@ export class LiveKitTransportProvider implements TransportProvider {
     track: RemoteTrack,
     onAudio: (audio: Uint8Array) => Promise<void> | void,
   ): Promise<void> {
-    const stream = new AudioStream(track, parsePcmFormat(this.voiceSlice.audioFormat));
+    const format = parsePcmFormat(this.voiceSlice.audioFormat);
+    const noiseCancellation = readNoiseCancellationFromTransportOptions(this.voiceSlice.options);
+    const stream = createInboundAudioStream(track, format, noiseCancellation);
     await consumeAudioStream(stream, async (frame) => {
       await onAudio(int16ToBytes(frame.data));
     });

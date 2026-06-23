@@ -25,6 +25,7 @@ This package is the voice primitive for Plumbus apps. Use it when the user wants
 | Turn runner | `src/runtime/run-turn.ts` |
 | Runtime event types | `src/types/event.ts` + `src/runtime/events.ts` |
 | Session token helpers | `src/security/session-token.ts` |
+| Noise cancellation | `src/runtime/noise-cancellation/` — see [`noise-cancellation.md`](./noise-cancellation.md) |
 | WebSocket origin checks | `src/security/ws-origin.ts` |
 | Client transcript trust | `src/security/transcript-trust.ts` |
 | Built-in provider registrations | `src/providers/` |

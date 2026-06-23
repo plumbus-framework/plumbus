@@ -43,6 +43,10 @@ Server workers publish assistant audio as `pcm16;rate=16000;channels=1` on the `
 
 Push-to-talk over LiveKit uses reliable data messages (`ptt.down` / `ptt.up`) via `session.ptt` on the client helper or raw `publishData` control frames on custom clients.
 
+### Noise cancellation
+
+Configure `transport.options.noiseCancellation` on the voice definition. Plumbus supports **client** or **agent** placement (never both): Krisp (`@livekit/krisp-noise-filter` / `@livekit/noise-cancellation-node`) and OSS RNNoise/DTLN. LiveKit token responses include the serialized config for browser auto-wiring. See [`packages/voice/instructions/noise-cancellation.md`](../packages/voice/instructions/noise-cancellation.md).
+
 Security note: LiveKit token signing uses LiveKit credentials, **not** the app auth secret.
 
 ## Picking the default

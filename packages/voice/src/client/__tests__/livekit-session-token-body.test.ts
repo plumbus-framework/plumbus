@@ -8,12 +8,22 @@ vi.mock('livekit-client', () => ({
     localParticipant = {
       async setMicrophoneEnabled() {},
       async publishData() {},
+      getTrackPublication: () => ({
+        track: {
+          setProcessor: async () => undefined,
+        },
+      }),
     };
     remoteParticipants = new Map();
   },
   RoomEvent: {
     DataReceived: 'dataReceived',
     TrackSubscribed: 'trackSubscribed',
+  },
+  Track: {
+    Source: {
+      Microphone: 'microphone',
+    },
   },
   isAudioTrack: () => false,
 }));

@@ -11,6 +11,11 @@ interface AudioBufferLike {
 const mockLocalParticipant = {
   setMicrophoneEnabled: vi.fn(async () => undefined),
   publishData: vi.fn(async () => undefined),
+  getTrackPublication: vi.fn(() => ({
+    track: {
+      setProcessor: vi.fn(async () => undefined),
+    },
+  })),
 };
 
 const mockRoom = {
@@ -68,7 +73,16 @@ vi.mock('livekit-client', () => ({
     TrackSubscribed: 'trackSubscribed',
     TrackUnsubscribed: 'trackUnsubscribed',
   },
+  Track: {
+    Source: {
+      Microphone: 'microphone',
+    },
+  },
   isAudioTrack: vi.fn(() => true),
+}));
+
+vi.mock('@livekit/krisp-noise-filter', () => ({
+  KrispNoiseFilter: vi.fn(() => ({ name: 'krisp-mock' })),
 }));
 
 function emitRoomEvent(event: string, ...args: unknown[]) {
@@ -256,5 +270,43 @@ describe('createLiveKitVoiceSession', () => {
     );
     expect(downPayload).toEqual({ type: 'ptt.down' });
     expect(upPayload).toEqual({ type: 'ptt.up', transcript: 'shalom' });
+  });
+
+  it('applies client Krisp when token includes client BVC config', async () => {
+    const { KrispNoiseFilter } = await import('@livekit/krisp-noise-filter');
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        url: 'wss://livekit.example.test',
+        token: 'lk-token',
+        room: 'voice-room',
+        identity: 'user-1',
+        agentAudioTrackName: 'agent-voice',
+        noiseCancellation: {
+          placement: 'client',
+          engine: 'krisp',
+          model: 'bvc',
+        },
+      }),
+    } as Response);
+
+    const { createLiveKitVoiceSession } = await import('../livekit-session.js');
+    const session = await createLiveKitVoiceSession({
+      voiceName: 'assistant',
+      tokenUrl: '/api/voice/assistant/token',
+    });
+
+    await session.connect();
+
+    expect(mockLocalParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true, {
+      echoCancellation: true,
+      noiseSuppression: false,
+      autoGainControl: true,
+    });
+    expect(KrispNoiseFilter).toHaveBeenCalledWith({ useBVC: true, quality: 'medium' });
+    const publication = mockLocalParticipant.getTrackPublication.mock.results[0]?.value as {
+      track: { setProcessor: ReturnType<typeof vi.fn> };
+    };
+    expect(publication.track.setProcessor).toHaveBeenCalled();
   });
 });

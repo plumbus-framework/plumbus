@@ -129,6 +129,9 @@ describe('livekit token route', () => {
       tenantId: 'tenant-1',
       input: { projectId: 'proj-1' },
     });
+    expect(body).toMatchObject({
+      noiseCancellation: { placement: 'off', engine: 'none', model: null },
+    });
 
     const payload = decodeJwtPayload(body.token);
     const roomConfig = payload.roomConfig as {

@@ -56,6 +56,15 @@ export { discoverVoices } from './discover/discover-voices.js';
 export { resolveVoiceProvidersFromEnv } from './config/resolve-voice-providers.js';
 export { resolveVoiceOpenAICredentials } from './config/resolve-openai-credentials.js';
 export {
+  parseNoiseCancellation,
+  readNoiseCancellationFromTransportOptions,
+  serializeNoiseCancellation,
+  assertExclusiveNoiseCancellation,
+} from './runtime/noise-cancellation/parse-noise-cancellation.js';
+export { applyClientNoiseCancellation } from './client/client-noise-cancellation.js';
+export { resolveAgentNoiseCancellationOption } from './runtime/noise-cancellation/resolve-noise-cancellation.js';
+export { createInboundAudioStream } from './runtime/noise-cancellation/create-inbound-audio-stream.js';
+export {
   applyDeliveryToneToText,
   mapDeliveryToneForProvider,
 } from './runtime/tone-mapper.js';
