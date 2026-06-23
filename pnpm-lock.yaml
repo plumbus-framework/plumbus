@@ -285,9 +285,18 @@ importers:
       '@livekit/agents':
         specifier: ^1.4.6
         version: 1.4.6(@livekit/rtc-node@0.13.29)(typescript@5.9.3)(zod@3.25.76)
+      '@livekit/krisp-noise-filter':
+        specifier: ^0.4.3
+        version: 0.4.3(livekit-client@2.19.2(@types/dom-mediacapture-record@1.0.22))
+      '@livekit/noise-cancellation-node':
+        specifier: ^0.1.9
+        version: 0.1.9
       '@livekit/rtc-node':
         specifier: ^0.13.29
         version: 0.13.29
+      '@shiguredo/rnnoise-wasm':
+        specifier: ^2025.1.5
+        version: 2025.1.5
       '@soniox/node':
         specifier: ^2.1.1
         version: 2.1.1
@@ -1150,8 +1159,41 @@ packages:
       '@livekit/rtc-node': ^0.13.29
       zod: ^3.25.76 || ^4.1.8
 
+  '@livekit/krisp-noise-filter@0.4.3':
+    resolution: {integrity: sha512-Ciu6GO+i49UM1zpTy5RD+N4ylwePJYaiu2DwzcvfxT4oH51ZMdAvAqb3kJD5WRGEq8ZuvJbgfa+/xuAu+/3zQw==}
+    peerDependencies:
+      livekit-client: ^2.18.7
+
   '@livekit/mutex@1.1.1':
     resolution: {integrity: sha512-EsshAucklmpuUAfkABPxJNhzj9v2sG7JuzFDL4ML1oJQSV14sqrpTYnsaOudMAw9yOaW53NU3QQTlUQoRs4czw==}
+
+  '@livekit/noise-cancellation-darwin-arm64@0.1.9':
+    resolution: {integrity: sha512-IBUY2O2FG+zZESxtgghGBxoDsGqk6IYHQyQfkvDjdM41iv0+N9zA1YdMbAbV8W+ZGIxiQ3iS5W6ZCw9JeUf9cA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@livekit/noise-cancellation-darwin-x64@0.1.9':
+    resolution: {integrity: sha512-tpSWmwP1WuIqrwXcSKM+4uLRwfRJmXuOSo/jskxsRKraPZmNgvqxeZhKj9bhCWLTo/Y4PZolRayIeZAiMAltAw==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@livekit/noise-cancellation-linux-arm64@0.1.9':
+    resolution: {integrity: sha512-lCb56HMBqjCv02BPpJXwQ3srx2103f2HhFINblZozkVxvQmeyMECaK8neGgviGVSp2noXMKet/rDrB08aw3Bvw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@livekit/noise-cancellation-linux-x64@0.1.9':
+    resolution: {integrity: sha512-Uzfujifj5P1rysndzsVpElCy57c81UA0ZCfUHh9Sl4cemJ/WVbwC8FsQVqs3QeDqDd8upZxVsJxLCIz3TFp4yQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@livekit/noise-cancellation-node@0.1.9':
+    resolution: {integrity: sha512-4dnyecpUggKi7LtwcW/oeiiNtkymk0MoXTR7WK5QoGhNZlok1ROz4vnsnh76xcEgYJt6eguMoY6DHHjG19qtgg==}
+
+  '@livekit/noise-cancellation-win32-x64@0.1.9':
+    resolution: {integrity: sha512-/CXJWZD9aRU77ggL5SyUYLKFWKIQ7g2SZYE/IPVa93G9nUQBAujX5FP0U2n9+nO9GNsfA0I0rfomEWaO20ZZ/g==}
+    cpu: [x64]
+    os: [win32]
 
   '@livekit/protocol@1.45.8':
     resolution: {integrity: sha512-Q+l57E7w/xxOBFVWzdX5rkAZO7ffyF+rlDzNUYq2SU114+5aTyCq+PK4unaEVDNd4952Af7wteKr3sOgasGuaA==}
@@ -1743,6 +1785,10 @@ packages:
 
   '@schummar/icu-type-parser@1.21.5':
     resolution: {integrity: sha512-bXHSaW5jRTmke9Vd0h5P7BtWZG9Znqb8gSDxZnxaGSJnGwPLDPfS+3g0BKzeWqzgZPsIVZkM7m2tbo18cm5HBw==}
+
+  '@shiguredo/rnnoise-wasm@2025.1.5':
+    resolution: {integrity: sha512-9YJxzzHftlW936E5z9aEKK2CrPfUgc3HgZ2keyQ5e2Pb5bx+6tykYQ2Gyudvxd7Sxmlnar7SemDMFfx0OuVuGA==}
+    engines: {node: '>=20', pnpm: '>=10'}
 
   '@soniox/node@2.1.1':
     resolution: {integrity: sha512-vPXDJ58nTMxAiFMZD3DqQd2owsuySAZ4PKH++woNz0GSX6o8C66VFfn4vzJ9PcnwdmpUzRZrZcdgiNzkippLKA==}
@@ -4246,7 +4292,39 @@ snapshots:
       - typescript
       - utf-8-validate
 
+  '@livekit/krisp-noise-filter@0.4.3(livekit-client@2.19.2(@types/dom-mediacapture-record@1.0.22))':
+    dependencies:
+      '@livekit/mutex': 1.1.1
+      '@livekit/protocol': 1.46.8
+      livekit-client: 2.19.2(@types/dom-mediacapture-record@1.0.22)
+
   '@livekit/mutex@1.1.1': {}
+
+  '@livekit/noise-cancellation-darwin-arm64@0.1.9':
+    optional: true
+
+  '@livekit/noise-cancellation-darwin-x64@0.1.9':
+    optional: true
+
+  '@livekit/noise-cancellation-linux-arm64@0.1.9':
+    optional: true
+
+  '@livekit/noise-cancellation-linux-x64@0.1.9':
+    optional: true
+
+  '@livekit/noise-cancellation-node@0.1.9':
+    dependencies:
+      '@livekit/rtc-node': 0.13.29
+      tsx: 4.21.0
+    optionalDependencies:
+      '@livekit/noise-cancellation-darwin-arm64': 0.1.9
+      '@livekit/noise-cancellation-darwin-x64': 0.1.9
+      '@livekit/noise-cancellation-linux-arm64': 0.1.9
+      '@livekit/noise-cancellation-linux-x64': 0.1.9
+      '@livekit/noise-cancellation-win32-x64': 0.1.9
+
+  '@livekit/noise-cancellation-win32-x64@0.1.9':
+    optional: true
 
   '@livekit/protocol@1.45.8':
     dependencies:
@@ -4731,6 +4809,8 @@ snapshots:
     optional: true
 
   '@schummar/icu-type-parser@1.21.5': {}
+
+  '@shiguredo/rnnoise-wasm@2025.1.5': {}
 
   '@soniox/node@2.1.1': {}
 

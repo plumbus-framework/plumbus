@@ -11,7 +11,6 @@ import {
 import {
   AudioFrame,
   AudioSource,
-  AudioStream,
   LocalAudioTrack,
   RoomEvent,
   TrackKind,
@@ -34,6 +33,8 @@ import type {
 } from '../providers/base/transport-provider.js';
 import { DEFAULT_AGENT_AUDIO_TRACK_NAME } from '../client/livekit-session-helpers.js';
 import { consumeAudioStream } from './consume-audio-stream.js';
+import { createInboundAudioStream } from './noise-cancellation/create-inbound-audio-stream.js';
+import { readNoiseCancellationFromTransportOptions } from './noise-cancellation/parse-noise-cancellation.js';
 import {
   buildBrainInputFromParticipantContext,
   parseLiveKitParticipantContext,
@@ -398,19 +399,24 @@ async function runVoiceAgentEntry(ctx: JobContext, config: VoiceAgentRuntimeConf
     const isAudio = track.kind === TrackKind.KIND_AUDIO || (track.kind as number | undefined) === 1;
     if (!isAudio) return;
     let loggedFirstAudio = false;
-    void forwardRemoteAudio(track, sessionVoice.transport.audioFormat, async (audio) => {
-      if (!loggedFirstAudio) {
-        loggedFirstAudio = true;
-        console.info('[voice-agent] first remote audio frame received', {
-          voice: sessionVoice.name,
-          room: ctx.room.name ?? '',
-          participant: participantIdentity,
-          sessionId,
-          bytes: audio.byteLength,
-        });
-      }
-      await controller.handleAudioChunk(audio, sessionVoice.transport.audioFormat);
-    });
+    void forwardRemoteAudio(
+      track,
+      sessionVoice.transport.audioFormat,
+      readNoiseCancellationFromTransportOptions(sessionVoice.transport.options),
+      async (audio) => {
+        if (!loggedFirstAudio) {
+          loggedFirstAudio = true;
+          console.info('[voice-agent] first remote audio frame received', {
+            voice: sessionVoice.name,
+            room: ctx.room.name ?? '',
+            participant: participantIdentity,
+            sessionId,
+            bytes: audio.byteLength,
+          });
+        }
+        await controller.handleAudioChunk(audio, sessionVoice.transport.audioFormat);
+      },
+    );
   });
 
   ctx.room.on(RoomEvent.DataReceived, (payload) => {
@@ -653,9 +659,11 @@ export function createRoomTransport(
 async function forwardRemoteAudio(
   track: RemoteTrack,
   audioFormat: string | undefined,
+  noiseCancellation: ReturnType<typeof readNoiseCancellationFromTransportOptions>,
   onAudio: (audio: Uint8Array) => Promise<void> | void,
 ): Promise<void> {
-  const stream = new AudioStream(track, parsePcmFormat(audioFormat));
+  const format = parsePcmFormat(audioFormat);
+  const stream = createInboundAudioStream(track, format, noiseCancellation);
   await consumeAudioStream(stream, async (frame) => {
     await onAudio(
       new Uint8Array(

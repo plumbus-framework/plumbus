@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- LiveKit noise cancellation matrix on `transport.options.noiseCancellation`:
+  - **Client Krisp** via `@livekit/krisp-noise-filter` (`placement: 'client'`)
+  - **Agent Krisp** via `@livekit/noise-cancellation-node` (`placement: 'agent'`)
+  - **OSS agent/client RNNoise** via `@shiguredo/rnnoise-wasm`
+  - **OSS agent DTLN** scaffold (requires `onnxruntime-node` + model dir / `PLUMBUS_DTLN_MODEL_DIR`)
+- Token route exposes `noiseCancellation` for browser client auto-wiring in `createLiveKitVoiceSession()`
+- Helpers: `parseNoiseCancellation`, `createInboundAudioStream`, `applyClientNoiseCancellation`
+- Docs: [`instructions/noise-cancellation.md`](./instructions/noise-cancellation.md)
+
+### Fixed
+
+- `@plumbus/voice/client` keeps browser NC in `client-noise-cancellation.ts` so Next.js/Turbopack never bundles agent-only deps (`@livekit/rtc-node`, `@plumbus/core` CLI, etc.)
+
 ## 0.2.0
 
 ### Changed

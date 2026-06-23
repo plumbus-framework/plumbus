@@ -1,4 +1,5 @@
 import type { AccessPolicy, ExecutionContext } from '@plumbus/core';
+import type { VoiceNoiseCancellationConfig } from './noise-cancellation.js';
 
 export type ToneProfileId = string;
 
@@ -21,7 +22,9 @@ export interface VoiceTransportConfig {
   provider: string;
   mode?: string;
   audioFormat?: string;
-  options?: Record<string, unknown>;
+  options?: Record<string, unknown> & {
+    noiseCancellation?: VoiceNoiseCancellationConfig;
+  };
 }
 
 export interface VoiceSttConfig {

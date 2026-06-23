@@ -1,4 +1,10 @@
 import type { VoiceEvent } from '../types/event.js';
+import type { SerializedNoiseCancellation } from '../types/noise-cancellation.js';
+import {
+  applyClientNoiseCancellation,
+  micConstraintsForNoiseCancellation,
+  resolvedNoiseCancellationFromToken,
+} from './client-noise-cancellation.js';
 import {
   coerceVoiceEvent,
   isAgentAudioPublication,
@@ -36,6 +42,7 @@ interface LiveKitTokenResponse {
   audioTrackName?: string;
   agentAudioTrackName?: string;
   mode?: string;
+  noiseCancellation?: SerializedNoiseCancellation;
 }
 
 export async function createLiveKitVoiceSession(
@@ -64,6 +71,7 @@ export async function createLiveKitVoiceSession(
 
   const body = (await tokenResponse.json()) as LiveKitTokenResponse;
   const agentAudioTrackName = resolveAgentAudioTrackName(body);
+  const noiseCancellation = resolvedNoiseCancellationFromToken(body.noiseCancellation);
   const room = new livekit.Room();
   const audioCaptureCleanups = new Map<string, () => void>();
   const attachedAudioElements = new Map<string, HTMLMediaElement>();
@@ -211,11 +219,22 @@ export async function createLiveKitVoiceSession(
     async connect() {
       removeAllAgentAudioSinks();
       await room.connect(body.url, body.token);
-      await room.localParticipant.setMicrophoneEnabled(true, {
-        echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: true,
-      });
+      const micConstraints = micConstraintsForNoiseCancellation(noiseCancellation);
+      await room.localParticipant.setMicrophoneEnabled(true, micConstraints);
+
+      const micPublication = room.localParticipant.getTrackPublication(
+        livekit.Track.Source.Microphone,
+      );
+      const localAudioTrack = micPublication?.track;
+      if (localAudioTrack && 'setProcessor' in localAudioTrack) {
+        await applyClientNoiseCancellation({
+          localAudioTrack: localAudioTrack as {
+            setProcessor: (processor: unknown) => Promise<void>;
+          },
+          config: noiseCancellation,
+        });
+      }
+
       scanExistingAgentTracks();
     },
     async sendControl(payload) {

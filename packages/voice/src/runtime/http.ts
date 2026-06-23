@@ -35,6 +35,10 @@ import { registerVoiceCatalogRoutes } from './http-catalog.js';
 import { createVoiceSessionBudget } from '../cost/session-budget.js';
 import { resolveSttMode, VoiceSessionController } from './voice-session-controller.js';
 import { createVoiceSessionLifecycle } from './session-lifecycle.js';
+import {
+  readNoiseCancellationFromTransportOptions,
+  serializeNoiseCancellation,
+} from './noise-cancellation/parse-noise-cancellation.js';
 
 const voiceSessionBodySchema = z
   .object({
@@ -232,6 +236,7 @@ function registerVoiceRoutesOnApp(
       });
       const metadata = minted.metadata as unknown as LiveKitSessionMetadata;
 
+      const noiseCancellation = readNoiseCancellationFromTransportOptions(voice.transport.options);
       const body = {
         transport: 'livekit' as const,
         url: metadata.url,
@@ -244,6 +249,7 @@ function registerVoiceRoutesOnApp(
         mode: metadata.mode,
         sessionId: minted.sessionId,
         sttMode: resolveSttMode(voice),
+        noiseCancellation: serializeNoiseCancellation(noiseCancellation),
         execution: beforeSuccess?.execution,
       };
 

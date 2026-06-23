@@ -35,11 +35,21 @@ vi.mock('@livekit/rtc-node', () => {
 
   class TrackPublishOptions {}
 
+  class FrameProcessor<T> {
+    process(frame: T): T {
+      return frame;
+    }
+  }
+
+  class AudioStream {}
+
   return {
     AudioSource,
     AudioFrame,
     LocalAudioTrack,
     TrackPublishOptions,
+    FrameProcessor,
+    AudioStream,
     RoomEvent: {},
     TrackKind: { KIND_AUDIO: 1 },
   };
