@@ -4,6 +4,8 @@
 
 Use this package when the app needs **named, scoped knowledge sources** shared across chat, capabilities, tooltips, or search UIs — not for one-off `ctx.ai.retrieve` in a single script (use `@plumbus/chat` `ragContext` or core retrieve directly).
 
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+
 **Do NOT** add vector ingest, chunking, or `plumbus knowledge ingest` — RAG ingest is **only** `plumbus rag ingest` in `@plumbus/core`. KB's `ragCorpus` calls `ctx.ai.retrieve` only.
 
 **Do NOT** import `VectorStore`, `chunkDocument`, or `createRAGPipeline` inside consumer KB wiring — forbidden in the KB package itself.

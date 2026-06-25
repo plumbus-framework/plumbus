@@ -1,5 +1,7 @@
 # Browser extension scaffold
 
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+
 Use `plumbus browser-extension scaffold` to generate a WXT-based Chrome/Firefox extension that calls your Plumbus API with bearer tokens.
 
 ## Prerequisites (app-owned — not provided by Plumbus core)

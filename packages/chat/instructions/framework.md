@@ -2,6 +2,8 @@
 
 This package is the chat primitive for Plumbus apps. Use it when the user wants a multi-turn conversational surface (help bot, support chat, in-product Q&A) with scope guards, budgets, citations, and a streaming UI.
 
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`. Never use `^0.x` caret ranges.
+
 **Do NOT use this package** for: one-shot AI calls (use `defineCapability` + `ctx.ai.generate`), background workflows (use `defineFlow`), or pure RAG search with no chat UI (use `ctx.ai.retrieve` directly).
 
 ## Entry Points

@@ -39,7 +39,19 @@ Example:
 ./scripts/bump-version.sh patch
 ```
 
-### Step 3: Verify the result
+### Step 3: Core **minor** bump — update add-on peers (mandatory)
+
+When bumping `@plumbus/core` **minor** (e.g. 0.6.0 → 0.7.0), **before** tagging:
+
+1. Read `packages/plumbus-core/instructions/peer-dependencies.md`.
+2. Update the canonical peer literal in that file (e.g. add `0.7.x` to the union).
+3. Set `peerDependencies["@plumbus/core"]` in **every** publishable add-on under `packages/` to the new literal — copy from `packages/mcp/package.json`; do not invent ranges.
+4. Patch-bump each affected add-on (`chat`, `chat-ui`, `knowledge-base`, `mcp`, `api`, `browser-extension`, `voice` if applicable).
+5. Update each add-on's `instructions/framework.md` (or `conventions.md`) peer line to match.
+
+Skip this step for core **patch** bumps that do not add a new supported core line.
+
+### Step 4: Verify the result
 
 Read the updated versions from each `package.json`:
 
@@ -47,6 +59,12 @@ Read the updated versions from each `package.json`:
 grep '"version"' packages/plumbus-core/package.json packages/ui/package.json
 ```
 
-### Step 4: Report
+If Step 3 applied, also confirm add-on peers match `packages/plumbus-core/instructions/peer-dependencies.md`:
 
-Tell the user the old and new versions for each package.
+```bash
+grep -r '"@plumbus/core"' packages/*/package.json
+```
+
+### Step 5: Report
+
+Tell the user the old and new versions for each package. If Step 3 ran, list which add-ons were peer-bumped.

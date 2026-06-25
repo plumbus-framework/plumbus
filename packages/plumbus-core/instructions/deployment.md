@@ -70,6 +70,7 @@ These rules are critical. Violating any one causes build failures or bloated ima
 - **DO**: Create a separate `proddeps` stage that removes `@plumbus/ui` from `package.json` before `npm install --omit=dev`.
 - **DO NOT**: Copy the full `node_modules` (including `@plumbus/ui`) into the backend runner.
 - **Why**: `@plumbus/ui` pulls in `next`, `react`, `react-dom`, `tailwindcss`, `lucide-react` (~300 MB). The backend only needs `@plumbus/core` at runtime.
+- **Peer deps**: npm enforces `peerDependencies` strictly in this stage. Add-on packages must declare npm-safe `@plumbus/core` peers (`0.5.x || 0.6.x` for most add-ons). See `peer-dependencies.md` in this folder — `pnpm install` passing locally does not prove Docker will build.
 - **Target image size**: Backend should be ~500-700 MB, not 1.5 GB+.
 
 ### Rule 8: Use `ENV PATH` instead of `npx` for frontend builds

@@ -41,7 +41,7 @@ Add topic files as needed (recipes, testing, CLI, integration with other package
 Every instructions set must cover:
 
 - [ ] **Purpose** — what the package is for and when *not* to use it
-- [ ] **Install / peer deps** — optional vs required; version-lock notes
+- [ ] **Install / peer deps** — optional vs required; for `@plumbus/core` copy exactly `"0.5.x || 0.6.x"` from `packages/mcp/package.json` (read `packages/plumbus-core/instructions/peer-dependencies.md` — never derive ranges)
 - [ ] **Quick start** — minimal working example (expose capability, wire bootstrap, run CLI)
 - [ ] **Key exports** — table or list of public API surface
 - [ ] **CLI commands** — if any ship in `@plumbus/core` via dynamic import
@@ -85,9 +85,10 @@ packages/<name>/instructions/
 ### Step 3: Wire publishing surface
 
 1. Add `"instructions"` to `package.json` `files`
-2. Link instructions from package `README.md`
-3. Update `docs/` if a new topic area was added
-4. Add a publish step to [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) **after** any packages it peer-depends on (e.g. `@plumbus/api` after `@plumbus/core`)
+2. Set `peerDependencies["@plumbus/core"]` to exactly `"0.5.x || 0.6.x"` (copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`)
+3. Link instructions from package `README.md`
+4. Update `docs/` if a new topic area was added
+5. Add a publish step to [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) **after** any packages it peer-depends on (e.g. `@plumbus/api` after `@plumbus/core`)
 
 ### Step 3b: Register in `plumbus init` agent wiring
 
