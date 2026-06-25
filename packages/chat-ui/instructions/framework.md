@@ -17,6 +17,8 @@ The package is intentionally thin: a state-managing hook, a high-level panel com
 
 `@plumbus/chat-ui` peer-depends on `@plumbus/chat` (version-locked `0.1.x`) and React/React-DOM 19. In Plumbus apps React comes through `@plumbus/ui` — do not add it to your own `package.json`.
 
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+
 ## Public exports
 
 ```ts

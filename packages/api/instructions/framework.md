@@ -1,6 +1,8 @@
 # @plumbus/api — Framework
 
-`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version-locked `0.1.x`; requires `@plumbus/core` `0.5.x`).
+`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version-locked `0.1.x`; requires `@plumbus/core` `0.5.x || 0.6.x`).
+
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 

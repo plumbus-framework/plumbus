@@ -71,7 +71,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/browser-extension`
 
-`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`^0.5.0 <0.7.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`0.5.x || 0.6.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
 
 ```
 pnpm add @plumbus/ui @plumbus/browser-extension
@@ -125,6 +125,14 @@ Apps that only need a single direct RAG corpus in chat can use `ragContext` from
 | @types/react-dom | `dependencies` |
 
 Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command resolves vitest from within the framework.
+
+## `@plumbus/core` peer ranges — CRITICAL
+
+When editing `peerDependencies` in any `packages/*/package.json` (releases, new add-ons, compatibility bumps):
+
+- Read `packages/plumbus-core/instructions/peer-dependencies.md` first.
+- **Copy literals — do not derive ranges.** Most add-ons use exactly `"0.5.x || 0.6.x"` (see `packages/mcp/package.json`). Never use `^0.x` caret ranges on `@plumbus/core` peers.
+- **pnpm passing locally does not prove peers are correct.** Backend Docker installs with **npm**; wrong peers break production builds.
 
 ## Coding Conventions
 
@@ -201,6 +209,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/security/` — security model, auth, tenant isolation
 - `docs/ai/` — prompts, RAG, cost tracking
 - `docs/testing/` — test utilities, patterns, examples
+- `packages/plumbus-core/instructions/peer-dependencies.md` — **required reading** before editing add-on `peerDependencies` on `@plumbus/core`
 - `packages/plumbus-core/instructions/deployment.md` — production deployment, Docker, environment variables
 - `packages/plumbus-core/instructions/upgrading-0.5-capabilities.md` — consumer agent playbook for 0.5.x capability invocation breaking changes
 - `docs/upgrading-workers.md` — 0.5.0 workers/queues migration and breaking-behavior checklist

@@ -58,7 +58,7 @@ extension/
 
 ## Status
 
-Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `^0.5.0 <0.7.0`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
+Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `0.5.x || 0.6.x`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
 
 Out of scope (the scaffold deliberately does not invent these): OAuth/cookie auth, cross-site cookies, refresh-token rotation, and offline capability execution.
 

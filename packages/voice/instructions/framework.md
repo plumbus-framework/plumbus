@@ -2,6 +2,8 @@
 
 This package is the voice primitive for Plumbus apps. Use it when the user wants realtime speech input/output around an existing app brain, with governed session routes, provider abstraction, and shared cost tracking.
 
+**`package.json` peer (framework releases):** `"@plumbus/core": "^0.6.0 <0.7.0"` — voice requires core 0.6+; copy from `packages/voice/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+
 **Do NOT use this package** for: normal text-only LLM calls (`ctx.ai.generate`), a multi-turn text chat UI (`@plumbus/chat` / `@plumbus/chat-ui`), or a clean-room speech agent architecture that bypasses Plumbus routes and `ctx.*`.
 
 ## Entry points

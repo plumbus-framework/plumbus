@@ -8,6 +8,7 @@ Plumbus is an AI-native, contract-driven TypeScript application framework. You b
 - **Capabilities are the only entry point for business logic.** If behavior does not belong in a capability directly, it should be orchestrated by a flow, emitted as an event, modeled as an entity, or wrapped in a prompt.
 - Use framework extension points and `ctx.*` subsystems before inventing custom controllers, service layers, job runners, event buses, or direct infrastructure integrations.
 - If the correct primitive is unclear, stop and ask which Plumbus extension point should own the behavior.
+- When editing add-on `peerDependencies` on `@plumbus/core` in `packages/*/package.json`, read [`peer-dependencies.md`](./peer-dependencies.md) and copy literals from `packages/mcp/package.json` — never derive semver ranges.
 
 ## Core Abstractions
 

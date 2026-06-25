@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Changed
+
+- Peer dependency `@plumbus/core` corrected to `0.5.x || 0.6.x` so npm accepts `@plumbus/core` **0.6.x** (`^0.5.0 <0.7.0` only matched 0.5.x under npm semver).
+
 ## 0.1.5
 
 ### Changed
