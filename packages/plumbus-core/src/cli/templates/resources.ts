@@ -1,7 +1,7 @@
 // ── Resource Templates ──
 // Code templates for scaffolding new resources
 
-import { toCamelCase, toPascalCase } from '../utils.js';
+import { toCamelCase, toKebabCase, toPascalCase } from '../utils.js';
 
 export function capabilityTemplate(name: string, kind: string, domain: string): string {
   const pascal = toPascalCase(name);
@@ -195,6 +195,29 @@ export const ${toCamelCase(name)}Translation = defineTranslation({
       // TODO: add message keys
     },
   },
+});
+`;
+}
+
+export function localeMessagesTemplate(): string {
+  return `export const messages = {
+  // TODO: add message keys
+} as const satisfies Record<string, string>;
+`;
+}
+
+export function localeFolderTranslationTemplate(name: string): string {
+  const kebab = toKebabCase(name);
+  const camel = toCamelCase(name);
+  return `import { defineTranslation } from "@plumbus/core";
+import { messages as en } from "./en/${kebab}.messages.js";
+import { messages as he } from "./he/${kebab}.messages.js";
+
+export const ${camel}Translation = defineTranslation({
+  name: "${name}",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: { en, he },
 });
 `;
 }

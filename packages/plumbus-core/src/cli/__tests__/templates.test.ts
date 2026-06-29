@@ -6,6 +6,8 @@ import {
   eventTemplate,
   flowTemplate,
   flowTestTemplate,
+  localeFolderTranslationTemplate,
+  localeMessagesTemplate,
   promptTemplate,
 } from '../templates/resources.js';
 
@@ -59,5 +61,19 @@ describe('Resource templates', () => {
     expect(result).toContain('definePrompt');
     expect(result).toContain('name: "summarizeTicket"');
     expect(result).toContain('model:');
+  });
+
+  it('generates locale message file template', () => {
+    const result = localeMessagesTemplate();
+    expect(result).toContain('export const messages');
+    expect(result).toContain('satisfies Record<string, string>');
+  });
+
+  it('generates locale-folder translation assembler template', () => {
+    const result = localeFolderTranslationTemplate('myNamespace');
+    expect(result).toContain('defineTranslation');
+    expect(result).toContain('name: "myNamespace"');
+    expect(result).toContain('./en/my-namespace.messages.js');
+    expect(result).toContain('./he/my-namespace.messages.js');
   });
 });

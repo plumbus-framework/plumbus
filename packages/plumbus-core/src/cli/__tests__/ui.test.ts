@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
+import type { TranslationDefinition } from '../../types/translation.js';
 import {
   generateE2EVitestConfig,
   generateNextjsAppFiles,
@@ -102,5 +103,36 @@ describe('plumbus ui helpers', () => {
 
     expect(config).toContain('export default {');
     expect(config).not.toContain('vitest/config');
+  });
+
+  it('passes splitLocaleBundles to the translation generator', () => {
+    const translations: TranslationDefinition[] = [
+      {
+        name: 'common',
+        defaultLocale: 'en',
+        locales: ['en', 'he'],
+        messages: { en: { 'nav.home': 'Home' }, he: { 'nav.home': 'בית' } },
+      },
+    ];
+    let capturedOptions: { splitLocaleBundles?: boolean } | undefined;
+    const generators: UiGeneratorModule = {
+      ...mockUiGenerators(),
+      generateTranslationModule: (_defs, options) => {
+        capturedOptions = options;
+        return [{ path: 'i18n/messages.ts', content: 'messages-module' }];
+      },
+    };
+
+    const files = generateUiModuleFiles(
+      [],
+      [],
+      generators,
+      { splitLocaleBundles: true },
+      '',
+      translations,
+    );
+
+    expect(capturedOptions?.splitLocaleBundles).toBe(true);
+    expect(files.map((f) => f.path)).toContain('i18n/messages.ts');
   });
 });

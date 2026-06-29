@@ -67,6 +67,7 @@ interface UiGenerateOptions {
   tokenKey?: string;
   multiTenant?: boolean;
   includeJsDoc?: boolean;
+  splitLocaleBundles?: boolean;
   json?: boolean;
 }
 
@@ -86,7 +87,10 @@ export interface UiGeneratorModule {
   generateHooksModule(capabilities: CapabilityContract[], config?: ClientGeneratorConfig): string;
   generateAuthModule(config?: AuthHelperConfig): string;
   generateFormHintsModule(capabilities: CapabilityContract[]): string;
-  generateTranslationModule?(definitions: TranslationDefinition[]): GeneratedTranslationFile[];
+  generateTranslationModule?(
+    definitions: TranslationDefinition[],
+    options?: { splitLocaleBundles?: boolean },
+  ): GeneratedTranslationFile[];
   generateNextjsTemplate(
     config: NextjsTemplateConfig,
     capabilities?: CapabilityContract[],
@@ -255,7 +259,9 @@ export function generateUiModuleFiles(
 
   // Generate i18n modules if translations are available
   if (translations.length > 0 && generators.generateTranslationModule) {
-    const i18nFiles = generators.generateTranslationModule(translations);
+    const i18nFiles = generators.generateTranslationModule(translations, {
+      splitLocaleBundles: options.splitLocaleBundles,
+    });
     for (const file of i18nFiles) {
       files.push({ path: `${prefix}${file.path}`, content: file.content });
     }
@@ -413,6 +419,10 @@ export function registerUiCommand(program: Command): void {
     .option('--token-key <key>', 'Storage key for generated auth helpers')
     .option('--multi-tenant', 'Include tenant helpers in generated auth module')
     .option('--include-jsdoc', 'Emit JSDoc comments in generated client and hook modules')
+    .option(
+      '--split-locale-bundles',
+      'Emit per-locale message bundles under i18n/locales/ (default: single i18n/messages.ts)',
+    )
     .option('--json', 'Output generated file list as JSON')
     .action(async (opts: UiGenerateOptions) => {
       info('Loading @plumbus/ui generators...');

@@ -1,5 +1,12 @@
 # @plumbus/core changelog
 
+## 0.6.1
+
+### Added
+
+- **`plumbus translation new --locale-folders`** — scaffold per-locale message files under `app/translations/en/` and `app/translations/he/` with a thin `defineTranslation()` assembler.
+- **`plumbus ui generate --split-locale-bundles`** — pass-through to `@plumbus/ui` to emit per-locale i18n bundles under `i18n/locales/`.
+
 ## 0.6.0
 
 ### Breaking

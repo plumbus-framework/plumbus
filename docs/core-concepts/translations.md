@@ -127,6 +127,8 @@ When translation definitions exist, `plumbus ui generate` produces:
 | `generated/i18n/provider.tsx` | `<TranslationProvider>` with localStorage persistence |
 | `generated/i18n/index.ts` | Re-exports `useTranslations`, `useLocale` |
 
+By default, all locales are merged into a single `i18n/messages.ts`. For large catalogs, pass `--split-locale-bundles` to `plumbus ui generate` to emit one bundle per locale under `i18n/locales/` plus a thin aggregator — the runtime API is unchanged.
+
 ### Using in Components
 
 ```tsx
@@ -158,6 +160,14 @@ plumbus translation new common
 ```
 
 Creates `app/translations/common.translation.ts` with a starter template.
+
+For larger catalogs, scaffold per-locale message files and a thin assembler:
+
+```bash
+plumbus translation new common --locale-folders
+```
+
+This creates `app/translations/en/common.messages.ts`, `app/translations/he/common.messages.ts`, and `app/translations/common.translation.ts` that imports both locales into `defineTranslation()`.
 
 ### Export for Professional Translation
 

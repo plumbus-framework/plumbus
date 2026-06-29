@@ -479,6 +479,7 @@ plumbus ui generate [options]
 | `--token-key <key>` | `string` | — | Storage key for generated auth helpers |
 | `--multi-tenant` | `boolean` | `false` | Include tenant helpers in auth module |
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
+| `--split-locale-bundles` | `boolean` | `false` | Emit per-locale message bundles under `i18n/locales/` (default: single `i18n/messages.ts`) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
@@ -794,6 +795,19 @@ plumbus translation status [options]
 #### `plumbus translation new <name>`
 
 Scaffold a new translation catalog at `app/translations/<name>.translation.ts` populated with the default locale.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--locale-folders` | `boolean` | `false` | Scaffold per-locale message files under `en/` and `he/` with a thin assembler |
+
+With `--locale-folders`, creates:
+
+```
+app/translations/
+  en/<name>.messages.ts
+  he/<name>.messages.ts
+  <name>.translation.ts   # imports en + he, calls defineTranslation()
+```
 
 #### `plumbus translation export`
 
