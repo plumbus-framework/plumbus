@@ -6,7 +6,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
-import { translationTemplate } from '../templates/resources.js';
+import {
+  translationTemplate,
+  localeFolderTranslationTemplate,
+  localeMessagesTemplate,
+} from '../templates/resources.js';
 import { findPlumbusProjectRoot, resolvePathWithinProject } from '../project-root.js';
 import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 
@@ -144,8 +148,33 @@ export function registerTranslationCommand(program: Command): void {
   cmd
     .command('new <name>')
     .description('Scaffold a new translation catalog')
-    .action((name: string) => {
+    .option(
+      '--locale-folders',
+      'Scaffold per-locale message files under en/ and he/ with a thin assembler',
+    )
+    .action((name: string, opts: { localeFolders?: boolean }) => {
       const kebab = toKebabCase(name);
+
+      if (opts.localeFolders) {
+        const assemblerPath = resolvePath('app', 'translations', `${kebab}.translation.ts`);
+        const enPath = resolvePath('app', 'translations', 'en', `${kebab}.messages.ts`);
+        const hePath = resolvePath('app', 'translations', 'he', `${kebab}.messages.ts`);
+
+        if (exists(assemblerPath) || exists(enPath) || exists(hePath)) {
+          error(`Translation "${kebab}" already exists`);
+          process.exit(1);
+        }
+
+        writeFile(enPath, localeMessagesTemplate());
+        writeFile(hePath, localeMessagesTemplate());
+        writeFile(assemblerPath, localeFolderTranslationTemplate(name));
+        success(`Created translation (locale folders):`);
+        info(`  app/translations/en/${kebab}.messages.ts`);
+        info(`  app/translations/he/${kebab}.messages.ts`);
+        info(`  app/translations/${kebab}.translation.ts`);
+        return;
+      }
+
       const filePath = resolvePath('app', 'translations', `${kebab}.translation.ts`);
 
       if (exists(filePath)) {

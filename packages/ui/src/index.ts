@@ -61,6 +61,9 @@ export {
   generateSignupPage,
   generateTsConfig,
 } from './generators/nextjs-template.js';
-export type { GeneratedTranslationFile } from './generators/translation-generator.js';
+export type {
+  GeneratedTranslationFile,
+  TranslationGeneratorOptions,
+} from './generators/translation-generator.js';
 // Translation Generation
 export { generateTranslationModule } from './generators/translation-generator.js';

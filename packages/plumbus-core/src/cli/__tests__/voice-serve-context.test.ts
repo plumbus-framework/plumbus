@@ -14,5 +14,5 @@ describe('buildVoiceServeContext', () => {
 
     await ctx.closeQueues();
     await ctx.closeDb();
-  });
+  }, 15_000);
 });

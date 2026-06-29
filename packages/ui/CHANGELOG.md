@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+### Added
+
+- **`generateTranslationModule` split-locale mode** — optional `splitLocaleBundles` emits per-locale bundles under `i18n/locales/` plus a thin aggregator; default output remains a single `i18n/messages.ts`.
+- **`TranslationGeneratorOptions`** — exported from `@plumbus/ui` for CLI and tooling.
+
 ## 0.5.0
 
 ### Documentation

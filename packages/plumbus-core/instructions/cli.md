@@ -151,6 +151,7 @@ Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify
 
 ```bash
 plumbus translation new <name>     # scaffold app/translations/<name>.translation.ts
+plumbus translation new <name> --locale-folders  # en/, he/ message files + assembler
 plumbus translation export         # --format json|xliff, --locale, --out-dir
 plumbus translation import         # --format json|xliff, --file or --dir
 plumbus translation status         # --json for CI; exits non-zero on incomplete locales

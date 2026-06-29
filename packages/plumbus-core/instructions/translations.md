@@ -28,11 +28,32 @@ export const commonTranslation = defineTranslation({
 
 ## Rules
 
-- Place translation files in `app/translations/<name>.translation.ts`
-- Each file exports one `defineTranslation()` result
+- Place translation files in `app/translations/<name>.translation.ts` (classic layout), **or** use the locale-folder layout below
+- Each assembler exports one `defineTranslation()` result
 - All locales **must** have the same key set — mismatched keys throw at import time
 - Messages use ICU MessageFormat: `{name}` for interpolation, `{count, plural, ...}` for plurals, `{gender, select, ...}` for select
 - The `name` field is the namespace: keys resolve as `<namespace>.<key>` (e.g., `common.nav.overview`)
+
+## Locale-folder layout (optional)
+
+For larger catalogs, keep one folder per locale and a thin assembler:
+
+```
+app/translations/
+  en/common.messages.ts
+  he/common.messages.ts
+  common.translation.ts   # imports en + he, calls defineTranslation()
+```
+
+Scaffold with:
+
+```bash
+plumbus translation new myNamespace --locale-folders
+```
+
+Large namespaces (e.g. `staff`) can split further under `en/staff/*.messages.ts` and merge with a local `index.ts` before the assembler imports `./en/staff/index.js`.
+
+Discovery still loads only `defineTranslation()` exports; plain `messages` objects in locale folders are ignored.
 
 ## Server-Side Usage
 
@@ -49,13 +70,22 @@ The locale is resolved from the request context.
 | Command | Description |
 |---------|-------------|
 | `plumbus translation new <name>` | Scaffold a new translation file |
+| `plumbus translation new <name> --locale-folders` | Scaffold `en/`, `he/` message files + thin assembler |
 | `plumbus translation export` | Export to JSON or XLIFF 2.0 for professional translation |
 | `plumbus translation import` | Import translated JSON/XLIFF files back into source |
 | `plumbus translation status` | Report per-locale completion percentage |
 
 ## Frontend
 
-When translations exist, `plumbus ui generate` produces `generated/i18n/` with next-intl integration:
+When translations exist, `plumbus ui generate` produces `{frontend}/i18n/` with next-intl integration.
+
+Optional: emit per-locale bundles (same runtime API, smaller generated files):
+
+```bash
+plumbus ui generate --out-dir frontend --split-locale-bundles
+```
+
+Without the flag, output is unchanged — a single `i18n/messages.ts`.
 
 ```tsx
 import { useTranslations } from "next-intl";
