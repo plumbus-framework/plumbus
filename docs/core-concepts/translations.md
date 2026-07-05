@@ -123,7 +123,7 @@ When translation definitions exist, `plumbus ui generate` produces:
 |------|---------|
 | `generated/i18n/messages.ts` | Merged message catalog for all namespaces |
 | `generated/i18n/config.ts` | Locale list, default locale, RTL locale set |
-| `generated/i18n/request.ts` | next-intl server configuration |
+| `generated/i18n/request.ts` | next-intl server configuration (`--server-locale-cookie` adds cookie-based locale resolution) |
 | `generated/i18n/provider.tsx` | `<TranslationProvider>` (optional `initialLocale`; cookie + localStorage persistence) |
 | `generated/i18n/index.ts` | Re-exports `useTranslations`, `useLocale` |
 
@@ -153,7 +153,9 @@ The `<TranslationProvider>` sets `dir="rtl"` and the `lang` attribute on `<html>
 
 ### Server-Rendered Locale (No Flash)
 
-`<TranslationProvider>` accepts an optional `initialLocale`. When omitted it falls back to `defaultLocale` and adopts a stored client preference after hydration, which briefly flashes the default locale. To render the correct locale and direction on the first paint, persist the locale in the `plumbus-ui-locale` cookie (done automatically by `setLocale`) and read it in your root layout (a Server Component). `generated/i18n/request.ts` reads the same cookie as a fallback after `requestLocale`, so Server Components calling `getTranslations()` resolve the same locale.
+`<TranslationProvider>` accepts an optional `initialLocale`. When omitted it falls back to `defaultLocale` and adopts a stored client preference after hydration, which briefly flashes the default locale. To render the correct locale and direction on the first paint, persist the locale in the `plumbus-ui-locale` cookie (done automatically by `setLocale`) and read it in your root layout (a Server Component).
+
+To also resolve the same locale in Server Components that call `getTranslations()`, generate with `--server-locale-cookie`. That makes `generated/i18n/request.ts` read the `plumbus-ui-locale` cookie as a fallback after `requestLocale`. Reading the cookie uses a Next.js Dynamic API, so it opts affected routes into dynamic rendering (required to read a per-request cookie) and is **not** compatible with `output: 'export'`. Without the flag, the request config resolves locale from `requestLocale` only (statically renderable) — the root-layout example below still works because it reads the cookie directly in your own Server Component.
 
 ```tsx
 import { cookies } from "next/headers";

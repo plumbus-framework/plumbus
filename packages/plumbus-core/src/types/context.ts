@@ -24,7 +24,7 @@ export interface QueryOptions {
   offset?: number;
   /** Column name or multi-column sort spec — validated against entity table columns */
   orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
-  /** Sort direction (default 'desc') — used when orderBy is a string */
+  /** Default sort direction (default 'desc') — applied to a string `orderBy`, and the fallback for array specs that omit `dir` */
   orderDir?: 'asc' | 'desc';
   /** Date range filters: { columnName: { gte?: Date, lte?: Date } } */
   dateFilters?: Record<string, { gte?: Date; lte?: Date }>;

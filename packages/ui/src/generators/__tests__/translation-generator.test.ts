@@ -61,18 +61,35 @@ describe('generateProvider (via generateTranslationModule)', () => {
     expect(c).toContain('localStorage.setItem(LOCALE_STORAGE_KEY');
   });
 
-  it('skips the localStorage fallback when initialLocale is provided', () => {
-    expect(providerContent()).toContain('if (initialLocale) return;');
+  it('reads localStorage on mount and re-syncs the cookie when it differs from initialLocale', () => {
+    const c = providerContent();
+    expect(c).not.toContain('if (initialLocale) return;');
+    expect(c).toContain('localStorage.getItem(LOCALE_STORAGE_KEY)');
+    expect(c).toContain('initialLocale && stored !== initialLocale');
+  });
+
+  it('marks the persisted cookie secure over https', () => {
+    const c = providerContent();
+    expect(c).toContain('location.protocol === "https:"');
+    expect(c).toContain('samesite=lax');
   });
 });
 
 describe('generateRequestConfig (via generateTranslationModule)', () => {
-  it('reads the locale cookie via next/headers as a fallback', () => {
-    const c =
-      generateTranslationModule(sampleDefinitions).find((f) => f.path === 'i18n/request.ts')
-        ?.content ?? '';
+  const requestContent = (options?: { serverLocaleCookie?: boolean }) =>
+    generateTranslationModule(sampleDefinitions, options).find((f) => f.path === 'i18n/request.ts')
+      ?.content ?? '';
+
+  it('resolves locale from requestLocale only by default (no next/headers import)', () => {
+    const c = requestContent();
+    expect(c).not.toContain('next/headers');
+    expect(c).not.toContain('cookies()');
+    expect(c).toContain('((await requestLocale) ?? defaultLocale) as Locale');
+  });
+
+  it('reads the locale cookie via next/headers when serverLocaleCookie is enabled', () => {
+    const c = requestContent({ serverLocaleCookie: true });
     expect(c).toContain('import { cookies } from "next/headers"');
-    expect(c).toContain('(await cookies()).get(LOCALE_COOKIE_KEY)?.value');
-    expect(c).toContain('requested ?? cookieLocale ?? defaultLocale');
+    expect(c).toContain('requested ?? (await cookies()).get(LOCALE_COOKIE_KEY)?.value');
   });
 });

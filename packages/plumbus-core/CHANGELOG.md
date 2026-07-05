@@ -4,11 +4,13 @@
 
 ### Added
 
-- **`QueryOptions.search`** — OR-of-ILIKE across named entity columns for free-text search (usable via `findMany`/`count`).
+- **`QueryOptions.search`** — OR-of-ILIKE across named entity columns for free-text search (usable via `findMany`/`count`). LIKE metacharacters (`%`, `_`, `\`) in the term are escaped, so the term matches literally rather than as a wildcard pattern.
 - **`QueryOptions.in`** — SQL `IN` filter (empty arrays ignored).
-- **`QueryOptions.notEq`** — SQL `<>` filter.
-- **Multi-column `QueryOptions.orderBy`** — now accepts a `string` (unchanged) or an array of `{ column, dir? }` sort specs.
+- **`QueryOptions.notEq`** — SQL `<>` filter. Under SQL three-valued logic, rows whose column is `NULL` are excluded (matching `<>` semantics); the in-memory test repository mirrors this.
+- **Multi-column `QueryOptions.orderBy`** — now accepts a `string` (unchanged) or an array of `{ column, dir? }` sort specs. A spec that omits `dir` falls back to the top-level `orderDir` (then defaults to `desc`).
 - **`count`** options widened to accept `search`/`in`/`notEq` so totals match filtered `findMany` queries.
+- **`createInMemoryRepository` parity** — the in-memory test double applies `search` (literal, case-insensitive), `in`, `notEq` (NULL-excluding), and multi-column `orderBy` with the same semantics as the SQL repository.
+- **`plumbus ui generate --server-locale-cookie`** — pass-through to `@plumbus/ui` for opt-in server-side locale resolution from the `plumbus-ui-locale` cookie.
 
 Additive and backward-compatible: no methods were added to or removed from the public `Repository` interface, and existing `findMany`/`count` behavior is identical for callers that do not pass the new option keys.
 

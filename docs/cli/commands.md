@@ -480,6 +480,7 @@ plumbus ui generate [options]
 | `--multi-tenant` | `boolean` | `false` | Include tenant helpers in auth module |
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
 | `--split-locale-bundles` | `boolean` | `false` | Emit per-locale message bundles under `i18n/locales/` (default: single `i18n/messages.ts`) |
+| `--server-locale-cookie` | `boolean` | `false` | Resolve locale from the `plumbus-ui-locale` cookie in `i18n/request.ts` (dynamic rendering; not compatible with `output: 'export'`) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:

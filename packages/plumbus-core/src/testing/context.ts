@@ -287,13 +287,25 @@ export function createInMemoryRepository<
     if (options?.in) {
       for (const [field, vals] of Object.entries(options.in)) {
         if (!vals.length) continue;
-        const allowed = new Set(vals);
-        results = results.filter((item) => allowed.has((item as any)[field]));
+        // Mirror SQL IN, which coerces query values to the column type (e.g. a numeric
+        // column compared against a string param from an HTTP query): match by string
+        // form, and exclude NULL/absent fields (`col IN (...)` is NULL — not TRUE — for
+        // a NULL column, so those rows are dropped).
+        const allowed = new Set(vals.map((v) => String(v)));
+        results = results.filter((item) => {
+          const v = (item as any)[field];
+          return v != null && allowed.has(String(v));
+        });
       }
     }
     if (options?.notEq) {
       for (const [field, val] of Object.entries(options.notEq)) {
-        results = results.filter((item) => (item as any)[field] !== val);
+        // Mirror SQL `<>`: under three-valued logic a NULL/absent column makes the
+        // predicate NULL (not TRUE), so those rows are EXCLUDED — same as ne().
+        results = results.filter((item) => {
+          const v = (item as any)[field];
+          return v != null && v !== val;
+        });
       }
     }
     if (options?.search?.term) {
@@ -314,7 +326,9 @@ export function createInMemoryRepository<
           : options.orderBy;
       results.sort((a, b) => {
         for (const spec of specs) {
-          const dir = spec.dir === 'asc' ? 1 : -1;
+          // Mirror SQL applyOrder: a spec that omits `dir` falls back to the
+          // top-level orderDir (then defaults to desc), not straight to desc.
+          const dir = (spec.dir ?? options.orderDir) === 'asc' ? 1 : -1;
           const av = (a as any)[spec.column];
           const bv = (b as any)[spec.column];
           if (av < bv) return -1 * dir;

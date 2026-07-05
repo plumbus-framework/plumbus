@@ -138,7 +138,12 @@ export function createRepository<
     if (options?.search?.term) {
       const cols = options.search.columns.map((c) => (table as any)[c]).filter(Boolean);
       if (cols.length) {
-        const like = `%${options.search.term}%`;
+        // Escape LIKE metacharacters so a user term matches literally. Postgres ILIKE
+        // treats % and _ as wildcards and \ as the default escape char; without this a
+        // term like "50%" or "a_b" would match far more rows (and diverges from the
+        // literal-substring semantics of the in-memory test repository).
+        const escaped = options.search.term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+        const like = `%${escaped}%`;
         const ors = cols.map((c: any) => ilike(c, like));
         conditions.push((ors.length === 1 ? ors[0] : or(...ors)) as SQL);
       }
