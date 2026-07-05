@@ -126,6 +126,8 @@ function zodSchemaToTypeString(schema: unknown, indent = ''): string {
     }
     case 'ZodDefault':
       return zodSchemaToTypeString(def.innerType, indent);
+    case 'ZodEffects':
+      return zodSchemaToTypeString(def.schema, indent);
     case 'ZodUnion': {
       if (Array.isArray(def.options)) {
         return (def.options as unknown[]).map((o) => zodSchemaToTypeString(o, indent)).join(' | ');

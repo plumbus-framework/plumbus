@@ -714,4 +714,32 @@ describe('createRepository', () => {
       expect(chainable.where).toHaveBeenCalled();
     });
   });
+
+  describe('count with search/in/notEq', () => {
+    it('honors search filter', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([{ count: 2 }]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const total = await repo.count({}, { search: { columns: ['title'], term: 'test' } });
+      expect(total).toBe(2);
+      expect(chainable.where).toHaveBeenCalled();
+    });
+  });
 });

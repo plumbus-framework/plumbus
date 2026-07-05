@@ -22,12 +22,18 @@ export interface QueryOptions {
   limit?: number;
   /** Number of rows to skip (default 0) */
   offset?: number;
-  /** Column name to sort by — validated against entity table columns */
-  orderBy?: string;
-  /** Sort direction (default 'desc') */
+  /** Column name or multi-column sort spec — validated against entity table columns */
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
+  /** Sort direction (default 'desc') — used when orderBy is a string */
   orderDir?: 'asc' | 'desc';
   /** Date range filters: { columnName: { gte?: Date, lte?: Date } } */
   dateFilters?: Record<string, { gte?: Date; lte?: Date }>;
+  /** OR-of-ILIKE across the given entity fields for a free-text term. */
+  search?: { columns: string[]; term: string };
+  /** field → allowed values (SQL IN). Empty arrays ignored. */
+  in?: Record<string, Array<string | number>>;
+  /** field → value the row must NOT equal (SQL <>). */
+  notEq?: Record<string, string | number>;
 }
 
 // ── Repository (per-entity data access) ──
@@ -48,7 +54,10 @@ export interface Repository<
   update(id: string, updates: TUpdate): Promise<T>;
   delete(id: string): Promise<void>;
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
-  count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number>;
+  count(
+    query?: Partial<T>,
+    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
+  ): Promise<number>;
 }
 
 // ── Data Service (all entity repositories) ──

@@ -1,5 +1,17 @@
 # @plumbus/core changelog
 
+## 0.6.3
+
+### Added
+
+- **`QueryOptions.search`** — OR-of-ILIKE across named entity columns for free-text search (usable via `findMany`/`count`).
+- **`QueryOptions.in`** — SQL `IN` filter (empty arrays ignored).
+- **`QueryOptions.notEq`** — SQL `<>` filter.
+- **Multi-column `QueryOptions.orderBy`** — now accepts a `string` (unchanged) or an array of `{ column, dir? }` sort specs.
+- **`count`** options widened to accept `search`/`in`/`notEq` so totals match filtered `findMany` queries.
+
+Additive and backward-compatible: no methods were added to or removed from the public `Repository` interface, and existing `findMany`/`count` behavior is identical for callers that do not pass the new option keys.
+
 ## 0.6.1
 
 ### Added

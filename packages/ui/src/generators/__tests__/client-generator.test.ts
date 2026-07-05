@@ -77,6 +77,20 @@ describe('generateCapabilityTypes', () => {
     expect(code).toContain('ListAllOrdersOutput');
   });
 
+  it('unwraps ZodEffects from superRefine to the inner object shape', () => {
+    const cap = makeCap({
+      input: z
+        .object({
+          courseIntakeId: z.string().uuid(),
+          sortBy: z.literal('name').default('name'),
+        })
+        .superRefine(() => undefined),
+    });
+    const code = generateCapabilityTypes(cap);
+    expect(code).toContain('courseIntakeId: string');
+    expect(code).not.toContain('GetInvoiceInput = unknown');
+  });
+
   it('handles array and nullable fields', () => {
     const cap = makeCap({
       input: z.object({

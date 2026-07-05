@@ -26,6 +26,21 @@ const result = await runCapability(getUser, {
 expect(result.name).toBe("Alice");
 ```
 
+### Paginated list capabilities
+
+When testing `kind: 'query'` list endpoints that paginate via `findMany` + `count`, assert:
+
+- Page 2 returns a different slice than page 1 (when `total > limit`)
+- `total` reflects filtered row count, not just `items.length`
+- `search`, `sortBy`, and filter params change which rows appear
+
+```ts
+const page1 = await runCapability(listStaff, { page: 1, limit: 2 }, { ctx });
+const page2 = await runCapability(listStaff, { page: 2, limit: 2 }, { ctx });
+expect(page1.items).not.toEqual(page2.items);
+expect(page1.total).toBeGreaterThan(page1.limit);
+```
+
 ### `simulateFlow`
 
 Simulate flow execution and inspect step history:

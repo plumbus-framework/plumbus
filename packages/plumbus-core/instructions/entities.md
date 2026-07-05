@@ -88,6 +88,25 @@ await ctx.data.User.update("usr_123", { active: false });
 await ctx.data.User.delete("usr_123");
 ```
 
+### Pagination & search
+
+For paginated list capabilities, push pagination + search to SQL with `findMany` + `count` (never fetch-all-then-slice):
+
+```ts
+const filters = {
+  search: { columns: ["displayName", "email"], term: input.search },
+  in: { role: ["staff", "admin"] },
+  notEq: { status: "archived" },
+};
+const items = await ctx.data.User.findMany(
+  { active: true },
+  { ...filters, orderBy: "createdAt", orderDir: "desc", limit: input.limit, offset: (input.page - 1) * input.limit },
+);
+const total = await ctx.data.User.count({ active: true }, filters);
+```
+
+`findMany` applies `limit`/`offset`/`orderBy`; `count` returns the matching row count over the same filters (so page totals stay correct). `search` uses case-insensitive `ILIKE` (OR across columns), `in` is SQL `IN`, `notEq` is `<>`. Multi-column sort: `orderBy: [{ column: "name", dir: "asc" }, { column: "createdAt", dir: "desc" }]`. Tenant isolation and soft-delete filters are applied automatically.
+
 Repositories automatically:
 - Inject `tenantId` from `ctx.auth.tenantId` (if `tenantScoped: true`)
 - Record audit events for mutations

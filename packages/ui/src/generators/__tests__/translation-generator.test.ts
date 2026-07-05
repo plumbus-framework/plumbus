@@ -42,3 +42,37 @@ describe('generateTranslationModule', () => {
     expect(aggregator).not.toMatch(/"nav":\s*\{/);
   });
 });
+
+describe('generateProvider (via generateTranslationModule)', () => {
+  const providerContent = () =>
+    generateTranslationModule(sampleDefinitions).find((f) => f.path === 'i18n/provider.tsx')
+      ?.content ?? '';
+
+  it('emits an optional initialLocale prop used for initial state', () => {
+    const c = providerContent();
+    expect(c).toContain('initialLocale?: Locale');
+    expect(c).toContain('useState<Locale>(initialLocale ?? (defaultLocale as Locale))');
+  });
+
+  it('persists locale to both cookie and localStorage', () => {
+    const c = providerContent();
+    expect(c).toContain('function persistLocale');
+    expect(c).toContain('document.cookie');
+    expect(c).toContain('localStorage.setItem(LOCALE_STORAGE_KEY');
+  });
+
+  it('skips the localStorage fallback when initialLocale is provided', () => {
+    expect(providerContent()).toContain('if (initialLocale) return;');
+  });
+});
+
+describe('generateRequestConfig (via generateTranslationModule)', () => {
+  it('reads the locale cookie via next/headers as a fallback', () => {
+    const c =
+      generateTranslationModule(sampleDefinitions).find((f) => f.path === 'i18n/request.ts')
+        ?.content ?? '';
+    expect(c).toContain('import { cookies } from "next/headers"');
+    expect(c).toContain('(await cookies()).get(LOCALE_COOKIE_KEY)?.value');
+    expect(c).toContain('requested ?? cookieLocale ?? defaultLocale');
+  });
+});
