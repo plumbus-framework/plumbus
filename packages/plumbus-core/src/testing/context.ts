@@ -16,6 +16,7 @@ import type {
   FlowExecution,
   FlowService,
   LoggerService,
+  QueryOptions,
   Repository,
   TimeService,
 } from '../types/context.js';
@@ -258,6 +259,87 @@ export function createInMemoryRepository<
     }
   }
 
+  function filterRows(query?: Partial<T>, options?: QueryOptions): T[] {
+    let results = [...store.values()];
+    if (query) {
+      results = results.filter((item) =>
+        Object.entries(query).every(([key, value]) => (item as any)[key] === value),
+      );
+    }
+    if (options?.dateFilters) {
+      for (const [field, range] of Object.entries(options.dateFilters)) {
+        if (range.gte) {
+          const gte = range.gte instanceof Date ? range.gte : new Date(range.gte as any);
+          results = results.filter((item) => {
+            const v = (item as any)[field];
+            return v && new Date(v) >= gte;
+          });
+        }
+        if (range.lte) {
+          const lte = range.lte instanceof Date ? range.lte : new Date(range.lte as any);
+          results = results.filter((item) => {
+            const v = (item as any)[field];
+            return v && new Date(v) <= lte;
+          });
+        }
+      }
+    }
+    if (options?.in) {
+      for (const [field, vals] of Object.entries(options.in)) {
+        if (!vals.length) continue;
+        // Mirror SQL IN, which coerces query values to the column type (e.g. a numeric
+        // column compared against a string param from an HTTP query): match by string
+        // form, and exclude NULL/absent fields (`col IN (...)` is NULL — not TRUE — for
+        // a NULL column, so those rows are dropped).
+        const allowed = new Set(vals.map((v) => String(v)));
+        results = results.filter((item) => {
+          const v = (item as any)[field];
+          return v != null && allowed.has(String(v));
+        });
+      }
+    }
+    if (options?.notEq) {
+      for (const [field, val] of Object.entries(options.notEq)) {
+        // Mirror SQL `<>`: under three-valued logic a NULL/absent column makes the
+        // predicate NULL (not TRUE), so those rows are EXCLUDED — same as ne().
+        results = results.filter((item) => {
+          const v = (item as any)[field];
+          return v != null && v !== val;
+        });
+      }
+    }
+    if (options?.search?.term) {
+      const term = options.search.term.toLowerCase();
+      const cols = options.search.columns;
+      results = results.filter((item) =>
+        cols.some((col) =>
+          String((item as any)[col] ?? '')
+            .toLowerCase()
+            .includes(term),
+        ),
+      );
+    }
+    if (options?.orderBy) {
+      const specs =
+        typeof options.orderBy === 'string'
+          ? [{ column: options.orderBy, dir: options.orderDir }]
+          : options.orderBy;
+      results.sort((a, b) => {
+        for (const spec of specs) {
+          // Mirror SQL applyOrder: a spec that omits `dir` falls back to the
+          // top-level orderDir (then defaults to desc), not straight to desc.
+          const dir = (spec.dir ?? options.orderDir) === 'asc' ? 1 : -1;
+          const av = (a as any)[spec.column];
+          const bv = (b as any)[spec.column];
+          if (av < bv) return -1 * dir;
+          if (av > bv) return 1 * dir;
+        }
+        return 0;
+      });
+    }
+    return results;
+  }
+
   return {
     async findById(id) {
       return store.get(id) ?? null;
@@ -289,41 +371,7 @@ export function createInMemoryRepository<
       store.delete(id);
     },
     async findMany(query, options) {
-      let results = [...store.values()];
-      if (query) {
-        results = results.filter((item) =>
-          Object.entries(query).every(([key, value]) => (item as any)[key] === value),
-        );
-      }
-      if (options?.dateFilters) {
-        for (const [field, range] of Object.entries(options.dateFilters)) {
-          if (range.gte) {
-            const gte = range.gte instanceof Date ? range.gte : new Date(range.gte as any);
-            results = results.filter((item) => {
-              const v = (item as any)[field];
-              return v && new Date(v) >= gte;
-            });
-          }
-          if (range.lte) {
-            const lte = range.lte instanceof Date ? range.lte : new Date(range.lte as any);
-            results = results.filter((item) => {
-              const v = (item as any)[field];
-              return v && new Date(v) <= lte;
-            });
-          }
-        }
-      }
-      if (options?.orderBy) {
-        const dir = options.orderDir === 'asc' ? 1 : -1;
-        const key = options.orderBy;
-        results.sort((a, b) => {
-          const av = (a as any)[key];
-          const bv = (b as any)[key];
-          if (av < bv) return -1 * dir;
-          if (av > bv) return 1 * dir;
-          return 0;
-        });
-      }
+      let results = filterRows(query, options);
       if (options?.offset) {
         results = results.slice(options.offset);
       }
@@ -333,31 +381,7 @@ export function createInMemoryRepository<
       return results;
     },
     async count(query, options) {
-      let results = [...store.values()];
-      if (query) {
-        results = results.filter((item) =>
-          Object.entries(query).every(([key, value]) => (item as any)[key] === value),
-        );
-      }
-      if (options?.dateFilters) {
-        for (const [field, range] of Object.entries(options.dateFilters)) {
-          if (range.gte) {
-            const gte = range.gte instanceof Date ? range.gte : new Date(range.gte as any);
-            results = results.filter((item) => {
-              const v = (item as any)[field];
-              return v && new Date(v) >= gte;
-            });
-          }
-          if (range.lte) {
-            const lte = range.lte instanceof Date ? range.lte : new Date(range.lte as any);
-            results = results.filter((item) => {
-              const v = (item as any)[field];
-              return v && new Date(v) <= lte;
-            });
-          }
-        }
-      }
-      return results.length;
+      return filterRows(query, options).length;
     },
   };
 }

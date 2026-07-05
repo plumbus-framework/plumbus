@@ -105,19 +105,33 @@ async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
  * Copy migration history from the legacy `public.__drizzle_migrations` table
  * when projects move tracking into the `drizzle` schema. Idempotent: only
  * inserts hashes that are not already recorded.
+ *
+ * The legacy table is checked in application code first — PostgreSQL still
+ * errors on `FROM public.__drizzle_migrations` when the relation is missing,
+ * even if the statement includes an `information_schema` guard.
  */
+async function legacyPublicMigrationsTableExists(db: PostgresJsDatabase): Promise<boolean> {
+  const rows = (await db.execute(sql`
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = '__drizzle_migrations'
+    LIMIT 1
+  `)) as unknown as unknown[];
+
+  return rows.length > 0;
+}
+
 async function adoptLegacyPublicMigrationHistory(db: PostgresJsDatabase): Promise<void> {
+  if (!(await legacyPublicMigrationsTableExists(db))) {
+    return;
+  }
+
   await db.execute(sql`
     INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at)
     SELECT legacy.hash, legacy.created_at
     FROM "public"."__drizzle_migrations" AS legacy
-    WHERE EXISTS (
-      SELECT 1
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-        AND table_name = '__drizzle_migrations'
-    )
-    AND NOT EXISTS (
+    WHERE NOT EXISTS (
       SELECT 1
       FROM "drizzle"."__drizzle_migrations" AS current
       WHERE current.hash = legacy.hash

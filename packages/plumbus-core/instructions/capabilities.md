@@ -66,8 +66,14 @@ handler: async (ctx, input) => {
   const customer = await ctx.data.Customer.findById(input.customerId);
   // Update
   await ctx.data.Order.update(order.id, { status: "confirmed" });
-  // Query
+  // Query (unpaginated — fine for small bounded sets)
   const recent = await ctx.data.Order.findMany({ customerId: input.customerId });
+  // Paginated list endpoints — push limit/offset/filters to SQL via findMany + count
+  const items = await ctx.data.Order.findMany(
+    { customerId: input.customerId },
+    { orderBy: "createdAt", orderDir: "desc", limit: input.limit, offset: (input.page - 1) * input.limit },
+  );
+  const total = await ctx.data.Order.count({ customerId: input.customerId });
   return { orderId: order.id };
 }
 ```

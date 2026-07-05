@@ -1,3 +1,4 @@
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it, vi } from 'vitest';
 import { field } from '../../fields/index.js';
 import type { AuditService } from '../../types/audit.js';
@@ -712,6 +713,63 @@ describe('createRepository', () => {
       const total = await repo.count({ title: 'test' } as any);
       expect(total).toBe(5);
       expect(chainable.where).toHaveBeenCalled();
+    });
+  });
+
+  describe('count with search/in/notEq', () => {
+    it('honors search filter', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([{ count: 2 }]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      const total = await repo.count({}, { search: { columns: ['title'], term: 'test' } });
+      expect(total).toBe(2);
+      expect(chainable.where).toHaveBeenCalled();
+    });
+
+    it('escapes LIKE metacharacters in the search term so it matches literally', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const chainable = {
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([{ id: 'row-1', title: 'Test' }]),
+      };
+      const db = {
+        select: vi.fn().mockReturnValue(chainable),
+        insert: vi.fn().mockReturnValue(chainable),
+        update: vi.fn().mockReturnValue(chainable),
+        delete: vi.fn().mockReturnValue(chainable),
+      };
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+      });
+
+      await repo.findMany({}, { search: { columns: ['title'], term: '50%_x' } });
+
+      const whereArg = chainable.where.mock.calls[0]?.[0];
+      const { params } = new PgDialect().sqlToQuery(whereArg);
+      // %, _ and \ are backslash-escaped, then wrapped in %…% for a literal substring match.
+      expect(params).toContain('%50\\%\\_x%');
     });
   });
 });

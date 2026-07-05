@@ -68,6 +68,7 @@ interface UiGenerateOptions {
   multiTenant?: boolean;
   includeJsDoc?: boolean;
   splitLocaleBundles?: boolean;
+  serverLocaleCookie?: boolean;
   json?: boolean;
 }
 
@@ -89,7 +90,7 @@ export interface UiGeneratorModule {
   generateFormHintsModule(capabilities: CapabilityContract[]): string;
   generateTranslationModule?(
     definitions: TranslationDefinition[],
-    options?: { splitLocaleBundles?: boolean },
+    options?: { splitLocaleBundles?: boolean; serverLocaleCookie?: boolean },
   ): GeneratedTranslationFile[];
   generateNextjsTemplate(
     config: NextjsTemplateConfig,
@@ -261,6 +262,7 @@ export function generateUiModuleFiles(
   if (translations.length > 0 && generators.generateTranslationModule) {
     const i18nFiles = generators.generateTranslationModule(translations, {
       splitLocaleBundles: options.splitLocaleBundles,
+      serverLocaleCookie: options.serverLocaleCookie,
     });
     for (const file of i18nFiles) {
       files.push({ path: `${prefix}${file.path}`, content: file.content });
@@ -422,6 +424,10 @@ export function registerUiCommand(program: Command): void {
     .option(
       '--split-locale-bundles',
       'Emit per-locale message bundles under i18n/locales/ (default: single i18n/messages.ts)',
+    )
+    .option(
+      '--server-locale-cookie',
+      'Resolve locale from the plumbus-ui-locale cookie in the request config (dynamic rendering; not compatible with output: export)',
     )
     .option('--json', 'Output generated file list as JSON')
     .action(async (opts: UiGenerateOptions) => {

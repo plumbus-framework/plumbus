@@ -131,7 +131,7 @@ describe('migration history helpers', () => {
         .fn()
         .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
         .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
-        .mockResolvedValueOnce([]) // adopt legacy public.__drizzle_migrations
+        .mockResolvedValueOnce([]) // legacy public.__drizzle_migrations existence check
         .mockResolvedValueOnce([{ hash: sha256(firstSql) }]),
     };
 
@@ -143,6 +143,29 @@ describe('migration history helpers', () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.tag).toBe('0002_slug');
     expect(pending[0]?.statements).toHaveLength(2);
+  });
+
+  it('skips legacy migration adoption when public tracking table is absent', async () => {
+    const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-migrations-'));
+    tempDirs.push(migrationsDir);
+
+    const firstSql = 'CREATE TABLE "orders" ("id" uuid PRIMARY KEY);';
+    writeMigrationFixture(migrationsDir, [{ tag: '0001_init', sql: firstSql, when: 1000 }]);
+
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
+      .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
+      .mockResolvedValueOnce([]) // legacy public.__drizzle_migrations existence check (absent)
+      .mockResolvedValueOnce([]); // applied hashes
+
+    const pending = await readPendingMigrations({
+      db: { execute } as any,
+      migrationsFolder: migrationsDir,
+    });
+
+    expect(pending).toHaveLength(1);
+    expect(execute).toHaveBeenCalledTimes(4);
   });
 
   it('reconciles only missing migration records', async () => {
@@ -165,7 +188,7 @@ describe('migration history helpers', () => {
         .fn()
         .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
         .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
-        .mockResolvedValueOnce([]) // adopt legacy public.__drizzle_migrations
+        .mockResolvedValueOnce([]) // legacy public.__drizzle_migrations existence check
         .mockResolvedValueOnce([{ hash: sha256(firstSql) }]),
       transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
     };

@@ -68,7 +68,11 @@ function getZodDef(schema: unknown): Record<string, unknown> | null {
   return null;
 }
 
-function zodSchemaToTypeString(schema: unknown, indent = ''): string {
+function zodSchemaToTypeString(
+  schema: unknown,
+  indent = '',
+  mode: 'input' | 'output' = 'input',
+): string {
   const def = getZodDef(schema);
   if (!def) return 'unknown';
 
@@ -94,7 +98,7 @@ function zodSchemaToTypeString(schema: unknown, indent = ''): string {
     case 'ZodNativeEnum':
       return 'string';
     case 'ZodArray': {
-      const inner = zodSchemaToTypeString(def.type, indent);
+      const inner = zodSchemaToTypeString(def.type, indent, mode);
       return inner.includes('|') || inner.includes('{') ? `Array<${inner}>` : `${inner}[]`;
     }
     case 'ZodObject': {
@@ -105,7 +109,7 @@ function zodSchemaToTypeString(schema: unknown, indent = ''): string {
         const innerIndent = `${indent}  `;
         const fields = entries.map(([key, fieldSchema]) => {
           const optional = isFieldOptional(fieldSchema);
-          const innerType = zodSchemaToTypeString(unwrapWrappers(fieldSchema), innerIndent);
+          const innerType = zodSchemaToTypeString(unwrapWrappers(fieldSchema), innerIndent, mode);
           const nullable = getZodTypeName(fieldSchema) === 'ZodNullable';
           const typeStr = nullable ? `${innerType} | null` : innerType;
           return `${innerIndent}${key}${optional ? '?' : ''}: ${typeStr};`;
@@ -115,20 +119,39 @@ function zodSchemaToTypeString(schema: unknown, indent = ''): string {
       return 'Record<string, unknown>';
     }
     case 'ZodRecord': {
-      const valueType = def.valueType ? zodSchemaToTypeString(def.valueType, indent) : 'unknown';
+      const valueType = def.valueType
+        ? zodSchemaToTypeString(def.valueType, indent, mode)
+        : 'unknown';
       return `Record<string, ${valueType}>`;
     }
     case 'ZodOptional':
-      return zodSchemaToTypeString(def.innerType, indent);
+      return zodSchemaToTypeString(def.innerType, indent, mode);
     case 'ZodNullable': {
-      const inner = zodSchemaToTypeString(def.innerType, indent);
+      const inner = zodSchemaToTypeString(def.innerType, indent, mode);
       return `${inner} | null`;
     }
     case 'ZodDefault':
-      return zodSchemaToTypeString(def.innerType, indent);
+      return zodSchemaToTypeString(def.innerType, indent, mode);
+    case 'ZodEffects': {
+      // Resolve effects by input/output position. Refinements (.refine/.superRefine)
+      // leave the type unchanged, so the source schema is correct in either position.
+      // A transform's output is its function's return value (which Zod does not expose
+      // statically) → emit `unknown` for output, source schema for input. z.preprocess
+      // accepts `unknown` as input → emit `unknown` for input, inner schema for output.
+      const effect = def.effect as { type?: string } | undefined;
+      if (effect?.type === 'transform') {
+        return mode === 'output' ? 'unknown' : zodSchemaToTypeString(def.schema, indent, mode);
+      }
+      if (effect?.type === 'preprocess') {
+        return mode === 'input' ? 'unknown' : zodSchemaToTypeString(def.schema, indent, mode);
+      }
+      return zodSchemaToTypeString(def.schema, indent, mode);
+    }
     case 'ZodUnion': {
       if (Array.isArray(def.options)) {
-        return (def.options as unknown[]).map((o) => zodSchemaToTypeString(o, indent)).join(' | ');
+        return (def.options as unknown[])
+          .map((o) => zodSchemaToTypeString(o, indent, mode))
+          .join(' | ');
       }
       return 'unknown';
     }
@@ -145,6 +168,9 @@ function isFieldOptional(schema: unknown): boolean {
   const tn = typeof def.typeName === 'string' ? def.typeName : '';
   if (tn === 'ZodOptional' || tn === 'ZodDefault') return true;
   if (tn === 'ZodNullable' && def.innerType) return isFieldOptional(def.innerType);
+  // See through .refine/.superRefine/.transform wrappers to the source schema so a
+  // field like `z.string().optional().superRefine(...)` is still emitted optional.
+  if (tn === 'ZodEffects' && def.schema) return isFieldOptional(def.schema);
   return false;
 }
 
@@ -163,8 +189,8 @@ function unwrapWrappers(schema: unknown): unknown {
 /** Generate TypeScript types from a capability's Zod input/output schemas */
 export function generateCapabilityTypes(cap: CapabilityContract): string {
   const pascal = toPascalCase(cap.name);
-  const inputType = zodSchemaToTypeString(cap.input);
-  const outputType = zodSchemaToTypeString(cap.output);
+  const inputType = zodSchemaToTypeString(cap.input, '', 'input');
+  const outputType = zodSchemaToTypeString(cap.output, '', 'output');
   return `export type ${pascal}Input = ${inputType};
 export type ${pascal}Output = ${outputType};`;
 }

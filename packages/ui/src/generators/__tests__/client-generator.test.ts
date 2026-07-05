@@ -77,6 +77,56 @@ describe('generateCapabilityTypes', () => {
     expect(code).toContain('ListAllOrdersOutput');
   });
 
+  it('unwraps ZodEffects from superRefine to the inner object shape', () => {
+    const cap = makeCap({
+      input: z
+        .object({
+          courseIntakeId: z.string().uuid(),
+          sortBy: z.literal('name').default('name'),
+        })
+        .superRefine(() => undefined),
+    });
+    const code = generateCapabilityTypes(cap);
+    expect(code).toContain('courseIntakeId: string');
+    expect(code).not.toContain('GetInvoiceInput = unknown');
+  });
+
+  it('leaves an output .transform() as unknown rather than the pre-transform shape', () => {
+    const cap = makeCap({
+      // A transform's OUTPUT type is its function's return value, which Zod does not
+      // expose statically; emitting `{ cents: number }` would be confidently wrong.
+      output: z.object({ cents: z.number() }).transform((o) => ({ dollars: o.cents / 100 })),
+    });
+    const code = generateCapabilityTypes(cap);
+    expect(code).toContain('GetInvoiceOutput = unknown');
+    expect(code).not.toContain('cents: number');
+  });
+
+  it('emits the source shape for an input .transform() (client sends the pre-transform value)', () => {
+    const cap = makeCap({
+      // In INPUT position the wire carries the pre-transform value, so the source
+      // schema is the correct type — not `unknown`.
+      input: z.object({ raw: z.string() }).transform((o) => ({ parsed: o.raw })),
+    });
+    const code = generateCapabilityTypes(cap);
+    expect(code).toContain('raw: string');
+    expect(code).not.toContain('GetInvoiceInput = unknown');
+  });
+
+  it('marks a ZodEffects-wrapped optional field as optional', () => {
+    const cap = makeCap({
+      input: z.object({
+        name: z.string(),
+        note: z
+          .string()
+          .optional()
+          .superRefine(() => undefined),
+      }),
+    });
+    const code = generateCapabilityTypes(cap);
+    expect(code).toContain('note?: string');
+  });
+
   it('handles array and nullable fields', () => {
     const cap = makeCap({
       input: z.object({

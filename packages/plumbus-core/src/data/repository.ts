@@ -1,4 +1,18 @@
-import { and, asc, count, desc, eq, gte, isNull, lte, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  or,
+  type SQL,
+} from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService } from '../types/audit.js';
@@ -87,6 +101,74 @@ export function createRepository<
       ...maskData(data),
       _maskedFields: maskedFields,
     });
+  }
+
+  function buildConditions(query?: Partial<T>, options?: QueryOptions): SQL[] {
+    const conditions: SQL[] = [];
+    const tf = tenantFilter();
+    if (tf) conditions.push(tf);
+    const sdf = softDeleteFilter();
+    if (sdf) conditions.push(sdf);
+    if (query) {
+      for (const [k, v] of Object.entries(query)) {
+        const c = (table as any)[k];
+        if (c) conditions.push(eq(c, v as any));
+      }
+    }
+    if (options?.dateFilters) {
+      for (const [k, r] of Object.entries(options.dateFilters)) {
+        const c = (table as any)[k];
+        if (!c) continue;
+        if (r.gte) conditions.push(gte(c, r.gte));
+        if (r.lte) conditions.push(lte(c, r.lte));
+      }
+    }
+    if (options?.in) {
+      for (const [k, vals] of Object.entries(options.in)) {
+        const c = (table as any)[k];
+        if (c && vals.length) conditions.push(inArray(c, vals));
+      }
+    }
+    if (options?.notEq) {
+      for (const [k, v] of Object.entries(options.notEq)) {
+        const c = (table as any)[k];
+        if (c) conditions.push(ne(c, v as any));
+      }
+    }
+    if (options?.search?.term) {
+      const cols = options.search.columns.map((c) => (table as any)[c]).filter(Boolean);
+      if (cols.length) {
+        // Escape LIKE metacharacters so a user term matches literally. Postgres ILIKE
+        // treats % and _ as wildcards and \ as the default escape char; without this a
+        // term like "50%" or "a_b" would match far more rows (and diverges from the
+        // literal-substring semantics of the in-memory test repository).
+        const escaped = options.search.term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+        const like = `%${escaped}%`;
+        const ors = cols.map((c: any) => ilike(c, like));
+        conditions.push((ors.length === 1 ? ors[0] : or(...ors)) as SQL);
+      }
+    }
+    return conditions;
+  }
+
+  function combine(conds: SQL[]): SQL | undefined {
+    return conds.length > 1 ? and(...conds) : conds[0];
+  }
+
+  function applyOrder(qb: any, options?: QueryOptions): any {
+    if (!options?.orderBy) return qb;
+    const spec =
+      typeof options.orderBy === 'string'
+        ? [{ column: options.orderBy, dir: options.orderDir }]
+        : options.orderBy;
+    const cols = spec
+      .map((s) => {
+        const c = (table as any)[s.column];
+        if (!c) return null;
+        return (s.dir ?? options.orderDir) === 'asc' ? asc(c) : desc(c);
+      })
+      .filter(Boolean) as SQL[];
+    return cols.length ? qb.orderBy(...cols) : qb;
   }
 
   return {
@@ -206,105 +288,26 @@ export function createRepository<
 
     async findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]> {
       await assertTenantContext('findMany');
-      const conditions: SQL[] = [];
-
-      // Apply tenant filter
-      const tf = tenantFilter();
-      if (tf) conditions.push(tf);
-
-      // Apply soft-delete filter
-      const sdf = softDeleteFilter();
-      if (sdf) conditions.push(sdf);
-
-      // Apply query filters
-      if (query) {
-        for (const [key, value] of Object.entries(query)) {
-          const col = (table as any)[key];
-          if (col) {
-            conditions.push(eq(col, value as any));
-          }
-        }
-      }
-
-      // Apply date range filters (validated against table columns)
-      if (options?.dateFilters) {
-        for (const [colName, range] of Object.entries(options.dateFilters)) {
-          const col = (table as any)[colName];
-          if (!col) continue;
-          if (range.gte) conditions.push(gte(col, range.gte));
-          if (range.lte) conditions.push(lte(col, range.lte));
-        }
-      }
-
-      const where =
-        conditions.length > 1
-          ? and(...conditions)
-          : conditions.length === 1
-            ? conditions[0]
-            : undefined;
-
-      // Build query with optional ordering
-      let queryBuilder = db.select().from(table).where(where);
-
-      if (options?.orderBy) {
-        const col = (table as any)[options.orderBy];
-        if (col) {
-          queryBuilder = queryBuilder.orderBy(
-            options.orderDir === 'asc' ? asc(col) : desc(col),
-          ) as typeof queryBuilder;
-        }
-      }
-
-      // Apply pagination if provided
+      const where = combine(buildConditions(query, options));
+      let qb = db.select().from(table).where(where);
+      qb = applyOrder(qb, options);
       if (options?.limit != null) {
-        const safeLimit = Math.max(1, Math.min(100, options.limit));
-        queryBuilder = queryBuilder.limit(safeLimit) as typeof queryBuilder;
+        qb = qb.limit(Math.max(1, Math.min(100, options.limit))) as typeof qb;
       }
       if (options?.offset != null) {
-        const safeOffset = Math.max(0, options.offset);
-        queryBuilder = queryBuilder.offset(safeOffset) as typeof queryBuilder;
+        qb = qb.offset(Math.max(0, options.offset)) as typeof qb;
       }
-
-      const rows = await queryBuilder;
-      return rows as T[];
+      return (await qb) as T[];
     },
 
-    async count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number> {
+    async count(
+      query?: Partial<T>,
+      options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
+    ): Promise<number> {
       await assertTenantContext('count');
-      const conditions: SQL[] = [];
-
-      const tf = tenantFilter();
-      if (tf) conditions.push(tf);
-      const sdf = softDeleteFilter();
-      if (sdf) conditions.push(sdf);
-
-      if (query) {
-        for (const [key, value] of Object.entries(query)) {
-          const col = (table as any)[key];
-          if (col) {
-            conditions.push(eq(col, value as any));
-          }
-        }
-      }
-
-      if (options?.dateFilters) {
-        for (const [colName, range] of Object.entries(options.dateFilters)) {
-          const col = (table as any)[colName];
-          if (!col) continue;
-          if (range.gte) conditions.push(gte(col, range.gte));
-          if (range.lte) conditions.push(lte(col, range.lte));
-        }
-      }
-
-      const where =
-        conditions.length > 1
-          ? and(...conditions)
-          : conditions.length === 1
-            ? conditions[0]
-            : undefined;
-
-      const result = await db.select({ count: count() }).from(table).where(where);
-      return Number(result[0]?.count ?? 0);
+      const where = combine(buildConditions(query, options));
+      const res = await db.select({ count: count() }).from(table).where(where);
+      return Number(res[0]?.count ?? 0);
     },
   };
 }

@@ -480,6 +480,7 @@ plumbus ui generate [options]
 | `--multi-tenant` | `boolean` | `false` | Include tenant helpers in auth module |
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
 | `--split-locale-bundles` | `boolean` | `false` | Emit per-locale message bundles under `i18n/locales/` (default: single `i18n/messages.ts`) |
+| `--server-locale-cookie` | `boolean` | `false` | Resolve locale from the `plumbus-ui-locale` cookie in `i18n/request.ts` (dynamic rendering; not compatible with `output: 'export'`) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
@@ -649,7 +650,7 @@ plumbus migrate rollback [options]   # Rollback last migration
 3. `plumbus migrate apply` — executes pending migration files
 4. If schema already exists but migration history is missing: `plumbus migrate reconcile` — verifies the live DB already matches the current Plumbus schema, then backfills `__drizzle_migrations` without executing DDL
 
-   On `migrate apply` / `migrate reconcile`, Plumbus automatically copies any rows from legacy `public.__drizzle_migrations` into `drizzle.__drizzle_migrations` (idempotent by hash). Use this after moving migration tracking from `public` into the `drizzle` schema.
+   On `migrate apply` / `migrate reconcile`, Plumbus automatically copies any rows from legacy `public.__drizzle_migrations` into `drizzle.__drizzle_migrations` when that legacy table exists (idempotent by hash). If the legacy table is absent — typical for fresh installs that never tracked migrations in `public` — adoption is skipped. Use the copy step after moving migration tracking from `public` into the `drizzle` schema.
 5. For rapid dev: `plumbus migrate push` — diffs schemas against live DB and applies changes directly (no files)
 
 **Never run `drizzle-kit` manually** — the framework wraps it programmatically via the `drizzle-kit/api`.

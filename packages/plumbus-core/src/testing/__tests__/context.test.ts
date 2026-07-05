@@ -276,6 +276,60 @@ describe('createInMemoryRepository', () => {
     const all = await repo.findMany();
     expect(all).toHaveLength(2);
   });
+
+  it('notEq excludes rows whose column is null (matches SQL <>)', async () => {
+    const repo = createInMemoryRepository([
+      { id: '1', status: 'active' },
+      { id: '2', status: 'archived' },
+      { id: '3', status: null },
+    ]);
+    const rows = await repo.findMany({}, { notEq: { status: 'archived' } });
+    expect(rows.map((r) => (r as any).id)).toEqual(['1']);
+  });
+
+  it('array orderBy falls back to top-level orderDir when a spec omits dir', async () => {
+    const repo = createInMemoryRepository([
+      { id: 'a', rank: 1 },
+      { id: 'b', rank: 3 },
+      { id: 'c', rank: 2 },
+    ]);
+    const rows = await repo.findMany({}, { orderBy: [{ column: 'rank' }], orderDir: 'asc' });
+    expect(rows.map((r) => (r as any).rank)).toEqual([1, 2, 3]);
+  });
+
+  it('search matches the term literally (LIKE metacharacters are not wildcards)', async () => {
+    const repo = createInMemoryRepository([
+      { id: '1', label: '50% off' },
+      { id: '2', label: '5000 units' },
+    ]);
+    const rows = await repo.findMany({}, { search: { columns: ['label'], term: '50%' } });
+    expect(rows.map((r) => (r as any).id)).toEqual(['1']);
+  });
+
+  it('in coerces string/number like SQL IN and excludes null fields', async () => {
+    const repo = createInMemoryRepository([
+      { id: '1', priority: 5 },
+      { id: '2', priority: 10 },
+      { id: '3', priority: null },
+    ]);
+    // Query value is a string (as it would arrive from an HTTP query param) while the
+    // stored column is numeric — Postgres IN would match, so the in-memory double must too.
+    const rows = await repo.findMany({}, { in: { priority: ['5'] } });
+    expect(rows.map((r) => (r as any).id)).toEqual(['1']);
+  });
+
+  it('count applies search/notEq the same as findMany', async () => {
+    const repo = createInMemoryRepository([
+      { id: '1', status: 'active', label: 'alpha' },
+      { id: '2', status: 'archived', label: 'alpha' },
+      { id: '3', status: 'active', label: 'beta' },
+    ]);
+    const total = await repo.count(
+      {},
+      { search: { columns: ['label'], term: 'alpha' }, notEq: { status: 'archived' } },
+    );
+    expect(total).toBe(1);
+  });
 });
 
 // ── createTestData ──
