@@ -1,154 +1,139 @@
 # Auth Generator
 
-Generates frontend authentication utilities — types, token management, login/logout functions, React hooks, a route guard component, and optional multi-tenant support.
+The auth generator produces frontend authentication helper source code.
+
+It is intended for frontend session scaffolding: auth types, token storage helpers, login/logout/session-refresh functions, React auth hooks, a route guard component, and optional tenant helpers.
+
+It does not replace backend authorization. Plumbus backend capabilities and policies remain authoritative.
 
 ## Configuration
 
 ```ts
 interface AuthHelperConfig {
-  /** Auth provider type (e.g. "jwt", "oauth") */
   provider: string;
-  /** localStorage key for token (default: "plumbus_auth_token") */
   tokenKey?: string;
-  /** Login endpoint (default: "/api/auth/login") */
   loginEndpoint?: string;
-  /** Logout endpoint (default: "/api/auth/logout") */
   logoutEndpoint?: string;
-  /** Session refresh endpoint (default: "/api/auth/refresh") */
   refreshEndpoint?: string;
-  /** Enable tenant context provider (default: false) */
   multiTenant?: boolean;
 }
 ```
 
-## Individual Generators
+The `provider` field is required by the config type, but the current generator does not branch on provider type. Generated behavior changes through endpoint options, token-key configuration, and `multiTenant`.
+
+Defaults used by the generator:
+
+| Option | Default |
+|---|---|
+| `tokenKey` | `"plumbus_auth_token"` |
+| `loginEndpoint` | `"/api/auth/login"` |
+| `logoutEndpoint` | `"/api/auth/logout"` |
+| `refreshEndpoint` | `"/api/auth/refresh"` |
+| `multiTenant` | `false` |
+
+## Generated sections
 
 ### `generateAuthTypes()`
 
-Produces core TypeScript interfaces used across auth code:
+Generates TypeScript interfaces:
 
-| Type | Fields |
-|------|--------|
-| `AuthUser` | `userId`, `roles`, `scopes`, `tenantId?`, `provider`, `sessionId?` |
-| `AuthState` | `user`, `isAuthenticated`, `isLoading`, `error` |
-| `AuthActions` | `login()`, `logout()`, `refreshSession()`, `getToken()` |
-| `LoginCredentials` | `email?`, `password?`, `token?`, `provider?` |
-| `AuthConfig` | `loginEndpoint`, `logoutEndpoint`, `refreshEndpoint`, `tokenKey` |
+| Type | Purpose |
+|---|---|
+| `AuthUser` | Current user identity: `userId`, `roles`, `scopes`, optional `tenantId`, provider, and optional session ID. |
+| `AuthState` | Current auth state: `user`, `isAuthenticated`, `isLoading`, and `error`. |
+| `AuthActions` | Hook action methods: `login`, `logout`, `refreshSession`, and `getToken`. |
+| `LoginCredentials` | Flexible login payload: email/password, token, and provider. |
+| `AuthConfig` | Endpoint and token-key configuration. |
 
 ### `generateTokenUtils(config?)`
 
-Token storage utilities for browser environments:
+Generates browser token helpers:
 
 | Function | Purpose |
-|----------|---------|
-| `getStoredToken()` | Read token from `localStorage` (returns `null` on server) |
-| `setStoredToken(token)` | Persist token to `localStorage` |
-| `clearStoredToken()` | Remove token from `localStorage` |
-| `parseJwtPayload(token)` | Decode JWT payload (base64url → JSON) |
-| `isTokenExpired(token)` | Check `exp` claim against `Date.now()` |
+|---|---|
+| `getStoredToken()` | Reads the token from `localStorage`; returns `null` on the server. |
+| `setStoredToken(token)` | Writes the token to `localStorage`; no-ops on the server. |
+| `clearStoredToken()` | Removes the token from `localStorage`; no-ops on the server. |
+| `parseJwtPayload(token)` | Parses a JWT payload using base64url decoding. |
+| `isTokenExpired(token)` | Checks the JWT `exp` claim against the current time. |
 
-- Uses the configurable `tokenKey` (default: `"plumbus_auth_token"`).
-- All functions guard against SSR with `typeof window === "undefined"`.
+The generated utilities guard browser access with `typeof window === "undefined"`.
 
 ### `generateAuthFunctions(config?)`
 
-HTTP-based auth operations:
+Generates HTTP-based auth functions:
 
-| Function | HTTP | Endpoint |
-|----------|------|----------|
-| `login(credentials)` | POST | `{loginEndpoint}` |
-| `logout()` | POST | `{logoutEndpoint}` |
-| `refreshSession()` | POST | `{refreshEndpoint}` |
-| `getAuthHeaders()` | — | Returns `{ Authorization: "Bearer ..." }` or `{}` |
-
-- `login` stores the returned token and returns `AuthUser`.
-- `logout` calls the endpoint (fire-and-forget) then clears the stored token.
-- `refreshSession` returns `AuthUser | null` — clears token on failure.
+| Function | Behavior |
+|---|---|
+| `login(credentials)` | POSTs to the login endpoint, stores the returned token, and returns the returned user. |
+| `logout()` | POSTs to the logout endpoint and clears the stored token. |
+| `refreshSession()` | POSTs to the refresh endpoint, updates the stored token, and returns `AuthUser | null`. |
+| `getAuthHeaders()` | Returns `{ Authorization: "Bearer ..." }` when a token exists, otherwise `{}`. |
 
 ### `generateUseAuthHook()`
 
-Full React hook combining state and actions:
+Generates `useAuth()`, which:
 
-```ts
-function useAuth(): AuthState & AuthActions
-```
-
-- On mount: checks stored token, refreshes session if valid, sets loading state.
-- Returns `{ user, isAuthenticated, isLoading, error, login, logout, refreshSession, getToken }`.
-- `login` and `logout` update state and re-render.
+- initializes auth state;
+- reads and validates the stored token on mount;
+- calls `refreshSession()` when a non-expired token exists;
+- exposes `login`, `logout`, `refreshSession`, and `getToken` actions.
 
 ### `generateUseCurrentUserHook()`
 
-Simplified read-only hook:
-
-```ts
-function useCurrentUser(): { user: AuthUser | null; isAuthenticated: boolean; isLoading: boolean }
-```
-
-Delegates to `useAuth()` internally.
+Generates a small `useCurrentUser()` wrapper around `useAuth()`.
 
 ### `generateRouteGuard()`
 
-Role/scope-based route protection component:
+Generates a client-side `RouteGuard` component.
 
-```ts
-interface RouteGuardProps {
-  children: React.ReactNode;
-  roles?: string[];       // User must have at least one of these roles
-  scopes?: string[];      // User must have at least one of these scopes
-  fallback?: React.ReactNode;  // Shown while loading or when unauthorized
-  redirectTo?: string;    // Redirect URL for unauthenticated users
-}
-```
+The route guard can check whether the current user has required roles or scopes and can render fallback content or redirect using `window.location.href`.
 
-Behavior:
-1. While loading → render `fallback` (or null).
-2. Not authenticated → redirect if `redirectTo` set, else render `fallback`.
-3. Roles check → `some` match (any role matches → pass).
-4. Scopes check → `some` match (any scope matches → pass).
-5. Authorized → render `children`.
+This is a UX helper only. It must not be treated as an authorization boundary.
 
 ### `generateTenantContext()`
 
-Multi-tenant context hook (only included when `config.multiTenant` is true):
+Generates `useTenant()` when `multiTenant: true` is used in `generateAuthModule()`.
 
-```ts
-interface TenantContextValue {
-  tenantId: string | null;
-  setTenantId(id: string): void;
-}
-
-function useTenant(): TenantContextValue
-```
-
-- Initializes `tenantId` from the authenticated user's `tenantId`.
-- Syncs when user identity changes.
-
-## Module Generator
+The tenant helper initializes from `user.tenantId` and lets the frontend maintain a selected tenant ID.
 
 ### `generateAuthModule(config?)`
 
-Combines all auth generators into a single file:
+Generates a complete auth helper module.
 
 ```ts
-const code = generateAuthModule({
+const source = generateAuthModule({
   provider: "jwt",
-  tokenKey: "my_app_token",
-  loginEndpoint: "/api/v1/auth/login",
   multiTenant: true,
 });
-// Write to: lib/auth.ts
 ```
 
-Output order: imports → types → token utils → auth functions → useAuth → useCurrentUser → RouteGuard → (tenant context if enabled).
+The generated module includes:
 
-Imports `React`, `useState`, `useEffect` from React.
+- React imports;
+- the auto-generated file header;
+- auth types;
+- token utilities;
+- HTTP auth functions;
+- `useAuth()`;
+- `useCurrentUser()`;
+- `RouteGuard`;
+- tenant helper code when `multiTenant: true`.
 
-## Auth Flow
+## Security notes
 
-```
-Login:   credentials → POST /api/auth/login → { token, user } → localStorage
-Refresh: token → POST /api/auth/refresh → { token, user } → localStorage
-Logout:  token → POST /api/auth/logout → clear localStorage
-Request: getAuthHeaders() → { Authorization: "Bearer <token>" }
-```
+The generated auth module stores bearer tokens in `localStorage`. This is convenient for local apps and scaffolding, but it has tradeoffs:
+
+- tokens are readable by JavaScript in the page;
+- tokens are not readable by Next.js proxy/middleware;
+- client-side route guards can be bypassed by direct API calls;
+- backend authorization must be enforced in Plumbus capabilities and policies.
+
+For production applications that require stronger session handling, replace or adapt token storage with an HttpOnly cookie or another server-readable session mechanism and validate it server-side.
+
+## Generation guidance
+
+- Avoid presenting generated auth as a complete security model.
+- Keep role and scope authority in backend Plumbus policies.
+- Use generated route guards for view-level UX only.
+- Ensure all protected backend capabilities enforce their own access policies.

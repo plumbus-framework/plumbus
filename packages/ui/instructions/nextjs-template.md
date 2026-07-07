@@ -1,169 +1,219 @@
 # Next.js Template Generator
 
-Scaffolds a complete Next.js 16+ project wired to a Plumbus backend — layout, pages, auth, proxy, error boundary, and environment config.
+The Next.js template generator creates a starter App Router shell for a Plumbus frontend.
+
+It is not a complete production application generator. It creates the baseline files needed for an app shell and leaves contract-derived modules such as `lib/client.ts`, `hooks/hooks.ts`, `lib/auth.ts`, and `lib/form-hints.ts` to the corresponding module generators or CLI wrapper.
 
 ## Configuration
 
 ```ts
 interface NextjsTemplateConfig {
-  appName: string;          // Application display name
-  auth?: boolean;           // Include auth wiring (default: true)
-  apiBaseUrl?: string;      // Backend URL (default: "http://localhost:3000")
+  appName: string;
+  auth?: boolean;
+  apiBaseUrl?: string;
 }
 
 interface GeneratedFile {
-  path: string;     // Relative file path within the project
-  content: string;  // File contents
+  path: string;
+  content: string;
 }
 ```
 
-## Full Scaffold
-
-### `generateNextjsTemplate(config, capabilities?)`
-
-Returns `GeneratedFile[]` — a complete Next.js project. Write each file to disk:
+## `generateNextjsTemplate(config, _capabilities?)`
 
 ```ts
-const files = generateNextjsTemplate(
-  { appName: "My App", auth: true, apiBaseUrl: "http://localhost:3000" },
-  [getUser, createUser],
-);
+import { generateNextjsTemplate } from "@plumbus/ui";
 
-for (const file of files) {
-  writeFileSync(join(outputDir, file.path), file.content);
-}
+const files = generateNextjsTemplate({
+  appName: "My App",
+  auth: true,
+  apiBaseUrl: "http://localhost:3000",
+});
 ```
 
-### Generated Project Structure
+Signature:
 
+```ts
+function generateNextjsTemplate(
+  config: NextjsTemplateConfig,
+  _capabilities?: CapabilityContract[],
+): GeneratedFile[];
 ```
-package.json                          # Next.js 16, React 19, TypeScript 5, Tailwind CSS 4
-tsconfig.json                         # Strict, bundler module resolution
-postcss.config.mjs                    # PostCSS config with @tailwindcss/postcss
-.env.local                            # API base URL, auth flag, secrets
-proxy.ts                              # Auth token check, protected paths (Next.js 16+)
+
+The `_capabilities` argument in this implementation exists in the function signature but is ignored. Passing capabilities to `generateNextjsTemplate` does not generate capability pages.
+
+## Generated project structure
+
+```text
+package.json
+postcss.config.mjs
+tsconfig.json
+.env.local
+proxy.ts
 app/
-  globals.css                         # Tailwind import + base resets
-  layout.tsx                          # Root layout (with AuthProvider if auth)
-  page.tsx                            # Home page
-  loading.tsx                         # Global loading skeleton
-  error.tsx                           # Global error boundary
-  login/page.tsx                      # Login page (if auth enabled)
-  signup/page.tsx                     # Signup page (if auth enabled)
+  globals.css
+  layout.tsx
+  page.tsx
+  loading.tsx
+  error.tsx
+  login/page.tsx      # only when auth !== false
+  signup/page.tsx     # only when auth !== false
 components/
-  AuthProvider.tsx                    # Context-based auth provider (if auth)
+  AuthProvider.tsx    # only when auth !== false
 hooks/
-  .gitkeep                            # Placeholder for custom hooks (hooks.ts generated here)
+  .gitkeep
 lib/
-  .gitkeep                            # Placeholder for lib modules (client.ts, auth.ts, form-hints.ts generated here)
+  .gitkeep
 ```
 
-## Individual File Generators
+## Individual file generators
 
 ### `generatePackageJson(config)`
+
+Generates a minimal `package.json`:
 
 ```json
 {
   "name": "{kebab-case-app-name}",
-  "dependencies": { "next": "^14", "react": "^18", "react-dom": "^18", "tailwindcss": "^4", "@tailwindcss/postcss": "^4" },
-  "devDependencies": { "typescript": "^5", "@types/react": "^18", "@types/react-dom": "^18" }
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {},
+  "devDependencies": {}
 }
 ```
 
+The generator emits empty dependency objects. Dependency management is left to the consuming app, workspace, or CLI wrapper. In a workspace this may be handled by the surrounding Plumbus setup; standalone generated apps should declare the runtime and build dependencies they use.
+
 ### `generateTsConfig()`
 
-Strict TypeScript config for Next.js: `target: "ES2017"`, `module: "esnext"`, `moduleResolution: "bundler"`, `jsx: "preserve"`, path alias `@/*`.
+Generates a strict TypeScript config for a Next.js app with bundler module resolution, JSX preservation, incremental builds, and the `@/*` path alias.
 
 ### `generateGlobalsCss()`
 
-Minimal `app/globals.css` with Tailwind CSS import and base resets (box-sizing, margin, antialiased text). Apps customize by extending this file with their own theme tokens.
+Generates `app/globals.css` with Tailwind import and minimal base resets.
 
 ### `generatePostcssConfig()`
 
-PostCSS config at `postcss.config.mjs` with `@tailwindcss/postcss` plugin. Required for Tailwind CSS 4 processing.
+Generates `postcss.config.mjs` with `@tailwindcss/postcss`.
 
 ### `generateLayout(config)`
 
-Root layout with `<html>` + `<body>`. Imports `./globals.css` for Tailwind styles. If `auth !== false`, wraps children in `<AuthProvider>`.
+Generates `app/layout.tsx`.
+
+When `auth !== false`, the layout imports `AuthProvider` from `../components/AuthProvider` and wraps `children` with it.
 
 ### `generateHomePage(config)`
 
-Simple welcome page with app name and description text.
-
-### `generateCapabilityPage(cap)`
-
-Route: `app/{kebab-name}/page.tsx`
-
-Generated page depends on capability kind:
-
-| Kind | UI Pattern |
-|------|-----------|
-| `query` | Auto-fetches with `use{Name}({})`, shows loading/error/data states |
-| `action`/`job` | Form with `handleSubmit`, uses `use{Name}()` mutation hook, shows submit/loading/error/result |
-
-All pages use `"use client"` directive and import hooks from `@/hooks/hooks`.
+Generates a simple `app/page.tsx` with the configured app name and a welcome message.
 
 ### `generateAuthProvider()`
 
-Context-based provider at `components/AuthProvider.tsx`:
-- Creates `AuthContext` with `AuthState`.
-- On mount: checks stored token, refreshes session.
-- Exports `useAuthContext()` hook.
-- Imports from `@/lib/auth`.
+Generates `components/AuthProvider.tsx`.
+
+The generated provider:
+
+- creates an auth context;
+- reads the stored token on mount;
+- checks token expiry;
+- calls `refreshSession()` from `@/lib/auth`;
+- exposes `useAuthContext()`.
+
+This file expects a generated or app-provided `@/lib/auth` module.
 
 ### `generateProxy(config)`
 
-Next.js proxy at `proxy.ts` (replaces the deprecated `middleware.ts` in Next.js 16+):
-- When auth enabled: checks `auth_token` cookie for protected paths (`/dashboard`, `/settings`).
-- Redirects to `/login` if no token.
-- Exports a `proxy` function (not `middleware`).
-- Matcher excludes `_next/static`, `_next/image`, and `favicon.ico`.
+Generates `proxy.ts` using the Next.js proxy convention.
+
+The current proxy does not enforce route authorization. It returns `NextResponse.next()` and includes an explicit comment explaining that generated tokens are stored in `localStorage`, which is not readable by Next.js proxy/middleware.
+
+Backend Plumbus capability policies remain authoritative. If an app needs edge route gating, it must move the token/session to an HttpOnly cookie or another server-readable mechanism and validate it server-side.
 
 ### `generateLoginPage()`
 
-Login page at `app/login/page.tsx`:
-- Client component with email/password form.
-- Uses `login()` from `@/lib/auth`.
-- Links to signup page.
+Generates `app/login/page.tsx`.
+
+The generated page:
+
+- is a client component;
+- renders an email/password form;
+- calls `login()` from `@/lib/auth`;
+- redirects to `/` after successful login;
+- links to `/signup`.
 
 ### `generateSignupPage()`
 
-Signup page at `app/signup/page.tsx`:
-- Client component with name/email/password form.
-- Posts to the backend signup endpoint.
-- Links to login page.
+Generates `app/signup/page.tsx`.
+
+The generated page:
+
+- is a client component;
+- renders a name/email/password form;
+- posts directly to `${NEXT_PUBLIC_API_BASE_URL}/api/auth/signup`;
+- redirects to `/login` after successful signup;
+- links to `/login`.
 
 ### `generateEnvLocal(config)`
 
-Environment variables template:
+Generates `.env.local` with:
+
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_AUTH_ENABLED=true
 AUTH_SECRET=change-me-in-production
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plumbus
 ```
 
 ### `generateErrorBoundary()`
 
-Client error component at `app/error.tsx` — logs error, shows message, provides retry button.
+Generates `app/error.tsx`, a client error component that logs the error, displays the message, and renders a retry button.
 
 ### `generateLoadingComponent()`
 
-Loading skeleton at `app/loading.tsx` with `role="status"` and `aria-label="Loading"`.
+Generates `app/loading.tsx` with a minimal loading state using `role="status"` and `aria-label="Loading"`.
 
 ### `generatePlaceholderFiles()`
 
-Returns `hooks/.gitkeep` and `lib/.gitkeep`.
+Returns:
 
-## Auth Integration
+```text
+hooks/.gitkeep
+lib/.gitkeep
+```
 
-When `auth: true` (default):
-1. `AuthProvider` wraps the app layout.
-2. Proxy protects configured paths.
-3. Login and signup pages are generated.
-4. Generated code can use `useAuthContext()`.
+## Capability pages
 
-When `auth: false`:
-- No `AuthProvider` import in layout.
-- Proxy runs but skips auth checks.
-- No login/signup pages generated.
-- Pages still work for public capabilities.
+`generateCapabilityPage(cap)` is a separate helper and is not automatically used by `generateNextjsTemplate`.
+
+```ts
+import { generateCapabilityPage } from "@plumbus/ui";
+
+const page = generateCapabilityPage(getUserCapability);
+```
+
+It returns one `GeneratedFile`:
+
+```text
+app/{kebab-capability-name}/page.tsx
+```
+
+Generated query pages call the generated query hook with `{}`. Generated action/job pages render a minimal form and call the generated mutation hook.
+
+These pages are examples and usually require app-specific UX work before production use.
+
+## Auth integration
+
+When `auth !== false`, `generateNextjsTemplate` includes:
+
+- `components/AuthProvider.tsx`;
+- `app/login/page.tsx`;
+- `app/signup/page.tsx`;
+- layout wrapping with `AuthProvider`.
+
+When `auth: false`, those auth files are omitted and the layout does not import or wrap with `AuthProvider`.
+
+`proxy.ts` is still generated in both cases.
