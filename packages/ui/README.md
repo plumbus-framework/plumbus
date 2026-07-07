@@ -1,8 +1,17 @@
 # @plumbus/ui
 
-**UI code generation for the Plumbus framework.**
+UI source-code generation for the Plumbus framework.
 
-Generates typed API clients, React hooks, auth helpers, form metadata, and full Next.js project scaffolds — all derived from your Plumbus capability and entity contracts.
+`@plumbus/ui` turns Plumbus capability contracts, flow trigger descriptors, auth configuration, capability input schemas, Next.js template configuration, and translation definitions into frontend source files. The package is primarily a generator package: it does not provide a visual component library, application shell runtime, or production UI kit.
+
+The package also exposes thin `next-intl` re-export subpaths used by generated i18n code:
+
+```ts
+import { NextIntlClientProvider, useTranslations } from "@plumbus/ui/next-intl";
+import { getRequestConfig } from "@plumbus/ui/next-intl-server";
+```
+
+Generated source should be reviewed, committed, and owned by the consuming application.
 
 ## Install
 
@@ -10,90 +19,219 @@ Generates typed API clients, React hooks, auth helpers, form metadata, and full 
 pnpm add @plumbus/ui
 ```
 
-> **Note:** `@plumbus/core` is a peer dependency and must be installed in your project.
+The package depends on `@plumbus/core` for Plumbus types and definitions. Generator callers normally pass `CapabilityContract` and `TranslationDefinition` values from `@plumbus/core`.
 
-## What It Generates
+## What it generates
 
-### Typed API Clients
+### Typed API clients
 
-Generate fetch-based clients with full type safety from your capability contracts:
+Use `generateClientModule` to generate a complete fetch-based client module from capability contracts and flow triggers.
 
-```typescript
-import { generateClientCode } from "@plumbus/ui";
+```ts
+import { generateClientModule } from "@plumbus/ui";
 
-const code = generateClientCode([getUserContract, createOrderContract]);
-// → typed fetch functions + React hooks for each capability
+const clientCode = generateClientModule(capabilities, flows, {
+  baseUrl: "",
+  includeJsDoc: true,
+});
 ```
 
-### Auth Helpers
+The generated client module contains shared API error helpers, TypeScript aliases for each capability input/output schema, one fetch function per capability, and one trigger function per flow descriptor. Query capabilities are emitted as `GET` requests with query parameters. Action and job capabilities are emitted as `POST` requests with JSON request bodies.
 
-Generate authentication types, token utilities, and route guards:
+### React hooks
 
-```typescript
-import { generateAuthCode } from "@plumbus/ui";
+Use `generateHooksModule` to generate small React hooks for capability clients.
 
-const code = generateAuthCode(authConfig);
-// → AuthUser type, useAuth hook, token helpers, withAuth guard
+```ts
+import { generateHooksModule } from "@plumbus/ui";
+
+const hooksCode = generateHooksModule(capabilities, {
+  toastImport: "sonner",
+});
 ```
 
-### Form Metadata
+Generated query hooks call the generated client from `useEffect` and expose `{ data, loading, error }`. Generated mutation hooks expose `mutate(input)`, `reset()`, and the same state fields. They use React `useState` and `useEffect` directly; they are not TanStack Query hooks.
 
-Extract form field metadata from Zod schemas in your entity definitions:
+### Auth helpers
 
-```typescript
-import { generateFormMetadata } from "@plumbus/ui";
+Use `generateAuthModule` to generate frontend session helpers.
 
-const fields = generateFormMetadata(userEntity);
-// → field types, labels, validation rules, select options
+```ts
+import { generateAuthModule } from "@plumbus/ui";
+
+const authCode = generateAuthModule({
+  provider: "jwt",
+  tokenKey: "plumbus_auth_token",
+  loginEndpoint: "/api/auth/login",
+  logoutEndpoint: "/api/auth/logout",
+  refreshEndpoint: "/api/auth/refresh",
+  multiTenant: false,
+});
 ```
 
-### Next.js Scaffolding
+The generated module includes auth types, token helpers, login/logout/session-refresh functions, React auth hooks, a `RouteGuard`, and optional tenant helpers. The `provider` field is part of the config shape, but the current generator does not branch on provider type; generated behavior is driven by endpoints, token storage, and the `multiTenant` flag.
 
-Generate a complete Next.js project from your contracts:
+The generated token helpers store bearer tokens in `localStorage`. This is frontend session scaffolding, not backend authorization. Backend capability access policies must remain authoritative.
 
-```typescript
-import { generateNextjsTemplate } from "@plumbus/ui";
+### Form hints
+
+Use `extractFormHints` or `generateFormHintsModule` to derive form metadata from capability input schemas.
+
+```ts
+import { extractFormHints, generateFormHintsModule } from "@plumbus/ui";
+
+const hints = extractFormHints(createUserCapability);
+const formHintsCode = generateFormHintsModule(capabilities);
+```
+
+Form hints are extracted from `capability.input` when it is a Zod object schema. The generator does not read entity definitions and does not produce final form components. Applications use the hints as structured metadata for labels, field types, enum options, defaults, and validation hints.
+
+### Next.js starter scaffold
+
+Use `generateNextjsTemplate` to generate a starter Next.js App Router shell.
+
+```ts
+import { generateNextjsTemplate, generateCapabilityPage } from "@plumbus/ui";
 
 const files = generateNextjsTemplate({
-  capabilities: [getUser, createOrder],
-  entities: [User, Order],
-  auth: { provider: "jwt" },
+  appName: "My App",
+  auth: true,
+  apiBaseUrl: "http://localhost:3000",
 });
-// → Full Next.js app with pages, layouts, API routes, and auth
+
+const examplePage = generateCapabilityPage(getUserCapability);
 ```
 
-## AI Agent Instructions
+`generateNextjsTemplate` emits a starter shell: `package.json`, `tsconfig.json`, Tailwind/PostCSS files, `.env.local`, app layout, home/loading/error pages, `proxy.ts`, placeholder `hooks/` and `lib/` directories, and auth pages/components when auth is enabled.
 
-This package ships instruction files for AI coding agents:
+It does not generate per-capability pages as part of the template. Use `generateCapabilityPage(capability)` separately for minimal example pages.
 
+The generated `package.json` contains scripts and empty dependency objects. The consuming app, workspace, or CLI wrapper is responsible for dependency management.
+
+### Translation modules
+
+Use `generateTranslationModule` to generate `next-intl`-oriented i18n files from Plumbus translation definitions.
+
+```ts
+import { generateTranslationModule } from "@plumbus/ui";
+
+const files = generateTranslationModule(translationDefinitions, {
+  splitLocaleBundles: false,
+  serverLocaleCookie: false,
+});
 ```
+
+The generator emits message catalogs, locale config, request config, a provider component, and hook re-exports. It expands dotted message keys into nested message objects for `next-intl` and tracks known RTL locales such as Hebrew and Arabic.
+
+Generated i18n source intentionally imports `@plumbus/ui/next-intl` and `@plumbus/ui/next-intl-server`, which are thin package re-exports of `next-intl` APIs.
+
+## Public exports
+
+The package exports these generator groups:
+
+```ts
+import {
+  // client + hook generation
+  capabilityClientFnName,
+  flowTriggerFnName,
+  generateCapabilityTypes,
+  generateClientModule,
+  generateErrorTypes,
+  generateFlowTrigger,
+  generateHooksModule,
+  generateMutationHook,
+  generateQueryHook,
+  generateReactHook,
+  generateTypedClient,
+
+  // auth generation
+  generateAuthFunctions,
+  generateAuthModule,
+  generateAuthTypes,
+  generateRouteGuard,
+  generateTenantContext,
+  generateTokenUtils,
+  generateUseAuthHook,
+  generateUseCurrentUserHook,
+
+  // form generation
+  extractFieldHint,
+  extractFormHints,
+  generateFormHintsCode,
+  generateFormHintsModule,
+
+  // Next.js template generation
+  generateAuthProvider,
+  generateCapabilityPage,
+  generateEnvLocal,
+  generateErrorBoundary,
+  generateGlobalsCss,
+  generateHomePage,
+  generateLayout,
+  generateLoadingComponent,
+  generateLoginPage,
+  generateNextjsTemplate,
+  generatePackageJson,
+  generatePlaceholderFiles,
+  generatePostcssConfig,
+  generateProxy,
+  generateSignupPage,
+  generateTsConfig,
+
+  // translation generation
+  generateTranslationModule,
+} from "@plumbus/ui";
+```
+
+Public type exports are available for generator inputs and generated file descriptors:
+
+```ts
+import type {
+  AuthHelperConfig,
+  ClientGeneratorConfig,
+  FlowTriggerInput,
+  FormFieldHint,
+  FormFieldType,
+  FormHints,
+  FormValidation,
+  GeneratedFile,
+  GeneratedTranslationFile,
+  NextjsTemplateConfig,
+  TranslationGeneratorOptions,
+} from "@plumbus/ui";
+```
+
+## Instruction files
+
+This package ships instruction files for automated coding tools:
+
+```text
 node_modules/@plumbus/ui/instructions/
-├── framework.md         # UI package overview and concepts
-├── client-generator.md  # Typed fetch clients and React hooks
-├── auth-generator.md    # Auth types, token utils, route guards
-├── form-generator.md    # Zod schema → form field extraction
-├── nextjs-template.md   # Full Next.js project scaffold
-├── patterns.md          # UI conventions and best practices
-└── testing.md           # UI test setup and patterns
+├── framework.md
+├── client-generator.md
+├── auth-generator.md
+├── form-generator.md
+├── nextjs-template.md
+├── translation-generator.md
+├── patterns.md
+└── testing.md
 ```
 
-## Documentation
+These files describe how to use the generator package safely and how to avoid treating generated frontend helpers as backend authority.
 
-Full documentation: [github.com/plumbus-framework/plumbus/docs](https://github.com/plumbus-framework/plumbus/tree/main/docs)
+## Related Plumbus packages
 
-## The Plumbus ecosystem
+The repository currently contains these sibling packages under `packages/`:
 
-| Package | Purpose | When to install |
+| Package | Purpose | When to use |
 |---|---|---|
-| [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
-| **`@plumbus/ui`** | **You are here.** Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
-| [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
-| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
-| [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
-| [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
-| [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
-| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.1.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
-| [`@plumbus/browser-extension`](../browser-extension/) | Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
+| `@plumbus/core` | Core framework definitions and runtime primitives. | Required by Plumbus projects and generator inputs. |
+| `@plumbus/ui` | Frontend source generation and thin `next-intl` re-export subpaths. | When generating a Plumbus web frontend. |
+| `@plumbus/mcp` | MCP runtime for exposing capabilities to AI agents. | When serving Plumbus capabilities through MCP. |
+| `@plumbus/chat` | Conversational runtime definitions and turn handling. | When adding a chat surface. |
+| `@plumbus/chat-ui` | React helpers for the `@plumbus/chat` turn protocol. | When building a browser chat client. |
+| `@plumbus/knowledge-base` | Knowledge provider and source registry support. | When sharing named knowledge across Plumbus features. |
+| `@plumbus/browser-extension` | Browser-extension scaffolding wired to Plumbus capabilities. | When shipping a Chrome/Firefox extension UI. |
 
 ## License
 

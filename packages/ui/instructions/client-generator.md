@@ -1,155 +1,173 @@
 # Client Generator
 
-Generates typed fetch-based API clients and React hooks from capability contracts and flow definitions.
+The client generator produces typed fetch-based API clients, React hooks, and flow trigger functions from Plumbus capability contracts and flow trigger descriptors.
 
 ## Configuration
 
 ```ts
 interface ClientGeneratorConfig {
-  /** Base URL for API requests (default: "") */
   baseUrl?: string;
-  /** Include JSDoc comments in generated code */
   includeJsDoc?: boolean;
-  /** Package to import toast from (default: "sonner") */
   toastImport?: string;
 }
 ```
 
-## Individual Generators
+- `baseUrl` defaults to an empty string.
+- `includeJsDoc` adds generated JSDoc comments.
+- `toastImport` defaults to `"sonner"` and is used by generated hooks.
+
+## Naming helpers
+
+Use these helpers when another generator or package must refer to generated names:
+
+```ts
+capabilityClientFnName(capability);
+flowTriggerFnName(flow);
+```
+
+## Individual generators
 
 ### `generateCapabilityTypes(cap)`
 
-Produces TypeScript type aliases for a capability's input and output:
+Generates TypeScript aliases for a capability input and output:
 
 ```ts
-generateCapabilityTypes({ name: "getUser", kind: "query", domain: "users", ... })
-// → export type GetUserInput = Record<string, unknown>;
-//   export type GetUserOutput = Record<string, unknown>;
+generateCapabilityTypes(getUserCapability);
+// export type GetUserInput = ...;
+// export type GetUserOutput = ...;
 ```
+
+The implementation derives type strings from Zod schemas where possible. Complex or unsupported schema shapes may fall back to broader TypeScript types.
 
 ### `generateTypedClient(cap, config?)`
 
-Produces an async fetch function for a capability. Route path follows `GET /api/{domain}/{kebab-name}` for queries, `POST` for actions/jobs:
+Generates one async fetch function for a capability.
 
 ```ts
-generateTypedClient({ name: "getUser", kind: "query", domain: "users", ... })
-// → export async function getUser(input: GetUserInput, options?): Promise<GetUserOutput> { ... }
+generateTypedClient(getUserCapability, { baseUrl: "" });
+// export async function getUser(input: GetUserInput, options?: ...): Promise<GetUserOutput> { ... }
 ```
 
-- **GET** capabilities serialize input as query parameters via `URLSearchParams`.
-- **POST** capabilities send input as `JSON.stringify(input)` in the request body.
-- All functions accept `options?: { headers?: Record<string, string>; signal?: AbortSignal }`.
-- Non-OK responses throw an error with `status`, `code`, and `metadata` properties.
+Generated behavior:
+
+- query capabilities use `GET`;
+- action and job capabilities use `POST`;
+- route paths are derived from `/api/{domain}/{kebab-capability-name}`;
+- query input is serialized with `URLSearchParams`;
+- post input is serialized with `JSON.stringify(input)`;
+- each function accepts optional `headers` and `signal`;
+- non-OK responses throw an error enriched with response details when possible.
 
 ### `generateQueryHook(cap, config?)`
 
-Produces a React hook that auto-fetches on mount/input change:
+Generates a React hook for a query capability.
 
 ```ts
-generateQueryHook({ name: "getUser", kind: "query", domain: "users", ... })
-// → export function useGetUser(input: GetUserInput, options?: { onError?: (err: Error) => void }) {
-//     const [data, setData] = useState<GetUserOutput | null>(null);
-//     ...
-//     return { data, loading, error };
-//   }
+generateQueryHook(getUserCapability);
+// export function useGetUser(input: GetUserInput, options?: { onError?: (err: Error) => void }) { ... }
 ```
 
-- Uses `useState` + `useEffect` with cancellation.
-- Re-fetches when `JSON.stringify(input)` changes.
-- On error: calls `toast.error(err.message)` by default, or `options.onError(err)` if provided.
+Generated query hooks:
+
+- use `useState` and `useEffect`;
+- fetch on mount and when `JSON.stringify(input)` changes;
+- track `data`, `loading`, and `error`;
+- use a local `cancelled` flag in effect cleanup;
+- call `options.onError(error)` when provided;
+- otherwise call `toast.error(error.message)`.
+
+They are not TanStack Query hooks.
 
 ### `generateMutationHook(cap, config?)`
 
-Produces a React hook for manual invocation (actions, jobs):
+Generates a React hook for action/job capabilities.
 
 ```ts
-generateMutationHook({ name: "createUser", kind: "action", domain: "users", ... })
-// → export function useCreateUser(options?: { onError?: (err: Error) => void }) {
-//     ...
-//     return { mutate, data, loading, error, reset };
-//   }
+generateMutationHook(createUserCapability);
+// export function useCreateUser(options?: { onError?: (err: Error) => void }) { ... }
 ```
 
-- `mutate(input)` triggers the request and returns the result.
-- `reset()` clears data and error state.
-- On error: calls `toast.error(err.message)` by default, or `options.onError(err)` if provided. Mutation hooks re-throw after error handling so callers can react.
+Generated mutation hooks:
+
+- expose `mutate(input)`;
+- track `data`, `loading`, and `error`;
+- expose `reset()`;
+- call `options.onError(error)` when provided;
+- otherwise call `toast.error(error.message)`.
 
 ### `generateReactHook(cap, config?)`
 
-Dispatches to `generateQueryHook` or `generateMutationHook` based on `cap.kind`:
-- `kind === "query"` → query hook
-- Anything else → mutation hook
+Delegates to `generateQueryHook` for query capabilities and `generateMutationHook` for other capability kinds.
 
 ### `generateFlowTrigger(flow, config?)`
 
-Produces a function to start a flow execution:
+Generates a function named `start{PascalFlowName}`.
 
 ```ts
-interface FlowTriggerInput {
-  name: string;
-  domain?: string;
-  description?: string;
-}
-
-generateFlowTrigger({ name: "orderFulfillment", domain: "orders" })
-// → export async function startOrderFulfillment(input, options?)
-//     : Promise<{ executionId: string; status: string }> { ... }
+generateFlowTrigger({ name: "orderFulfillment", domain: "orders" });
+// export async function startOrderFulfillment(input: Record<string, unknown>, options?: ...)
 ```
 
-- POSTs to `/api/{domain}/{kebab-name}/start`.
+Generated flow triggers post to `/api/{domain}/{kebab-flow-name}/start` and return:
+
+```ts
+Promise<{ executionId: string; status: string }>
+```
+
+Flow generation in this package covers starting flows only. It does not generate status polling, step timelines, approval controls, retry controls, or wait/resume UI.
 
 ### `generateErrorTypes()`
 
-Produces `PlumbusApiError` interface and `isPlumbusApiError()` type guard — always included in module output.
+Generates shared error helper types:
 
-## Module Generators
+```ts
+interface PlumbusApiError {
+  status: number;
+  code?: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+function isPlumbusApiError(error: unknown): error is PlumbusApiError;
+```
+
+## Module generators
 
 ### `generateClientModule(capabilities, flows, config?)`
 
-Combines all generators into a single client file:
+Generates a complete client module:
 
 ```ts
-const code = generateClientModule(
-  [getUser, createUser, deleteUser],
-  [{ name: "orderFulfillment", domain: "orders" }],
-  { baseUrl: "/api", includeJsDoc: true },
-);
-// Output: lib/client.ts (written by CLI)
+const source = generateClientModule(capabilities, flows, {
+  baseUrl: "",
+  includeJsDoc: true,
+});
 ```
 
-Output order: error types → capability types → flow types → client functions → flow triggers.
+The generated file includes:
+
+- the auto-generated file header;
+- shared error types;
+- generated capability types;
+- generated capability client functions;
+- generated flow trigger functions.
 
 ### `generateHooksModule(capabilities, config?)`
 
-Produces a React hooks file that imports from the client module:
+Generates a complete hooks module:
 
 ```ts
-const code = generateHooksModule([getUser, createUser]);
-// Output: hooks/hooks.ts (written by CLI)
+const source = generateHooksModule(capabilities, {
+  toastImport: "sonner",
+});
 ```
 
-- Auto-imports `useState`, `useEffect` from React.
-- Auto-imports `toast` from the configured toast package (default: `sonner`).
-- Auto-imports types and functions from `../lib/client`.
-- All generated hooks include auto-toast error handling with an optional `onError` override.
+The generated file imports React hooks and the configured toast library, imports generated client functions/types, and emits one hook per capability.
 
-## URL Routing Convention
+## Runtime expectations
 
-| Capability Kind | HTTP Method | URL Pattern |
-|----------------|-------------|-------------|
-| query | GET | `/api/{domain}/{kebab-name}` |
-| action | POST | `/api/{domain}/{kebab-name}` |
-| job | POST | `/api/{domain}/{kebab-name}` |
-| eventHandler | POST | `/api/{domain}/{kebab-name}` |
+Generated clients use `fetch` and should run in browser environments or frontend/server environments where `fetch` is available.
 
-Flow triggers always POST to `/api/{domain}/{kebab-name}/start`.
+Generated hooks require React. They should be written into client-side source files in frameworks such as Next.js.
 
-## Internal Helpers
-
-| Helper | Purpose |
-|--------|---------|
-| `toCamelCase(str)` | Capability function names — `getUser` |
-| `toPascalCase(str)` | Type names — `GetUser` |
-| `toKebabCase(str)` | URL path segments — `get-user` |
-| `httpMethod(kind)` | `"query" → "GET"`, everything else → `"POST"` |
-| `capabilityPath(domain, name)` | `/api/{domain}/{kebab-name}` |
+Generated client and hook modules do not import `@plumbus/ui` at runtime. Translation files are the package-level exception and may import `@plumbus/ui/next-intl` subpaths.

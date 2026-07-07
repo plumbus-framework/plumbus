@@ -1,110 +1,150 @@
 # @plumbus/ui — UI Code Generation Framework
 
-`@plumbus/ui` is the frontend code generation layer for the Plumbus framework. It reads capability contracts, flow definitions, and auth configuration from `@plumbus/core` and produces ready-to-use TypeScript/React source files — typed API clients, React hooks, auth modules, form metadata, and full Next.js project scaffolds.
+`@plumbus/ui` is the frontend source-code generation layer for Plumbus. Its purpose is to project backend Plumbus contracts into frontend source files without turning Plumbus into a visual UI framework.
+
+The package reads Plumbus-facing inputs such as capability contracts, flow trigger descriptors, auth configuration, capability input schemas, Next.js template configuration, and translation definitions. It produces TypeScript/TSX source strings or generated file descriptors that an application or CLI wrapper can write to disk.
+
+The package does not include a visual component library. It does include thin `next-intl` re-export subpaths used by generated translation files: `@plumbus/ui/next-intl` and `@plumbus/ui/next-intl-server`.
 
 ## Purpose
 
-All generated output is **source code as strings** — the package does not ship React components or a runtime. Instead, AI agents and CLI tooling call generator functions to produce `.ts`/`.tsx` files that applications import directly.
+Generated output is ordinary source code owned by the consuming application. The main value of the package is alignment: frontend code calls the same capability names, endpoint paths, input/output shapes, flow trigger names, auth helper shape, and form metadata that the backend contracts define.
 
-## Package Layout
+This is especially important when automated coding tools are involved. The generated files give those tools concrete imports and conventions instead of leaving them to invent request shapes or endpoint paths.
 
-```
+## Package layout
+
+```text
 packages/ui/
   src/
-    index.ts                          # Barrel re-exports
+    index.ts
+    next-intl/
+      index.ts
+    next-intl-server/
+      index.ts
     generators/
-      index.ts                        # Generator barrel
-      client-generator.ts             # Typed fetch clients + React hooks
-      auth-generator.ts               # Auth types, token utils, hooks, route guard
-      form-generator.ts               # Zod schema → form field metadata
-      nextjs-template.ts              # Full Next.js project scaffold
+      client-generator.ts
+      auth-generator.ts
+      form-generator.ts
+      nextjs-template.ts
+      translation-generator.ts
       __tests__/
         client-generator.test.ts
         auth-generator.test.ts
         form-generator.test.ts
         nextjs-template.test.ts
-  instructions/                       # AI agent instructions (this directory)
+        translation-generator.test.ts
+  instructions/
+    framework.md
+    client-generator.md
+    auth-generator.md
+    form-generator.md
+    nextjs-template.md
+    translation-generator.md
+    patterns.md
+    testing.md
   package.json
   tsconfig.json
   vitest.config.browser.ts
 ```
 
-## Core Concepts
+## Core concepts
 
-| Concept | Description |
-|---------|-------------|
-| **Generator** | A function that takes a contract/config and returns a string of TypeScript/TSX source code |
-| **CapabilityContract** | Imported from `@plumbus/core` — defines name, domain, kind, input/output schemas, access |
-| **Module generator** | Combines multiple generators into a single file with proper imports |
-| **GeneratedFile** | `{ path: string; content: string }` — represents a file to write to disk |
+A generator is a pure function that returns source code as a string or returns generated files as `{ path, content }` objects. Module generators combine several snippets into one source file; template generators return several files.
 
-## Generator Categories
+`CapabilityContract` and `TranslationDefinition` come from `@plumbus/core`. They are the input types that keep frontend generation tied to backend definitions. Generated code is then written into the consuming application and imported like ordinary application code.
+
+## Generator categories
 
 | Generator | Input | Output |
-|-----------|-------|--------|
-| **Client** | `CapabilityContract[]`, `FlowTriggerInput[]` | Typed fetch functions, React query/mutation hooks |
-| **Auth** | `AuthHelperConfig` | Login/logout, token utils, useAuth hook, RouteGuard, tenant context |
-| **Form** | `CapabilityContract` (with Zod input schema) | Field metadata (type, label, validation, options) |
-| **Next.js** | `NextjsTemplateConfig`, capabilities | Full project: package.json, layout, pages, middleware, API routes |
+|---|---|---|
+| Client | `CapabilityContract[]`, `FlowTriggerInput[]`, optional `ClientGeneratorConfig` | Typed fetch client module and flow triggers. |
+| Hooks | `CapabilityContract[]`, optional `ClientGeneratorConfig` | React `useState`/`useEffect` query hooks and mutation hooks. |
+| Auth | Optional `AuthHelperConfig` | Auth types, token helpers, login/logout/session-refresh functions, hooks, route guard, and optional tenant helper. |
+| Form | `CapabilityContract` or `CapabilityContract[]` | Form hints extracted from `capability.input` Zod object schemas. |
+| Next.js | `NextjsTemplateConfig` | Starter Next.js App Router shell. |
+| Translation | `TranslationDefinition[]`, optional `TranslationGeneratorOptions` | `next-intl`-oriented i18n source files. |
 
-## Relationship to @plumbus/core
+## Relationship to `@plumbus/core`
 
-`@plumbus/ui` depends on `@plumbus/core` for:
-- `CapabilityContract` type — the shape of capability definitions
-- Zod schemas — introspected at runtime for form hint extraction
-- No runtime coupling — generators produce standalone code
+`@plumbus/ui` consumes core definitions and types, but it does not move business logic into the browser. Generated clients and hooks are convenience code for calling backend capabilities. Authorization, policy decisions, durable workflow behavior, and audit-sensitive behavior remain backend responsibilities.
 
-## Key Imports
+Most generated modules do not import `@plumbus/ui` at runtime. The translation generator is the explicit exception: generated i18n files import the package's `next-intl` re-export subpaths.
+
+## Key imports
 
 ```ts
 import {
-  // Client generators
-  generateClientModule,
-  generateHooksModule,
-  generateTypedClient,
-  generateReactHook,
+  // client + hooks
+  capabilityClientFnName,
+  flowTriggerFnName,
   generateCapabilityTypes,
-  generateFlowTrigger,
+  generateClientModule,
   generateErrorTypes,
+  generateFlowTrigger,
+  generateHooksModule,
+  generateMutationHook,
+  generateQueryHook,
+  generateReactHook,
+  generateTypedClient,
 
-  // Auth generators
+  // auth
+  generateAuthFunctions,
   generateAuthModule,
   generateAuthTypes,
-  generateTokenUtils,
-  generateAuthFunctions,
-  generateUseAuthHook,
-  generateUseCurrentUserHook,
   generateRouteGuard,
   generateTenantContext,
+  generateTokenUtils,
+  generateUseAuthHook,
+  generateUseCurrentUserHook,
 
-  // Form generators
-  extractFormHints,
+  // form hints
   extractFieldHint,
+  extractFormHints,
   generateFormHintsCode,
   generateFormHintsModule,
 
-  // Next.js generators
-  generateNextjsTemplate,
-  generateLayout,
-  generateHomePage,
-  generateCapabilityPage,
-  generateProxy,
-  generateLoginPage,
-  generateSignupPage,
+  // Next.js starter scaffold
   generateAuthProvider,
-  generateErrorBoundary,
-  generateLoadingComponent,
-  generatePackageJson,
-  generateTsConfig,
+  generateCapabilityPage,
   generateEnvLocal,
+  generateErrorBoundary,
+  generateGlobalsCss,
+  generateHomePage,
+  generateLayout,
+  generateLoadingComponent,
+  generateLoginPage,
+  generateNextjsTemplate,
+  generatePackageJson,
   generatePlaceholderFiles,
+  generatePostcssConfig,
+  generateProxy,
+  generateSignupPage,
+  generateTsConfig,
+
+  // translations
+  generateTranslationModule,
 } from "@plumbus/ui";
 ```
 
-## How Agents Should Use This Package
+```ts
+import type {
+  AuthHelperConfig,
+  ClientGeneratorConfig,
+  FlowTriggerInput,
+  GeneratedFile,
+  GeneratedTranslationFile,
+  NextjsTemplateConfig,
+  TranslationGeneratorOptions,
+} from "@plumbus/ui";
+```
 
-1. **Run `plumbus ui generate`** — auto-detects the frontend directory (e.g., `frontend/`) and writes typed client, hooks, auth, and form-hints modules to `{frontend}/lib/` and `{frontend}/hooks/`. Also writes to `.plumbus/generated/ui/` as a contract artifact cache. This command **only writes contract-derived data files** and is always safe to re-run.
-2. **Run `plumbus ui nextjs <dir>`** — scaffolds a Next.js project with generated modules in `{dir}/lib/` and `{dir}/hooks/`. The frontend imports them via `@/hooks/hooks`, `@/lib/client`, etc. **Scaffold files (page.tsx, layout.tsx, globals.css, login, signup, etc.) are not overwritten if they already exist.** Only contract-derived module files are regenerated. Use `--force` to overwrite scaffold files.
-3. **Never copy generated files manually.** Re-running `plumbus ui generate` updates the modules in place. The CLI auto-detects the frontend by looking for `tsconfig.json` in `frontend/`, `web/`, `client/`, or `app/`.
-4. To customize the output location: `plumbus ui generate --out-dir path/to/frontend`.
-5. **CRITICAL**: Use `plumbus ui generate` (not `plumbus ui nextjs`) for day-to-day regeneration after changing capabilities. `plumbus ui nextjs` is for initial project setup only.
+## Recommended generation workflow
+
+A typical web frontend first receives a starter shell from `generateNextjsTemplate(config)`. Contract-derived modules are then generated separately: `generateClientModule(capabilities, flows, config?)` for `lib/client.ts`, `generateHooksModule(capabilities, config?)` for `hooks/hooks.ts`, `generateAuthModule(config?)` for `lib/auth.ts`, `generateFormHintsModule(capabilities)` for `lib/form-hints.ts`, and `generateTranslationModule(definitions, options?)` for `i18n/*`.
+
+Use `generateCapabilityPage(capability)` only when a minimal example page is useful. It is intentionally separate from the Next.js template and should not be treated as a product UI generator.
+
+## Implementation boundaries
+
+Generated auth helpers are frontend session utilities; backend capabilities remain responsible for authorization. Client-side route guards are view-level UX helpers, not security controls. The Next.js template is a starter shell, not a complete production application, and it does not emit per-capability pages. Generated hooks use React state/effect directly rather than TanStack Query. Form hints are extracted from `capability.input`, not from entity definitions. Contract-derived generated files should be regenerated rather than edited manually.
