@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+## 0.6.4
+
+### Added
+
+- **`defineTranslation()` typecheck key consistency** — for literal / `as const` message catalogs, TypeScript now rejects locales that do not share the same key set (native diagnostics on the locale attribute). Runtime import-time validation is unchanged. Apps with existing key drift may start failing `tsc` even though they still throw at import time today.
+
 ## 0.6.3
 
 ### Added

@@ -67,10 +67,11 @@ describe('defineTranslation', () => {
     expect(() =>
       defineTranslation({
         ...validConfig(),
+        // cast: intentionally mismatched keys to exercise runtime validation
         messages: {
           en: { greeting: 'Hello', farewell: 'Goodbye' },
           he: { greeting: 'שלום' },
-        },
+        } as Record<string, Record<string, string>>,
       }),
     ).toThrow('locale "he" is missing keys: ["farewell"]');
   });
@@ -79,10 +80,11 @@ describe('defineTranslation', () => {
     expect(() =>
       defineTranslation({
         ...validConfig(),
+        // cast: intentionally mismatched keys to exercise runtime validation
         messages: {
           en: { greeting: 'Hello' },
           he: { greeting: 'שלום', extra: 'תוספת' },
-        },
+        } as Record<string, Record<string, string>>,
       }),
     ).toThrow('locale "he" has extra keys not in default locale: ["extra"]');
   });
