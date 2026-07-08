@@ -13,7 +13,7 @@ Visual reference for the Plumbus framework architecture and data flows.
 │   │                  Developer SDK                     │    │
 │   │                                                    │    │
 │   │  defineEntity()  defineCapability()  defineFlow()  │    │
-│   │  defineEvent()   definePrompt()                    │    │
+│   │  defineEvent()   definePrompt()  defineTranslation() │    │
 │   │                                                    │    │
 │   └───────────────────────┬───────────────────────────┘    │
 │                           │                                 │
@@ -55,17 +55,17 @@ Visual reference for the Plumbus framework architecture and data flows.
                         └──────┬──────┘
                                │ ctx.data
                                │
-┌─────────────┐         ┌──────▼──────┐         ┌─────────────┐
-│   Event     │◄────────│ Capability  │────────▶│   Prompt    │
-│(domain fact)│ emit    │(business op)│ ctx.ai  │ (AI schema) │
-└──────┬──────┘         └──────┬──────┘         └─────────────┘
-       │                       │
+┌─────────────┐         ┌──────────────┐         ┌─────────────┐
+│   Event     │◄────────│ Capability   │────────▶│   Prompt    │
+│(domain fact)│ emit    │(business op) │ ctx.ai  │ (AI schema) │
+└──────┬──────┘         └──────┬───────┘         └─────────────┘
+       │                       │ ctx.translations
        │ trigger               │ orchestrate
        │                       │
-       │                ┌──────▼──────┐
-       └───────────────▶│    Flow     │
-                        │ (workflow)  │
-                        └─────────────┘
+       │                ┌──────▼──────┐         ┌─────────────┐
+       └───────────────▶│    Flow     │         │ Translation │
+                        │ (workflow)  │         │  (i18n)     │
+                        └─────────────┘         └─────────────┘
 ```
 
 ## Capability Kind Routing
@@ -99,29 +99,29 @@ Visual reference for the Plumbus framework architecture and data flows.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                    Single Database Transaction                  │
+│                    Handler Execution                            │
 │                                                                │
 │  ┌──────────────────┐    ┌──────────────────┐                 │
 │  │ Data Mutation     │    │ Outbox Insert     │                │
 │  │                   │    │                   │                │
 │  │ ctx.data.Order    │    │ INSERT INTO       │                │
-│  │   .create(data)   │    │ outbox_events     │                │
+│  │   .create(data)   │    │ event_outbox      │                │
 │  │                   │    │ (event_type,      │                │
 │  │ INSERT INTO       │    │  payload,         │                │
 │  │ orders (...)      │    │  tenant_id,       │                │
 │  │                   │    │  status='pending') │                │
 │  └──────────────────┘    └──────────────────┘                 │
 │                                                                │
-│              Both succeed or both rollback                      │
+│  Handler + data writes + outbox insert — one transaction (default) │
+│  for action/eventHandler; rolls back together on handler failure │
 └──────────────────────────────┬─────────────────────────────────┘
                                │
-                               │ After commit
                                ▼
                     ┌──────────────────────┐
                     │  Outbox Dispatcher   │
                     │     picks up         │
                     │                      │
-                    │  UPDATE outbox_events│
+                    │  UPDATE event_outbox │
                     │  SET status =        │
                     │    'dispatched'      │
                     └──────────┬───────────┘
@@ -183,7 +183,8 @@ plumbus verify
 
 ```
                     ┌───────────────────────┐
-                    │  plumbus certify GDPR │
+                    │ plumbus certify       │
+                    │   policy gdpr         │
                     └───────────┬───────────┘
                                 │
                     ┌───────────▼───────────┐

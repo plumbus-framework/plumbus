@@ -37,3 +37,13 @@ export type {
   DependencyViolationReason,
   InternalCapabilityInvoker,
 } from './capability-invocation.js';
+
+export { wireContextDependencies } from './context-deps.js';
+export type { WireContextDependenciesOptions } from './context-deps.js';
+
+export {
+  CapabilityOutputValidationError,
+  createTransactionRunner,
+  shouldUseTransactionalOutbox,
+} from './transactional-outbox.js';
+export type { TransactionRunnerConfig } from './transactional-outbox.js';

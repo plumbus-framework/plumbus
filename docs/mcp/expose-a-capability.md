@@ -6,7 +6,7 @@ On `defineCapability()`:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `exposeAs` | `readonly ('mcp')[]` | For MCP exposure | Include `'mcp'` to expose as an MCP tool |
+| `exposeAs` | `readonly ('mcp' \| 'api')[]` | For MCP | Include `'mcp'` to expose as an MCP tool (`'api'` is the partner HTTP surface — see `@plumbus/api` docs) |
 | `mcp` | `McpExposureConfig` | Optional | Agent-facing metadata |
 
 ```typescript
@@ -52,7 +52,7 @@ Avoid `public: true` on destructive MCP tools.
 {
   "tools": [
     {
-      "name": "getRefund",
+      "name": "billing.getRefund",
       "description": "Look up a refund for billing support agents",
       "inputSchema": { "type": "object", "properties": { "id": { "type": "string" } } },
       "agentTags": ["billing", "support"],

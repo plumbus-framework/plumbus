@@ -79,7 +79,7 @@ Knowledge is rarely universal. Admin help ≠ user help. Hebrew ≠ English. Ten
 
 **Filtering (tier-1 static providers):** A block with `scope: { audience: 'admin' }` does not match `{ audience: 'user' }`. Any **unset** dimension on the block is a wildcard (matches any request value for that dimension). For `custom`, every key present on the block must match the request's `custom` values; extra keys on the request are ignored.
 
-**Ranking:** When several blocks match, `scopeSpecificityRanker` prefers blocks that match more scope dimensions. Details: [defining-sources.md → Rankers and packing](./defining-sources.md#rankers-and-packing).
+**Ranking:** When several blocks match, `scopeSpecificityRanker` prefers blocks that match more scope dimensions. Source-level `ranker` on `defineKnowledgeSource` is invoked by `createKnowledgeRegistry` unless the provider supplies a per-call override. Details: [defining-sources.md → Rankers and packing](./defining-sources.md#rankers-and-packing).
 
 **RAG filters:** `scopeToRetrieveFilter(scope)` builds the retrieve filter as `{ audience?, locale?, tenantId?, ...custom }` — top-level scope fields plus a shallow spread of `custom`. Override with `ragCorpus({ mapScope })`. Ingest metadata keys must align with what you pass at query time.
 

@@ -1,4 +1,5 @@
-import { createErrorService } from '../errors/index.js';
+import { createErrorService, PlumbusError } from '../errors/index.js';
+import { ErrorCode } from '../types/enums.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIService,
@@ -6,6 +7,7 @@ import type {
   EventService,
   ExecutionContext,
   FlowService,
+  JobDispatchService,
   LoggerService,
   SecurityService,
   TimeService,
@@ -28,6 +30,15 @@ const noopTranslations: TranslationService = {
 const noopEvents: EventService = {
   async emit() {},
   async emitMany() {},
+};
+
+const noopJobs: JobDispatchService = {
+  async enqueue() {
+    throw new PlumbusError(
+      ErrorCode.Internal,
+      'Job queue not configured on this execution context',
+    );
+  },
 };
 
 const noopFlows: FlowService = {
@@ -129,6 +140,7 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     resolveCapability: deps.resolveCapability,
     correlationId: deps.correlationId,
     invocationEmitScope: deps.invocationEmitScope,
+    withTransaction: deps.withTransaction,
   };
 
   const ctx: ExecutionContext = {
@@ -136,6 +148,7 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     data: deps.data,
     events: deps.events ?? noopEvents,
     flows: deps.flows ?? noopFlows,
+    jobs: deps.jobs ?? noopJobs,
     ai: deps.ai ?? noopAI,
     audit: deps.audit ?? noopAudit,
     errors: createErrorService(),

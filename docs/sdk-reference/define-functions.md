@@ -8,7 +8,7 @@ Creates a capability definition — the atomic unit of business logic.
 
 ```typescript
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 const getUser = defineCapability({
   name: "getUser",
@@ -63,11 +63,15 @@ const getUser = defineCapability({
 | `owner` | `string` | No | Owning team or person |
 | `input` | `z.ZodTypeAny` | Yes | Zod schema for input validation |
 | `output` | `z.ZodTypeAny` | Yes | Zod schema for output type |
-| `access` | `AccessPolicy` | Yes | Authorization rules |
+| `access` | `AccessPolicy` | No | Authorization rules (deny-by-default when omitted) |
 | `effects` | `EffectsDeclaration` | Yes | Side effect declarations |
+| `exposeAs` | `readonly ('mcp' \| 'api')[]` | No | Surfaces to expose (`mcp`, partner `api`) — see [MCP](../mcp/overview.md) and [API](../api/overview.md) |
+| `mcp` | `McpExposureConfig` | No | MCP tool metadata when `exposeAs` includes `mcp` |
+| `api` | `ApiExposureConfig` | No | Partner API metadata when `exposeAs` includes `api` |
 | `audit` | `AuditConfig` | No | Audit trail configuration |
 | `explanation` | `ExplanationConfig` | No | Explainability settings |
 | `trigger` | `EventHandlerTrigger` | No | **Only `kind: "eventHandler"`** — `{ event: string, versionConstraint?: string }` for auto-registration at worker startup (0.5+) |
+| `transactional` | `boolean` | No | When `false`, opts this capability out of the transactional outbox (default: `true` for `action` / `eventHandler`, auto-excluded for `job`, `effects.ai: true`, and non-empty `effects.external`) |
 | `handler` | `(ctx, input) => Promise<output>` | Yes | Business logic implementation |
 
 `trigger` on non-`eventHandler` kinds throws at define time. Omit `trigger` to keep manual `ConsumerRegistry` wiring only.
@@ -107,14 +111,14 @@ const Order = defineEntity({
   tenantScoped: true,
   fields: {
     id: field.id(),
-    customerId: field.relation({ entity: "Customer", type: "belongsTo" }),
+    customerId: field.relation({ entity: "Customer", type: "many-to-one" }),
     total: field.number({ classification: "internal" }),
     status: field.enum(["pending", "paid", "shipped", "cancelled"]),
     notes: field.string({ nullable: true, classification: "personal" }),
     createdAt: field.timestamp({ default: "now" }),
   },
   indexes: [["customerId"], ["status", "createdAt"]],
-  retention: { strategy: "archive", periodDays: 365 },
+  retention: { duration: "365d" },
 });
 ```
 
@@ -144,7 +148,7 @@ Declares a domain event with a typed payload.
 
 ```typescript
 import { defineEvent } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 const orderPlaced = defineEvent({
   name: "order.placed",
@@ -183,7 +187,7 @@ Declares a multi-step workflow with steps, triggers, and retry policies.
 
 ```typescript
 import { defineFlow } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 const onboarding = defineFlow({
   name: "customerOnboarding",
@@ -198,8 +202,8 @@ const onboarding = defineFlow({
   }),
   trigger: { event: "customer.created" },
   steps: [
-    { name: "sendWelcomeEmail", type: "capability", capability: "sendWelcomeEmail" },
-    { name: "setupDefaults", type: "capability", capability: "setupCustomerDefaults" },
+    { name: "sendWelcomeEmail", type: "capability", capability: "users.sendWelcomeEmail" },
+    { name: "setupDefaults", type: "capability", capability: "users.setupCustomerDefaults" },
     {
       name: "checkTier",
       type: "conditional",
@@ -207,8 +211,8 @@ const onboarding = defineFlow({
       then: "assignAccountManager",
       else: "sendSelfServeGuide",
     },
-    { name: "assignAccountManager", type: "capability", capability: "assignAccountManager" },
-    { name: "sendSelfServeGuide", type: "capability", capability: "sendSelfServeGuide" },
+    { name: "assignAccountManager", type: "capability", capability: "users.assignAccountManager" },
+    { name: "sendSelfServeGuide", type: "capability", capability: "users.sendSelfServeGuide" },
   ],
   retry: { attempts: 3, backoff: "exponential" },
 });
@@ -287,7 +291,7 @@ Declares an AI prompt with typed input/output and model configuration.
 
 ```typescript
 import { definePrompt } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 const classifySentiment = definePrompt({
   name: "classifySentiment",
@@ -303,7 +307,7 @@ const classifySentiment = definePrompt({
   }),
   model: {
     provider: "openai",
-    model: "gpt-4o-mini",
+    name: "gpt-4o-mini",
     temperature: 0.3,
     maxTokens: 256,
   },
@@ -322,7 +326,7 @@ const classifySentiment = definePrompt({
 | `owner` | `string` | No | Owning team |
 | `input` | `z.ZodTypeAny` | Yes | Zod schema for prompt input |
 | `output` | `z.ZodTypeAny` | Yes | Zod schema for expected output |
-| `model` | `ModelConfig` | No | AI model configuration |
+| `model` | `ModelConfig` | No | AI model configuration (`provider`, `name`, `temperature`, `maxTokens`) |
 | `appendUnsubstitutedInput` | `boolean` | No | Defaults to appending unused input keys as `Input: {...}`. Set `false` when `description` already renders the full user message |
 | `disableStrictStructuredOutputs` | `boolean` | No | Opt this prompt out of provider-side structured outputs even when `enableStrictStructuredOutputs` is enabled globally. Use when the output schema can't fit the provider JSON Schema subset |
 | `requireStrictStructuredOutputs` | `boolean` | No | Refuse to run unless a provider JSON Schema can be sent. Use for production extraction paths that must not silently fall back to prompt-only JSON instructions |
@@ -333,6 +337,47 @@ const classifySentiment = definePrompt({
 ### Returns
 
 `PromptDefinition<TInput, TOutput>` — an immutable prompt definition.
+
+---
+
+## defineTranslation
+
+Declares an i18n message catalog registered at server bootstrap and exposed as `ctx.translations`.
+
+```typescript
+import { defineTranslation } from "@plumbus/core";
+
+export const commonTranslation = defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: {
+      "errors.notFound": "Not found",
+      "actions.save": "Save",
+    },
+    he: {
+      "errors.notFound": "לא נמצא",
+      "actions.save": "שמור",
+    },
+  },
+});
+```
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `string` | Yes | Catalog namespace |
+| `defaultLocale` | `string` | Yes | Fallback locale (must appear in `locales`) |
+| `locales` | `string[]` | Yes | Supported locale codes |
+| `messages` | `Record<string, MessageCatalog>` | Yes | Per-locale key → string map (all locales must share the same keys) |
+
+### Returns
+
+`TranslationDefinition` — an immutable translation catalog.
+
+See [Translations](../core-concepts/translations.md) for CLI export/import and `ctx.translations.t()`.
 
 ---
 
@@ -349,21 +394,24 @@ field.number({ unique: true })                      // Numeric field
 field.boolean({ default: true })                    // Boolean with default
 field.timestamp({ default: "now" })                 // Date/time
 field.json({ nullable: true })                      // Arbitrary JSON
-field.enum(["a", "b", "c"])                         // Constrained values
-field.relation({ entity: "User", type: "belongsTo" }) // Foreign key
+field.decimal()                                     // Decimal / floating-point
+field.enum(["a", "b", "c"])                         // Constrained values (positional)
+field.relation({ entity: "User", type: "many-to-one" }) // Foreign key
 ```
+
+Valid `RelationType` values: `'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'`.
 
 ### Base Field Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `required` | `boolean` | `true` | Field is required |
+| `optional` | `boolean` | `false` | Field may be omitted on create |
 | `default` | `unknown` | — | Default value |
 | `unique` | `boolean` | `false` | Unique constraint |
 | `nullable` | `boolean` | `false` | Allow null |
 | `classification` | `FieldClassification` | — | Data sensitivity level |
 | `encrypted` | `boolean` | `false` | Encrypt at rest |
-| `maskedInLogs` | `boolean` | `false` | Redact in logs |
 
 ### Field Classifications
 

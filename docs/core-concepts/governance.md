@@ -24,7 +24,10 @@ Plumbus uses an **Advisory-First Governance** model — the framework detects ri
 - Capabilities with excessive side effects
 - Flows with too many steps or excessive branching
 - Missing audit configuration
+
+### Worker
 - `eventHandler` capabilities without `trigger.event` (`worker.event-handler-missing-trigger`)
+- Event handler side effects and payload compatibility
 
 ### AI
 - Prompts without explainability tracking
@@ -50,13 +53,15 @@ Reports warnings with severity levels:
 | `warning` | Risky but acceptable |
 | `high` | Significant security or compliance risk |
 
+Governance is **advisory only** — it never blocks deployment or runtime execution. The same advisory model applies to `plumbus api validate`: governance signals print to stderr but do not fail the command unless you pass `--fail-on-governance`. Use that flag in CI when you want governance to gate releases.
+
 ### `plumbus certify`
 
 Run compliance profile assessment against built-in profiles:
 
 ```bash
-plumbus certify
-plumbus certify --json
+plumbus certify policy soc2
+plumbus certify policy gdpr --json
 ```
 
 Built-in profiles (`PolicyProfile` enum values): `soc2`, `gdpr`, `hipaa`, `pci_dss`, `internal_security_baseline`.
@@ -69,11 +74,11 @@ Developers may acknowledge governance warnings with explicit overrides:
 import { createOverrideStore } from '@plumbus/core';
 
 const overrides = createOverrideStore();
-overrides.add({
+overrides.addOverride({
   rule: 'security.capability-access-policy',
   justification: 'Public health-check endpoint — no auth required',
   author: 'team-lead',
-  timestamp: new Date(),
+  timestamp: new Date().toISOString(),
 });
 ```
 
@@ -90,17 +95,15 @@ import {
   privacyRules,
   architectureRules,
   aiRules,
-  mcpRules,
   apiRules,
 } from '@plumbus/core';
 
 const engine = createGovernanceRuleEngine();
-engine.registerRules([
+engine.registerMany([
   ...securityRules,
   ...privacyRules,
   ...architectureRules,
   ...aiRules,
-  ...mcpRules,
   ...apiRules,
 ]);
 
@@ -116,7 +119,9 @@ const result = engine.evaluate(inventory);
 | **Privacy** | `ruleMissingFieldClassification`, `rulePersonalDataInLogs`, `ruleExcessiveDataRetention`, `ruleSensitiveFieldUnencrypted` |
 | **Architecture** | `ruleExcessiveEffects`, `ruleExcessiveFlowSteps`, `ruleExcessiveFlowBranching`, `ruleEntityMissingDescription`, `ruleMissingAuditConfig` |
 | **AI** | `ruleAIWithoutExplanation`, `ruleExcessiveAIUsage`, `rulePromptMissingModelConfig`, `rulePromptMissingOutputSchema` |
-| **MCP** | `ruleMcpMissingDescription` |
+| **API** | `ruleApiDeprecatedWithoutReplacement`, `ruleApiMetadataWithoutExposure`, `ruleApiMissingAuth`, `ruleApiMissingOperationId`, `ruleApiPublicMutationWithoutIdempotency` |
+| **Capability dependency** | `ruleCircularCapabilityDependency`, `ruleDeepCapabilityChain`, `ruleJobCapabilityDependency`, `ruleMissingCapabilityDependency`, `ruleNonCanonicalCapabilityReference` |
+| **Worker** | `ruleEventHandlerMissingTrigger`, `ruleEventHandlerSideEffects`, `ruleEventHandlerPayloadCompatibility` |
 
 ## Policy Reports
 
@@ -125,7 +130,7 @@ Generate compliance reports showing pass/fail/override status:
 ```typescript
 import { generatePolicyReport, formatPolicyReport } from '@plumbus/core';
 
-const report = generatePolicyReport('SOC2', inventory, overrides);
+const report = generatePolicyReport('soc2', inventory, overrides);
 console.log(formatPolicyReport(report));
 ```
 

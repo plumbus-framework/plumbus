@@ -1,7 +1,7 @@
 import { defineCapability } from '@plumbus/core';
 import { z } from '@plumbus/core/zod';
-import { chatActionConfirmedEvent } from '../events/chat-events.js';
-import { confirmPending } from '../runtime/pending-actions.js';
+import { chatActionConfirmedEvent, chatActionRejectedEvent } from '../events/chat-events.js';
+import { confirmPending, rejectPending } from '../runtime/pending-actions.js';
 
 export const chatConfirmAction = defineCapability({
   name: 'chatConfirmAction',
@@ -22,10 +22,22 @@ export const chatConfirmAction = defineCapability({
   }),
 
   access: {},
-  effects: { data: ['chat:write'], events: [], external: [], ai: false },
+  effects: {
+    data: ['chat:write'],
+    events: [chatActionConfirmedEvent.name, chatActionRejectedEvent.name],
+    external: [],
+    ai: false,
+  },
 
   async handler(ctx, input) {
     if (!input.execute) {
+      const outcome = await rejectPending(ctx, input.actionId, input.schemaHash);
+      if (outcome.rejected) {
+        await ctx.events.emit(chatActionRejectedEvent.name, {
+          actionId: input.actionId,
+          capabilityName: outcome.capabilityName ?? input.capabilityName,
+        });
+      }
       return { executed: false };
     }
     const result = await confirmPending(

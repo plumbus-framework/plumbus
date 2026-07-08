@@ -4,12 +4,14 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AIServiceConfig } from '../ai/ai-service.js';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
+import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { DiscoveredResources } from '../cli/discover.js';
 import { discoverResources } from '../cli/discover.js';
+import type { EntityRegistry } from '../data/registry.js';
 import { CapabilityKind } from '../types/enums.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
@@ -127,6 +129,7 @@ export interface BuildWorkerAiServiceOptions {
   config: PlumbusConfig;
   db: PostgresJsDatabase;
   promptRegistry?: PromptRegistry;
+  entities?: EntityRegistry;
   onAICostRecorded?: ServerConfig['onAICostRecorded'];
   resolveAiOverrides?: ServerConfig['resolveAiOverrides'];
   enableStrictStructuredOutputs?: ServerConfig['enableStrictStructuredOutputs'];
@@ -138,6 +141,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     config,
     db,
     promptRegistry,
+    entities,
     onAICostRecorded,
     resolveAiOverrides,
     enableStrictStructuredOutputs,
@@ -165,6 +169,10 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       promptRegistry,
       onAICostRecorded: workerOnAICostRecorded,
       enableStrictStructuredOutputs,
+      security: buildAISecurityConfig(
+        entities?.getAllEntities() ?? [],
+        config.aiProviders.security,
+      ),
     };
     let aiService = createAIService(workerAiServiceConfig);
     if (resolveAiOverrides) {

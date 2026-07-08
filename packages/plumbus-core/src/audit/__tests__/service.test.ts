@@ -76,7 +76,7 @@ describe('createAuditService', () => {
     });
 
     await service.record('sensitive.op', {
-      email: '***',
+      email: '***MASKED***',
       _maskedFields: ['email'],
     });
 
@@ -84,7 +84,7 @@ describe('createAuditService', () => {
     expect(row.maskedFields).toEqual(['email']);
     const meta = row.metadata as Record<string, unknown>;
     expect(meta).not.toHaveProperty('_maskedFields');
-    expect(meta).toHaveProperty('email', '***');
+    expect(meta).toHaveProperty('email', '***MASKED***');
   });
 
   it('records null metadata when none provided', async () => {

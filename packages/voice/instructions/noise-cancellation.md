@@ -47,5 +47,5 @@ If an engine fails to load (missing native binary, WASM, or DTLN models), Plumbu
 
 ## Related
 
-- [`transports.md`](../../docs/voice/transports.md)
+- [`transports.md`](../../../docs/voice/transports.md)
 - [`framework.md`](./framework.md)

@@ -19,7 +19,7 @@ Plumbus is an AI-native, contract-driven TypeScript application framework. Users
 
 ## Commands
 
-All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turborepo 2.4.
+All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turborepo 2.9.
 
 | Task | Command |
 |------|---------|
@@ -81,7 +81,7 @@ Then run `plumbus browser-extension scaffold`. The generated extension does not 
 
 ### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
 
-`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It is a peer dependency of `@plumbus/core` (version-locked `0.1.x`). Apps that want a chat surface install it explicitly:
+`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.5.x || 0.6.x`). Apps that want a chat surface install it explicitly:
 
 ```
 pnpm add @plumbus/chat
@@ -92,7 +92,7 @@ pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 
 ### Optional add-on: `@plumbus/voice`
 
-`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, transport/STT/TTS providers, cost helpers). It is a peer dependency of `@plumbus/core` (version-locked `^0.6.x`). Apps that want speech input/output install it explicitly:
+`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, transport/STT/TTS providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.6.x`). Apps that want speech input/output install it explicitly:
 
 ```
 pnpm add @plumbus/voice
@@ -102,7 +102,7 @@ Use it when the product needs speech I/O around an app-owned brain hook. It comp
 
 ### Optional add-on: `@plumbus/knowledge-base`
 
-`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It is an optional peer of `@plumbus/chat` (version-locked `0.1.x`). Apps that want named, reusable knowledge sources install it explicitly:
+`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It peer-depends on `@plumbus/core` (version-locked `0.5.x || 0.6.x`). `@plumbus/chat` optionally peer-depends on `@plumbus/knowledge-base` (`^0.1.0`) when using registry-backed context sources. Apps that want named, reusable knowledge sources install it explicitly:
 
 ```
 pnpm add @plumbus/knowledge-base
@@ -195,20 +195,33 @@ src/<module>/
 - **Contract-first**: `define*()` functions are the source of truth for everything
 - **Deny-by-default security**: no matching access policy = denial
 - **Advisory governance**: warnings only, never hard blocks
-- **Outbox pattern**: events written in same transaction, dispatched async (at-least-once)
+- **Outbox pattern**: action/eventHandler writes and event emits share a DB transaction by default (at-least-once dispatch); opt out with `execution.transactionalOutbox: false` or per-capability `transactional: false`
 - **Biome**: Biome for linting and formatting. `tsc --noEmit` remains the type-checking gate
 
 ## Detailed Documentation
 
 For architecture, SDK reference, and design rationale, read files under `docs/`:
 
-- `docs/architecture/` — system overview, execution lifecycle, diagrams
-- `docs/core-concepts/` — capabilities, entities, flows, events, prompts, governance
-- `docs/sdk-reference/` — define functions, execution context, data layer, configuration
-- `docs/cli/` — all CLI commands and options
+- `docs/getting-started/` — installation, quick start, development workflow, tutorial
+- `docs/architecture/` — system overview, execution lifecycle, workers and queues, diagrams
+- `docs/core-concepts/` — capabilities, entities, flows, events, prompts, translations, governance
+- `docs/sdk-reference/` — define functions, execution context, data layer, configuration (worker observability)
+- `docs/cli/` — all CLI commands and options (incl. `browser-extension scaffold`)
 - `docs/security/` — security model, auth, tenant isolation
-- `docs/ai/` — prompts, RAG, cost tracking
+- `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
+- `docs/ui/` — client generation, hooks, Next.js scaffolding
+- `docs/agents/` — agent setup, framework-first guardrails
+- `docs/chat/` — conversational runtime (defineChat, policies, context sources, evals)
+- `docs/chat-ui/` — React hooks and `<ChatPanel />` for the chat turn protocol
+- `docs/voice/` — realtime speech I/O (defineVoice, providers, transports, security, testing)
+- `docs/voice/livekit-continuous-voice.md` — LiveKit continuous voice sessions
+- `docs/knowledge-base/` — scoped knowledge providers and registry (`@plumbus/knowledge-base`)
+- `docs/mcp/` — serve capabilities to AI agents (stdio + HTTP, skill files)
+- `docs/mcp/tasks-and-jobs.md` — MCP task lifecycle and background jobs
+- `docs/mcp/transports.md` — per-tool-call observability (`onMcpToolCall`)
+- `docs/api/` — partner API contracts, OpenAPI export, manifest validation, compatibility diff
+- `packages/browser-extension/instructions/` — browser extension scaffold prerequisites (auth, CORS)
 - `packages/plumbus-core/instructions/peer-dependencies.md` — **required reading** before editing add-on `peerDependencies` on `@plumbus/core`
 - `packages/plumbus-core/instructions/deployment.md` — production deployment, Docker, environment variables
 - `packages/plumbus-core/instructions/upgrading-0.5-capabilities.md` — consumer agent playbook for 0.5.x capability invocation breaking changes

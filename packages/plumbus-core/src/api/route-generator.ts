@@ -22,6 +22,8 @@ import type { ExecutionContext } from '../types/context.js';
 export interface DependencyOptions {
   /** When true, repositories skip tenant-scope filtering (for cross-tenant admin access) */
   bypassTenantScope?: boolean;
+  /** Resolved locale for this request (from cookie / Accept-Language) */
+  locale?: string;
 }
 
 export interface RouteGeneratorConfig {
@@ -36,6 +38,10 @@ export interface RouteGeneratorConfig {
   ) => ContextDependencies;
   /** Optional queue for dispatching async job capabilities */
   jobQueue?: EventQueue;
+  /** Default locale when request headers do not resolve one */
+  defaultLocale?: string;
+  /** Locales supported by registered translation definitions */
+  supportedLocales?: string[];
   /** Called when a capability execution fails */
   onCapabilityError?: (info: {
     capabilityName: string;
@@ -82,7 +88,11 @@ export function registerCapabilityRoute(
 
     // 2. Build execution context
     const bypassTenantScope = capability.access?.tenantScoped === false;
-    const deps = config.createDependencies(authContext, { bypassTenantScope });
+    const locale = resolveRequestLocale(request.headers, {
+      defaultLocale: config.defaultLocale ?? 'en',
+      supportedLocales: config.supportedLocales ?? [config.defaultLocale ?? 'en'],
+    });
+    const deps = config.createDependencies(authContext, { bypassTenantScope, locale });
     deps.correlationId = resolveRequestCorrelationId(request.headers);
     deps.request = {
       sourceIp: request.ip,
@@ -204,7 +214,11 @@ export function registerStreamingRoute(
 
     // 2. Build context
     const bypassTenantScope = capability.access?.tenantScoped === false;
-    const deps = config.createDependencies(authContext, { bypassTenantScope });
+    const locale = resolveRequestLocale(request.headers, {
+      defaultLocale: config.defaultLocale ?? 'en',
+      supportedLocales: config.supportedLocales ?? [config.defaultLocale ?? 'en'],
+    });
+    const deps = config.createDependencies(authContext, { bypassTenantScope, locale });
     deps.correlationId = resolveRequestCorrelationId(request.headers);
     deps.request = {
       sourceIp: request.ip,
@@ -273,6 +287,64 @@ function resolveRequestCorrelationId(
     }
   }
   return undefined;
+}
+
+export const LOCALE_COOKIE_NAME = 'plumbus-ui-locale';
+
+export interface ResolveRequestLocaleOptions {
+  defaultLocale: string;
+  supportedLocales: string[];
+  cookieName?: string;
+}
+
+/**
+ * Resolve request locale from the `plumbus-ui-locale` cookie, then Accept-Language,
+ * falling back to `defaultLocale`.
+ */
+export function resolveRequestLocale(
+  headers: Record<string, string | string[] | undefined>,
+  options: ResolveRequestLocaleOptions,
+): string {
+  const { defaultLocale, supportedLocales, cookieName = LOCALE_COOKIE_NAME } = options;
+  const supported = new Set(supportedLocales);
+
+  const cookieHeader = headers.cookie;
+  if (typeof cookieHeader === 'string') {
+    const pattern = new RegExp(`(?:^|;\\s*)${cookieName}=([^;]+)`);
+    const match = pattern.exec(cookieHeader);
+    const cookieLocale = match?.[1]?.trim();
+    if (cookieLocale && supported.has(cookieLocale)) {
+      return cookieLocale;
+    }
+  }
+
+  const acceptLanguage = headers['accept-language'];
+  if (typeof acceptLanguage === 'string') {
+    const candidates = acceptLanguage
+      .split(',')
+      .map((part) => {
+        const [tag, qPart] = part.trim().split(';');
+        const q = qPart?.trim().startsWith('q=') ? Number.parseFloat(qPart.trim().slice(2)) : 1;
+        return { tag: tag?.trim().toLowerCase(), q: Number.isFinite(q) ? q : 0 };
+      })
+      .filter((entry) => entry.tag)
+      .sort((a, b) => b.q - a.q);
+
+    for (const { tag } of candidates) {
+      if (!tag) continue;
+      if (supported.has(tag)) return tag;
+      const langPrefix = tag.split('-')[0];
+      if (langPrefix) {
+        for (const locale of supportedLocales) {
+          if (locale === langPrefix || locale.startsWith(`${langPrefix}-`)) {
+            return locale;
+          }
+        }
+      }
+    }
+  }
+
+  return defaultLocale;
 }
 
 /** Match `plumbus generate` / OpenAPI paths (camelCase and snake_case → kebab-case). */

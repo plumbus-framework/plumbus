@@ -134,11 +134,14 @@ onRoutesRegistered(async (app, routeConfig) => {
 
 ```bash
 plumbus api validate
+plumbus api validate --fail-on-governance   # optional CI gate on advisory apiRules
 plumbus api generate openapi --out ./dist/openapi.json
 plumbus api generate docs --out ./dist/api-docs
 plumbus api diff --against ./published/openapi-v1.json
 plumbus api test-fixtures validate
 ```
+
+Governance signals from `plumbus api validate` are advisory unless `--fail-on-governance` is set. Hard contract findings always fail the command.
 
 ## How requests flow
 

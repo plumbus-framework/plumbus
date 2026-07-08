@@ -68,7 +68,7 @@ export const User = defineEntity({
     email: field.string({ unique: true, classification: "personal" }),
     name: field.string({ classification: "personal" }),
     role: field.string({ default: "user" }),
-    createdAt: field.timestamp({ defaultNow: true }),
+    createdAt: field.timestamp(),
   },
 });
 ```
@@ -87,12 +87,14 @@ plumbus db create
 
 ```bash
 plumbus migrate generate    # Generates SQL migration from your entity definitions
-plumbus migrate push        # Applies pending migrations to the database
+plumbus migrate apply       # Applies pending migrations from drizzle/ to the database
 ```
 
 Run `plumbus migrate generate` every time you change entity fields. The migration system tracks what's already been applied, so it only generates diffs.
 
-> **Important:** Plumbus manages 9 internal framework tables (audit, event system, flows, RAG). Do not create these tables manually — they are included in generated migrations. If you see a "schema drift" error, it means a framework table already exists in the database. Drop the conflicting table(s) and re-run the migration command.
+For rapid local iteration without migration files, use `plumbus migrate push` instead — it diffs entity schemas against the live database and applies changes directly (ideal for development, not production).
+
+> **Important:** Plumbus manages 10 internal framework tables (`audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `job_executions`, `documents`, `document_chunks`). Do not create these tables manually — they are included in generated migrations. If you see a "schema drift" error, it means a framework table already exists in the database. Drop the conflicting table(s) and re-run the migration command.
 
 ### Seed data (optional)
 
@@ -164,7 +166,7 @@ import { z } from "@plumbus/core/zod";
 
 export const userCreated = defineEvent({
   name: "user.created",
-  schema: z.object({ userId: z.string() }),
+  payload: z.object({ userId: z.string() }),
   description: "A new user was created",
 });
 ```
@@ -193,13 +195,19 @@ Generated artifacts go to `.plumbus/generated/`:
 
 ```
 .plumbus/generated/
-├── capability-types.ts  # Input/Output types + CapabilityName union
+├── capability-types.ts      # Input/Output types + CapabilityName union
+├── entity-types.ts          # Typed entity interfaces + DataServiceMap
+├── plumbus.d.ts             # Registry augmentation (events, flows, entities)
 ├── clients/
-│   ├── api.ts           # Typed API client functions
-│   └── hooks.ts         # React hooks (useCreateUser, etc.)
-├── entity-types.ts      # Typed entity interfaces + DataServiceMap
-├── openapi.json         # OpenAPI 3.1 spec
-└── manifest.json        # Resource manifest
+│   ├── api.ts               # Typed API client functions
+│   └── hooks.ts             # React hooks (useCreateUser, etc.)
+├── openapi.json             # OpenAPI 3.0 spec from capability routes
+├── manifest.json            # Resource manifest
+├── consumers-manifest.json  # Consumer wiring manifest
+├── capability-graph.md      # Capability dependency graph (Markdown)
+├── mcp-manifest.json        # MCP tools for exposeAs: ['mcp'] capabilities
+└── skills/                  # MCP skill files per exposed capability
+    └── <domain>/<kebab-name>.md
 ```
 
 - **`capability-types.ts`** — TypeScript types inferred from each capability's Zod input/output schemas (e.g. `CreateUserInput`, `CreateUserOutput`), plus a `CapabilityName` union type for type-safe capability references
@@ -270,7 +278,7 @@ Check your application against governance rules:
 
 ```bash
 plumbus verify             # Advisory governance checks
-plumbus certify            # Compliance profile assessment
+plumbus certify policy <profile>   # Compliance profile assessment (soc2, gdpr, …)
 ```
 
 Governance is advisory — it warns but never blocks.
@@ -282,8 +290,8 @@ Governance is advisory — it warns but never blocks.
 Once your project is set up, daily development looks like this:
 
 ```
-Edit entity fields → plumbus migrate generate → plumbus migrate push
-         ↓
+Edit entity fields → plumbus migrate generate → plumbus migrate apply
+         ↓                              (or `plumbus migrate push` during rapid dev)
 Add/edit capabilities → plumbus generate → plumbus dev → plumbus test
          ↓
 Check governance → plumbus verify
@@ -293,7 +301,7 @@ Check governance → plumbus verify
 
 | What you're doing | Command |
 |-------------------|---------|
-| Add a new entity | `plumbus entity new <Name>` → edit fields → `plumbus migrate generate` → `plumbus migrate push` |
+| Add a new entity | `plumbus entity new <Name>` → edit fields → `plumbus migrate generate` → `plumbus migrate apply` (or `plumbus migrate push` in dev) |
 | Add a new capability | `plumbus capability new <Name> --domain <domain>` → edit handler → `plumbus generate` |
 | Regenerate after changes | `plumbus generate` |
 | Start dev server | `plumbus dev` |

@@ -17,7 +17,7 @@ export function knowledgeContext(opts: {
 }): ContextSource {
   if (opts.tier === 'tools') {
     throw new Error(
-      `${CHAT_TIER_TOOLS_ERROR_PREFIX}: tier 'tools' is interface-only in @plumbus/knowledge-base v1 and is not executed by @plumbus/chat@0.1.4. Use tier: 'block'.`,
+      `${CHAT_TIER_TOOLS_ERROR_PREFIX}: tier 'tools' is interface-only and is not executed by the chat runtime. Use tier: 'block'.`,
     );
   }
 

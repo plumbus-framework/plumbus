@@ -34,7 +34,7 @@ const pathMap = staticContext({
 defineChat({ context: [pathMap, /* ... */] });
 ```
 
-### `staticContextFromTranslations` — from i18n catalogs
+### `staticContextFromTranslations` — deprecated
 
 ```ts
 import { staticContextFromTranslations } from '@plumbus/chat';
@@ -43,10 +43,12 @@ const navSurfaces = staticContextFromTranslations({
   id: 'nav-surfaces',
   namespaces: ['nav', 'admin.nav'],
   sourceId: 'product-nav',
+  // Required unless you only use this in tests with an explicit catalog:
+  getCatalog: (locale) => loadNavCatalog(locale),
 });
 ```
 
-Catalog renames flow automatically — no drift between chat and `app/translations/`.
+**Deprecated** — removal target `@plumbus/chat` v0.2. Prefer `@plumbus/knowledge-base` `translationCatalog` + registry `knowledgeContext`. Without `getCatalog`, the helper resolves an empty catalog and contributes no context.
 
 ### `capabilityContext` — live per-user data
 
@@ -86,6 +88,8 @@ const docs = ragContext({
   query: (turnCtx) => turnCtx.userMessage ?? '',
   topK: 6,
   filter: (turnCtx) => ({ audience: turnCtx.audience, locale: turnCtx.locale }),
+  // When policy.audience is set and filter is omitted, { audience } is applied automatically.
+  // parentChatAudiencePolicy: false  // opt out per source
 });
 ```
 
@@ -116,8 +120,8 @@ Only the **cited** subset is persisted on `ChatTurnRow.sources`. The full retrie
 ## Do's
 
 - **Do** declare sources in stable order — handle assignment depends on it. Changing order breaks existing citation history.
-- **Do** provide a `filter` callback on `knowledgeContext` when the corpus has multi-audience or multi-locale chunks. (If you forget AND `policy.audience` is set, the resolver auto-attaches `({ audience }) => ({ audience })` and warns once.)
-- **Do** use `staticContextFromTranslations` for any data that lives in `app/translations/`. Hand-copying creates drift.
+- **Do** provide a `filter` callback on `ragContext` when the corpus has multi-audience or multi-locale chunks. When `policy.audience` is set and you omit `filter`, the runtime auto-attaches `{ audience: turnCtx.audience }` (one-time warning). Opt out with `parentChatAudiencePolicy: false`.
+- **Do** use `@plumbus/knowledge-base` `translationCatalog` for strings in `app/translations/` — not deprecated `staticContextFromTranslations` (requires `getCatalog` to return anything).
 - **Do** wrap small lookup tables in `staticContext` instead of stuffing them into `instructions: [...]` — you get provenance + budget accounting.
 - **Do** set `topK` reasonably on `knowledgeContext`. Default behavior depends on core's RAG config; explicit is better.
 
@@ -127,7 +131,7 @@ Only the **cited** subset is persisted on `ChatTurnRow.sources`. The full retrie
 - **Don't** invent source IDs in tests, fixtures, or model output. The resolver issues them deterministically.
 - **Don't** put 50 KB of static data in `staticContext`. The context-budget trimmer will drop other (knowledge) sources first to make room.
 - **Don't** assume context sources can mutate state. They're read-only by contract.
-- **Don't** rely on `ctx.ai.retrieve` defaulting to a single corpus — `knowledgeContext` requires `corpus` to be specified.
+- **Don't** rely on `ctx.ai.retrieve` defaulting to a single corpus — direct RAG requires an explicit `corpus` on `ragContext`.
 
 ## Custom Context Source
 
@@ -161,4 +165,5 @@ Use it like any built-in: `context: [wikiContext({ wikiPath: '/wiki' })]`.
 - `/docs/chat/design/static-context-helpers.md` — why static + translation helpers exist
 - `/docs/chat/design/corpus-arg-in-core.md` — the corpus arg landing in core
 - `src/context/resolver.ts` — handle assignment logic
-- `src/context/knowledge-context.ts` — corpus binding implementation
+- `src/context/rag-context.ts` — direct RAG (`ragContext`) implementation
+- `src/context/knowledge-context.ts` — registry-backed KB adapter

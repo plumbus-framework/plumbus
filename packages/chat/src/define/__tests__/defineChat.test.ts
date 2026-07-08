@@ -124,14 +124,14 @@ describe('defineChat', () => {
     expect(chat.prompt?.name).toBe('custom.help.prompt');
   });
 
-  it('warns when perTurn token or cost limits are configured', () => {
+  it('accepts perTurn token and cost limits without define-time warning', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     defineChat({
       name: 'budgetChat',
       access: {},
       budget: { perTurn: { tokens: 6000, costUsd: 0.5 } },
     });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('budget.perTurn.tokens'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('budget.perTurn.tokens'));
     warn.mockRestore();
   });
 });

@@ -2,6 +2,8 @@
 
 Plumbus governance is **advisory, not blocking** — "guardrails, not gates." Rules produce warnings that inform developers; they don't prevent deployment.
 
+The same model applies to `plumbus api validate`: governance signals print to stderr but do not fail the command unless you pass `--fail-on-governance`. Hard contract findings (manifest, policy, path params, fixtures) still exit `1` without that flag.
+
 ## Governance Signals
 
 ```ts

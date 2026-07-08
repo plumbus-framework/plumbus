@@ -3,17 +3,17 @@
 
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { PromptRegistry } from '../ai/prompt-registry.js';
-import { createAuditService } from '../audit/service.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import { loadConfig } from '../config/loader.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../data/connection.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
 import { EntityRegistry } from '../data/registry.js';
-import { createEventEmitter } from '../events/emitter.js';
 import { EventRegistry } from '../events/registry.js';
 import { CapabilityRegistry } from '../execution/capability-registry.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import { wireContextDependencies } from '../execution/context-deps.js';
 import {
   createInvocationEmitScope,
   resolveInvocationCausationId,
@@ -22,10 +22,10 @@ import { createFlowEngine } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
 import { FlowRegistry } from '../flows/registry.js';
 import { createTranslationService, TranslationRegistry } from '../translations/index.js';
+import { createStructuredLogger, withLogMasking } from '../observability/metrics.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AuthContext } from '../types/security.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
-import type { LoggerService } from '../types/context.js';
 import { buildWorkerAiService } from '../runtime/bootstrap.js';
 import { loadServerExtensions } from '../runtime/load-extensions.js';
 import { resolveRuntimeQueues } from '../runtime/queue-factory.js';
@@ -87,15 +87,13 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
 
   const queues = await resolveRuntimeQueues(config);
 
-  const logger: LoggerService = {
-    info: (msg: string) => console.log(msg),
-    warn: (msg: string) => console.warn(msg),
-    error: (msg: string) => console.error(msg),
-    debug: (msg: string) => console.debug(msg),
-  };
   const translationRegistry = new TranslationRegistry();
   translationRegistry.registerAll(resources.translations ?? []);
   const defaultLocale = resources.translations?.[0]?.defaultLocale ?? 'en';
+  const supportedLocales = translationRegistry.getSupportedLocales();
+  const resolvedSupportedLocales = supportedLocales.length > 0 ? supportedLocales : [defaultLocale];
+  const maskKeys = entities.getMaskedFieldNames();
+  const encryptionKey = resolveEncryptionKey();
 
   const authAdapter = await resolveMcpServeAuthAdapter(config);
   const extensions = await loadServerExtensions();
@@ -104,6 +102,7 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
     config,
     db,
     promptRegistry,
+    entities,
     onAICostRecorded: extensions.onAICostRecorded,
     resolveAiOverrides: extensions.resolveAiOverrides,
     enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
@@ -128,36 +127,40 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
   const routeConfig: RouteGeneratorConfig = {
     db,
     authAdapter,
+    defaultLocale,
+    supportedLocales: resolvedSupportedLocales,
     createDependencies: (auth: AuthContext, options?): ContextDependencies => {
-      const audit = createAuditService({ db, auth });
-      const data = entities.createDataService({
-        db,
-        auth,
-        audit,
-        bypassTenantScope: options?.bypassTenantScope,
-      });
       const invocationEmitScope = createInvocationEmitScope();
-      const eventService = createEventEmitter({
-        db,
-        auth,
-        registry: events,
-        audit,
-        getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
-      });
-
-      return {
-        auth,
-        data,
-        events: eventService,
-        flows: createFlowService(requestFlowEngine, auth),
-        ai: aiService,
-        audit,
-        logger,
-        config: config as unknown as Record<string, unknown>,
-        translations: createTranslationService(translationRegistry, defaultLocale),
-        invocationEmitScope,
-        ...buildCapabilityRuntimeDeps(capabilities),
-      };
+      const locale = options?.locale ?? defaultLocale;
+      const requestLogger = withLogMasking(
+        createStructuredLogger({
+          component: 'mcp-capability',
+          tenantId: auth.tenantId,
+          actorId: auth.userId,
+          maskKeys,
+        }),
+        maskKeys,
+      );
+      return wireContextDependencies(
+        {
+          db,
+          auth,
+          entities,
+          events,
+          bypassTenantScope: options?.bypassTenantScope,
+          getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
+          encryptionKey,
+        },
+        {
+          flows: createFlowService(requestFlowEngine, auth),
+          ai: aiService,
+          logger: requestLogger,
+          config: config as unknown as Record<string, unknown>,
+          translations: createTranslationService(translationRegistry, locale),
+          invocationEmitScope,
+          ...buildCapabilityRuntimeDeps(capabilities),
+        },
+      );
     },
   };
 

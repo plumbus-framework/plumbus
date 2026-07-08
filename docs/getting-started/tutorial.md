@@ -38,12 +38,12 @@ export const Ticket = defineEntity({
     subject: field.string(),
     body: field.string(),
     customerEmail: field.string({ classification: "personal", maskedInLogs: true }),
-    category: field.enum({ values: ["billing", "technical", "general"] }),
-    priority: field.enum({ values: ["low", "medium", "high", "critical"] }),
-    status: field.enum({ values: ["open", "in_progress", "resolved", "closed"] }),
+    category: field.enum(["billing", "technical", "general"]),
+    priority: field.enum(["low", "medium", "high", "critical"]),
+    status: field.enum(["open", "in_progress", "resolved", "closed"]),
     assigneeId: field.string({ optional: true }),
-    createdAt: field.timestamp({ defaultNow: true }),
-    updatedAt: field.timestamp({ defaultNow: true }),
+    createdAt: field.timestamp(),
+    updatedAt: field.timestamp(),
   },
 });
 ```
@@ -53,11 +53,11 @@ export const Ticket = defineEntity({
 ```typescript
 // app/events/ticket-created.event.ts
 import { defineEvent } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const ticketCreated = defineEvent({
   name: "ticket.created",
-  schema: z.object({
+  payload: z.object({
     ticketId: z.string(),
     subject: z.string(),
     category: z.string().optional(),
@@ -71,11 +71,15 @@ export const ticketCreated = defineEvent({
 ```typescript
 // app/prompts/classify-ticket.prompt.ts
 import { definePrompt } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const classifyTicket = definePrompt({
   name: "classifyTicket",
-  model: "gpt-4o-mini",
+  system: `You are a support ticket classifier. Analyze the ticket and return:
+- category: billing, technical, or general
+- priority: low, medium, high, or critical
+- sentiment: positive, neutral, or negative
+- suggestedResponse: a brief suggested reply`,
   input: z.object({ subject: z.string(), body: z.string() }),
   output: z.object({
     category: z.enum(["billing", "technical", "general"]),
@@ -83,11 +87,7 @@ export const classifyTicket = definePrompt({
     sentiment: z.enum(["positive", "neutral", "negative"]),
     suggestedResponse: z.string(),
   }),
-  systemPrompt: `You are a support ticket classifier. Analyze the ticket and return:
-- category: billing, technical, or general
-- priority: low, medium, high, or critical
-- sentiment: positive, neutral, or negative
-- suggestedResponse: a brief suggested reply`,
+  model: { name: "gpt-4o-mini" },
 });
 ```
 
@@ -96,7 +96,7 @@ export const classifyTicket = definePrompt({
 ```typescript
 // app/capabilities/support/create-ticket/capability.ts
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const createTicket = defineCapability({
   name: "createTicket",
@@ -113,10 +113,7 @@ export const createTicket = defineCapability({
     status: z.string(),
   }),
   access: { public: true },
-  effects: {
-    writes: ["Ticket"],
-    emits: ["ticket.created"],
-  },
+  effects: { data: ["Ticket"], events: ["ticket.created"], external: [], ai: false },
   handler: async (ctx, input) => {
     const ticket = await ctx.data.Ticket.create({
       ...input,
@@ -140,7 +137,7 @@ export const createTicket = defineCapability({
 ```typescript
 // app/capabilities/support/classify-ticket/capability.ts
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const classifyTicketHandler = defineCapability({
   name: "classifyTicketHandler",
@@ -150,11 +147,7 @@ export const classifyTicketHandler = defineCapability({
   input: z.object({ ticketId: z.string(), subject: z.string() }),
   output: z.object({ category: z.string(), priority: z.string() }),
   access: { serviceAccounts: ["event-worker"] },
-  effects: {
-    reads: ["Ticket"],
-    writes: ["Ticket"],
-    ai: ["classifyTicket"],
-  },
+  effects: { data: ["Ticket"], events: [], external: [], ai: true },
   handler: async (ctx, input) => {
     const ticket = await ctx.data.Ticket.findById(input.ticketId);
     if (!ticket) throw ctx.errors.notFound("Ticket not found");
@@ -187,26 +180,28 @@ export const classifyTicketHandler = defineCapability({
 ```typescript
 // app/flows/support/ticket-triage/flow.ts
 import { defineFlow } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
 
 export const ticketTriage = defineFlow({
   name: "ticketTriage",
   domain: "support",
   description: "Triage and route a classified ticket",
-  trigger: { type: "event", event: "ticket.classified" },
+  input: z.object({ ticketId: z.string() }),
+  trigger: { event: "ticket.classified" },
   steps: [
-    { name: "checkPriority", capability: "getTicketPriority" },
+    { name: "checkPriority", type: "capability", capability: "getTicketPriority" },
     {
       name: "route",
       type: "conditional",
-      condition: "ctx.state.priority === 'critical'",
-      ifTrue: "escalate",
-      ifFalse: "normalAssign",
+      if: "ctx.state.priority === 'critical'",
+      then: "escalate",
+      else: "normalAssign",
     },
-    { name: "escalate", capability: "escalateTicket" },
-    { name: "normalAssign", capability: "assignTicket" },
-    { name: "autoReply", capability: "sendAutoReply" },
+    { name: "escalate", type: "capability", capability: "escalateTicket" },
+    { name: "normalAssign", type: "capability", capability: "assignTicket" },
+    { name: "autoReply", type: "capability", capability: "sendAutoReply" },
   ],
-  retry: { maxAttempts: 3, backoff: "exponential" },
+  retry: { attempts: 3, backoff: "exponential" },
 });
 ```
 
@@ -260,7 +255,7 @@ describe("classifyTicketHandler", () => {
           Ticket: [{ id: "t_1", subject: "Billing error", body: "I was overcharged..." }],
         },
         ai: mockAI({
-          classifyTicket: {
+          generate: {
             category: "billing",
             priority: "high",
             sentiment: "negative",

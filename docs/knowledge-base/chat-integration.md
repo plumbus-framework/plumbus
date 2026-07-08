@@ -1,4 +1,4 @@
-# Chat integration (`@plumbus/chat@0.1.4`)
+# Chat integration
 
 Requires optional peer `@plumbus/knowledge-base@^0.1.0`.
 
@@ -31,7 +31,7 @@ At resolve time chat:
 **Default** (when `scopeFromTurn` omitted):
 
 ```ts
-(scope) => ({
+(turnCtx) => ({
   audience: turnCtx.audience,
   locale: turnCtx.locale,
   tenantId: turnCtx.tenantId,
@@ -122,4 +122,6 @@ defineChat({
 
 ## Audience filter warning (ragContext only)
 
-If chat declares `policy.audience` and `ragContext` has no `filter`, the resolver attaches `({ audience }) => ({ audience })` and logs a one-time warning. Registry-backed `knowledgeContext` relies on your scope / `mapScope` instead.
+When the chat declares `policy.audience`, `runChatTurn` enables default audience filtering on `ragContext` sources that omit an explicit `filter`: retrieve receives `{ audience: turnCtx.audience }` and logs a one-time warning. Opt out with `parentChatAudiencePolicy: false` on that source.
+
+Registry-backed `knowledgeContext` does not auto-attach retrieve filters — audience flows through `scopeFromTurn` (default maps `audience`, `locale`, `tenantId`) into KB scope / `ragCorpus` `mapScope` instead.

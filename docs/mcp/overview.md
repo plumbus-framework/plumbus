@@ -44,7 +44,7 @@ defineCapability({
 | `@plumbus/core` | Contract fields, `plumbus generate` manifest/skills, CLI `plumbus mcp *` | Always |
 | `@plumbus/mcp` | Runtime server (stdio + Streamable HTTP), `createMcpAuthAdapter` | `pnpm add @plumbus/mcp` when you want to serve agents |
 
-`@plumbus/mcp` is an optional peer of `@plumbus/core` (version-locked `0.5.x`). `plumbus mcp serve` prints an install hint if the package is missing.
+`@plumbus/mcp` is an optional peer of `@plumbus/core` (version-locked `0.5.x || 0.6.x`). `plumbus mcp serve` prints an install hint if the package is missing.
 
 ## Two reading paths
 
@@ -88,8 +88,8 @@ Plumbus implements a subset of the MCP spec. The matrix documents what is suppor
 | Observability — `onMcpToolCall` | Supported | Optional `McpServerConfig` hook after each `tools/call` (inline and task paths). See [transports.md → Per-tool-call observability](./transports.md#per-tool-call-observability--onmcptoolcall). |
 | Tasks — `tools/call` with task metadata | Supported | No separate `tasks/call` RPC — same `tools/call` with `_meta.taskMetadata` ({} is enough). `kind: 'job'` capabilities return a task instead of an inline result. |
 | Tasks — `tasks/get` / `tasks/result` / `tasks/cancel` / `tasks/list` | Supported | Persisted in the `mcp_task` entity. |
-| `notifications/progress` | Supported | Emitted when a job handler calls `ctx.progress.report(...)`. |
-| `notifications/tasks/status` | Supported | Emitted on every task state transition. |
+| `notifications/progress` | Supported (in-process path) | Emitted when a job handler calls `ctx.progress.report(...)` on the **in-process** task path. On the queued-worker path (`jobQueue`/Redis + `plumbus worker`), `ctx.progress` is undefined and no progress notifications are emitted — clients poll `tasks/get`. |
+| `notifications/tasks/status` | Supported (in-process path) | Emitted on task state transitions for in-process tasks. **Not emitted** for queued-worker jobs — poll `tasks/get` instead. |
 | Resources — `resources/list` / `resources/read` | Deferred | Plumbus entities and translations would map here. |
 | Prompts — `prompts/list` / `prompts/get` | Deferred | `definePrompt` outputs would map here. |
 | Sampling — `sampling/createMessage` | Deferred | Server→client LLM access. |

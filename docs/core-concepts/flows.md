@@ -6,11 +6,13 @@ Flows orchestrate multiple capabilities into **structured, multi-step workflows*
 
 ```typescript
 import { defineFlow } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
 
 export const orderFulfillment = defineFlow({
   name: "orderFulfillment",
   domain: "orders",
   description: "Process an order from payment to delivery",
+  input: z.object({ orderId: z.string().uuid() }),
   trigger: { event: "order.placed" },
   steps: [
     { name: "validateOrder", type: "capability", capability: "orders.validateOrder" },
@@ -185,6 +187,7 @@ Flow state is stored as a single `jsonb` column on `flow_executions`. After each
 
 ```typescript
 import { defineEntity, defineFlow, field } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
 
 export const Document = defineEntity({
   name: "Document",
@@ -198,12 +201,13 @@ export const Document = defineEntity({
 export const processDocument = defineFlow({
   name: "processDocument",
   domain: "documents",
+  input: z.object({ body: z.unknown() }),
   steps: [
-    { name: "storeDocument", type: "capability", capability: "storeDocument" },
+    { name: "storeDocument", type: "capability", capability: "documents.storeDocument" },
     {
       name: "analyzeDocument",
       type: "capability",
-      capability: "analyzeDocument",
+      capability: "documents.analyzeDocument",
       input: { documentId: "$state.documentId" },
     },
   ],
@@ -406,7 +410,7 @@ plumbus migrate generate   # emits ALTER TABLE + CREATE INDEX
 plumbus migrate apply
 ```
 
-The preflight is also exported as `assertFlowLeaseColumns(db)` for consumers that bootstrap their own worker entry points and want to surface the same error explicitly.
+The preflight runs automatically when workers start. For custom worker bootstraps, import `assertFlowLeaseColumns` from `@plumbus/core` (re-exported via `worker/index.ts`) and call it against your Drizzle database before starting the pool.
 
 `auth_snapshot_json` is included in generated migrations for new installs and upgrades. Rows created before the column exists fall back to worker auth for roles until migrated; run `plumbus migrate generate` and `plumbus migrate apply` after upgrading framework versions that add this column.
 
@@ -414,7 +418,7 @@ The preflight is also exported as `assertFlowLeaseColumns(db)` for consumers tha
 
 ```
                 ┌─────────┐
-                │ pending │
+                │ created │
                 └────┬────┘
                      │ start
                 ┌────▼────┐
@@ -438,11 +442,11 @@ Each step produces a `StepHistoryEntry`:
 
 ```typescript
 {
-  stepName: "processPayment",
+  step: "processPayment",
   status: "completed",       // "completed" | "failed" | "skipped"
   startedAt: Date,
-  completedAt: Date,
-  output: { paymentId: "pay_123" },
+  completedAt?: Date,
+  error?: string,
 }
 ```
 

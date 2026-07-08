@@ -87,7 +87,7 @@ Events are guaranteed to be delivered through the **outbox pattern**:
 │            Single Database Transaction            │
 │                                                  │
 │  INSERT INTO orders (...)        ← data write    │
-│  INSERT INTO outbox_events (...) ← event record  │
+│  INSERT INTO event_outbox (...) ← event record  │
 │                                                  │
 │         Both succeed or both rollback             │
 └───────────────────────┬──────────────────────────┘
@@ -140,7 +140,7 @@ defineCapability({
   kind: "eventHandler",
   domain: "shipping",
   trigger: { event: "order.placed" },
-  input: orderPlaced.payload, // optional — validates envelope payload
+  input: orderPlaced.payload, // reusing the event payload schema validates the envelope payload
   access: { serviceAccounts: ["event-worker"] },
   handler: async (ctx, input) => {
     await ctx.data.Shipment.create({
@@ -157,8 +157,12 @@ defineCapability({
 
 ```typescript
 const registry = new ConsumerRegistry();
-registry.register("order.placed", async (envelope) => {
-  // Process the event
+registry.register({
+  id: "shipping-on-order-placed",
+  eventTypes: ["order.placed"],
+  handler: async (envelope) => {
+    // Process the event
+  },
 });
 ```
 

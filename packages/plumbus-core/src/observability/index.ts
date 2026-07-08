@@ -17,6 +17,7 @@ export {
   generateTraceId,
   injectTraceHeaders,
   parseTraceparent,
+  withLogMasking,
 } from './metrics.js';
 export type {
   Counter,

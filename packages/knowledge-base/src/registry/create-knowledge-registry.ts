@@ -43,7 +43,10 @@ export function createKnowledgeRegistry(opts: {
       name: def.name,
       definition: def,
       getBlock(ctx: ExecutionContext, scope: KnowledgeScope, opts) {
-        return provider.getBlock(ctx, scope, opts);
+        return provider.getBlock(ctx, scope, {
+          ...opts,
+          ranker: opts?.ranker ?? def.ranker,
+        });
       },
       async getTools(ctx: ExecutionContext, scope: KnowledgeScope) {
         if (!provider.getTools) {

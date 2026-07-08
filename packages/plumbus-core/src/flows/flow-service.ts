@@ -12,8 +12,12 @@ export function createFlowService(
   auth: AuthContext,
 ): FlowService {
   return {
-    async start(flowName: string, input: unknown): Promise<FlowExecution> {
-      return engine.start(flowName, input, auth);
+    async start(
+      flowName: string,
+      input: unknown,
+      opts?: { executionId?: string },
+    ): Promise<FlowExecution> {
+      return engine.start(flowName, input, auth, opts);
     },
 
     async resume(executionId: string, signal?: unknown): Promise<void> {

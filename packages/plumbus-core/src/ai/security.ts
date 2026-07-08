@@ -9,6 +9,8 @@ export interface SecurityCheckResult {
   safe: boolean;
   warnings: SecurityWarning[];
   redactedInput?: Record<string, unknown>;
+  /** True when mode is "block" and classified fields were detected */
+  blocked?: boolean;
 }
 
 export interface SecurityWarning {
@@ -27,13 +29,36 @@ const CLASSIFICATION_ORDER: FieldClassification[] = [
   'highly_sensitive',
 ];
 
+export type AISecurityMode = 'block' | 'redact';
+
 export interface AISecurityConfig {
+  /** Block the AI call or redact classified fields before sending (default: "redact") */
+  mode?: AISecurityMode;
   /** Minimum classification level that triggers a warning (default: "sensitive") */
   warnThreshold?: FieldClassification;
   /** Minimum classification level that triggers automatic redaction (default: "highly_sensitive") */
   redactThreshold?: FieldClassification;
   /** Registered entity definitions to cross-reference field names */
   entities?: EntityDefinition[];
+}
+
+/**
+ * Merge config overrides with entity registry definitions for runtime AI security.
+ */
+export function buildAISecurityConfig(
+  entities: EntityDefinition[],
+  overrides?: AISecurityConfig,
+): AISecurityConfig | undefined {
+  if (!overrides) {
+    return undefined;
+  }
+
+  return {
+    mode: overrides.mode ?? 'redact',
+    warnThreshold: overrides.warnThreshold ?? 'sensitive',
+    redactThreshold: overrides.redactThreshold ?? 'highly_sensitive',
+    entities: overrides.entities ?? entities,
+  };
 }
 
 function classificationLevel(c: FieldClassification): number {
@@ -135,9 +160,13 @@ export function checkPromptSecurity(
 
   scanObject(input, redactedInput, '');
 
+  const mode = config?.mode ?? 'redact';
+  const blocked = mode === 'block' && warnings.length > 0;
+
   return {
     safe: warnings.length === 0,
     warnings,
-    redactedInput: needsRedaction ? redactedInput : undefined,
+    redactedInput: blocked ? undefined : needsRedaction ? redactedInput : undefined,
+    blocked,
   };
 }

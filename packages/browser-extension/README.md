@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/browser-extension.svg)](https://www.npmjs.com/package/@plumbus/browser-extension)
 [![license](https://img.shields.io/npm/l/@plumbus/browser-extension.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.5.x || 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x%20%7C%7C%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![scaffolds: WXT · Chrome + Firefox](https://img.shields.io/badge/scaffolds-WXT%20%C2%B7%20Chrome%20%2B%20Firefox-7c5cff)](https://wxt.dev)
 
 ## What is this?
@@ -135,8 +135,12 @@ The primary entry point is the CLI (`plumbus browser-extension scaffold`, shippe
 |---|---|
 | `generateBrowserExtensionScaffold(input)` | Emit all shell files for a scaffold — returns `GeneratedFile[]`. |
 | `selectSampleCapability(capabilities)` | Pick the first zero-input `query` for the popup's working sample (stable name order). |
+| `isZeroInputCapabilityInput(inputSchema)` | Returns whether a capability input schema accepts `{}` (used by sample selection). |
 | `hostPermission(apiBaseUrl)` | Origin-only host-permission string, e.g. `https://api.example.com/*`. |
 | `apiOrigin(apiBaseUrl)` | Normalize a base URL to its origin. |
+| `assertValidAppName(name)` | Validate extension display name (CLI + custom tooling). |
+| `assertValidClientExportName(name)` | Validate generated client export identifier. |
+| `JS_IDENTIFIER` | Regex used by scaffold name validators. |
 | `INVOKE_MESSAGE_TYPE` | Message-type constant for the popup/content → background bridge. |
 | `BrowserExtensionScaffoldConfig`, `BrowserExtensionScaffoldInput`, `RegistryEntry`, `FlowTriggerInput`, `GeneratedFile` | Type surface. |
 
@@ -152,6 +156,7 @@ The primary entry point is the CLI (`plumbus browser-extension scaffold`, shippe
 ## Documentation
 
 - **CLI reference** (in the monorepo): [`docs/cli/commands.md`](../../docs/cli/commands.md#plumbus-browser-extension-scaffold) — the `plumbus browser-extension scaffold` command, options, and output.
+- **Usage guide**: [`docs/browser-extension/usage.md`](../../docs/browser-extension/usage.md) — prerequisites, scaffold workflow, `.plumbus/generated/` cache copy.
 - **Agent recipe** (ships in this package, readable from `node_modules/@plumbus/browser-extension/instructions/`): [`instructions/browser-extension.md`](./instructions/browser-extension.md) — the full auth contract, dev/production CORS examples, access-policy prerequisites, and the token-storage security note.
 
 ## The Plumbus ecosystem
@@ -165,7 +170,7 @@ The primary entry point is the CLI (`plumbus browser-extension scaffold`, shippe
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
-| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.1.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
+| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.3.x` on `@plumbus/core` `0.6.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
 | **`@plumbus/browser-extension`** | **You are here.** Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
 
 ## Links

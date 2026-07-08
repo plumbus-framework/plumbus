@@ -50,7 +50,8 @@ await registry.get('help-kb').getBlock(ctx, { audience: 'user' }, { maxTokens: 5
 
 - Unscoped blocks match any request (wildcard).
 - Order matters as tie-breaker after specificity ranking.
-- Optional `ranker` replaces default `scopeSpecificityRanker`.
+- Optional `ranker` on the provider factory replaces default `scopeSpecificityRanker`.
+- Optional `ranker` on `defineKnowledgeSource` applies when the registry calls `getBlock` and the provider does not pass a per-call override (provider ranker wins).
 
 ---
 
@@ -134,7 +135,17 @@ const docsKb = defineKnowledgeSource({
   name: 'help-docs',
   provider: documentCollection({
     root: './content/help',
-    frontmatterParser: (raw) => parseYaml(raw), // optional; simple yaml built-in
+    frontmatterParser: (raw) => {
+      const fm = parseYaml(raw) as Record<string, unknown>;
+      return {
+        scope: {
+          audience: fm.audience as string | undefined,
+          locale: fm.locale as string | undefined,
+          tenantId: fm.tenantId as string | undefined,
+          custom: fm.projectId ? { projectId: String(fm.projectId) } : undefined,
+        },
+      };
+    },
   }),
 });
 ```
@@ -150,7 +161,7 @@ locale: en
 Interview sessions can be paused and resumed.
 ```
 
-The **built-in** frontmatter parser recognizes only `audience`, `locale`, and `tenantId` (top-level `KnowledgeScope` fields). Other YAML keys are ignored unless you pass `frontmatterParser` to map them — typically into `scope.custom`. Matching then uses the same rules as `staticBlocks`: e.g. request `{ audience: 'user', custom: { projectId: 'project-42' } }` matches a block whose parsed scope is `{ audience: 'user', custom: { projectId: 'project-42' } }`.
+The **built-in** frontmatter parser recognizes only `audience`, `locale`, and `tenantId` (top-level `KnowledgeScope` fields). Custom `frontmatterParser` callbacks must return `{ scope?: KnowledgeScope; metadata?: Record<string, unknown> }` — plain YAML objects without a `scope` key disable scope filtering.
 
 **Operational notes:**
 
@@ -226,4 +237,4 @@ See [rag-via-core.md](./rag-via-core.md) for ingest and filter mapping.
 
 ## Tier 2 tool definitions
 
-KB exports **KB-local** `ToolDefinition` (not core MCP types). Definitions exist for custom agent hosts and future chat versions; `@plumbus/chat@0.1.4` does not invoke them.
+KB exports **KB-local** `ToolDefinition` (not core MCP types). Definitions exist for custom agent hosts and future chat versions; `@plumbus/chat` does not invoke them at the block tier today.

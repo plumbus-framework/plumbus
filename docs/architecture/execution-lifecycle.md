@@ -27,25 +27,21 @@ This document traces the complete lifecycle of a request through the Plumbus fra
                        │    │ scopes, tenantId  │
                        │    └────────┬─────────┘
                        │             │
-                       │    ┌────────▼─────────┐     ┌───────────┐
-                       │    │ Evaluate Access   │────▶│  403      │
-                       │    │ Policy            │ no  │ Forbidden │
-                       │    └────────┬─────────┘     └───────────┘
-                       │             │ yes
-                       │    ┌────────▼─────────┐     ┌───────────┐
-                       │    │ Validate Input    │────▶│  400      │
-                       │    │ (Zod schema)      │ err │ Validation│
-                       │    └────────┬─────────┘     └───────────┘
-                       │             │ ok
                        │    ┌────────▼─────────┐
                        │    │ Create Execution  │
                        │    │ Context (ctx)     │
                        │    └────────┬─────────┘
                        │             │
-                       │    ┌────────▼─────────┐
-                       │    │ Begin Transaction │
-                       │    └────────┬─────────┘
-                       │             │
+                       │    ┌────────▼─────────┐     ┌───────────┐
+                       │    │ Validate Input    │────▶│  400      │
+                       │    │ (Zod schema)      │ err │ Validation│
+                       │    └────────┬─────────┘     └───────────┘
+                       │             │ ok
+                       │    ┌────────▼─────────┐     ┌───────────┐
+                       │    │ Evaluate Access   │────▶│  403      │
+                       │    │ Policy            │ no  │ Forbidden │
+                       │    └────────┬─────────┘     └───────────┘
+                       │             │ yes
                        │    ┌────────▼─────────┐     ┌───────────┐
                        │    │ Execute Handler   │────▶│  500/4xx  │
                        │    │ handler(ctx,input)│ err │ Error     │
@@ -58,11 +54,6 @@ This document traces the complete lifecycle of a request through the Plumbus fra
                        │             │
                        │    ┌────────▼─────────┐
                        │    │ Record Audit Entry│
-                       │    └────────┬─────────┘
-                       │             │
-                       │    ┌────────▼─────────┐
-                       │    │ Commit Transaction│
-                       │    │ (data + outbox)   │
                        │    └────────┬─────────┘
                        │             │
                        │    ┌────────▼─────────┐
@@ -94,9 +85,11 @@ For large binary or text payloads, keep flow `input` and `state` small and store
 ┌──────────────┐     ┌──────────────────────────────────────┐
 │ Flow Engine  │     │         State Machine                 │
 │              │     │                                        │
-│  Initialize  │────▶│  pending ──▶ running ──▶ completed   │
+│  Initialize  │────▶│  created ──▶ running ──▶ completed   │
 │  execution   │     │              │    │                    │
 │              │     │              │    ├──▶ failed          │
+│              │     │              │    │                    │
+│              │     │              │    ├──▶ cancelled     │
 │              │     │              │    │                    │
 │              │     │              │    └──▶ waiting         │
 │              │     │                       (for event/delay)│
@@ -131,11 +124,17 @@ For large binary or text payloads, keep flow `input` and `state` small and store
 │  └─────────────────┘                                    │
 │                                                          │
 │  Each step produces a StepHistoryEntry:                  │
-│  { stepName, status, startedAt, completedAt, output }    │
+│  { step, status, startedAt, completedAt?, error? }        │
 └──────────────────────────────────────────────────────────┘
 ```
 
 Capability steps reference targets by **canonical name** (`orders.validateOrder`). Step auth comes from `flow_executions.auth_snapshot_json` — not worker `system` roles on user-triggered flows. Job capabilities cannot run synchronously inside a step.
+
+## Transactional outbox (default ON)
+
+For `action` and `eventHandler` capabilities, handler execution, output validation, `ctx.data.*` mutations, and `ctx.events.emit()` outbox inserts run in **one database transaction**. On handler failure or invalid output, entity writes and outbox rows roll back together. Auto-excluded: `kind: 'job'`, `effects.ai: true`, `effects.external` (non-empty), and `query`.
+
+Opt out globally with `execution.transactionalOutbox: false` (or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`), or per capability with `transactional: false`. See [Upgrading for contract alignment](../upgrading-contract-alignment.md#1-transactional-outbox-default-on-a1).
 
 ### Nested capability invocation
 
@@ -148,13 +147,13 @@ When a capability handler calls `ctx.capabilities.invoke`, the framework runs th
 │  Handler     │     │   Outbox     │     │  Dispatcher  │
 │              │     │   Table      │     │              │
 │ ctx.events   │────▶│ (PostgreSQL) │────▶│  Poll every  │
-│   .emit()    │     │              │     │  100ms       │
+│   .emit()    │     │              │     │  1s (config) │
 │              │     │ ┌──────────┐ │     │              │
-│ (same TX as  │     │ │ eventType│ │     │  Mark as     │
-│  data write) │     │ │ payload  │ │     │  dispatched  │
-│              │     │ │ tenantId │ │     │              │
-└──────────────┘     │ │ status   │ │     └──────┬───────┘
-                     │ └──────────┘ │            │
+│ (writes to   │     │ │ eventType│ │     │  Mark as     │
+│  event_outbox│     │ │ payload  │ │     │  dispatched  │
+│  on emit)    │     │ │ tenantId │ │     │              │
+│              │     │ │ status   │ │     └──────┬───────┘
+└──────────────┘     │ └──────────┘ │            │
                      └──────────────┘            │
                                                  ▼
                                        ┌──────────────────┐
@@ -203,10 +202,10 @@ When a capability handler calls `ctx.capabilities.invoke`, the framework runs th
 └────────┬────────┘
          │
 ┌────────▼────────┐     ┌──────────────┐
-│ Security Check  │────▶│ Block if     │
-│                 │     │ input contains│
-│ - PII detection │     │ restricted   │
-│ - Scope check   │     │ data         │
+│ Security Check  │────▶│ Warn / redact│
+│                 │     │ classified   │
+│ - PII detection │     │ fields, then │
+│ - Scope check   │     │ proceed      │
 └────────┬────────┘     └──────────────┘
          │ pass
 ┌────────▼────────┐
@@ -287,15 +286,22 @@ When a capability is about to execute, the framework assembles the execution con
 │                                                  │
 │  deps.auth ──────────▶ ctx.auth                  │
 │                        ctx.security              │
-│  deps.entityRegistry ─▶ ctx.data.{Entity}        │
-│  deps.eventEmitter ───▶ ctx.events               │
-│  deps.flowService ────▶ ctx.flows                │
-│  deps.aiService ──────▶ ctx.ai                   │
-│  deps.auditService ───▶ ctx.audit                │
-│  deps.config ─────────▶ ctx.config               │
-│  deps.logger ─────────▶ ctx.logger               │
-│  (built-in) ──────────▶ ctx.errors               │
-│  (built-in) ──────────▶ ctx.time                 │
+│  deps.data ──────────▶ ctx.data.{Entity}         │
+│  deps.events ────────▶ ctx.events                │
+│  deps.flows ─────────▶ ctx.flows                 │
+│  deps.ai ────────────▶ ctx.ai                   │
+│  deps.audit ─────────▶ ctx.audit                │
+│  deps.translations ──▶ ctx.translations          │
+│                        (locale per HTTP request) │
+│  deps.capabilities ──▶ ctx.capabilities          │
+│  deps.progress ──────▶ ctx.progress              │
+│  deps.request ───────▶ ctx.request               │
+│  deps.config ────────▶ ctx.config                │
+│                        (locale per HTTP request) │
+│  deps.logger ────────▶ ctx.logger                │
+│                        (masked metadata keys)    │
+│  (built-in) ─────────▶ ctx.errors                │
+│  (built-in) ─────────▶ ctx.time                  │
 └──────────────────────────────────────────────────┘
 ```
 

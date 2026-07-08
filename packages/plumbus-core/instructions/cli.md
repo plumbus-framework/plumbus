@@ -11,7 +11,8 @@ plumbus create <project-name> [--auth jwt|auth0|clerk] [--ai openai|anthropic] [
 # Create a monorepo project (backend / frontend / libs)
 plumbus create <project-name> --monorepo [--auth jwt|auth0|clerk] [--ai openai|anthropic] [--compliance GDPR|HIPAA] [--skip-install] [--git]
 
-# Initialize AI agent wiring (copilot, cursor, or agents-md)
+# Initialize AI agent wiring (all formats by default; use --agent to narrow)
+plumbus init
 plumbus init --agent copilot
 
 # Check project health
@@ -83,7 +84,30 @@ plumbus generate
 # Run governance checks (advisory signals, not hard blocks)
 plumbus verify
 plumbus verify --json
+
+# Partner API contract validation (requires @plumbus/api)
+plumbus api validate
+plumbus api validate --fail-on-governance   # also fail on advisory apiRules
+
+# Compliance profile assessment
+plumbus certify policy soc2
+plumbus certify policy gdpr --json
 ```
+
+`plumbus verify` and `plumbus api validate` are both advisory for governance by default. Use `--fail-on-governance` on `api validate` when CI should gate on advisory API rules.
+
+## Testing
+
+Consumer apps run tests through the framework — do not install vitest directly.
+
+```bash
+plumbus test
+plumbus test --watch
+plumbus test --all          # unit tests, then e2e
+plumbus e2e                 # Playwright browser suites
+```
+
+Full command reference: `docs/cli/commands.md` in the framework repo (or browse the published docs).
 
 ## Database Management
 
@@ -117,6 +141,10 @@ plumbus migrate push --create-db
 
 # Rollback the last applied migration
 plumbus migrate rollback
+
+# Adopt migration history when the live schema already matches (drift recovery)
+plumbus migrate reconcile
+plumbus migrate reconcile --dry-run
 ```
 
 All migration commands accept `--json` for machine-readable output.
@@ -125,7 +153,8 @@ All migration commands accept `--json` for machine-readable output.
 1. Define entities in `app/entities/` using `defineEntity()`
 2. Run `plumbus migrate generate` to produce SQL migration files in `drizzle/`
 3. Run `plumbus migrate apply` to execute pending migrations
-4. For rapid development, use `plumbus migrate push` to sync schema directly (no migration files)
+4. If schema already exists but history is missing: `plumbus migrate reconcile` (use `--dry-run` to preview)
+5. For rapid development, use `plumbus migrate push` to sync schema directly (no migration files)
 
 **Never run `drizzle-kit` manually** — the framework wraps it programmatically.
 
@@ -146,6 +175,15 @@ plumbus start --port 8080 --host 127.0.0.1
 ```
 
 Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`) are loaded automatically.
+
+## Background work
+
+```bash
+plumbus worker start              # split deployments
+plumbus events status             # outbox / queue health
+plumbus flow dead-letter list     # failed flow executions
+plumbus seed                      # populate initial data
+```
 
 ## Translations
 
@@ -204,6 +242,34 @@ export default async function (ctx: { sql: any; args: string[] }) {
   console.log(`Password: ${password}`);
 }
 ```
+
+## RAG ingestion
+
+```bash
+plumbus rag ingest <path>              # Ingest a document into the RAG pipeline
+plumbus rag ingest ./docs/guide.md --source support-docs --tenant-id <uuid>
+```
+
+Requires AI provider credentials in config/env. See `docs/ai/ai-integration.md` for corpus retrieval from capabilities.
+
+## Framework upgrades
+
+```bash
+plumbus upgrade                         # Migrate legacy UI artifacts after @plumbus/core / @plumbus/ui bumps
+plumbus upgrade --dry-run               # Report stale artifacts without writing
+```
+
+`plumbus doctor` suggests `plumbus upgrade` when it detects stale generated frontend layout.
+
+## Agent brief sync
+
+```bash
+plumbus agent sync                      # Regenerate .plumbus/briefs/project.md from discovered contracts
+plumbus agent brief capability getUser  # One-off brief for a single resource
+plumbus agent brief entity User
+```
+
+Run `plumbus agent sync` after adding capabilities/entities so coding agents see an up-to-date project brief. `plumbus init` creates wiring files but skips refreshing an existing brief — use sync for that.
 
 ## Important Notes
 

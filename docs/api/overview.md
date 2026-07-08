@@ -81,7 +81,7 @@ pnpm add @plumbus/api
 
 `@plumbus/core` works without `@plumbus/api`. Install this package when you want a published partner API. `plumbus api validate` prints an install hint when the package is missing.
 
-Peer dependency: `@plumbus/core` `0.5.x` (version-locked `0.1.x` for `@plumbus/api`). Zod and Vitest are provided transitively by core — do not add them to your app's `package.json` for API work.
+Peer dependency: `@plumbus/core` `0.5.x || 0.6.x` (version-locked `0.1.x` for `@plumbus/api`). Zod and Vitest are provided transitively by core — do not add them to your app's `package.json` for API work.
 
 Current `plumbus init` wiring already references `@plumbus/api/instructions/*`; installing the package makes those paths resolvable. If your project's agent files predate the current template, refresh them after install:
 
@@ -144,15 +144,15 @@ When `./api.yaml` is missing, the CLI and runtime synthesize a manifest from inl
 ### Step 3 — Register partner routes at bootstrap
 
 ```typescript
+// app/server.ts — export the hook; do not import onRoutesRegistered from @plumbus/core
 import { registerApiRoutes } from '@plumbus/api';
-import { onRoutesRegistered } from '@plumbus/core';
 
-onRoutesRegistered(async (app, routeConfig) => {
-  await registerApiRoutes(app, routeConfig, capabilities, {
+export function onRoutesRegistered(app, routeConfig) {
+  registerApiRoutes(app, routeConfig, capabilities, {
     manifest,                    // parsed ApiManifest, or omit for inline-only
     appRoot: process.cwd(),      // required for test fixture resolution
   });
-});
+}
 ```
 
 ### Step 4 — Validate and publish artifacts

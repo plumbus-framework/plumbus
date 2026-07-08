@@ -9,6 +9,10 @@ interface PlumbusConfig {
   environment: "development" | "staging" | "production";
   database: DatabaseConfig;
   queue: QueueConfig;
+  execution?: {
+    /** Global kill switch for transactional outbox (default: true). Env: PLUMBUS_TRANSACTIONAL_OUTBOX=false */
+    transactionalOutbox?: boolean;
+  };
   ai?: AIProviderConfig;               // Single provider (legacy)
   aiProviders?: AIProvidersConfig;      // Multi-provider (takes precedence)
   auth: AuthAdapterConfig;
@@ -83,13 +87,13 @@ interface DatabaseConfig {
 Environment variables:
 
 ```bash
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=myapp
-DB_USER=postgres
-DB_PASSWORD=secret
-DB_SSL=false
-DB_POOL_SIZE=10
+DB_HOST=localhost          # aliases: DATABASE_HOST, PGHOST
+DB_PORT=5432               # aliases: DATABASE_PORT, PGPORT
+DB_NAME=myapp              # aliases: DATABASE_NAME, PGDATABASE
+DB_USER=postgres           # aliases: DATABASE_USER, PGUSER
+DB_PASSWORD=secret         # aliases: DATABASE_PASSWORD, PGPASSWORD
+DATABASE_SSL=false         # read when DATABASE_SSL=true
+DATABASE_POOL_SIZE=10
 ```
 
 ## Runtime Role
@@ -156,6 +160,7 @@ interface AIProviderConfig {
   baseUrl?: string;
   maxTokensPerRequest?: number;
   dailyCostLimit?: number;
+  requestTimeout?: number; // default 120_000 ms
 }
 ```
 
@@ -168,6 +173,7 @@ AI_MODEL=gpt-4o-mini
 AI_BASE_URL=
 AI_MAX_TOKENS=4096
 AI_DAILY_COST_LIMIT=50
+AI_REQUEST_TIMEOUT=120000
 ```
 
 ### Multi-Provider
@@ -200,17 +206,20 @@ AI_DEFAULT_MODEL=gpt-4o          # fallback model for all prompts
 AI_OPENAI_API_KEY=sk-...
 AI_OPENAI_MODEL=gpt-4o-mini
 AI_OPENAI_BASE_URL=             # optional — custom endpoint
+AI_OPENAI_MAX_TOKENS=4096
+AI_OPENAI_DAILY_COST_LIMIT=50
+AI_OPENAI_REQUEST_TIMEOUT=120000
 
 # Anthropic
 AI_ANTHROPIC_API_KEY=ant-...
 AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
 AI_ANTHROPIC_BASE_URL=           # optional — custom endpoint
-
-# Ollama (OpenAI-compatible)
-AI_OLLAMA_API_KEY=
-AI_OLLAMA_MODEL=llama3
-AI_OLLAMA_BASE_URL=http://localhost:11434/v1
+AI_ANTHROPIC_MAX_TOKENS=4096
+AI_ANTHROPIC_DAILY_COST_LIMIT=50
+AI_ANTHROPIC_REQUEST_TIMEOUT=120000
 ```
+
+Only `openai` and `anthropic` provider slots are read from environment variables. Other `AI_*_API_KEY` values are ignored with a deprecation warning. To target an OpenAI-compatible local endpoint, configure `AI_OPENAI_BASE_URL` instead.
 
 ### Per-Prompt Overrides
 
@@ -237,6 +246,41 @@ When a prompt is invoked, model and provider are resolved in this order:
 Provider resolution: per-prompt override → prompt definition → `AI_DEFAULT_PROVIDER`.
 
 When `aiProviders` is configured in `PlumbusConfig`, it takes precedence over the legacy single `ai` field.
+
+### AI security (opt-in)
+
+Classified-field scanning runs only when `aiProviders.security` is set in config or via env vars below. Omit the block to leave AI calls without entity classification checks (capability `access` policies still apply).
+
+```typescript
+interface AIProvidersConfig {
+  defaultProvider: string;
+  providers: Record<string, AIProviderConfig>;
+  security?: {
+    mode?: "redact" | "block"; // default redact when security is configured
+    warnThreshold?: FieldClassification;
+    redactThreshold?: FieldClassification;
+    entities?: EntityDefinition[]; // auto-populated from registry when security is active
+  };
+}
+```
+
+Environment variables:
+
+```bash
+PLUMBUS_TRANSACTIONAL_OUTBOX=false   # disable transactional outbox globally (default: true)
+
+AI_SECURITY_MODE=redact
+AI_SECURITY_WARN_THRESHOLD=sensitive
+AI_SECURITY_REDACT_THRESHOLD=highly_sensitive
+```
+
+### Field encryption
+
+Set `PLUMBUS_ENCRYPTION_KEY` (32-byte hex or base64) to enable AES-256-GCM encryption for entity fields marked `encrypted: true`. Without the key, repositories store and return plaintext (legacy behavior).
+
+```bash
+PLUMBUS_ENCRYPTION_KEY=$(openssl rand -hex 32)
+```
 
 ## Auth Configuration
 
@@ -331,7 +375,7 @@ export default {
   //     anthropic: { apiKey: process.env["ANTHROPIC_API_KEY"]!, model: "claude-sonnet-4-20250514" },
   //   },
   // },
-  complianceProfiles: ["SOC2", "GDPR"],
+  complianceProfiles: ["soc2", "gdpr"],
 };
 ```
 
@@ -341,15 +385,28 @@ The `createServer()` function accepts a `ServerConfig`:
 
 ```typescript
 interface ServerConfig {
-  port?: number;           // Default: 3000
-  host?: string;           // Default: "0.0.0.0"
-  capabilities: CapabilityContract[];
-  entities: EntityDefinition[];
-  events?: EventDefinition[];
-  flows?: FlowDefinition[];
-  prompts?: PromptDefinition[];
   config: PlumbusConfig;
-  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
+  db: PostgresJsDatabase;
+  capabilities: CapabilityRegistry;
+  entities: EntityRegistry;
+  events: EventRegistry;
+  consumers: ConsumerRegistry;
+  flows: FlowRegistry;
+  translations?: TranslationDefinition[];
+  promptRegistry?: PromptRegistry;
+  authAdapter?: AuthAdapter;
+  logger?: LoggerService;
+  host?: string;           // Default: "0.0.0.0"
+  port?: number;           // Default: 3000
+  trustProxy?: boolean | string | string[] | number;
+  jobQueue?: EventQueue;
+  metrics?: PlumbusMetrics;
+  onRoutesRegistered?: (app, routeConfig) => void;
+  onCapabilityError?: (info) => void | Promise<void>;
+  onProcessError?: (info) => void | Promise<void>;
+  resolveAiOverrides?: (db) => Promise<{ defaultModel?; defaultProvider?; promptOverrides? }>;
+  onAICostRecorded?: (record, costContext, db) => void | Promise<void>;
+  enableStrictStructuredOutputs?: boolean;
 }
 ```
 
@@ -379,16 +436,18 @@ When `createServer()` is started through `plumbus dev` or `plumbus start`, the f
 The server wires capability routes automatically. Event consumers, flow triggers, and entity repositories are the caller's responsibility to wire into the application lifecycle.
 
 ```typescript
-import { createServer } from "@plumbus/core";
+import { createServer, loadConfig } from "@plumbus/core";
 
-const server = await createServer({
-  port: 3000,
-  capabilities: [getUser, createUser, updateUser],
-  entities: [User, Order],
-  events: [userCreated, orderPlaced],
-  flows: [onboardingFlow],
-  prompts: [classifyTicket],
+const server = createServer({
   config: loadConfig(),
+  db,
+  capabilities: capabilityRegistry,
+  entities: entityRegistry,
+  events: eventRegistry,
+  consumers: consumerRegistry,
+  flows: flowRegistry,
+  promptRegistry,
+  port: 3000,
 });
 
 await server.start();
@@ -405,12 +464,22 @@ interface WorkerPoolConfig {
   config: PlumbusConfig;
   db: PostgresJsDatabase;
   queue: EventQueue;
+  jobsQueue?: EventQueue;
+  flowsQueue?: EventQueue;
+  queuesDurable?: boolean;
   consumers: ConsumerRegistry;
   flows: FlowRegistry;
   stepDeps: StepExecutorDeps;
-  aiService?: AIService;              // AI service for capabilities that use AI
-  createDataService?: () => DataService; // Factory for data access in flow steps
-  eventRegistry?: EventRegistry;      // Event registry for emitting events from flow steps
+  capabilities?: CapabilityRegistry;
+  entities?: EntityRegistry;
+  createDataService?: (auth?: AuthContext) => DataService;
+  eventRegistry?: EventRegistry;
+  aiService?: AIService;
+  audit?: AuditService;
+  logger?: LoggerService;
+  metrics?: PlumbusMetrics;
+  onMcpJobComplete?: (jobId, result, payload?, error?) => Promise<void>;
+  onFlowError?: (info) => void | Promise<void>;
   outboxPollIntervalMs?: number;      // Default: 1000
   schedulerPollIntervalMs?: number;   // Default: 60000
   flowPollIntervalMs?: number;        // Default: 1000
@@ -423,6 +492,8 @@ interface WorkerPoolConfig {
   flowClaimBatchSize?: number;        // Default: 50
 }
 ```
+
+Additional hooks (`onQueuesClose`, `redisClient`, `flowsPrefix`, `refreshQueueDepths`, `onFlowStepEnqueue`) are available for durable split deployments — see `packages/plumbus-core/src/worker/bootstrap.ts`.
 
 The pool auto-registers a `plumbus:flow-trigger` consumer that maps incoming events to flow starts via `createFlowTriggerHandler`.
 

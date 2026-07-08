@@ -61,7 +61,7 @@ Use `ctx.progress?.report({...})` to emit progress and persist the latest value 
 
 ```ts
 const result = await client.callTool({
-  name: "generateReport",
+  name: "reports.generateReport",
   arguments: { scope: "Q4" },
   _meta: { taskMetadata: {}, progressToken: "report-1" },
 } as any);
@@ -91,7 +91,9 @@ client.fallbackNotificationHandler = async (notification) => {
 };
 ```
 
-`notifications/tasks/status` fires on every state transition (`working → completed | failed | cancelled`). `notifications/progress` fires per `ctx.progress.report` call (only when the client supplied `progressToken`).
+`notifications/tasks/status` fires on state transitions (`working → completed | failed | cancelled`) on the **in-process** task path. `notifications/progress` fires per `ctx.progress.report` when the client supplied `progressToken`.
+
+On the **queued-worker** path (`jobQueue`/Redis + `plumbus worker`), handlers have no `ctx.progress` and **no MCP notifications** are emitted — poll `tasks/get` and `tasks/result` instead.
 
 ## 5. Fetch the result
 

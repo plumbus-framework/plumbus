@@ -4,6 +4,8 @@ This is the most surprising part of `@plumbus/chat-ui`. **`useChat.confirm(actio
 
 Apps that ship action-confirmation flows must call the server-side `chatConfirmAction` capability **directly**. The hook surfaces every field the server needs — `actionId`, `capabilityName`, `schemaHash` — so apps can wire the round-trip in ~20 lines.
 
+**`chatConfirmAction` does NOT execute the proposed capability.** A successful confirm (`execute: true`) validates the pending row, re-checks the v2 schema hash, marks the action confirmed, and emits `chat.action.confirmed`. It returns `{ executed: true }` without calling `executeCapability` on the target capability. Wire real side effects in your app after confirm succeeds.
+
 ## What the server emits
 
 When the post-turn `action-guard` proposes an action, the runtime emits a `confirmation_required` event:
@@ -36,12 +38,12 @@ The auto-routed capability `chatConfirmAction` at `POST /api/chat/chat-confirm-a
 
 The server:
 1. Loads the pending action.
-2. **Re-hashes the capability's current input schema and compares to `schemaHash`.** If they differ (e.g. a redeploy tightened the schema since the action was proposed), the call is rejected with `chat.action_schema_changed`. This is the security primitive.
+2. **Re-hashes the capability's current input schema and compares to `schemaHash` (v2 rows).** If they differ (e.g. a redeploy tightened the schema since the action was proposed), the call is rejected with `chat.action_schema_changed`. Legacy unprefixed hashes use echo-compare only (`chat.action_schema_mismatch`).
 3. Re-validates input against the current schema.
-4. Executes the capability via the standard `executeCapability` path.
-5. Marks the action `confirmed`.
+4. Marks the action `confirmed` or `rejected` and emits the domain event.
+5. **Does not execute the target capability** — return value is `{ executed: true, result: { ok: true } }` stub today.
 
-The `schemaHash` round-trip means: what the user confirmed is exactly what gets executed.
+After a successful confirm response, call your domain capability (or `executeCapability`) in app code if you need real writes.
 
 ## Recipe
 
@@ -75,7 +77,7 @@ export function MyChat({ sessionId }: { sessionId: string }) {
       console.error('Confirm rejected:', err);
       return;
     }
-    chat.cancel();  // clears local pendingConfirmation; ok because the server already executed.
+    chat.cancel();  // clears local pendingConfirmation; server already marked confirmed — run your capability separately if needed.
   }
 
   return (

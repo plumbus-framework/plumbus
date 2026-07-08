@@ -7,5 +7,5 @@ dist/
 !.env.example
 coverage/
 .plumbus/
-design/
+/design/
 general-desc/

@@ -9,6 +9,7 @@ export interface KnowledgeSourceDefinition {
   readonly name: string;
   readonly description?: string;
   readonly domain?: string;
+  readonly scope?: KnowledgeScope;
   readonly provider: KnowledgeProvider;
   readonly ranker?: RankerFn;
 }
@@ -19,7 +20,7 @@ export interface KnowledgeSource {
   getBlock(
     ctx: import('@plumbus/core').ExecutionContext,
     scope: KnowledgeScope,
-    opts?: { maxTokens?: number; query?: string },
+    opts?: { maxTokens?: number; query?: string; ranker?: RankerFn },
   ): Promise<string>;
   getTools(
     ctx: import('@plumbus/core').ExecutionContext,

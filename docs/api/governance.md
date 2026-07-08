@@ -16,7 +16,7 @@ Run `plumbus verify` when:
 - CI should nudge developers toward complete auth metadata before partners integrate.
 - You are auditing API-exposed capabilities for missing `operationId` or idempotency declarations.
 
-Use `plumbus api validate` when you need **hard gates** on manifest, policy, path params, and fixtures. The two commands complement each other.
+Use `plumbus api validate` when you need **hard gates** on manifest, policy, path params, and fixtures. Pass `--fail-on-governance` when CI should also fail on advisory `apiRules` signals (same rules as `plumbus verify`). The two commands complement each other.
 
 ---
 
@@ -29,7 +29,7 @@ Use `plumbus api validate` when you need **hard gates** on manifest, policy, pat
 | Structure policy (`policy.*`) | No | Yes |
 | Path parameter mapping | No | Yes |
 | Test fixture schema + containment | No | Yes |
-| Blocks CI on findings | No (warnings only) | Yes (`exit 1` on findings) |
+| Blocks CI on findings | No (warnings only) | Yes (`exit 1` on hard findings); add `--fail-on-governance` to also fail on advisory API rules |
 
 Manifest, policy, path-param, and fixture findings exist **only** in `plumbus api validate` — not in general verify alone.
 
@@ -151,7 +151,7 @@ A capability can pass governance (warnings only) but fail `plumbus api validate`
 
 ## Agent wiring
 
-Consumer apps initialized with `plumbus init` at **`AGENT_WIRING_VERSION` 7** reference `@plumbus/api/instructions/*` and `instructions/upgrading-0.5-capabilities.md` when the package is installed. Run `plumbus init --patch` to refresh older projects.
+Consumer apps initialized with `plumbus init` at the current **`AGENT_WIRING_VERSION`** reference `@plumbus/api/instructions/*` and `instructions/upgrading-0.5-capabilities.md` when the package is installed. Run `plumbus init --patch` to refresh older projects.
 
 Core agent instructions at `node_modules/@plumbus/core/instructions/api.md` point to both package instructions and these docs.
 

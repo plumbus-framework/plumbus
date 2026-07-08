@@ -136,4 +136,42 @@ describe('checkBudgetPreflight', () => {
       }),
     ).rejects.toMatchObject({ code: 'conflict' });
   });
+
+  it('throws when perSession userMessages limit is exceeded', async () => {
+    const ctx = createTestContext();
+    const session = await createSession(ctx, {
+      chatName: 'help',
+      userId: 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    await appendTurn(
+      ctx,
+      {
+        sessionId: session.id,
+        ordinal: 0,
+        role: 'user',
+        content: 'hello',
+        inScope: true,
+        sources: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        model: 'm',
+        latencyMs: 1,
+        recordedAt: new Date(),
+        userId: 'u1',
+      },
+      { persistContent: true },
+    );
+
+    await expect(
+      checkBudgetPreflight(ctx, {
+        chatName: 'help',
+        userId: 'u1',
+        sessionId: session.id,
+        budget: { perSession: { userMessages: 1 } },
+      }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+  });
 });

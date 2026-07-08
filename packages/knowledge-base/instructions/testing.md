@@ -17,7 +17,8 @@ import {
 **Fixed tier-1 text:**
 
 ```ts
-const mock = mockKnowledgeSource('grounding text', { name: 'mock-kb' });
+const mock = mockKnowledgeSource('grounding text', { name: 'mock-kb', scope: { audience: 'user' } });
+// scope is stored on definition.scope (metadata); customize provider to filter by it
 const registry = createTestRegistry([mock.definition]);
 ```
 

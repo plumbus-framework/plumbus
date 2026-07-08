@@ -6,7 +6,7 @@ import { loadConfig, loadPromptOverrides, validateConfig } from '../loader.js';
 
 describe('Config Loader', () => {
   describe('loadConfig', () => {
-    it('loads config with development defaults when no env vars set', () => {
+    it('loads development defaults when no env vars set', () => {
       const config = loadConfig({ env: {} });
       expect(config.environment).toBe('development');
       expect(config.database.host).toBe('localhost');
@@ -15,6 +15,12 @@ describe('Config Loader', () => {
       expect(config.database.user).toBe('postgres');
       expect(config.database.password).toBe('postgres');
       expect(config.database.poolSize).toBe(5);
+      expect(config.execution?.transactionalOutbox).toBe(true);
+    });
+
+    it('disables transactional outbox when PLUMBUS_TRANSACTIONAL_OUTBOX=false', () => {
+      const config = loadConfig({ env: { PLUMBUS_TRANSACTIONAL_OUTBOX: 'false' } });
+      expect(config.execution?.transactionalOutbox).toBe(false);
     });
 
     it('uses PLUMBUS_ENV for environment', () => {
@@ -548,6 +554,38 @@ describe('Config Loader', () => {
       expect(config.aiProviders?.promptOverrides).toEqual({
         analyzer: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
       });
+    });
+
+    it('loads AI security config from env vars', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_OPENAI_API_KEY: 'sk-test',
+          AI_SECURITY_MODE: 'block',
+          AI_SECURITY_WARN_THRESHOLD: 'personal',
+        },
+      });
+      expect(config.aiProviders?.security).toEqual({
+        mode: 'block',
+        warnThreshold: 'personal',
+        redactThreshold: undefined,
+      });
+    });
+
+    it('ignores invalid AI_SECURITY_WARN_THRESHOLD values', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_OPENAI_API_KEY: 'sk-test',
+          AI_SECURITY_WARN_THRESHOLD: 'not-a-classification',
+        },
+      });
+      expect(config.aiProviders?.security?.warnThreshold).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('AI_SECURITY_WARN_THRESHOLD'));
+      warn.mockRestore();
     });
   });
 });

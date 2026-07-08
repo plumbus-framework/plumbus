@@ -29,7 +29,11 @@ export function ragContext(opts: {
     async resolve(ctx: ExecutionContext, turnCtx: TurnContext): Promise<ResolvedContext> {
       const query = typeof opts.query === 'function' ? opts.query(turnCtx) : opts.query;
       let filter = opts.filter?.(turnCtx);
-      if (opts.parentChatAudiencePolicy && !opts.filter) {
+      const shouldApplyAudience =
+        !opts.filter &&
+        opts.parentChatAudiencePolicy !== false &&
+        (turnCtx.applyDefaultAudienceFilter === true || opts.parentChatAudiencePolicy === true);
+      if (shouldApplyAudience) {
         if (!warnedAudienceFilter.has(id)) {
           warnedAudienceFilter.add(id);
           console.warn(

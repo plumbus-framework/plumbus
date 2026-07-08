@@ -208,7 +208,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     flowName: string,
     input: unknown,
     auth: AuthContext,
-    opts?: { correlationId?: string; triggerEventId?: string },
+    opts?: { correlationId?: string; triggerEventId?: string; executionId?: string },
   ): Promise<FlowExecution> {
     const flow = registry.get(flowName);
     if (!flow) {
@@ -221,7 +221,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       throw new Error(`Flow "${flowName}": invalid input — ${parseResult.error.message}`);
     }
 
-    const executionId = randomUUID();
+    const executionId = opts?.executionId ?? randomUUID();
     const initialState = flow.state
       ? (() => {
           const parsed = flow.state.safeParse({});

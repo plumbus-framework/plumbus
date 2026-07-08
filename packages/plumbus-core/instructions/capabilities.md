@@ -119,6 +119,20 @@ Every capability must declare its side effects in the `effects` field:
 
 Effects are used by governance rules to analyze the system.
 
+## Transactional outbox (default ON)
+
+For `kind: 'action'` and `kind: 'eventHandler'`, handler execution and output validation run inside a single database transaction by default. Entity writes via `ctx.data.*` and `ctx.events.emit()` outbox inserts commit or roll back together.
+
+**Auto-excluded** (non-transactional): `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`, and other kinds (e.g. `query`).
+
+**Opt out:**
+- Globally: `execution.transactionalOutbox: false` in config, or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`
+- Per capability: `transactional: false` on `defineCapability({ ... })`
+
+Inside an active transaction, `ctx.flows.start()` and `ctx.jobs.enqueue()` defer until after commit (pre-allocated ids). Nested success audits also defer until commit. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
+
+See `docs/upgrading-contract-alignment.md` §1 and `docs/architecture/execution-lifecycle.md`.
+
 ## Capability-to-capability invocation
 
 The only sanctioned path for synchronous composition is `ctx.capabilities.invoke`:
@@ -205,7 +219,9 @@ export const getRefund = defineCapability({
 ```
 
 **Rules when MCP-exposed:**
-- Only `kind: "query"` and `kind: "action"` may be exposed. `job` and `eventHandler` are rejected at `defineCapability()` time.
+- `kind: "query"` and `kind: "action"` are standard MCP tools.
+- `kind: "job"` is exposed via MCP Tasks (`tools/call` + `_meta.taskMetadata`). Register `mcpTaskEntity` in the app entity list.
+- Only `kind: "eventHandler"` is rejected at `defineCapability()` time for MCP exposure.
 - Either `description`, `mcp.description`, or `explanation.summary` is required.
 - Agent identity is controlled via `access.serviceAccounts` and `access.scopes`. Deny-by-default still holds.
 

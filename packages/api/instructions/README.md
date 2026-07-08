@@ -22,3 +22,4 @@ Package quickstart: [../README.md](../README.md).
 - **Default idempotency store is in-memory.** Production multi-instance deployments need a durable `idempotencyStore` with TTL.
 - **`plumbus generate` OpenAPI ≠ partner OpenAPI.** Use `plumbus api generate openapi` for the canonical partner contract.
 - **Public capabilities + test intent is forbidden.** `plumbus api validate` flags `policy.public-test-forbidden` when `access.public: true` enables test fixtures.
+- **`plumbus api validate` governance is advisory by default.** Hard findings (manifest/policy/path/fixtures) exit `1`; governance signals do not unless you pass `--fail-on-governance`. See [manifest-and-cli.md](./manifest-and-cli.md).

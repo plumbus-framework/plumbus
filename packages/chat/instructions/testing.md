@@ -87,28 +87,9 @@ For multi-turn tests where responses should vary by call, wrap `mockAI` manually
 
 ## Testing budgets and cooldowns
 
-Seed the test context with prior `ChatTurn` rows or `ChatSession.behavioralState`:
+`checkBudgetPreflight` throws `chat.budget_exceeded` when session/user/tenant aggregates cross configured caps. Per-turn token/cost caps fail the turn after generation. Seed prior turns via `appendTurn` / `createSession` helpers.
 
-```ts
-const ctx = createTestContext({
-  data: {
-    ChatSession: [{
-      id: 'sess-1',
-      chatName: 'help',
-      userId: 'u1',
-      audience: 'user',
-      locale: 'en',
-      startedAt: new Date('2026-01-01'),
-      lastTurnAt: new Date('2026-01-01'),
-      status: 'active',
-      behavioralState: { refusal: { count: 2, lastAt: '2026-01-01T00:00:00Z' } },
-      summaryTurnCount: 0,
-    }],
-  },
-});
-```
-
-Then run a turn that produces a refusal — the behavioral guard's post-turn increment makes count=3, and the next turn's preflight will block.
+For behavioral cooldowns, seed `ChatSession.behavioralState` with keys like `cooldown:refusal:session:{sessionId}` (`{ until: epochMs }`) or counter keys `{trigger}:{scopeKey}` with `{ count, windowStart }`. See `packages/chat/src/budget/__tests__/enforcer.test.ts` and `src/runtime/__tests__/run-turn.test.ts` for budget/cooldown examples.
 
 ## Pure UI helpers (no React needed)
 

@@ -8,7 +8,7 @@ There is no separate `tasks/call` method — task mode is always `tools/call` wi
 
 ```ts
 await client.callTool({
-  name: 'generateReport',
+  name: 'reports.generateReport',
   arguments: { scope: 'q1' },
   _meta: { taskMetadata: {}, progressToken: 'report-1' },
 });
@@ -130,12 +130,14 @@ export const generateReport = defineCapability({
 
 ## `ctx.progress.report`
 
-Inside a `kind: 'job'` handler called via MCP with task metadata, `ctx.progress` is set. Calling `ctx.progress.report({ progress, total?, message? })`:
+Inside a `kind: 'job'` handler called via MCP with task metadata on the **in-process** path, `ctx.progress` is set. Calling `ctx.progress.report({ progress, total?, message? })`:
 
 1. Persists the latest progress on the `mcp_task` row.
-2. Emits `notifications/progress` to the MCP client with the original `progressToken`.
+2. Emits `notifications/progress` to the MCP client with the original `progressToken` (when provided).
 
-When the handler is invoked through HTTP (the existing 202 + jobId path) or via direct `runCapability` in tests, `ctx.progress` is `undefined` (or a no-op in tests). Always use optional chaining: `ctx.progress?.report({...})`.
+On the **queued-worker** path (`jobQueue`/Redis + `plumbus worker`), `ctx.progress` is **undefined** in the handler and no MCP notifications are emitted. Clients must poll `tasks/get` (and `tasks/result`) to observe progress and completion.
+
+When the handler is invoked through HTTP (the existing 202 + jobId path) or via direct `runCapability` in tests, `ctx.progress` is also `undefined`. Always use optional chaining: `ctx.progress?.report({...})`.
 
 If the client does **not** send `_meta.progressToken` on the original `tools/call`, `notifications/progress` is not emitted — progress is still persisted on the `mcp_task` row, but the client must poll `tasks/get` to observe it.
 

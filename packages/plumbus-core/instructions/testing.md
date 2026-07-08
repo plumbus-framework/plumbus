@@ -15,15 +15,19 @@ import { runCapability, simulateFlow, mockAI, createTestContext } from "@plumbus
 Execute a capability in an isolated test environment:
 
 ```ts
-const result = await runCapability(getUser, {
-  input: { userId: "usr_123" },
-  auth: { userId: "admin_1", roles: ["admin"], scopes: [], provider: "test" },
-  data: {
-    User: [{ id: "usr_123", name: "Alice", email: "alice@test.com" }],
+const result = await runCapability(
+  getUser,
+  { userId: "usr_123" },
+  {
+    auth: { userId: "admin_1", roles: ["admin"], scopes: [], provider: "test" },
+    data: {
+      User: [{ id: "usr_123", name: "Alice", email: "alice@test.com" }],
+    },
   },
-});
+);
 
-expect(result.name).toBe("Alice");
+expect(result.success).toBe(true);
+expect(result.data?.name).toBe("Alice");
 ```
 
 ### Paginated list capabilities
@@ -37,8 +41,10 @@ When testing `kind: 'query'` list endpoints that paginate via `findMany` + `coun
 ```ts
 const page1 = await runCapability(listStaff, { page: 1, limit: 2 }, { ctx });
 const page2 = await runCapability(listStaff, { page: 2, limit: 2 }, { ctx });
-expect(page1.items).not.toEqual(page2.items);
-expect(page1.total).toBeGreaterThan(page1.limit);
+expect(page1.success && page1.data).toBeTruthy();
+expect(page2.success && page2.data).toBeTruthy();
+expect(page1.data.items).not.toEqual(page2.data.items);
+expect(page1.data.total).toBeGreaterThan(page1.data.limit);
 ```
 
 ### `simulateFlow`
@@ -46,16 +52,21 @@ expect(page1.total).toBeGreaterThan(page1.limit);
 Simulate flow execution and inspect step history:
 
 ```ts
-const execution = await simulateFlow("refundApproval", {
-  input: { refundId: "rf_1", amount: 50 },
-  events: {
-    "refund.approved": { refundId: "rf_1", approvedBy: "mgr_1" },
+import { refundApproval } from "../refundApproval/flow.js";
+
+const execution = await simulateFlow(
+  refundApproval,
+  { refundId: "rf_1", amount: 50 },
+  {
+    capabilityResults: {
+      "billing.validateRefund": { valid: true },
+    },
   },
-});
+);
 
 expect(execution.status).toBe("completed");
-expect(execution.steps).toHaveLength(4);
-expect(execution.steps[0].name).toBe("validateRefund");
+expect(execution.history.length).toBeGreaterThan(0);
+expect(execution.history[0]?.stepName).toBe("validateRefund");
 ```
 
 ### `mockAI`
@@ -65,13 +76,15 @@ Mock AI provider responses:
 ```ts
 const ctx = createTestContext({
   ai: mockAI({
-    summarizeTicket: { summary: "Customer wants refund", priority: "high", sentiment: "negative" },
+    generate: { summary: "Customer wants refund", priority: "high", sentiment: "negative" },
   }),
 });
 
 const result = await ctx.ai.generate({ prompt: "summarizeTicket", input: { ticketText: "..." } });
 expect(result.priority).toBe("high");
 ```
+
+`mockAI` keys responses by **operation** (`generate`, `extract`, `classify`, `retrieve`), not by prompt name. All prompts share the configured response for each operation.
 
 ### `createTestContext`
 
@@ -101,21 +114,21 @@ const execution = await simulateFlow(myFlow, input, {
 ## Security Test Patterns
 
 ```ts
-// Assert unauthorized access is rejected
-await expect(
-  runCapability("deleteUser", {
-    input: { userId: "usr_1" },
-    auth: { roles: ["viewer"], scopes: [], provider: "test" },
-  })
-).rejects.toMatchObject({ code: "forbidden" });
+import { assertCapabilityDenied } from "@plumbus/core/testing";
 
-// Assert cross-tenant access is blocked
-await expect(
-  runCapability("getUser", {
-    input: { userId: "usr_1" },
-    auth: { tenantId: "other_tenant", roles: ["admin"], scopes: [], provider: "test" },
-  })
-).rejects.toMatchObject({ code: "forbidden" });
+// Assert unauthorized access is rejected (returns { success: false }, does not throw)
+const denied = await runCapability(
+  deleteUser,
+  { userId: "usr_1" },
+  { auth: { roles: ["viewer"], scopes: [], provider: "test" } },
+);
+expect(denied.success).toBe(false);
+expect(denied.error?.code).toBe("forbidden");
+
+// Or use the helper
+await assertCapabilityDenied(deleteUser, { userId: "usr_1" }, {
+  auth: { roles: ["viewer"], scopes: [], provider: "test" },
+});
 ```
 
 ## Governance Test Patterns

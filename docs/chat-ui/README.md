@@ -65,7 +65,7 @@ The server owns chat definition and policy; the wire format is `ChatEvent[]`; th
 pnpm add @plumbus/chat-ui
 ```
 
-Peers: `@plumbus/chat` `^0.1.0 <0.2.0`, `react` / `react-dom` `^19`.
+Peers: `@plumbus/chat` `0.1.x`, `@plumbus/core` `0.5.x || 0.6.x`, `react` `>=19` (React DOM comes through `@plumbus/ui`; it is not a peer of `@plumbus/chat-ui`).
 
 ## Minimal usage
 

@@ -92,8 +92,10 @@ export {
 } from './rag/index.js';
 // Security
 export {
+  buildAISecurityConfig,
   checkPromptSecurity,
   type AISecurityConfig,
+  type AISecurityMode,
   type SecurityCheckResult,
   type SecurityWarning,
 } from './security.js';

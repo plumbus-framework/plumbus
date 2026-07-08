@@ -5,6 +5,7 @@
 
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
 import { createAuditService } from '../audit/service.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { DispatcherConfig } from '../events/dispatcher.js';
@@ -16,6 +17,7 @@ import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import { wireContextDependencies } from '../execution/context-deps.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
@@ -375,36 +377,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         provider: 'worker',
       };
 
-      const systemAudit = audit ?? createAuditService({ db, auth: systemAuth });
-      const dataService = poolConfig.createDataService
-        ? poolConfig.createDataService()
-        : ({} as DataService);
-      const eventService = eventRegistry
-        ? createEventEmitter({
-            db,
-            auth: systemAuth,
-            registry: eventRegistry,
-            audit: systemAudit,
-          })
-        : undefined;
-
-      const baseCtx = createExecutionContext({
-        auth: systemAuth,
-        data: dataService,
-        events: eventService,
-        // Without a real FlowService here, ctx.flows defaults to noopFlows in
-        // createExecutionContext, and any capability that calls
-        // `ctx.flows.start(...)` from inside a flow step silently does nothing
-        // — start() returns {id:'',status:'not_started'} and the nested flow
-        // is never launched. The HTTP route bootstrap wires this; the worker
-        // must too.
-        flows: createFlowService(flowEngine, systemAuth),
-        ai: poolConfig.aiService,
-        audit: systemAudit,
-        logger,
-        config: poolConfig.config as unknown as Record<string, unknown>,
-        ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
-      });
+      const baseCtx = buildFlowRunnerContext(systemAuth);
 
       for (const row of claimed) {
         try {
@@ -475,16 +448,38 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
   }
 
-  function buildFlowRunnerContext(): import('../types/context.js').ExecutionContext {
-    const systemAuth = {
+  function buildFlowRunnerContext(
+    systemAuth: AuthContext = {
       userId: 'system-flow-runner',
       roles: ['system'],
       scopes: [],
       provider: 'worker',
-    };
+    },
+  ): import('../types/context.js').ExecutionContext {
+    if (poolConfig.entities && eventRegistry) {
+      return createExecutionContext(
+        wireContextDependencies(
+          {
+            db,
+            auth: systemAuth,
+            entities: poolConfig.entities,
+            events: eventRegistry,
+            encryptionKey: resolveEncryptionKey(),
+          },
+          {
+            flows: createFlowService(flowEngine, systemAuth),
+            ai: poolConfig.aiService,
+            logger,
+            config: poolConfig.config as unknown as Record<string, unknown>,
+            ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
+          },
+        ),
+      );
+    }
+
     const systemAudit = audit ?? createAuditService({ db, auth: systemAuth });
     const dataService = poolConfig.createDataService
-      ? poolConfig.createDataService()
+      ? poolConfig.createDataService(systemAuth)
       : ({} as DataService);
     const eventService = eventRegistry
       ? createEventEmitter({

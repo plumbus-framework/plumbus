@@ -5,6 +5,7 @@ import type { DataService, Repository } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { AuthContext } from '../types/security.js';
 import { createRepository } from './repository.js';
+import { collectMaskedFieldsFromEntities } from './mask-fields.js';
 import { generateDrizzleSchema } from './schema-generator.js';
 
 /**
@@ -57,6 +58,11 @@ export class EntityRegistry {
     return Array.from(this.entities.values());
   }
 
+  /** Unique field names masked in logs across all registered entities. */
+  getMaskedFieldNames(): string[] {
+    return collectMaskedFieldsFromEntities(this.getAllEntities());
+  }
+
   /**
    * Get all Drizzle table schemas (for migration generation).
    */
@@ -74,6 +80,8 @@ export class EntityRegistry {
     audit?: AuditService;
     /** Bypass tenant-scope filtering for cross-tenant admin access */
     bypassTenantScope?: boolean;
+    /** AES-256-GCM key for encrypted string fields */
+    encryptionKey?: Buffer;
   }): DataService {
     const dataService: Record<string, Repository> = {};
 
@@ -87,6 +95,7 @@ export class EntityRegistry {
         auth: options.auth,
         audit: options.audit,
         bypassTenantScope: options.bypassTenantScope,
+        encryptionKey: options.encryptionKey,
       });
     }
 

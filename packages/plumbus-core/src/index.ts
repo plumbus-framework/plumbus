@@ -24,6 +24,7 @@ export type {
   AIInvocationRecord,
   AIProviderAdapter,
   AISecurityConfig,
+  AISecurityMode,
   AIServiceConfig,
   AnthropicAdapterConfig,
   BudgetCheckResult,
@@ -72,6 +73,7 @@ export {
   allKnownModels,
   calculateModelCost,
   checkPromptSecurity,
+  buildAISecurityConfig,
   chunkDocument,
   createAIService,
   createAnthropicAdapter,
@@ -101,6 +103,8 @@ export {
   registerAllRoutes,
   registerCapabilityRoute,
   registerStreamingRoute,
+  resolveRequestLocale,
+  LOCALE_COOKIE_NAME,
 } from './api/index.js';
 export type { AuditServiceConfig } from './audit/index.js';
 // ── Audit ──
@@ -141,16 +145,24 @@ export type { MigrationConfig, MigrationRecord, RepositoryOptions } from './data
 export {
   EntityRegistry,
   applyMigrations,
+  collectMaskedFieldsFromEntities,
   collectSchemas,
   createRepository,
+  decryptFieldValue,
+  encryptFieldValue,
   generateDrizzleSchema,
   generateSchemas,
+  getEncryptedFields,
+  getMaskedFields,
   gte,
   ilike,
+  isEncryptedValue,
   like,
   lte,
+  resolveEncryptionKey,
   rollbackLastMigration,
   sql,
+  ENCRYPTION_PREFIX,
 } from './data/index.js';
 // ── Define Functions ──
 export { defineCapability } from './define/defineCapability.js';
@@ -163,8 +175,16 @@ export { zodInputToJsonSchema } from './schema/zod-input-to-json-schema.js';
 // ── Error Utilities ──
 export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export {
-  PlumbusError,
+  AIBudgetExceededError,
+  AISecurityBlockedError,
+  DataForbiddenError,
+  DataInternalError,
+  DataValidationError,
+  EncryptionConfigError,
+  EncryptionPayloadError,
+  FlowCancelledError,
   LeaseLostError,
+  PlumbusError,
   createErrorService,
   isPlumbusError,
 } from './errors/index.js';
@@ -282,6 +302,7 @@ export {
   createMetricsRegistry,
   createPlumbusMetrics,
   createStructuredLogger,
+  withLogMasking,
   createTraceContext,
   createTracer,
   extractTraceFromHeaders,
@@ -304,7 +325,7 @@ export {
 export * from './types/index.js';
 export type { WorkerPool, WorkerPoolConfig } from './worker/index.js';
 // ── Worker Bootstrap ──
-export { createWorkerPool } from './worker/index.js';
+export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
 export type {
   BuildWorkerAiServiceOptions,
   RegisterCapabilityConsumersOptions,
@@ -329,7 +350,9 @@ export {
 } from './runtime/index.js';
 export type {
   CreateJobExecutionInput,
+  CreateJobDispatchServiceOptions,
   DispatchJobOptions,
+  JobDispatchService,
   JobExecutionRecord,
   JobQueuePayload,
   JobService,
@@ -337,6 +360,8 @@ export type {
 export {
   JobExecutionSource,
   JobExecutionStatus,
+  createDeferredJobDispatchService,
+  createJobDispatchService,
   createJobService,
   dispatchQueuedJob,
   jobEventType,
@@ -452,6 +477,8 @@ export {
   apiRules,
   applyOverrides,
   architectureRules,
+  capabilityDependencyRules,
+  mcpRules,
   builtInProfiles,
   createGovernanceRuleEngine,
   createOverrideStore,
@@ -481,4 +508,5 @@ export {
   rulePersonalDataInLogs,
   ruleSensitiveFieldUnencrypted,
   securityRules,
+  workerRules,
 } from './governance/index.js';

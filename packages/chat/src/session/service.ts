@@ -106,7 +106,7 @@ export async function appendTurn(
 export async function aggregateForBudget(
   ctx: ExecutionContext,
   args: { sessionId?: string; userId?: string; tenantId?: string; since?: Date },
-): Promise<{ turns: number; tokens: number; costUsd: number }> {
+): Promise<{ turns: number; tokens: number; costUsd: number; userMessages: number }> {
   const { sessions, turns } = repos(ctx);
   const query: Partial<ChatTurnRow> = {};
   if (args.sessionId) query.sessionId = args.sessionId;
@@ -124,6 +124,7 @@ export async function aggregateForBudget(
     turns: filtered.length,
     tokens: filtered.reduce((s, r) => s + r.tokensIn + r.tokensOut, 0),
     costUsd: filtered.reduce((s, r) => s + r.costUsd, 0),
+    userMessages: filtered.filter((r) => r.role === 'user').length,
   };
 }
 
@@ -142,4 +143,37 @@ export async function updateSessionSummary(
   summaryTurnCount: number,
 ): Promise<void> {
   await repos(ctx).sessions.update(sessionId, { summaryText, summaryTurnCount });
+}
+
+/** Load the user's most recent sessions for cross-session behavioral state (default 50). */
+export async function loadRecentUserSessions(
+  ctx: ExecutionContext,
+  userId: string,
+  limit = 50,
+): Promise<ChatSessionRow[]> {
+  const rows = await repos(ctx).sessions.findMany({ userId });
+  return rows
+    .sort((a, b) => new Date(b.lastTurnAt).getTime() - new Date(a.lastTurnAt).getTime())
+    .slice(0, limit);
+}
+
+function mergeBehavioralStates(sessions: ChatSessionRow[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  const ordered = [...sessions].sort(
+    (a, b) => new Date(a.lastTurnAt).getTime() - new Date(b.lastTurnAt).getTime(),
+  );
+  for (const session of ordered) {
+    Object.assign(merged, session.behavioralState as Record<string, unknown>);
+  }
+  return merged;
+}
+
+/** Merge behavioral state across recent user sessions (oldest → newest precedence). */
+export async function loadMergedUserBehavioralState(
+  ctx: ExecutionContext,
+  userId: string,
+  limit = 50,
+): Promise<Record<string, unknown>> {
+  const sessions = await loadRecentUserSessions(ctx, userId, limit);
+  return mergeBehavioralStates(sessions);
 }

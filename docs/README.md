@@ -18,18 +18,22 @@ docs/
 │   └── diagrams.md
 ├── upgrading-workers.md       0.5.0 workers/queues migration guide
 ├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
+├── upgrading-contract-alignment.md  Runtime contract fixes (outbox, AI security, encryption, locale, chat/KB)
 │   (0.6.0 AI cost ledger: see ai/ai-integration.md → Upgrading to @plumbus/core 0.6.0)
 ├── core-concepts/             Deep dives into each primitive
 │   ├── capabilities.md
 │   ├── entities.md
 │   ├── flows.md
 │   ├── events.md
-│   └── prompts.md
+│   ├── prompts.md
+│   ├── translations.md
+│   └── governance.md
 ├── sdk-reference/             Complete API documentation
 │   ├── define-functions.md
 │   ├── execution-context.md
 │   ├── data-layer.md
-│   └── configuration.md
+│   ├── configuration.md
+│   └── observability.md
 ├── cli/                       All commands and options
 │   └── commands.md
 ├── security/                  Security model, auth, tenant isolation
@@ -40,6 +44,9 @@ docs/
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding
 │   └── ui-generation.md
+├── browser-extension/         Optional @plumbus/browser-extension scaffolder
+│   ├── README.md
+│   └── usage.md
 ├── knowledge-base/            Optional @plumbus/knowledge-base package (scoped providers + registry)
 │   ├── README.md
 │   ├── defining-sources.md
@@ -67,6 +74,8 @@ docs/
 │   ├── client-stt.md
 │   ├── local-providers.md
 │   ├── cost-tracking.md
+│   ├── noise-cancellation.md
+│   ├── livekit-continuous-voice.md
 │   ├── testing.md
 │   ├── security.md
 │   └── design/
@@ -76,6 +85,7 @@ docs/
 │   ├── agent-authentication.md
 │   ├── expose-a-capability.md
 │   ├── transports.md
+│   ├── tasks-and-jobs.md
 │   └── skill-files.md
 ├── api/                       Optional @plumbus/api package (partner API contracts, OpenAPI, diff)
 │   ├── README.md              Folder index — navigation, reading paths, agent instructions
@@ -104,20 +114,24 @@ docs/
 | Configure workers and queues | [Architecture → Workers and Queues](architecture/workers-and-queues.md) |
 | Migrate to 0.5.0 workers model | [Upgrading Workers](upgrading-workers.md) |
 | Migrate to canonical capability names | [Upgrading Capability Names](upgrading-capability-names.md) |
+| Review runtime contract-alignment changes | [Upgrading for Contract Alignment](upgrading-contract-alignment.md) |
 | Migrate AI cost ledgers to 0.6.0 voice/media operations | [AI → Upgrading to 0.6.0](ai/ai-integration.md#upgrading-to-plumbuscore-060) |
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |
 | See all CLI commands | [CLI → Commands](cli/commands.md) |
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |
 | Review framework-first and git-safety rules for agents | [Agents → Guardrails](agents/guardrails.md) |
 | Generate a React frontend | [UI → Generation](ui/ui-generation.md) |
+| Scaffold a browser extension | [Browser Extension → README](browser-extension/README.md) |
 | Add a chat surface to my app | [Chat → README](chat/README.md) |
 | Add registry-backed knowledge sources | [Knowledge Base → README](knowledge-base/README.md) |
 | Wire a React chat UI | [Chat UI → README](chat-ui/README.md) |
 | Add a realtime voice surface | [Voice → README](voice/README.md) |
+| Run continuous LiveKit voice sessions | [Voice → LiveKit continuous voice](voice/livekit-continuous-voice.md) |
+| Configure voice noise cancellation | [Voice → Noise Cancellation](voice/noise-cancellation.md) |
 | Serve capabilities to AI agents over MCP | [MCP → Overview](mcp/overview.md) |
 | Wire MCP tool-call metrics (Datadog, Prometheus, etc.) | [MCP → Transports → onMcpToolCall](mcp/transports.md#per-tool-call-observability--onmcptoolcall) |
 | Publish a partner-facing API with OpenAPI | [API → README](api/README.md) (start here) · [Overview](api/overview.md) · [packages/api/README.md](../packages/api/README.md) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
-
+| Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

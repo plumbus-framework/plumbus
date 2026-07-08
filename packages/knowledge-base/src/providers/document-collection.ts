@@ -20,7 +20,7 @@ export function documentCollection(opts: {
   };
   ranker?: (blocks: ScoredBlock[], scope: KnowledgeScope) => ScoredBlock[];
 }): KnowledgeProvider {
-  const ranker = opts.ranker ?? scopeSpecificityRanker;
+  const factoryRanker = opts.ranker;
   let loadPromise: Promise<ParsedDoc[]> | null = null;
   let cachedDocs: ParsedDoc[] | null = null;
 
@@ -51,7 +51,7 @@ export function documentCollection(opts: {
   }
 
   return {
-    async getBlock(_ctx, scope, { maxTokens } = {}) {
+    async getBlock(_ctx, scope, { maxTokens, ranker: callRanker } = {}) {
       const docs = await loadDocs();
       const blocks: ScoredBlock[] = docs.map((d, index) => ({
         text: d.text,
@@ -59,7 +59,8 @@ export function documentCollection(opts: {
         scope: d.scope,
       }));
       const filtered = filterBlocksByScope(blocks, scope);
-      const ranked = ranker(filtered, scope);
+      const activeRanker = factoryRanker ?? callRanker ?? scopeSpecificityRanker;
+      const ranked = activeRanker(filtered, scope);
       return packBlocks(ranked, maxTokens);
     },
     async getTools() {

@@ -27,7 +27,7 @@ export const summarizeTicket = definePrompt({
 });
 ```
 
-Prompts should NOT hardcode `provider` or model `name`. These are resolved at runtime through the configuration chain (see below). Only set `temperature` and `maxTokens` in the prompt definition.
+Prompts should NOT hardcode `provider` or model `name` unless you have a deliberate per-prompt override. Prefer env-based resolution (`AI_DEFAULT_*`, `PROMPT_{NAME}_*`) or `resolveAiOverrides` in `app/server.ts`. Only set `temperature` and `maxTokens` in the prompt definition when tuning is part of the contract. See `prompts.md` for `system`/`description` content.
 
 ## `ctx.ai` Operations
 
@@ -74,15 +74,63 @@ const docs = await ctx.ai.retrieve({ query: "refund policy for enterprise custom
 // docs: Array<{ content: string, source: string, score: number, metadata?: Record<string, unknown> }>
 ```
 
+Ingest documents with `plumbus rag ingest <path>` (see `cli.md`).
+
+### Generate With Usage
+
+Returns validated output plus token counts and per-request cost:
+
+```ts
+const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
+  prompt: "summarizeTicket",
+  input: { ticketText: input.text, customerTier: "enterprise" },
+});
+```
+
+### Stream Generate
+
+Stream partial output for long-running generations:
+
+```ts
+for await (const event of ctx.ai.streamGenerate({
+  prompt: "writeChapter",
+  input: { topic: input.topic },
+})) {
+  if (event.type === "delta") process.stdout.write(event.text);
+}
+```
+
+### Multi-turn messages
+
+Pass explicit chat messages instead of a named prompt:
+
+```ts
+await ctx.ai.generate({
+  messages: [
+    { role: "system", content: "You are a helpful assistant." },
+    { role: "user", content: input.question },
+  ],
+});
+```
+
+### Cost helpers
+
+- `ctx.ai.checkProviderCostBudget()` — pre-flight budget check before provider calls
+- `ctx.ai.recordProviderCost()` — record spend from external provider usage APIs
+
 ## Output Validation
 
 All AI responses are validated against the prompt's output Zod schema. On failure, the framework retries generation (configurable). If retries are exhausted, a structured error is raised.
 
 ## Cost Tracking
 
-Every AI invocation records: model used, input/output token counts, latency, and prompt name. Token counts come directly from provider responses and are always accurate.
+Every AI invocation records: model used, input/output token counts, latency, and prompt name. Token counts come directly from provider responses.
 
-**Actual costs** are fetched from provider usage APIs — the framework never guesses or hardcodes pricing. Use `createUsageAPIClient()` to configure OpenAI and Anthropic billing API access:
+**Per-request cost** is computed automatically from a built-in pricing table (`calculateModelCost`) covering major OpenAI and Anthropic models. Unknown models (Ollama, custom endpoints) return cost `$0`. Cached-token and long-context adjustments are applied when providers return cache metadata.
+
+`generateWithUsage()` and `streamGenerate()` expose `cost` on each call. Budget limits (`BudgetConfig`) can gate requests by tokens or dollar amounts.
+
+**Optional billing reconciliation:** use `createUsageAPIClient()` + `createCostTracker().syncCosts()` to pull actual invoices from provider billing APIs — this supplements, but does not replace, per-request cost from the pricing table:
 
 ```ts
 import { createUsageAPIClient, createCostTracker } from "@plumbus/core";
@@ -92,23 +140,9 @@ const openaiUsage = createUsageAPIClient({
   apiKey: process.env.AI_OPENAI_API_KEY,
 });
 
-const anthropicUsage = createUsageAPIClient({
-  provider: "anthropic",
-  apiKey: process.env.AI_ANTHROPIC_API_KEY,
-});
-
-const costTracker = createCostTracker(budgetConfig, [openaiUsage, anthropicUsage]);
-
-// Fetch actual costs from billing APIs
+const costTracker = createCostTracker(budgetConfig, [openaiUsage]);
 const result = await costTracker.syncCosts();
-if (!result.synced) {
-  console.warn("Cost sync failed:", result.error);
-}
 ```
-
-If the usage API is not configured or unavailable, `cost` on each record is `null` and dollar-based budget limits cannot be enforced. Token-based budget limits always work.
-
-Budget limits (per-request token limit, daily cost limit, per-tenant daily limit) are enforced via `BudgetConfig`.
 
 ## Configuration via Environment Variables
 
@@ -125,7 +159,7 @@ AI_MODEL=gpt-4o-mini
 
 ### Multi-Provider
 
-Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Providers are discovered from `AI_{NAME}_API_KEY` patterns:
+Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **only** `AI_OPENAI_*` and `AI_ANTHROPIC_*` slots — other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically via `createProviderAdapter` / `createAIService`.
 
 ```bash
 AI_DEFAULT_PROVIDER=openai
@@ -204,6 +238,20 @@ The framework calls this hook before each `generate()`, `generateWithUsage()`, a
 
 ## Security
 
-- Classified fields in prompt inputs are detected and warn/redact based on entity field classifications
+Classified-field scanning is **opt-in**. It runs only when `aiProviders.security` is set in config or via `AI_SECURITY_*` env vars. Omit the block entirely to leave AI calls unscanned (capability `access` policies still apply).
+
+When configured:
+
+| Mode | Behavior |
+|------|----------|
+| `redact` (default) | Warn at `warnThreshold`; replace fields at/above `redactThreshold` with `[REDACTED]` and continue |
+| `block` | Abort the AI call when any field at/above `warnThreshold` is detected (`AISecurityBlockedError`) |
+
+Entity definitions are merged from the registry when the `security` block is present. Thresholds: `warnThreshold` / `redactThreshold` on config, or `AI_SECURITY_WARN_THRESHOLD` / `AI_SECURITY_REDACT_THRESHOLD`. Invalid `AI_SECURITY_MODE` values warn at load and fall back to `redact`.
+
+Also:
+
 - Tenant isolation is enforced — prompts cannot access cross-tenant data
 - All AI invocations are recorded in the audit trail
+
+See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.

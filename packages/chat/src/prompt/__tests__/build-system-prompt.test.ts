@@ -14,4 +14,16 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('src_a1');
     expect(prompt).toContain("Reply in 'en' only");
   });
+
+  it('C9: replyLocale override forces anchor language', () => {
+    const prompt = buildSystemPrompt({
+      chatInstructions: 'Helper',
+      audience: 'user',
+      locale: 'en',
+      replyLocale: 'he',
+      resolvedContext: { items: [], sources: [], estimatedTokens: 0 },
+      allowedSourceHandles: [],
+    });
+    expect(prompt).toContain("Reply in 'he' only");
+  });
 });

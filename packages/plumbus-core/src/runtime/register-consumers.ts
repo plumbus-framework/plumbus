@@ -3,14 +3,14 @@
 
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { createAuditService } from '../audit/service.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
-import { createEventEmitter } from '../events/emitter.js';
 import type { EventRegistry } from '../events/registry.js';
 import { outboxTable } from '../events/outbox.js';
 import { TrustedReplayActor, type EventEnvelope } from '../types/event.js';
 import { CapabilityKind } from '../types/enums.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import { wireContextDependencies } from '../execution/context-deps.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
@@ -126,31 +126,31 @@ function buildConsumerContext(
   auth: AuthContext,
   eventMeta?: { correlationId?: string; causationId?: string },
 ): ReturnType<typeof createExecutionContext> {
-  const audit = createAuditService({ db: opts.db, auth });
-  const data = opts.entities.createDataService({ db: opts.db, auth, audit });
-  const eventService = createEventEmitter({
-    db: opts.db,
-    auth,
-    registry: opts.events,
-    audit,
-    correlationId: eventMeta?.correlationId,
-    causationId: eventMeta?.causationId,
-  });
   const flows = opts.flowEngine ? createFlowService(opts.flowEngine, auth) : undefined;
   const capRuntime = buildCapabilityRuntimeDeps(opts.capabilities);
+  const encryptionKey = resolveEncryptionKey();
 
-  return createExecutionContext({
-    auth,
-    data,
-    events: eventService,
-    flows,
-    ai: opts.aiService,
-    audit,
-    logger: opts.logger,
-    config: opts.config as unknown as Record<string, unknown>,
-    correlationId: eventMeta?.correlationId,
-    ...capRuntime,
-  });
+  const deps = wireContextDependencies(
+    {
+      db: opts.db,
+      auth,
+      entities: opts.entities,
+      events: opts.events,
+      correlationId: eventMeta?.correlationId,
+      getCausationId: () => eventMeta?.causationId,
+      encryptionKey,
+    },
+    {
+      flows,
+      ai: opts.aiService,
+      logger: opts.logger,
+      config: opts.config as unknown as Record<string, unknown>,
+      correlationId: eventMeta?.correlationId,
+      ...capRuntime,
+    },
+  );
+
+  return createExecutionContext(deps);
 }
 
 /**

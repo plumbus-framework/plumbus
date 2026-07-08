@@ -39,6 +39,15 @@ export async function checkBudgetPreflight(
       chatName: args.chatName,
     });
   }
+  if (
+    budget.perSession?.userMessages !== undefined &&
+    agg.userMessages >= budget.perSession.userMessages
+  ) {
+    throw ctx.errors.conflict('Session user message limit exceeded', {
+      code: 'chat.budget_exceeded',
+      chatName: args.chatName,
+    });
+  }
 
   const now = ctx.time.now();
   if (budget.perUser) {

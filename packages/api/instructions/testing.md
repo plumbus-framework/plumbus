@@ -79,11 +79,11 @@ describe("partner API", () => {
   it("returns refund envelope", async () => {
     const app = Fastify();
     const routeConfig = {
+      db: testDb, // PostgresJsDatabase — use a test double or migration-backed test DB
       authAdapter: testAuthAdapter,
       createDependencies: () => createTestContext(),
-      capabilities,
     };
-    await registerApiRoutes(app, routeConfig, capabilities);
+    registerApiRoutes(app, routeConfig, capabilities);
     const res = await app.inject({
       method: "GET",
       url: "/api/v1/refunds/ref-1",

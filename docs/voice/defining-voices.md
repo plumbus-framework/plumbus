@@ -13,7 +13,6 @@ The app-owned brain stays inside `brain.run(ctx, args)`.
 
 ```ts
 import { defineVoice, registerVoiceRoutes } from '@plumbus/voice';
-import { onRoutesRegistered } from '@plumbus/core';
 
 export const interviewVoice = defineVoice({
   name: 'interview',
@@ -30,7 +29,8 @@ export const interviewVoice = defineVoice({
   },
 });
 
-onRoutesRegistered((app, routeConfig) => {
+// app/server.ts — export the hook; the runtime loads it from your app module
+export function onRoutesRegistered(app, routeConfig) {
   registerVoiceRoutes(app, routeConfig, [interviewVoice], {
     providers: {
       providers: {
@@ -42,7 +42,7 @@ onRoutesRegistered((app, routeConfig) => {
     sessionTokenSecret: process.env['VOICE_SESSION_TOKEN_SECRET'],
     websocketOriginAllowlist: ['https://app.example.com'],
   });
-});
+}
 ```
 
 ## Required fields

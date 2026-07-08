@@ -136,6 +136,11 @@ export interface CapabilityContract<
   api?: ApiExposureConfig;
   /** Event subscription for kind: 'eventHandler' — optional; enables auto-registration */
   trigger?: EventHandlerTrigger;
+  /**
+   * When `false`, opts out of the transactional outbox for this capability.
+   * Default: transactional for `action` / `eventHandler` (auto-excluded for `job` and `effects.ai: true`).
+   */
+  transactional?: boolean;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

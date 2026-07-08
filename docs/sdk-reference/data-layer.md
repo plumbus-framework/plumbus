@@ -84,8 +84,31 @@ const userRepo = createRepository<User>({
   audit: auditService,
   softDelete: true,
   bypassTenantScope: false, // Set true for cross-tenant admin access
+  encryptionKey: resolveEncryptionKey(), // optional — from PLUMBUS_ENCRYPTION_KEY
 });
 ```
+
+### Field encryption
+
+String fields with `encrypted: true` are encrypted with AES-256-GCM before insert/update when `PLUMBUS_ENCRYPTION_KEY` is set. Reads decrypt values prefixed with `plumbus:enc:v1:`; legacy plaintext rows pass through unchanged.
+
+```typescript
+import { getEncryptedFields, resolveEncryptionKey } from "@plumbus/core";
+
+const key = resolveEncryptionKey();
+const encryptedFieldNames = getEncryptedFields(UserEntity);
+```
+
+### Log masking helpers
+
+```typescript
+import { getMaskedFields, collectMaskedFieldsFromEntities } from "@plumbus/core";
+
+const masked = getMaskedFields(UserEntity);
+const allMasked = collectMaskedFieldsFromEntities(registry.getAllEntities());
+```
+
+Audit logs mask sensitive fields automatically. Structured capability loggers use the same field names via `maskKeys` (see [Observability](observability.md)).
 
 ### Repository Methods
 
@@ -116,7 +139,7 @@ interface Repository<
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
 
   // Count rows matching query (tenant scoping applies like findMany)
-  count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters'>): Promise<number>;
+  count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>): Promise<number>;
 }
 ```
 
@@ -136,16 +159,33 @@ interface QueryOptions {
   limit?: number;
   /** Number of rows to skip (default 0) */
   offset?: number;
-  /** Column name to sort by — validated against entity table columns */
-  orderBy?: string;
-  /** Sort direction (default 'desc') */
+  /** Column name or multi-column sort spec — validated against entity table columns */
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
+  /** Default sort direction (default 'desc') — applied to a string `orderBy`, and the fallback for array specs that omit `dir` */
   orderDir?: 'asc' | 'desc';
   /** Date range filters: { columnName: { gte?: Date, lte?: Date } } */
   dateFilters?: Record<string, { gte?: Date; lte?: Date }>;
+  /** OR-of-ILIKE across the given entity fields for a free-text term */
+  search?: { columns: string[]; term: string };
+  /** field → allowed values (SQL IN). Empty arrays ignored */
+  in?: Record<string, Array<string | number>>;
+  /** field → value the row must NOT equal (SQL <>) */
+  notEq?: Record<string, string | number>;
 }
 ```
 
-Only the fields defined on `QueryOptions` in `packages/plumbus-core/src/types/context.ts` are supported.
+```typescript
+const matches = await ctx.data.User.findMany(
+  { status: "active" },
+  {
+    search: { columns: ["name", "email"], term: "alice" },
+    in: { role: ["admin", "user"] },
+    notEq: { status: "deleted" },
+    orderBy: [{ column: "createdAt", dir: "desc" }],
+    limit: 20,
+  },
+);
+```
 
 ### `count(query?, options?)`
 
@@ -181,6 +221,23 @@ findMany() called
 ```
 
 Cross-tenant access is prevented at the data layer — no capability can accidentally read another tenant's data.
+
+## Drizzle query helpers
+
+`@plumbus/core` re-exports common Drizzle operators for custom queries against `collectSchemas()` tables:
+
+```typescript
+import { and, gte, ilike } from "drizzle-orm";
+
+await db
+  .select()
+  .from(schemas.orders)
+  .where(and(gte(schemas.orders.createdAt, since), ilike(schemas.orders.notes, "%urgent%")));
+```
+
+`@plumbus/core` re-exports `gte`, `lte`, `like`, `ilike`, and `sql` for simple filters. For compound `where` clauses, import `and` / `or` / `ne` from `drizzle-orm` (already a transitive dependency of `@plumbus/core`).
+
+Use these for ad hoc reporting or admin queries — routine entity access should go through `ctx.data` repositories.
 
 ## Schema Generation
 

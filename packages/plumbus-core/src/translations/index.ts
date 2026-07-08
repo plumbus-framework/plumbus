@@ -139,6 +139,17 @@ export class TranslationRegistry {
   getAllDefinitions(): TranslationDefinition[] {
     return Array.from(this.namespaces.values());
   }
+
+  /** Union of all locale codes declared on registered translation definitions. */
+  getSupportedLocales(): string[] {
+    const locales = new Set<string>();
+    for (const def of this.namespaces.values()) {
+      for (const locale of def.locales) {
+        locales.add(locale);
+      }
+    }
+    return Array.from(locales);
+  }
 }
 
 /**

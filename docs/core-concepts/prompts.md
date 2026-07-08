@@ -158,12 +158,11 @@ Every AI call is tracked:
 import { createCostTracker } from "@plumbus/core";
 
 const tracker = createCostTracker({
-  dailyBudget: 50.00,  // $50/day limit
-  currency: "USD",
+  dailyCostLimit: 50,
 });
 
 // Check budget before call
-const check = tracker.checkBudget(estimatedCost);
+const check = tracker.checkBudget({ estimatedCostUsd: estimatedCost });
 if (!check.allowed) {
   throw new Error(`Budget exceeded: ${check.reason}`);
 }
@@ -175,13 +174,16 @@ AI outputs are validated against the Zod schema defined in the prompt. If valida
 
 ```typescript
 import { generateWithValidation } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
+import type { AIProviderAdapter } from "@plumbus/core";
 
-const result = await generateWithValidation({
-  provider,
-  prompt: promptDef,
-  input: { ticketText: "..." },
-  maxRetries: 2,  // Retry up to 2 times on validation failure
-});
+const outputSchema = z.object({ sentiment: z.string() });
+const result = await generateWithValidation(
+  provider as AIProviderAdapter,
+  { prompt: "Summarize this ticket." },
+  outputSchema,
+  { maxRetries: 2 },
+);
 ```
 
 ## RAG Pipeline
@@ -200,8 +202,8 @@ The Retrieval-Augmented Generation pipeline:
 │   Chunking      │
 │                 │
 │ Split into      │
-│ 512-token chunks│
-│ with overlap    │
+│ ~1000-char chunks│
+│ (200-char overlap)│
 └────────┬────────┘
          │
 ┌────────▼────────┐

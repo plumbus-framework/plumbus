@@ -39,7 +39,8 @@ export const knowledgeRegistry = createKnowledgeRegistry({ sources: [helpKb] });
 | Freeze registry once at boot | Mutate or extend registry after `createKnowledgeRegistry` |
 | Use `createTestRegistry` in tests | Patch globals or skip registry in chat tests |
 | Throw `KnowledgeError` with stable codes in custom providers | `throw new Error(...)` for expected failures |
-| Set `ranker` when product needs featured/weighted ordering | Reimplement scope filtering incorrectly — start from `scopeSpecificityRanker` |
+| Set `ranker` on `defineKnowledgeSource` when product needs featured ordering | Reimplement scope filtering incorrectly — start from `scopeSpecificityRanker` |
+| Rely on registry passing `def.ranker` when provider omits one | Assume source + provider rankers stack — provider ranker wins, single pass |
 
 ## Custom provider
 

@@ -16,4 +16,6 @@ Plumbus capabilities can be exposed to partners on versioned HTTP routes. **Cont
 - **`plumbus api validate` / `generate` / `diff` / `test-fixtures validate`** — CLI entry points; dynamic import of `@plumbus/api`.
 - **`registerApiRoutes()`** — mount partner routes at app bootstrap (requires `@plumbus/api` install).
 
+`plumbus api validate` exits `1` only on hard findings by default; pass `--fail-on-governance` to also fail on advisory API governance signals. Details: `node_modules/@plumbus/api/instructions/manifest-and-cli.md`.
+
 Install the runtime when serving partners: `pnpm add @plumbus/api` (optional peer of `@plumbus/core`, version-locked `0.1.x`).

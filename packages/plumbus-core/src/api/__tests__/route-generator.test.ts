@@ -6,6 +6,7 @@ import {
   registerAllRoutes,
   registerCapabilityRoute,
   registerStreamingRoute,
+  resolveRequestLocale,
 } from '../route-generator.js';
 
 // ── Helpers ──
@@ -490,5 +491,71 @@ describe('GET query param coercion', () => {
 
     // NaN stays as string "notanumber", Zod rejects it
     expect(reply.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('resolveRequestLocale', () => {
+  it('prefers plumbus-ui-locale cookie over Accept-Language', () => {
+    const locale = resolveRequestLocale(
+      {
+        cookie: 'plumbus-ui-locale=he; other=x',
+        'accept-language': 'en-US,en;q=0.9',
+      },
+      { defaultLocale: 'en', supportedLocales: ['en', 'he'] },
+    );
+    expect(locale).toBe('he');
+  });
+
+  it('falls back to Accept-Language when cookie is absent', () => {
+    const locale = resolveRequestLocale(
+      { 'accept-language': 'he-IL,he;q=0.9,en;q=0.8' },
+      { defaultLocale: 'en', supportedLocales: ['en', 'he'] },
+    );
+    expect(locale).toBe('he');
+  });
+
+  it('returns defaultLocale when no header matches', () => {
+    const locale = resolveRequestLocale(
+      { 'accept-language': 'fr-FR' },
+      { defaultLocale: 'en', supportedLocales: ['en', 'he'] },
+    );
+    expect(locale).toBe('en');
+  });
+
+  it('prefers higher q-value when later in Accept-Language header', () => {
+    const locale = resolveRequestLocale(
+      { 'accept-language': 'en;q=0.8, he;q=0.9' },
+      { defaultLocale: 'en', supportedLocales: ['en', 'he'] },
+    );
+    expect(locale).toBe('he');
+  });
+});
+
+describe('registerCapabilityRoute locale wiring', () => {
+  it('passes resolved locale to createDependencies', async () => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    config.defaultLocale = 'en';
+    config.supportedLocales = ['en', 'he'];
+    const cap = makeCapability({ kind: 'query' });
+
+    registerCapabilityRoute(app as any, cap, config);
+
+    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const request = {
+      ...makeMockRequest({ id: '1' }),
+      headers: {
+        authorization: 'Bearer test-token',
+        cookie: 'plumbus-ui-locale=he',
+      },
+    };
+    const reply = makeMockReply();
+
+    await registeredHandler(request, reply);
+
+    expect(config.createDependencies).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+      expect.objectContaining({ locale: 'he' }),
+    );
   });
 });

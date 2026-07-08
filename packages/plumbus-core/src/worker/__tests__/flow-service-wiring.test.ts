@@ -45,7 +45,12 @@ describe('worker baseCtx — flows wiring (regression)', () => {
 
     const result = await ctx.flows.start('processTimelineRebuild', { foo: 'bar' });
 
-    expect(engineStart).toHaveBeenCalledWith('processTimelineRebuild', { foo: 'bar' }, systemAuth);
+    expect(engineStart).toHaveBeenCalledWith(
+      'processTimelineRebuild',
+      { foo: 'bar' },
+      systemAuth,
+      undefined,
+    );
     expect(result.id).toBe('exec-real-1');
     expect(result.status).toBe('created');
   });

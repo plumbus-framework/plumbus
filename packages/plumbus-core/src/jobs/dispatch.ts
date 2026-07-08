@@ -1,4 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { DataForbiddenError, DataValidationError } from '../errors/data-errors.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { EventQueue } from '../events/queue.js';
@@ -32,12 +33,17 @@ export async function dispatchQueuedJob(options: DispatchJobOptions): Promise<st
   } = options;
 
   if (capability.kind !== 'job') {
-    throw new Error(`Capability "${capability.name}" is not kind job`);
+    throw new DataValidationError(`Capability "${capability.name}" is not kind job`, {
+      capability: capability.name,
+      kind: capability.kind,
+    });
   }
 
   const authz = evaluateAccess(capability.access, auth);
   if (!authz.allowed) {
-    throw new Error(authz.reason ?? 'Job access denied at enqueue');
+    throw new DataForbiddenError(authz.reason ?? 'Job access denied at enqueue', {
+      capability: capability.name,
+    });
   }
 
   const jobs = createJobService(db);

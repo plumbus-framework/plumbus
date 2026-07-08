@@ -16,7 +16,7 @@ These docs are split in three:
 |---|---|
 | [defining-chats.md](./defining-chats.md) | You want to author a new `defineChat` config or wire `registerChatRoutes`. |
 | [policies.md](./policies.md) | You need to understand the seven built-in guards and the order they fire in. |
-| [context-sources.md](./context-sources.md) | You're wiring up `knowledgeContext`, `capabilityContext`, or `staticContext`. |
+| [context-sources.md](./context-sources.md) | You're wiring up `ragContext`, registry `knowledgeContext`, `capabilityContext`, or `staticContext`. |
 | [testing.md](./testing.md) | You're writing tests with `mockChatRuntime` or the pure UI helpers. |
 | [evaluations.md](./evaluations.md) | You're writing eval scenarios for a chat with `defineChatEvaluation` / `runChatEvaluation`. |
 | [../chat-ui/README.md](../chat-ui/README.md) | You're wiring `<ChatPanel />`, `useChat`, or the SSE client helpers in a React app. |
@@ -62,10 +62,11 @@ packages/chat/
       defineChat.ts                   The declarative entrypoint
       defineChatEvaluation.ts         Declares eval scenarios (see evaluations.md)
     context/
-      knowledge-context.ts            Wraps ctx.ai.retrieve over a registered RAG corpus
+      knowledge-context.ts            Registry-backed @plumbus/knowledge-base adapter
+      rag-context.ts                  Direct ctx.ai.retrieve over a registered RAG corpus
       capability-context.ts           Wraps a read capability (write-effect capabilities rejected)
       static-context.ts               Inline structured items (path maps, glossaries)
-      static-context-from-translations.ts   Built from i18n catalogs — no drift
+      static-context-from-translations.ts   Deprecated — use translationCatalog + knowledgeContext
       resolver.ts                     Eager parallel resolution with stable handles
     policy/
       registry.ts                     compilePolicy(policy) → preTurn[] + postTurn[]
@@ -95,7 +96,7 @@ This package composes on core; it does not duplicate. Specifically:
 | Concern | Owned by | Used here as |
 |---|---|---|
 | LLM calls (`generate`, `streamGenerate`, `generateWithUsage`) | core | direct dependency in `run-turn.ts` |
-| RAG retrieval (`ctx.ai.retrieve({ corpus, query, filter })`) | core | wrapped by `knowledgeContext` |
+| RAG retrieval (`ctx.ai.retrieve({ corpus, query, filter })`) | core | wrapped by `ragContext` (direct) or registry `knowledgeContext` |
 | Capability execution | core | wrapped by `capabilityContext` (read-only) and `action-guard` (write with confirmation) |
 | Auth / tenant scoping | core | inherited via `ExecutionContext` |
 | Cost ledger / `onAICostRecorded` hook | core | every chat AI call tags `costContext.serviceArea = 'chat'`, `operationName = chat.<name>` |
@@ -106,9 +107,9 @@ This package composes on core; it does not duplicate. Specifically:
 
 - `defineChat` with full policy DSL (audience, scope, reply, privacy, provenance, behavioral, action, custom guards).
 - Three built-in context sources + a translation-backed helper.
-- All five budget scopes + per-turn timeout.
+- All five budget scopes (`perTurn`, `perSession`, `perUser`, `perTenant`, `contextTokens`) plus `actions.perSession` and per-turn timeout are enforced when configured.
 - Streaming runtime with a typed event protocol.
-- Pending-action confirmation with schema-hash re-validation.
+- Pending-action confirmation with v2 schema-hash re-validation (`v2:` + capability input schema via `ctx.capabilities.describe`).
 - React hook (`useChat`) and components in `@plumbus/chat-ui`.
 - Session and turn persistence with opt-out for message content.
 - Domain events (`chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent`) emitted by the runtime.
@@ -123,7 +124,7 @@ This package composes on core; it does not duplicate. Specifically:
 | Definition | `defineChat`, `defineChatEvaluation` | `defineChat` is the entrypoint; `defineChatEvaluation` declares eval scenarios |
 | Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts` | |
 | Policy | `compilePolicy` | public for advanced tooling; chats normally compile policies internally |
-| Context helpers | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations`, `resolveContextSources` | `resolveContextSources` is advanced — for custom runtimes |
+| Context helpers | `ragContext`, `knowledgeContext`, `knowledgeContextLegacy` (deprecated alias for `ragContext`), `capabilityContext`, `staticContext`, `staticContextFromTranslations` (deprecated), `resolveContextSources`, `CHAT_TIER_TOOLS_ERROR_PREFIX` | `resolveContextSources` is advanced — for custom runtimes |
 | Prompts | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | overridable via `definePrompt` + AI Config admin |
 | Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | auto-routed; `chatConfirmAction` is what a client calls to commit a pending action |
 | Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | register in your app's entity list |
