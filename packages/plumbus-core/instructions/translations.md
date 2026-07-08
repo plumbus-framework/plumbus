@@ -30,7 +30,7 @@ export const commonTranslation = defineTranslation({
 
 - Place translation files in `app/translations/<name>.translation.ts` (classic layout), **or** use the locale-folder layout below
 - Each assembler exports one `defineTranslation()` result
-- All locales **must** have the same key set — mismatched keys throw at import time
+- All locales **must** have the same key set — mismatched keys fail at typecheck for literal catalogs and throw at import time otherwise
 - Messages use ICU MessageFormat: `{name}` for interpolation, `{count, plural, ...}` for plurals, `{gender, select, ...}` for select
 - The `name` field is the namespace: keys resolve as `<namespace>.<key>` (e.g., `common.nav.overview`)
 
@@ -105,4 +105,4 @@ function Nav() {
 
 ## Translation Sync
 
-`defineTranslation()` validates key consistency at import time. If locale "he" is missing keys that "en" has, the app throws immediately. This ensures tests and CI catch translation drift.
+`defineTranslation()` enforces key consistency at typecheck for literal / `as const` catalogs, and again at import time. If locale "he" is missing keys that "en" has, `tsc` fails for typed catalogs and the app throws immediately otherwise. This ensures tests and CI catch translation drift.

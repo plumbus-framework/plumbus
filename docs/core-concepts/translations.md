@@ -32,14 +32,14 @@ export const commonTranslation = defineTranslation({
 
 ## Validation
 
-`defineTranslation()` validates at definition time:
+`defineTranslation()` validates key consistency at **typecheck** (for literal / `as const` catalogs) and again at **definition time**:
 
 - **Name required** — must be a non-empty string
 - **Default locale** — must be included in the `locales` array
-- **Key consistency** — all locales must have exactly the same keys. Missing or extra keys produce an error with the specific key names
+- **Key consistency** — all locales must have exactly the same keys. TypeScript rejects mismatched literal catalogs; at runtime, missing or extra keys still throw with the specific key names
 - **Value types** — all message values must be strings
 
-If validation fails, `defineTranslation()` throws immediately, preventing the app from starting with incomplete translations.
+If runtime validation fails, `defineTranslation()` throws immediately, preventing the app from starting with incomplete translations.
 
 ## ICU MessageFormat
 
@@ -234,8 +234,9 @@ plumbus translation status --json
 
 ## Translation Sync Enforcement
 
-`defineTranslation()` throws at import time if locales have mismatched keys. This means:
+`defineTranslation()` rejects mismatched keys at typecheck for literal catalogs, and throws at import time otherwise. This means:
 
+- `tsc` / the editor catch key drift before runtime
 - Tests fail if translations are incomplete
 - The dev server won't start with missing translations
 - CI catches translation drift automatically
