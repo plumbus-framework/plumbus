@@ -45,7 +45,7 @@
     "lint": "biome lint ./src",
     "format": "biome format --write ./src",
     "format:check": "biome format ./src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && node ./scripts/check-define-translation-types.mjs",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [

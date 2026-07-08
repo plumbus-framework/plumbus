@@ -12,5 +12,5 @@
     }
   },
   "include": ["src", "src/shims/**/*.d.ts"],
-  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts"]
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts", "src/**/__typecheck-fixtures/**"]
 }

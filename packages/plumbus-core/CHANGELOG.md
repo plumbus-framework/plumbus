@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`defineTranslation()` typecheck key consistency** — for literal / `as const` message catalogs, TypeScript now rejects locales that do not share the same key set (native diagnostics on the locale attribute). Runtime import-time validation is unchanged. Apps with existing key drift may start failing `tsc` even though they still throw at import time today.
 - **`QueryOptions.search`** — OR-of-ILIKE across named entity columns for free-text search (usable via `findMany`/`count`). LIKE metacharacters (`%`, `_`, `\`) in the term are escaped, so the term matches literally rather than as a wildcard pattern.
 - **`QueryOptions.in`** — SQL `IN` filter (empty arrays ignored).
 - **`QueryOptions.notEq`** — SQL `<>` filter. Under SQL three-valued logic, rows whose column is `NULL` are excluded (matching `<>` semantics); the in-memory test repository mirrors this.

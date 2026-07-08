@@ -41,6 +41,29 @@ export const commonTranslation = defineTranslation({
 
 If runtime validation fails, `defineTranslation()` throws immediately, preventing the app from starting with incomplete translations.
 
+**Typecheck vs runtime on “extra” keys:** typecheck compares against the *union* of keys across all locales. If `he` has an extra key that `en` lacks, TypeScript typically errors on **`en`** (“missing key X”), while runtime validation (which uses the default locale as the reference) errors on **`he`** (“extra key X”). Both catch the drift; the blamed locale differs.
+
+### Dynamic catalogs (escape hatch)
+
+When a locale catalog is typed as `Record<string, string>` (not a literal / `as const` object), TypeScript cannot verify key parity at compile time — only runtime validation still applies:
+
+```ts
+const heMessages: Record<string, string> = loadHeFromCms(); // keys checked at import time only
+
+export const commonTranslation = defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: {
+      greeting: "Hello {name}",
+      farewell: "Goodbye",
+    },
+    he: heMessages,
+  },
+});
+```
+
 ## ICU MessageFormat
 
 Messages support ICU MessageFormat syntax for interpolation:

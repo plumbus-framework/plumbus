@@ -31,6 +31,8 @@ export const commonTranslation = defineTranslation({
 - Place translation files in `app/translations/<name>.translation.ts` (classic layout), **or** use the locale-folder layout below
 - Each assembler exports one `defineTranslation()` result
 - All locales **must** have the same key set — mismatched keys fail at typecheck for literal catalogs and throw at import time otherwise
+- Prefer literal / `as const` catalogs so `tsc` catches drift. A locale typed as `Record<string, string>` skips compile-time key checks and still relies on import-time validation
+- When a non-default locale has an extra key, typecheck may error on the **default** locale (“missing key X”) while runtime errors on the **other** locale (“extra key X”) — both catch the same drift
 - Messages use ICU MessageFormat: `{name}` for interpolation, `{count, plural, ...}` for plurals, `{gender, select, ...}` for select
 - The `name` field is the namespace: keys resolve as `<namespace>.<key>` (e.g., `common.nav.overview`)
 
@@ -106,3 +108,20 @@ function Nav() {
 ## Translation Sync
 
 `defineTranslation()` enforces key consistency at typecheck for literal / `as const` catalogs, and again at import time. If locale "he" is missing keys that "en" has, `tsc` fails for typed catalogs and the app throws immediately otherwise. This ensures tests and CI catch translation drift.
+
+### Dynamic locales
+
+```ts
+const he: Record<string, string> = loadFromCms("he"); // no compile-time key parity
+
+defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: { greeting: "Hello", farewell: "Bye" },
+    he,
+  },
+});
+// Runtime still throws if `he` is missing/extra keys relative to `en`.
+```
