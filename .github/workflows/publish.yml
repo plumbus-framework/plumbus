@@ -20,13 +20,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
+          # Node 24 ships npm >= 11.5.1 (OIDC trusted-publishing floor).
+          # Do NOT run `npm install -g npm@latest` — in-place self-upgrades
+          # on GHA runners have been leaving broken npm trees (missing
+          # `sigstore` / `promise-retry`), which then crash provenance
+          # signing inside libnpmpublish during `pnpm publish`.
           node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
-
-      # OIDC trusted publishing requires npm >= 11.5.1 (Node 24 ships npm 11,
-      # but upgrade explicitly so the OIDC token exchange is guaranteed).
-      - run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
