@@ -32,14 +32,37 @@ export const commonTranslation = defineTranslation({
 
 ## Validation
 
-`defineTranslation()` validates at definition time:
+`defineTranslation()` validates key consistency at **typecheck** (for literal / `as const` catalogs) and again at **definition time**:
 
 - **Name required** — must be a non-empty string
 - **Default locale** — must be included in the `locales` array
-- **Key consistency** — all locales must have exactly the same keys. Missing or extra keys produce an error with the specific key names
+- **Key consistency** — all locales must have exactly the same keys. TypeScript rejects mismatched literal catalogs; at runtime, missing or extra keys still throw with the specific key names
 - **Value types** — all message values must be strings
 
-If validation fails, `defineTranslation()` throws immediately, preventing the app from starting with incomplete translations.
+If runtime validation fails, `defineTranslation()` throws immediately, preventing the app from starting with incomplete translations.
+
+**Typecheck vs runtime on “extra” keys:** typecheck compares against the *union* of keys across all locales. If `he` has an extra key that `en` lacks, TypeScript typically errors on **`en`** (“missing key X”), while runtime validation (which uses the default locale as the reference) errors on **`he`** (“extra key X”). Both catch the drift; the blamed locale differs.
+
+### Dynamic catalogs (escape hatch)
+
+When a locale catalog is typed as `Record<string, string>` (not a literal / `as const` object), TypeScript cannot verify key parity at compile time — only runtime validation still applies:
+
+```ts
+const heMessages: Record<string, string> = loadHeFromCms(); // keys checked at import time only
+
+export const commonTranslation = defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: {
+      greeting: "Hello {name}",
+      farewell: "Goodbye",
+    },
+    he: heMessages,
+  },
+});
+```
 
 ## ICU MessageFormat
 
@@ -234,8 +257,9 @@ plumbus translation status --json
 
 ## Translation Sync Enforcement
 
-`defineTranslation()` throws at import time if locales have mismatched keys. This means:
+`defineTranslation()` rejects mismatched keys at typecheck for literal catalogs, and throws at import time otherwise. This means:
 
+- `tsc` / the editor catch key drift before runtime
 - Tests fail if translations are incomplete
 - The dev server won't start with missing translations
 - CI catches translation drift automatically
