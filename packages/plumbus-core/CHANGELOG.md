@@ -1,8 +1,10 @@
 # @plumbus/core changelog
 
-## Unreleased
+## 0.6.5
 
 ### Breaking behavior changes
+
+Contract-first defaults — no framework-wide legacy mode. Escape hatches are per-app opt-outs; see [Migration stance](../../docs/upgrading-contract-alignment.md#migration-stance-locked).
 
 - **Transactional outbox default ON (A1)** — `action` and `eventHandler` capabilities now run handler + output validation inside a single database transaction so entity writes and `ctx.events.emit()` outbox rows commit or roll back together. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. Nested failures inside an active transaction re-throw to roll back the parent scope; `ctx.flows.start()` and `ctx.jobs.enqueue()` inside a transaction defer until commit (pre-allocated ids). Nested success capability audits defer until commit. Opt out globally with `execution.transactionalOutbox: false` (or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`), or per capability with `transactional: false`. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#1-transactional-outbox-default-on-a1).
 

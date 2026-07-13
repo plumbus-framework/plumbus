@@ -128,7 +128,7 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 - **Do** include `instructions` even if short — the framework joins them into the system prompt body.
 - **Do** use `@plumbus/knowledge-base` `translationCatalog` + registry `knowledgeContext` when surface names live in `app/translations/`. `staticContextFromTranslations` is deprecated and resolves nothing unless you pass `getCatalog`.
 - **Do** set `policy.audience` with all roles that should access the chat, even single-role chats (`['user']`).
-- **Do** set `budget.perSession.userMessages` on every chat — enforced in DB mode via `checkBudgetPreflight` and in ephemeral mode via `clientHistory` counting. Budget knobs are hard limits (not advisory): unset or raise any limit you do not want enforced.
+- **Do** set `budget.perSession.userMessages` on every chat — enforced in DB mode via `checkBudgetPreflight` and in ephemeral mode via `clientHistory` counting. Budget knobs are hard limits when set (not advisory, not behind an enforce flag): unset or raise any limit you do not want enforced.
 - **Do** pass `locale` explicitly to every turn. Server-persistence chats can default from the session row; client-persistence must pass on every request.
 - **Do** register chat entities exactly once at app boot, alongside the app's own entities.
 

@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.10
 
 ### Breaking behavior changes
 
-- **C7 — Budget enforcement:** `perTurn` tokens/cost, DB-backed `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced. Ephemeral `userMessages` cap unchanged.
+Documented knobs enforce when set — no soft/legacy dual mode. See [Migration stance](../../docs/upgrading-contract-alignment.md#migration-stance-locked).
+
+- **C7 — Budget enforcement:** `perTurn` tokens/cost, DB-backed `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced. Ephemeral `userMessages` cap unchanged. Unset knobs remain unlimited.
 - **C10 — Audience auto-filter:** When `policy.audience` is set, `ragContext` without `filter` applies `{ audience }` retrieve metadata (opt out: `parentChatAudiencePolicy: false`).
 
 ### Behavior fixes

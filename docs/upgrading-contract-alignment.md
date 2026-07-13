@@ -4,6 +4,19 @@ This checklist covers **runtime behavior changes** shipped to align the framewor
 
 Hard install/compile/wire/data breaks are avoided in this pass. What remains is **same inputs, different outcomes** for apps that relied on undocumented gaps.
 
+## Migration stance (locked)
+
+Plumbus keeps **contract-first defaults**. There is **no** framework-wide “legacy mode” and no plan to flip Breaking defaults off for compatibility.
+
+| Decision | Rationale |
+|----------|-----------|
+| Transactional outbox **default ON** | Matches the outbox design decision; opt-out hatches exist for specific apps |
+| Chat budget / audience knobs **enforce when set** | Documented knobs mean what they say; unset = unlimited / no auto-filter |
+| `plumbus api validate` governance **advisory** | Same model as `plumbus verify`; use `--fail-on-governance` in CI if you want a gate |
+| AI prompt security **opt-in** | No scan without `aiProviders.security` / `AI_SECURITY_*` |
+
+**For existing apps:** use the escape hatch in each row below (or unset speculative chat budget knobs), verify staging, then prefer returning to the recommended defaults. Do not ask the framework to permanently dual-track soft vs strict runtime.
+
 ## Register overview
 
 | # | Class | Area | Escape hatch |

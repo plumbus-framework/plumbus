@@ -125,13 +125,15 @@ For `kind: 'action'` and `kind: 'eventHandler'`, handler execution and output va
 
 **Auto-excluded** (non-transactional): `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`, and other kinds (e.g. `query`).
 
-**Opt out:**
+**Recommended:** keep the default ON and fix handlers that assumed partial commits. There is no framework-wide legacy/soft mode.
+
+**Opt out (per app or capability — not the long-term default):**
 - Globally: `execution.transactionalOutbox: false` in config, or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`
 - Per capability: `transactional: false` on `defineCapability({ ... })`
 
 Inside an active transaction, `ctx.flows.start()` and `ctx.jobs.enqueue()` defer until after commit (pre-allocated ids). Nested success audits also defer until commit. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
 
-See `docs/upgrading-contract-alignment.md` §1 and `docs/architecture/execution-lifecycle.md`.
+See `docs/upgrading-contract-alignment.md` (Migration stance + §1) and `docs/architecture/execution-lifecycle.md`.
 
 ## Capability-to-capability invocation
 

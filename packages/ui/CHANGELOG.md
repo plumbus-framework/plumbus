@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Packaging
+
+- Include `CHANGELOG.md` in the published package `files` list.
+
 ## 0.6.0
 
 ### Added
