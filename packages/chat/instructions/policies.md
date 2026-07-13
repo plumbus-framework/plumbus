@@ -63,6 +63,17 @@ policy: {
 
 The model returns `inScope: boolean` in its structured output. The runtime trusts it and routes refusals through localized notice copy.
 
+### Locale (whitelist + reply anchor)
+
+```ts
+policy: {
+  scope: { locales: ['en', 'he'] },
+  reply: { locale: 'auto' },  // or 'en' | 'he' to force reply language
+}
+```
+
+`scope.locales` is enforced pre-turn by `locale-guard`. `reply.locale` is enforced in the system prompt: `'auto'` follows `turnCtx.locale`; a concrete locale overrides the turn locale in the `[Reply in '…' only.]` anchor.
+
 ### Behavioral (refusal cooldown)
 
 ```ts
@@ -76,7 +87,7 @@ policy: {
 }
 ```
 
-State persists on `ChatSession.behavioralState`. Atomic counter updates handle concurrent turns.
+State persists on `ChatSession.behavioralState` when `saveToDb: true`. `windowSeconds` sliding windows, `guardFailure` / `budget` triggers, and `scope: 'user'` keys are honored — see `/docs/chat/policies.md` for semantics (read-modify-write, not cross-session user aggregation).
 
 ### Action (capability write with confirmation)
 
@@ -91,13 +102,16 @@ policy: {
 
 When the model returns `requestedAction`, the action-guard:
 1. Validates `capabilityName` is in `allowedCapabilities` (deny by default).
-2. Re-validates `input` against the capability's current Zod schema.
-3. Hashes the schema and stores a `ChatPendingAction` row.
-4. Returns `require_confirmation` — runtime emits `confirmation_required` with `{ actionId, capabilityName, confirmationMessage, expiresAt, schemaHash }`. The `schemaHash` on the wire is what the client must echo back.
+2. Re-validates `input` against the capability's current Zod schema when resolvable.
+3. Stores `schemaHash` on the pending row — **v2** (`v2:` + sha256 of `ctx.capabilities.describe(…).inputSchema`) when describe is available; legacy sha1-of-payload fallback otherwise.
+4. Enforces `budget.actions.perSession` against pending row count.
+5. Returns `require_confirmation` — runtime emits `confirmation_required` with `{ actionId, capabilityName, confirmationMessage, expiresAt, schemaHash }`.
 
-**Confirmation is a server capability, not a UI helper.** The client commits the action by calling the auto-routed `chatConfirmAction` capability (`POST /api/chat/chat-confirm-action`) with `{ actionId, capabilityName, schemaHash, execute: true }`. On the server: schema is re-hashed; if it has changed since propose (e.g. a redeploy tightened it), the call is rejected with `chat.action_schema_changed`. This `schemaHash` check is load-bearing security — do not bypass it and do not let the client forge a hash, since the server re-derives from the live schema.
+**Confirmation is a server capability, not a UI helper.** Call `chatConfirmAction` (`POST /api/chat/chat-confirm-action`) with `{ actionId, capabilityName, schemaHash, execute: true }`. The server re-derives v2 schema hashes and rejects drift with `chat.action_schema_changed`.
 
-In `@plumbus/chat-ui`, `useChat.confirm()` is a UI-only stub that clears local `pendingConfirmation` state but does **not** call `chatConfirmAction`. Apps that ship action-confirmation flows must call the capability directly.
+**`chatConfirmAction` does not execute the target capability** — it validates, marks the pending row confirmed/rejected, and emits domain events. Wire real execution in app code after a successful confirm if you need side effects.
+
+In `@plumbus/chat-ui`, `useChat.confirm()` is a UI-only stub. See `packages/chat-ui/instructions/action-confirmation.md`.
 
 ### Provenance (require citations)
 
@@ -106,6 +120,8 @@ policy: {
   provenance: { required: true, minSources: 1 },
 }
 ```
+
+`minSources` is enforced — fewer valid citations than `minSources` blocks with `chat.provenance_insufficient`.
 
 Model's `citedSources: string[]` is validated against the runtime-issued handles. Invalid IDs are stripped from the answer. If `required: true` and zero valid citations remain, the guard blocks with `notice: chat.provenance_missing`.
 

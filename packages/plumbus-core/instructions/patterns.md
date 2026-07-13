@@ -17,7 +17,7 @@ These rules are non-negotiable. They are architecture constraints, not style pre
 | Event | domain.pastTense | `order.placed`, `refund.requested`, `user.updated` |
 | Flow | camelCase noun | `refundApproval`, `orderFulfillment` |
 | Prompt | camelCase verb+noun | `summarizeTicket`, `classifyIntent` |
-| Domain | lowercase singular | `users`, `billing`, `fulfillment` |
+| Domain | lowercase, one word (plural is common) | `users`, `billing`, `fulfillment` |
 
 ## File Structure
 

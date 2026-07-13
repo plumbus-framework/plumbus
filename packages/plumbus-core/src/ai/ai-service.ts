@@ -3,6 +3,7 @@
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
 
 import { z } from 'zod';
+import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-errors.js';
 import type {
   AICostContext,
   AIDocument,
@@ -221,7 +222,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       estimatedCostUsd,
     });
     if (!result.allowed) {
-      throw new Error(`AI budget exceeded: ${result.reason}`);
+      throw new AIBudgetExceededError(result.reason ?? 'budget exceeded');
     }
   }
 
@@ -317,6 +318,23 @@ export function createAIService(config: AIServiceConfig): AIService {
     return `${promptInfo.text}\n\nInput: ${JSON.stringify(remaining)}`;
   }
 
+  function applyPromptSecurity(input: Record<string, unknown>): {
+    inputForAI: Record<string, unknown>;
+    securityResult?: ReturnType<typeof checkPromptSecurity>;
+  } {
+    if (!security) {
+      return { inputForAI: input };
+    }
+    const securityResult = checkPromptSecurity(input, security);
+    if (securityResult.blocked) {
+      throw new AISecurityBlockedError(securityResult.warnings.map((w) => w.field));
+    }
+    return {
+      inputForAI: securityResult.redactedInput ?? input,
+      securityResult,
+    };
+  }
+
   // ── Shared generate implementation (returns data + usage) ──
   async function _generateCore(params: {
     prompt: string;
@@ -329,9 +347,7 @@ export function createAIService(config: AIServiceConfig): AIService {
   }): Promise<AIGenerateResult> {
     const start = performance.now();
 
-    // Security check
-    const securityResult = security ? checkPromptSecurity(params.input, security) : undefined;
-    const inputForAI = securityResult?.redactedInput ?? params.input;
+    const { inputForAI, securityResult } = applyPromptSecurity(params.input);
 
     // Budget pre-check
     checkBudget();
@@ -551,9 +567,9 @@ export function createAIService(config: AIServiceConfig): AIService {
        */
       seed?: number;
     }): AsyncIterable<AIStreamEvent> {
-      // Security check
-      const securityResult = security ? checkPromptSecurity(params.input, security) : undefined;
-      const inputForAI = securityResult?.redactedInput ?? params.input;
+      const streamStart = performance.now();
+      const { inputForAI, securityResult } = applyPromptSecurity(params.input);
+      const streamSecurityWarnings = securityResult?.warnings.map((w) => w.message);
 
       // Budget pre-check
       checkBudget();
@@ -768,13 +784,29 @@ export function createAIService(config: AIServiceConfig): AIService {
             operation: 'generate',
             usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
             cost: null,
-            latencyMs: 0,
+            latencyMs: performance.now() - streamStart,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
             status: 'success',
           },
           params.costContext,
         );
+        if (explainability && streamSecurityWarnings?.length) {
+          explainability.record({
+            operation: 'generate',
+            promptName: hasPromptDef ? params.prompt : undefined,
+            model: resolvedModel,
+            provider: activeProvider.name,
+            input: params.input,
+            output: { [singleTextField]: fullText.trim() },
+            usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            validation: { passed: true, attempts: 1 },
+            securityWarnings: streamSecurityWarnings,
+            actor: config.budget?.actor,
+            tenantId: config.budget?.tenantId,
+            latencyMs: performance.now() - streamStart,
+          });
+        }
         yield { type: 'done', data: { [singleTextField]: fullText.trim() }, ...doneBase };
       } else if (promptDef) {
         let validatedData: unknown;

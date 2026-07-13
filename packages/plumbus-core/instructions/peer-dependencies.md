@@ -4,19 +4,31 @@ Read this file **before** editing `peerDependencies` in any `packages/*/package.
 
 ## CRITICAL rules
 
-1. **Copy literals — do not derive ranges.** Never compute semver ranges from intuition. Copy the exact string from the table below or from a canonical `package.json` (`packages/mcp/package.json`, `packages/api/package.json`).
+1. **Copy literals — do not derive ranges.** Never compute semver ranges from intuition. Copy the exact string from the table below or from a canonical `package.json` (`packages/mcp/package.json`, `packages/api/package.json`, `packages/voice/package.json`).
 2. **Never use `^0.x` caret ranges** on `@plumbus/core` peers in add-on packages. npm treats `^0.5.0` as **0.5.x only** (`>=0.5.0 <0.6.0`), not "0.5 and above."
 3. **pnpm passing locally does not prove peers are correct.** Backend Docker images install production deps with **npm** (`deployment.md` Rule 7). Wrong peers break Docker builds even when `pnpm install` succeeds.
 4. **Do not copy from CHANGELOG history.** Older releases documented incorrect ranges (`^0.5.0 <0.7.0` claimed to support 0.6.x — it does not under npm). Use this file and the canonical `package.json` files instead.
 
-## Canonical `@plumbus/core` peer strings
+## Canonical `@plumbus/core` peer strings (add-ons → core)
 
 | Package kind | `peerDependencies["@plumbus/core"]` | Canonical copy-from |
 |---|---|---|
 | Most add-ons (chat, chat-ui, knowledge-base, mcp, api, browser-extension) | `"0.5.x \|\| 0.6.x"` | `packages/mcp/package.json` |
-| Voice only (requires core 0.6+ media/cost APIs) | `"^0.6.0 <0.7.0"` | `packages/voice/package.json` |
+| Voice only (requires core 0.6+ media/cost APIs) | `"0.6.x"` | `packages/voice/package.json` |
 
 When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x"` unless the package genuinely requires core 0.6+ only (then use the voice pattern).
+
+## Other publishable peer strings
+
+| Declaring package | Peer target | Literal | Required? | Canonical copy-from |
+|---|---|---|---|---|
+| `@plumbus/core` | `@plumbus/mcp` | `"0.5.x \|\| 0.6.x"` | optional | `packages/plumbus-core/package.json` |
+| `@plumbus/core` | `@plumbus/api` | `"0.1.x"` | optional | `packages/plumbus-core/package.json` |
+| `@plumbus/chat` | `@plumbus/knowledge-base` | `"^0.1.0"` | optional | `packages/chat/package.json` |
+| `@plumbus/chat-ui` | `@plumbus/chat` | `"0.1.x"` | required | `packages/chat-ui/package.json` |
+| `@plumbus/chat-ui` | `@plumbus/core` | `"0.5.x \|\| 0.6.x"` | required | `packages/chat-ui/package.json` |
+
+**Peering direction:** add-ons declare `@plumbus/core` as a peer — consumer apps install both. `@plumbus/core` optionally peers `@plumbus/mcp` and `@plumbus/api` when those packages are present. `@plumbus/chat` optionally peers `@plumbus/knowledge-base` for registry-backed context sources — **not** the reverse. `@plumbus/knowledge-base` only peers `@plumbus/core`.
 
 ## Forbidden patterns
 
@@ -24,7 +36,7 @@ When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x
 |---|---|
 | `"^0.5.0 <0.7.0"` | npm resolves `^0.5.0` to 0.5.x only — **rejects `@plumbus/core@0.6.0`** |
 | `"^0.5.0 <0.6.0"` | 0.5.x only — rejects 0.6.x |
-| `"^0.6.x"` or `"^0.6.0"` alone | Too loose or wrong syntax for multi-line support; use the table literals |
+| `"^0.6.0 <0.7.0"` or `"^0.6.x"` on voice | Use the voice literal `"0.6.x"` from `packages/voice/package.json` |
 | Widening an upper bound on a caret range | e.g. changing `<0.6.0` to `<0.7.0` on `^0.5.0` does **not** add 0.6.x support |
 
 ## When `@plumbus/core` gets a new minor line (e.g. 0.7.0)
@@ -43,4 +55,4 @@ See also: `.agents/skills/bump-version/SKILL.md` (core **minor** bump checklist)
 
 - `deployment.md` Rule 7 — backend `proddeps` uses `npm install --omit=dev`
 - `.agents/skills/new-package-instructions/SKILL.md` — new package `package.json` peers
-- `packages/mcp/package.json` / `packages/api/package.json` — canonical examples
+- `packages/mcp/package.json` / `packages/api/package.json` / `packages/voice/package.json` — canonical examples

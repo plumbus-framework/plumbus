@@ -5,6 +5,7 @@ export function buildSystemPrompt(args: {
   chatInstructions: string;
   audience: string;
   locale: string;
+  replyLocale?: string;
   behavioralReminder?: string;
   scopeDescription?: string;
   resolvedContext: ResolvedContext;
@@ -16,7 +17,9 @@ export function buildSystemPrompt(args: {
   sections.push(
     `## Audience\n[Audience: ${args.audience}] Only reference ${args.audience}-relevant surfaces.`,
   );
-  sections.push(`## Language\n[Reply in '${args.locale}' only.] No mixed-language responses.`);
+  const replyLocale =
+    args.replyLocale && args.replyLocale !== 'auto' ? args.replyLocale : args.locale;
+  sections.push(`## Language\n[Reply in '${replyLocale}' only.] No mixed-language responses.`);
   if (args.behavioralReminder) {
     sections.push(`## Cooldown reminder\n${args.behavioralReminder}`);
   }

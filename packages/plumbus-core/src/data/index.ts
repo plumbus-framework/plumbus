@@ -34,5 +34,17 @@ export {
   type DatabaseConnection,
 } from './connection.js';
 export { EntityRegistry } from './registry.js';
+export {
+  collectMaskedFieldsFromEntities,
+  getMaskedFields,
+} from './mask-fields.js';
+export {
+  decryptFieldValue,
+  encryptFieldValue,
+  getEncryptedFields,
+  isEncryptedValue,
+  resolveEncryptionKey,
+  ENCRYPTION_PREFIX,
+} from './field-encryption.js';
 export { createRepository, type RepositoryOptions } from './repository.js';
 export { generateDrizzleSchema, generateSchemas } from './schema-generator.js';

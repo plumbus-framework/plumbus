@@ -133,7 +133,7 @@ Convenient transport + STT + TTS combinations (from `suggestVoiceStacks()`):
 pnpm add @plumbus/voice
 ```
 
-Required peer: `@plumbus/core` `^0.6.0 <0.7.0`.
+Required peer: `@plumbus/core` `0.6.x` (see `package.json` `peerDependencies` — copy the literal; do not invent caret ranges).
 
 ## Quick start
 

@@ -45,7 +45,7 @@ defineChat({
 });
 ```
 
-**Do not narrow the output schema.** The five base fields are required by the runtime's scope, provenance, and action guards. Narrowing them silently breaks guards. `defineChat` validates and rejects schemas missing them.
+**Do not narrow the output schema.** The five base fields are required by the runtime's scope, provenance, and action guards. Narrowing them breaks guards at runtime — `defineChat` now emits a **one-time define-time warning** when a custom prompt's output schema is not a Zod object or omits any of the five base fields (`warnMissingChatPromptBaseFields`).
 
 ## Custom `ContextSource`
 
@@ -109,12 +109,12 @@ Use it identically to built-ins: `context: [wikiContext({ wikiPath: '/wiki' })]`
 
 - **Stable IDs.** `Math.random` makes tests flaky. Use a hash of your input config.
 - **Read-only.** Context sources must not mutate state. If you need to write, use `actions:` + `policy.action`.
-- **Bounded resolve.** The resolver gives each source ~5 seconds (configurable). Honor the timeout via `turnCtx.signal`.
+- **Bounded resolve.** The resolver enforces a per-source timeout (default 5000 ms in `runChatTurn`; override with `contextResolution.perSourceTimeoutMs`). Hung sources are aborted and skipped with a structured `ctx.logger.warn` — honor `turnCtx.signal` in custom `resolve()` implementations and keep work fast.
 - **No source IDs out of thin air.** Use either your domain IDs (`page.slug`) and let the resolver issue runtime handles, or use the resolver's handles directly.
 
-## Custom Guard
+## Custom Guard (post-turn)
 
-When you need policy logic the built-ins don't cover. Custom guards run AFTER all built-ins, in declaration order.
+When you need policy logic the built-ins don't cover after the model runs. Custom **post-turn** guards run after built-ins, in declaration order.
 
 ```ts
 import type { Guard } from '@plumbus/chat';
@@ -143,7 +143,7 @@ const competitorMentionGuard: Guard = async (turnCtx, state) => {
 };
 
 defineChat({
-  policy: { custom: [competitorMentionGuard] },
+  policy: { customPostTurn: [competitorMentionGuard] },
 });
 ```
 
@@ -151,7 +151,7 @@ defineChat({
 
 - **Return one of three verdicts.** `'allow'`, `'block'`, `'require_confirmation'`. Anything else is a runtime error.
 - **Use `emit` for notices**, not direct event-bus calls. The runtime threads `emit` payloads through the same event stream.
-- **Read state via `state.modelOutput`**, not via re-querying the database. The runtime has already populated `state.modelOutput` by the time post-turn guards run.
+- **Read `state.modelOutput` only in `policy.customPostTurn` guards.** Pre-turn `policy.custom` runs before the model call — `state.modelOutput` is undefined there.
 - **Never mutate `state` in unexpected places.** Only the documented contract: setting `state.modelOutput.answer` after redaction (privacy-guard does this) is OK; everything else is risky.
 
 ## What NOT to extend

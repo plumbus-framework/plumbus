@@ -6,9 +6,11 @@ Voice spend belongs in the same AI ledger as text prompts. `@plumbus/voice` does
 
 Ledger rows are written only when `costContext.projectId` is present. Thread it from the voice brain input (for example `brainInput.projectId` on LiveKit participant metadata) through:
 
-- `recordProviderUsage()` — per-turn STT and TTS after `runVoiceTurn()`
-- `recordLiveKitTransportCost()` — on LiveKit agent shutdown
-- `recordDirectUtteranceCost()` — auxiliary TTS (backchannels, hearing repair, `tts.speak` replay)
+- **`recordProviderUsage()`** (runtime-internal) — per-turn STT and TTS after `runVoiceTurn()`
+- **`recordLiveKitTransportCost()`** (exported) — on LiveKit agent shutdown
+- **`recordDirectUtteranceCost()`** (runtime-internal) — auxiliary TTS (backchannels, hearing repair, `tts.speak` replay)
+
+The runtime calls the internal helpers automatically when `projectId` is present on the turn/session context. App code should thread `projectId` on brain input and use exported helpers (`recordLiveKitTransportCost`, `recordVoiceCost`, `ctx.ai.recordProviderCost`) for adjunct costs.
 
 Without `projectId`, `onAICostRecorded` skips the row silently.
 
@@ -25,7 +27,7 @@ Use stable `costContext.operationName` values (not turn UUIDs):
 | `voice.hearing_repair` | Repair-prompt TTS |
 | `voice.replay` | Client `tts.speak` replay |
 
-App-owned LLM adjuncts (for example `interview.classify_tone`) should pass the same `costContext` shape into `ctx.ai.generateWithUsage` or call `recordAICost` directly.
+App-owned LLM adjuncts (for example `interview.classify_tone`) should pass the same `costContext` shape into `ctx.ai.generateWithUsage` or call `ctx.ai.recordProviderCost(entry, costContext)` directly.
 
 ## Model pricing keys
 

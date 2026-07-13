@@ -27,8 +27,8 @@ Plumbus is a **layered, contract-driven application framework**. Application beh
 │                   Execution Engine                              │
 │                                                                 │
 │  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐  │
-│  │ Access   │  │  Input    │  │ Handler  │  │   Output     │  │
-│  │ Control  │──▶ Validation│──▶ Execution│──▶  Validation  │  │
+│  │  Input   │  │  Access   │  │ Handler  │  │   Output     │  │
+│  │Validation│──▶ Control  │──▶ Execution│──▶  Validation  │  │
 │  └──────────┘  └───────────┘  └──────────┘  └──────────────┘  │
 │       │                            │                            │
 │       │                     ┌──────▼──────┐                    │
@@ -90,16 +90,52 @@ Plumbus is a **layered, contract-driven application framework**. Application beh
 └─────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────┐
+│                   @plumbus/api                      │
+│  Partner API contracts, OpenAPI export, manifest    │
+│         ┌──────────────────────────────┐            │
+│         │      @plumbus/core            │            │
+│         └──────────────────────────────┘            │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│                   @plumbus/voice                    │
+│  Realtime speech I/O (defineVoice, LiveKit worker)  │
+│         ┌──────────────────────────────┐            │
+│         │      @plumbus/core            │            │
+│         └──────────────────────────────┘            │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│              @plumbus/knowledge-base                │
+│  Scoped knowledge providers for chat / RAG          │
+│         ┌──────────────────────────────┐            │
+│         │      @plumbus/core            │            │
+│         └──────────────┬─────────────────┘            │
+│                        │ (optional peer of @plumbus/chat)│
+└────────────────────────┼────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────┐
+│              @plumbus/browser-extension             │
+│  Dev-time WXT extension scaffolder                    │
+│         ┌──────────────────────────────┐            │
+│         │  @plumbus/core + @plumbus/ui  │            │
+│         └──────────────────────────────┘            │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
 │                   @plumbus/core                       │
 │                                                      │
 │  ┌────────┐ ┌──────┐ ┌────────┐ ┌───────┐ ┌──────┐ │
 │  │ Types  │ │Define│ │Execution│ │ Events│ │Flows │ │
 │  └────────┘ └──────┘ └────────┘ └───────┘ └──────┘ │
 │  ┌────────┐ ┌──────┐ ┌────────┐ ┌───────┐ ┌──────┐ │
-│  │  Data  │ │  AI  │ │  Auth  │ │ Audit │ │ CLI  │ │
+│  │  Data  │ │  AI  │ │  Auth  │ │ Audit │ │  API  │ │
 │  └────────┘ └──────┘ └────────┘ └───────┘ └──────┘ │
 │  ┌────────┐ ┌──────┐ ┌────────┐ ┌───────┐ ┌──────┐ │
-│  │Governce│ │Server│ │ Worker │ │Observ.│ │Testing│ │
+│  │Runtime │ │ Jobs │ │Translat│ │  MCP  │ │Config │ │
+│  └────────┘ └──────┘ └────────┘ └───────┘ └──────┘ │
+│  ┌────────┐ ┌──────┐ ┌────────┐ ┌───────┐ ┌──────┐ │
+│  │Governce│ │Server│ │ Worker │ │Observ.│ │ CLI  │ │
 │  └────────┘ └──────┘ └────────┘ └───────┘ └──────┘ │
 └──────────────────────────────────────────────────────┘
 ```
@@ -107,7 +143,7 @@ Plumbus is a **layered, contract-driven application framework**. Application beh
 ## Module Dependency Graph
 
 ```
-types/  ◄──────── define/
+types/  ◄──────── define/ ──── translations/
   │                  │
   ▼                  ▼
 fields/ ◄──── execution/
@@ -117,18 +153,21 @@ fields/ ◄──── execution/
   │              │
   ▼              ▼
 data/       audit/
-  │
-  ▼
-events/ ────► flows/
   │              │
   ▼              ▼
-  │         governance/
+events/ ────► flows/     schema/
   │              │
   ▼              ▼
-ai/ ────────► server/
+runtime/ ◄── governance/
+  │    │           │
+  │    ▼           ▼
+  │  jobs/       api/
+  │    │           │
+  ▼    ▼           ▼
+ai/ ─────────► server/
   │              │
   ▼              ▼
-observability/  cli/
+observability/  cli/ ──► mcp/
                  │
                  ▼
              worker/
@@ -194,21 +233,21 @@ Incoming Request
 ### 3. Event-Driven Architecture
 
 ```
-Capability Handler
+Capability Handler (action / eventHandler — transactional outbox ON by default)
     │
-    ├──▶ ctx.data.Entity.create(data)     ← Same transaction
+    ├──▶ ctx.data.Entity.create(data)     ← Same DB transaction
     │
-    ├──▶ ctx.events.emit("event", data)   ← Outbox pattern
-    │                                        (same transaction)
+    ├──▶ ctx.events.emit("event", data)   ← Inserts event_outbox row
+    │                                        (same transaction; rolls back together)
     │
     └──▶ return result
               │
-              ▼
-         Transaction commits
+              │  Auto-excluded: kind job, effects.ai, effects.external, query
+              │  Opt out: execution.transactionalOutbox: false or transactional: false
               │
               ▼
     ┌─────────────────────┐
-    │  Outbox Dispatcher  │ ← Polls outbox table
+    │  Outbox Dispatcher  │ ← Polls event_outbox (~1s default)
     └─────────┬───────────┘
               │
     ┌─────────▼───────────┐

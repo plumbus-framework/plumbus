@@ -150,4 +150,4 @@ Forbidden in `@plumbus/knowledge-base` package sources:
 - `chunkDocument`
 - `createRAGPipeline`
 
-Grep CI in Plumbus enforces this. Consumers ingest via core only.
+Grep CI in Plumbus enforces this via `packages/knowledge-base/src/__tests__/no-vector-store-imports.test.ts` (vitest scans all non-test `src/**/*.ts` for forbidden symbols). The test runs in the monorepo `pnpm test` graph. Consumers ingest via core only.

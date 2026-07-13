@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.10
+
+### Breaking behavior changes
+
+Documented knobs enforce when set — no soft/legacy dual mode. See [Migration stance](../../docs/upgrading-contract-alignment.md#migration-stance-locked).
+
+- **C7 — Budget enforcement:** `perTurn` tokens/cost, DB-backed `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced. Ephemeral `userMessages` cap unchanged. Unset knobs remain unlimited.
+- **C10 — Audience auto-filter:** When `policy.audience` is set, `ragContext` without `filter` applies `{ audience }` retrieve metadata (opt out: `parentChatAudiencePolicy: false`).
+
+### Behavior fixes
+
+- **C6 — Action-confirm schema hash v2:** Pending actions store `v2:` + sha256 of capability input schema via `ctx.capabilities.describe`; confirm rejects schema drift (`chat.action_schema_changed`). Legacy unprefixed hashes keep echo-compare. Invalid propose-time input is blocked (`chat.action_input_invalid`). `chatConfirmAction` validates and updates status but does not execute the target capability; decline is idempotent for missing/already-rejected/expired rows and emits `chat.action.rejected` only when a row is newly rejected (no forged/duplicate events). Ownership is checked before hash/expiry mutations. `chat.action.confirmed` / `chat.action.rejected` events are declared on the capability; `chatActionRejectedEvent` is exported for consumers.
+- **C8 — Behavioral cooldowns:** `windowSeconds`, `guardFailure`, and `budget` triggers honored; user-scoped keys merge across recent sessions (`*:user:*` only — fresher cross-session user keys override stale local copies; session-scoped cooldowns from other sessions do not bleed).
+- **C9 — `policy.reply.locale`:** Threaded into `buildSystemPrompt` (`auto` vs forced locale anchor).
+- **C11 — Custom prompt base-field warning:** `defineChat` warns at define-time when a custom prompt output omits required chat base fields.
+- **C12 — Context source timeout:** Per-source timeout (default 5s, overridable via `contextResolution.perSourceTimeoutMs`) skips slow sources with a `ctx.logger.warn` when `onError: 'skip'`.
+- **Pre-turn guard cooldowns:** Pre-turn block paths record behavioral cooldown triggers before ending the turn (except `cooldown_active` itself, which does not re-extend the lockout).
+- **Action-guard describe fallback:** When `ctx.capabilities.describe` is unavailable, propose uses a legacy payload hash and emits a console warning.
+- **`ChatPendingActionRepo.findMany`:** Required when `budget.actions.perSession` is set (custom repo implementers must provide it).
+
+### Notes (core AI security)
+
+Chat turns call `ctx.ai.generate*` on the same AI service as capabilities. AI prompt security activates only when the app configures `aiProviders.security` or `AI_SECURITY_*` env vars — there is no automatic scanning without that config.
+
 ## 0.1.9
 
 ### Changed

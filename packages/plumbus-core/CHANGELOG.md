@@ -1,5 +1,59 @@
 # @plumbus/core changelog
 
+## 0.6.5
+
+### Breaking behavior changes
+
+Contract-first defaults — no framework-wide legacy mode. Escape hatches are per-app opt-outs; see [Migration stance](../../docs/upgrading-contract-alignment.md#migration-stance-locked).
+
+- **Transactional outbox default ON (A1)** — `action` and `eventHandler` capabilities now run handler + output validation inside a single database transaction so entity writes and `ctx.events.emit()` outbox rows commit or roll back together. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. Nested failures inside an active transaction re-throw to roll back the parent scope; `ctx.flows.start()` and `ctx.jobs.enqueue()` inside a transaction defer until commit (pre-allocated ids). Nested success capability audits defer until commit. Opt out globally with `execution.transactionalOutbox: false` (or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`), or per capability with `transactional: false`. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#1-transactional-outbox-default-on-a1).
+
+- **`plumbus api validate` governance signals are advisory** — the command exits 1 only on hard contract findings (manifest, policy, path params, fixtures). Governance rule signals are printed but no longer fail the command unless you pass `--fail-on-governance`. Aligns with the advisory-only governance model. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#2-plumbus-api-validate-and-governance-signals-a4).
+
+- **AI security `mode: 'block'`** — when `aiProviders.security` or `AI_SECURITY_*` env is configured and `mode` is `block`, classified fields at the warn threshold abort the AI call instead of being redacted. Without explicit security config, classified fields are not scanned. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#12-ai-security-mode-block-vs-redact-a2).
+
+### Added
+
+- **`aiProviders.security` (opt-in)** — `AISecurityConfig` on multi-provider AI config (`mode`, `warnThreshold`, `redactThreshold`, auto-populated `entities` from the entity registry when security is enabled). Wired through server, worker, and MCP bootstraps only when configured.
+
+- **Structured log masking (A18)** — `maskKeys` on `StructuredLoggerConfig`, exported `getMaskedFields` / `collectMaskedFieldsFromEntities`, and `withLogMasking()` wrapper. Bootstraps derive mask keys from entity field metadata (`maskedInLogs` and sensitive classifications). Redacted values use `***MASKED***` (deep/nested key walk).
+
+- **Consumer encryption key wiring** — API server, worker pool, flow-runner, and event/job consumer contexts pass `PLUMBUS_ENCRYPTION_KEY` into `wireContextDependencies` so `encrypted: true` fields decrypt in handlers.
+
+- **`ctx.jobs.enqueue`** — when `jobQueue` is configured on `createServer`, handlers can enqueue job capabilities via `ctx.jobs.enqueue(name, input)`; calls inside a transactional outbox defer until commit (same as `ctx.flows.start`). Returns a pre-allocated job id immediately so handlers can `await` without deadlocking the transaction; the queue write runs after commit.
+
+- **Structured data/AI errors** — repository tenant/RETURNING failures, encryption config/payload errors, job dispatch validation, and AI security/budget blocks now throw `PlumbusError` subclasses with stable `code` values.
+
+- **ServerConfig.logger** — custom loggers passed to `createServer()` are now used for per-request `ctx.logger` (with masking), not only bootstrap messages.
+
+- **Field encryption at rest (A3)** — AES-256-GCM via `PLUMBUS_ENCRYPTION_KEY`; repository encrypts/decrypts `encrypted: true` string fields with plaintext fallback for legacy rows.
+
+- **Per-request locale resolution (A17)** — `resolveRequestLocale()` in the route generator reads `plumbus-ui-locale` cookie then `Accept-Language`; resolved locale is passed on `DependencyOptions` into `ctx.translations`.
+
+### Behavior fixes
+
+- **Encrypted-field queries rejected** — when `PLUMBUS_ENCRYPTION_KEY` is set, `findMany`/`count` filters, `orderBy`, and `dateFilters` on `encrypted: true` fields throw `DataValidationError` instead of silently matching or sorting ciphertext.
+
+- **Deferred post-commit isolation** — post-commit flow/job/audit callbacks catch and log failures individually so a throwing deferred start does not fail the already-committed capability or skip remaining deferred work.
+
+- **Audit-record masking** — repository audit payloads use deep masking with token `***` (structured logs remain `***MASKED***`).
+
+- **Nested capability audits** — failure audits record immediately inside nested transactions; success audits defer until parent commit.
+
+- **Deferred flow ids** — `ctx.flows.start()` inside a transaction returns the same execution id created after commit.
+
+- **LLM inside open transaction** — first nested invoke of an `effects.ai: true` capability inside an active transaction emits a one-time `ctx.logger.warn` that the parent transaction is held open for the LLM call.
+
+- **HTTP event causation** — capability-triggered HTTP emits restore dynamic `causationId` from the executing capability.
+
+- **`plumbus mcp serve` logs** — capability request logs are structured JSON at `info` minimum level (debug suppressed).
+
+- **`maskedInLogs` in structured log metadata (A18)** — capability request loggers redact masked entity field names in metadata (token `***MASKED***`, nested objects included). Escape hatch: custom logger without `maskKeys`, or omit sensitive keys from metadata.
+
+- **`encryptFieldValue('')` round-trip** — empty plaintext no longer produces an undecryptable ciphertext blob.
+
+- **Invalid `AI_SECURITY_*_THRESHOLD` env values** — bogus thresholds are ignored with a startup warning instead of matching every classified field.
+
 ## 0.6.4
 
 ### Added

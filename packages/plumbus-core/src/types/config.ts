@@ -1,4 +1,5 @@
 import type { PolicyProfile } from './enums.js';
+import type { AISecurityConfig } from '../ai/security.js';
 
 // ── Database Config ──
 export interface DatabaseConfig {
@@ -55,6 +56,8 @@ export interface AIProvidersConfig {
   providers: Record<string, AIProviderConfig>;
   /** Per-prompt model/provider overrides — keyed by prompt name */
   promptOverrides?: Record<string, PromptModelOverride>;
+  /** AI prompt security: entity field classification scanning (default mode: redact) */
+  security?: AISecurityConfig;
 }
 
 // ── Prompt Model Override ──
@@ -76,11 +79,21 @@ export interface McpConfig {
   agents?: Record<string, McpAgentConfig>;
 }
 
+// ── Execution Config ──
+export interface ExecutionConfig {
+  /**
+   * When `false`, disables transactional outbox for all capabilities (global kill switch).
+   * Default: `true` (action/eventHandler capabilities run handler + output validation in a DB transaction).
+   */
+  transactionalOutbox?: boolean;
+}
+
 // ── Plumbus Config ──
 export interface PlumbusConfig {
   environment: Environment;
   database: DatabaseConfig;
   queue: QueueConfig;
+  execution?: ExecutionConfig;
   mcp?: McpConfig;
   /** Single-provider AI config (legacy) */
   ai?: AIProviderConfig;

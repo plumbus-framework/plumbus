@@ -148,9 +148,11 @@ access: {
 
 Evaluation order:
 1. If `public: true` → allow
-2. Check caller has at least one required role
-3. Check caller has required scopes
-4. If `tenantScoped: true` → verify tenant match
+2. If no authenticated caller (`auth.userId`) → deny
+3. If caller matches `serviceAccounts` → allow
+4. If `tenantScoped: true` → require `auth.tenantId` and tenant match
+5. Check caller has at least one required role
+6. Check caller has required scopes
 
 ## Effects Declaration
 
@@ -175,6 +177,7 @@ Capabilities may **not** import and call another capability's handler directly. 
 - **Full pipeline:** nested calls run through `executeCapability` (validation, access, audit, output validation). The callee inherits the caller's auth, transaction scope, and correlation context.
 - **Handler surface:** capability handlers receive `ctx.capabilities.invoke` only. Internal registry invokers are not exposed on `ctx.__runtime` — bypassing the policy layer is not supported.
 - **Nested events:** when a callee emits via `ctx.events.emit()`, the outbox envelope's `causationId` is set to the caller's canonical capability name (or the executing capability when not nested).
+- **Nested audit:** success audit rows for nested `ctx.capabilities.invoke` calls include a `caller` field with the invoking capability's canonical name.
 - **Job capabilities** cannot be invoked synchronously — use job dispatch, flows, or events. Flow `capability` steps reject `kind: 'job'` targets at runtime.
 - **Flows remain preferred** for multi-step orchestration. Use `ctx.capabilities.invoke` when you need a callee's result in the same execution path.
 
@@ -188,6 +191,27 @@ handler: async (ctx, input) => {
 ```
 
 See [upgrading-capability-names](../upgrading-capability-names.md) when migrating existing apps to canonical names.
+
+## Transactional outbox
+
+`action` and `eventHandler` capabilities run handler + output validation inside a single database transaction by default so entity writes and `ctx.events.emit()` outbox rows commit or roll back together.
+
+- **Opt out globally:** `execution.transactionalOutbox: false` or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`.
+- **Opt out per capability:** `transactional: false` on `defineCapability({ ... })`.
+- **Auto-excluded:** `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`, and `query` capabilities keep the prior non-transactional behavior.
+- **Deferred side effects:** `ctx.flows.start()` and `ctx.jobs.enqueue()` inside a transaction defer until after commit. `flows.start` returns a placeholder execution id with `status: 'pending'`; `enqueue` returns a pre-allocated job id immediately.
+
+See [Upgrading for contract alignment → transactional outbox](../upgrading-contract-alignment.md#1-transactional-outbox-default-on-a1).
+
+## Runtime contract notes
+
+| Area | Behavior |
+|------|----------|
+| AI security | Active only when `aiProviders.security` is configured; entity registry is merged at bootstrap when enabled |
+| Encrypted fields | With `PLUMBUS_ENCRYPTION_KEY` set, repositories reject `findMany` / filter queries that target `encrypted: true` string fields |
+| Chat action decline | `chatConfirmAction` with `execute: false` is idempotent — already-rejected or missing pending rows return `{ executed: false }` without error |
+| KB ranker (K13) | Source-level `defineKnowledgeSource({ ranker })` runs when the provider factory did not declare a ranker; factory ranker wins |
+| Context resolver | Per-source timeout (default 5s) aborts hung sources; skipped timeouts emit `ctx.logger.warn` and the turn continues |
 
 ## Error Handling
 

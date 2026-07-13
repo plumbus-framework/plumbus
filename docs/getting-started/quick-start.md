@@ -22,7 +22,7 @@ export const Greeting = defineEntity({
     id: field.id(),
     message: field.string(),
     author: field.string({ classification: "personal" }),
-    createdAt: field.timestamp({ defaultNow: true }),
+    createdAt: field.timestamp(),
   },
 });
 ```
@@ -32,7 +32,7 @@ export const Greeting = defineEntity({
 ```typescript
 // app/capabilities/greetings/create-greeting/capability.ts
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const createGreeting = defineCapability({
   name: "createGreeting",
@@ -65,7 +65,7 @@ export const createGreeting = defineCapability({
 ```typescript
 // app/capabilities/greetings/list-greetings/capability.ts
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const listGreetings = defineCapability({
   name: "listGreetings",
@@ -91,11 +91,11 @@ export const listGreetings = defineCapability({
 ```typescript
 // app/events/greeting-created.event.ts
 import { defineEvent } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const greetingCreated = defineEvent({
   name: "greeting.created",
-  schema: z.object({
+  payload: z.object({
     greetingId: z.string(),
     author: z.string(),
   }),
@@ -112,7 +112,7 @@ plumbus migrate generate
 plumbus migrate apply
 ```
 
-This creates the `greeting` table (and the framework-owned `audit_log`, `event_outbox`, etc.) in your local Postgres. See [Migrations](../cli/commands.md#plumbus-migrate) for details on review-and-apply mode.
+This creates the `greeting` table (and the framework-owned `audit_records`, `event_outbox`, etc.) in your local Postgres. See [Migrations](../cli/commands.md#plumbus-migrate) for details on review-and-apply mode.
 
 ## 7. Run the Development Server
 

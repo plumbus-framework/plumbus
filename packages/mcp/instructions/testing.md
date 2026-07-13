@@ -34,7 +34,7 @@ describe("echo via MCP", () => {
     const { client, close } = await createTestMcpServer({ capabilities: [echo] });
     try {
       const result = await client.callTool({
-        name: "echo",
+        name: "test.echo",
         arguments: { message: "hi" },
       });
       const text = (result.content as Array<{ type: string; text: string }>)[0].text;
@@ -76,10 +76,10 @@ it("fires onMcpToolCall on success", async () => {
     onMcpToolCall: (info) => calls.push(info),
   });
   try {
-    await client.callTool({ name: "echo", arguments: { message: "hi" } });
+    await client.callTool({ name: "test.echo", arguments: { message: "hi" } });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      capabilityName: "echo",
+      capabilityName: "test.echo",
       status: "success",
       provider: "mcp",
     });
@@ -109,7 +109,7 @@ it("runs a job through tasks/result", async () => {
   });
   try {
     const create = await client.callTool({
-      name: "slowJob",
+      name: "reports.slowJob",
       arguments: {},
       _meta: { taskMetadata: {} },
     } as any) as any;

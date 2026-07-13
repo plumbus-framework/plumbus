@@ -722,6 +722,54 @@ describe('runChatTurn — saveToDb: true with client-generated sessionId', () =>
   });
 });
 
+describe('runChatTurn — C7 perTurn budget', () => {
+  it('blocks when perTurn token cap is exceeded after generation', async () => {
+    const base = mockAI({ generate: inScopeResponse });
+    const ai: AIService = {
+      ...base,
+      async *streamGenerate(cfg) {
+        for await (const chunk of base.streamGenerate(cfg)) {
+          if (chunk.type === 'done') {
+            yield {
+              ...chunk,
+              usage: { inputTokens: 80, outputTokens: 80, totalTokens: 160 },
+              cost: 0.5,
+            };
+          } else {
+            yield chunk;
+          }
+        }
+      },
+    };
+    const ctx = createTestContext({ ai });
+    const chat = defineChat({
+      name: 'test',
+      access: {},
+      instructions: ['x'],
+      budget: { perTurn: { tokens: 100 } },
+    });
+    const session = await newSession(ctx);
+    const events = collectEvents();
+
+    for await (const evt of runChatTurn(ctx, {
+      chatDefinition: chat,
+      sessionId: session.id,
+      userMessage: 'hi',
+      audience: 'user',
+      locale: 'en',
+    })) {
+      events.push(evt);
+    }
+
+    expect(events.byType('turn.failed')).toHaveLength(1);
+    expect(events.byType('turn.failed')[0]).toMatchObject({
+      code: 'chat.budget_exceeded',
+    });
+    const turns = await ctx.data.ChatTurn?.findMany({ sessionId: session.id });
+    expect((turns ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('runChatTurn — custom guards (pre-turn vs post-turn)', () => {
   it('runs policy.custom pre-turn (no modelOutput) and policy.customPostTurn post-turn (modelOutput present)', async () => {
     const seen: Array<{ stage: string; hasOutput: boolean; answer?: unknown }> = [];

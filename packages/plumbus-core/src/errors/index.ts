@@ -1,24 +1,17 @@
 import { ErrorCode } from '../types/enums.js';
 import type { ErrorService } from '../types/errors.js';
+import { PlumbusError } from './plumbus-error.js';
 
-// ── PlumbusError Class ──
-// Extends Error for proper stack traces and instanceof support.
-// toJSON() ensures safe serialization (Error.message is non-enumerable).
-export class PlumbusError extends Error {
-  readonly code: ErrorCode;
-  readonly metadata?: Record<string, unknown>;
-
-  constructor(code: ErrorCode, message: string, metadata?: Record<string, unknown>) {
-    super(message);
-    this.name = 'PlumbusError';
-    this.code = code;
-    this.metadata = metadata;
-  }
-
-  toJSON(): { code: ErrorCode; message: string; metadata?: Record<string, unknown> } {
-    return { code: this.code, message: this.message, metadata: this.metadata };
-  }
-}
+export { PlumbusError } from './plumbus-error.js';
+export {
+  AISecurityBlockedError,
+  AIBudgetExceededError,
+  DataForbiddenError,
+  DataInternalError,
+  DataValidationError,
+  EncryptionConfigError,
+  EncryptionPayloadError,
+} from './data-errors.js';
 
 function createError(
   code: ErrorCode,

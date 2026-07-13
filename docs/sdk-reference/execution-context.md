@@ -104,7 +104,11 @@ interface Repository<T> {
   createMany(records: Partial<T>[]): Promise<T[]>;
   update(id: string, updates: Partial<T>): Promise<T>;
   delete(id: string): Promise<void>;
-  findMany(query?: Record<string, unknown>): Promise<T[]>;
+  findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+  count(
+    query?: Partial<T>,
+    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
+  ): Promise<number>;
 }
 ```
 
@@ -241,7 +245,16 @@ interface AIService {
   streamGenerate(config: StreamConfig): AsyncIterable<AIStreamEvent>;
   extract(config: ExtractConfig): Promise<unknown>;
   classify(config: ClassifyConfig): Promise<string[]>;
-  retrieve(config: { query: string; signal?: AbortSignal }): Promise<AIDocument[]>;
+  retrieve(config: {
+    query: string;
+    corpus?: string;
+    filter?: Record<string, unknown>;
+    limit?: number;
+    minScore?: number;
+    signal?: AbortSignal;
+  }): Promise<AIDocument[]>;
+  recordProviderCost(entry: AICostRecord, costContext?: AICostContext): Promise<void>;
+  checkProviderCostBudget(config?: BudgetCheckConfig): Promise<BudgetCheckResult>;
 }
 
 // All AI calls accept these optional fields:
@@ -270,9 +283,10 @@ interface AITokenUsage {
 }
 ```
 
+Provider-cost helpers are also documented in [AI integration](../ai/ai-integration.md) and [Voice cost tracking](../voice/cost-tracking.md).
+
 ```typescript
 handler: async (ctx, input) => {
-  // Structured generation
   const analysis = await ctx.ai.generate({
     prompt: "analyzeTicket",
     input: { text: input.body },
@@ -315,9 +329,7 @@ Record audit trail entries:
 
 ```typescript
 interface AuditService {
-  record(entry: AuditEntry): void;
-  flush(): Promise<void>;
-  getRecords(): AuditEntry[];
+  record(eventType: string, metadata?: Record<string, unknown>): Promise<void>;
 }
 ```
 
@@ -325,11 +337,10 @@ Audit recording is typically handled automatically by the framework based on cap
 
 ```typescript
 handler: async (ctx, input) => {
-  ctx.audit.record({
-    action: "manual.override",
-    actor: ctx.auth.userId!,
-    target: input.resourceId,
-    metadata: { reason: input.reason },
+  await ctx.audit.record("manual.override", {
+    reason: input.reason,
+    resourceId: input.resourceId,
+    actorId: ctx.auth.userId,
   });
 }
 ```
@@ -342,11 +353,12 @@ Factory for structured error responses:
 
 ```typescript
 interface ErrorService {
-  notFound(message: string): PlumbusError;
-  forbidden(message: string): PlumbusError;
-  conflict(message: string): PlumbusError;
-  validation(message: string): PlumbusError;
-  internal(message: string): PlumbusError;
+  notFound(message: string, metadata?: Record<string, unknown>): PlumbusError;
+  forbidden(message: string, metadata?: Record<string, unknown>): PlumbusError;
+  conflict(message: string, metadata?: Record<string, unknown>): PlumbusError;
+  validation(message: string, metadata?: Record<string, unknown>): PlumbusError;
+  internal(message: string, metadata?: Record<string, unknown>): PlumbusError;
+  dependencyViolation(message: string, metadata?: Record<string, unknown>): PlumbusError;
 }
 ```
 
@@ -369,6 +381,7 @@ Each error maps to an HTTP status:
 | `conflict()` | 409 |
 | `validation()` | 400 |
 | `internal()` | 500 |
+| `dependencyViolation()` | 400 |
 
 ---
 
@@ -393,8 +406,6 @@ handler: async (ctx, input) => {
   ctx.logger.error("Payment failed", { error: err.message });
 }
 ```
-
-Fields marked with `maskedInLogs: true` in entity definitions are automatically redacted.
 
 ---
 

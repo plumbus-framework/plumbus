@@ -21,6 +21,15 @@ export const chatActionConfirmedEvent = defineEvent({
   }),
 });
 
+export const chatActionRejectedEvent = defineEvent({
+  name: 'chat.action.rejected',
+  domain: 'chat',
+  payload: z.object({
+    actionId: z.string(),
+    capabilityName: z.string(),
+  }),
+});
+
 export const chatRefusalRecordedEvent = defineEvent({
   name: 'chat.refusal.recorded',
   domain: 'chat',

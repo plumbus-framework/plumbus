@@ -1,11 +1,13 @@
 import { CapabilityKind } from '../types/enums.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type {
+  CapabilityDescription,
   CapabilityService,
   ExecutionContext,
   ExecutionRuntimeMetadata,
 } from '../types/context.js';
 import type { RegisteredCapabilityName } from '../types/registry.js';
+import { zodInputToJsonSchema } from '../schema/zod-input-to-json-schema.js';
 import type { CapabilityRegistry } from './capability-registry.js';
 import { getCanonicalCapabilityName } from './canonical-name.js';
 import type { CapabilityResult } from './capability-executor.js';
@@ -104,22 +106,48 @@ function throwDependencyViolation(
   throw ctx.errors.dependencyViolation(message, { ...metadata });
 }
 
+function shouldShareTransactionScope(target: CapabilityContract): boolean {
+  if (target.effects.ai === true) return false;
+  if ((target.effects.external ?? []).length > 0) return false;
+  return target.kind === CapabilityKind.Action || target.kind === CapabilityKind.EventHandler;
+}
+
 function isDeclaredCapabilityDependency(capability: CapabilityContract, target: string): boolean {
   return (capability.effects.capabilities ?? []).includes(target);
 }
 
+function describeCapability(
+  resolveCapability: (name: string) => CapabilityContract | undefined,
+  name: string,
+): CapabilityDescription | undefined {
+  const cap = resolveCapability(name);
+  if (!cap) return undefined;
+  return {
+    name: cap.name,
+    domain: cap.domain,
+    kind: cap.kind,
+    inputSchema: zodInputToJsonSchema(cap.input),
+  };
+}
+
 /**
  * Build the public `ctx.capabilities` service for a running capability handler.
+ * @param ctx Handler-visible context (may carry tx-scoped data/events).
+ * @param runtimeCtx Source for internal invocation runtime on nested calls (defaults to `ctx`).
  */
 export function createCapabilityInvokeService(
   capability: CapabilityContract,
   ctx: ExecutionContext,
   runtime: CapabilityInvocationRuntime,
+  runtimeCtx: ExecutionContext = ctx,
 ): CapabilityService {
   const caller = getCanonicalCapabilityName(capability);
   const { invoker, resolveCapability, emitScope } = runtime;
 
   return {
+    describe(name: RegisteredCapabilityName) {
+      return describeCapability(resolveCapability, name);
+    },
     async invoke(name: RegisteredCapabilityName, input: unknown): Promise<unknown> {
       const stack = ctx.__runtime?.capabilityStack ?? [];
 
@@ -160,12 +188,27 @@ export function createCapabilityInvokeService(
         });
       }
 
+      const parentScope = ctx.__runtime?.transactionScope;
+      if (parentScope && targetCap.effects.ai === true) {
+        const scopeWithFlag = parentScope as typeof parentScope & { aiTxnWarned?: boolean };
+        if (!scopeWithFlag.aiTxnWarned) {
+          ctx.logger.warn(
+            `Capability ${caller} invoked AI capability ${name} inside an active transaction — the parent transaction is held open for the LLM call. Set transactional: false on the parent or avoid AI invokes inside transactional handlers.`,
+            { caller, target: name },
+          );
+          scopeWithFlag.aiTxnWarned = true;
+        }
+      }
       const nestedCtx: ExecutionContext = {
         ...ctx,
         __runtime: {
-          ...ctx.__runtime,
+          ...runtimeCtx.__runtime,
           capabilityStack: [...stack, caller],
           invocationCaller: caller,
+          transactionScope:
+            parentScope && shouldShareTransactionScope(targetCap) ? parentScope : undefined,
+          deferredPostCommit: parentScope?.deferred ?? ctx.__runtime?.deferredPostCommit,
+          withTransaction: parentScope ? undefined : ctx.__runtime?.withTransaction,
         },
       };
 
@@ -193,7 +236,11 @@ export function createCapabilityInvokeService(
 
 /** Invoke surface that always reports invocation unavailability. */
 export function createUnavailableCapabilityService(ctx: ExecutionContext): CapabilityService {
+  const resolve = ctx.__runtime?.resolveCapability;
   return {
+    describe(name: RegisteredCapabilityName) {
+      return resolve ? describeCapability(resolve, name) : undefined;
+    },
     async invoke(name: RegisteredCapabilityName): Promise<unknown> {
       throwDependencyViolation(ctx, {
         target: name,

@@ -84,9 +84,10 @@ plumbus dev
 ### Install in an Existing Project
 
 ```bash
-pnpm add @plumbus/core zod
-pnpm add -D typescript vitest @types/node
+pnpm add @plumbus/core
 ```
+
+Zod, Vitest, TypeScript, and other toolchain dependencies are provided by `@plumbus/core` — do not install them separately in consumer apps.
 
 ---
 
@@ -98,7 +99,7 @@ Capabilities are the **atomic units of business logic**. Every HTTP route, backg
 
 ```typescript
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const getUser = defineCapability({
   name: "getUser",
@@ -108,7 +109,7 @@ export const getUser = defineCapability({
   input: z.object({ userId: z.string().uuid() }),
   output: z.object({ id: z.string(), name: z.string(), email: z.string() }),
   access: { roles: ["admin", "user"], scopes: ["users:read"] },
-  effects: { reads: ["User"] },
+  effects: { data: ["User"], events: [], external: [], ai: false },
   handler: async (ctx, input) => {
     const user = await ctx.data.User.findById(input.userId);
     if (!user) throw ctx.errors.notFound("User not found");
@@ -132,8 +133,8 @@ export const User = defineEntity({
     id: field.id(),
     name: field.string({ classification: "personal" }),
     email: field.string({ classification: "personal", maskedInLogs: true }),
-    role: field.enum({ values: ["admin", "user", "guest"] }),
-    createdAt: field.timestamp({ defaultNow: true }),
+    role: field.enum(["admin", "user", "guest"]),
+    createdAt: field.timestamp(),
   },
 });
 ```
@@ -144,26 +145,28 @@ Flows orchestrate capabilities into multi-step workflows:
 
 ```typescript
 import { defineFlow } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
 
 export const refundApproval = defineFlow({
   name: "refundApproval",
   domain: "billing",
   description: "Route refund requests through validation and approval",
-  trigger: { type: "event", event: "refund.requested" },
+  input: z.object({ refundId: z.string(), amount: z.number() }),
+  trigger: { event: "refund.requested" },
   steps: [
-    { name: "validate", capability: "validateRefund" },
+    { name: "validate", type: "capability", capability: "validateRefund" },
     {
       name: "decide",
       type: "conditional",
-      condition: "ctx.state.amount > 100",
-      ifTrue: "managerApproval",
-      ifFalse: "autoApprove",
+      if: "ctx.state.amount > 100",
+      then: "managerApproval",
+      else: "autoApprove",
     },
-    { name: "managerApproval", capability: "requestManagerApproval" },
-    { name: "autoApprove", capability: "approveRefund" },
-    { name: "notify", capability: "sendRefundNotification" },
+    { name: "managerApproval", type: "capability", capability: "requestManagerApproval" },
+    { name: "autoApprove", type: "capability", capability: "approveRefund" },
+    { name: "notify", type: "capability", capability: "sendRefundNotification" },
   ],
-  retry: { maxAttempts: 3, backoff: "exponential" },
+  retry: { attempts: 3, backoff: "exponential" },
 });
 ```
 
@@ -173,11 +176,11 @@ Events represent domain facts:
 
 ```typescript
 import { defineEvent } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const orderPlaced = defineEvent({
   name: "order.placed",
-  schema: z.object({ orderId: z.string(), customerId: z.string(), total: z.number() }),
+  payload: z.object({ orderId: z.string(), customerId: z.string(), total: z.number() }),
   description: "Emitted when a new order is successfully placed",
 });
 ```
@@ -188,19 +191,19 @@ Prompts provide structured AI interactions:
 
 ```typescript
 import { definePrompt } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const classifyTicket = definePrompt({
   name: "classifyTicket",
   description: "Classify support tickets by category, priority, and sentiment",
-  model: "gpt-4o-mini",
+  system: "You are a support ticket classifier. Analyze the ticket and return structured JSON.",
   input: z.object({ ticketText: z.string() }),
   output: z.object({
     category: z.enum(["billing", "technical", "general"]),
     priority: z.enum(["low", "medium", "high"]),
     sentiment: z.enum(["positive", "neutral", "negative"]),
   }),
-  systemPrompt: "You are a support ticket classifier. Analyze the ticket and return structured JSON.",
+  model: { name: "gpt-4o-mini" },
 });
 ```
 
@@ -295,7 +298,7 @@ plumbus dev                     # Start development server with hot reload
 plumbus doctor                  # Check environment readiness (Node, DB, Redis)
 plumbus generate                # Regenerate all artifacts from contracts
 plumbus verify                  # Run governance rules
-plumbus certify <profile>       # Run compliance profile assessment
+plumbus certify policy <profile>  # Run compliance profile assessment (soc2, gdpr, …)
 plumbus migrate generate        # Generate database migration
 plumbus migrate apply           # Apply pending migrations
 plumbus rag ingest <path>       # Ingest documents into RAG pipeline
@@ -344,36 +347,10 @@ Plumbus is designed to work seamlessly with AI coding agents (GitHub Copilot, Cu
 
 ### How Agents Discover Framework Knowledge
 
-The framework ships with comprehensive instruction files inside the `@plumbus/core` package:
+The framework ships agent instruction files inside npm packages. Start with the index files — they link every topic file and stay current as new instructions are added:
 
-```
-node_modules/@plumbus/core/instructions/
-├── guardrails.md     # Mandatory framework boundaries and git safety
-├── framework.md      # Core abstractions, execution context, project structure
-├── capabilities.md   # Capability definitions, handlers, effects, access policies
-├── entities.md       # Entity fields, classifications, relations, repositories
-├── events.md         # Event emission, outbox pattern, consumers, idempotency
-├── flows.md          # Workflow steps, triggers, retry, state management
-├── ai.md             # AI prompts, generation, RAG, cost tracking, security
-├── security.md       # Access policies, auth, tenant isolation, field classification
-├── governance.md     # Advisory rules, compliance profiles, policy assessment
-├── testing.md        # Test utilities (runCapability, simulateFlow, mockAI)
-├── translations.md   # Translation catalogs, server resolver, frontend i18n
-└── patterns.md       # Naming conventions, best practices, common patterns
-```
-
-The `@plumbus/ui` package also ships instructions:
-
-```
-node_modules/@plumbus/ui/instructions/
-├── framework.md         # UI package overview, exports, concepts
-├── client-generator.md  # Typed fetch clients, React hooks, flow triggers
-├── auth-generator.md    # Auth types, token utils, hooks, route guard
-├── form-generator.md    # Zod schema → form field metadata extraction
-├── nextjs-template.md   # Full Next.js project scaffold
-├── patterns.md          # UI conventions, do's/don'ts, workflows
-└── testing.md           # UI test setup, strategy, patterns
-```
+- [`@plumbus/core` instructions index](packages/plumbus-core/instructions/README.md) (`node_modules/@plumbus/core/instructions/README.md`)
+- [`@plumbus/ui` instruction files](packages/ui/README.md#instruction-files) (`node_modules/@plumbus/ui/instructions/`)
 
 ### Non-Negotiable Guardrails
 
@@ -408,21 +385,7 @@ plumbus init --force
 
 ### Manual Agent Setup
 
-If you're configuring an agent manually, point it to the instruction files:
-
-```markdown
-# In your agent instructions:
-When working with Plumbus, read these files for SDK reference:
-- node_modules/@plumbus/core/instructions/guardrails.md
-- node_modules/@plumbus/core/instructions/framework.md
-- node_modules/@plumbus/core/instructions/capabilities.md
-- node_modules/@plumbus/core/instructions/entities.md
-- node_modules/@plumbus/core/instructions/flows.md
-- node_modules/@plumbus/core/instructions/events.md
-- node_modules/@plumbus/core/instructions/ai.md
-- node_modules/@plumbus/core/instructions/security.md
-- node_modules/@plumbus/core/instructions/testing.md
-```
+If you're configuring an agent manually, point it to the instruction indexes above (read `guardrails.md` first, then follow links from the README).
 
 For a fuller explanation of the framework-first policy and destructive git safety, see [docs/agents/guardrails.md](docs/agents/guardrails.md).
 
@@ -439,7 +402,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
 | [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.1.x` — scoped knowledge providers and registry for registry-backed grounding |
-| [`@plumbus/voice`](packages/voice/) | Optional peer `0.1.x` — real-time voice runtime; `defineVoice`, STT/TTS/transport providers, session worker, cost ledger |
+| [`@plumbus/voice`](packages/voice/) | Optional `0.3.x` — real-time voice runtime (`defineVoice`, STT/TTS/transport); peer `@plumbus/core` `0.6.x` |
 | [`@plumbus/browser-extension`](packages/browser-extension/) | Optional `0.1.x` — dev-time WXT scaffolder for Chrome/Firefox extensions wired to your capabilities (with `@plumbus/ui`) |
 
 The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).
@@ -456,7 +419,7 @@ cd plumbus
 # Install dependencies
 pnpm install
 
-# Run all tests (1717 tests across 126 files)
+# Run all tests (2257 tests across 245 files)
 pnpm test
 
 # Type check
@@ -472,17 +435,18 @@ pnpm build
 plumbus/
 ├── packages/
 │   ├── plumbus-core/           # @plumbus/core — core framework package
-│   │   ├── src/               # 165 source files
-│   │   ├── instructions/      # 15 AI agent instruction files
+│   │   ├── src/
+│   │   ├── instructions/      # AI agent instructions — see packages/plumbus-core/instructions/README.md
 │   │   └── package.json
 │   ├── ui/                    # @plumbus/ui — UI generation package
-│   │   ├── src/               # 9 source files
-│   │   ├── instructions/      # 7 AI agent instruction files
+│   │   ├── src/
+│   │   ├── instructions/      # AI agent instructions — see packages/ui/instructions/
 │   │   └── package.json
 │   ├── api/                   # @plumbus/api — optional partner API contract layer
 │   ├── mcp/                   # @plumbus/mcp — optional MCP runtime
 │   ├── chat/                  # @plumbus/chat — optional chat primitive
 │   ├── chat-ui/               # @plumbus/chat-ui — optional React chat UI
+│   ├── voice/                 # @plumbus/voice — optional real-time voice runtime
 │   ├── knowledge-base/        # @plumbus/knowledge-base — optional knowledge providers
 │   └── browser-extension/     # @plumbus/browser-extension — optional extension scaffolder
 ├── design/                    # Architecture design documents

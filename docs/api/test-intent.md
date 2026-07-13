@@ -199,10 +199,18 @@ The test-intent branch runs **after** auth, tenant guard, scope check, access ev
 # Full contract including test config on resolved exposures
 plumbus api validate
 
-# Fixture files only — schema + path containment
+# Fixture files only — schema + path containment (uses default ./api.yaml)
 plumbus api test-fixtures validate
-plumbus api test-fixtures validate --manifest ./api.yaml --json
+plumbus api test-fixtures validate --json
 ```
+
+### Fixture finding codes
+
+| Code | Cause | Remediation |
+|---|---|---|
+| `test.fixture-path-escape` | Fixture path resolves outside `appRoot` | Use a relative path under the app root |
+| `test.fixture-schema-mismatch` | Fixture JSON does not match capability output schema | Fix the fixture or update the output schema |
+| `test.fixture-read-failed` | Fixture file missing or unreadable | Create the file or fix the path in manifest/capability `test.safeReply.fixture` |
 
 ---
 

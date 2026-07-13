@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+### Behavior fixes
+
+- **K13 — Source-level ranker:** Precedence is provider-factory explicit ranker → `defineKnowledgeSource({ ranker })` → default `scopeSpecificityRanker`. Source-level rankers apply when the provider factory omits an explicit ranker.
+- **K14 — `mockKnowledgeSource` scope:** Optional `scope` is stored on `KnowledgeSourceDefinition.scope` for test metadata.
+- **K15 — Forbidden-import test:** `no-vector-store-imports.test.ts` enforces the thin-adapter boundary in CI.
+
 ## 0.1.4
 
 ### Changed

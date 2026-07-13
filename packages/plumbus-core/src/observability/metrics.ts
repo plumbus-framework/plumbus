@@ -3,6 +3,7 @@
 // and tracing context propagation for the Plumbus runtime.
 
 import type { LoggerService } from '../types/context.js';
+import { maskSensitiveValues } from '../data/mask-fields.js';
 
 // ── Metrics ──
 
@@ -232,6 +233,27 @@ export interface StructuredLoggerConfig {
   actorId?: string;
   /** Minimum log level to emit (default: "info") */
   minLevel?: 'debug' | 'info' | 'warn' | 'error';
+  /** Metadata keys to redact (values replaced with `***MASKED***`, including nested keys) */
+  maskKeys?: string[];
+}
+
+function maskLogMetadata(
+  metadata: Record<string, unknown> | undefined,
+  maskKeys: string[] | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata || !maskKeys?.length) return metadata;
+  return maskSensitiveValues(metadata, maskKeys) as Record<string, unknown>;
+}
+
+/** Wrap a logger so metadata keys in `maskKeys` are redacted before emit. */
+export function withLogMasking(logger: LoggerService, maskKeys?: string[]): LoggerService {
+  if (!maskKeys?.length) return logger;
+  return {
+    debug: (message, metadata) => logger.debug(message, maskLogMetadata(metadata, maskKeys)),
+    info: (message, metadata) => logger.info(message, maskLogMetadata(metadata, maskKeys)),
+    warn: (message, metadata) => logger.warn(message, maskLogMetadata(metadata, maskKeys)),
+    error: (message, metadata) => logger.error(message, maskLogMetadata(metadata, maskKeys)),
+  };
 }
 
 const LOG_LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -245,6 +267,7 @@ export function createStructuredLogger(config?: StructuredLoggerConfig): LoggerS
     actorId: config?.actorId,
   };
   const minLevel = LOG_LEVEL_ORDER[config?.minLevel ?? 'info'];
+  const maskKeys = config?.maskKeys;
 
   function emit(
     level: StructuredLogEntry['level'],
@@ -258,7 +281,7 @@ export function createStructuredLogger(config?: StructuredLoggerConfig): LoggerS
       message,
       timestamp: new Date().toISOString(),
       ...baseFields,
-      metadata,
+      metadata: maskLogMetadata(metadata, maskKeys),
     };
 
     const line = JSON.stringify(entry);

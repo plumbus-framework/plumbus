@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { defineKnowledgeSource } from '../../define/defineKnowledgeSource.js';
 import { createKnowledgeRegistry } from '../create-knowledge-registry.js';
 import { staticBlocks } from '../../providers/static-blocks.js';
@@ -35,5 +35,18 @@ describe('createKnowledgeRegistry', () => {
         sources: [help, help],
       }),
     ).toThrow(/knowledge\.duplicate_source/);
+  });
+
+  it('K14: threads source-level ranker into getBlock when factory omits explicit ranker', async () => {
+    const ranker = vi.fn((blocks: Array<{ text: string }>) => blocks.slice().reverse());
+    const source = defineKnowledgeSource({
+      name: 'ranked',
+      ranker,
+      provider: staticBlocks({ blocks: [{ text: 'a' }, { text: 'b' }] }),
+    });
+    const registry = createKnowledgeRegistry({ sources: [source] });
+    const result = await registry.get('ranked').getBlock({} as never, {});
+    expect(ranker).toHaveBeenCalledOnce();
+    expect(result).toContain('b');
   });
 });

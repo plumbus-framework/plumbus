@@ -18,9 +18,20 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService } from '../types/audit.js';
 import type { QueryOptions, Repository } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
-import type { FieldClassification } from '../types/enums.js';
 import { ErrorHints } from '../errors/hints.js';
+import {
+  DataForbiddenError,
+  DataInternalError,
+  DataValidationError,
+} from '../errors/data-errors.js';
 import type { AuthContext } from '../types/security.js';
+import {
+  decryptFieldValue,
+  encryptFieldValue,
+  getEncryptedFields,
+  isEncryptedValue,
+} from './field-encryption.js';
+import { getMaskedFields, maskSensitiveValues, AUDIT_MASK_TOKEN } from './mask-fields.js';
 
 export interface RepositoryOptions {
   entity: EntityDefinition;
@@ -32,6 +43,8 @@ export interface RepositoryOptions {
   softDelete?: boolean;
   /** Bypass tenant-scope filtering for cross-tenant admin access (default: false) */
   bypassTenantScope?: boolean;
+  /** AES-256-GCM key for `encrypted: true` string fields (from PLUMBUS_ENCRYPTION_KEY) */
+  encryptionKey?: Buffer;
 }
 
 /**
@@ -44,9 +57,19 @@ export function createRepository<
   TCreate extends Record<string, unknown> = Record<string, any>,
   TUpdate extends Record<string, unknown> = Record<string, any>,
 >(options: RepositoryOptions): Repository<T, TCreate, TUpdate> {
-  const { entity, table, db, auth, audit, softDelete = false, bypassTenantScope = false } = options;
+  const {
+    entity,
+    table,
+    db,
+    auth,
+    audit,
+    softDelete = false,
+    bypassTenantScope = false,
+    encryptionKey,
+  } = options;
 
   const maskedFields = getMaskedFields(entity);
+  const encryptedFields = getEncryptedFields(entity);
   const isTenantScoped = entity.tenantScoped === true;
   const hasDeletedAt = 'deletedAt' in table;
 
@@ -60,8 +83,9 @@ export function createRepository<
         reason: 'missing_tenant_context',
       });
     }
-    throw new Error(
+    throw new DataForbiddenError(
       `${ErrorHints.tenantContextRequired} Tenant-scoped entity "${entity.name}" requires auth.tenantId`,
+      { entity: entity.name, operation },
     );
   }
 
@@ -69,8 +93,9 @@ export function createRepository<
     if (!isTenantScoped || bypassTenantScope) return undefined;
     if (!auth.tenantId) {
       // assertTenantContext() should run before tenantFilter(); defensive only.
-      throw new Error(
+      throw new DataForbiddenError(
         `${ErrorHints.tenantContextRequired} Tenant-scoped entity "${entity.name}" requires auth.tenantId`,
+        { entity: entity.name },
       );
     }
     const tenantCol = (table as any).tenantId;
@@ -86,13 +111,93 @@ export function createRepository<
 
   function maskData(data: Record<string, unknown>): Record<string, unknown> {
     if (maskedFields.length === 0) return data;
-    const masked = { ...data };
-    for (const field of maskedFields) {
-      if (field in masked) {
-        masked[field] = '***';
+    return maskSensitiveValues(data, maskedFields, AUDIT_MASK_TOKEN) as Record<string, unknown>;
+  }
+
+  function assertQueryableField(fieldName: string, operation: string): void {
+    if (!encryptionKey || encryptedFields.length === 0) return;
+    if (!encryptedFields.includes(fieldName)) return;
+    throw new DataValidationError(`Cannot query encrypted field "${fieldName}"`, {
+      entity: entity.name,
+      field: fieldName,
+      operation,
+    });
+  }
+
+  function collectQueryFieldNames(query?: Partial<T>, options?: QueryOptions): string[] {
+    const names: string[] = [];
+    if (query) {
+      for (const key of Object.keys(query)) {
+        names.push(key);
       }
     }
-    return masked;
+    if (options?.in) {
+      for (const key of Object.keys(options.in)) {
+        names.push(key);
+      }
+    }
+    if (options?.notEq) {
+      for (const key of Object.keys(options.notEq)) {
+        names.push(key);
+      }
+    }
+    if (options?.search?.columns) {
+      for (const col of options.search.columns) {
+        names.push(col);
+      }
+    }
+    if (options?.dateFilters) {
+      for (const key of Object.keys(options.dateFilters)) {
+        names.push(key);
+      }
+    }
+    if (options?.orderBy) {
+      const specs =
+        typeof options.orderBy === 'string' ? [{ column: options.orderBy }] : options.orderBy;
+      for (const spec of specs) {
+        names.push(spec.column);
+      }
+    }
+    return names;
+  }
+
+  function assertQueryableFields(
+    query?: Partial<T>,
+    options?: QueryOptions,
+    operation = 'findMany',
+  ): void {
+    for (const fieldName of collectQueryFieldNames(query, options)) {
+      assertQueryableField(fieldName, operation);
+    }
+  }
+
+  function encryptRecordFields(record: Record<string, unknown>): Record<string, unknown> {
+    if (!encryptionKey || encryptedFields.length === 0) return record;
+    const encrypted = { ...record };
+    for (const field of encryptedFields) {
+      const value = encrypted[field];
+      if (typeof value === 'string' && value.length > 0 && !isEncryptedValue(value)) {
+        encrypted[field] = encryptFieldValue(value, encryptionKey);
+      }
+    }
+    return encrypted;
+  }
+
+  function decryptRecordFields(record: Record<string, unknown>): Record<string, unknown> {
+    if (encryptedFields.length === 0) return record;
+    const decrypted = { ...record };
+    for (const field of encryptedFields) {
+      const value = decrypted[field];
+      if (typeof value === 'string' && isEncryptedValue(value)) {
+        decrypted[field] = encryptionKey ? decryptFieldValue(value, encryptionKey) : value;
+      }
+    }
+    return decrypted;
+  }
+
+  function decryptRow(row: T | undefined): T | null {
+    if (!row) return null;
+    return decryptRecordFields(row as Record<string, unknown>) as T;
   }
 
   async function auditMutation(action: string, data: Record<string, unknown>): Promise<void> {
@@ -104,6 +209,7 @@ export function createRepository<
   }
 
   function buildConditions(query?: Partial<T>, options?: QueryOptions): SQL[] {
+    assertQueryableFields(query, options);
     const conditions: SQL[] = [];
     const tf = tenantFilter();
     if (tf) conditions.push(tf);
@@ -188,12 +294,12 @@ export function createRepository<
 
       const rows = await db.select().from(table).where(where).limit(1);
 
-      return (rows[0] as T) ?? null;
+      return decryptRow(rows[0] as T | undefined);
     },
 
     async create(data: TCreate): Promise<T> {
       await assertTenantContext('create');
-      const record: Record<string, unknown> = { ...data };
+      const record: Record<string, unknown> = encryptRecordFields({ ...data });
 
       // Inject tenantId for tenant-scoped entities
       if (isTenantScoped && !bypassTenantScope && auth.tenantId) {
@@ -201,7 +307,12 @@ export function createRepository<
       }
 
       const rows = await db.insert(table).values(record).returning();
-      const created = rows[0] as T;
+      const created = decryptRow(rows[0] as T | undefined);
+      if (!created) {
+        throw new DataInternalError(`Failed to create "${entity.name}" record`, {
+          entity: entity.name,
+        });
+      }
       await auditMutation('create', record);
       return created;
     },
@@ -211,7 +322,7 @@ export function createRepository<
       await assertTenantContext('createMany');
 
       const prepared = records.map((data) => {
-        const record: Record<string, unknown> = { ...data };
+        const record: Record<string, unknown> = encryptRecordFields({ ...data });
         if (isTenantScoped && !bypassTenantScope && auth.tenantId) {
           record.tenantId = auth.tenantId;
         }
@@ -226,7 +337,15 @@ export function createRepository<
         sample: maskData(prepared[0] ?? {}),
       });
 
-      return rows as T[];
+      return rows.map((row) => {
+        const decrypted = decryptRow(row as T | undefined);
+        if (!decrypted) {
+          throw new DataInternalError(`Failed to create "${entity.name}" record in batch`, {
+            entity: entity.name,
+          });
+        }
+        return decrypted;
+      }) as T[];
     },
 
     async update(id: string, updates: TUpdate): Promise<T> {
@@ -241,19 +360,26 @@ export function createRepository<
 
       const where = conditions.length > 1 ? and(...conditions) : conditions[0];
       if (!where) {
-        throw new Error(
+        throw new DataInternalError(
           `Refusing to update "${entity.name}" without a WHERE predicate (no id and no tenant filter)`,
+          { entity: entity.name, id },
         );
       }
 
-      const updateData: Record<string, unknown> = {
+      const updateData: Record<string, unknown> = encryptRecordFields({
         ...updates,
         updatedAt: new Date(),
-      };
+      });
 
       const rows = await db.update(table).set(updateData).where(where).returning();
 
-      const updated = rows[0] as T;
+      const updated = decryptRow(rows[0] as T | undefined);
+      if (!updated) {
+        throw new DataInternalError(`Failed to update "${entity.name}" record ${id}`, {
+          entity: entity.name,
+          id,
+        });
+      }
       await auditMutation('update', { id, ...updateData });
       return updated;
     },
@@ -270,8 +396,9 @@ export function createRepository<
 
       const where = conditions.length > 1 ? and(...conditions) : conditions[0];
       if (!where) {
-        throw new Error(
+        throw new DataInternalError(
           `Refusing to delete "${entity.name}" without a WHERE predicate (no id and no tenant filter)`,
+          { entity: entity.name, id },
         );
       }
 
@@ -297,7 +424,12 @@ export function createRepository<
       if (options?.offset != null) {
         qb = qb.offset(Math.max(0, options.offset)) as typeof qb;
       }
-      return (await qb) as T[];
+      const result = await qb;
+      const rows = Array.isArray(result) ? result : [];
+      return rows.flatMap((row) => {
+        const decrypted = decryptRow(row as T);
+        return decrypted ? [decrypted] : [];
+      });
     },
 
     async count(
@@ -312,25 +444,4 @@ export function createRepository<
   };
 }
 
-/**
- * Extract field names that should be masked in audit logs
- * based on field classification or explicit maskedInLogs flag.
- */
-function getMaskedFields(entity: EntityDefinition): string[] {
-  const masked: string[] = [];
-  const sensitiveClassifications = new Set<FieldClassification>([
-    'sensitive',
-    'highly_sensitive',
-    'personal',
-  ]);
-
-  for (const [name, descriptor] of Object.entries(entity.fields)) {
-    const opts = descriptor.options;
-    if (opts.maskedInLogs) {
-      masked.push(name);
-    } else if (opts.classification && sensitiveClassifications.has(opts.classification)) {
-      masked.push(name);
-    }
-  }
-  return masked;
-}
+export { getMaskedFields } from './mask-fields.js';

@@ -596,7 +596,7 @@ When creating or modifying capabilities:
 - Declare invoke targets in \`effects.capabilities\` (canonical \`<domain>.<name>\`) and call them with \`ctx.capabilities.invoke\` — never import other handlers directly
 - Set access policies (deny-by-default)
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
-- To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\` and \`action\` kinds are eligible.
+- To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\`, \`action\`, and \`job\` kinds are eligible.
 - To expose a capability on the partner HTTP API, add \`exposeAs: ["api"]\` and optional \`api: { path, method, auth, ... }\`. Only \`query\` and \`action\` kinds are eligible.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.

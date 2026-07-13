@@ -22,6 +22,8 @@ export type ChatPendingActionRepo = {
   create(data: PendingAction): Promise<PendingAction>;
   findById(id: string): Promise<PendingAction | null>;
   update(id: string, data: Partial<PendingAction>): Promise<PendingAction>;
+  findMany(query?: Partial<PendingAction>): Promise<PendingAction[]>;
+  count(query?: Partial<PendingAction>): Promise<number>;
 };
 
 function dataMap(ctx: ExecutionContext): Record<string, unknown> {

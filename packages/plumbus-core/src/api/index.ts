@@ -6,8 +6,14 @@
 
 export { isApiExposed } from './exposure.js';
 export {
+  LOCALE_COOKIE_NAME,
   registerAllRoutes,
   registerCapabilityRoute,
   registerStreamingRoute,
+  resolveRequestLocale,
 } from './route-generator.js';
-export type { DependencyOptions, RouteGeneratorConfig } from './route-generator.js';
+export type {
+  DependencyOptions,
+  ResolveRequestLocaleOptions,
+  RouteGeneratorConfig,
+} from './route-generator.js';

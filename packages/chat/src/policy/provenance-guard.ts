@@ -25,5 +25,18 @@ export const provenanceGuard: Guard = async (_turnCtx, state) => {
     };
   }
 
+  const minSources = state.policy.provenance?.minSources;
+  if (minSources !== undefined && valid.length < minSources) {
+    return {
+      decision: 'block',
+      reason: 'provenance_insufficient',
+      emit: {
+        type: 'notice',
+        code: 'chat.provenance_insufficient',
+        message: `Response cited fewer than ${minSources} required sources`,
+      },
+    };
+  }
+
   return { decision: 'allow' };
 };

@@ -45,6 +45,7 @@ ragContext({
   corpus: 'help-docs-v1',
   query: (t) => t.userMessage ?? '',
   filter: (t) => ({ audience: t.audience }),
+  // With policy.audience and no filter, { audience } is applied automatically.
 });
 ```
 

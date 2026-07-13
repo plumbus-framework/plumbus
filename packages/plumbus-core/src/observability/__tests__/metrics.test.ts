@@ -7,6 +7,7 @@ import {
   createTraceContext,
   generateSpanId,
   generateTraceId,
+  withLogMasking,
 } from '../metrics.js';
 
 // ── Tests ──
@@ -356,6 +357,41 @@ describe('Observability', () => {
       expect(grandchild.traceId).toBe(root.traceId);
       expect(grandchild.parentSpanId).toBe(child.spanId);
       expect(grandchild.spanId).not.toBe(child.spanId);
+    });
+  });
+
+  describe('log masking', () => {
+    it('redacts maskKeys in structured logger metadata', () => {
+      const lines: string[] = [];
+      const spy = vi.spyOn(console, 'info').mockImplementation((line: string) => {
+        lines.push(line);
+      });
+
+      const logger = createStructuredLogger({ maskKeys: ['email', 'token'] });
+      logger.info('user login', { email: 'a@b.com', token: 'secret', action: 'login' });
+
+      expect(lines).toHaveLength(1);
+      const entry = JSON.parse(lines[0] ?? '{}') as { metadata?: Record<string, unknown> };
+      expect(entry.metadata?.email).toBe('***MASKED***');
+      expect(entry.metadata?.token).toBe('***MASKED***');
+      expect(entry.metadata?.action).toBe('login');
+      spy.mockRestore();
+    });
+
+    it('withLogMasking wraps an existing logger', () => {
+      const calls: Record<string, unknown>[] = [];
+      const base = {
+        debug: vi.fn(),
+        info: (_msg: string, metadata?: Record<string, unknown>) => {
+          calls.push(metadata ?? {});
+        },
+        warn: vi.fn(),
+        error: vi.fn(),
+      };
+      const logger = withLogMasking(base, ['ssn']);
+      logger.info('test', { ssn: '123', name: 'Alice' });
+      expect(calls[0]?.ssn).toBe('***MASKED***');
+      expect(calls[0]?.name).toBe('Alice');
     });
   });
 });

@@ -238,6 +238,24 @@ const extractFacts = definePrompt({
 
 The `extract()` and `classify()` convenience methods always use the default provider.
 
+### Configuration and model resolution
+
+`loadConfig()` reads AI settings from environment variables when building `config/app.config.ts`:
+
+| Variable | Purpose |
+|----------|---------|
+| `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | Single-provider mode |
+| `AI_DEFAULT_PROVIDER` | Multi-provider default (`openai`, `anthropic` only via env) |
+| `AI_OPENAI_*` / `AI_ANTHROPIC_*` | Per-provider API keys, base URLs, and default models |
+| `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
+| `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
+
+Env discovery supports only `AI_OPENAI_*` and `AI_ANTHROPIC_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire Ollama and custom providers programmatically.
+
+**Resolution order** for each call: `resolveAiOverrides` hook (from `app/server.ts`) → per-prompt env vars → prompt `model` fields → `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`.
+
+Hardcoding `model.provider` and `model.name` in `definePrompt()` is valid when you want the contract to pin a model; omit them when you prefer env-driven resolution.
+
 ### Transient Provider Failures
 
 Plumbus automatically retries transient upstream provider responses for AI requests. OpenAI-compatible and Anthropic adapters retry status codes `408`, `429`, `500`, `502`, `503`, and `504` with short exponential backoff before failing the request.
@@ -598,7 +616,7 @@ For the voice-specific runtime, provider, and security guidance, see:
 3. Route voice/media spend through `ctx.ai.recordProviderCost(...)` so `onAICostRecorded` stays the single hook.
 4. Pre-check shared USD caps with `ctx.ai.checkProviderCostBudget({ estimatedCostUsd })` before opening realtime sessions or calling STT/TTS.
 
-`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `^0.6.0 <0.7.0`. Other optional add-ons (`@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, `@plumbus/api`) declare `0.5.x || 0.6.x` and install alongside core **0.6.x**.
+`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `0.5.x || 0.6.x` (same literal as other optional add-ons). `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` also declare `0.5.x || 0.6.x` and install alongside core **0.6.x**.
 
 ### Deterministic sampling with `seed`
 
@@ -627,12 +645,13 @@ import { createRAGPipeline, createInMemoryVectorStore } from "@plumbus/core";
 
 const vectorStore = createInMemoryVectorStore();
 const rag = createRAGPipeline({
+  provider: openaiAdapter,
   vectorStore,
-  embeddingProvider: openaiAdapter,
-  chunkConfig: { maxTokens: 512, overlap: 50 },
+  chunkConfig: { maxChunkSize: 1000, overlap: 200 },
 });
 
 await rag.ingest({
+  documentId: "guide-001",
   content: "Document text...",
   source: "docs/guide.md",
   metadata: { category: "help" },
@@ -641,17 +660,17 @@ await rag.ingest({
 
 ### Chunking
 
-Documents are split into overlapping chunks:
+Documents are split into overlapping **character**-sized chunks:
 
 ```
 ┌─────────────────────────────────────────┐
 │            Source Document               │
 │                                         │
-│  Chunk 1 (512 tokens)                   │
+│  Chunk 1 (maxChunkSize chars)           │
 │  ████████████████████                   │
-│                 ████ ← overlap (50 tok) │
+│                 ████ ← overlap (chars)  │
 │                 ████████████████████    │
-│                 Chunk 2 (512 tokens)    │
+│                 Chunk 2                 │
 │                              ████       │
 │                              ██████████ │
 │                              Chunk 3    │
@@ -681,8 +700,8 @@ AI decisions are tracked for auditability:
 import { createExplainabilityTracker } from "@plumbus/core";
 
 const tracker = createExplainabilityTracker({
-  enabled: true,
-  retentionDays: 90,
+  audit: ctx.audit,
+  actor: "ai-runtime",
 });
 ```
 
@@ -698,11 +717,53 @@ Each AI invocation records:
 
 | Control | Description |
 |---------|-------------|
-| PII Detection | Scans input recursively for personal data patterns, including nested objects |
-| Classification Gate | Blocks `highly_sensitive` data from AI (recursive scanning) |
-| Scope Verification | Caller needs appropriate AI scopes |
-| Model Restriction | Prompts specify allowed models |
-| Budget Enforcement | Daily cost limits prevent runaway spending |
+| Entity field classification | Recursively scans prompt input keys against registered entity field names and classifications |
+| Mode `redact` (default) | Replaces fields at/above `redactThreshold` with `[REDACTED]` and continues |
+| Mode `block` | Aborts the AI call when fields at/above `warnThreshold` are detected |
+| Auto-wiring | When `aiProviders.security` is set, bootstraps merge the entity registry into `buildAISecurityConfig()` — omit `security` to leave scanning off |
+| Model restriction | Prompts specify allowed models |
+| Budget enforcement | Daily cost limits prevent runaway spending |
+
+There is **no** separate `ai:generate` OAuth scope check in the AI runtime — access control for capabilities that call `ctx.ai.*` is enforced by each capability's `access` policy before the handler runs.
+
+```
+ctx.ai.generate() / generateWithUsage() / streamGenerate()
+       │
+       ▼
+┌──────────────────┐
+│ Field scan       │ ← Match input keys to entity field classifications
+└──────┬───────────┘
+       │
+┌──────▼───────────┐
+│ mode: redact     │ ← Replace at/above redactThreshold → continue
+│ mode: block      │ ← Throw when at/above warnThreshold
+└──────┬───────────┘
+       │
+       ▼
+  Provider call
+```
+
+Configure via `aiProviders.security` in config or environment:
+
+```bash
+AI_SECURITY_MODE=redact          # or block
+AI_SECURITY_WARN_THRESHOLD=sensitive
+AI_SECURITY_REDACT_THRESHOLD=highly_sensitive
+```
+
+```typescript
+aiProviders: {
+  defaultProvider: "openai",
+  providers: { /* ... */ },
+  security: {
+    mode: "redact",
+    warnThreshold: "sensitive",
+    redactThreshold: "highly_sensitive",
+  },
+},
+```
+
+Entity definitions are auto-populated from the entity registry at bootstrap. Use `buildAISecurityConfig()` when wiring a custom AI service.
 
 ## Testing AI
 
@@ -711,15 +772,17 @@ import { mockAI, createTestContext } from "@plumbus/core/testing";
 
 const ctx = createTestContext({
   ai: mockAI({
-    "classifyTicket": { department: "billing", urgency: "high", confidence: 0.95 },
+    generate: { department: "billing", urgency: "high", confidence: 0.95 },
   }),
 });
 
-// AI calls return mocked responses
+// AI calls return mocked responses for the generate operation
 const result = await ctx.ai.generate({
   prompt: "classifyTicket",
   input: { ticketText: "..." },
 });
 // → { department: "billing", urgency: "high", confidence: 0.95 }
 ```
+
+`mockAI` keys responses by operation (`generate`, `extract`, `classify`, `retrieve`), not by prompt name.
 

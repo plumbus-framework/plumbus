@@ -48,5 +48,6 @@ export { TraceRecorder } from './eval/trace.js';
 export {
   chatTurnCompletedEvent,
   chatActionConfirmedEvent,
+  chatActionRejectedEvent,
   chatRefusalRecordedEvent,
 } from './events/chat-events.js';

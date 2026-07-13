@@ -7,6 +7,7 @@ import { maybeSummarize } from '../history/summarizer.js';
 import { loadHistoryWindow } from '../history/window.js';
 import { chatTurnRepo } from '../internal/chat-repos.js';
 import { compilePolicy } from '../policy/registry.js';
+import { runBehavioralPostGuard } from '../policy/behavioral-guard.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
 import type { ChatTurnModelOutput } from '../prompt/chat-turn.prompt.js';
@@ -154,6 +155,7 @@ export async function* runChatTurn(
         traceId: turnId,
         contextTokenBudget: chat.budget?.contextTokens,
         userMessage: args.userMessage,
+        applyDefaultAudienceFilter: policy.audience !== undefined,
       };
 
       const guardState: GuardState = {
@@ -161,10 +163,9 @@ export async function* runChatTurn(
         chatName: chat.name,
         policy,
         resolvedSources: new Set<string>(),
-        // Surfaced to behavioralPreGuard so it can enforce cooldowns from
-        // clientHistory when there's no chat_session.behavioral_state to read.
         clientHistory: saveToDb ? undefined : (args.clientHistory ?? []),
         saveToDb,
+        budgetActionsPerSession: chat.budget?.actions?.perSession,
       };
 
       for (const guard of preTurnGuards) {
@@ -172,6 +173,19 @@ export async function* runChatTurn(
         trace?.recordGuard(guard.name || 'anonymous', verdict);
         if (verdict.decision === 'block') {
           if (verdict.emit) emit(verdict.emit as ChatEvent);
+          // Do not re-record cooldown when the block itself is an active cooldown —
+          // otherwise retries extend the lockout forever.
+          if (verdict.reason !== 'cooldown_active') {
+            if (
+              verdict.reason === 'provenance_missing' ||
+              verdict.reason === 'provenance_insufficient'
+            ) {
+              guardState.lastBudgetOrGuardSignal = 'budget';
+            } else {
+              guardState.lastBudgetOrGuardSignal = 'guardFailure';
+            }
+            await runBehavioralPostGuard(turnCtx, guardState);
+          }
           emit({
             type: 'turn.failed',
             code: verdict.reason,
@@ -183,7 +197,7 @@ export async function* runChatTurn(
       }
 
       const resolvedRaw = await resolveContextSources(ctx, chat.context ?? [], turnCtx, {
-        perSourceTimeoutMs: 5000,
+        perSourceTimeoutMs: chat.contextResolution?.perSourceTimeoutMs ?? 5000,
         onError: 'skip',
       });
       trace?.recordResolved(resolvedRaw);
@@ -223,6 +237,7 @@ export async function* runChatTurn(
         chatInstructions: (chat.instructions ?? []).join('\n'),
         audience: args.audience,
         locale: args.locale,
+        replyLocale: policy.reply?.locale,
         scopeDescription: policy.scope?.description,
         resolvedContext: resolved,
         allowedSourceHandles: [...(guardState.resolvedSources ?? [])],
@@ -322,6 +337,73 @@ export async function* runChatTurn(
       // leave no assistant message in chat-ui state and the refusal bubble
       // never renders client-side — the user sees nothing despite the server
       // having recorded a refusal (and the cooldown counter incrementing).
+      const perTurnBudget = chat.budget?.perTurn;
+      const turnTokens = usage.tokensIn + usage.tokensOut;
+      const perTurnTokensExceeded =
+        perTurnBudget?.tokens !== undefined && turnTokens > perTurnBudget.tokens;
+      const perTurnCostExceeded =
+        perTurnBudget?.costUsd !== undefined && cost > perTurnBudget.costUsd;
+
+      if (perTurnTokensExceeded || perTurnCostExceeded) {
+        const capMessage = perTurnTokensExceeded
+          ? `Per-turn token cap exceeded (${perTurnBudget?.tokens})`
+          : `Per-turn cost cap exceeded (${perTurnBudget?.costUsd})`;
+        guardState.lastBudgetOrGuardSignal = 'budget';
+        if (saveToDb) {
+          await appendTurn(
+            ctx,
+            {
+              sessionId: args.sessionId,
+              ordinal: 0,
+              role: 'user',
+              content: args.userMessage,
+              inScope: true,
+              sources: [],
+              tokensIn: 0,
+              tokensOut: 0,
+              costUsd: 0,
+              model: '',
+              latencyMs: 0,
+              recordedAt: ctx.time.now(),
+              userId: session.userId,
+            },
+            { persistContent: persistence !== 'client' },
+          );
+          await appendTurn(
+            ctx,
+            {
+              sessionId: args.sessionId,
+              ordinal: 0,
+              role: 'assistant',
+              content: '',
+              inScope: false,
+              sources: [],
+              tokensIn: usage.tokensIn,
+              tokensOut: usage.tokensOut,
+              costUsd: cost,
+              model,
+              latencyMs: 0,
+              recordedAt: ctx.time.now(),
+              userId: session.userId,
+            },
+            { persistContent: persistence !== 'client' },
+          );
+        }
+        await runBehavioralPostGuard(turnCtx, guardState);
+        emit({
+          type: 'notice',
+          code: 'chat.budget_exceeded',
+          message: capMessage,
+        });
+        emit({
+          type: 'turn.failed',
+          code: 'chat.budget_exceeded',
+          message: capMessage,
+        });
+        emitter.end();
+        return;
+      }
+
       emit({ type: 'message.delta', text: modelOutput.answer ?? '' });
 
       guardState.modelOutput = modelOutput as unknown as Record<string, unknown>;
@@ -332,6 +414,15 @@ export async function* runChatTurn(
         trace?.recordGuard(guard.name || 'anonymous', verdict);
         if (verdict.decision === 'block') {
           if (verdict.emit) emit(verdict.emit as ChatEvent);
+          if (
+            verdict.reason === 'provenance_missing' ||
+            verdict.reason === 'provenance_insufficient' ||
+            verdict.reason === 'action_budget_exceeded'
+          ) {
+            guardState.lastBudgetOrGuardSignal = 'budget';
+          } else {
+            guardState.lastBudgetOrGuardSignal = 'guardFailure';
+          }
           if (verdict.reason === 'out_of_scope') {
             await ctx.events.emit(chatRefusalRecordedEvent.name, {
               chatName: chat.name,

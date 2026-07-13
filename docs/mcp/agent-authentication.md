@@ -69,7 +69,7 @@ mcp: {
 
 Loaded via `loadConfig()` like database and auth settings. v1 is a **static map**; no runtime agent registration API.
 
-`plumbus mcp serve` builds `createMcpAuthAdapter(loadConfig().mcp?.agents ?? {})`.
+`plumbus mcp serve` builds `createMcpAuthAdapter({ agents: config.mcp?.agents ?? {}, envToken: process.env.PLUMBUS_MCP_TOKEN })` when `mcp.agents` is non-empty.
 
 ## Token resolution
 
@@ -97,10 +97,10 @@ Behavior depends on which adapter is in effect and which transport is serving th
 
 | Scenario | Adapter resolved by `plumbus mcp serve` | Null-auth behavior |
 |---|---|---|
-| `config.mcp.agents` has at least one entry | `createMcpAuthAdapter(agents, envToken)` | `null` → HTTP transport returns 401 at the tool call; stdio transport surfaces a tool error. Access evaluation never runs. |
-| `config.mcp.agents` is empty or unset | Falls back to the **JWT adapter** ([`packages/plumbus-core/src/cli/mcp-serve-context.ts:45-52`](../../packages/plumbus-core/src/cli/mcp-serve-context.ts#L45-L52)) and `plumbus mcp serve` prints an "anonymous-only" warning at startup. | `null` → the per-call MCP server ([`packages/mcp/src/server.ts:101-106`](../../packages/mcp/src/server.ts#L101-L106)) substitutes an anonymous `AuthContext` (`provider: 'anonymous'`, empty roles/scopes). The capability still runs `evaluateAccess()`, so only `access.public: true` tools execute. |
+| `config.mcp.agents` has at least one entry | `createMcpAuthAdapter({ agents, envToken })` | `null` → HTTP transport returns 401 at the tool call; stdio transport surfaces a tool error. Access evaluation never runs. |
+| `config.mcp.agents` is empty or unset | Falls back to the **JWT adapter** and `plumbus mcp serve` prints an "anonymous-only" warning at startup. | `null` → the MCP server substitutes an anonymous `AuthContext` (`provider: 'anonymous'`, empty roles/scopes). Only `access.public: true` tools execute. |
 
-**Deploy with `mcp.agents` configured for any production-shaped surface** — the anonymous fallback exists only so that local development with `--public` capabilities works without a config. Never ship a destructive `mcp`-exposed capability with `access.public: true`.
+**Deploy with `mcp.agents` configured for any production-shaped surface.** The anonymous JWT fallback is for local dev only. `plumbus doctor` **fails** on any capability with both `exposeAs: ['mcp']` and `access.public: true` — including read-only tools.
 
 ## Audit
 
@@ -113,7 +113,7 @@ Capability audit entries for MCP invocations should record:
 ## Threat model
 
 - Treat agent tokens like API keys: rotate, scope minimally, never commit to git.
-- Avoid `public: true` on capabilities with `exposeAs: ['mcp']` and `mcp.dangerous: true`.
+- Avoid `access.public: true` on any capability with `exposeAs: ['mcp']` — `plumbus doctor` fails on the combination.
 - Leaked token grants only the configured scopes and service account visibility.
 
 ## Per-request ExecutionContext

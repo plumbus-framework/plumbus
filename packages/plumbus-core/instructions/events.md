@@ -47,6 +47,8 @@ handler: async (ctx, input) => {
 
 Events are **not** dispatched immediately. They are written to an outbox table in the **same database transaction** as the capability's data changes. This guarantees at-least-once delivery with no data/event inconsistency.
 
+For `action` / `eventHandler` capabilities this is the default (**transactional outbox ON**). Opt out with `execution.transactionalOutbox: false`, `PLUMBUS_TRANSACTIONAL_OUTBOX=false`, or per-capability `transactional: false`. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. See `capabilities.md` § Transactional outbox.
+
 A background dispatcher polls the outbox and publishes events to the queue system for delivery.
 
 ## Event Envelope

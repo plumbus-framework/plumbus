@@ -83,4 +83,23 @@ describe('EntityRegistry', () => {
     const dataService = registry.createDataService({ db: mockDb, auth, bypassTenantScope: true });
     expect(dataService.Order).toBeDefined();
   });
+
+  it('getMaskedFieldNames collects unique masked fields across entities', () => {
+    const registry = new EntityRegistry();
+    registry.registerAll([
+      makeEntity('User', {
+        fields: {
+          id: field.id(),
+          email: field.string({ maskedInLogs: true }),
+        },
+      }),
+      makeEntity('Order', {
+        fields: {
+          id: field.id(),
+          total: field.number({ classification: 'sensitive' }),
+        },
+      }),
+    ]);
+    expect(registry.getMaskedFieldNames().sort()).toEqual(['email', 'total']);
+  });
 });

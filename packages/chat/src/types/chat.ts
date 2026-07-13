@@ -64,6 +64,10 @@ export interface ChatConfig {
    * instead of SSE. Defaults to true (SSE).
    */
   streaming?: boolean;
+  /** Per-source context resolution timeout (default 5000ms). */
+  contextResolution?: {
+    perSourceTimeoutMs?: number;
+  };
 }
 
 export interface ChatDefinition extends ChatConfig {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EntityDefinition } from '../../types/entity.js';
 import type { FieldDescriptor } from '../../types/fields.js';
-import { checkPromptSecurity, type AISecurityConfig } from '../security.js';
+import { checkPromptSecurity, type AISecurityConfig, buildAISecurityConfig } from '../security.js';
 
 function makeEntity(name: string, fields: Record<string, FieldDescriptor>): EntityDefinition {
   return { name, fields };
@@ -135,5 +135,32 @@ describe('AI Security Boundaries', () => {
     const fields = result.warnings.map((w) => w.field);
     expect(fields).toContain('salary');
     expect(fields).toContain('details.user.ssn');
+  });
+
+  it('blocks classified fields when mode is block', () => {
+    const result = checkPromptSecurity(
+      { salary: 50000 },
+      { entities, mode: 'block', warnThreshold: 'sensitive' },
+    );
+    expect(result.safe).toBe(false);
+    expect(result.blocked).toBe(true);
+    expect(result.redactedInput).toBeUndefined();
+  });
+
+  it('defaults mode to redact and still redacts highly_sensitive fields', () => {
+    const result = checkPromptSecurity({ ssn: '123-45-6789' }, { entities });
+    expect(result.blocked).toBeFalsy();
+    expect(result.redactedInput?.ssn).toBe('[REDACTED]');
+  });
+
+  it('buildAISecurityConfig returns undefined without overrides', () => {
+    expect(buildAISecurityConfig(entities)).toBeUndefined();
+  });
+
+  it('buildAISecurityConfig merges entity registry with overrides', () => {
+    const config = buildAISecurityConfig(entities, { mode: 'block' });
+    expect(config?.mode).toBe('block');
+    expect(config?.entities).toEqual(entities);
+    expect(config?.warnThreshold).toBe('sensitive');
   });
 });

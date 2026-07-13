@@ -7,6 +7,7 @@ import { enqueueFlowStep } from '../flows/flow-queue.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { EntityRegistry } from '../data/registry.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { WorkerPool } from '../worker/bootstrap.js';
 import { createWorkerPool } from '../worker/bootstrap.js';
@@ -50,6 +51,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
   } = options;
 
   const stepDeps = buildStepDeps(capabilities);
+  const encryptionKey = resolveEncryptionKey();
   const systemAuth = {
     userId: 'system-worker',
     roles: ['system'] as string[],
@@ -67,7 +69,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
   try {
     const mcp = await import('@plumbus/mcp');
     const audit = createAuditService({ db, auth: systemAuth });
-    const data = entities.createDataService({ db, auth: systemAuth, audit });
+    const data = entities.createDataService({ db, auth: systemAuth, audit, encryptionKey });
     onMcpJobComplete = mcp.createMcpJobCompletionSync({
       auth: systemAuth,
       data,
@@ -83,6 +85,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     config,
     db,
     promptRegistry,
+    entities,
     onAICostRecorded: extensions?.onAICostRecorded,
     resolveAiOverrides: extensions?.resolveAiOverrides,
     enableStrictStructuredOutputs: extensions?.enableStrictStructuredOutputs,
@@ -123,6 +126,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
         db,
         auth: effectiveAuth,
         bypassTenantScope: false,
+        encryptionKey,
       });
     },
     eventRegistry: events,

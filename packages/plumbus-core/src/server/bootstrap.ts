@@ -7,6 +7,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
+import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
 import type { AICostContext } from '../types/context.js';
@@ -14,19 +15,20 @@ import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
-import type { EventQueue } from '../events/queue.js';
-import { registerJobStatusRoute } from '../jobs/routes.js';
-import { createAuditService } from '../audit/service.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import type { EntityRegistry } from '../data/registry.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
-import { createEventEmitter } from '../events/emitter.js';
+import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
+import { registerJobStatusRoute } from '../jobs/routes.js';
+import { createJobDispatchService } from '../jobs/job-dispatch-service.js';
+import { JobExecutionSource } from '../jobs/schema.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import { wireContextDependencies } from '../execution/context-deps.js';
 import {
   createInvocationEmitScope,
   resolveInvocationCausationId,
@@ -41,6 +43,12 @@ import type { AIService, LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { TranslationDefinition } from '../types/translation.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
+import { createStructuredLogger, withLogMasking } from '../observability/metrics.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
+import {
+  warnAiSecurityBlockMode,
+  warnEncryptedFieldsWithoutKey,
+} from '../runtime/startup-warnings.js';
 
 // ── Server Config ──
 
@@ -166,6 +174,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const translationRegistry = new TranslationRegistry();
   translationRegistry.registerAll(serverConfig.translations ?? []);
   const defaultLocale = serverConfig.translations?.[0]?.defaultLocale ?? 'en';
+  const supportedLocales = translationRegistry.getSupportedLocales();
+  const resolvedSupportedLocales = supportedLocales.length > 0 ? supportedLocales : [defaultLocale];
+  const maskKeys = entities.getMaskedFieldNames();
+  const encryptionKey = resolveEncryptionKey();
+  warnEncryptedFieldsWithoutKey(entities, encryptionKey, logger);
+  warnAiSecurityBlockMode(config, logger);
 
   // Auth adapter
   if (!config.auth.secret && config.environment !== 'development') {
@@ -254,6 +268,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         : undefined,
       onAICostRecorded: onAICostRecordedAdapter,
       enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
+      security: buildAISecurityConfig(entities.getAllEntities(), config.aiProviders.security),
     };
     aiService = createAIService(aiServiceConfig);
 
@@ -308,36 +323,53 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const routeConfig: RouteGeneratorConfig = {
     db,
     authAdapter,
+    defaultLocale,
+    supportedLocales: resolvedSupportedLocales,
     createDependencies: (auth: AuthContext, options?): ContextDependencies => {
-      const audit = createAuditService({ db, auth });
-      const data = entities.createDataService({
-        db,
-        auth,
-        audit,
-        bypassTenantScope: options?.bypassTenantScope,
-      });
       const invocationEmitScope = createInvocationEmitScope();
-      const eventService = createEventEmitter({
-        db,
-        auth,
-        registry: events,
-        audit,
-        getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
-      });
-
-      return {
-        auth,
-        data,
-        events: eventService,
-        flows: createFlowService(requestFlowEngine, auth),
-        ai: aiService,
-        audit,
-        logger,
-        config: config as unknown as Record<string, unknown>,
-        translations: createTranslationService(translationRegistry, defaultLocale),
-        invocationEmitScope,
-        ...buildCapabilityRuntimeDeps(capabilities),
-      };
+      const locale = options?.locale ?? defaultLocale;
+      const baseLogger =
+        serverConfig.logger ??
+        createStructuredLogger({
+          component: 'capability',
+          tenantId: auth.tenantId,
+          actorId: auth.userId,
+          maskKeys,
+        });
+      const requestLogger = withLogMasking(baseLogger, maskKeys);
+      const capRuntime = buildCapabilityRuntimeDeps(capabilities);
+      return wireContextDependencies(
+        {
+          db,
+          auth,
+          entities,
+          events,
+          bypassTenantScope: options?.bypassTenantScope,
+          getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
+          encryptionKey,
+        },
+        {
+          flows: createFlowService(requestFlowEngine, auth),
+          ...(serverConfig.jobQueue
+            ? {
+                jobs: createJobDispatchService({
+                  db,
+                  jobQueue: serverConfig.jobQueue,
+                  resolveCapability: (name) => capabilities.get(name),
+                  auth,
+                  getCorrelationId: () => resolveInvocationCausationId(invocationEmitScope),
+                  source: JobExecutionSource.Http,
+                }),
+              }
+            : {}),
+          ai: aiService,
+          logger: requestLogger,
+          config: config as unknown as Record<string, unknown>,
+          translations: createTranslationService(translationRegistry, locale),
+          invocationEmitScope,
+          ...capRuntime,
+        },
+      );
     },
     onCapabilityError: serverConfig.onCapabilityError,
     jobQueue: serverConfig.jobQueue,

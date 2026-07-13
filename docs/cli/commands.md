@@ -22,14 +22,17 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus event new` | Scaffold a new event |
 | `plumbus prompt new` | Scaffold a new prompt |
 | `plumbus verify` | Run governance rules |
-| `plumbus certify` | Run compliance profile assessment |
+| `plumbus certify` | Run compliance profile assessment (`certify policy <name>`) |
+| `plumbus api` | Partner API manifest validate, OpenAPI/docs export, diff |
+| `plumbus voice worker` | LiveKit realtime voice worker |
+| `plumbus e2e` | Run Playwright browser E2E suites |
 | `plumbus migrate` | Database migration commands |
 | `plumbus db` | Database lifecycle management (create, reset) |
 | `plumbus rag ingest` | Ingest documents into RAG vector store |
 | `plumbus run` | Run app command scripts from app/commands/ |
 | `plumbus seed` | Run seed files to populate the database |
 | `plumbus agent` | AI agent brief and sync commands |
-| `plumbus ui` | Generate UI modules and Next.js frontends |
+| `plumbus ui` | Generate UI modules, Next.js scaffolds, and E2E test stubs |
 | `plumbus browser-extension scaffold` | Scaffold a WXT Chrome/Firefox extension |
 | `plumbus upgrade` | Migrate legacy artifacts after framework upgrades |
 | `plumbus test` | Run tests using vitest (provided by the framework) |
@@ -65,9 +68,9 @@ plumbus create <app-name> [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--database <type>` | `string` | `postgres` | Database type |
+| `--database <type>` | `string` | `postgresql` | Database type |
 | `--auth <provider>` | `string` | `jwt` | Auth provider (`jwt`, `clerk`, `auth0`) |
-| `--ai <provider>` | `string` | — | AI provider (`openai`, `anthropic`) |
+| `--ai <provider>` | `string` | `openai` | AI provider (`openai`, `anthropic`) |
 | `--compliance <profiles>` | `string` | — | Comma-separated compliance profiles |
 | `--monorepo` | `boolean` | `false` | Scaffold a pnpm-workspace monorepo with backend, frontend, and shared libs |
 | `--git` | `boolean` | `false` | Initialize git repository |
@@ -145,7 +148,7 @@ plumbus init [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--agent <format>` | `string` | — | Agent format: `copilot`, `cursor`, `agents-md` |
+| `--agent <format>` | `string` | `all` | Agent format: `copilot`, `cursor`, `agents-md`, or `all` (default generates all three) |
 | `--inline` | `boolean` | `false` | Inline instructions instead of referencing files |
 | `--patch` | `boolean` | `false` | Update Plumbus-managed sections and create missing files |
 | `--force` | `boolean` | `false` | Replace existing generated wiring files outright |
@@ -154,9 +157,11 @@ plumbus init [options]
 **Example:**
 
 ```bash
+plumbus init
 plumbus init --agent copilot
 plumbus init --agent cursor
 plumbus init --agent agents-md
+plumbus init --agent all
 plumbus init --patch
 plumbus init --force
 plumbus init --patch --dry-run
@@ -167,8 +172,9 @@ Files generated:
 | Format | File | Purpose |
 |--------|------|---------|
 | `copilot` | `.github/copilot-instructions.md` | GitHub Copilot instructions |
-| `cursor` | `.cursor/rules/plumbus.mdc` | Cursor rules file |
+| `cursor` | `.cursor/rules/plumbus.mdc`, `.cursor/rules/plumbus-capabilities.mdc` | Cursor rules files |
 | `agents-md` | `AGENTS.md` | Generic agent instruction file |
+| (all formats) | `.plumbus/briefs/project.md` | Project brief for `plumbus agent` |
 
 Generated files include:
 
@@ -198,7 +204,7 @@ plumbus dev [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `-p, --port <number>` | `number` | `3000` | Server port |
-| `-H, --host <string>` | `string` | `0.0.0.0` | Server host |
+| `-H, --host <string>` | `string` | `localhost` | Server host |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Override with `PLUMBUS_RUNTIME_ROLE=api` or `worker` to test split deployments locally (Redis recommended when splitting).
@@ -427,6 +433,8 @@ Generates:
 - `.plumbus/generated/plumbus.d.ts` — module augmentation that populates `PlumbusRegistry` with strict types for capability names, event names, flow names, and entity mappings
 - `.plumbus/generated/mcp-manifest.json` — MCP tool manifest (only capabilities with `exposeAs: ['mcp']`)
 - `.plumbus/generated/skills/<domain>/<kebab-name>.md` — agent skill files per MCP-exposed capability
+- `.plumbus/generated/capability-graph.md` — Mermaid capability dependency graph
+- `.plumbus/generated/consumers-manifest.json` — registered event consumers snapshot
 
 The generated `plumbus.d.ts` file augments the `PlumbusRegistry` interface from `@plumbus/core`, providing:
 - **Strict `ctx.data` access** — only defined entities autocomplete (e.g., `ctx.data.User`)
@@ -544,6 +552,23 @@ This prevents accidental destruction of custom frontend code when re-running the
 
 ---
 
+### plumbus ui e2e
+
+Scaffold Vitest + Playwright E2E test files by scanning frontend pages that use `ActionPanel`.
+
+```bash
+plumbus ui e2e [output-dir] [options]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--frontend-dir <dir>` | `string` | `frontend` | Frontend directory to scan |
+| `--base-url <url>` | `string` | `http://localhost:3001` | Base URL written into generated config |
+
+Default output directory: `<frontend-dir>/e2e`. Run the generated suite with `plumbus e2e --config <frontend-dir>/e2e/vitest.config.e2e.ts`.
+
+---
+
 ### plumbus browser-extension scaffold
 
 Scaffold a WXT Chrome/Firefox extension that calls your Plumbus API with bearer tokens in `browser.storage.local`.
@@ -614,15 +639,61 @@ The source scan uses the current working directory as the app root (same as `plu
 
 ### plumbus certify
 
-Run compliance profile assessment against registered profiles (SOC2, GDPR, HIPAA, ISO27001).
+Run compliance profile assessment against built-in profiles.
 
 ```bash
-plumbus certify [options]
+plumbus certify policy <name> [options]
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--json` | `boolean` | `false` | Output in JSON format |
+
+Policy names: `pci_dss`, `gdpr`, `soc2`, `hipaa`, `internal_security_baseline`.
+
+```bash
+plumbus certify policy soc2
+plumbus certify policy gdpr --json
+```
+
+---
+
+### plumbus api
+
+Partner API contract tooling. Requires `@plumbus/api` installed (`pnpm add @plumbus/api`). Uses `api.yaml` in the project root by default (`--manifest` overrides).
+
+```bash
+plumbus api validate [--manifest <path>] [--json] [--fail-on-governance]
+plumbus api generate openapi --out <file> [--format json|yaml] [--manifest <path>]
+plumbus api generate docs --out <dir> [--manifest <path>]
+plumbus api diff --against <file> [--manifest <path>] [--json]
+plumbus api test-fixtures validate [--json]
+```
+
+| Subcommand | Exit code | Description |
+|------------|-----------|-------------|
+| `validate` | 1 on findings | Manifest, policy, path params, fixtures, and advisory API governance |
+| `generate openapi` | — | Write OpenAPI JSON or YAML |
+| `generate docs` | — | Write Markdown API docs |
+| `diff` | 1 on breaking changes | Compare current OpenAPI to a published spec |
+| `test-fixtures validate` | 1 on findings | Validate fixture files against capability schemas |
+
+---
+
+### plumbus voice worker
+
+Join a LiveKit room as the realtime voice agent. Requires `@plumbus/voice` (`pnpm add @plumbus/voice`).
+
+```bash
+plumbus voice worker [--room <room>] [--voice <name>]
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `--room <room>` | `string` | LiveKit room to join (dev: typically a session id) |
+| `--voice <name>` | `string` | Voice definition name |
+
+Environment variables: `VOICE_AGENT_ENABLED=false` disables the worker; `VOICE_AGENT_ROOM` is used when `--room` is omitted. See [Voice](../voice/README.md).
 
 ---
 
@@ -642,6 +713,7 @@ plumbus migrate rollback [options]   # Rollback last migration
 |--------|------|---------|-------------|
 | `--json` | `boolean` | `false` | Output in JSON format |
 | `--create-db` | `boolean` | `false` | Create database if it doesn't exist (apply/push only) |
+| `--dry-run` | `boolean` | `false` | Preview migrations that reconcile would mark applied (`reconcile` only) |
 
 **Workflow:**
 
@@ -717,13 +789,14 @@ plumbus rag ingest <path> [options]
 AI agent brief and sync commands.
 
 ```bash
-plumbus agent brief <resource> <name> [options]   # Generate brief for a resource
-plumbus agent sync [options]                       # Sync all agent briefs
+plumbus agent brief <resource> <name> [--json]   # Generate brief for a resource
+plumbus agent sync                               # Sync all agent briefs
 ```
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `--json` | `boolean` | `false` | Output in JSON format |
+| Command | Options | Description |
+|---------|---------|-------------|
+| `agent brief` | `--json` | Generate brief for a capability, entity, flow, event, or prompt |
+| `agent sync` | — | Sync all agent briefs (no options) |
 
 Resources: `capability`, `entity`, `flow`, `event`, `prompt`.
 
@@ -735,6 +808,7 @@ Run tests using vitest, provided by the framework. Consumer apps should use this
 plumbus test                    # Run all tests once (vitest run)
 plumbus test --watch            # Watch mode
 plumbus test --config <path>    # Custom vitest config
+plumbus test --all              # Run unit tests, then e2e (skips e2e if unit tests fail)
 ```
 
 All arguments are forwarded to vitest after Plumbus normalizes the invocation for consumer apps. If you pass only options such as `--config`, Plumbus still runs Vitest in single-run mode by prepending `run`. When the config path matches an E2E config such as `frontend/e2e/vitest.config.e2e.ts`, Plumbus also adds `--configLoader runner` automatically so browser configs load correctly without a direct Vitest install in the app.
@@ -746,6 +820,26 @@ plumbus e2e
 plumbus e2e --config frontend/e2e/vitest.config.e2e.ts
 plumbus test --config frontend/e2e/vitest.config.e2e.ts
 ```
+
+---
+
+### plumbus e2e
+
+Run Playwright browser E2E suites via Vitest. Auto-starts the Next.js frontend dev server unless `--skip-server` is set.
+
+```bash
+plumbus e2e [options]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--frontend-dir <dir>` | `string` | `frontend` | Frontend package directory |
+| `--port <port>` | `string` | `3001` | Port for the auto-started dev server |
+| `--base-url <url>` | `string` | — | Base URL (skips auto server when set) |
+| `--config <path>` | `string` | auto-detected | Vitest E2E config path |
+| `--skip-server` | `boolean` | `false` | Do not start the frontend dev server |
+
+Config discovery (first match wins): `frontend/e2e/vitest.config.e2e.ts`, `e2e/vitest.config.e2e.ts`, `vitest.config.e2e.ts`. When the server is started automatically, the runner waits up to 60s and sets `E2E_BASE_URL`.
 
 ---
 

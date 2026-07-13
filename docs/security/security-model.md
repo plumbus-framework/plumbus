@@ -62,12 +62,13 @@ access: {
 
 ### Evaluation Rules
 
-1. If `public: true` → **allow** without authentication
-2. If `serviceAccounts` defined and caller is service account → check match
-3. Check `roles` — caller must have **at least one** listed role
-4. Check `scopes` — caller must have **all** listed scopes
-5. If `tenantScoped: true` → verify `ctx.auth.tenantId` matches resource tenant
-6. If no policy is defined → **deny** (deny-by-default)
+1. If no `access` policy → **deny** (deny-by-default)
+2. If `public: true` → **allow** without authentication
+3. Caller must be authenticated (`userId` present)
+4. If `serviceAccounts` is set and `auth.userId` matches an entry → **allow** (short-circuit; roles, scopes, and tenant checks are skipped)
+5. If `tenantScoped: true` → caller must have `tenantId` in `ctx.auth`
+6. Check `roles` — caller must have **at least one** listed role (when `roles` is set)
+7. Check `scopes` — caller must have **all** listed scopes (when `scopes` is set)
 
 ### Flow step auth (auth snapshot)
 
@@ -104,11 +105,11 @@ The JWT adapter verifies HMAC-SHA256 signatures using timing-safe comparison bef
 ```typescript
 import { createJwtAdapter } from "@plumbus/core";
 
+// HS256 only — for RS256/ES256 via JWKS, use createOidcAdapter instead.
 const adapter = createJwtAdapter({
   secret: "your-hmac-secret",
   issuer: "https://auth.example.com",
   audience: "my-api",
-  jwksUri: "https://auth.example.com/.well-known/jwks.json",
   claimMapping: {
     userId: "sub",
     roles: "https://my-app.com/roles",
@@ -150,14 +151,15 @@ The OIDC adapter validates JWT tokens issued by OpenID Connect providers. It fet
 import { createOidcAdapter } from "@plumbus/core";
 
 const adapter = createOidcAdapter({
-  issuerUrl: "https://auth.example.com",
-  audience: "my-api",
-  clientId: "my-client",
+  issuer: "https://auth.example.com",
+  audience: "my-client-id", // expected client ID / API audience
+  // jwksUri: "...",       // optional — defaults from OIDC discovery
+  // jwksCacheTtl: 3600,   // optional
 });
 ```
 
 The adapter:
-- Fetches the OIDC discovery document from `{issuerUrl}/.well-known/openid-configuration`
+- Fetches the OIDC discovery document from `{issuer}/.well-known/openid-configuration`
 - Retrieves JWKS public keys from the provider's `jwks_uri`
 - Verifies RS256/ES256 token signatures using the matching `kid`
 - Validates `iss`, `aud`, and `exp` claims
@@ -171,9 +173,9 @@ The SAML adapter validates SAML 2.0 assertions from enterprise identity provider
 import { createSamlAdapter } from "@plumbus/core";
 
 const adapter = createSamlAdapter({
-  idpEntityId: "https://idp.example.com",
-  spEntityId: "https://app.example.com",
   idpCertificate: certPem,
+  issuer: "https://idp.example.com",   // expected SAML issuer (IdP entity ID)
+  audience: "https://app.example.com", // expected audience (SP entity ID / ACS URL)
 });
 ```
 
@@ -223,7 +225,7 @@ Multi-tenancy is enforced at multiple layers:
 │ Events scoped to originating tenant            │
 ├────────────────────────────────────────────────┤
 │ Layer 4: Governance Rules                      │
-│ govRuleCrossTenantDataAccess detects leaks     │
+│ ruleCrossTenantDataAccess detects leaks        │
 └────────────────────────────────────────────────┘
 ```
 
@@ -257,36 +259,36 @@ fields: {
 | `public` | No restrictions |
 | `internal` | Not exposed in public APIs |
 | `personal` | PII — masked in logs, governance warns on exposure |
-| `sensitive` | Must be encrypted, governance enforces |
-| `highly_sensitive` | Encrypted + masked + restricted access |
+| `sensitive` | Governance recommends `encrypted: true` for at-rest protection; masked in logs when classified |
+| `highly_sensitive` | Same as `sensitive`, plus stricter governance — set `encrypted: true` and `maskedInLogs: true` for production |
 
 ### Encryption at Rest
 
-Fields marked `encrypted: true` are encrypted before database storage and decrypted on read.
+Fields marked `encrypted: true` are encrypted before database storage (AES-256-GCM when `PLUMBUS_ENCRYPTION_KEY` is set) and decrypted on read. Legacy plaintext values without the `plumbus:enc:v1:` prefix are returned as-is.
 
 ### Log Masking
 
-Fields marked `maskedInLogs: true` are automatically redacted in structured log output:
+Fields marked `maskedInLogs: true` (or classified `personal` / `sensitive` / `highly_sensitive`) are automatically redacted in audit logs and structured capability log metadata:
 
 ```
 // Log output
-{ userId: "u-123", email: "***MASKED***", action: "login" }
+{ userId: "u-123", email: "***", action: "login" }
 ```
 
 ## Governance Security Rules
 
 The framework includes built-in security governance rules:
 
-| Rule | Category | What It Checks |
-|------|----------|---------------|
-| `capability-missing-access-policy` | security | Capability has no access policy |
-| `entity-tenant-isolation` | security | Tenant-scoped entity missing isolation |
-| `sensitive-field-unencrypted` | security | Sensitive field without encryption |
-| `overly-permissive-roles` | security | More than 5 roles on a capability |
-| `cross-tenant-data-access` | security | Capability reads cross-tenant without isolation |
-| `missing-field-classification` | privacy | User data fields without classification |
-| `personal-data-in-logs` | privacy | PII fields not masked in logs |
-| `excessive-data-retention` | privacy | Entities without retention policy |
+| Rule ID | Category | What It Checks |
+|---------|----------|---------------|
+| `security.capability-access-policy` | security | Capability has no access policy |
+| `security.no-tenant-isolation` | security | Tenant-scoped entity missing isolation |
+| `security.overly-permissive-roles` | security | Wildcard role `'*'` on a capability |
+| `security.cross-tenant-data-access` | security | Capability reads cross-tenant without isolation |
+| `privacy.sensitive-field-unencrypted` | privacy | Sensitive field without `encrypted: true` |
+| `privacy.missing-field-classification` | privacy | User data fields without classification |
+| `privacy.personal-data-in-logs` | privacy | PII fields not marked `maskedInLogs` |
+| `privacy.excessive-data-retention` | privacy | Entities without retention policy |
 
 ## Audit Integration
 
@@ -330,35 +332,32 @@ expect(failRecord?.metadata?.reason).toBe("invalid_credentials");
 
 ## Security in AI Operations
 
-AI requests are subject to additional security:
+AI requests are subject to additional security when `aiProviders.security` is configured (env or config file). Without that block, classified-field scanning is not active — opt in explicitly.
 
 ```
-ctx.ai.generate()
+ctx.ai.generate() / generateWithUsage() / streamGenerate()
        │
        ▼
 ┌──────────────────┐
-│ PII Detection    │ ← Scan input recursively for personal data
+│ Field scan       │ ← Match input keys to entity field classifications
 └──────┬───────────┘
        │
 ┌──────▼───────────┐
-│ Classification   │ ← Block highly_sensitive data (recursive)
-│ Check            │
-└──────┬───────────┘
-       │
-┌──────▼───────────┐
-│ Scope Check      │ ← Caller has ai:generate scope?
+│ mode: redact     │ ← Replace at/above redactThreshold → continue
+│ mode: block      │ ← Throw when at/above warnThreshold
 └──────┬───────────┘
        │
        ▼
   Provider call
 ```
 
+See [AI Integration → Security Controls](../ai/ai-integration.md#security-controls) for `AISecurityConfig`, thresholds, and env vars.
+
 ## Testing Security
 
 ```typescript
 import {
-  assertAccessAllowed,
-  assertAccessDenied,
+  assertCapabilityAllowed,
   assertCapabilityDenied,
   assertTenantIsolation,
   adminAuth,

@@ -12,6 +12,7 @@ Three test affordances:
 import { describe, it, expect } from 'vitest';
 import { defineChat, staticContext } from '@plumbus/chat';
 import { mockChatRuntime } from '@plumbus/chat/testing';
+import { createTestContext, mockAI } from '@plumbus/core/testing';
 
 const chat = defineChat({
   name: 'help',
@@ -87,7 +88,9 @@ For multi-turn scenarios where the response should differ per turn, wrap `mockAI
 
 ## Testing budgets, cooldowns, and other stateful behavior
 
-Seed the test context with prior `ChatTurn` rows or `ChatSession.behavioralState` to put the chat in a specific state:
+`checkBudgetPreflight` enforces session/user/tenant aggregates — seed prior turns with `appendTurn` / `createSession` helpers (see `packages/chat/src/budget/__tests__/enforcer.test.ts`). Per-turn token/cost caps are exercised through `mockChatRuntime` with usage-heavy `mockAI` responses.
+
+For behavioral cooldowns, seed `ChatSession.behavioralState` with active cooldown keys such as `cooldown:refusal:session:{sessionId}: { until: epochMs }` or counter keys `{trigger}:{session|user}:{id}` with `{ count, windowStart }`:
 
 ```ts
 const ctx = createTestContext({
@@ -101,14 +104,16 @@ const ctx = createTestContext({
       startedAt: new Date('2026-01-01'),
       lastTurnAt: new Date('2026-01-01'),
       status: 'active',
-      behavioralState: { refusal: { count: 2, lastAt: '2026-01-01T00:00:00Z' }},
+      behavioralState: {
+        'cooldown:refusal:session:sess-1': { until: Date.now() + 30_000 },
+      },
       summaryTurnCount: 0,
     }],
   },
 });
 ```
 
-Then run a turn that triggers the third refusal — the behavioral guard should fire on the next turn's preflight.
+The next turn's pre-turn `behavioral-guard` should emit `chat.cooldown_active`.
 
 ## Trust boundary: what tests can and can't prove
 

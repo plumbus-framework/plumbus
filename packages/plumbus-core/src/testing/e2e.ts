@@ -59,10 +59,13 @@ function silentLogger(): LoggerService {
 // that satisfies the type signature.
 
 function createDbStub(): any {
-  return {
+  const stub = {
     execute: async () => [],
     select: () => ({ from: () => ({ where: async () => [] }) }),
+    insert: () => ({ values: async () => undefined }),
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(stub),
   };
+  return stub;
 }
 
 // ── Default Test Config ──

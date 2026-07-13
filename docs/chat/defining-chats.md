@@ -5,7 +5,7 @@ A chat is declared once with `defineChat({...})`. The config is validated with Z
 ## Minimal config
 
 ```ts
-import { defineChat, knowledgeContext } from '@plumbus/chat';
+import { defineChat, ragContext } from '@plumbus/chat';
 
 export const helpChat = defineChat({
   name: 'help',
@@ -16,9 +16,9 @@ export const helpChat = defineChat({
     'You DO NOT perform actions on behalf of the user.',
   ],
   context: [
-    knowledgeContext({
+    ragContext({
       corpus: 'product-docs',
-      query: (turnCtx) => turnCtx.userMessage,
+      query: (turnCtx) => turnCtx.userMessage ?? '',
     }),
   ],
   policy: {
@@ -30,6 +30,24 @@ export const helpChat = defineChat({
 ```
 
 `name` and `access` are the only required fields. Everything else has a sensible default.
+
+## Budget enforcement
+
+All knobs below are enforced in `runChatTurn` / `checkBudgetPreflight` unless noted.
+
+| Knob | When checked | On breach |
+|---|---|---|
+| `perSession.turns`, `tokens`, `costUsd`, `userMessages` | Pre-turn (`checkBudgetPreflight`) when `saveToDb: true` | `chat.budget_exceeded` before model call |
+| `perSession.userMessages` | Pre-turn inline when `saveToDb: false` | Counts user messages in `clientHistory + 1` |
+| `perUser.*`, `perTenant.costUsdPerDay` | Pre-turn aggregates | `chat.budget_exceeded` |
+| `perTurn.tokens`, `perTurn.costUsd` | Post-generation, before `message.delta` | `notice` + `turn.failed`; answer suppressed |
+| `contextTokens` | After context resolution | `trimContextToBudget` drops items |
+| `actions.perSession` | Post-turn in `action-guard` | Blocks new pending actions |
+| `timeout.perTurnSeconds` | Model call `AbortSignal` | Provider timeout |
+
+`provenance.minSources` is enforced in the provenance guard (not the budget enforcer).
+
+Unset knobs remain unlimited. Apps that previously set limits expecting silent no-ops will now see hard failures — see [upgrading-contract-alignment.md](../upgrading-contract-alignment.md#4-chat-budget-knobs-enforced-c7).
 
 ## Full config shape
 
@@ -50,7 +68,7 @@ defineChat({
 
   context?: [                                 // see context-sources below
     capabilityContext(getOwnBillingStatus),
-    knowledgeContext({ corpus: 'billing-docs', query: (t) => t.userMessage }),
+    ragContext({ corpus: 'billing-docs', query: (t) => t.userMessage ?? '' }),
   ],
 
   actions?: ['openSupportTicket'],            // capability names enabled for action-guard
@@ -140,9 +158,9 @@ Plumbus auto-routes every capability. Chat needs a streaming SSE wire too. `expo
 
 | Value | What gets registered | When to use |
 |---|---|---|
-| `'sse'` (default) | Only `POST /chat/:name/turn` (SSE). The underlying capability is internal — its auto-route exists but is gated. | Almost always. Browser clients want SSE; the capability is an implementation detail. |
-| `'capability'` | Only the auto-routed JSON capability `POST /api/chat/chat-turn`. No SSE. | Server-to-server scripted clients, integration tests, agents that don't need streaming. |
-| `'both'` | Both surfaces public. | Rare. Document explicitly why. |
+| `'sse'` (default) | Only `POST /chat/:name/turn` (SSE). No JSON chat-turn capability route is registered. | Almost always. Browser clients want SSE. |
+| `'capability'` | No SSE route. The app must register `createChatTurnCapability(chat)` separately; core auto-routes it at `/api/chat/chat-turn-<name>`. | Server-to-server scripted clients, integration tests, agents that don't need streaming. |
+| `'both'` | SSE route plus whatever capability routes the app registers. | Rare. Document explicitly why. |
 
 ## Persistence mode (Decision 0009)
 
@@ -219,12 +237,11 @@ defineChat({
   access: { roles: ['user', 'admin'] },
   instructions: [/* product knowledge */],
   context: [
-    knowledgeContext({
+    ragContext({
       corpus: 'product-docs',
-      query: (t) => t.userMessage,
+      query: (t) => t.userMessage ?? '',
       filter: (t) => ({ audience: t.audience, locale: t.locale }),
     }),
-    staticContextFromTranslations({ namespaces: ['nav', 'admin.nav'] }),
   ],
   policy: {
     audience: { roles: ['user', 'admin'], mode: 'strict' },
@@ -248,7 +265,7 @@ defineChat({
   instructions: ['You answer the calling user\'s own billing questions.'],
   context: [
     capabilityContext(getOwnBillingStatus),
-    knowledgeContext({ corpus: 'billing-docs', query: (t) => t.userMessage }),
+    ragContext({ corpus: 'billing-docs', query: (t) => t.userMessage ?? '' }),
   ],
   actions: ['openSupportTicket'],
   policy: {
@@ -307,11 +324,7 @@ Use the [src:src_X] inline marker — never invent source IDs.
 });
 
 // app/chats/help.chat.ts
-import {
-  defineChat,
-  knowledgeContext,
-  staticContextFromTranslations,
-} from '@plumbus/chat';
+import { defineChat, ragContext, staticContext } from '@plumbus/chat';
 import { helpBotPrompt } from '../prompts/help-bot.prompt.js';
 
 export const helpChat = defineChat({
@@ -325,19 +338,22 @@ export const helpChat = defineChat({
   ],
 
   context: [
-    staticContextFromTranslations({
+    staticContext({
       id: 'nav-surfaces',
-      namespaces: ['nav', 'admin.nav'],
       sourceId: 'product-nav',
+      items: [
+        { id: 'nav.project', kind: 'text', content: 'Project page' },
+        { id: 'nav.timeline', kind: 'text', content: 'Timeline page' },
+      ],
     }),
-    knowledgeContext({
+    ragContext({
       id: 'docs',
       corpus: 'product-docs',
-      query: (turnCtx) => turnCtx.userMessage,
+      query: (turnCtx) => turnCtx.userMessage ?? '',
       topK: 6,
       filter: (turnCtx) => ({
-        audience: turnCtx.audience,        // admin docs not served to users
-        locale: turnCtx.locale,            // language-matched chunks
+        audience: turnCtx.audience,
+        locale: turnCtx.locale,
       }),
     }),
   ],
@@ -375,13 +391,12 @@ export const helpChat = defineChat({
 });
 
 // app/server.ts (excerpt)
-import { onRoutesRegistered } from '@plumbus/core';
 import { registerChatRoutes } from '@plumbus/chat';
 import { helpChat } from './chats/help.chat.js';
 
-onRoutesRegistered((app, routeConfig) => {
+export function onRoutesRegistered(app, routeConfig) {
   registerChatRoutes(app, routeConfig, [helpChat]);
-});
+}
 
 // app/entities/index.ts (excerpt)
 import {

@@ -60,7 +60,7 @@ Use the partner API layer when external systems — payment processors, ERP inte
 ## CLI
 
 ```bash
-plumbus api validate   # manifest, policy, path params, fixtures (requires @plumbus/api)
+plumbus api validate   # manifest, policy, path params, fixtures, governance (requires @plumbus/api)
 ```
 
 See [overview.md](./overview.md) for `generate openapi`, `generate docs`, `diff`, and `test-fixtures validate`.

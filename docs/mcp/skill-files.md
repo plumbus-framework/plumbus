@@ -22,14 +22,14 @@ Each file includes:
 
 | Section | Source |
 |---------|--------|
-| Name | `cap.name` |
+| Name | Canonical `<domain>.<name>` from `getCanonicalCapabilityName(cap)` |
 | Description | `mcp.description` ?? `description` ?? `explanation.summary` |
 | Input Schema | JSON Schema from Zod input |
 | Agent Tags | `mcp.agentTags` |
 | Required Scopes / Roles | `access.scopes`, `access.roles` |
 | Tenant Scoped | `access.tenantScoped` |
 | Dangerous | `mcp.dangerous` |
-| Effects | `effects.data`, `effects.events`, `effects.external`, AI flag |
+| Effects | `effects.data`, `effects.events`, `effects.external` |
 
 ## Consumption
 

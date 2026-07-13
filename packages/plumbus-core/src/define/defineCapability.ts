@@ -61,6 +61,8 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   mcp?: McpExposureConfig;
   api?: ApiExposureConfig;
   trigger?: { event: string; versionConstraint?: string };
+  /** When `false`, opts out of transactional outbox for this capability. */
+  transactional?: boolean;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

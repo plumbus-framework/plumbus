@@ -49,7 +49,7 @@ describe("getUser", () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe("NOT_FOUND");
+    expect(result.error?.code).toBe("notFound");
   });
 });
 ```
@@ -86,7 +86,7 @@ Common uses:
 
 - **`time: new Date("2024-01-15T12:00:00Z")`** — pin `ctx.time.now()` for snapshot stability.
 - **`events: createMockEventService()`** — assert `ctx.events.emit` calls instead of letting them go to the outbox mock.
-- **`ai: { text: "fixed reply" }`** — shorthand for a one-shot `AIService` that always returns this response.
+- **`ai: { generate: { text: "fixed reply" } }`** — shorthand for a one-shot `AIService` that always returns this response from `generate()`.
 
 ### Field-Type Validation
 
@@ -226,7 +226,7 @@ describe("security", () => {
   });
 
   it("enforces tenant isolation", async () => {
-    const { own, other } = await assertTenantIsolation(
+    const { sameTenantResult, crossTenantResult } = await assertTenantIsolation(
       getOrders,
       {},
       "tenant-1",
@@ -240,8 +240,8 @@ describe("security", () => {
       },
     );
 
-    expect(own).toHaveLength(1);
-    expect(other).toHaveLength(0);
+    expect(sameTenantResult.success).toBe(true);
+    expect(crossTenantResult.success).toBe(false);
   });
 
   it("works with service accounts", async () => {
@@ -259,6 +259,9 @@ describe("security", () => {
 | `unauthenticated()` | `AuthContext` with no roles/scopes |
 | `adminAuth(tenantId?)` | `AuthContext` with admin role |
 | `serviceAccountAuth(id)` | `AuthContext` for service account |
+| `assertPlumbusError` / `assertValidationError` | Assert structured error codes on thrown errors |
+| `createTestAuth` / `createTestData` | Build partial auth/data fixtures for `createTestContext` |
+| `mockAudit` / `mockLogger` | Capture audit records and log lines in tests |
 
 ## Testing Governance
 
@@ -493,12 +496,12 @@ plumbus test --config frontend/e2e/vitest.config.e2e.ts
 plumbus e2e
 
 # Run specific test file
-pnpm vitest run path/to/test.test.ts
+plumbus test path/to/test.test.ts
 
 # Watch mode
-pnpm vitest path/to/test.test.ts
+plumbus test --watch
 
-# Coverage
-pnpm vitest run --coverage
+# Coverage (when supported by your vitest config)
+plumbus test --coverage
 ```
 

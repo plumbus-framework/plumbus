@@ -1,22 +1,70 @@
 import type { Guard } from '../types/policy.js';
-import { updateSessionBehavioralState, loadSession } from '../session/service.js';
+import {
+  loadMergedUserBehavioralState,
+  loadSession,
+  updateSessionBehavioralState,
+} from '../session/service.js';
+
+function cooldownScopeKey(
+  cd: { scope?: 'session' | 'user' },
+  turnCtx: { sessionId: string; userId: string },
+) {
+  const scope = cd.scope ?? 'session';
+  return scope === 'user' ? `user:${turnCtx.userId}` : `session:${turnCtx.sessionId}`;
+}
+
+function usesUserScope(cooldowns: Array<{ scope?: 'session' | 'user' }>): boolean {
+  return cooldowns.some((cd) => (cd.scope ?? 'session') === 'user');
+}
+
+function recordCooldownTrigger(
+  bs: Record<string, unknown>,
+  cd: {
+    trigger: string;
+    count: number;
+    windowSeconds?: number;
+    durationSeconds: number;
+    scope?: 'session' | 'user';
+  },
+  turnCtx: { sessionId: string; userId: string },
+  now: number,
+): void {
+  const key = `${cd.trigger}:${cooldownScopeKey(cd, turnCtx)}`;
+  const entry = bs[key] as { count?: number; windowStart?: number } | undefined;
+  const windowMs = (cd.windowSeconds ?? 0) * 1000;
+  let count = entry?.count ?? 0;
+  let windowStart = entry?.windowStart ?? now;
+  if (windowMs > 0 && now - windowStart > windowMs) {
+    count = 0;
+    windowStart = now;
+  }
+  count += 1;
+  bs[key] = { count, windowStart };
+  if (count >= cd.count) {
+    bs[`cooldown:${key}`] = { until: now + cd.durationSeconds * 1000 };
+    bs[key] = { count: 0, windowStart: now };
+  }
+}
+
+function pickUserScopedBehavioralKeys(state: Record<string, unknown>): Record<string, unknown> {
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(state)) {
+    if (key.includes(':user:')) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
 
 export const behavioralPreGuard: Guard = async (turnCtx, state) => {
   const cooldowns = state.policy.behavioral?.cooldowns ?? [];
   if (cooldowns.length === 0) return { decision: 'allow' };
 
-  // Ephemeral mode (`saveToDb: false`): no chat_session.behavioral_state to
-  // read. Enforce cooldowns from clientHistory instead. Semantics: for each
-  // refusal-trigger cooldown, look at the trailing assistant messages in
-  // history — if the last N are ALL refusals (where N = cd.count), block
-  // with the cooldown notice. The client also enforces a wall-clock cooldown
-  // via the retryAfterSeconds hint; this server-side check is the
-  // can't-be-bypassed defense even if the client clears localStorage.
   if (state.saveToDb === false) {
     const history = state.clientHistory ?? [];
     const assistants = history.filter((m) => m.role === 'assistant');
     for (const cd of cooldowns) {
-      if (cd.trigger !== 'refusal') continue; // other triggers need DB
+      if (cd.trigger !== 'refusal') continue;
       if (assistants.length < cd.count) continue;
       const trailing = assistants.slice(-cd.count);
       const allRefusals = trailing.every((m) => m.refusalReason != null);
@@ -39,10 +87,20 @@ export const behavioralPreGuard: Guard = async (turnCtx, state) => {
   const session = await loadSession(state.ctx, turnCtx.sessionId);
   if (!session) return { decision: 'allow' };
 
-  const bs = session.behavioralState as Record<string, { until?: number }>;
+  // Session-local state first, then overlay fresher `*:user:*` keys from other
+  // sessions so a stale local copy cannot defeat scope:'user' cooldowns.
+  const bs = usesUserScope(cooldowns)
+    ? {
+        ...(session.behavioralState as Record<string, { until?: number }>),
+        ...pickUserScopedBehavioralKeys(
+          await loadMergedUserBehavioralState(state.ctx, turnCtx.userId),
+        ),
+      }
+    : (session.behavioralState as Record<string, { until?: number }>);
   const now = Date.now();
   for (const key of Object.keys(bs)) {
-    const entry = bs[key];
+    if (!key.startsWith('cooldown:')) continue;
+    const entry = bs[key] as { until?: number };
     if (entry?.until && entry.until > now) {
       const retryAfter = Math.ceil((entry.until - now) / 1000);
       return {
@@ -64,29 +122,38 @@ export const behavioralPostGuard: Guard = async (turnCtx, state) => {
   const cooldowns = state.policy.behavioral?.cooldowns ?? [];
   if (cooldowns.length === 0) return { decision: 'allow' };
 
-  // Ephemeral mode: nothing to persist. The refusal we just produced will be
-  // sent back on next turn's clientHistory and re-detected by the pre-guard.
   if (state.saveToDb === false) return { decision: 'allow' };
 
   const session = await loadSession(state.ctx, turnCtx.sessionId);
   if (!session) return { decision: 'allow' };
 
-  const bs = { ...(session.behavioralState as Record<string, unknown>) };
+  const mergedUserState = usesUserScope(cooldowns)
+    ? pickUserScopedBehavioralKeys(await loadMergedUserBehavioralState(state.ctx, turnCtx.userId))
+    : {};
+  // Same precedence as pre-guard: fresher cross-session user keys override stale local copies.
+  const bs = {
+    ...(session.behavioralState as Record<string, unknown>),
+    ...mergedUserState,
+  };
   const output = state.modelOutput;
   const refused = output?.inScope === false;
+  const now = Date.now();
 
   for (const cd of cooldowns) {
     if (cd.trigger === 'refusal' && !refused) continue;
-    const key = `${cd.trigger}:${cd.scope ?? 'session'}`;
-    const prev = (bs[key] as { count?: number })?.count ?? 0;
-    const count = prev + 1;
-    bs[key] = { count };
-    if (count >= cd.count) {
-      bs[`cooldown:${key}`] = { until: Date.now() + cd.durationSeconds * 1000 };
-      bs[key] = { count: 0 };
-    }
+    if (cd.trigger === 'guardFailure' && state.lastBudgetOrGuardSignal !== 'guardFailure') continue;
+    if (cd.trigger === 'budget' && state.lastBudgetOrGuardSignal !== 'budget') continue;
+    recordCooldownTrigger(bs, cd, turnCtx, now);
   }
 
   await updateSessionBehavioralState(state.ctx, turnCtx.sessionId, bs);
   return { decision: 'allow' };
 };
+
+/** Exported for run-turn per-turn budget breach accounting. */
+export async function runBehavioralPostGuard(
+  turnCtx: Parameters<Guard>[0],
+  state: Parameters<Guard>[1],
+): Promise<void> {
+  await behavioralPostGuard(turnCtx, state);
+}

@@ -107,7 +107,7 @@ export const getProject = defineCapability({
 });
 ```
 
-`ctx.translations.t(key, params?)` resolves strings using the current request locale (from `Accept-Language` header or auth context).
+`ctx.translations.t(key, params?)` resolves strings using the **active locale for the current request**. On auto-generated HTTP and MCP capability routes, the route generator resolves locale per request: `plumbus-ui-locale` cookie first, then `Accept-Language`, then the app's default locale from translation definitions (`serverConfig.translations?.[0]?.defaultLocale`, falling back to `'en'`). The resolved locale is bound on `ctx.translations.locale` for that execution. UI-only Next.js server locale remains separate; capability routes resolve independently.
 
 ### TranslationRegistry
 
@@ -269,6 +269,27 @@ For CI integration:
 ```bash
 plumbus translation status --json | jq '.incomplete == 0'
 ```
+
+## HTTP request locale (capabilities)
+
+On HTTP and MCP capability routes, the framework resolves locale **per request** before building `ctx.translations`:
+
+1. `plumbus-ui-locale` cookie (same key as `@plumbus/ui`)
+2. `Accept-Language` header (quality-sorted, matched against registered translation locales)
+3. Default locale from your first `defineTranslation()` definition
+
+```typescript
+defineCapability({
+  name: "greet",
+  kind: "query",
+  handler: async (ctx) => ({
+    message: ctx.translations.t("common.greeting"),
+    locale: ctx.translations.locale,
+  }),
+});
+```
+
+Use `resolveRequestLocale()` from `@plumbus/core` in custom route wiring. Browser clients should call `setLocale()` from `@plumbus/ui` so the cookie stays in sync with the UI.
 
 ## File Organization
 

@@ -772,4 +772,73 @@ describe('createRepository', () => {
       expect(params).toContain('%50\\%\\_x%');
     });
   });
+
+  describe('field encryption', () => {
+    it('encrypts encrypted fields on create and decrypts on read', async () => {
+      const { randomBytes } = await import('node:crypto');
+      const key = randomBytes(32);
+      const entity = makeEntity({
+        fields: {
+          id: field.id(),
+          title: field.string({ required: true }),
+          secret: field.string({ encrypted: true }),
+        },
+      });
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const chainable = db._chainable;
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+        encryptionKey: key,
+      });
+
+      await repo.create({ title: 'Doc', secret: 'plain-secret' } as any);
+
+      const inserted = chainable.values.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(typeof inserted.secret).toBe('string');
+      expect(String(inserted.secret).startsWith('plumbus:enc:v1:')).toBe(true);
+
+      db._rows[0] = { ...db._rows[0], secret: inserted.secret };
+      const decrypted = await repo.findById('row-1');
+      expect((decrypted as { secret?: string }).secret).toBe('plain-secret');
+    });
+
+    it('encrypts encrypted fields on createMany', async () => {
+      const { randomBytes } = await import('node:crypto');
+      const key = randomBytes(32);
+      const entity = makeEntity({
+        fields: {
+          id: field.id(),
+          title: field.string({ required: true }),
+          secret: field.string({ encrypted: true }),
+        },
+      });
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const chainable = db._chainable;
+
+      const repo = createRepository({
+        entity,
+        table,
+        db: db as any,
+        auth: makeAuth(),
+        encryptionKey: key,
+      });
+
+      await repo.createMany([
+        { title: 'A', secret: 'one' },
+        { title: 'B', secret: 'two' },
+      ] as any);
+
+      const inserted = chainable.values.mock.calls[0]?.[0] as Record<string, unknown>[];
+      expect(inserted).toHaveLength(2);
+      for (const row of inserted) {
+        expect(String(row.secret).startsWith('plumbus:enc:v1:')).toBe(true);
+      }
+    });
+  });
 });

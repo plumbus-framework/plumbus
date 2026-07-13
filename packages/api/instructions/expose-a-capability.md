@@ -21,7 +21,7 @@ export const getRefund = defineCapability({
     operationId: "getRefund",
     method: "GET",
     path: "/refunds/{refundId}",
-    stability: "stable",                             // stable | beta | deprecated
+    stability: "stable",                             // experimental | beta | stable | deprecated | internal
     auth: { scopes: ["refunds:read"] },
   },
 
@@ -61,16 +61,16 @@ Manifest entries override inline metadata for the same capability. See [manifest
 ## 3. Register partner routes at bootstrap
 
 ```ts
+// app/server.ts — export the hook from your app module
 import { registerApiRoutes } from "@plumbus/api";
-import { onRoutesRegistered } from "@plumbus/core";
 
-onRoutesRegistered(async (app, routeConfig) => {
-  await registerApiRoutes(app, routeConfig, capabilities, {
+export function onRoutesRegistered(app, routeConfig) {
+  registerApiRoutes(app, routeConfig, capabilities, {
     manifest,                                        // parsed ApiManifest or undefined for inline-only
     appRoot: process.cwd(),                          // required for fixture path resolution
     // idempotencyStore: durableStore,               // production: supply durable store + TTL
   });
-});
+}
 ```
 
 Uses the same `authAdapter` and `createDependencies` as convention routes. Partner responses use the `{ ok: true, data }` / `{ ok: false, error }` envelope.

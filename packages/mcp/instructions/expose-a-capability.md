@@ -84,7 +84,7 @@ If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @p
 - **Only `kind: 'query'`, `kind: 'action'`, and `kind: 'job'` may be MCP-exposed.** `eventHandler` is rejected at `defineCapability()` time (no caller surface). `kind: 'job'` runs through MCP Tasks — see [tasks.md](./tasks.md).
 - **Either `description`, `mcp.description`, or `explanation.summary` is required** when MCP-exposed (agents need to know what the tool does).
 - **A capability without `exposeAs: ['mcp']` is never exposed to agents.** Tag-based discovery is not supported.
-- **Never combine `access.public: true` with `exposeAs: ['mcp']` on destructive capabilities.** `plumbus doctor` fails on this combination.
+- **Never combine `access.public: true` with `exposeAs: ['mcp']`.** `plumbus doctor` fails on any MCP-exposed capability with `access.public: true`, regardless of kind.
 - **Tenant-scoped capabilities** require the agent's configured `tenantId` to match the request context. Cross-tenant calls are denied at the access pipeline.
 
 ## Anonymous fallback

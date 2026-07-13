@@ -49,11 +49,15 @@ plumbus init
 │ node_modules/@plumbus/chat/instructions/                    │
 │ node_modules/@plumbus/chat-ui/instructions/                 │
 │ node_modules/@plumbus/knowledge-base/instructions/          │
+│ node_modules/@plumbus/voice/instructions/                   │
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
+│ node_modules/@plumbus/browser-extension/instructions/       │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
 │  framework.md     ← Core patterns and conventions           │
+│  cli.md, mcp.md, api.md ← Core consumption surfaces         │
+│  prompts.md       ← Prompt content (system/description)     │
 │  nextjs-template.md ← Frontend scaffolding guidance         │
 │  capabilities.md  ← How to write capabilities               │
 │  entities.md      ← How to define entities                  │
@@ -95,7 +99,7 @@ Creates `.github/copilot-instructions.md` — automatically loaded by GitHub Cop
 plumbus init --agent cursor
 ```
 
-Creates `.cursor/rules/plumbus.mdc` — loaded by Cursor as a project rule.
+Creates `.cursor/rules/plumbus.mdc` and `.cursor/rules/plumbus-capabilities.mdc` — loaded by Cursor as project rules (generated together by `plumbus init`).
 
 ### AGENTS.md
 
@@ -126,6 +130,8 @@ After initialization, your AI agent understands:
 | **Chat** | How to define chats, configure guards, pick context sources, test, and extend the runtime |
 | **Knowledge base** | How to define knowledge sources, pick providers, wire `knowledgeContext`, and test registries (when `@plumbus/knowledge-base` is installed) |
 | **Partner API** | How to expose capabilities with `exposeAs: ['api']`, maintain `api.yaml`, generate OpenAPI, and test partner routes (when `@plumbus/api` is installed) |
+| **Voice** | How to define voices, wire STT/TTS providers, and secure voice routes (when `@plumbus/voice` is installed) |
+| **Browser extension** | How to scaffold a WXT extension wired to capabilities (when `@plumbus/browser-extension` is installed) |
 
 ## Manual Setup
 
@@ -194,16 +200,15 @@ See `node_modules/@plumbus/core/instructions/` for complete guidelines.
 For deeper context, generate project briefs:
 
 ```bash
-# Generate a brief for a specific resource
+# Print a brief for a specific resource (stdout only)
 plumbus agent brief capability getUser
 plumbus agent brief entity User
-plumbus agent brief flow orderFulfillment
 
-# Sync all briefs
+# Write the aggregate project brief to disk
 plumbus agent sync
 ```
 
-Briefs are stored in `.plumbus/briefs/` and provide rich context about each resource to AI agents.
+`agent brief` supports **capabilities** and **entities** only (not flows) and prints to stdout. `agent sync` writes `.plumbus/briefs/project.md` with aggregate context for AI agents.
 
 ## Inline Mode
 
@@ -219,17 +224,26 @@ This embeds the full instruction content directly into the wiring file instead o
 
 | Path | Content |
 |------|---------|
+| `node_modules/@plumbus/core/instructions/README.md` | Instruction index and critical rules |
 | `node_modules/@plumbus/core/instructions/guardrails.md` | Mandatory framework boundaries and git safety |
 | `node_modules/@plumbus/core/instructions/framework.md` | Core framework patterns |
+| `node_modules/@plumbus/core/instructions/cli.md` | CLI command reference |
+| `node_modules/@plumbus/core/instructions/mcp.md` | Core MCP surface |
+| `node_modules/@plumbus/core/instructions/api.md` | Core partner API surface |
 | `node_modules/@plumbus/core/instructions/capabilities.md` | Capability development |
 | `node_modules/@plumbus/core/instructions/entities.md` | Entity definitions |
 | `node_modules/@plumbus/core/instructions/events.md` | Event system |
 | `node_modules/@plumbus/core/instructions/flows.md` | Flow orchestration |
+| `node_modules/@plumbus/core/instructions/prompts.md` | Prompt content and model config |
 | `node_modules/@plumbus/core/instructions/ai.md` | AI integration |
+| `node_modules/@plumbus/core/instructions/translations.md` | Translation catalogs |
 | `node_modules/@plumbus/core/instructions/security.md` | Security model |
 | `node_modules/@plumbus/core/instructions/governance.md` | Governance rules |
 | `node_modules/@plumbus/core/instructions/testing.md` | Testing utilities |
 | `node_modules/@plumbus/core/instructions/patterns.md` | Code patterns |
+| `node_modules/@plumbus/core/instructions/deployment.md` | Production deployment |
+| `node_modules/@plumbus/core/instructions/peer-dependencies.md` | Add-on peer literals (framework devs) |
+| `node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md` | 0.5.x capability migration |
 | `node_modules/@plumbus/ui/instructions/framework.md` | UI generation overview |
 | `node_modules/@plumbus/ui/instructions/client-generator.md` | Client and hook generation |
 | `node_modules/@plumbus/ui/instructions/auth-generator.md` | Frontend auth helpers |
@@ -237,6 +251,14 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/ui/instructions/nextjs-template.md` | Next.js scaffold generation |
 | `node_modules/@plumbus/ui/instructions/testing.md` | Frontend testing guidance |
 | `node_modules/@plumbus/ui/instructions/patterns.md` | UI generation patterns |
+| `node_modules/@plumbus/ui/instructions/translation-generator.md` | Translation catalog generation |
+| `node_modules/@plumbus/chat/instructions/README.md` | Chat instruction index (optional package) |
+| `node_modules/@plumbus/chat/instructions/framework.md` | Chat package boundary and critical rules |
+| `node_modules/@plumbus/chat/instructions/defining-chats.md` | `defineChat` recipe and config shape |
+| `node_modules/@plumbus/chat/instructions/policies.md` | Chat policy guards |
+| `node_modules/@plumbus/chat/instructions/context-sources.md` | Context sources (knowledgeContext, ragContext, etc.) |
+| `node_modules/@plumbus/chat/instructions/testing.md` | Chat testing helpers |
+| `node_modules/@plumbus/chat/instructions/extending.md` | Extending chat runtime |
 | `node_modules/@plumbus/chat-ui/instructions/README.md` | chat-ui instruction index (optional package) |
 | `node_modules/@plumbus/chat-ui/instructions/framework.md` | chat-ui package boundary, public exports, critical rules |
 | `node_modules/@plumbus/chat-ui/instructions/wiring-chat-panel.md` | `<ChatPanel />` recipe, persistence pairing, `turnUrl` |
@@ -258,6 +280,11 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |
 | `node_modules/@plumbus/api/instructions/manifest-and-cli.md` | `api.yaml`, validation, OpenAPI/docs, `plumbus api` CLI |
 | `node_modules/@plumbus/api/instructions/testing.md` | Test intent, idempotency, fixture validation |
+| `node_modules/@plumbus/voice/instructions/framework.md` | Voice runtime overview and critical rules (optional package) |
+| `node_modules/@plumbus/voice/instructions/defining-voices.md` | `defineVoice` and route registration |
+| `node_modules/@plumbus/voice/instructions/providers.md` | STT, TTS, and transport providers |
+| `node_modules/@plumbus/voice/instructions/testing.md` | Voice testing helpers |
+| `node_modules/@plumbus/browser-extension/instructions/browser-extension.md` | Browser extension scaffold recipe (optional package) |
 
 ## Verifying Agent Setup
 

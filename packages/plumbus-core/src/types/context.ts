@@ -66,6 +66,16 @@ export interface Repository<
 // with typed repository mappings. Until then, falls back to Record<string, Repository>.
 export type DataService = RegisteredEntities;
 
+// ── Transaction scope (tx-scoped data + events inside withTransaction) ──
+export interface TransactionScope {
+  data: DataService;
+  events: EventService;
+  /** Side effects queued during the transaction; run only after commit succeeds */
+  deferred?: Array<() => Promise<void>>;
+}
+
+export type WithTransactionFn = <T>(fn: (scope: TransactionScope) => Promise<T>) => Promise<T>;
+
 // ── Event Service ──
 export interface EventService {
   emit<E extends RegisteredEventName>(
@@ -93,12 +103,26 @@ export interface FlowExecution {
 
 // ── Flow Service ──
 export interface FlowService {
-  start(flowName: RegisteredFlowName, input: unknown): Promise<FlowExecution>;
+  start(
+    flowName: RegisteredFlowName,
+    input: unknown,
+    opts?: { executionId?: string },
+  ): Promise<FlowExecution>;
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. Throws LeaseLostError if the lease has been lost. */
   heartbeat(): Promise<void>;
+}
+
+// ── Job Dispatch Service ──
+export interface JobDispatchService {
+  /** Enqueue a `kind: 'job'` capability by canonical name. Returns the job execution id. */
+  enqueue(
+    capabilityName: string,
+    input: Record<string, unknown>,
+    opts?: { jobId?: string },
+  ): Promise<string>;
 }
 
 // ── AI Document (RAG retrieval result) ──
@@ -305,8 +329,16 @@ export interface TimeService {
 export type ConfigService = RegisteredAppConfig;
 
 // ── Capability Service (nested invocation) ──
+export interface CapabilityDescription {
+  name: string;
+  domain: string;
+  kind: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface CapabilityService {
   invoke(name: RegisteredCapabilityName, input: unknown): Promise<unknown>;
+  describe?(name: RegisteredCapabilityName): CapabilityDescription | undefined;
 }
 
 // ── Internal runtime metadata (not part of public SDK docs) ──
@@ -329,6 +361,16 @@ export interface ExecutionRuntimeMetadata {
   invocationCaller?: string;
   /** @internal Mutable emit causation scope — not visible to capability handlers. */
   invocationEmitScope?: InvocationEmitScope;
+  /** @internal Active transaction scope when running inside a transactional capability. */
+  transactionScope?: TransactionScope;
+  /**
+   * @internal Post-commit deferred queue from an enclosing transactional parent.
+   * Present even when the current capability does not share the parent's data/events
+   * scope (e.g. nested AI), so success audits can still defer until parent commit.
+   */
+  deferredPostCommit?: Array<() => Promise<void>>;
+  /** @internal Drizzle transaction runner wired by server/worker bootstrap. */
+  withTransaction?: WithTransactionFn;
 }
 
 // ── Security Service ──
@@ -353,6 +395,7 @@ export interface ContextDependencies {
   data: DataService;
   events?: EventService;
   flows?: FlowService;
+  jobs?: JobDispatchService;
   ai?: AIService;
   audit?: AuditService;
   logger?: LoggerService;
@@ -366,6 +409,8 @@ export interface ContextDependencies {
   correlationId?: string;
   /** @internal Wired by server/MCP bootstrap for nested event causation. */
   invocationEmitScope?: ExecutionRuntimeMetadata['invocationEmitScope'];
+  /** Drizzle transaction runner — tx-scoped data + events; audit stays on outer db. */
+  withTransaction?: WithTransactionFn;
 }
 
 // ── Request Metadata ──
@@ -382,6 +427,7 @@ export interface ExecutionContext {
   data: DataService;
   events: EventService;
   flows: FlowService;
+  jobs: JobDispatchService;
   ai: AIService;
   audit: AuditService;
   errors: ErrorService;

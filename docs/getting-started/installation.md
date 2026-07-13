@@ -70,14 +70,35 @@ The doctor command checks:
 
 ```bash
 # Add core dependency
-pnpm add @plumbus/core zod
-
-# Add dev dependencies
-pnpm add -D typescript vitest @types/node
+pnpm add @plumbus/core
 
 # (Optional) Add UI generation package
 pnpm add @plumbus/ui
 ```
+
+Zod, Vitest, TypeScript, and other toolchain dependencies are provided by `@plumbus/core` — do not install them separately in consumer apps.
+
+### Optional add-ons
+
+Install only when you need the surface. All optional packages are explicit `pnpm add` dependencies — `@plumbus/core` does not pull them in.
+
+| Package | Install when |
+|---------|----------------|
+| `@plumbus/ui` | Next.js/React UI, typed clients, scaffolds |
+| `@plumbus/mcp` | Serve capabilities to AI agents (`plumbus mcp serve`) |
+| `@plumbus/api` | Partner-facing HTTP API contracts (OpenAPI, manifest) |
+| `@plumbus/chat` | Conversational runtime (`defineChat`, policy guards) |
+| `@plumbus/chat-ui` | React hooks + `<ChatPanel />` for `@plumbus/chat` |
+| `@plumbus/voice` | Realtime speech I/O (`defineVoice`, LiveKit worker) |
+| `@plumbus/knowledge-base` | Registry-backed knowledge providers for chat/RAG |
+| `@plumbus/browser-extension` | Dev-time browser extension scaffolder (with `@plumbus/ui`) |
+
+```bash
+pnpm add @plumbus/chat @plumbus/chat-ui   # example: chat surface
+pnpm add @plumbus/mcp                    # example: MCP agent tools
+```
+
+Peer ranges are version-locked — see [AGENTS.md](../../AGENTS.md) consumer dependency policy.
 
 ### Configure TypeScript
 

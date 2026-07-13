@@ -22,7 +22,7 @@ const jobCap = defineCapability({
 });
 
 function mockDb(jobRow: Record<string, unknown>) {
-  return {
+  const stub = {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
@@ -38,7 +38,9 @@ function mockDb(jobRow: Record<string, unknown>) {
     insert: vi.fn(),
     delete: vi.fn(),
     execute: vi.fn(),
-  } as never;
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(stub)),
+  };
+  return stub as never;
 }
 
 const eventHandlerCap = defineCapability({
@@ -55,7 +57,7 @@ const eventHandlerCap = defineCapability({
 });
 
 function mockOutboxDb(outboxRow: Record<string, unknown> | null) {
-  return {
+  const stub = {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
@@ -67,7 +69,9 @@ function mockOutboxDb(outboxRow: Record<string, unknown> | null) {
     update: vi.fn(),
     delete: vi.fn(),
     execute: vi.fn(),
-  } as never;
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(stub)),
+  };
+  return stub as never;
 }
 
 describe('registerCapabilityConsumers eventHandler tenant binding', () => {

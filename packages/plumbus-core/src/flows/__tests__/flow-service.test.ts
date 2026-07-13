@@ -26,7 +26,7 @@ describe('FlowService', () => {
 
     const result = await svc.start('test-flow', { data: 1 });
     expect(result.id).toBe('exec-1');
-    expect(engine.start).toHaveBeenCalledWith('test-flow', { data: 1 }, auth);
+    expect(engine.start).toHaveBeenCalledWith('test-flow', { data: 1 }, auth, undefined);
   });
 
   it('resume() delegates to engine', async () => {

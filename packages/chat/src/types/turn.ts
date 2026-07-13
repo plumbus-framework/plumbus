@@ -11,4 +11,6 @@ export interface TurnContext {
   contextTokenBudget?: number;
   /** Post-`beforeTurn` user text for `queryFromTurn` on RAG-backed knowledge sources. */
   userMessage?: string;
+  /** When true, ragContext without an explicit filter applies audience metadata. */
+  applyDefaultAudienceFilter?: boolean;
 }

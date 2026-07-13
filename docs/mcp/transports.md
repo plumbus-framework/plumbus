@@ -55,7 +55,7 @@ MCP is **not** mounted by default on `plumbus start` / `createServer`. Use `plum
 
 ## Per-request execution
 
-Each `tools/call` creates a fresh `ExecutionContext` via `createDependencies(auth, { bypassTenantScope })` → `createExecutionContext(deps)`, mirroring HTTP route handlers exactly. The `bypassTenantScope` flag is set per-call from `capability.access?.tenantScoped === false` ([`packages/mcp/src/server.ts:108`](../../packages/mcp/src/server.ts#L108)) — the same rule the HTTP route generator applies. Tenant-scoped capabilities (the default) still enforce tenant isolation.
+Each `tools/call` creates a fresh `ExecutionContext` via `createDependencies(auth, { bypassTenantScope })` → `createExecutionContext(deps)`, mirroring HTTP route handlers exactly. The `bypassTenantScope` flag is set per-call from `capability.access?.tenantScoped === false` in the `CallToolRequestSchema` handler — the same rule the HTTP route generator applies. Tenant-scoped capabilities (the default) still enforce tenant isolation.
 
 Client cancellation: the MCP SDK abort signal is assigned to `ctx.signal`. If `config.requestTimeoutMs` is set, a second abort signal is composed in and fires after the timeout.
 

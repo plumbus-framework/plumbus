@@ -31,6 +31,7 @@ ragContext({
   topK?: number,
   filter?: (turnCtx) => Record<string, unknown>,
   sourceId?: string,
+  parentChatAudiencePolicy?: boolean,  // default: auto when chat has policy.audience
 })
 ```
 
@@ -85,9 +86,11 @@ const helpChat = defineChat({
 
 ## Default audience filter (footgun mitigation)
 
-If your chat declares `policy.audience` and your `ragContext` does NOT provide a `filter`, the resolver attaches `({ audience }) => ({ audience })` automatically and logs a warning the first time it fires. This prevents admin-only docs leaking to a user just because you forgot to wire the filter.
+When a chat declares `policy.audience`, `runChatTurn` stamps `turnCtx.applyDefaultAudienceFilter: true` before context resolution. For each `ragContext` source that does **not** supply its own `filter`, the resolver then attaches `filter: { audience: turnCtx.audience }` and logs a one-time warning (`[@plumbus/chat] ragContext "…": applying default audience metadata filter`). This prevents admin-only corpus chunks leaking to user callers when you forgot an explicit filter.
 
-Override by providing your own `filter` (even one that returns `{}` to explicitly opt out of the default).
+Opt out per source with `parentChatAudiencePolicy: false`, or supply your own `filter` (even `() => ({})` to explicitly disable metadata filtering).
+
+Registry-backed `knowledgeContext` does not auto-attach retrieve filters — scope flows through `scopeFromTurn` into the KB provider / `ragCorpus` `mapScope` instead.
 
 ## Source handles and provenance
 
@@ -100,7 +103,7 @@ The resolver issues stable runtime handles (`src_a`, `src_b`, …) to each conte
 | Situation | Use this instead |
 |---|---|
 | Tiny static lookup tables (path maps, surface lists) | `staticContext` — no retrieval, no token cost beyond the inline items |
-| i18n catalogs as context | `staticContextFromTranslations` — built from `ctx.translations`, never drifts |
+| i18n catalogs as context | `@plumbus/knowledge-base` `translationCatalog` + registry `knowledgeContext` — preferred over deprecated `staticContextFromTranslations` |
 | Live per-user data (account state, billing) | `capabilityContext(getOwnState)` — refreshed per turn from the source of truth |
 | Curated wiki of summarized entity pages | Custom `ContextSource` over the wiki, or a future `@plumbus/wiki` package — `knowledgeContext` is raw RAG, not summarized |
 

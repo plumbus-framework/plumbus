@@ -18,7 +18,7 @@ Fastest path to a registry-backed source with fixed tier-1 text:
 ```ts
 const source = mockKnowledgeSource('help facts for tests', {
   name: 'mock-kb',
-  scope: { audience: 'user' }, // stored on definition; getBlock ignores unless you customize
+  scope: { audience: 'user' }, // stored on KnowledgeSourceDefinition.scope (metadata)
 });
 
 // source is a KnowledgeSource from an internal one-entry registry
@@ -35,7 +35,7 @@ const mock = mockKnowledgeSource('grounding', { name: 'mock-kb' });
 const registry = createTestRegistry([mock.definition]);
 ```
 
-`mockKnowledgeSource` returns a runtime `KnowledgeSource`; use `.definition` when you need the frozen config for `createTestRegistry`.
+`mockKnowledgeSource` returns a runtime `KnowledgeSource`; use `.definition` when you need the frozen config for `createTestRegistry`. The optional `scope` is persisted on `definition.scope` for fixtures that assert registry metadata — `getBlock` still returns the fixed string unless you customize the provider.
 
 Prefer this over ad hoc `{ async getBlock() {} }` literals so tests stay aligned when the provider contract evolves.
 

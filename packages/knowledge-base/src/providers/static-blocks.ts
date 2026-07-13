@@ -9,7 +9,7 @@ export function staticBlocks(opts: {
   blocks: Array<{ text: string; scope?: KnowledgeScope }>;
   ranker?: (blocks: ScoredBlock[], scope: KnowledgeScope) => ScoredBlock[];
 }): KnowledgeProvider {
-  const ranker = opts.ranker ?? scopeSpecificityRanker;
+  const factoryRanker = opts.ranker;
   const scored: ScoredBlock[] = opts.blocks.map((b, index) => ({
     text: b.text,
     score: opts.blocks.length - index,
@@ -17,9 +17,10 @@ export function staticBlocks(opts: {
   }));
 
   return {
-    async getBlock(_ctx, scope, { maxTokens } = {}) {
+    async getBlock(_ctx, scope, { maxTokens, ranker: callRanker } = {}) {
+      const activeRanker = factoryRanker ?? callRanker ?? scopeSpecificityRanker;
       const filtered = filterBlocksByScope(scored, scope);
-      const ranked = ranker(filtered, scope);
+      const ranked = activeRanker(filtered, scope);
       return packBlocks(ranked, maxTokens);
     },
     async getTools() {

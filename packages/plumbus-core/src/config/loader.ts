@@ -9,10 +9,14 @@ import type {
   AuthAdapterConfig,
   DatabaseConfig,
   Environment,
+  ExecutionConfig,
   PlumbusConfig,
   PromptModelOverride,
   QueueConfig,
 } from '../types/config.js';
+import type { AISecurityConfig } from '../ai/security.js';
+import { FieldClassification } from '../types/enums.js';
+import type { FieldClassification as FieldClassificationType } from '../types/enums.js';
 
 // ── Config Loader ──
 
@@ -38,10 +42,20 @@ export function loadConfig(options?: ConfigLoadOptions): PlumbusConfig {
     environment,
     database: loadDatabaseConfig(env, environment),
     queue: loadQueueConfig(env, environment),
+    execution: loadExecutionConfig(env),
     ai: loadAIConfig(env),
     aiProviders: loadMultiProviderConfig(env),
     auth: loadAuthConfig(env, environment),
     complianceProfiles: loadComplianceProfiles(env),
+  };
+}
+
+// ── Execution Config ──
+
+function loadExecutionConfig(env: Record<string, string | undefined>): ExecutionConfig {
+  const raw = env.PLUMBUS_TRANSACTIONAL_OUTBOX;
+  return {
+    transactionalOutbox: raw === undefined ? true : raw !== 'false',
   };
 }
 
@@ -176,6 +190,53 @@ export function loadMultiProviderConfig(
     defaultModel: env.AI_DEFAULT_MODEL ?? undefined,
     providers,
     promptOverrides: loadPromptOverrides(env),
+    security: loadAiSecurityConfig(env),
+  };
+}
+
+function parseFieldClassificationEnv(
+  raw: string | undefined,
+  envName: string,
+): FieldClassificationType | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  const values = Object.values(FieldClassification) as string[];
+  if (!values.includes(trimmed)) {
+    console.warn(
+      `[plumbus] Invalid ${envName}="${trimmed}" — expected one of: ${values.join(', ')}`,
+    );
+    return undefined;
+  }
+  return trimmed as FieldClassificationType;
+}
+
+function loadAiSecurityConfig(
+  env: Record<string, string | undefined>,
+): AISecurityConfig | undefined {
+  const modeRaw = env.AI_SECURITY_MODE?.trim().toLowerCase();
+  const warnThreshold = parseFieldClassificationEnv(
+    env.AI_SECURITY_WARN_THRESHOLD,
+    'AI_SECURITY_WARN_THRESHOLD',
+  );
+  const redactThreshold = parseFieldClassificationEnv(
+    env.AI_SECURITY_REDACT_THRESHOLD,
+    'AI_SECURITY_REDACT_THRESHOLD',
+  );
+
+  if (!modeRaw && !warnThreshold && !redactThreshold) {
+    return undefined;
+  }
+
+  if (modeRaw && modeRaw !== 'block' && modeRaw !== 'redact') {
+    console.warn(
+      `[plumbus] Invalid AI_SECURITY_MODE="${modeRaw}" — expected "block" or "redact"; defaulting to "redact"`,
+    );
+  }
+
+  return {
+    mode: modeRaw === 'block' ? 'block' : 'redact',
+    warnThreshold,
+    redactThreshold,
   };
 }
 

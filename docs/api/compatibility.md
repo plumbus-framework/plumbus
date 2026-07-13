@@ -75,6 +75,7 @@ These require a major version bump or partner communication:
 | `changed-response-type` | `amount` changed from `number` to `string` |
 | `added-required-input` | New required request field `reason` |
 | `request-field-became-required` | Optional `includeLineItems` now required |
+| `changed-request-type` | `refundId` changed from `string` to `number` in the request |
 | `enum-value-removed` | `status` enum lost value `pending` |
 | `tightened-scopes` | New scope `refunds:admin` required on operation |
 | `changed-error-shape` | Standard error status codes added/removed |

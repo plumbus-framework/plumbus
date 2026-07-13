@@ -28,7 +28,7 @@ type GuardVerdict =
   | { decision: 'require_confirmation'; pendingAction: PendingAction };
 ```
 
-A `'block'` verdict ends the turn with a `turn.failed` event (plus the optional `emit` notice). A `'require_confirmation'` verdict stores a pending action and emits `confirmation_required`; the client then calls the `chatConfirmAction` capability with the pending action ID to execute it (see [action-guard](#action-guard-post-turn) below).
+A `'block'` verdict from a **pre-turn** guard ends the turn with a `turn.failed` event (plus the optional `emit` notice) before the model runs. Post-turn `'block'` verdicts emit their `emit` notice but do **not** emit `turn.failed` — mutate `state.modelOutput.answer` (or rely on built-ins like `scope-classifier`) to change what the client sees. A `'require_confirmation'` verdict stores a pending action and emits `confirmation_required`; the client then calls the `chatConfirmAction` capability with the pending action ID (see [action-guard](#action-guard-post-turn) below).
 
 ## Built-in guards in detail
 
@@ -39,7 +39,7 @@ policy: { audience: { roles: ['user', 'admin'], mode: 'strict' | 'permissive' } 
 ```
 
 - `'strict'` (default): the caller must have at least one of the listed roles via `ctx.security.hasRole`. Missing → `block`.
-- `'permissive'`: the turn proceeds but the audience anchor in the system prompt is set to `policy.audience.default ?? 'unknown'`. Useful for public chats where roles are advisory, not gating.
+- `'permissive'`: missing role does not block; the turn uses the caller-supplied `audience` string as-is (`policy.audience.default` is accepted by the schema but not substituted today).
 
 Threads `audience` into `TurnContext` so context-source filters and the prompt anchor see it.
 
@@ -52,8 +52,10 @@ policy: {
 }
 ```
 
-- Normalizes `turnCtx.locale` against the `scope.locales` whitelist if present. Missing → `block`.
-- If `reply.locale === 'auto'`, the prompt anchor is `[Reply in '{turnCtx.locale}' only.]`. Otherwise the anchor is hardcoded to `reply.locale`.
+- When `policy.scope.locales` is set, blocks turns whose `turnCtx.locale` is not in the whitelist (`notice: chat.locale_denied`).
+- `policy.reply.locale` is **not** enforced by this guard — it is threaded into `buildSystemPrompt` after guards run (see below).
+
+**Reply language anchor (`policy.reply.locale`):** `runChatTurn` passes `replyLocale: policy.reply?.locale` into `buildSystemPrompt`. When `reply.locale` is `'auto'` or omitted, the anchor uses `turnCtx.locale`. When set to a concrete locale (e.g. `'en'`), that locale wins in the `[Reply in '{locale}' only.]` line regardless of the turn's `locale` field. Runtime-emitted notices (cooldown, audience denial, locale denial) remain hardcoded English except the out-of-scope refusal copy, which resolves through `ctx.translations` when available.
 
 ### `behavioral-guard` (pre + post)
 
@@ -72,10 +74,16 @@ State lives on `ChatSession.behavioralState` (jsonb). Pre-turn the guard reads i
 
 Triggers:
 - `'refusal'` — the model returned `inScope: false`.
-- `'guardFailure'` — any post-turn guard returned `block`.
-- `'budget'` — budget enforcer threw.
+- `'guardFailure'` — a guard returned `block` (pre-turn or post-turn; provenance/action budget blocks count as `'budget'`).
+- `'budget'` — a per-turn token/cost cap fired or an action/provenance budget guard blocked.
 
-`scope: 'session'` resets per-session; `scope: 'user'` persists across sessions for the same user. Atomic counter updates use `UPDATE … RETURNING` to handle concurrent turns.
+`windowSeconds`, when set, implements a sliding window: counters reset when the window elapses before `count` is reached.
+
+`scope: 'session'` keys counters to the current `sessionId`; `scope: 'user'` keys them to `user:{userId}` and merges `behavioralState` from the caller's recent sessions (up to 50 rows, oldest → newest precedence) so cooldowns can span new session rows for the same user.
+
+Counter updates are read-modify-write on `ChatSession.behavioralState` (not `UPDATE … RETURNING`). High-concurrency deployments should expect last-writer-wins on the jsonb blob.
+
+When `persistence.saveToDb: false`, the pre-turn guard enforces refusal cooldowns from `clientHistory` assistant `refusalReason` fields only; post-turn persistence is a no-op.
 
 ### `scope-classifier` (post-turn)
 
@@ -83,7 +91,7 @@ Triggers:
 policy: { scope: { description: 'Caller\'s own billing only.', classifier: 'inline' } }
 ```
 
-Reads the model's `inScope` boolean. If `false`, replaces `answer` with the localized refusal copy and emits `notice: chat.out_of_scope`. The classifier is **inline** — the model classifies and answers in one call (Decision 0001). No preflight LLM call, no second roundtrip. Tradeoff: refusal turns spend generation tokens. Empirically cheaper than preflight because most turns are in-scope.
+Reads the model's `inScope` boolean. If `false`, emits `notice: chat.out_of_scope` with localized refusal copy — it does **not** replace `answer`; the model's response text is already streamed to the client. The classifier is **inline** — the model classifies and answers in one call (Decision 0001). No preflight LLM call, no second roundtrip. Tradeoff: refusal turns spend generation tokens. Empirically cheaper than preflight because most turns are in-scope.
 
 `policy.scope.classifier` accepts `'inline'` (the default) or `'custom'`, but the runtime only implements the inline path — `'custom'` is accepted by the schema and behaves identically to `'inline'` today.
 
@@ -106,6 +114,7 @@ Runs the runtime's citation validator:
 2. Validate each against `guardState.resolvedSources` (the set of runtime-issued handles, e.g. `src_a`, `src_b`).
 3. Invalid IDs are stripped from the answer (any `[src:invalid_id]` markers removed).
 4. If `required: true` and zero valid citations remain → `block` with `notice: chat.provenance_missing`.
+5. If `minSources` is set and valid citations are fewer → `block` with `notice: chat.provenance_insufficient`.
 
 Persistence stores only the validated cited subset on `ChatTurnRow.sources`, not the full retrieved set. The model **cannot** invent source IDs — the runtime never accepts a citation that wasn't issued.
 
@@ -121,19 +130,24 @@ chat = defineChat({
 When the model returns `output.requestedAction = { capabilityName, input, confirmationMessage }`:
 
 1. Look up `capabilityName` against `policy.action.allowedCapabilities` (deny by default).
-2. Re-validate `input` against the capability's current Zod input schema.
-3. Compute `schemaHash` (hash of the current input schema) and store it on the `ChatPendingAction` row.
-4. Return `decision: 'require_confirmation'` — the runtime emits `confirmation_required` with the action ID.
+2. Re-validate `input` against the capability's current Zod input schema when the capability is resolvable (`notice: chat.action_input_invalid` on failure).
+3. Compute `schemaHash` and store it on the `ChatPendingAction` row:
+   - **v2 (preferred):** `v2:` + sha256 of `ctx.capabilities.describe(name).inputSchema` when describe is available.
+   - **Legacy fallback:** sha1 of `JSON.stringify(input)` when describe is unavailable (warns once per capability).
+4. Enforce `budget.actions.perSession` by counting pending rows for the session before storing a new one.
+5. Return `decision: 'require_confirmation'` — the runtime emits `confirmation_required` with the action ID and `schemaHash`.
 
-The server-side confirmation capability (`chatConfirmAction`, auto-routed at `POST /api/chat/chat-confirm-action`) takes `{ actionId, capabilityName, schemaHash, execute }`. The client gets all three (action ID, capability name, schema hash) from the `confirmation_required` event the runtime emitted when the action was proposed. On confirm the capability:
+The server-side confirmation capability (`chatConfirmAction`, auto-routed at `POST /api/chat/chat-confirm-action`) takes `{ actionId, capabilityName, schemaHash, execute }`. The client gets all three from the `confirmation_required` event. On confirm (`execute: true`) the capability:
 
-1. Loads the pending action.
-2. **Re-hashes the capability's current input schema and compares to the supplied `schemaHash`** — if the schema has changed since the action was proposed (e.g. a redeploy tightened it), rejects with `chat.action_schema_changed`.
-3. Re-validates input against the current schema.
-4. Executes the capability via the standard `executeCapability` path.
-5. Marks the action `confirmed`.
+1. Loads the pending action and verifies session ownership.
+2. Compares the client-echoed `schemaHash` to the stored row (`chat.action_schema_mismatch` on mismatch).
+3. For **v2** hashes, re-derives the live capability input schema via `ctx.capabilities.describe` and rejects with `chat.action_schema_changed` when the schema drifted since propose.
+4. Re-validates stored input against the current Zod schema.
+5. Marks the action `confirmed` and emits `chat.action.confirmed`.
 
-This `schemaHash` check is the security primitive: it guarantees that what the user confirmed is exactly what gets executed. The client carries `schemaHash` purely as a witness — the server is the only party that re-derives it from the live schema.
+**`chatConfirmAction` does not execute the target capability today.** The handler validates, updates pending-action status, and returns `{ executed: true }` with a stub result. Apps that need real side effects must call `executeCapability` (or a domain capability) in their own wiring after a successful confirm response.
+
+This `schemaHash` check is still load-bearing: it guarantees the user confirmed against the schema that was live at propose time. The client carries `schemaHash` as a witness — the server re-derives v2 hashes from the live schema.
 
 > **UI wiring gap.** `useChat`'s `confirm(actionId)` in `@plumbus/chat-ui` only clears local UI state — it does **not** call `chatConfirmAction` on the server. Apps that ship action-confirmation flows should read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash`) and call `chatConfirmAction` directly via the auto-routed endpoint; see [`packages/chat-ui/src/hooks/useChat.ts`](../../packages/chat-ui/src/hooks/useChat.ts).
 

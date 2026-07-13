@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/knowledge-base",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Plumbus knowledge-base primitive — scoped knowledge providers and registry.",
   "type": "module",
   "main": "./dist/index.js",

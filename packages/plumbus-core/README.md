@@ -107,7 +107,7 @@ export const classifyTicket = definePrompt({
     category: z.enum(["billing", "technical", "general"]),
     priority: z.enum(["low", "medium", "high"]),
   }),
-  systemPrompt: "Classify the support ticket and return structured JSON.",
+  system: "Classify the support ticket and return structured JSON.",
 });
 ```
 
@@ -140,16 +140,26 @@ This package ships instruction files that teach AI coding agents (Copilot, Curso
 
 ```
 node_modules/@plumbus/core/instructions/
-├── framework.md      # Core abstractions and project structure
-├── capabilities.md   # Capability definitions and handlers
-├── entities.md       # Entity fields and classifications
-├── events.md         # Event emission and outbox pattern
-├── flows.md          # Workflow steps and retry logic
-├── ai.md             # AI prompts, RAG, cost tracking
-├── security.md       # Access policies and tenant isolation
-├── governance.md     # Advisory rules and compliance
-├── testing.md        # Test utilities and patterns
-└── patterns.md       # Naming conventions and best practices
+├── README.md                      # Index — start here
+├── guardrails.md                  # Mandatory framework boundaries and git safety
+├── framework.md                   # Core abstractions and project structure
+├── capabilities.md                # Capability definitions and handlers
+├── entities.md                    # Entity fields and classifications
+├── events.md                      # Event emission and outbox pattern
+├── flows.md                       # Workflow steps and retry logic
+├── prompts.md                     # Prompt content, system/description, model config
+├── ai.md                          # ctx.ai operations, RAG, cost tracking
+├── translations.md                # i18n catalogs and ctx.translations
+├── security.md                    # Access policies and tenant isolation
+├── governance.md                  # Advisory rules and compliance
+├── testing.md                     # Test utilities and patterns
+├── patterns.md                    # Naming conventions and best practices
+├── cli.md                         # CLI command reference
+├── mcp.md                         # Core MCP surface (exposeAs, plumbus mcp *)
+├── api.md                         # Core partner API surface (exposeAs: ['api'])
+├── deployment.md                  # Production deployment and workers
+├── peer-dependencies.md           # Add-on peer range literals (framework devs)
+└── upgrading-0.5-capabilities.md  # 0.5.x capability invocation migration
 ```
 
 Wire them up with `plumbus init --agent all`.
@@ -165,11 +175,11 @@ Full documentation: [github.com/plumbus-framework/plumbus/docs](https://github.c
 | **`@plumbus/core`** | **You are here.** Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
 | [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
 | [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
-| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
+| [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x \|\| 0.6.x` — when exposing capabilities to MCP clients. |
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface. |
 | [`@plumbus/chat-ui`](../chat-ui/) | React chat UI — hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol. | Peer of `@plumbus/chat` — when adding a browser chat client. |
 | [`@plumbus/knowledge-base`](../knowledge-base/) | Knowledge providers — scoped sources, registry, chat `knowledgeContext` integration. | Optional peer of `@plumbus/chat` `0.1.x` — when sharing named knowledge across features. |
-| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.1.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
+| [`@plumbus/voice`](../voice/) | Real-time voice runtime — `defineVoice`, STT/TTS/transport providers, session worker, cost ledger. | Optional peer `0.3.x` on `@plumbus/core` `0.6.x` — when adding speech I/O (not speech-to-speech); complements `@plumbus/chat` text surfaces. |
 | [`@plumbus/browser-extension`](../browser-extension/) | Extension scaffolder — WXT Chrome/Firefox project wired to your capabilities. | With `@plumbus/ui` (`0.1.x`) — when shipping a browser extension UI. |
 
 ## License

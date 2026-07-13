@@ -18,5 +18,5 @@ Package quickstart: [../README.md](../README.md).
 - **Token mapping is direct.** A map key in `mcp.agents` **is** the bearer token verbatim. No "secret" field. Pick high-entropy strings.
 - **`kind: 'job'` IS supported via MCP Tasks.** Older instructions may say otherwise — current truth: only `eventHandler` is rejected from MCP. Jobs run through `tools/call` with `_meta.taskMetadata`.
 - **Apps that expose `kind: 'job'` via MCP MUST register `mcpTaskEntity`** in their entity list. Without it, the runtime throws `McpTask entity not registered — add mcpTaskEntity to the app entity list`.
-- **Never put `access.public: true` on a destructive MCP-exposed capability.** `plumbus doctor` fails on this combo.
+- **Never put `access.public: true` on any MCP-exposed capability.** `plumbus doctor` fails on `exposeAs: ['mcp']` + `access.public: true` regardless of capability kind.
 - **The metrics hook fires on both paths.** `McpServerConfig.onMcpToolCall` covers inline `tools/call` and the background task path. Errors are caught and logged to stderr.

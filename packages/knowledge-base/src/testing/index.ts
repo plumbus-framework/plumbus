@@ -12,6 +12,7 @@ export function mockKnowledgeSource(
   const name = opts?.name ?? 'mock-kb';
   const definition: KnowledgeSourceDefinition = {
     name,
+    scope: opts?.scope,
     provider: {
       async getBlock() {
         return text;

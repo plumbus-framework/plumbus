@@ -33,7 +33,7 @@ plumbus api generate openapi --out ./dist/openapi.yaml --format yaml
 plumbus api generate openapi --manifest ./contracts/partner.yaml --out ./dist/openapi.json
 ```
 
-All `plumbus api` commands accept `--manifest <path>` (default `./api.yaml`).
+Most `plumbus api` commands accept `--manifest <path>` (default `./api.yaml`). `plumbus api test-fixtures validate` always uses the default manifest loader (`./api.yaml`) and does not accept `--manifest`.
 
 ---
 
@@ -245,10 +245,10 @@ plumbus api generate docs --out ./dist/api-docs
 import { generateApiDocs } from '@plumbus/api';
 
 const pages = generateApiDocs(capabilities, manifest);
-// Map<operationId, markdown string>
+// Map<relative file path, markdown> — keys include overview.md, authentication.md, endpoints/{operationId}.md
 ```
 
-Each page covers one operation with method, path, scopes, and schema summary.
+Pages include `overview.md`, `authentication.md`, and one `endpoints/{operationId}.md` per operation.
 
 ---
 

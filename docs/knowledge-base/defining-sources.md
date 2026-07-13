@@ -46,7 +46,7 @@ const tools = await source.getTools(ctx, scope);
 | `provider` | yes | Must implement `getBlock` |
 | `description` | no | Human-readable; not used at runtime |
 | `domain` | no | Convention for grouping sources in app code |
-| `ranker` | no | `(blocks, scope) => blocks`; default `scopeSpecificityRanker` |
+| `ranker` | no | `(blocks, scope) => blocks`; default `scopeSpecificityRanker`. **Registry wiring:** `createKnowledgeRegistry` passes `def.ranker` into each `getBlock` call when the provider does not supply an explicit per-call ranker. A provider-level ranker on `staticBlocks({ ranker })` wins over the source-level ranker (ranked exactly once). |
 
 ## Validation behavior
 
@@ -128,7 +128,7 @@ defineKnowledgeSource({
 });
 ```
 
-Source-level `ranker` on `defineKnowledgeSource` applies when the registry wraps the provider (same hook point as provider-level ranker on `staticBlocks` / `documentCollection`).
+Source-level `ranker` on `defineKnowledgeSource` applies when the registry calls `getBlock` and the provider did not pass a per-call `ranker` override. Provider-factory rankers (`staticBlocks({ ranker })`, `documentCollection({ ranker })`) take precedence — do not stack both on the same call.
 
 ## Custom provider walkthrough
 

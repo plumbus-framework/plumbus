@@ -20,6 +20,22 @@ interface ApiDiffEntry {
   message: string;
 }
 
+interface GovernanceSignal {
+  rule: string;
+  description: string;
+}
+
+/** Pure exit-code policy for `plumbus api validate` (testable without process.exit). */
+export function apiValidateShouldFail(
+  hardFindings: readonly unknown[],
+  governanceSignals: readonly GovernanceSignal[],
+  opts: { failOnGovernance?: boolean },
+): boolean {
+  if (hardFindings.length > 0) return true;
+  if (opts.failOnGovernance && governanceSignals.length > 0) return true;
+  return false;
+}
+
 /** Local view of @plumbus/api runtime (optional peer — dynamic import only). */
 interface ApiRuntimeModule {
   parseManifest: (source: string, format: 'yaml' | 'json') => unknown;
@@ -114,7 +130,11 @@ export function registerApiCommand(program: Command): void {
     .description('Validate API manifest, policy, path params, fixtures, and governance')
     .option('--manifest <path>', 'Path to API manifest (default: ./api.yaml)')
     .option('--json', 'Output results as JSON')
-    .action(async (opts: { manifest?: string; json?: boolean }) => {
+    .option(
+      '--fail-on-governance',
+      'Exit with failure when advisory governance signals are present (default: advisory only)',
+    )
+    .action(async (opts: { manifest?: string; json?: boolean; failOnGovernance?: boolean }) => {
       const { api, manifest, capabilities, appRoot } = await loadManifestAndCaps(opts.manifest);
       const result = await api.validateApiContract(manifest, capabilities, appRoot);
 
@@ -147,7 +167,9 @@ export function registerApiCommand(program: Command): void {
         }
       }
 
-      if (allFindings.length > 0 || govSignals.length > 0) {
+      if (
+        apiValidateShouldFail(allFindings, govSignals, { failOnGovernance: opts.failOnGovernance })
+      ) {
         process.exit(1);
       }
       success('API contract validation passed');

@@ -16,6 +16,7 @@ These docs are split in three:
 | [configuration.md](./configuration.md) | You need to load provider credentials, validate them, or expose catalog/admin routes. |
 | [providers.md](./providers.md) | You're picking STT/TTS/transport stacks or adding a custom provider registration. |
 | [transports.md](./transports.md) | You need to choose between raw WebSocket and LiveKit. |
+| [noise-cancellation.md](./noise-cancellation.md) | You're configuring Krisp/RNNoise/DTLN on LiveKit or WebSocket transports. |
 | [client-stt.md](./client-stt.md) | You're considering `web-speech` or other browser-side transcript relay. |
 | [local-providers.md](./local-providers.md) | You want a self-hosted Whisper sidecar or browser-native TTS. |
 | [cost-tracking.md](./cost-tracking.md) | You need STT/TTS/transport spend to land in the shared AI ledger. |
@@ -43,6 +44,21 @@ Read these when you're an AI agent extending a Plumbus app that uses voice. They
 - [`instructions/cost-tracking.md`](../../packages/voice/instructions/cost-tracking.md)
 - [`instructions/testing.md`](../../packages/voice/instructions/testing.md)
 - [`instructions/extending.md`](../../packages/voice/instructions/extending.md)
+- [`instructions/noise-cancellation.md`](../../packages/voice/instructions/noise-cancellation.md)
+
+## SDK surface (selected exports)
+
+Beyond `defineVoice`, `registerVoiceRoutes`, and `runVoiceTurn`, the barrel also exposes:
+
+| Group | Exports | Notes |
+|-------|---------|-------|
+| Catalog | `listVoiceProviderCatalog`, `suggestVoiceStacks`, `BUILTIN_*_PROVIDERS`, `fetchVoiceProviderOptions` | Powers `GET /api/voice/stacks` and admin catalog routes |
+| Provider factory | `createSTTProvider`, `createTTSProvider`, `createTransportProvider`, `createProviderRegistry`, `validateVoiceProviders`, `resolveVoiceProvidersFromEnv` | Credential validation + runtime wiring |
+| LiveKit / worker | `startVoiceWorker`, `mintLiveKitParticipantToken`, `createVoiceAgentEntry`, `bootstrapVoiceAgentConfigsFromModule`, `PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE_ENV` | CLI `plumbus voice worker` and agent bootstrap |
+| Noise cancellation | `parseNoiseCancellation`, `serializeNoiseCancellation`, `applyClientNoiseCancellation`, `createInboundAudioStream`, … | See [noise-cancellation.md](./noise-cancellation.md) |
+| Cost | `recordVoiceCost`, `recordLiveKitTransportCost`, `summarizeVoiceTurnCosts`, `lookupVoicePricing`, `listVoicePricing` | Shared AI ledger helpers |
+| Tone / text | `applyDeliveryToneToText`, `mapDeliveryToneForProvider`, `stripVoiceAssistantMarkers` | TTS delivery shaping |
+| Subpath | `@plumbus/voice/worker` | Worker entry used by `plumbus voice worker` |
 
 ## When to reach for `@plumbus/voice`
 

@@ -6,7 +6,7 @@ import { toCamelCase, toKebabCase, toPascalCase } from '../utils.js';
 export function capabilityTemplate(name: string, kind: string, domain: string): string {
   const pascal = toPascalCase(name);
   return `import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const ${toCamelCase(name)} = defineCapability({
   name: "${name}",
@@ -95,7 +95,7 @@ export const ${toCamelCase(name)}Entity = defineEntity({
 
 export function flowTemplate(name: string, domain: string): string {
   return `import { defineFlow } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const ${toCamelCase(name)}Flow = defineFlow({
   name: "${name}",
@@ -146,7 +146,7 @@ describe("${toPascalCase(name)} Flow", () => {
 
 export function eventTemplate(name: string): string {
   return `import { defineEvent } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const ${toCamelCase(name)}Event = defineEvent({
   name: "${name}",
@@ -160,7 +160,7 @@ export const ${toCamelCase(name)}Event = defineEvent({
 
 export function promptTemplate(name: string): string {
   return `import { definePrompt } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const ${toCamelCase(name)}Prompt = definePrompt({
   name: "${name}",
@@ -174,8 +174,7 @@ export const ${toCamelCase(name)}Prompt = definePrompt({
   }),
 
   model: {
-    provider: "openai",
-    model: "gpt-4o-mini",
+    name: "gpt-4o-mini",
     temperature: 0.7,
   },
 });

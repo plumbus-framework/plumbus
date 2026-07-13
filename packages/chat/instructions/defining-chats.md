@@ -10,7 +10,7 @@ When the user asks you to add a new chat to a Plumbus app, follow this recipe.
 4. **Decide persistence mode explicitly.** Default is `'server'`. Choose `'client'` if privacy matters or the chat is throwaway.
 5. **Pick at least one context source.** Empty context is allowed but warns. Pure-model chats are rare.
 6. **Always declare `policy.audience`** if the app has multi-role users. Strict by default.
-7. **Set budgets.** Real production chats need at minimum `perSession.userMessages` and `perUser.turnsPerDay`.
+7. **Set budgets.** Real production chats need at minimum `perSession.userMessages` (DB-backed or ephemeral) and `perUser.turnsPerDay` when `saveToDb: true`.
 8. **Register the chat's entities** in the app's entity boot (`chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity`).
 9. **Register HTTP routes** via `registerChatRoutes(app, routeConfig, [helpChat, billingChat, ...])` in the app's `onRoutesRegistered` hook.
 10. **Mount the UI** with `<ChatPanel chatName="help" sessionId={s} audience={...} locale={...} turnUrl="/api/chat/help/turn" />`. The `turnUrl` is optional; omit it when the server is mounted at the default `/chat/:name/turn`.
@@ -19,7 +19,7 @@ When the user asks you to add a new chat to a Plumbus app, follow this recipe.
 
 ```ts
 // app/chats/help.chat.ts
-import { defineChat, knowledgeContext } from '@plumbus/chat';
+import { defineChat, ragContext } from '@plumbus/chat';
 
 export const helpChat = defineChat({
   name: 'help',
@@ -29,9 +29,9 @@ export const helpChat = defineChat({
     'You DO NOT perform actions on behalf of the user.',
   ],
   context: [
-    knowledgeContext({
+    ragContext({
       corpus: 'product-docs',
-      query: (turnCtx) => turnCtx.userMessage,
+      query: (turnCtx) => turnCtx.userMessage ?? '',
     }),
   ],
   policy: {
@@ -70,12 +70,12 @@ defineChat({
   },
 
   budget?: {
-    perTurn?:    { tokens?, costUsd? },
-    perSession?: { turns?, userMessages?, tokens?, costUsd? },
+    perTurn?:    { tokens?, costUsd? },       // enforced post-generation
+    perSession?: { turns?, userMessages?, tokens?, costUsd? },  // pre-turn; userMessages also in ephemeral mode
     perUser?:    { turnsPerHour?, turnsPerDay?, costUsdPerDay? },
     perTenant?:  { costUsdPerDay? },
     contextTokens?: number,
-    actions?:    { perSession? },
+    actions?:    { perSession? },             // enforced in action-guard
     timeout?:    { perTurnSeconds? },
   },
 
@@ -126,9 +126,9 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 
 - **Do** put one `defineChat` per file under `app/chats/<name>.chat.ts`.
 - **Do** include `instructions` even if short — the framework joins them into the system prompt body.
-- **Do** use `staticContextFromTranslations` when surface names already exist in `app/translations/`. Manual `staticContext` copies will drift.
+- **Do** use `@plumbus/knowledge-base` `translationCatalog` + registry `knowledgeContext` when surface names live in `app/translations/`. `staticContextFromTranslations` is deprecated and resolves nothing unless you pass `getCatalog`.
 - **Do** set `policy.audience` with all roles that should access the chat, even single-role chats (`['user']`).
-- **Do** set `budget.perSession.userMessages` on every chat — prevents runaway conversations.
+- **Do** set `budget.perSession.userMessages` on every chat — enforced in DB mode via `checkBudgetPreflight` and in ephemeral mode via `clientHistory` counting. Budget knobs are hard limits when set (not advisory, not behind an enforce flag): unset or raise any limit you do not want enforced.
 - **Do** pass `locale` explicitly to every turn. Server-persistence chats can default from the session row; client-persistence must pass on every request.
 - **Do** register chat entities exactly once at app boot, alongside the app's own entities.
 
@@ -140,6 +140,7 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 - **Don't** call `runChatTurn` directly from your route handlers. Use `registerChatRoutes(app, routeConfig, chats)` — it wires auth, body validation, SSE, and `clientHistory` capping correctly.
 - **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed` — defined in `src/types/event.ts`.
 - **Don't** invent source IDs. The resolver issues handles in source-declaration order (`src_a`, `src_b`, ...). Cite using exactly those strings.
+- **Don't** set speculative budget caps expecting silent no-ops — `perTurn`, `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced at runtime.
 
 ## Common Workflows
 

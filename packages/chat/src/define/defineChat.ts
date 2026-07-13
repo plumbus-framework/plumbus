@@ -1,6 +1,7 @@
 import { z } from '@plumbus/core/zod';
 import { deepFreeze } from '../internal/deep-freeze.js';
 import { throwDefineValidationError } from '../internal/validation-error.js';
+import { warnMissingChatPromptBaseFields } from './chat-prompt-base-fields.js';
 import type { ChatConfig, ChatDefinition } from '../types/chat.js';
 
 const chatConfigSchema = z.object({
@@ -94,6 +95,10 @@ export function defineChat(config: ChatConfig): ChatDefinition {
     }
   }
 
+  if (config.prompt) {
+    warnMissingChatPromptBaseFields(config.prompt);
+  }
+
   const audience = config.policy?.audience;
   if (audience && (audience.mode ?? 'strict') === 'strict' && audience.roles.length === 0) {
     throwDefineValidationError('defineChat: audience.roles must not be empty in strict mode');
@@ -108,13 +113,6 @@ export function defineChat(config: ChatConfig): ChatDefinition {
   if (!saveToDb && (config.policy?.action?.allowedCapabilities?.length ?? 0) > 0) {
     throwDefineValidationError(
       'defineChat: persistence.saveToDb=false cannot coexist with policy.action.allowedCapabilities — pending actions require chat_pending_action rows to survive across requests',
-    );
-  }
-
-  const perTurn = config.budget?.perTurn;
-  if (perTurn?.tokens !== undefined || perTurn?.costUsd !== undefined) {
-    console.warn(
-      '[@plumbus/chat] defineChat: budget.perTurn.tokens and budget.perTurn.costUsd are not enforced at runtime; only budget.timeout.perTurnSeconds is applied in runChatTurn.',
     );
   }
 

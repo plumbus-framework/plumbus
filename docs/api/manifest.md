@@ -194,7 +194,7 @@ At runtime, `mergePathParamsIntoInput` combines Fastify path params with query (
 
 ## Validation error catalog
 
-`plumbus api validate` runs manifest, policy, path-param, and fixture checks. Findings are grouped by category.
+`plumbus api validate` runs manifest, policy, path-param, fixture, and advisory governance checks. Findings are grouped by category.
 
 ### Manifest findings
 
