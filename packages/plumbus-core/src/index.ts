@@ -316,10 +316,17 @@ export type { PlumbusServer, ServerConfig } from './server/index.js';
 // ── Server Bootstrap ──
 export { createServer } from './server/index.js';
 // ── Translations ──
+export type {
+  LocaleStatus,
+  NamespaceStatus,
+  TranslationStatus,
+} from './translations/index.js';
 export {
   TranslationRegistry,
+  computeStatus,
   createTranslationResolver,
   createTranslationService,
+  formatTranslationStatus,
 } from './translations/index.js';
 // ── Types (re-export everything) ──
 export * from './types/index.js';

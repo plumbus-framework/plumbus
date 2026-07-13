@@ -481,7 +481,7 @@ plumbus ui generate [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--out-dir <path>` | `string` | auto-detected | Output directory (detects `frontend/` if a Next.js app exists, otherwise `.plumbus/generated/ui`) |
+| `--out-dir <path>` | `string` | auto-detected | Output directory: `frontend/` (or monorepo frontend) when present; otherwise `.plumbus/generated/ui` as a last-resort fallback |
 | `--base-url <url>` | `string` | `""` | Prefix for generated API calls |
 | `--auth-provider <provider>` | `string` | `jwt` | Auth provider used by generated auth helpers |
 | `--token-key <key>` | `string` | — | Storage key for generated auth helpers |
@@ -489,6 +489,7 @@ plumbus ui generate [options]
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
 | `--split-locale-bundles` | `boolean` | `false` | Emit per-locale message bundles under `i18n/locales/` (default: single `i18n/messages.ts`) |
 | `--server-locale-cookie` | `boolean` | `false` | Resolve locale from the `plumbus-ui-locale` cookie in `i18n/request.ts` (dynamic rendering; not compatible with `output: 'export'`) |
+| `--skip-locale-parity` | `boolean` | `false` | Skip translation coverage check before generating i18n (warns and continues; not recommended for CI) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
@@ -496,6 +497,11 @@ Generates:
 - `hooks/hooks.ts` — React hooks for capability invocation
 - `lib/auth.ts` — frontend auth helpers
 - `lib/form-hints.ts` — extracted form metadata from capability schemas
+- `i18n/*` — messages, config (`localeSchema` / Zod-backed `isLocale`), typed keys, `global.ts` AppConfig, catalog-typed `useTranslations`, provider, request (when translation definitions exist)
+
+Output goes only to the resolved out-dir (`--out-dir`, or auto-detected `frontend/` / monorepo frontend). `.plumbus/generated/ui` is used solely when no frontend directory can be detected — it is not a secondary mirror of `frontend/`.
+
+When translations are present, generate runs the same coverage check as `plumbus translation status` and exits non-zero on incomplete locales unless `--skip-locale-parity` is set.
 
 #### Automatic legacy migration
 
@@ -930,7 +936,7 @@ Untranslated keys are preserved; the importer never overwrites with empty string
 
 #### `plumbus translation status`
 
-Report translation coverage. Exits non-zero when any locale is incomplete — wire it into CI to catch missing translations before release.
+Report translation coverage. Exits non-zero when any locale is incomplete — wire it into CI to catch missing translations before release. The same coverage check runs by default during `plumbus ui generate` (unless `--skip-locale-parity`).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|

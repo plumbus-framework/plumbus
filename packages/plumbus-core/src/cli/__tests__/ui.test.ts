@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import {
+  enforceLocaleParity,
   generateE2EVitestConfig,
   generateNextjsAppFiles,
   generateUiModuleFiles,
@@ -45,6 +46,18 @@ function mockUiGenerators(): UiGeneratorModule {
     ],
   };
 }
+
+const incompleteTranslations: TranslationDefinition[] = [
+  {
+    name: 'common',
+    defaultLocale: 'en',
+    locales: ['en', 'he'],
+    messages: {
+      en: { save: 'Save' },
+      he: { save: '' },
+    },
+  },
+];
 
 describe('plumbus ui helpers', () => {
   it('generates UI module file entries', () => {
@@ -134,5 +147,40 @@ describe('plumbus ui helpers', () => {
 
     expect(capturedOptions?.splitLocaleBundles).toBe(true);
     expect(files.map((f) => f.path)).toContain('i18n/messages.ts');
+  });
+});
+
+describe('enforceLocaleParity', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('exits when translations are incomplete', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    enforceLocaleParity(incompleteTranslations);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('warns and continues when skipLocaleParity is true', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    enforceLocaleParity(incompleteTranslations, true);
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes('Skipping locale parity'))).toBe(
+      true,
+    );
+  });
+
+  it('is a no-op when catalogs are complete', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    enforceLocaleParity([
+      {
+        name: 'common',
+        defaultLocale: 'en',
+        locales: ['en', 'he'],
+        messages: { en: { save: 'Save' }, he: { save: 'שמור' } },
+      },
+    ]);
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 });

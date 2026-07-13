@@ -1,20 +1,22 @@
 // ── plumbus ui ──
 // Generate frontend-facing source files and scaffolds via @plumbus/ui.
 
-import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Command } from 'commander';
 import {
   type E2EActionDescriptor,
   type E2EPageDescriptor,
   type E2EQueryDescriptor,
   generateE2ETest,
 } from '../../testing/scaffolding.js';
+import { computeStatus, formatTranslationStatus } from '../../translations/status.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import { discoverResources } from '../discover.js';
+import { type GeneratedFile, writeGeneratedFiles, writeScaffoldFiles } from '../scaffold-write.js';
 import {
   detectMonorepoLayout,
   info,
@@ -50,11 +52,6 @@ interface NextjsTemplateConfig {
   apiBaseUrl?: string;
 }
 
-interface GeneratedFile {
-  path: string;
-  content: string;
-}
-
 interface GeneratedTranslationFile {
   path: string;
   content: string;
@@ -69,6 +66,7 @@ interface UiGenerateOptions {
   includeJsDoc?: boolean;
   splitLocaleBundles?: boolean;
   serverLocaleCookie?: boolean;
+  skipLocaleParity?: boolean;
   json?: boolean;
 }
 
@@ -327,48 +325,6 @@ async function loadUiGenerators(): Promise<UiGeneratorModule> {
   }
 }
 
-function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string[] {
-  const written: string[] = [];
-
-  for (const file of files) {
-    writeFile(path.join(outputRoot, file.path), file.content);
-    written.push(path.join(outputRoot, file.path));
-  }
-
-  return written;
-}
-
-interface ScaffoldWriteResult {
-  written: string[];
-  skipped: string[];
-}
-
-/**
- * Write scaffold/template files with overwrite protection.
- * Files that already exist on disk are skipped unless `force` is true.
- * Returns lists of written and skipped file paths.
- */
-function writeScaffoldFiles(
-  outputRoot: string,
-  files: GeneratedFile[],
-  force?: boolean,
-): ScaffoldWriteResult {
-  const written: string[] = [];
-  const skipped: string[] = [];
-
-  for (const file of files) {
-    const fullPath = path.join(outputRoot, file.path);
-    if (!force && fs.existsSync(fullPath)) {
-      skipped.push(path.join(outputRoot, file.path));
-    } else {
-      writeFile(fullPath, file.content);
-      written.push(path.join(outputRoot, file.path));
-    }
-  }
-
-  return { written, skipped };
-}
-
 function printMigrationSummary(migration: import('../utils.js').MigrationResult): void {
   const total =
     migration.movedFiles.length + migration.rewrittenImports.length + migration.deletedPaths.length;
@@ -387,7 +343,7 @@ function printMigrationSummary(migration: import('../utils.js').MigrationResult)
   success('Legacy migration complete');
 }
 
-/** Auto-detect the frontend output dir. If a Next.js frontend exists, write there. */
+/** Auto-detect the frontend output dir; fall back to `.plumbus/generated/ui` only when none is found. */
 function resolveGenerateOutDir(explicit: string | undefined): string {
   if (explicit) return explicit;
   // In a monorepo, default to the frontend package
@@ -403,6 +359,34 @@ function resolveGenerateOutDir(explicit: string | undefined): string {
     }
   }
   return '.plumbus/generated/ui';
+}
+
+/**
+ * Fail closed on incomplete locale coverage unless `--skip-locale-parity`.
+ * Uses the same `computeStatus` util as `plumbus translation status`.
+ */
+export function enforceLocaleParity(
+  translations: TranslationDefinition[],
+  skipLocaleParity?: boolean,
+): void {
+  if (translations.length === 0) return;
+
+  if (skipLocaleParity) {
+    warn('Skipping locale parity check (--skip-locale-parity)');
+    return;
+  }
+
+  const status = computeStatus(translations);
+  if (status.incomplete === 0) return;
+
+  for (const line of formatTranslationStatus(status)) {
+    console.log(line);
+  }
+  warn(
+    `${status.incomplete} locale(s) have incomplete translations — refusing to generate i18n modules`,
+  );
+  warn('Fix catalogs or re-run with --skip-locale-parity (not recommended for CI)');
+  process.exit(1);
 }
 
 export function registerUiCommand(program: Command): void {
@@ -429,6 +413,10 @@ export function registerUiCommand(program: Command): void {
       '--server-locale-cookie',
       'Resolve locale from the plumbus-ui-locale cookie in the request config (dynamic rendering; not compatible with output: export)',
     )
+    .option(
+      '--skip-locale-parity',
+      'Skip translation coverage check before generating i18n modules (warns; not recommended for CI)',
+    )
     .option('--json', 'Output generated file list as JSON')
     .action(async (opts: UiGenerateOptions) => {
       info('Loading @plumbus/ui generators...');
@@ -436,6 +424,7 @@ export function registerUiCommand(program: Command): void {
 
       info('Discovering capabilities and flows...');
       const resources = await discoverResources();
+      enforceLocaleParity(resources.translations, opts.skipLocaleParity);
       const outDir = resolveGenerateOutDir(opts.outDir);
       const outputRoot = resolvePath(outDir);
       info(`Writing UI modules to ${outDir}`);
@@ -453,12 +442,6 @@ export function registerUiCommand(program: Command): void {
         resources.translations,
       );
       const written = writeGeneratedFiles(outputRoot, files);
-
-      // Also write to .plumbus/generated/ui/ as the contract artifact cache
-      const plumbusOutDir = resolvePath('.plumbus/generated/ui');
-      if (outputRoot !== plumbusOutDir) {
-        writeGeneratedFiles(plumbusOutDir, files);
-      }
 
       if (opts.json) {
         console.log(JSON.stringify({ generated: written }, null, 2));
@@ -481,6 +464,10 @@ export function registerUiCommand(program: Command): void {
     .option('--include-jsdoc', 'Emit JSDoc comments in generated client and hook modules')
     .option('--no-auth', 'Disable auth wiring in the generated Next.js app')
     .option('--force', 'Overwrite existing scaffold files (page.tsx, layout.tsx, etc.)')
+    .option(
+      '--skip-locale-parity',
+      'Skip translation coverage check before generating i18n modules (warns; not recommended for CI)',
+    )
     .option('--json', 'Output generated file list as JSON')
     .action(async (outputDir: string | undefined, opts: UiNextjsOptions) => {
       info('Loading @plumbus/ui generators...');
@@ -488,6 +475,7 @@ export function registerUiCommand(program: Command): void {
 
       info('Discovering capabilities and flows...');
       const resources = await discoverResources();
+      enforceLocaleParity(resources.translations, opts.skipLocaleParity);
       const appName = opts.appName ?? path.basename(process.cwd());
       const outputRoot = resolvePath(outputDir ?? 'frontend');
 
@@ -517,9 +505,6 @@ export function registerUiCommand(program: Command): void {
       // Scaffold files are protected: skip if they already exist, unless --force
       const scaffold = writeScaffoldFiles(outputRoot, templateFiles, opts.force);
       written.push(...scaffold.written);
-
-      // Also write contract artifacts to .plumbus/generated/ui/
-      writeGeneratedFiles(resolvePath('.plumbus/generated/ui'), moduleFiles);
 
       if (opts.json) {
         console.log(JSON.stringify({ generated: written, skipped: scaffold.skipped }, null, 2));

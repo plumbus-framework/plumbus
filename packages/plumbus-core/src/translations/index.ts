@@ -3,9 +3,12 @@
 // Provides ICU MessageFormat interpolation for backend use
 // (capability error messages, flow status, etc.)
 //
-// Key exports: TranslationRegistry, createTranslationResolver
+// Key exports: TranslationRegistry, createTranslationResolver, computeStatus
 
 import type { TranslationDefinition, TranslationService } from '../types/translation.js';
+
+export type { LocaleStatus, NamespaceStatus, TranslationStatus } from './status.js';
+export { computeStatus, formatTranslationStatus } from './status.js';
 
 /**
  * Lightweight ICU MessageFormat interpolation.

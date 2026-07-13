@@ -1,5 +1,17 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+### Added
+
+- **`computeStatus` / `formatTranslationStatus`** — shared translation coverage util (exported from `@plumbus/core`); used by `plumbus translation status` and `plumbus ui generate`.
+- **`plumbus ui generate --skip-locale-parity`** — by default, generate refuses incomplete locale coverage (`exit 1`); the flag warns and continues.
+- **`plumbus translation status` exit code** — exits non-zero when any locale is incomplete (matches existing docs).
+
+### Changed
+
+- **`plumbus ui generate` / `ui nextjs`** — no longer mirror modules into `.plumbus/generated/ui` when writing to a real frontend out-dir. That path remains only the last-resort default when no frontend directory is detected (or when `--out-dir` points there explicitly).
+
 ## 0.6.5
 
 ### Breaking behavior changes
