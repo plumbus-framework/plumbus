@@ -1,6 +1,6 @@
 # @plumbus/core changelog
 
-## Unreleased
+## 0.6.6
 
 ### Breaking behavior changes
 
