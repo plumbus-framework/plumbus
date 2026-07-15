@@ -66,7 +66,10 @@ i18n/index.ts
 |---|---|
 | `keys.ts` | `Messages`, `Namespace`, `MessageKeyOf`, `MessageArgsOf`, `I18nKey` from the default-locale catalog |
 | `global.ts` | Official `next-intl` `AppConfig` augmentation (single-locale `Messages`) |
+| `request.ts` | next-intl server config; side-effect-imports `./global` so AppConfig is always in the TypeScript graph (apps do not need a manual import) |
 | `index.ts` | Catalog-typed `useTranslations` wrapper (namespaces, keys, and ICU params) |
+
+All translation namespaces passed to `generateTranslationModule` must share the same `defaultLocale`. Divergent defaults throw — generated `Messages` indexes one catalog via that literal.
 
 ## Message catalog behavior
 
@@ -148,6 +151,7 @@ Write each returned file to the path provided by its `path` field.
 ## Generation guidance
 
 - Generate no i18n files when there are no translation definitions.
+- Keep every namespace on the same `defaultLocale` (the generator fails closed otherwise).
 - Keep `serverLocaleCookie` disabled for static-export apps.
 - Use split bundles when message catalogs are large or when per-locale chunking matters.
 - Keep the generated `@plumbus/ui/next-intl` imports unless the application intentionally owns the `next-intl` dependency directly.

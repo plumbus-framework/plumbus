@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+### Breaking behavior changes
+
+- **`plumbus translation status` exit code** — exits non-zero when any locale is incomplete (including `--json`). Previously incomplete locales printed a warning but exited 0. Aligns with docs that already recommend wiring the command into CI; update scripts that assumed exit 0.
+
 ### Added
 
 - **`computeStatus` / `formatTranslationStatus`** — shared translation coverage util (exported from `@plumbus/core`); used by `plumbus translation status` and `plumbus ui generate`.
 - **`plumbus ui generate --skip-locale-parity`** — by default, generate refuses incomplete locale coverage (`exit 1`); the flag warns and continues.
-- **`plumbus translation status` exit code** — exits non-zero when any locale is incomplete (matches existing docs).
 
 ### Changed
 

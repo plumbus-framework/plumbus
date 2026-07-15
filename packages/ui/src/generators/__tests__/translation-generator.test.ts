@@ -197,4 +197,32 @@ describe('generateRequestConfig (via generateTranslationModule)', () => {
     expect(c).toContain('onError: onTranslationError');
     expect(c).toContain('getMessageFallback: getMissingMessageFallback');
   });
+
+  it('side-effect-imports global.ts so AppConfig is in the TypeScript graph', () => {
+    expect(requestContent()).toContain('import "./global"');
+    expect(requestContent({ serverLocaleCookie: true })).toContain('import "./global"');
+  });
+});
+
+describe('generateTranslationModule defaultLocale consistency', () => {
+  it('throws when namespaces disagree on defaultLocale', () => {
+    const diverging: TranslationDefinition[] = [
+      {
+        name: 'common',
+        defaultLocale: 'en',
+        locales: ['en'],
+        messages: { en: { save: 'Save' } },
+      },
+      {
+        name: 'auth',
+        defaultLocale: 'he',
+        locales: ['he', 'en'],
+        messages: {
+          he: { login: 'התחבר' },
+          en: { login: 'Log in' },
+        },
+      },
+    ];
+    expect(() => generateTranslationModule(diverging)).toThrow(/must share the same defaultLocale/);
+  });
 });

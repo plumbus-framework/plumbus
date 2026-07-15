@@ -5,7 +5,7 @@
 // Usage: import { useFormatter, NextIntlClientProvider } from "@plumbus/ui/next-intl";
 
 import type { IntlError } from 'next-intl';
-import { IntlErrorCode, useTranslations as useTranslationsBase } from 'next-intl';
+import { useTranslations as useTranslationsBase } from 'next-intl';
 import type { ReactNode } from 'react';
 
 export type { ICUArgs, IntlError } from 'next-intl';
@@ -62,11 +62,7 @@ export function getMissingMessageFallback({ namespace, key }: MessageFallbackArg
   return `[missing: ${path}]`;
 }
 
-/** Log MISSING_MESSAGE; rethrow other intl errors only via console (never crash the tree). */
+/** Log intl errors to the console; never crash the React tree. */
 export function onTranslationError(error: IntlError): void {
-  if (error.code === IntlErrorCode.MISSING_MESSAGE) {
-    console.error(error);
-    return;
-  }
   console.error(error);
 }

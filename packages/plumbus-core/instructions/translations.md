@@ -90,7 +90,7 @@ plumbus ui generate --out-dir frontend --split-locale-bundles
 Without the flag, output is unchanged — a single `i18n/messages.ts`.
 
 ```tsx
-import { useTranslations } from "@plumbus/ui/next-intl";
+import { useTranslations } from "../i18n";
 
 function Nav() {
   const t = useTranslations("common");

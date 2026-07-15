@@ -148,8 +148,8 @@ When translation definitions exist, `plumbus ui generate` produces:
 | `generated/i18n/messages.ts` | Merged message catalog for all namespaces |
 | `generated/i18n/config.ts` | Locale list, default locale, RTL locale set |
 | `generated/i18n/keys.ts` | `Messages`, `Namespace`, `MessageKeyOf`, `MessageArgsOf`, `I18nKey` types derived from the catalog |
-| `generated/i18n/global.ts` | Official `declare module "next-intl"` `AppConfig` augmentation (server / direct next-intl imports) |
-| `generated/i18n/request.ts` | next-intl server configuration (`--server-locale-cookie` adds cookie-based locale resolution) |
+| `generated/i18n/global.ts` | Official `declare module "next-intl"` `AppConfig` augmentation (server / direct next-intl imports); pulled in via `request.ts` side-effect import |
+| `generated/i18n/request.ts` | next-intl server configuration (`--server-locale-cookie` adds cookie-based locale resolution); imports `./global` so AppConfig is always typechecked |
 | `generated/i18n/provider.tsx` | `<TranslationProvider>` (optional `initialLocale`; cookie + localStorage persistence; missing-key fallback) |
 | `generated/i18n/index.ts` | Catalog-typed `useTranslations`, plus `useFormatter`, `useLocale`, key types |
 
@@ -175,7 +175,7 @@ export function Sidebar() {
 }
 ```
 
-Import `useTranslations` from the generated `i18n` module (not from `@plumbus/ui/next-intl` directly). The generated wrapper types namespaces, keys, and ICU parameters from the catalog so `useTranslations("notCommon")`, `t("missingKey")`, and `t("items")` without `{ count }` fail at `tsc`. `i18n/global.ts` also registers `AppConfig` for server helpers and any direct `next-intl` usage — that requires a single resolvable `next-intl` install (peer of `@plumbus/ui`).
+Import `useTranslations` from the generated `i18n` module (not from `@plumbus/ui/next-intl` directly). The generated wrapper types namespaces, keys, and ICU parameters from the catalog so `useTranslations("notCommon")`, `t("missingKey")`, and `t("items")` without `{ count }` fail at `tsc`. `i18n/global.ts` also registers `AppConfig` for server helpers and any direct `next-intl` usage — that requires a single resolvable `next-intl` install (peer of `@plumbus/ui`). Generated `request.ts` side-effect-imports `./global`, so apps do not need a manual import. All namespaces must share one `defaultLocale` or `plumbus ui generate` / `generateTranslationModule` throws.
 
 ```tsx
 const t = useTranslations("common");
