@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2
+
+### Added
+
+- **`generateTranslationModule` typed keys + AppConfig** — emits `i18n/keys.ts` (`Messages`, `Namespace`, `MessageKeyOf`, `I18nKey`) and `i18n/global.ts` (official `declare module "next-intl"` `AppConfig`) plus a catalog-typed `useTranslations` wrapper in `i18n/index.ts` so bad namespaces/keys fail at typecheck even when `next-intl` is nested under `@plumbus/ui`. Generated `request.ts` side-effect-imports `./global` so AppConfig is always in the TypeScript graph.
+- **`@plumbus/ui/next-intl`** — re-exports `useFormatter` and `IntlErrorCode`; adds `getMissingMessageFallback` / `onTranslationError` for a visible `[missing: …]` sentinel (no throw / no blank). `next-intl` is also a **peerDependency** so AppConfig and the re-export resolve the same install.
+- **`@plumbus/ui/next-intl-server`** — re-exports `getTranslations` and `getFormatter`.
+- Generated provider and request config wire the missing-message fallback helpers; generated config uses a literal `defaultLocale` (`as const satisfies Locale`) so `Messages` is not a locale union. Namespaces must share one `defaultLocale` or generate throws.
+- **`localeSchema` + Zod-backed `isLocale` / `localeDir`** — generated `i18n/config.ts` imports `z` from `@plumbus/core/zod`; `isLocale` wraps `safeParse`, `localeDir(locale)` returns `"rtl" | "ltr"`.
+- **`MessageArgsOf` ICU param typing** — generated `useTranslations` requires the correct ICU values object per key (names + string/number/date types from the message string via `ICUArgs`). Explicit `TranslationsFor<N>` return type keeps per-key inference after `.rich` / `.markup` are attached. Rest args: no ICU fields → no second argument (`[]`); required fields → `[values]`; all-optional → `[values?]`.
+
 ## 0.6.1
 
 ### Packaging

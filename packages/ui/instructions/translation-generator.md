@@ -4,6 +4,8 @@ The translation generator produces `next-intl`-oriented i18n source files from P
 
 It is implemented by `generateTranslationModule` and exported from `@plumbus/ui`. The generated files intentionally use the package runtime subpaths `@plumbus/ui/next-intl` and `@plumbus/ui/next-intl-server`, which re-export the required `next-intl` APIs.
 
+Locale coverage (incomplete / empty message values) is enforced by `plumbus ui generate` via `computeStatus` from `@plumbus/core` — not inside this generator. Pass `--skip-locale-parity` on the CLI to skip that gate.
+
 ## Input
 
 ```ts
@@ -40,6 +42,8 @@ Default output:
 ```text
 i18n/messages.ts
 i18n/config.ts
+i18n/keys.ts
+i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
 i18n/index.ts
@@ -51,10 +55,21 @@ With `splitLocaleBundles: true`:
 i18n/locales/{locale}.ts
 i18n/messages.ts
 i18n/config.ts
+i18n/keys.ts
+i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
 i18n/index.ts
 ```
+
+| File | Purpose |
+|---|---|
+| `keys.ts` | `Messages`, `Namespace`, `MessageKeyOf`, `MessageArgsOf`, `I18nKey` from the default-locale catalog |
+| `global.ts` | Official `next-intl` `AppConfig` augmentation (single-locale `Messages`) |
+| `request.ts` | next-intl server config; side-effect-imports `./global` so AppConfig is always in the TypeScript graph (apps do not need a manual import) |
+| `index.ts` | Catalog-typed `useTranslations` wrapper (namespaces, keys, and ICU params) |
+
+All translation namespaces passed to `generateTranslationModule` must share the same `defaultLocale`. Divergent defaults throw — generated `Messages` indexes one catalog via that literal.
 
 ## Message catalog behavior
 
@@ -83,8 +98,12 @@ becomes:
 The generated config includes:
 
 - `locales`;
-- `defaultLocale`;
-- `rtlLocales`.
+- `defaultLocale` (literal `as const satisfies Locale`);
+- `rtlLocales`;
+- `localeSchema` (`z.enum(locales)` from `@plumbus/core/zod`);
+- `isLocale` (Zod `safeParse` type guard);
+- `localeDir(locale)` → `"rtl" | "ltr"`;
+- `rtlLocaleSchema` when at least one RTL locale is present.
 
 Known RTL locales include:
 
@@ -100,15 +119,21 @@ The generated provider:
 - exposes locale state through a local context;
 - persists the selected locale;
 - updates `document.documentElement.lang`;
-- updates `document.documentElement.dir` to `"rtl"` for known RTL locales and `"ltr"` otherwise.
+- updates `document.documentElement.dir` to `"rtl"` for known RTL locales and `"ltr"` otherwise;
+- wires `onError` / `getMessageFallback` from `@plumbus/ui/next-intl` so missing keys render `[missing: namespace.key]` instead of throwing or blanking.
 
 ## Hook re-exports
 
-The generated `i18n/index.ts` re-exports:
+The generated `i18n/index.ts` exports:
 
-- `useTranslations`;
+- a catalog-typed `useTranslations` wrapper (prefer this over `@plumbus/ui/next-intl`);
+- `useFormatter`;
 - `useLocale`;
-- locale types and locale constants.
+- locale types and locale constants;
+- `localeSchema`, `isLocale`, `localeDir`;
+- `I18nKey`, `MessageArgsOf`, `MessageKeyOf`, `Messages`, `Namespace` from `keys.ts`.
+
+`defaultLocale` is emitted as a literal (`as const satisfies Locale`) so `Messages` indexes one catalog, not a union of all locales.
 
 ## Usage
 
@@ -126,6 +151,7 @@ Write each returned file to the path provided by its `path` field.
 ## Generation guidance
 
 - Generate no i18n files when there are no translation definitions.
+- Keep every namespace on the same `defaultLocale` (the generator fails closed otherwise).
 - Keep `serverLocaleCookie` disabled for static-export apps.
 - Use split bundles when message catalogs are large or when per-locale chunking matters.
 - Keep the generated `@plumbus/ui/next-intl` imports unless the application intentionally owns the `next-intl` dependency directly.

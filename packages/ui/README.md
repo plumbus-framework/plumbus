@@ -7,8 +7,8 @@ UI source-code generation for the Plumbus framework.
 The package also exposes thin `next-intl` re-export subpaths used by generated i18n code:
 
 ```ts
-import { NextIntlClientProvider, useTranslations } from "@plumbus/ui/next-intl";
-import { getRequestConfig } from "@plumbus/ui/next-intl-server";
+import { NextIntlClientProvider, useFormatter, useTranslations } from "@plumbus/ui/next-intl";
+import { getFormatter, getRequestConfig, getTranslations } from "@plumbus/ui/next-intl-server";
 ```
 
 Generated source should be reviewed, committed, and owned by the consuming application.
@@ -121,7 +121,7 @@ const files = generateTranslationModule(translationDefinitions, {
 });
 ```
 
-The generator emits message catalogs, locale config, request config, a provider component, and hook re-exports. It expands dotted message keys into nested message objects for `next-intl` and tracks known RTL locales such as Hebrew and Arabic.
+The generator emits message catalogs, locale config, typed keys (`I18nKey` / `MessageKeyOf` / `Messages` / `Namespace`), a `next-intl` `AppConfig` file (`i18n/global.ts`), request config, a provider component (with missing-key fallback sentinel), and a catalog-typed `useTranslations` wrapper plus `useFormatter`. It expands dotted message keys into nested message objects for `next-intl` and tracks known RTL locales such as Hebrew and Arabic.
 
 Generated i18n source intentionally imports `@plumbus/ui/next-intl` and `@plumbus/ui/next-intl-server`, which are thin package re-exports of `next-intl` APIs.
 

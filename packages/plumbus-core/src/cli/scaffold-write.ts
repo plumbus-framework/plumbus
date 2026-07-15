@@ -15,7 +15,7 @@ export interface ScaffoldWriteResult {
   overwritten: string[];
 }
 
-/** Always write generated contract files. */
+/** Always write generated contract files (overwrite existing). */
 export function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string[] {
   const written: string[] = [];
   for (const file of files) {

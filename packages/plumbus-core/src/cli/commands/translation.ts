@@ -5,6 +5,7 @@ import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { TranslationDefinition } from '../../types/translation.js';
+import { computeStatus, formatTranslationStatus } from '../../translations/status.js';
 import { discoverResources } from '../discover.js';
 import {
   translationTemplate,
@@ -12,7 +13,16 @@ import {
   localeMessagesTemplate,
 } from '../templates/resources.js';
 import { findPlumbusProjectRoot, resolvePathWithinProject } from '../project-root.js';
-import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
+import {
+  error,
+  exists,
+  info,
+  resolvePath,
+  success,
+  toKebabCase,
+  warn,
+  writeFile,
+} from '../utils.js';
 
 // ── XLIFF 2.0 Serialization ──
 
@@ -109,36 +119,6 @@ function flattenToJson(
     }
   }
   return flat;
-}
-
-// ── Status Reporting ──
-
-interface NamespaceStatus {
-  name: string;
-  locales: Record<string, { total: number; filled: number; percentage: number }>;
-}
-
-function computeStatus(definitions: TranslationDefinition[]): {
-  namespaces: NamespaceStatus[];
-  incomplete: number;
-} {
-  let incomplete = 0;
-  const namespaces: NamespaceStatus[] = definitions.map((def) => {
-    const locales: Record<string, { total: number; filled: number; percentage: number }> = {};
-    const totalKeys = Object.keys(def.messages[def.defaultLocale] ?? {}).length;
-
-    for (const locale of def.locales) {
-      const messages = def.messages[locale] ?? {};
-      const filled = Object.values(messages).filter((v) => v.length > 0).length;
-      const percentage = totalKeys > 0 ? Math.round((filled / totalKeys) * 100) : 100;
-      locales[locale] = { total: totalKeys, filled, percentage };
-      if (filled < totalKeys) incomplete++;
-    }
-
-    return { name: def.name, locales };
-  });
-
-  return { namespaces, incomplete };
 }
 
 export function registerTranslationCommand(program: Command): void {
@@ -369,20 +349,20 @@ export function registerTranslationCommand(program: Command): void {
 
       if (opts.json) {
         console.log(JSON.stringify(status, null, 2));
-        return;
-      }
+      } else {
+        for (const line of formatTranslationStatus(status)) {
+          console.log(line);
+        }
 
-      for (const ns of status.namespaces) {
-        const parts = Object.entries(ns.locales)
-          .map(([locale, s]) => `${locale} ${s.filled}/${s.total} (${s.percentage}%)`)
-          .join(' | ');
-        console.log(`  ${ns.name}: ${parts}`);
+        if (status.incomplete > 0) {
+          warn(`\n${status.incomplete} locale(s) have incomplete translations`);
+        } else {
+          success('\nAll translations are complete');
+        }
       }
 
       if (status.incomplete > 0) {
-        info(`\n${status.incomplete} locale(s) have incomplete translations`);
-      } else {
-        success('\nAll translations are complete');
+        process.exit(1);
       }
     });
 }

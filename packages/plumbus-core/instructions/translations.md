@@ -75,11 +75,11 @@ The locale is resolved from the request context.
 | `plumbus translation new <name> --locale-folders` | Scaffold `en/`, `he/` message files + thin assembler |
 | `plumbus translation export` | Export to JSON or XLIFF 2.0 for professional translation |
 | `plumbus translation import` | Import translated JSON/XLIFF files back into source |
-| `plumbus translation status` | Report per-locale completion percentage |
+| `plumbus translation status` | Report per-locale completion percentage (exits non-zero when incomplete) |
 
 ## Frontend
 
-When translations exist, `plumbus ui generate` produces `{frontend}/i18n/` with next-intl integration.
+When translations exist, `plumbus ui generate` produces `{frontend}/i18n/` with next-intl integration (messages, config, typed keys, AppConfig, provider, request). Generate fails closed on incomplete locale coverage unless you pass `--skip-locale-parity`.
 
 Optional: emit per-locale bundles (same runtime API, smaller generated files):
 
@@ -90,7 +90,7 @@ plumbus ui generate --out-dir frontend --split-locale-bundles
 Without the flag, output is unchanged — a single `i18n/messages.ts`.
 
 ```tsx
-import { useTranslations } from "next-intl";
+import { useTranslations } from "../i18n";
 
 function Nav() {
   const t = useTranslations("common");

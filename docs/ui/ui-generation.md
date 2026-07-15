@@ -28,8 +28,8 @@ Capability input Zod schemas ────────────▶   lib/form-
 
 Next.js template config ─────────────────▶   app/, components/, lib/, hooks/
 
-Translation definitions ─────────────────▶   i18n/messages.ts, config.ts,
-                                             request.ts, provider.tsx, index.ts
+Translation definitions ─────────────────▶   i18n/messages.ts, config.ts, keys.ts,
+                                             global.ts, request.ts, provider.tsx, index.ts
 ```
 
 ## Public API
@@ -346,6 +346,8 @@ Default output:
 ```text
 i18n/messages.ts
 i18n/config.ts
+i18n/keys.ts
+i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
 i18n/index.ts
@@ -357,12 +359,14 @@ With `splitLocaleBundles: true`, the generator also emits one bundle per locale 
 i18n/locales/{locale}.ts
 i18n/messages.ts
 i18n/config.ts
+i18n/keys.ts
+i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
 i18n/index.ts
 ```
 
-Dotted message keys are expanded into nested message objects because `next-intl` resolves nested paths. The generated provider persists the selected locale, updates `document.documentElement.lang`, and sets `document.documentElement.dir` to `rtl` for known RTL locales such as `ar`, `he`, `fa`, `ur`, `ps`, `sd`, and `yi`.
+Dotted message keys are expanded into nested message objects because `next-intl` resolves nested paths. The generated provider persists the selected locale, updates `document.documentElement.lang`, and sets `document.documentElement.dir` to `rtl` for known RTL locales such as `ar`, `he`, `fa`, `ur`, `ps`, `sd`, and `yi`. Generated `i18n/index.ts` exports a catalog-typed `useTranslations` wrapper (prefer it over importing hooks from `@plumbus/ui/next-intl` directly). Generated `request.ts` side-effect-imports `./global` so the `AppConfig` augmentation is always in the TypeScript graph. All namespaces must share the same `defaultLocale` or the generator throws.
 
 `serverLocaleCookie: true` makes the generated request config read the `plumbus-ui-locale` cookie server-side after `requestLocale`. This uses a Next.js Dynamic API, opts routes into dynamic rendering, and is not suitable for static export.
 

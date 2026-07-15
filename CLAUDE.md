@@ -115,7 +115,7 @@ Apps that only need a single direct RAG corpus in chat can use `ragContext` from
 | Package | Provided by |
 |---------|-------------|
 | next | `dependencies` |
-| next-intl | `dependencies` |
+| next-intl | `dependencies` + `peerDependencies` (`^4.0.0`) — prefer generated `i18n/useTranslations` for typed keys |
 | react | `dependencies` |
 | react-dom | `dependencies` |
 | tailwindcss | `dependencies` |
