@@ -3,7 +3,7 @@
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-05-13
+// Last updated: 2026-07-19
 //
 // Unknown models (Ollama, custom endpoints) return cost $0.
 //
@@ -37,6 +37,9 @@ export interface ModelRate {
 
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
+  'gpt-5.6-sol': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
+  'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
+  'gpt-5.6-luna': { kind: 'text', inputPerMTok: 1, outputPerMTok: 6 },
   'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
   'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
   'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
@@ -96,11 +99,15 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'babbage-002': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 0.4 },
 
   // ── Anthropic: Claude (all text — no embedding API) ──
+  'claude-fable-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-7': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-6': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-1': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
   'claude-opus-4': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
+  'claude-sonnet-5': { kind: 'text', inputPerMTok: 2, outputPerMTok: 10 },
   'claude-sonnet-4-6': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-sonnet-4-5': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-sonnet-4': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },

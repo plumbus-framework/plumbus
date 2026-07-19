@@ -65,13 +65,20 @@ describe('calculateModelCost', () => {
   });
 
   it('returns non-zero cost for newly added models', () => {
+    // gpt-5.6-sol: input $5/MTok, output $30/MTok
+    // 1000 × 5 + 500 × 30 = 5000 + 15000 = 20000 / 1M = 0.02
+    expect(calculateModelCost(1000, 500, 'gpt-5.6-sol')).toBe(0.02);
     // gpt-5.5: input $5/MTok, output $30/MTok
     // 1000 × 5 + 500 × 30 = 5000 + 15000 = 20000 / 1M = 0.02
     expect(calculateModelCost(1000, 500, 'gpt-5.5')).toBe(0.02);
     // gpt-5.5-pro: input $30/MTok, output $180/MTok
     expect(calculateModelCost(1000, 500, 'gpt-5.5-pro')).toBe(0.12);
+    // claude-opus-4-8: input $5/MTok, output $25/MTok
+    expect(calculateModelCost(1000, 500, 'claude-opus-4-8')).toBe(0.0175);
     // claude-opus-4-7: input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'claude-opus-4-7')).toBe(0.0175);
+    // claude-sonnet-5: introductory input $2/MTok, output $10/MTok (through Aug 2026)
+    expect(calculateModelCost(1000, 500, 'claude-sonnet-5')).toBe(0.007);
   });
 
   it('resolves date-suffixed model names', () => {
