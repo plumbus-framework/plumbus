@@ -1,5 +1,15 @@
 # @plumbus/core changelog
 
+## 0.6.7
+
+### Added
+
+- **Model pricing catalog** — `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `claude-fable-5`, `claude-mythos-5`, `claude-opus-4-8`, and `claude-sonnet-5` (introductory rate through August 2026).
+
+### Changed
+
+- **`update-model-pricing` fetch script** — parses OpenAI flagship tables with a five-column layout (`input`, `cached`, `cache writes`, `output`); diff output now says "not parsed from page" instead of implying models were removed.
+
 ## 0.6.6
 
 ### Breaking behavior changes

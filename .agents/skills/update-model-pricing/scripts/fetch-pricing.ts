@@ -60,6 +60,9 @@ interface PricingReport {
 const CURRENT_PRICING: Record<string, { kind: Kind; inputPerMTok: number; outputPerMTok: number }> =
   {
     // OpenAI: Flagship / Reasoning / Legacy (all text)
+    'gpt-5.6-sol': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
+    'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
+    'gpt-5.6-luna': { kind: 'text', inputPerMTok: 1, outputPerMTok: 6 },
     'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
     'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
     'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
@@ -117,11 +120,15 @@ const CURRENT_PRICING: Record<string, { kind: Kind; inputPerMTok: number; output
     'davinci-002': { kind: 'text', inputPerMTok: 2, outputPerMTok: 2 },
     'babbage-002': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 0.4 },
     // Anthropic: Claude (all text)
+    'claude-fable-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+    'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+    'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-7': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-6': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-1': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
     'claude-opus-4': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
+    'claude-sonnet-5': { kind: 'text', inputPerMTok: 2, outputPerMTok: 10 },
     'claude-sonnet-4-6': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
     'claude-sonnet-4-5': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
     'claude-sonnet-4': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
@@ -259,7 +266,12 @@ function extractHeadingText(rawHtml: string): string {
 }
 
 /**
- * Extract `[name, input, cached, output]` rows from a JSX rows-array body.
+ * Extract pricing rows from a JSX rows-array body.
+ *
+ * OpenAI uses two shapes:
+ * - 4 columns: `[name, input, cached, output]` (older models)
+ * - 5 columns: `[name, input, cached, cache_writes, output]` (gpt-5.4+ flagship)
+ *
  * Values may be number / null / "" / "-" / "Free"; "-"/""/"Free" → 0.
  * Strips trailing parenthetical context from names (e.g. "(<272K context)").
  */
@@ -269,8 +281,9 @@ function extractFlatRows(
   out: ModelPrice[],
   seen: Set<string>,
 ): void {
-  // Match `["name", v, v, v]` with any value type in cells 2-4.
-  const rowPattern = /\["([^"]+?)"\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)\s*\]/g;
+  // Optional 5th column is cache-write pricing; output is always the last column.
+  const rowPattern =
+    /\["([^"]+?)"\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)(?:\s*,\s*([^,\]]+))?\s*\]/g;
   let m: RegExpExecArray | null;
   while ((m = rowPattern.exec(rowsContent)) !== null) {
     const rawName = m[1]!.trim();
@@ -278,7 +291,8 @@ function extractFlatRows(
     if (seen.has(model)) continue;
 
     const input = parseCellValue(m[2]!);
-    const output = parseCellValue(m[4]!);
+    const outputCol = m[5] ?? m[4]!;
+    const output = parseCellValue(outputCol);
     if (input === null) continue;
 
     seen.add(model);
@@ -448,7 +462,7 @@ async function main(): Promise<void> {
   process.stderr.write(`Anthropic models found: ${anthropicPrices.length}\n`);
   process.stderr.write(`New models: ${report.diff.added.length}\n`);
   process.stderr.write(`Changed prices: ${report.diff.changed.length}\n`);
-  process.stderr.write(`Removed (flagged): ${report.diff.removed.length}\n`);
+  process.stderr.write(`Not parsed from page (in catalog): ${report.diff.removed.length}\n`);
 
   if (report.diff.added.length > 0) {
     process.stderr.write(`\nNew models:\n`);
@@ -465,7 +479,7 @@ async function main(): Promise<void> {
     }
   }
   if (report.diff.removed.length > 0) {
-    process.stderr.write(`\nRemoved from pricing page (review needed):\n`);
+    process.stderr.write(`\nIn catalog but not parsed from page (review needed):\n`);
     for (const e of report.diff.removed) {
       process.stderr.write(`  - [${e.kind}] ${e.model}: $${e.oldInput}/$${e.oldOutput}\n`);
     }
