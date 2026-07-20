@@ -94,6 +94,35 @@ describe('generateTranslationModule', () => {
     expect(index).toContain('MessageKeyOf');
   });
 
+  it('emits TranslatedText brand and brands t()/markup return types', () => {
+    const files = generateTranslationModule(sampleDefinitions);
+    const paths = files.map((f) => f.path);
+
+    expect(paths).toContain('i18n/translated-text.ts');
+
+    const brand = files.find((f) => f.path === 'i18n/translated-text.ts')?.content ?? '';
+    expect(brand).toContain('declare const translatedTextBrand: unique symbol');
+    expect(brand).toContain('export type TranslatedText');
+    expect(brand).toContain('export function brandTranslatedText');
+    expect(brand).toContain('return value as TranslatedText');
+
+    const index = files.find((f) => f.path === 'i18n/index.ts')?.content ?? '';
+    expect(index).toContain('import { brandTranslatedText } from "./translated-text"');
+    expect(index).toContain('import type { TranslatedText } from "./translated-text"');
+    expect(index).toContain('export type { TranslatedText } from "./translated-text"');
+    expect(index).not.toContain('export { brandTranslatedText');
+    expect(index).toContain('): TranslatedText {');
+    expect(index).toContain('return brandTranslatedText(translator(key, ...args))');
+    expect(index).toContain(
+      '): TranslatedText => brandTranslatedText(translator.markup(key, ...args))',
+    );
+    expect(index).toContain('): ReactNode => translator.rich(key, ...args)');
+
+    const aug = files.find((f) => f.path === 'i18n/global.ts')?.content ?? '';
+    expect(aug).toContain('Messages: (typeof messages)[typeof defaultLocale]');
+    expect(aug).not.toContain('TranslatedText');
+  });
+
   it('emits localeDir as ltr-only when no RTL locales are configured', () => {
     const ltrOnly: TranslationDefinition[] = [
       {

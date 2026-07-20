@@ -1,6 +1,6 @@
 /**
  * Compile-time regression for catalog `useTranslations` typing rules
- * (mirrors helpers emitted into `i18n/keys.ts` + `i18n/index.ts`).
+ * (mirrors helpers emitted into `i18n/keys.ts` + `i18n/index.ts` + `i18n/translated-text.ts`).
  *
  * Outside package `src/` (Biome + build ignore this folder);
  * checked by scripts/check-catalog-translation-types.mjs.
@@ -63,10 +63,16 @@ type TranslateValuesArgs<Args> = [Args] extends [infer A]
       : [values: A]
   : never;
 
+/** Mirrors emit: opaque brand on resolver returns (not catalog leaves). */
+declare const translatedTextBrand: unique symbol;
+type TranslatedText = string & {
+  readonly [translatedTextBrand]: 'TranslatedText';
+};
+
 type TranslationsFor<N extends Namespace> = <K extends MessageKeyOf<N>>(
   key: K,
   ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
-) => string;
+) => TranslatedText;
 
 declare const t: TranslationsFor<'common'>;
 
@@ -75,6 +81,14 @@ t('save');
 t('hello', { name: 'Ada' });
 t('items', { count: 2 });
 t('items', { count: 2n });
+
+const _ok: TranslatedText = t('save');
+const _asString: string = t('save');
+// String methods widen off the brand (documented erosion)
+const _eroded: string = t('save').trim();
+void _ok;
+void _asString;
+void _eroded;
 
 // ── Negative (must reject; unused @ts-expect-error = rule regression) ───
 // @ts-expect-error plain keys reject a values argument
@@ -97,3 +111,6 @@ t('missing');
 
 // @ts-expect-error unknown nested key
 t('nav.home');
+
+// @ts-expect-error plain string literals are not assignable to TranslatedText
+const _forged: TranslatedText = 'Hello';

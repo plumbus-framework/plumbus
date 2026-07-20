@@ -121,7 +121,7 @@ const files = generateTranslationModule(translationDefinitions, {
 });
 ```
 
-The generator emits message catalogs, locale config, typed keys (`I18nKey` / `MessageKeyOf` / `Messages` / `Namespace`), a `next-intl` `AppConfig` file (`i18n/global.ts`), request config, a provider component (with missing-key fallback sentinel), and a catalog-typed `useTranslations` wrapper plus `useFormatter`. It expands dotted message keys into nested message objects for `next-intl` and tracks known RTL locales such as Hebrew and Arabic.
+The generator emits message catalogs, locale config, typed keys (`I18nKey` / `MessageKeyOf` / `Messages` / `Namespace`), an opaque `TranslatedText` brand (`i18n/translated-text.ts`), a `next-intl` `AppConfig` file (`i18n/global.ts`), request config, a provider component (with missing-key fallback sentinel), and a catalog-typed `useTranslations` wrapper plus `useFormatter`. `t` / `markup` return `TranslatedText` (type re-exported from `i18n/index.ts`; the brander is emit-internal). It expands dotted message keys into nested message objects for `next-intl` and tracks known RTL locales such as Hebrew and Arabic.
 
 Generated i18n source intentionally imports `@plumbus/ui/next-intl` and `@plumbus/ui/next-intl-server`, which are thin package re-exports of `next-intl` APIs.
 

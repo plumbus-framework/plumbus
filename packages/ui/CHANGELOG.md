@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+
+- **`TranslatedText` brand emit** — `generateTranslationModule` emits `i18n/translated-text.ts` (`TranslatedText` + emit-only `brandTranslatedText`). Generated `useTranslations` `t` / `markup` return `TranslatedText` via the brander; the type is re-exported from `i18n/index.ts`, the brander is not. `.rich` stays `ReactNode`. `AppConfig.Messages` / catalog leaves remain plain strings. Server `getTranslations` from `@plumbus/ui/next-intl-server` stays plain `string` (client wrapper only in 0.7.0).
+
+### Changed
+
+- After upgrading to 0.7.0, regenerate `i18n/*` (`plumbus ui generate`).
+- Drop any hand-maintained `translated-text.ts` or post-generate rewrite that patched branding into generated output.
+- Import `TranslatedText` from generated `i18n` for gated props (`label: TranslatedText`, etc.).
+
 ## 0.6.2
 
 ### Added

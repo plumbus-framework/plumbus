@@ -250,6 +250,7 @@ describe("generateTranslationModule", () => {
 
     expect(paths).toContain("i18n/messages.ts");
     expect(paths).toContain("i18n/config.ts");
+    expect(paths).toContain("i18n/translated-text.ts");
     expect(paths).toContain("i18n/request.ts");
     expect(paths).toContain("i18n/provider.tsx");
     expect(paths).toContain("i18n/index.ts");

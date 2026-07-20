@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/ui",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Plumbus UI — client generation and frontend templates",
   "type": "module",
   "main": "./dist/index.js",
