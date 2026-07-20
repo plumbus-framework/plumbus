@@ -43,6 +43,7 @@ Default output:
 i18n/messages.ts
 i18n/config.ts
 i18n/keys.ts
+i18n/translated-text.ts
 i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
@@ -56,6 +57,7 @@ i18n/locales/{locale}.ts
 i18n/messages.ts
 i18n/config.ts
 i18n/keys.ts
+i18n/translated-text.ts
 i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
@@ -65,9 +67,10 @@ i18n/index.ts
 | File | Purpose |
 |---|---|
 | `keys.ts` | `Messages`, `Namespace`, `MessageKeyOf`, `MessageArgsOf`, `I18nKey` from the default-locale catalog |
-| `global.ts` | Official `next-intl` `AppConfig` augmentation (single-locale `Messages`) |
+| `translated-text.ts` | Opaque `TranslatedText` brand + emit-only `brandTranslatedText` (not a public escape hatch) |
+| `global.ts` | Official `next-intl` `AppConfig` augmentation (single-locale `Messages` — catalog shape, not branded) |
 | `request.ts` | next-intl server config; side-effect-imports `./global` so AppConfig is always in the TypeScript graph (apps do not need a manual import) |
-| `index.ts` | Catalog-typed `useTranslations` wrapper (namespaces, keys, and ICU params) |
+| `index.ts` | Catalog-typed `useTranslations` wrapper; `t` / `markup` return `TranslatedText`; re-exports the type (not the brander) |
 
 All translation namespaces passed to `generateTranslationModule` must share the same `defaultLocale`. Divergent defaults throw — generated `Messages` indexes one catalog via that literal.
 
@@ -131,7 +134,10 @@ The generated `i18n/index.ts` exports:
 - `useLocale`;
 - locale types and locale constants;
 - `localeSchema`, `isLocale`, `localeDir`;
-- `I18nKey`, `MessageArgsOf`, `MessageKeyOf`, `Messages`, `Namespace` from `keys.ts`.
+- `I18nKey`, `MessageArgsOf`, `MessageKeyOf`, `Messages`, `Namespace` from `keys.ts`;
+- `TranslatedText` (type only) from `translated-text.ts`.
+
+`t` / `markup` return branded `TranslatedText` via the emit-only `brandTranslatedText` helper. That helper is **not** re-exported from `i18n/index.ts` — apps must not import it to forge display strings. `.rich` stays `ReactNode`. Catalog leaf types and `AppConfig.Messages` remain plain strings.
 
 `defaultLocale` is emitted as a literal (`as const satisfies Locale`) so `Messages` indexes one catalog, not a union of all locales.
 

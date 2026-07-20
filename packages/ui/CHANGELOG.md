@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+
+- **`TranslatedText` brand emit** — `generateTranslationModule` emits `i18n/translated-text.ts` (`TranslatedText` + emit-only `brandTranslatedText`). Generated `useTranslations` `t` / `markup` return `TranslatedText` via the brander; the type is re-exported from `i18n/index.ts`, the brander is not. `.rich` stays `ReactNode`. `AppConfig.Messages` / catalog leaves remain plain strings.
+
 ## 0.6.2
 
 ### Added

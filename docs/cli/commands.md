@@ -497,7 +497,7 @@ Generates:
 - `hooks/hooks.ts` — React hooks for capability invocation
 - `lib/auth.ts` — frontend auth helpers
 - `lib/form-hints.ts` — extracted form metadata from capability schemas
-- `i18n/*` — messages, config (`localeSchema` / Zod-backed `isLocale`), typed keys, `global.ts` AppConfig, catalog-typed `useTranslations`, provider, request (when translation definitions exist)
+- `i18n/*` — messages, config (`localeSchema` / Zod-backed `isLocale`), typed keys, `TranslatedText` brand, `global.ts` AppConfig, catalog-typed `useTranslations` (`t`/`markup` → `TranslatedText`), provider, request (when translation definitions exist)
 
 Output goes only to the resolved out-dir (`--out-dir`, or auto-detected `frontend/` / monorepo frontend). `.plumbus/generated/ui` is used solely when no frontend directory can be detected — it is not a secondary mirror of `frontend/`.
 

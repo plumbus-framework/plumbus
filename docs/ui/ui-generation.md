@@ -347,6 +347,7 @@ Default output:
 i18n/messages.ts
 i18n/config.ts
 i18n/keys.ts
+i18n/translated-text.ts
 i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
@@ -360,13 +361,14 @@ i18n/locales/{locale}.ts
 i18n/messages.ts
 i18n/config.ts
 i18n/keys.ts
+i18n/translated-text.ts
 i18n/global.ts
 i18n/request.ts
 i18n/provider.tsx
 i18n/index.ts
 ```
 
-Dotted message keys are expanded into nested message objects because `next-intl` resolves nested paths. The generated provider persists the selected locale, updates `document.documentElement.lang`, and sets `document.documentElement.dir` to `rtl` for known RTL locales such as `ar`, `he`, `fa`, `ur`, `ps`, `sd`, and `yi`. Generated `i18n/index.ts` exports a catalog-typed `useTranslations` wrapper (prefer it over importing hooks from `@plumbus/ui/next-intl` directly). Generated `request.ts` side-effect-imports `./global` so the `AppConfig` augmentation is always in the TypeScript graph. All namespaces must share the same `defaultLocale` or the generator throws.
+Dotted message keys are expanded into nested message objects because `next-intl` resolves nested paths. The generated provider persists the selected locale, updates `document.documentElement.lang`, and sets `document.documentElement.dir` to `rtl` for known RTL locales such as `ar`, `he`, `fa`, `ur`, `ps`, `sd`, and `yi`. Generated `i18n/index.ts` exports a catalog-typed `useTranslations` wrapper (prefer it over importing hooks from `@plumbus/ui/next-intl` directly). `t` / `markup` return branded `TranslatedText` (re-exported as a type from `i18n/index.ts`); the emit-only `brandTranslatedText` helper lives in `i18n/translated-text.ts` and is not part of the public app API. Catalog `Messages` / `AppConfig` stay plain nested strings — branding is on resolver returns only. Generated `request.ts` side-effect-imports `./global` so the `AppConfig` augmentation is always in the TypeScript graph. All namespaces must share the same `defaultLocale` or the generator throws.
 
 `serverLocaleCookie: true` makes the generated request config read the `plumbus-ui-locale` cookie server-side after `requestLocale`. This uses a Next.js Dynamic API, opts routes into dynamic rendering, and is not suitable for static export.
 
