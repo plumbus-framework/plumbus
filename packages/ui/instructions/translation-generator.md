@@ -139,6 +139,8 @@ The generated `i18n/index.ts` exports:
 
 `t` / `markup` return branded `TranslatedText` via the emit-only `brandTranslatedText` helper. That helper is **not** re-exported from `i18n/index.ts` — apps must not import it to forge display strings. `.rich` stays `ReactNode`. Catalog leaf types and `AppConfig.Messages` remain plain strings.
 
+Server `getTranslations` from `@plumbus/ui/next-intl-server` remains plain `string` in 0.7.0 — only the generated client `useTranslations` wrapper is branded. RSC provenance gating is a follow-up if needed.
+
 `defaultLocale` is emitted as a literal (`as const satisfies Locale`) so `Messages` indexes one catalog, not a union of all locales.
 
 ## Usage
