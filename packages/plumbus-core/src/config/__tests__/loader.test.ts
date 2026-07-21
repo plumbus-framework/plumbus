@@ -347,6 +347,20 @@ describe('Config Loader', () => {
       expect(result.errors).toContain('auth.secret or auth.jwksUri is required in production');
     });
 
+    it('warns in production when auth provider is custom without secret', () => {
+      const result = validateConfig(
+        makeValidConfig({
+          environment: 'production',
+          database: { host: 'h', port: 5432, database: 'db', user: 'u', password: 'p', ssl: true },
+          auth: { provider: 'custom' },
+        }),
+      );
+      expect(result.warnings).toContain(
+        "auth.provider is 'custom' — the server must supply an authAdapter or authenticationRuntime",
+      );
+      expect(result.errors).not.toContain('auth.secret or auth.jwksUri is required in production');
+    });
+
     it('valid in production with jwksUri and no secret', () => {
       const result = validateConfig(
         makeValidConfig({

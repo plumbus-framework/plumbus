@@ -74,6 +74,11 @@ declare const browser: {
 };
 `;
 
+const AUTH_STUB = `export function getAuthHeaders(): Record<string, string> {
+  return {};
+}
+`;
+
 function makeCap(): CapabilityContract {
   return {
     name: 'listItems',
@@ -132,6 +137,7 @@ describe('generated scaffold compiles', { timeout: 30_000 }, () => {
     writeTree(dir, [
       ...shellFiles,
       { path: 'src/client/api.ts', content: clientCode },
+      { path: 'src/client/auth.ts', content: AUTH_STUB },
       { path: 'types/stubs.d.ts', content: STUB_TYPES },
       {
         path: 'tsconfig.json',
@@ -185,6 +191,7 @@ describe('generated scaffold compiles', { timeout: 30_000 }, () => {
         path: 'src/client/api.ts',
         content: generateClientModule([cap], [], { baseUrl: 'https://api.example.com' }),
       },
+      { path: 'src/client/auth.ts', content: AUTH_STUB },
       { path: 'types/stubs.d.ts', content: STUB_TYPES },
       {
         path: 'tsconfig.json',

@@ -165,6 +165,24 @@ The adapter:
 - Validates `iss`, `aud`, and `exp` claims
 - Maps standard OIDC claims (`sub`, `email`, `roles`) to `AuthContext`
 
+Use this adapter for **stateless bearer** traffic (API clients, MCP, optional `createAuthRuntime({ bearer })` coexistence). It does **not** implement browser login redirects or session cookies.
+
+### `@plumbus/auth` session runtime (optional)
+
+For **browser login** with opaque server sessions, install `@plumbus/auth` and pass `createAuthRuntime()` to `createServer({ authenticationRuntime })` (core **0.6.8+**).
+
+| Concern | Behavior |
+|---|---|
+| Login | Redirect to IdP (`/auth/login`), callback with code + PKCE |
+| Session | HttpOnly `__Host-plumbus_session` cookie — not a JWT |
+| CSRF | `GET /auth/session` returns `csrfToken`; mutating requests require `X-CSRF-Token` |
+| Authorization | App-owned `resolveAuthorization` → `ctx.auth.roles/scopes/tenantId` on every request |
+| Bearer coexistence | Optional bearer adapter checked **before** session cookie |
+
+With `authenticationRuntime` supplied, **`auth.secret` is not required** in Plumbus config for browser deployments.
+
+See [docs/auth/README.md](../auth/README.md) for wiring, Cognito, and migration from JWT/localStorage scaffolding.
+
 ### SAML Adapter
 
 The SAML adapter validates SAML 2.0 assertions from enterprise identity providers. It verifies XML signatures using the IdP's X.509 certificate.

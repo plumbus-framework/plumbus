@@ -14,6 +14,8 @@ export interface AuthContext {
   scopes: string[];
   tenantId?: string;
   provider: string;
+  /** Configured provider registration id (e.g. 'cognito') when provider is a multi-provider mechanism */
+  providerId?: string;
   sessionId?: string;
   authenticatedAt?: Date;
   /**

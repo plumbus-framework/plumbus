@@ -7,6 +7,7 @@ import { ConsumerRegistry } from '../events/consumer-registry.js';
 import { EventRegistry } from '../events/registry.js';
 import { CapabilityRegistry } from '../execution/capability-registry.js';
 import { FlowRegistry } from '../flows/registry.js';
+import type { HttpAuthenticationRuntime } from '../server/authentication-runtime.js';
 import { createServer, type PlumbusServer } from '../server/bootstrap.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { PlumbusConfig } from '../types/config.js';
@@ -24,6 +25,8 @@ export interface E2EServerOptions {
   config?: Partial<PlumbusConfig>;
   /** Optional auth adapter override for protected routes */
   authAdapter?: AuthAdapter;
+  /** Optional session/OIDC authentication runtime */
+  authenticationRuntime?: HttpAuthenticationRuntime;
   /** Optional hook for registering custom routes in tests */
   onRoutesRegistered?: (app: PlumbusServer['app'], routeConfig: RouteGeneratorConfig) => void;
   /** Port (default: random available) */
@@ -128,6 +131,7 @@ export async function createE2EServer(options?: E2EServerOptions): Promise<E2ESe
     port,
     logger: silentLogger(),
     authAdapter: options?.authAdapter,
+    authenticationRuntime: options?.authenticationRuntime,
     onRoutesRegistered: options?.onRoutesRegistered,
   });
 

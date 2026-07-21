@@ -9,6 +9,7 @@ type AnyFn = (...args: any[]) => any;
 vi.mock('fastify', () => {
   const routes = new Map<string, AnyFn>();
   let errorHandler: AnyFn | undefined;
+  const closeHooks: AnyFn[] = [];
   const app = {
     get: vi.fn((path: string, handler: AnyFn) => {
       routes.set(path, handler);
@@ -17,14 +18,22 @@ vi.mock('fastify', () => {
     put: vi.fn(),
     delete: vi.fn(),
     register: vi.fn(),
-    addHook: vi.fn(),
+    addHook: vi.fn((name: string, handler: AnyFn) => {
+      if (name === 'onClose') {
+        closeHooks.push(handler);
+      }
+    }),
     setErrorHandler: vi.fn((handler: AnyFn) => {
       errorHandler = handler;
     }),
     listen: vi.fn(
       async (opts: { host: string; port: number }) => `http://${opts.host}:${opts.port}`,
     ),
-    close: vi.fn(async () => {}),
+    close: vi.fn(async () => {
+      for (const hook of closeHooks) {
+        await hook();
+      }
+    }),
     _routes: routes,
     get _errorHandler() {
       return errorHandler;
@@ -382,6 +391,38 @@ describe('Server Bootstrap', () => {
       ).toThrow('auth.secret is required outside development');
     });
 
+    it('does not throw in production with custom authAdapter and no secret', () => {
+      expect(() =>
+        createServer(
+          makeServerConfig({
+            config: makeConfig({
+              environment: 'production',
+              auth: { provider: 'jwt' },
+            }),
+            authAdapter: { authenticate: vi.fn(async () => null) },
+          }),
+        ),
+      ).not.toThrow();
+    });
+
+    it('does not throw in production with authenticationRuntime and no secret', () => {
+      expect(() =>
+        createServer(
+          makeServerConfig({
+            config: makeConfig({
+              environment: 'production',
+              auth: { provider: 'jwt' },
+            }),
+            authenticationRuntime: {
+              authenticator: { authenticate: vi.fn(async () => ({ status: 'anonymous' })) },
+              initialize: vi.fn(async () => {}),
+              registerRoutes: vi.fn(),
+            },
+          }),
+        ),
+      ).not.toThrow();
+    });
+
     it('does not throw in development when no auth secret is provided', () => {
       expect(() =>
         createServer(
@@ -518,6 +559,63 @@ describe('Server Bootstrap', () => {
       // Calling AI should trigger the resolver
       await deps.ai.generateWithUsage({ prompt: 'test', input: {} });
       expect(resolver).toHaveBeenCalledWith(db);
+    });
+  });
+
+  describe('authenticationRuntime', () => {
+    it('registers runtime plugin and passes requestAuthenticator to routes', async () => {
+      const initialize = vi.fn(async () => {});
+      const registerRoutes = vi.fn(async () => {});
+      const close = vi.fn(async () => {});
+      const authenticator = { authenticate: vi.fn(async () => ({ status: 'anonymous' })) };
+
+      const server = createServer(
+        makeServerConfig({
+          authenticationRuntime: {
+            authenticator,
+            initialize,
+            registerRoutes,
+            close,
+            describeHealth: () => ({ status: 'ok', providers: { cognito: 'available' } }),
+          },
+        }),
+      );
+
+      expect(server.app.register).toHaveBeenCalled();
+      const plugin = (server.app.register as any).mock.calls[0]?.[0];
+      expect(typeof plugin).toBe('function');
+      await plugin(server.app);
+      expect(initialize).toHaveBeenCalled();
+      expect(registerRoutes).toHaveBeenCalledWith(server.app);
+
+      expect(registerAllRoutes).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ requestAuthenticator: authenticator }),
+      );
+
+      await server.stop();
+      expect(close).toHaveBeenCalled();
+    });
+
+    it('includes auth health component when describeHealth is present', async () => {
+      const server = createServer(
+        makeServerConfig({
+          authenticationRuntime: {
+            authenticator: { authenticate: vi.fn(async () => ({ status: 'anonymous' })) },
+            initialize: vi.fn(async () => {}),
+            registerRoutes: vi.fn(),
+            describeHealth: () => ({ status: 'degraded', providers: { cognito: 'unavailable' } }),
+          },
+        }),
+      );
+      const routes = (server.app as any)._routes as Map<string, AnyFn>;
+      const healthHandler = routes.get('/health');
+      const response = await healthHandler?.();
+      expect(response.components.auth).toEqual({
+        status: 'degraded',
+        providers: { cognito: 'unavailable' },
+      });
     });
   });
 });

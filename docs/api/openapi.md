@@ -133,24 +133,26 @@ Unlike Anthropic structured-output conversion, there are no artificial limits on
 
 ## Security schemes
 
-When any operation declares scopes (from resolved `api.auth.scopes` or `access.scopes`), OpenAPI emits an OAuth2 security scheme:
+Declare explicit schemes in `api.yaml` under `securitySchemes`. OpenAPI export maps them literally — it does **not** invent token endpoints.
 
 ```yaml
 components:
   securitySchemes:
-    oauth2:
+    partnerOAuth:
       type: oauth2
       flows:
         clientCredentials:
-          tokenUrl: /oauth/token
+          tokenUrl: https://identity.example.com/oauth2/token
           scopes:
-            refunds:read: refunds:read
-            refunds:write: refunds:write
+            refunds:read: Read refunds
+            refunds:write: Write refunds
 ```
 
-Per-operation `security` references `oauth2` with the operation's required scope list — not an undeclared scheme name.
+OAuth2 operations attach scopes to the named scheme. HTTP bearer and API key schemes carry required scopes on the operation extension **`x-plumbus-required-scopes`** (OpenAPI has no standard scope field for non-OAuth schemes).
 
-If no scopes are declared but `identity.defaultAuth` is set (and not `oauth2`), a `bearerAuth` HTTP scheme is emitted instead.
+Legacy manifests with `identity.defaultAuth` (no `securitySchemes`) export an `http` **`bearer`** scheme plus `x-plumbus-required-scopes` on each operation. `plumbus api validate` warns but does not fail on this shape.
+
+**Browser session apps:** When the runtime uses `@plumbus/auth`, partners calling from server-side integrations still use bearer or client-credentials as documented. First-party SPAs use cookie sessions — document that separately in `authentication.md` generated docs; OpenAPI security schemes describe machine-to-machine access, not the `/auth/session` CSRF contract.
 
 **Note:** Token URL and gateway configuration are app-owned. The generated scheme documents scope names for partners; wire your actual OAuth server in infrastructure.
 

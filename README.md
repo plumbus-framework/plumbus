@@ -50,6 +50,7 @@ Optional add-on packages extend the core:
 - **Realtime voice runtime** — `defineVoice` with transport/STT/TTS providers and session routing (`@plumbus/voice`)
 - **Knowledge sources** — scoped, registry-backed grounding for chat, capabilities, and search UIs (`@plumbus/knowledge-base`)
 - **Partner API contracts** — versioned external HTTP surface with OpenAPI, docs, and compatibility diff (`@plumbus/api`)
+- **OIDC browser auth** — federated login, opaque server sessions, and CSRF (`@plumbus/auth`, plus `@plumbus/auth-cognito` for Amazon Cognito)
 
 ---
 
@@ -397,6 +398,8 @@ For a fuller explanation of the framework-first policy and destructive git safet
 |---------|-------------|
 | [`@plumbus/core`](packages/plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance |
 | [`@plumbus/ui`](packages/ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds |
+| [`@plumbus/auth`](packages/auth/) | Optional peer `0.6.x` on core — OIDC RP runtime; hosted login, server sessions, CSRF |
+| [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.1.x`) |
 | [`@plumbus/api`](packages/api/) | Optional peer `0.1.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
 | [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.5.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
@@ -443,6 +446,8 @@ plumbus/
 │   │   ├── instructions/      # AI agent instructions — see packages/ui/instructions/
 │   │   └── package.json
 │   ├── api/                   # @plumbus/api — optional partner API contract layer
+│   ├── auth/                  # @plumbus/auth — optional OIDC session runtime
+│   ├── auth-cognito/          # @plumbus/auth-cognito — optional Cognito integration
 │   ├── mcp/                   # @plumbus/mcp — optional MCP runtime
 │   ├── chat/                  # @plumbus/chat — optional chat primitive
 │   ├── chat-ui/               # @plumbus/chat-ui — optional React chat UI
@@ -485,6 +490,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **[SDK Reference](docs/sdk-reference/)** — Complete API documentation
 - **[CLI Reference](docs/cli/)** — All commands and options
 - **[Security](docs/security/)** — Security model, auth, tenant isolation
+- **[Auth](docs/auth/)** — OIDC login, server sessions, CSRF (`@plumbus/auth`)
 - **[AI Integration](docs/ai/)** — Prompts, RAG, cost tracking, governance
 - **[Testing](docs/testing/)** — Test utilities, patterns, examples
 - **[UI Package](docs/ui/)** — Client generation, hooks, Next.js scaffolding

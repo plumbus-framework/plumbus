@@ -1,0 +1,78 @@
+{
+  "name": "@plumbus/auth",
+  "version": "0.1.0",
+  "description": "Plumbus OIDC relying-party runtime — hosted login, opaque server sessions, CSRF, and protected stores.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/stores/postgres/index.d.ts",
+      "default": "./dist/stores/postgres/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md",
+    "migrations"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/auth"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "dependencies": {
+    "openid-client": "^6.8.0"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "0.6.x",
+    "drizzle-orm": "^0.45.1",
+    "fastify": "^5.0.0",
+    "postgres": "^3.4.8"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "fastify": "^5.0.0",
+    "postgres": "^3.4.8",
+    "tsx": "^4.21.0",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT"
+}

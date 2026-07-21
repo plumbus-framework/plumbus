@@ -27,6 +27,18 @@ import {
   writeFile,
 } from '../utils.js';
 
+// ── Helpers ──
+
+export function resolveAuthTransport(value: string | undefined): 'session' | 'bearer' | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === 'session' || value === 'bearer') {
+    return value;
+  }
+  throw new Error(`Invalid --auth-transport "${value}"; expected "session" or "bearer"`);
+}
+
 // ── Types for dynamically loaded @plumbus/ui ──
 
 interface FlowTriggerInput {
@@ -38,10 +50,12 @@ interface FlowTriggerInput {
 interface ClientGeneratorConfig {
   baseUrl?: string;
   includeJsDoc?: boolean;
+  authTransport?: 'session' | 'bearer';
 }
 
 interface AuthHelperConfig {
   provider?: string;
+  transport?: 'session' | 'bearer';
   tokenKey?: string;
   multiTenant?: boolean;
 }
@@ -49,6 +63,7 @@ interface AuthHelperConfig {
 interface NextjsTemplateConfig {
   appName: string;
   auth?: boolean;
+  authTransport?: 'session' | 'bearer';
   apiBaseUrl?: string;
 }
 
@@ -61,6 +76,7 @@ interface UiGenerateOptions {
   outDir?: string;
   baseUrl?: string;
   authProvider?: string;
+  authTransport?: 'session' | 'bearer';
   tokenKey?: string;
   multiTenant?: boolean;
   includeJsDoc?: boolean;
@@ -227,12 +243,15 @@ export function generateUiModuleFiles(
   translations: TranslationDefinition[] = [],
 ): GeneratedFile[] {
   const prefix = directoryPrefix ? `${directoryPrefix}/` : '';
+  const authTransport = resolveAuthTransport(options.authTransport);
   const clientConfig = {
     baseUrl: options.baseUrl,
     includeJsDoc: options.includeJsDoc,
+    authTransport,
   } satisfies ClientGeneratorConfig;
   const authConfig = {
     provider: options.authProvider ?? 'jwt',
+    transport: authTransport,
     tokenKey: options.tokenKey,
     multiTenant: options.multiTenant,
   } satisfies AuthHelperConfig;
@@ -282,6 +301,7 @@ export function generateNextjsAppFiles(
     {
       appName,
       auth: options.auth,
+      authTransport: options.authTransport,
       apiBaseUrl: options.apiBaseUrl,
     },
     capabilities,
@@ -402,6 +422,10 @@ export function registerUiCommand(program: Command): void {
     )
     .option('--base-url <url>', 'Base URL prepended to generated API calls', '')
     .option('--auth-provider <provider>', 'Auth provider for generated auth helpers', 'jwt')
+    .option(
+      '--auth-transport <transport>',
+      'Auth credential transport for generated modules (session or bearer)',
+    )
     .option('--token-key <key>', 'Storage key for generated auth helpers')
     .option('--multi-tenant', 'Include tenant helpers in generated auth module')
     .option('--include-jsdoc', 'Emit JSDoc comments in generated client and hook modules')
@@ -421,6 +445,7 @@ export function registerUiCommand(program: Command): void {
     .action(async (opts: UiGenerateOptions) => {
       info('Loading @plumbus/ui generators...');
       const generators = await loadUiGenerators();
+      const authTransport = resolveAuthTransport(opts.authTransport);
 
       info('Discovering capabilities and flows...');
       const resources = await discoverResources();
@@ -437,7 +462,7 @@ export function registerUiCommand(program: Command): void {
         resources.capabilities,
         resources.flows,
         generators,
-        opts,
+        { ...opts, authTransport },
         '',
         resources.translations,
       );
@@ -459,6 +484,10 @@ export function registerUiCommand(program: Command): void {
     .option('--api-base-url <url>', 'Upstream Plumbus API base URL', 'http://localhost:3000')
     .option('--base-url <url>', 'Client base URL used by generated frontend modules')
     .option('--auth-provider <provider>', 'Auth provider for generated auth helpers', 'jwt')
+    .option(
+      '--auth-transport <transport>',
+      'Auth credential transport for generated modules (session or bearer)',
+    )
     .option('--token-key <key>', 'Storage key for generated auth helpers')
     .option('--multi-tenant', 'Include tenant helpers in generated auth module')
     .option('--include-jsdoc', 'Emit JSDoc comments in generated client and hook modules')
@@ -472,6 +501,7 @@ export function registerUiCommand(program: Command): void {
     .action(async (outputDir: string | undefined, opts: UiNextjsOptions) => {
       info('Loading @plumbus/ui generators...');
       const generators = await loadUiGenerators();
+      const authTransport = resolveAuthTransport(opts.authTransport);
 
       info('Discovering capabilities and flows...');
       const resources = await discoverResources();
@@ -485,7 +515,12 @@ export function registerUiCommand(program: Command): void {
 
       // Generate template scaffold files (page.tsx, layout.tsx, login, signup, etc.)
       const templateFiles = generators.generateNextjsTemplate(
-        { appName, auth: opts.auth, apiBaseUrl: opts.apiBaseUrl },
+        {
+          appName,
+          auth: opts.auth,
+          authTransport,
+          apiBaseUrl: opts.apiBaseUrl,
+        },
         resources.capabilities,
       );
 
@@ -494,7 +529,7 @@ export function registerUiCommand(program: Command): void {
         resources.capabilities,
         resources.flows,
         generators,
-        { ...opts, baseUrl: opts.baseUrl },
+        { ...opts, baseUrl: opts.baseUrl, authTransport },
         '',
         resources.translations,
       );

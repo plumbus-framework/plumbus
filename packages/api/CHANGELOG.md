@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.3
+
+### Added
+
+- **`securitySchemes` manifest field** — discriminated union for `http`, `apiKey` (cookie + optional `x-plumbus-csrf`), `oauth2`, and `openIdConnect` schemes.
+- **`identity.defaultSecurityScheme`** and per-exposure `auth.scheme` for explicit OpenAPI security requirements.
+- **`validateSecurityConfig`** — validates scheme references, legacy `defaultAuth` diagnostics, and rejects invented `/oauth/token` URLs.
+- **Auth session documentation** — [docs/api/manifest.md](../../docs/api/manifest.md) and [docs/api/openapi.md](../../docs/api/openapi.md) clarify partner OAuth schemes vs first-party `@plumbus/auth` cookie sessions.
+- **Ecosystem table** — README lists `@plumbus/auth` and `@plumbus/auth-cognito`.
+
+### Changed
+
+- OpenAPI generation no longer infers OAuth2 from capability scopes alone or emits `/oauth/token`.
+- Security schemes are taken only from explicit manifest `securitySchemes` definitions.
+- `validateApiContract` includes a `security` findings bucket.
+
 ## 0.1.2
 
 ### Changed

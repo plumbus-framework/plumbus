@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 8;
+export const AGENT_WIRING_VERSION = 9;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -348,6 +348,64 @@ const BROWSER_EXTENSION_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const AUTH_INSTRUCTION_REFERENCES = [
+  {
+    area: 'OIDC auth runtime overview, package boundary, public exports, and critical rules',
+    path: 'node_modules/@plumbus/auth/instructions/framework.md',
+  },
+  {
+    area: 'wiring createAuthRuntime, stores, resolvers, and createServer({ authenticationRuntime })',
+    path: 'node_modules/@plumbus/auth/instructions/configure-runtime.md',
+  },
+  {
+    area: 'registering OIDC providers, discovery, integrations, and provider logout',
+    path: 'node_modules/@plumbus/auth/instructions/providers.md',
+  },
+  {
+    area: 'opaque session cookies, CSRF, same-site deployment, and /auth/session contract',
+    path: 'node_modules/@plumbus/auth/instructions/sessions-and-csrf.md',
+  },
+  {
+    area: 'resolveIdentity and resolveAuthorization hooks (admit/deny and roles/scopes/tenant)',
+    path: 'node_modules/@plumbus/auth/instructions/resolvers.md',
+  },
+  {
+    area: 'testing OIDC login with @plumbus/auth/testing fake provider and integration patterns',
+    path: 'node_modules/@plumbus/auth/instructions/testing.md',
+  },
+  {
+    area: 'auth instruction index and reading order',
+    path: 'node_modules/@plumbus/auth/instructions/README.md',
+  },
+] as const;
+
+const AUTH_COGNITO_INSTRUCTION_REFERENCES = [
+  {
+    area: 'Cognito integration package boundary and critical rules',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/framework.md',
+  },
+  {
+    area: 'registering a Cognito OIDC provider with cognito() integration on @plumbus/auth',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md',
+  },
+  {
+    area: 'Cognito hosted UI identity_provider allowlist and default IdP options',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md',
+  },
+  {
+    area: 'Cognito logout URL builder (client_id + logout_uri, no ID-token retention)',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/logout.md',
+  },
+  {
+    area: 'testing Cognito integration helpers and registration validation',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/testing.md',
+  },
+  {
+    area: 'auth-cognito instruction index and reading order',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/README.md',
+  },
+] as const;
+
 const UPGRADE_INSTRUCTION_REFERENCES = [
   {
     area: 'upgrading to 0.5.x capability invocation (canonical names, invoke policy, flow auth snapshot)',
@@ -358,7 +416,7 @@ const UPGRADE_INSTRUCTION_REFERENCES = [
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, knowledge-base, mcp, api, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, knowledge-base, mcp, api, auth, auth-cognito, and browser-extension) for full SDK documentation.',
     );
     return;
   }
@@ -398,6 +456,14 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of BROWSER_EXTENSION_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of AUTH_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of AUTH_COGNITO_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 

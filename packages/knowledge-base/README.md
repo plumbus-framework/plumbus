@@ -145,6 +145,8 @@ Only `getBlock` (tier 1) is required on a provider. `ragCorpus` implements all t
 |---|---|---|
 | [`@plumbus/core`](../plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance. | Always (required). |
 | [`@plumbus/ui`](../ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds. | When building a Plumbus web UI. |
+| [`@plumbus/auth`](../auth/) | OIDC RP runtime — hosted login, opaque server sessions, CSRF, protected stores. | Peer `0.6.x` on core — when adding federated browser login with server sessions. |
+| [`@plumbus/auth-cognito`](../auth-cognito/) | Cognito integration — hosted UI IdP allowlist, client auth method, logout URL builder. | With `@plumbus/auth` `0.1.x` — when using Amazon Cognito. |
 | [`@plumbus/api`](../api/) | Partner external API — manifest, OpenAPI, docs, compatibility diff, test intent. | Optional peer `0.1.x` — when publishing a documented partner-facing HTTP API. |
 | [`@plumbus/mcp`](../mcp/) | MCP runtime — serve capabilities to AI agents (`tools/*`, `tasks/*`, transports). | Optional peer `0.5.x` — when exposing capabilities to MCP clients. |
 | [`@plumbus/chat`](../chat/) | Conversational runtime — `defineChat`, policy guards, context sources, streamed events. | Optional peer `0.1.x` — when adding a chat surface (required if wiring `knowledgeContext`). |

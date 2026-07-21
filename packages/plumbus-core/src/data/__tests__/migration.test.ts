@@ -3,9 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getTableName } from 'drizzle-orm';
+import { pgTable, uuid } from 'drizzle-orm/pg-core';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { field } from '../../fields/index.js';
+import { generateDrizzleSchema } from '../schema-generator.js';
 import type { EntityDefinition } from '../../types/entity.js';
 import { collectSchemas, readPendingMigrations, reconcileMigrationHistory } from '../migration.js';
 
@@ -106,6 +108,17 @@ describe('collectSchemas', () => {
     const schemas = collectSchemas([]);
     const frameworkKeys = Object.keys(schemas).filter((k) => k.startsWith('__'));
     expect(frameworkKeys).toHaveLength(10);
+  });
+
+  it('throws when an extra schema collides with an entity table name', () => {
+    const entity = makeEntity('Order');
+    const entityTable = generateDrizzleSchema(entity);
+    const duplicate = pgTable(getTableName(entityTable), {
+      id: uuid('id').primaryKey(),
+    });
+    expect(() => collectSchemas([entity], { authSessions: duplicate })).toThrow(
+      /Migration schema collision/,
+    );
   });
 });
 

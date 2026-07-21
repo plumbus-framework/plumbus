@@ -1,19 +1,28 @@
 // ── @plumbus/ui ──
 // UI layer generators for Plumbus framework
 
-export type { AuthHelperConfig } from './generators/auth-generator.js';
+export type { AuthHelperConfig, AuthTransport } from './generators/auth-generator.js';
 // Auth Helpers Generator
 export {
+  __resetTransportWarningForTests,
+  generateAuthErrorMessages,
   generateAuthFunctions,
   generateAuthModule,
   generateAuthTypes,
+  generateBearerAuthFunctions,
+  generateCsrfUtils,
   generateRouteGuard,
+  generateSessionAuthFunctions,
   generateTenantContext,
   generateTokenUtils,
   generateUseAuthHook,
   generateUseCurrentUserHook,
 } from './generators/auth-generator.js';
-export type { ClientGeneratorConfig, FlowTriggerInput } from './generators/client-generator.js';
+export type {
+  ClientAuthTransport,
+  ClientGeneratorConfig,
+  FlowTriggerInput,
+} from './generators/client-generator.js';
 // Client & Hooks Generators
 export {
   capabilityClientFnName,
@@ -45,6 +54,7 @@ export type { GeneratedFile, NextjsTemplateConfig } from './generators/nextjs-te
 // Next.js Template Generator
 export {
   generateAuthProvider,
+  generateBearerLoginPage,
   generateCapabilityPage,
   generateEnvLocal,
   generateErrorBoundary,
@@ -58,6 +68,8 @@ export {
   generatePlaceholderFiles,
   generatePostcssConfig,
   generateProxy,
+  generateSessionLoginPage,
+  generateSessionLoginErrorPage,
   generateSignupPage,
   generateTsConfig,
 } from './generators/nextjs-template.js';

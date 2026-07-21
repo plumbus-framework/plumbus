@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthHelperConfig } from '../auth-generator.js';
 import {
+  __resetTransportWarningForTests,
   generateAuthFunctions,
   generateAuthModule,
   generateAuthTypes,
@@ -88,6 +89,10 @@ describe('generateTokenUtils', () => {
 // ── generateAuthFunctions ──
 
 describe('generateAuthFunctions', () => {
+  beforeEach(() => {
+    __resetTransportWarningForTests();
+  });
+
   it('generates login function', () => {
     const code = generateAuthFunctions();
     expect(code).toContain('export async function login');
@@ -255,6 +260,7 @@ describe('generateAuthModule', () => {
   it('respects custom config', () => {
     const config: AuthHelperConfig = {
       provider: 'jwt',
+      transport: 'bearer',
       tokenKey: 'custom_token',
       loginEndpoint: '/custom/login',
       logoutEndpoint: '/custom/logout',
@@ -265,5 +271,26 @@ describe('generateAuthModule', () => {
     expect(code).toContain('/custom/login');
     expect(code).toContain('/custom/logout');
     expect(code).toContain('/custom/refresh');
+  });
+
+  it('generates session transport without localStorage', () => {
+    const code = generateAuthModule({ provider: 'oidc', transport: 'session' });
+    expect(code).toContain('loadSession');
+    expect(code).toContain('fetchProviders');
+    expect(code).toContain('AUTH_ERROR_MESSAGES');
+    expect(code).toContain('window.location.assign');
+    expect(code).toContain('credentials: "include"');
+    expect(code).toContain('csrfHeaders');
+    expect(code).not.toContain('localStorage');
+  });
+
+  it('warns once when transport is omitted', () => {
+    __resetTransportWarningForTests();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    generateAuthModule({ provider: 'jwt' });
+    generateAuthModule({ provider: 'jwt' });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('transport omitted');
+    warnSpy.mockRestore();
   });
 });

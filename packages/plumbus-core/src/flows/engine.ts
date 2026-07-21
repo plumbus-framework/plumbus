@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
+import { parseDurationToMs } from '../config/duration.js';
 import { FlowCancelledError, LeaseLostError } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
 import type { AuditService } from '../types/audit.js';
@@ -684,7 +685,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       const nextStep = getNextStepName(flow.steps, currentStepName);
       let delayMs: number;
       try {
-        delayMs = parseDurationToMs(result.delayDuration);
+        delayMs = parseDurationToMs(result.delayDuration, { label: 'delay' });
       } catch (err) {
         return handleStepFailure(
           executionId,
@@ -1205,26 +1206,4 @@ export function computeRetryDelay(retryCount: number, backoff: string, baseDelay
     return baseDelayMs * 2 ** (retryCount - 1);
   }
   return baseDelayMs; // fixed
-}
-
-function parseDurationToMs(duration: string): number {
-  const trimmed = duration.trim().toLowerCase();
-  const match = trimmed.match(/^(\d+)(ms|s|m|h|d)$/);
-  if (!match) {
-    throw new Error(
-      `Invalid delay duration "${duration}". Expected formats like "30s", "5m", "1h".`,
-    );
-  }
-
-  const [, valueRaw, unit] = match;
-  if (!valueRaw || !unit) {
-    throw new Error(`Invalid delay duration "${duration}".`);
-  }
-  const value = parseInt(valueRaw, 10);
-
-  if (unit === 'ms') return value;
-  if (unit === 's') return value * 1000;
-  if (unit === 'm') return value * 60_000;
-  if (unit === 'h') return value * 3_600_000;
-  return value * 86_400_000;
 }

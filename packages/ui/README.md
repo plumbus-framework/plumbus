@@ -227,10 +227,14 @@ The repository currently contains these sibling packages under `packages/`:
 |---|---|---|
 | `@plumbus/core` | Core framework definitions and runtime primitives. | Required by Plumbus projects and generator inputs. |
 | `@plumbus/ui` | Frontend source generation and thin `next-intl` re-export subpaths. | When generating a Plumbus web frontend. |
+| `@plumbus/auth` | OIDC RP runtime — hosted login, server sessions, CSRF. | When the backend uses cookie sessions instead of localStorage bearer tokens. |
+| `@plumbus/auth-cognito` | Cognito integration for `@plumbus/auth`. | When the OIDC provider is Amazon Cognito. |
+| `@plumbus/api` | Partner external API contracts, OpenAPI, manifest validation. | When publishing a documented partner HTTP API. |
 | `@plumbus/mcp` | MCP runtime for exposing capabilities to AI agents. | When serving Plumbus capabilities through MCP. |
 | `@plumbus/chat` | Conversational runtime definitions and turn handling. | When adding a chat surface. |
 | `@plumbus/chat-ui` | React helpers for the `@plumbus/chat` turn protocol. | When building a browser chat client. |
 | `@plumbus/knowledge-base` | Knowledge provider and source registry support. | When sharing named knowledge across Plumbus features. |
+| `@plumbus/voice` | Real-time voice runtime (`defineVoice`, STT/TTS). | When adding speech I/O surfaces. |
 | `@plumbus/browser-extension` | Browser-extension scaffolding wired to Plumbus capabilities. | When shipping a Chrome/Firefox extension UI. |
 
 ## License

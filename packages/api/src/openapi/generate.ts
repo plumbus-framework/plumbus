@@ -2,13 +2,13 @@ import { isApiExposed, type CapabilityContract } from '@plumbus/core';
 import { apiVersionFromManifest } from '../manifest/api-version.js';
 import { resolveExposure } from '../manifest/resolve.js';
 import { requiredApiScopes } from '../manifest/scopes.js';
+import type { ApiManifest, ApiManifestEntry, SecurityScheme } from '../manifest/types.js';
 import {
   buildGetQueryParameters,
   buildPathParameters,
   buildRequestBodySchema,
 } from './schema-params.js';
 import { zodToOpenApiSchema } from './zod-to-openapi-schema.js';
-import type { ApiManifest, ApiManifestEntry } from '../manifest/types.js';
 import type { OpenApiDocument } from './types.js';
 
 function methodToOpenApi(method: string): string {
@@ -34,13 +34,126 @@ function errorResponseRef(): Record<string, unknown> {
   };
 }
 
+function defaultSchemeName(manifest: ApiManifest): string | undefined {
+  return manifest.identity?.defaultSecurityScheme ?? manifest.identity?.defaultAuth;
+}
+
+const LEGACY_BEARER_SCHEME = 'bearer';
+
+function usesLegacyDefaultAuth(manifest: ApiManifest): boolean {
+  return Boolean(manifest.identity?.defaultAuth && !manifest.identity.defaultSecurityScheme);
+}
+
+function normalizeSchemeNames(
+  scheme: string | readonly string[] | undefined,
+  manifest: ApiManifest,
+): string[] {
+  if (typeof scheme === 'string') {
+    return [scheme];
+  }
+  if (Array.isArray(scheme)) {
+    return [...scheme];
+  }
+  const defaultScheme = defaultSchemeName(manifest);
+  if (!defaultScheme) {
+    return [];
+  }
+  if (usesLegacyDefaultAuth(manifest) && !manifest.securitySchemes) {
+    return [LEGACY_BEARER_SCHEME];
+  }
+  return [defaultScheme];
+}
+
+function schemeAcceptsOAuthScopes(scheme: SecurityScheme | undefined): boolean {
+  return scheme?.type === 'oauth2' || scheme?.type === 'openIdConnect';
+}
+
+function securitySchemeToOpenApi(scheme: SecurityScheme): Record<string, unknown> {
+  switch (scheme.type) {
+    case 'http':
+      return {
+        type: 'http',
+        scheme: scheme.scheme,
+        ...(scheme.bearerFormat ? { bearerFormat: scheme.bearerFormat } : {}),
+      };
+    case 'apiKey':
+      return {
+        type: 'apiKey',
+        in: scheme.in,
+        name: scheme.name,
+        ...(scheme['x-plumbus-csrf'] ? { 'x-plumbus-csrf': scheme['x-plumbus-csrf'] } : {}),
+      };
+    case 'oauth2':
+      return {
+        type: 'oauth2',
+        flows: scheme.flows,
+      };
+    case 'openIdConnect':
+      return {
+        type: 'openIdConnect',
+        openIdConnectUrl: scheme.openIdConnectUrl,
+      };
+    default:
+      return scheme;
+  }
+}
+
+function buildSecuritySchemes(manifest: ApiManifest): Record<string, unknown> {
+  const schemes: Record<string, unknown> = {};
+  if (manifest.securitySchemes) {
+    for (const [name, scheme] of Object.entries(manifest.securitySchemes)) {
+      schemes[name] = securitySchemeToOpenApi(scheme);
+    }
+    return schemes;
+  }
+
+  if (usesLegacyDefaultAuth(manifest)) {
+    console.warn(
+      '[plumbus/api] identity.defaultAuth is deprecated; emitting http bearer security scheme for OpenAPI export',
+    );
+    schemes[LEGACY_BEARER_SCHEME] = { type: 'http', scheme: 'bearer' };
+  }
+  return schemes;
+}
+
+function resolveOperationSecurity(
+  manifest: ApiManifest,
+  entry: ApiManifestEntry | undefined,
+  cap: CapabilityContract,
+): { security?: Record<string, string[]>[]; requiredScopes?: string[] } {
+  const scopes = requiredApiScopes(entry?.auth?.scopes, cap.access?.scopes);
+  const schemeNames = normalizeSchemeNames(entry?.auth?.scheme, manifest);
+  if (schemeNames.length === 0) {
+    return scopes.length > 0 ? { requiredScopes: scopes } : {};
+  }
+
+  const security: Record<string, string[]>[] = [];
+  let requiredScopes: string[] = [];
+
+  for (const schemeName of schemeNames) {
+    const scheme = manifest.securitySchemes?.[schemeName];
+    if (schemeAcceptsOAuthScopes(scheme)) {
+      security.push({ [schemeName]: scopes });
+      continue;
+    }
+    security.push({ [schemeName]: [] });
+    if (scopes.length > 0) {
+      requiredScopes = scopes;
+    }
+  }
+
+  return {
+    ...(security.length > 0 ? { security } : {}),
+    ...(requiredScopes.length > 0 ? { requiredScopes } : {}),
+  };
+}
+
 export function generateOpenApi(
   caps: CapabilityContract[],
   manifest: ApiManifest,
 ): OpenApiDocument {
   const paths: Record<string, Record<string, unknown>> = {};
   const apiVersion = apiVersionFromManifest(manifest);
-  const allScopes = new Set<string>();
   const registeredMethodPaths = new Set<string>();
 
   for (const cap of caps) {
@@ -96,12 +209,12 @@ export function generateOpenApi(
       },
     };
 
-    const scopes = requiredApiScopes(resolved.auth?.scopes, cap.access?.scopes);
-    if (scopes.length > 0) {
-      for (const scope of scopes) {
-        allScopes.add(scope);
-      }
-      operation.security = [{ oauth2: scopes }];
+    const { security, requiredScopes } = resolveOperationSecurity(manifest, entry, cap);
+    if (security) {
+      operation.security = security;
+    }
+    if (requiredScopes && requiredScopes.length > 0) {
+      operation['x-plumbus-required-scopes'] = requiredScopes;
     }
 
     if (resolved.idempotency) {
@@ -137,29 +250,7 @@ export function generateOpenApi(
     paths[routePath][oaMethod] = operation;
   }
 
-  const securitySchemes: Record<string, unknown> = {};
-  const useOAuth2 = manifest.identity?.defaultAuth === 'oauth2' || allScopes.size > 0;
-
-  if (useOAuth2) {
-    const scopeEntries: Record<string, string> = {};
-    for (const scope of allScopes) {
-      scopeEntries[scope] = scope;
-    }
-    securitySchemes.oauth2 = {
-      type: 'oauth2',
-      flows: {
-        clientCredentials: {
-          tokenUrl: '/oauth/token',
-          scopes: scopeEntries,
-        },
-      },
-    };
-  } else if (manifest.identity?.defaultAuth) {
-    securitySchemes.bearerAuth = {
-      type: 'http',
-      scheme: 'bearer',
-    };
-  }
+  const securitySchemes = buildSecuritySchemes(manifest);
 
   return {
     openapi: '3.0.3',

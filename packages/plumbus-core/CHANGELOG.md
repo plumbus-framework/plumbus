@@ -1,5 +1,27 @@
 # @plumbus/core changelog
 
+## 0.6.8
+
+### Added (M5 — authentication contract)
+
+- **Request-authentication contract** — `AuthenticationRequest`, `AuthenticationResult`, `RequestAuthenticator`, `wrapAuthAdapter`, and `createCompositeRequestAuthenticator` with bearer-over-cookie precedence.
+- **`HttpAuthenticationRuntime`** — optional `createServer({ authenticationRuntime })` seam for session/OIDC packages.
+- **`AuthContext.providerId`** — configured provider registration id for multi-provider mechanisms.
+- **`AuditWriter`** — injectable audit sink with `createDatabaseAuditWriter`.
+- **`parseCookieHeader` and `parseDurationToMs`** — shared HTTP cookie parsing and duration normalization utilities.
+- **Migrate `app/schemas/` seam** — `discoverResources` collects extra Drizzle tables for migration generation.
+- **`unauthorized` error code** — `UnauthorizedError` maps to HTTP 401.
+
+### Added (M6 — auth packages, docs, agent wiring)
+
+- **`@plumbus/auth` and `@plumbus/auth-cognito` publish steps** — CI publishes both packages after `@plumbus/core`.
+- **`docs/auth/`** — full OIDC session runtime documentation (getting started, configuration, providers, CSRF, Cognito, security, testing, migration, deployment).
+- **Consumer AI guidance includes auth** — `plumbus init` wires `@plumbus/auth/instructions/*` and `@plumbus/auth-cognito/instructions/*`. `AGENT_WIRING_VERSION` bumped to **9**. Run `plumbus init --patch` on existing projects.
+
+### Changed
+
+- **`auth.secret` no longer required** when a custom `authAdapter` or `authenticationRuntime` is supplied (§22.4).
+
 ## 0.6.7
 
 ### Added

@@ -2,6 +2,8 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AuthAdapter } from '../auth/adapter.js';
+import type { RequestAuthenticator } from '../auth/http-authentication.js';
+import { authenticationFailureToHttp, buildAuthenticationRequest } from './authentication-http.js';
 import {
   errorToHttpResponse,
   errorToSsePayload,
@@ -31,6 +33,8 @@ export interface RouteGeneratorConfig {
   db: PostgresJsDatabase;
   /** Auth adapter for extracting identity from requests */
   authAdapter: AuthAdapter;
+  /** Optional request-level authenticator (cookies, CSRF, composite bearer precedence) */
+  requestAuthenticator?: RequestAuthenticator;
   /** Factory to build base context dependencies for each request */
   createDependencies: (
     auth: NonNullable<Awaited<ReturnType<AuthAdapter['authenticate']>>>,
@@ -74,17 +78,61 @@ export function registerCapabilityRoute(
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}`;
 
   const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    // 1. Authenticate
-    const authHeader = request.headers.authorization;
-    const auth = await config.authAdapter.authenticate(authHeader);
+    const requestId = resolveRequestCorrelationId(request.headers);
 
-    // For public capabilities, use a minimal anonymous context
-    const authContext = auth ?? {
-      userId: undefined,
-      roles: [],
-      scopes: [],
-      provider: 'anonymous',
-    };
+    let authContext: Awaited<ReturnType<AuthAdapter['authenticate']>>;
+
+    if (!config.requestAuthenticator) {
+      const authHeader = request.headers.authorization;
+      const auth = await config.authAdapter.authenticate(authHeader);
+      authContext = auth ?? {
+        userId: undefined,
+        roles: [],
+        scopes: [],
+        provider: 'anonymous',
+      };
+    } else {
+      const authResult = await config.requestAuthenticator.authenticate(
+        buildAuthenticationRequest(request),
+      );
+
+      if (authResult.status === 'authenticated') {
+        authContext = authResult.auth;
+      } else if (authResult.status === 'anonymous') {
+        if (authResult.clearCookieHeader) {
+          reply.header('set-cookie', authResult.clearCookieHeader);
+        }
+        if (!capability.access?.public) {
+          reply
+            .status(401)
+            .header('www-authenticate', 'Bearer')
+            .send({
+              error: {
+                code: 'unauthorized',
+                message: 'Authentication required',
+                ...(requestId ? { requestId } : {}),
+              },
+            });
+          return;
+        }
+        authContext = {
+          userId: undefined,
+          roles: [],
+          scopes: [],
+          provider: 'anonymous',
+        };
+      } else {
+        const httpFailure = authenticationFailureToHttp(authResult, requestId);
+        reply.status(httpFailure.statusCode);
+        if (httpFailure.headers) {
+          for (const [key, value] of Object.entries(httpFailure.headers)) {
+            reply.header(key, value);
+          }
+        }
+        reply.send(httpFailure.body);
+        return;
+      }
+    }
 
     // 2. Build execution context
     const bypassTenantScope = capability.access?.tenantScoped === false;
@@ -202,15 +250,61 @@ export function registerStreamingRoute(
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}/stream`;
 
   app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
-    // 1. Authenticate
-    const authHeader = request.headers.authorization;
-    const auth = await config.authAdapter.authenticate(authHeader);
-    const authContext = auth ?? {
-      userId: undefined,
-      roles: [],
-      scopes: [],
-      provider: 'anonymous',
-    };
+    const requestId = resolveRequestCorrelationId(request.headers);
+
+    let authContext: Awaited<ReturnType<AuthAdapter['authenticate']>>;
+
+    if (!config.requestAuthenticator) {
+      const authHeader = request.headers.authorization;
+      const auth = await config.authAdapter.authenticate(authHeader);
+      authContext = auth ?? {
+        userId: undefined,
+        roles: [],
+        scopes: [],
+        provider: 'anonymous',
+      };
+    } else {
+      const authResult = await config.requestAuthenticator.authenticate(
+        buildAuthenticationRequest(request),
+      );
+
+      if (authResult.status === 'authenticated') {
+        authContext = authResult.auth;
+      } else if (authResult.status === 'anonymous') {
+        if (authResult.clearCookieHeader) {
+          reply.header('set-cookie', authResult.clearCookieHeader);
+        }
+        if (!capability.access?.public) {
+          reply
+            .status(401)
+            .header('www-authenticate', 'Bearer')
+            .send({
+              error: {
+                code: 'unauthorized',
+                message: 'Authentication required',
+                ...(requestId ? { requestId } : {}),
+              },
+            });
+          return;
+        }
+        authContext = {
+          userId: undefined,
+          roles: [],
+          scopes: [],
+          provider: 'anonymous',
+        };
+      } else {
+        const httpFailure = authenticationFailureToHttp(authResult, requestId);
+        reply.status(httpFailure.statusCode);
+        if (httpFailure.headers) {
+          for (const [key, value] of Object.entries(httpFailure.headers)) {
+            reply.header(key, value);
+          }
+        }
+        reply.send(httpFailure.body);
+        return;
+      }
+    }
 
     // 2. Build context
     const bypassTenantScope = capability.access?.tenantScoped === false;

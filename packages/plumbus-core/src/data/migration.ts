@@ -2,7 +2,9 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sql } from 'drizzle-orm';
+import { getTableName, is } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
+import { PgTable } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
 import { auditRecords } from '../audit/schema.js';
@@ -248,25 +250,58 @@ export async function reconcileMigrationHistory(
  */
 export function collectSchemas(
   entities: EntityDefinition[],
+  extraSchemas?: Record<string, unknown>,
 ): Record<string, PgTableWithColumns<any>> {
   const schemas: Record<string, PgTableWithColumns<any>> = {};
+  const tableNames = new Set<string>();
+
   for (const entity of entities) {
-    schemas[entity.name] = generateDrizzleSchema(entity);
+    const table = generateDrizzleSchema(entity);
+    schemas[entity.name] = table;
+    tableNames.add(getTableName(table));
   }
   // Framework-internal tables
   schemas.__audit_records = auditRecords as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(auditRecords));
   // Event outbox tables
   schemas.__event_outbox = outboxTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(outboxTable));
   schemas.__event_idempotency = idempotencyTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(idempotencyTable));
   schemas.__event_dead_letter = deadLetterTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(deadLetterTable));
   // Flow tables
   schemas.__flow_executions = flowExecutionsTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(flowExecutionsTable));
   schemas.__flow_dead_letter = flowDeadLetterTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(flowDeadLetterTable));
   schemas.__flow_schedules = flowSchedulesTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(flowSchedulesTable));
   schemas.__job_executions = jobExecutionsTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(jobExecutionsTable));
   // RAG tables
   schemas.__documents = documentsTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(documentsTable));
   schemas.__document_chunks = documentChunksTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(documentChunksTable));
+
+  if (extraSchemas) {
+    for (const [snapshotKey, table] of Object.entries(extraSchemas)) {
+      if (!is(table, PgTable)) {
+        continue;
+      }
+      const pgTable = table as PgTableWithColumns<any>;
+      const tableName = getTableName(pgTable);
+      if (tableNames.has(tableName)) {
+        throw new Error(
+          `Migration schema collision: table '${tableName}' is defined by both framework/entity schemas and extra schema '${snapshotKey}'`,
+        );
+      }
+      schemas[`ext_${snapshotKey}`] = pgTable;
+      tableNames.add(tableName);
+    }
+  }
+
   return schemas;
 }
 
