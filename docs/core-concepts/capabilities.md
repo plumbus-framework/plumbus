@@ -208,7 +208,7 @@ See [Upgrading for contract alignment → transactional outbox](../upgrading-con
 | Area | Behavior |
 |------|----------|
 | AI security | Active only when `aiProviders.security` is configured; entity registry is merged at bootstrap when enabled |
-| Encrypted fields | With `PLUMBUS_ENCRYPTION_KEY` set, repositories reject `findMany` / filter queries that target `encrypted: true` string fields |
+| Encrypted fields | With `PLUMBUS_ENCRYPTION_KEY` set, repositories reject `findMany`, `aggregate`, and filter queries that target `encrypted: true` string fields |
 | Chat action decline | `chatConfirmAction` with `execute: false` is idempotent — already-rejected or missing pending rows return `{ executed: false }` without error |
 | KB ranker (K13) | Source-level `defineKnowledgeSource({ ranker })` runs when the provider factory did not declare a ranker; factory ranker wins |
 | Context resolver | Per-source timeout (default 5s) aborts hung sources; skipped timeouts emit `ctx.logger.warn` and the turn continues |

@@ -179,7 +179,7 @@ You filter repository queries on string fields marked `encrypted: true` while `P
 
 ### What changed
 
-Repositories throw `DataValidationError` when a `findMany` filter, `orderBy`, `dateFilters`, `in`/`notEq`, or `search` targets an encrypted string field — ciphertext is not searchable or meaningfully sortable at the SQL layer.
+Repositories throw `DataValidationError` when a `findMany` filter, `aggregate` function, `orderBy`, `dateFilters`, `in`/`notEq`, or `search` targets an encrypted string field — ciphertext is not searchable or meaningfully sortable at the SQL layer.
 
 ### Migration
 

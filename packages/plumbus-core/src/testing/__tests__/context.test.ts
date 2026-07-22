@@ -330,6 +330,72 @@ describe('createInMemoryRepository', () => {
     );
     expect(total).toBe(1);
   });
+
+  // ── aggregate() ──
+
+  const ledger = () =>
+    createInMemoryRepository([
+      { id: '1', projectId: 'p1', provider: 'openai', cost: 1.5 },
+      { id: '2', projectId: 'p1', provider: 'openai', cost: 2.5 },
+      { id: '3', projectId: 'p2', provider: 'anthropic', cost: 4 },
+      { id: '4', projectId: 'p2', provider: 'openai', cost: 0.25 },
+    ]);
+
+  it('aggregate: grand-total SUM + COUNT over all rows (single row, no groupBy)', async () => {
+    const rows = await ledger().aggregate({}, { sum: 'cost', count: true });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sum_cost: 8.25, count: 4 });
+  });
+
+  it('aggregate: respects the query + filter scope (SUM only for one provider)', async () => {
+    const rows = await ledger().aggregate({ provider: 'openai' }, { sum: 'cost', count: true });
+    expect(rows[0]).toMatchObject({ sum_cost: 4.25, count: 3 });
+  });
+
+  it('aggregate: GROUP BY returns one row per group with per-group SUM/COUNT', async () => {
+    const rows = await ledger().aggregate(
+      {},
+      { groupBy: 'projectId', sum: 'cost', count: true, orderBy: 'projectId', orderDir: 'asc' },
+    );
+    expect(rows).toEqual([
+      { projectId: 'p1', sum_cost: 4, count: 2 },
+      { projectId: 'p2', sum_cost: 4.25, count: 2 },
+    ]);
+  });
+
+  it('aggregate: orders groups by an aggregate alias and applies limit', async () => {
+    const rows = await ledger().aggregate(
+      {},
+      { groupBy: 'provider', sum: 'cost', orderBy: 'sum_cost', orderDir: 'desc', limit: 1 },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ provider: 'openai', sum_cost: 4.25 });
+  });
+
+  it('aggregate: countDistinct, min, max, avg', async () => {
+    const rows = await ledger().aggregate(
+      {},
+      { countDistinct: 'provider', min: 'cost', max: 'cost', avg: 'cost' },
+    );
+    expect(rows[0]).toMatchObject({
+      countDistinct_provider: 2,
+      min_cost: 0.25,
+      max_cost: 4,
+      avg_cost: 8.25 / 4,
+    });
+  });
+
+  it('aggregate: empty scope yields one grand-total row (SUM 0, COUNT 0)', async () => {
+    const rows = await ledger().aggregate(
+      { provider: 'nonexistent' },
+      { sum: 'cost', count: true },
+    );
+    expect(rows).toEqual([{ sum_cost: 0, count: 0 }]);
+  });
+
+  it('aggregate: throws when neither a group column nor an aggregate is requested', async () => {
+    await expect(ledger().aggregate({}, {})).rejects.toThrow(/at least one/);
+  });
 });
 
 // ── createTestData ──

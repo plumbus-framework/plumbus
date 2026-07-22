@@ -36,6 +36,59 @@ export interface QueryOptions {
   notEq?: Record<string, string | number>;
 }
 
+// ── Aggregate Options (SUM / AVG / MIN / MAX / COUNT / DISTINCT in SQL) ──
+
+/** A value in an aggregate result row: a group-key value or a computed aggregate. */
+export type AggregateValue = string | number | boolean | Date | null;
+
+/**
+ * One row returned by `Repository.aggregate`. Keys are:
+ * - each `groupBy` column, carrying that group's value;
+ * - `count` when `count: true` (COUNT(*), always a number);
+ * - `sum_<col>` / `avg_<col>` / `min_<col>` / `max_<col>` per requested column;
+ * - `countDistinct_<col>` per requested column (always a number).
+ *
+ * `sum_*`, `count`, and `countDistinct_*` are numbers — an empty SUM is `0`, not
+ * `null`. `avg_*`/`min_*`/`max_*` are `null` over an empty set; `min_*`/`max_*`
+ * otherwise mirror the column's stored type (the same representation `findMany`
+ * returns for that column).
+ */
+export type AggregateRow = Record<string, AggregateValue>;
+
+/**
+ * Shape of an `aggregate()` call: WHERE filters (shared verbatim with
+ * `findMany`/`count`), an optional GROUP BY, and the aggregate functions to
+ * compute. The filter semantics (`dateFilters`/`search`/`in`/`notEq` plus the
+ * `query` equality argument) are identical to `findMany`, so tenant scoping,
+ * soft-delete filtering, and encrypted-field guards all apply unchanged.
+ */
+export interface AggregateOptions
+  extends Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'> {
+  /** Columns to GROUP BY. Omit for a single grand-total row over all matches. */
+  groupBy?: string | string[];
+  /** Columns to SUM — each emits `sum_<col>` (numeric; empty set = `0`). */
+  sum?: string | string[];
+  /** Columns to average — each emits `avg_<col>` (numeric; empty set = `null`). */
+  avg?: string | string[];
+  /** Columns to take the minimum of — each emits `min_<col>`. */
+  min?: string | string[];
+  /** Columns to take the maximum of — each emits `max_<col>`. */
+  max?: string | string[];
+  /** Include `COUNT(*)` as `count` in every row. */
+  count?: boolean;
+  /** Columns for `COUNT(DISTINCT col)` — each emits `countDistinct_<col>` (numeric). */
+  countDistinct?: string | string[];
+  /**
+   * Order the grouped rows. Column names may be group columns or aggregate
+   * aliases (e.g. `sum_cost`, `count`). Unknown names are ignored.
+   */
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
+  /** Default sort direction for `orderBy` (default 'desc'). */
+  orderDir?: 'asc' | 'desc';
+  /** Max number of group rows to return (clamped to 1–1000). */
+  limit?: number;
+}
+
 // ── Repository (per-entity data access) ──
 export interface Repository<
   T = Record<string, any>,
@@ -58,6 +111,17 @@ export interface Repository<
     query?: Partial<T>,
     options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
   ): Promise<number>;
+  /**
+   * Compute SUM / AVG / MIN / MAX / COUNT / COUNT(DISTINCT) aggregates in the
+   * database, optionally grouped — so callers stop loading whole tables to
+   * reduce/group in memory. Filtering matches `findMany`/`count` exactly (the
+   * `query` equality argument plus `dateFilters`/`search`/`in`/`notEq`), and
+   * tenant scoping, soft-delete, and encrypted-field guards all apply. Without
+   * `groupBy` it returns exactly one grand-total row (even over zero matches);
+   * with `groupBy` it returns one row per group that has matching records. See
+   * {@link AggregateRow} for the result shape.
+   */
+  aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]>;
 }
 
 // ── Data Service (all entity repositories) ──

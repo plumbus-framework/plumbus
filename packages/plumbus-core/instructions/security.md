@@ -64,6 +64,8 @@ Entity fields with `classification: "sensitive"` or `"highly_sensitive"`:
 - Trigger governance warnings if used in AI prompts
 - Can be flagged for encryption at rest (`encrypted: true` + `PLUMBUS_ENCRYPTION_KEY`)
 
+When encryption is enabled, repositories reject `findMany`/`aggregate` filters and aggregate functions on encrypted string columns (ciphertext is not queryable at the SQL layer). See [entities.md](./entities.md#aggregates-sum--group-by--distinct).
+
 **AI prompt scanning** is separate and **opt-in**: configure `aiProviders.security` (or `AI_SECURITY_*` env) to warn/redact/block classified fields in `ctx.ai.*` inputs. Without that config, classification alone does not scan prompts. See `ai.md` § Security.
 
 ### Edit Zones

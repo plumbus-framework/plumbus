@@ -47,6 +47,35 @@ expect(page1.data.items).not.toEqual(page2.data.items);
 expect(page1.data.total).toBeGreaterThan(page1.data.limit);
 ```
 
+### Aggregate / dashboard capabilities
+
+When testing capabilities that call `aggregate()` (totals, grouped rollups, `COUNT(DISTINCT)`), use `createTestContext()` or `createInMemoryRepository()` — both mirror production aggregate semantics without a database:
+
+- Assert **grand totals** return a single row (even over an empty filter scope, where `SUM` is `0`)
+- Assert **GROUP BY** returns one row per group with the expected `sum_*` / `count` / `countDistinct_*` keys
+- Assert **filters** (`query`, `dateFilters`, `search`, `in`, `notEq`) narrow the scope the same way as `findMany`/`count`
+- Assert **empty scope** for grouped queries returns no rows; ungrouped empty scope returns `[{ sum_*: 0, count: 0 }]`
+
+```ts
+const ctx = createTestContext({
+  data: {
+    Ledger: [
+      { id: "1", provider: "openai", cost: 1.5 },
+      { id: "2", provider: "openai", cost: 2.5 },
+      { id: "3", provider: "anthropic", cost: 3 },
+    ],
+  },
+});
+
+const rows = await ctx.data.Ledger.aggregate(
+  { provider: "openai" },
+  { sum: "cost", count: true },
+);
+expect(rows).toEqual([{ sum_cost: 4, count: 2 }]);
+```
+
+See [entities.md](./entities.md#aggregates-sum--group-by--distinct) for result shape and guards.
+
 ### `simulateFlow`
 
 Simulate flow execution and inspect step history:

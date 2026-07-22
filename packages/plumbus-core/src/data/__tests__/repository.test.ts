@@ -841,4 +841,95 @@ describe('createRepository', () => {
       }
     });
   });
+
+  describe('aggregate', () => {
+    // Mock db whose select().from().where() chain also supports groupBy/orderBy
+    // and resolves to fixed aggregate rows, so we can assert the built projection
+    // and numeric coercion of the driver's string results.
+    function makeAggregateDb(rows: Record<string, unknown>[]) {
+      const chain: any = {
+        groupBy: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue(rows),
+        then: (resolve: (v: unknown) => unknown) => resolve(rows),
+      };
+      chain.from = vi.fn().mockReturnValue(chain);
+      chain.where = vi.fn().mockReturnValue(chain);
+      const select = vi.fn().mockReturnValue(chain);
+      return { db: { select } as any, chain, select };
+    }
+
+    it('builds SUM/COUNT projection, groups, and coerces string results to numbers', async () => {
+      const entity = makeEntity({
+        name: 'Ledger',
+        fields: { id: field.id(), projectId: field.string(), cost: field.decimal() },
+      });
+      const table = generateDrizzleSchema(entity);
+      // postgres-js returns numeric SUM and bigint COUNT as strings.
+      const { db, select, chain } = makeAggregateDb([
+        { projectId: 'p1', sum_cost: '4.00', count: '2' },
+        { projectId: 'p2', sum_cost: '4.25', count: '2' },
+      ]);
+      const repo = createRepository({ entity, table, db, auth: makeAuth() });
+
+      const result = await repo.aggregate(
+        {},
+        { groupBy: 'projectId', sum: 'cost', count: true, orderBy: 'sum_cost', orderDir: 'desc' },
+      );
+
+      // Projection carries the expected aggregate aliases + group column.
+      const projection = select.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(Object.keys(projection).sort()).toEqual(['count', 'projectId', 'sum_cost']);
+      expect(chain.groupBy).toHaveBeenCalledTimes(1);
+      expect(chain.orderBy).toHaveBeenCalledTimes(1);
+
+      // Driver strings coerced to numbers.
+      expect(result).toEqual([
+        { projectId: 'p1', sum_cost: 4, count: 2 },
+        { projectId: 'p2', sum_cost: 4.25, count: 2 },
+      ]);
+    });
+
+    it('coerces a NULL SUM (empty scope) to 0', async () => {
+      const entity = makeEntity({
+        name: 'Ledger',
+        fields: { id: field.id(), cost: field.decimal() },
+      });
+      const table = generateDrizzleSchema(entity);
+      const { db } = makeAggregateDb([{ sum_cost: null, count: '0' }]);
+      const repo = createRepository({ entity, table, db, auth: makeAuth() });
+
+      const result = await repo.aggregate({}, { sum: 'cost', count: true });
+      expect(result).toEqual([{ sum_cost: 0, count: 0 }]);
+    });
+
+    it('throws when no group column or aggregate function is requested', async () => {
+      const entity = makeEntity();
+      const table = generateDrizzleSchema(entity);
+      const { db } = makeAggregateDb([]);
+      const repo = createRepository({ entity, table, db, auth: makeAuth() });
+      await expect(repo.aggregate({}, {})).rejects.toThrow(/at least one/);
+    });
+
+    it('rejects aggregating an encrypted field', async () => {
+      const entity = makeEntity({
+        name: 'Secret',
+        fields: {
+          id: field.id(),
+          amount: field.decimal(),
+          token: field.string({ encrypted: true }),
+        },
+      });
+      const table = generateDrizzleSchema(entity);
+      const { db } = makeAggregateDb([]);
+      const repo = createRepository({
+        entity,
+        table,
+        db,
+        auth: makeAuth(),
+        encryptionKey: Buffer.alloc(32, 1),
+      });
+      await expect(repo.aggregate({}, { sum: 'token' })).rejects.toThrow(/encrypted/);
+    });
+  });
 });
