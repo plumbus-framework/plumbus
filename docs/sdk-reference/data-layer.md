@@ -90,7 +90,7 @@ const userRepo = createRepository<User>({
 
 ### Field encryption
 
-String fields with `encrypted: true` are encrypted with AES-256-GCM before insert/update when `PLUMBUS_ENCRYPTION_KEY` is set. Reads decrypt values prefixed with `plumbus:enc:v1:`; legacy plaintext rows pass through unchanged.
+String fields with `encrypted: true` are encrypted with AES-256-GCM before insert/update when `PLUMBUS_ENCRYPTION_KEY` is set. Reads decrypt values prefixed with `plumbus:enc:v1:`; legacy plaintext rows pass through unchanged. When the key is set, repositories also reject `findMany`/`aggregate` filters and aggregate functions (`sum`, `avg`, `min`, `max`, `countDistinct`, `groupBy`) on encrypted string columns — see [aggregate → encrypted fields](#aggregatequery-options).
 
 ```typescript
 import { getEncryptedFields, resolveEncryptionKey } from "@plumbus/core";
