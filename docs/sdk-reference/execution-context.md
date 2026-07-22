@@ -109,10 +109,11 @@ interface Repository<T> {
     query?: Partial<T>,
     options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
   ): Promise<number>;
+  aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]>;
 }
 ```
 
-Use `createMany` for hot paths that would otherwise call `create()` in a loop (typically more than ~10 records). Empty arrays short-circuit to `[]` without touching the database. Tenant scoping and audit behave as for `create()` — a single summary audit row is recorded per batch instead of one per record.
+Use `createMany` for hot paths that would otherwise call `create()` in a loop (typically more than ~10 records). Use `aggregate` when you need `SUM` / `AVG` / `MIN` / `MAX` / `COUNT` / `COUNT(DISTINCT)` in the database instead of loading rows to reduce in memory — filtering matches `findMany`/`count`, and tenant scoping, soft-delete, and encrypted-field guards all apply. See [Data layer — aggregate](data-layer.md#aggregatequery-options) for options and result shape. Empty arrays short-circuit to `[]` without touching the database. Tenant scoping and audit behave as for `create()` — a single summary audit row is recorded per batch instead of one per record.
 
 ### Type Safety via PlumbusRegistry
 

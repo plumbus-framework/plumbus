@@ -140,6 +140,9 @@ interface Repository<
 
   // Count rows matching query (tenant scoping applies like findMany)
   count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>): Promise<number>;
+
+  // SUM / AVG / MIN / MAX / COUNT / COUNT(DISTINCT), optionally grouped — see below
+  aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]>;
 }
 ```
 
@@ -195,6 +198,65 @@ Returns the number of rows matching `query` (or all rows when omitted). Tenant s
 const total = await ctx.data.User.count();
 const active = await ctx.data.User.count({ status: "active" });
 ```
+
+### `aggregate(query?, options?)`
+
+Compute `SUM` / `AVG` / `MIN` / `MAX` / `COUNT` / `COUNT(DISTINCT)` in the database, optionally with `GROUP BY`, instead of loading rows to reduce in memory. Filtering reuses the exact `findMany`/`count` semantics — the `query` equality argument plus `dateFilters`/`search`/`in`/`notEq` — and tenant scoping, soft-delete, and encrypted-field guards all apply unchanged.
+
+Without `groupBy`, returns exactly one grand-total row (even over zero matches, where `SUM` is `0`). With `groupBy`, returns one row per group that has matching records.
+
+```typescript
+type AggregateValue = string | number | boolean | Date | null;
+type AggregateRow = Record<string, AggregateValue>;
+
+interface AggregateOptions
+  extends Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'> {
+  groupBy?: string | string[];
+  sum?: string | string[];
+  avg?: string | string[];
+  min?: string | string[];
+  max?: string | string[];
+  count?: boolean;
+  countDistinct?: string | string[];
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
+  orderDir?: 'asc' | 'desc';
+  limit?: number; // clamped to 1–1000
+}
+```
+
+Result rows key each `groupBy` column by its value, plus:
+
+| Option | Result key | Type notes |
+|--------|------------|------------|
+| `count: true` | `count` | number |
+| `sum: 'cost'` | `sum_cost` | number; empty set = `0` |
+| `avg: 'cost'` | `avg_cost` | number or `null` over empty set |
+| `min` / `max` | `min_<col>` / `max_<col>` | mirrors column type, or `null` over empty set |
+| `countDistinct: 'provider'` | `countDistinct_provider` | number |
+
+```typescript
+// Grand total over a filtered scope — one row, even over zero matches:
+const [totals] = await ctx.data.ProjectCostLedger.aggregate(
+  { projectId },
+  { dateFilters: { recordedAt: { gte: monthStart } }, sum: "cost", count: true },
+);
+totals.sum_cost; // number (empty scope = 0); totals.count // number
+
+// GROUP BY with per-group aggregates, ordered by an aggregate, limited:
+const byProvider = await ctx.data.ProjectCostLedger.aggregate(
+  {},
+  { groupBy: "provider", sum: "cost", count: true, orderBy: "sum_cost", orderDir: "desc", limit: 10 },
+);
+// → [{ provider: "openai", sum_cost: 41.2, count: 318 }, ...]
+
+// COUNT(DISTINCT), min/max/avg also supported:
+await ctx.data.WorkflowStep.aggregate({}, { countDistinct: "projectId" });
+// → [{ countDistinct_projectId: 7 }]
+```
+
+`orderBy` may reference a group column or an aggregate alias (e.g. `"sum_cost"`); unknown names are ignored. Requesting neither a group column nor an aggregate function throws. Aggregating an `encrypted: true` field is rejected. Add a matching composite index (e.g. `indexes: [["projectId", "recordedAt"]]`) so grouped aggregates run as index scans.
+
+The in-memory test repository (`createTestContext` / `createInMemoryRepository`) mirrors these semantics, so `aggregate()` is unit-testable without a database.
 
 ### Automatic Tenant Isolation
 

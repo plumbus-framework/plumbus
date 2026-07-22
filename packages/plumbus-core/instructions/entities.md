@@ -107,6 +107,31 @@ const total = await ctx.data.User.count({ active: true }, filters);
 
 `findMany` applies `limit`/`offset`/`orderBy`; `count` returns the matching row count over the same filters (so page totals stay correct). `search` uses case-insensitive `ILIKE` (OR across columns), `in` is SQL `IN`, `notEq` is `<>`. Multi-column sort: `orderBy: [{ column: "name", dir: "asc" }, { column: "createdAt", dir: "desc" }]`. Tenant isolation and soft-delete filters are applied automatically.
 
+### Aggregates (SUM / GROUP BY / DISTINCT)
+
+To total, average, or group **in the database** — instead of loading rows and reducing in memory — use `aggregate`. Filtering is identical to `findMany`/`count` (the `query` equality arg plus `dateFilters`/`search`/`in`/`notEq`), and tenant scoping, soft-delete, and encrypted-field guards all apply.
+
+```ts
+// Grand total over a filtered scope — one row, even over zero matches:
+const [totals] = await ctx.data.ProjectCostLedger.aggregate(
+  { projectId },
+  { dateFilters: { recordedAt: { gte: monthStart } }, sum: "cost", count: true },
+);
+totals.sum_cost; // number (empty scope = 0); totals.count // number
+
+// GROUP BY with per-group aggregates, ordered by an aggregate, limited:
+const byProvider = await ctx.data.ProjectCostLedger.aggregate(
+  {},
+  { groupBy: "provider", sum: "cost", count: true, orderBy: "sum_cost", orderDir: "desc", limit: 10 },
+);
+// → [{ provider: "openai", sum_cost: 41.2, count: 318 }, ...]
+
+// COUNT(DISTINCT), min/max/avg also supported:
+await ctx.data.WorkflowStep.aggregate({}, { countDistinct: "projectId" }); // [{ countDistinct_projectId: 7 }]
+```
+
+Result rows (`AggregateRow`) key each `groupBy` column by its value, plus `count` (when `count: true`), `sum_<col>`, `avg_<col>`, `min_<col>`, `max_<col>`, and `countDistinct_<col>` per requested column. `sum_*`, `count`, and `countDistinct_*` are numbers (an empty `SUM` is `0`, not `null`); `avg_*`/`min_*`/`max_*` are `null` over an empty set. Without `groupBy` you always get exactly one grand-total row; with `groupBy`, one row per group that has matching records. `orderBy` may reference a group column or an aggregate alias (e.g. `"sum_cost"`); `limit` is clamped to 1–1000. Requesting neither a group column nor an aggregate throws. Aggregating an `encrypted: true` field is rejected. Add a matching composite index (e.g. `indexes: [["projectId", "recordedAt"]]`) so the aggregate runs as an index scan.
+
 Repositories automatically:
 - Inject `tenantId` from `ctx.auth.tenantId` (if `tenantScoped: true`)
 - Record audit events for mutations
