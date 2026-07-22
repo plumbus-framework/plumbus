@@ -389,7 +389,13 @@ const repo = createInMemoryRepository([
 
 const user = await repo.findById("u-1");
 expect(user?.name).toBe("Alice");
+
+// aggregate() is supported — same semantics as the Drizzle repository
+const [totals] = await repo.aggregate({}, { sum: "score", count: true });
+expect(totals).toMatchObject({ sum_score: expect.any(Number), count: 2 });
 ```
+
+`createTestContext()` wires the same in-memory implementation into `ctx.data`, so capability tests can call `ctx.data.Entity.aggregate()` without a database. See [Data Layer → aggregate](../sdk-reference/data-layer.md#aggregatequery-options).
 
 ## E2E Testing
 

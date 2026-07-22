@@ -74,9 +74,16 @@ handler: async (ctx, input) => {
     { orderBy: "createdAt", orderDir: "desc", limit: input.limit, offset: (input.page - 1) * input.limit },
   );
   const total = await ctx.data.Order.count({ customerId: input.customerId });
-  return { orderId: order.id };
+  // Dashboard totals / grouped stats — aggregate in SQL, not findMany + reduce in memory
+  const [monthTotals] = await ctx.data.Order.aggregate(
+    { customerId: input.customerId },
+    { dateFilters: { createdAt: { gte: monthStart } }, sum: "total", count: true },
+  );
+  return { orderId: order.id, monthTotal: monthTotals.sum_total, monthCount: monthTotals.count };
 }
 ```
+
+For `SUM` / `AVG` / `MIN` / `MAX` / `COUNT` / `COUNT(DISTINCT)` and optional `GROUP BY`, use `aggregate()` — see [entities.md](./entities.md#aggregates-sum--group-by--distinct) and the [Data Layer SDK reference](../../../docs/sdk-reference/data-layer.md#aggregatequery-options).
 
 ### Using `ctx.events`
 

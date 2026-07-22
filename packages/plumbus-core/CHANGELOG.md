@@ -18,6 +18,10 @@
 - **`docs/auth/`** — full OIDC session runtime documentation (getting started, configuration, providers, CSRF, Cognito, security, testing, migration, deployment).
 - **Consumer AI guidance includes auth** — `plumbus init` wires `@plumbus/auth/instructions/*` and `@plumbus/auth-cognito/instructions/*`. `AGENT_WIRING_VERSION` bumped to **9**. Run `plumbus init --patch` on existing projects.
 
+### Added
+
+- **`Repository.aggregate()`** — compute `SUM` / `AVG` / `MIN` / `MAX` / `COUNT` / `COUNT(DISTINCT)` in the database, optionally with `GROUP BY`, instead of loading rows to reduce in memory. Filtering reuses the exact `findMany`/`count` semantics (the `query` equality arg plus `dateFilters`/`search`/`in`/`notEq`), and tenant scoping, soft-delete, and encrypted-field guards all apply. Without `groupBy` it returns one grand-total row (even over an empty scope, where `SUM` is `0`); with `groupBy`, one row per matching group. `orderBy` accepts group columns or aggregate aliases (e.g. `sum_cost`); `limit` is clamped to 1–1000. New public types: `AggregateOptions`, `AggregateRow`, `AggregateValue`. The in-memory test repository (`createInMemoryRepository` / `createTestContext`) mirrors the semantics exactly, so `aggregate()` is unit-testable without a database. Additive and backward compatible — existing repository callers are unaffected, and the release stays within the `0.6.x` line so `@plumbus/ui`/`chat`/`voice` peer ranges remain satisfied.
+
 ### Changed
 
 - **`auth.secret` no longer required** when a custom `authAdapter` or `authenticationRuntime` is supplied (§22.4).

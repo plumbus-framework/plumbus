@@ -1,7 +1,9 @@
 import {
   and,
   asc,
+  avg,
   count,
+  countDistinct,
   desc,
   eq,
   gte,
@@ -9,14 +11,23 @@ import {
   inArray,
   isNull,
   lte,
+  max,
+  min,
   ne,
   or,
+  sum,
   type SQL,
 } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService } from '../types/audit.js';
-import type { QueryOptions, Repository } from '../types/context.js';
+import type {
+  AggregateOptions,
+  AggregateRow,
+  AggregateValue,
+  QueryOptions,
+  Repository,
+} from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import { ErrorHints } from '../errors/hints.js';
 import {
@@ -441,7 +452,125 @@ export function createRepository<
       const res = await db.select({ count: count() }).from(table).where(where);
       return Number(res[0]?.count ?? 0);
     },
+
+    async aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]> {
+      await assertTenantContext('aggregate');
+
+      // WHERE reuses the shared builder (tenant scope, soft-delete, encrypted-
+      // field guard, and the query/dateFilters/search/in/notEq filters). Only
+      // the filter subset is forwarded — an aggregate `orderBy` may reference
+      // aggregate aliases (e.g. `sum_cost`) that are not table columns, so it
+      // must not flow into the WHERE/field-validation pass.
+      const filterOpts: QueryOptions | undefined = options
+        ? {
+            dateFilters: options.dateFilters,
+            search: options.search,
+            in: options.in,
+            notEq: options.notEq,
+          }
+        : undefined;
+      const where = combine(buildConditions(query, filterOpts));
+
+      const selection: Record<string, any> = {};
+      // `sum_*`/`count`/`countDistinct_*` are always numeric; `sum_*` additionally
+      // coerces a NULL (empty) result to 0. `avg_*` is numeric-or-null. `min_*`/
+      // `max_*` and group columns pass through untouched.
+      const numericAliases = new Set<string>();
+      const sumAliases = new Set<string>();
+
+      const groupByExprs: SQL[] = [];
+      for (const g of asColumnList(options?.groupBy)) {
+        assertQueryableField(g, 'aggregate');
+        const col = (table as any)[g];
+        if (!col) continue;
+        selection[g] = col;
+        groupByExprs.push(col);
+      }
+
+      const addAgg = (
+        cols: string[],
+        fn: (c: any) => SQL,
+        prefix: string,
+        numeric: boolean,
+        zeroFill = false,
+      ) => {
+        for (const c of cols) {
+          assertQueryableField(c, 'aggregate');
+          const col = (table as any)[c];
+          if (!col) continue;
+          const alias = `${prefix}_${c}`;
+          selection[alias] = fn(col);
+          if (numeric) numericAliases.add(alias);
+          if (zeroFill) sumAliases.add(alias);
+        }
+      };
+      addAgg(asColumnList(options?.sum), (c) => sum(c) as SQL, 'sum', true, true);
+      addAgg(asColumnList(options?.avg), (c) => avg(c) as SQL, 'avg', true);
+      addAgg(asColumnList(options?.min), (c) => min(c) as SQL, 'min', false);
+      addAgg(asColumnList(options?.max), (c) => max(c) as SQL, 'max', false);
+      addAgg(
+        asColumnList(options?.countDistinct),
+        (c) => countDistinct(c) as SQL,
+        'countDistinct',
+        true,
+      );
+      if (options?.count) {
+        selection.count = count();
+        numericAliases.add('count');
+      }
+
+      if (Object.keys(selection).length === 0) {
+        throw new DataValidationError(
+          `aggregate() on "${entity.name}" requires at least one group column or aggregate function`,
+          { entity: entity.name, operation: 'aggregate' },
+        );
+      }
+
+      let qb: any = db.select(selection).from(table).where(where);
+      if (groupByExprs.length) qb = qb.groupBy(...groupByExprs);
+
+      if (options?.orderBy) {
+        const specs =
+          typeof options.orderBy === 'string'
+            ? [{ column: options.orderBy, dir: options.orderDir }]
+            : options.orderBy;
+        const orderExprs = specs
+          .map((s) => {
+            const expr = (selection[s.column] ?? (table as any)[s.column]) as SQL | undefined;
+            if (!expr) return null;
+            return (s.dir ?? options.orderDir) === 'asc' ? asc(expr) : desc(expr);
+          })
+          .filter(Boolean) as SQL[];
+        if (orderExprs.length) qb = qb.orderBy(...orderExprs);
+      }
+
+      if (options?.limit != null) {
+        qb = qb.limit(Math.max(1, Math.min(1000, options.limit)));
+      }
+
+      const result = await qb;
+      const rows = Array.isArray(result) ? result : [];
+      return rows.map((row) => {
+        const out: AggregateRow = {};
+        for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+          if (sumAliases.has(k)) {
+            out[k] = v == null ? 0 : Number(v);
+          } else if (numericAliases.has(k)) {
+            out[k] = v == null ? null : Number(v);
+          } else {
+            out[k] = v as AggregateValue;
+          }
+        }
+        return out;
+      });
+    },
   };
+}
+
+/** Normalize a string | string[] | undefined column spec to a string[]. */
+function asColumnList(value?: string | string[]): string[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 export { getMaskedFields } from './mask-fields.js';

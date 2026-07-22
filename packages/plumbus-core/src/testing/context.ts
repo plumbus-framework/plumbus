@@ -8,6 +8,8 @@ import { createExecutionContext } from '../execution/context-factory.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { AuditService } from '../types/audit.js';
 import type {
+  AggregateRow,
+  AggregateValue,
   AIDocument,
   AIService,
   DataService,
@@ -383,7 +385,123 @@ export function createInMemoryRepository<
     async count(query, options) {
       return filterRows(query, options).length;
     },
+    async aggregate(query, options) {
+      // Mirror the Drizzle repository's aggregate() semantics exactly, so tests
+      // written against createTestContext exercise the same behavior consumers
+      // get in production.
+      const rows = filterRows(query, {
+        dateFilters: options?.dateFilters,
+        search: options?.search,
+        in: options?.in,
+        notEq: options?.notEq,
+      });
+
+      const groupCols = toColumnArray(options?.groupBy);
+      const sumCols = toColumnArray(options?.sum);
+      const avgCols = toColumnArray(options?.avg);
+      const minCols = toColumnArray(options?.min);
+      const maxCols = toColumnArray(options?.max);
+      const distinctCols = toColumnArray(options?.countDistinct);
+      const wantCount = options?.count === true;
+
+      const hasAggregate =
+        wantCount ||
+        sumCols.length > 0 ||
+        avgCols.length > 0 ||
+        minCols.length > 0 ||
+        maxCols.length > 0 ||
+        distinctCols.length > 0;
+      if (!hasAggregate && groupCols.length === 0) {
+        throw new Error('aggregate() requires at least one group column or aggregate function');
+      }
+
+      const computeRow = (
+        groupRows: T[],
+        keyValues: Record<string, AggregateValue>,
+      ): AggregateRow => {
+        const out: AggregateRow = { ...keyValues };
+        for (const c of sumCols) {
+          out[`sum_${c}`] = groupRows.reduce((s, r) => s + (Number((r as any)[c]) || 0), 0);
+        }
+        for (const c of avgCols) {
+          const nums = groupRows.map((r) => Number((r as any)[c])).filter((n) => !Number.isNaN(n));
+          out[`avg_${c}`] = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+        }
+        for (const c of minCols) {
+          const vals = groupRows.map((r) => (r as any)[c]).filter((v) => v != null);
+          out[`min_${c}`] = vals.length
+            ? (vals.reduce((a, b) => (b < a ? b : a)) as AggregateValue)
+            : null;
+        }
+        for (const c of maxCols) {
+          const vals = groupRows.map((r) => (r as any)[c]).filter((v) => v != null);
+          out[`max_${c}`] = vals.length
+            ? (vals.reduce((a, b) => (b > a ? b : a)) as AggregateValue)
+            : null;
+        }
+        for (const c of distinctCols) {
+          out[`countDistinct_${c}`] = new Set(
+            groupRows
+              .map((r) => (r as any)[c])
+              .filter((v) => v != null)
+              .map((v) => String(v)),
+          ).size;
+        }
+        if (wantCount) out.count = groupRows.length;
+        return out;
+      };
+
+      let resultRows: AggregateRow[];
+      if (groupCols.length === 0) {
+        // Exactly one grand-total row, even over zero matches (like SQL).
+        resultRows = [computeRow(rows, {})];
+      } else {
+        const groups = new Map<string, { key: Record<string, AggregateValue>; rows: T[] }>();
+        for (const r of rows) {
+          const k = JSON.stringify(groupCols.map((g) => (r as any)[g] ?? null));
+          let group = groups.get(k);
+          if (!group) {
+            const key: Record<string, AggregateValue> = {};
+            for (const g of groupCols) key[g] = (r as any)[g] ?? null;
+            group = { key, rows: [] };
+            groups.set(k, group);
+          }
+          group.rows.push(r);
+        }
+        resultRows = [...groups.values()].map((g) => computeRow(g.rows, g.key));
+      }
+
+      if (options?.orderBy) {
+        const specs =
+          typeof options.orderBy === 'string'
+            ? [{ column: options.orderBy, dir: options.orderDir }]
+            : options.orderBy;
+        resultRows.sort((a, b) => {
+          for (const spec of specs) {
+            const dir = (spec.dir ?? options.orderDir) === 'asc' ? 1 : -1;
+            const av = a[spec.column];
+            const bv = b[spec.column];
+            if (av == null && bv == null) continue;
+            if (av == null) return 1 * dir;
+            if (bv == null) return -1 * dir;
+            if (av < bv) return -1 * dir;
+            if (av > bv) return 1 * dir;
+          }
+          return 0;
+        });
+      }
+      if (options?.limit != null) {
+        resultRows = resultRows.slice(0, Math.max(1, Math.min(1000, options.limit)));
+      }
+      return resultRows;
+    },
   };
+}
+
+/** Normalize a string | string[] | undefined column spec to a string[]. */
+function toColumnArray(value?: string | string[]): string[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 // ── Validating Repository Wrapper ──
@@ -425,6 +543,7 @@ function withFieldValidation<T extends Record<string, unknown>>(
     delete: (id) => repo.delete(id),
     findMany: (query, options) => repo.findMany(query, options),
     count: (query, options) => repo.count(query, options),
+    aggregate: (query, options) => repo.aggregate(query, options),
   };
 }
 

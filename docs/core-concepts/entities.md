@@ -137,6 +137,16 @@ handler: async (ctx, input) => {
   const byEmail = await ctx.data.User.findMany({ email: "alice@test.com" });
   const total = await ctx.data.User.count();
 
+  // Aggregate (SUM / GROUP BY / DISTINCT in SQL — not fetch-all-then-reduce)
+  const [totals] = await ctx.data.Order.aggregate(
+    { status: "completed" },
+    { sum: "total", count: true },
+  );
+  const byCustomer = await ctx.data.Order.aggregate(
+    {},
+    { groupBy: "customerId", sum: "total", orderBy: "sum_total", limit: 10 },
+  );
+
   // Update
   await ctx.data.User.update(user.id, { name: "Alice Updated" });
 
@@ -144,6 +154,8 @@ handler: async (ctx, input) => {
   await ctx.data.User.delete(user.id);
 }
 ```
+
+For totals, averages, grouped rollups, or `COUNT(DISTINCT)`, use `aggregate()` instead of loading rows with `findMany` and reducing in memory. Filtering matches `findMany`/`count` (tenant scoping, soft-delete, and encrypted-field guards all apply). See [Data Layer → aggregate](../sdk-reference/data-layer.md#aggregatequery-options).
 
 ## Database Schema Generation
 
