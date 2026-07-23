@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",

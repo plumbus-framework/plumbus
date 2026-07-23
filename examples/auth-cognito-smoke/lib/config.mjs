@@ -2,13 +2,22 @@
 // discovery document. The single load-bearing subtlety: @plumbus/auth requires
 // the configured issuer to EXACTLY equal the issuer advertised by discovery, so
 // we always take the issuer from the discovery doc rather than guessing it.
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { fetchDiscovery } from './cognitox-admin.mjs';
 
+// Load a local .env from the app root if present (Node built-in — no dependency).
+// Copy .env.example to .env and edit it, or just export the vars in your shell.
+const envFile = fileURLToPath(new URL('../.env', import.meta.url));
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
+
 const DEFAULTS = {
-  // Where the cognito-idp admin API + discovery are reached. Matches the
-  // COGNITOX_ISSUER_BASE_URL configured in docker-compose so this works from any
-  // machine on the LAN. On the cognitox host you can also use http://localhost:9229.
-  COGNITOX_URL: 'http://192.168.50.87:9229',
+  // Where the cognito-idp admin API + discovery are reached. Defaults to the
+  // cognitox host. If cognitox runs elsewhere (e.g. a LAN box), set COGNITOX_URL
+  // to that address AND start cognitox with a matching COGNITOX_ISSUER_BASE_URL.
+  COGNITOX_URL: 'http://localhost:9229',
   // Pool is auto-resolved when COGNITO_USER_POOL_ID is unset: find/create by name.
   COGNITO_POOL_NAME: 'plumbus-auth-cognito-smoke',
   PORT: '3000',

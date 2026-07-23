@@ -122,13 +122,14 @@ when the two hosts differ.
 
 Two working setups:
 
-- **LAN IP (this project's `docker-compose.yml`).** cognitox runs with
-  `COGNITOX_ISSUER_BASE_URL=http://192.168.50.87:9229`, so the advertised issuer is
-  the IP and the app works from any machine on the LAN. `COGNITOX_URL` defaults to
-  that same IP — no env needed.
-- **localhost (single machine).** Run cognitox with the default issuer
-  (`http://localhost:9229`) and the app on the same host, then set
-  `COGNITOX_URL=http://localhost:9229`.
+- **localhost (default, single machine).** Run cognitox with the default issuer
+  (`http://localhost:9229`) and the app on the same host — no config needed.
+- **Another host (e.g. a LAN box).** Start cognitox with
+  `COGNITOX_ISSUER_BASE_URL=http://<that-host>:9229` so the advertised issuer is
+  reachable, then set `COGNITOX_URL` to the same address (in `.env` or the shell).
+
+Configure via a `.env` file (copy `.env.example` → `.env`; it's loaded
+automatically and gitignored) or by exporting the vars in your shell.
 
 Because the issuer is http, the runtime runs in `development` mode (which permits
 insecure OIDC endpoints).
@@ -137,7 +138,7 @@ insecure OIDC endpoints).
 
 | Variable | Default | Description |
 |---|---|---|
-| `COGNITOX_URL` | `http://192.168.50.87:9229` | Where discovery + the admin API are reached (match the issuer host) |
+| `COGNITOX_URL` | `http://localhost:9229` | Where discovery + the admin API are reached (match the issuer host) |
 | `COGNITO_USER_POOL_ID` | *(auto)* | Use a specific pool; unset ⇒ find/create by `COGNITO_POOL_NAME` |
 | `COGNITO_POOL_NAME` | `plumbus-auth-cognito-smoke` | Pool name to find/create when no id is given |
 | `PORT` | `3000` | Port for `serve.mjs` |
