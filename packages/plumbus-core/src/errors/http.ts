@@ -14,6 +14,7 @@ const statusMap: Record<ErrorCode, number> = {
   leaseLost: 409,
   cancelled: 499, // Client Closed Request (nginx convention) — operation cancelled by caller
   dependencyViolation: 400,
+  unauthorized: 401,
 };
 
 function getMetadataStatusCode(error: PlumbusErrorLike): number | undefined {

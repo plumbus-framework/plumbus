@@ -12,6 +12,8 @@ import type { EventDefinition } from '../types/event.js';
 import type { FlowDefinition } from '../types/flow.js';
 import type { PromptDefinition } from '../types/prompt.js';
 import type { TranslationDefinition } from '../types/translation.js';
+import { is } from 'drizzle-orm';
+import { PgTable } from 'drizzle-orm/pg-core';
 
 export interface DiscoveredResources {
   capabilities: CapabilityContract[];
@@ -20,6 +22,7 @@ export interface DiscoveredResources {
   events: EventDefinition[];
   prompts: PromptDefinition[];
   translations: TranslationDefinition[];
+  schemas: Record<string, unknown>;
 }
 
 /**
@@ -120,6 +123,42 @@ function isTranslation(v: unknown): v is TranslationDefinition {
   );
 }
 
+async function scanSchemaDir(dir: string): Promise<Record<string, unknown>> {
+  if (!fs.existsSync(dir)) {
+    return {};
+  }
+
+  const files = fs
+    .readdirSync(dir)
+    .filter(
+      (f) =>
+        (f.endsWith('.ts') || f.endsWith('.js')) &&
+        !f.endsWith('.d.ts') &&
+        !f.endsWith('.test.ts') &&
+        !f.endsWith('.test.js'),
+    );
+
+  const schemas: Record<string, unknown> = {};
+
+  for (const file of files) {
+    const filePath = path.join(dir, file);
+    const fileUrl = pathToFileURL(filePath).href;
+    const fileBase = path.basename(file, path.extname(file));
+    try {
+      const mod = (await import(fileUrl)) as Record<string, unknown>;
+      for (const [exportName, value] of Object.entries(mod)) {
+        if (is(value, PgTable)) {
+          schemas[`${fileBase}.${exportName}`] = value;
+        }
+      }
+    } catch {
+      // Skip files that fail to import
+    }
+  }
+
+  return schemas;
+}
+
 /**
  * Discover all Plumbus resources from the app/ directory.
  * Scans each subdirectory (capabilities, entities, flows, events, prompts)
@@ -153,6 +192,7 @@ export async function discoverResources(
       eventExports,
       promptExports,
       translationExports,
+      schemaExports,
     ] = await Promise.all([
       scanDir(path.join(appDir, 'capabilities')),
       scanDir(path.join(appDir, 'entities')),
@@ -160,6 +200,7 @@ export async function discoverResources(
       scanDir(path.join(appDir, 'events')),
       scanDir(path.join(appDir, 'prompts')),
       scanDir(path.join(appDir, 'translations')),
+      scanSchemaDir(path.join(appDir, 'schemas')),
     ]);
 
     return {
@@ -169,6 +210,7 @@ export async function discoverResources(
       events: eventExports.filter(isEvent),
       prompts: promptExports.filter(isPrompt),
       translations: translationExports.filter(isTranslation),
+      schemas: schemaExports,
     };
   } finally {
     unregister?.();

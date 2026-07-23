@@ -199,9 +199,25 @@ function compareObjectSchemas(
   return { breaking, nonBreaking };
 }
 
-function extractOAuthScopes(op: Record<string, unknown>): string[] {
-  const security = op.security as { oauth2?: string[] }[] | undefined;
-  return security?.[0]?.oauth2 ?? [];
+function extractRequiredScopes(op: Record<string, unknown>): string[] {
+  const scopes = new Set<string>();
+  const security = op.security as Record<string, string[]>[] | undefined;
+  if (security) {
+    for (const requirement of security) {
+      for (const schemeScopes of Object.values(requirement)) {
+        for (const scope of schemeScopes) {
+          scopes.add(scope);
+        }
+      }
+    }
+  }
+  const extension = op['x-plumbus-required-scopes'] as string[] | undefined;
+  if (extension) {
+    for (const scope of extension) {
+      scopes.add(scope);
+    }
+  }
+  return [...scopes];
 }
 
 function errorResponseShape(op: Record<string, unknown>): string {
@@ -234,8 +250,8 @@ export function diffOperationSchemas(
     nonBreaking.push(...responseDiff.nonBreaking);
   }
 
-  const prevScopes = extractOAuthScopes(prevOp);
-  const nextScopes = extractOAuthScopes(nextOp);
+  const prevScopes = extractRequiredScopes(prevOp);
+  const nextScopes = extractRequiredScopes(nextOp);
   for (const scope of nextScopes) {
     if (!prevScopes.includes(scope)) {
       breaking.push({

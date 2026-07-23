@@ -30,7 +30,18 @@ const manifest: ApiManifest = {
   apiVersion: 'plumbus.dev/v1',
   name: 'partner-api',
   basePath: '/api/v1',
-  identity: { defaultAuth: 'oauth2', audience: 'partners' },
+  identity: { defaultSecurityScheme: 'partnerOAuth', audience: 'partners' },
+  securitySchemes: {
+    partnerOAuth: {
+      type: 'oauth2',
+      flows: {
+        clientCredentials: {
+          tokenUrl: 'https://identity.example.com/oauth2/token',
+          scopes: { 'refunds:read': 'Read refunds' },
+        },
+      },
+    },
+  },
   expose: [
     {
       capability: 'billing.getRefund',
@@ -105,18 +116,45 @@ describe('generateOpenApi', () => {
     expect(Object.keys(doc.paths)).toHaveLength(1);
   });
 
-  it('includes security scopes and declares oauth2 scheme', () => {
+  it('includes security scopes and declares explicit oauth2 scheme', () => {
     const doc = generateOpenApi([apiCap()], manifest);
     const getOp = doc.paths['/refunds/{refundId}']?.get as {
-      security?: { oauth2: string[] }[];
+      security?: { partnerOAuth: string[] }[];
     };
-    expect(getOp.security?.[0]?.oauth2).toContain('refunds:read');
+    expect(getOp.security?.[0]?.partnerOAuth).toContain('refunds:read');
     const schemes = doc.components?.securitySchemes as Record<
       string,
-      { flows?: { clientCredentials?: { scopes?: Record<string, string> } } }
+      { flows?: { clientCredentials?: { tokenUrl?: string; scopes?: Record<string, string> } } }
     >;
-    expect(schemes.oauth2).toBeDefined();
-    expect(schemes.oauth2?.flows?.clientCredentials?.scopes?.['refunds:read']).toBe('refunds:read');
+    expect(schemes.partnerOAuth).toBeDefined();
+    expect(schemes.partnerOAuth?.flows?.clientCredentials?.tokenUrl).toBe(
+      'https://identity.example.com/oauth2/token',
+    );
+    expect(schemes.partnerOAuth?.flows?.clientCredentials?.scopes?.['refunds:read']).toBe(
+      'Read refunds',
+    );
+    expect(schemes.oauth2).toBeUndefined();
+  });
+
+  it('does not invent oauth2 from scopes alone', () => {
+    const scopesOnlyManifest: ApiManifest = {
+      ...manifest,
+      identity: undefined,
+      securitySchemes: undefined,
+      expose: [
+        {
+          capability: 'billing.getRefund',
+          operationId: 'getRefund',
+          method: 'GET',
+          path: '/refunds/{refundId}',
+          auth: { scopes: ['refunds:read'] },
+        },
+      ],
+    };
+    const doc = generateOpenApi([apiCap()], scopesOnlyManifest);
+    const getOp = doc.paths['/refunds/{refundId}']?.get as { security?: unknown };
+    expect(getOp.security).toBeUndefined();
+    expect(doc.components?.securitySchemes).toEqual({});
   });
 
   it('warns on duplicate method+path', () => {
@@ -147,6 +185,76 @@ describe('generateOpenApi', () => {
     generateOpenApi([apiCap(), dupCap], dupManifest);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it('maps legacy defaultAuth to bearer and x-plumbus-required-scopes', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const legacyManifest: ApiManifest = {
+      apiVersion: 'plumbus.dev/v1',
+      name: 'partner-api',
+      basePath: '/api/v1',
+      identity: { defaultAuth: 'partnerOAuth' },
+      expose: [
+        {
+          capability: 'billing.getRefund',
+          operationId: 'getRefund',
+          method: 'GET',
+          path: '/refunds/{refundId}',
+          auth: { scopes: ['refunds:read'] },
+        },
+      ],
+    };
+    const doc = generateOpenApi([apiCap()], legacyManifest);
+    const getOp = doc.paths['/refunds/{refundId}']?.get as {
+      security?: { bearer?: string[] }[];
+      'x-plumbus-required-scopes'?: string[];
+    };
+    expect(getOp.security?.[0]?.bearer).toEqual([]);
+    expect(getOp['x-plumbus-required-scopes']).toEqual(['refunds:read']);
+    const schemes = doc.components?.securitySchemes as Record<
+      string,
+      { type?: string; scheme?: string }
+    >;
+    expect(schemes.bearer).toEqual({ type: 'http', scheme: 'bearer' });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('supports auth.scheme alternatives as OpenAPI security OR', () => {
+    const altManifest: ApiManifest = {
+      ...manifest,
+      securitySchemes: {
+        partnerOAuth: manifest.securitySchemes?.partnerOAuth ?? {
+          type: 'oauth2',
+          flows: {
+            clientCredentials: {
+              tokenUrl: 'https://identity.example.com/oauth2/token',
+            },
+          },
+        },
+        sessionCookie: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'plumbus_session',
+        },
+      },
+      expose: [
+        {
+          capability: 'billing.getRefund',
+          operationId: 'getRefund',
+          method: 'GET',
+          path: '/refunds/{refundId}',
+          auth: { scheme: ['partnerOAuth', 'sessionCookie'], scopes: ['refunds:read'] },
+        },
+      ],
+    };
+    const doc = generateOpenApi([apiCap()], altManifest);
+    const getOp = doc.paths['/refunds/{refundId}']?.get as {
+      security?: Record<string, string[]>[];
+    };
+    expect(getOp.security).toHaveLength(2);
+    expect(getOp.security?.[0]?.partnerOAuth).toContain('refunds:read');
+    expect(getOp.security?.[1]?.sessionCookie).toEqual([]);
   });
 
   it('marks deprecated operations', () => {
@@ -187,6 +295,7 @@ describe('generateOpenApi', () => {
     });
     const approveManifest: ApiManifest = {
       ...manifest,
+      identity: { defaultSecurityScheme: 'partnerOAuth' },
       expose: [
         {
           capability: 'billing.approveRefund',
@@ -198,16 +307,16 @@ describe('generateOpenApi', () => {
     };
     const doc = generateOpenApi([cap], approveManifest);
     const postOp = doc.paths['/refunds/{refundId}/approve']?.post as {
-      security?: { oauth2: string[] }[];
+      security?: { partnerOAuth: string[] }[];
     };
-    expect(postOp.security?.[0]?.oauth2).toContain('refunds:write');
+    expect(postOp.security?.[0]?.partnerOAuth).toContain('refunds:write');
     const schemes = doc.components?.securitySchemes as Record<
       string,
       { flows?: { clientCredentials?: { scopes?: Record<string, string> } } }
     >;
-    expect(schemes.oauth2?.flows?.clientCredentials?.scopes?.['refunds:write']).toBe(
-      'refunds:write',
-    );
+    expect(
+      schemes.partnerOAuth?.flows?.clientCredentials?.scopes?.['refunds:write'],
+    ).toBeUndefined();
   });
 
   it('omits path parameters from non-GET requestBody schema', () => {

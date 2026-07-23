@@ -112,4 +112,37 @@ describe('createAuditService', () => {
     const row = db.inserted[0] as Record<string, unknown>;
     expect(row.tenantId).toBeNull();
   });
+
+  it('uses injected AuditWriter instead of direct db insert', async () => {
+    const db = makeMockDb();
+    const writer = {
+      write: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = createAuditService({
+      db: db as any,
+      auth: {
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        roles: ['admin'],
+        scopes: [],
+        provider: 'test',
+      },
+      component: 'orders',
+      writer,
+    });
+
+    await service.record('order.created', { orderId: '123', outcome: 'success' });
+
+    expect(writer.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: 'user-1',
+        tenantId: 'tenant-1',
+        component: 'orders',
+        action: 'order.created',
+        outcome: 'success',
+        metadata: { orderId: '123', outcome: 'success' },
+      }),
+    );
+    expect(db.insert).not.toHaveBeenCalled();
+  });
 });

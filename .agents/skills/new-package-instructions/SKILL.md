@@ -61,6 +61,16 @@ Include `"instructions"` so agent recipes ship in the npm tarball:
 
 Add an **Agent recipes** section linking to each file under `instructions/` (see [`packages/mcp/README.md`](../../packages/mcp/README.md#documentation) for the pattern).
 
+For the cross-package "ecosystem" section, add a **single static pointer** to the root [`README.md`](../../README.md#packages) Packages table — do **not** replicate the package list as a per-package table. The root table is the single source of truth; a replicated table forces an all-READMEs edit (and a republish of every package) each time a package is added. Use this exact shape:
+
+```md
+## The Plumbus ecosystem
+
+`@plumbus/<name>` is one package in the Plumbus framework. For the full list of packages and when to use each, see the [Plumbus monorepo README](https://github.com/plumbus-framework/plumbus#packages).
+```
+
+A package-specific `## When to use this vs alternatives` decision table is fine and encouraged — that is distinct from the global package list.
+
 ### 5. Monorepo docs (when applicable)
 
 If the package has a `docs/<topic>/` tree, cross-link from the instructions index and ensure `docs/README.md` lists the topic.
@@ -86,8 +96,8 @@ packages/<name>/instructions/
 
 1. Add `"instructions"` to `package.json` `files`
 2. Set `peerDependencies["@plumbus/core"]` to exactly `"0.5.x || 0.6.x"` (copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`)
-3. Link instructions from package `README.md`
-4. Update `docs/` if a new topic area was added
+3. Link instructions from package `README.md`, and add its "ecosystem" section as a **static pointer** to the root Packages table — never a replicated table (see §4)
+4. Add **one row** to the root [`README.md`](../../README.md#packages) `## Packages` table (the single source of truth for the package list), and update `docs/` if a new topic area was added
 5. Add a publish step to [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) **after** any packages it peer-depends on (e.g. `@plumbus/api` after `@plumbus/core`)
 
 ### Step 3b: Register in `plumbus init` agent wiring
@@ -126,6 +136,7 @@ Before considering a new package done:
 - [ ] At least one framework/conventions file exists
 - [ ] `package.json` `files` includes `"instructions"`
 - [ ] Package `README.md` links to agent recipes
+- [ ] Root `README.md` `## Packages` table has a row for the new package; the package `README.md` uses a static ecosystem **pointer**, not a replicated table
 - [ ] `docs/<topic>/` exists or is cross-linked if the package has conceptual docs
 - [ ] Tests cover the package's public API
 - [ ] `AGENTS.md` / `CLAUDE.md` mention the optional add-on if consumer-facing
@@ -140,3 +151,4 @@ Before considering a new package done:
 - Conceptual-only docs in `docs/` with no prescriptive recipes in the package
 - Instructions that teach raw HTTP/Fastify patterns instead of Plumbus primitives
 - Forgetting `"instructions"` in `package.json` `files` — tarball consumers won't see the folder
+- Replicating the full package list as a table in each package `README.md` — it drifts and forces an all-packages edit/republish on every addition; use a static pointer to the root `## Packages` table instead

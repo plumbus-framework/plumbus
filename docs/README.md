@@ -38,6 +38,17 @@ docs/
 │   └── commands.md
 ├── security/                  Security model, auth, tenant isolation
 │   └── security-model.md
+├── auth/                      Optional @plumbus/auth package (OIDC RP, server sessions, CSRF)
+│   ├── README.md
+│   ├── getting-started.md
+│   ├── configuration.md
+│   ├── providers.md
+│   ├── sessions-and-csrf.md
+│   ├── cognito.md
+│   ├── security.md
+│   ├── testing.md
+│   ├── migration.md
+│   └── deployment.md
 ├── ai/                        Prompts, RAG, cost tracking, governance
 │   └── ai-integration.md
 ├── testing/                   Test utilities, patterns, examples
@@ -133,5 +144,6 @@ docs/
 | Publish a partner-facing API with OpenAPI | [API → README](api/README.md) (start here) · [Overview](api/overview.md) · [packages/api/README.md](../packages/api/README.md) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
+| Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

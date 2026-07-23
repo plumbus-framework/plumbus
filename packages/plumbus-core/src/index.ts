@@ -99,23 +99,30 @@ export {
 export type { RouteGeneratorConfig } from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
+  authenticationFailureToHttp,
+  buildAuthenticationRequest,
   isApiExposed,
+  parseCookieHeader,
   registerAllRoutes,
   registerCapabilityRoute,
   registerStreamingRoute,
   resolveRequestLocale,
   LOCALE_COOKIE_NAME,
 } from './api/index.js';
+export type { AuditEvent, AuditWriter } from './types/audit.js';
 export type { AuditServiceConfig } from './audit/index.js';
 // ── Audit ──
-export { auditRecords, createAuditService } from './audit/index.js';
+export { auditRecords, createAuditService, createDatabaseAuditWriter } from './audit/index.js';
 export type {
+  AuthenticationRequest,
+  AuthenticationResult,
   AuthAdapter,
   JwtAdapterConfig,
   JwtClaimMapping,
   OidcAdapterConfig,
   OidcJwk,
   PasswordHashOptions,
+  RequestAuthenticator,
   SamlAdapterConfig,
   ScimEmail,
   ScimError,
@@ -129,6 +136,7 @@ export type {
 } from './auth/index.js';
 // ── Auth ──
 export {
+  createCompositeRequestAuthenticator,
   createJwtAdapter,
   createOidcAdapter,
   createSamlAdapter,
@@ -136,10 +144,11 @@ export {
   hashPassword,
   signJwt,
   verifyPassword,
+  wrapAuthAdapter,
 } from './auth/index.js';
 export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
 // ── Config Loader ──
-export { loadConfig, validateConfig } from './config/index.js';
+export { loadConfig, parseDurationToMs, validateConfig } from './config/index.js';
 export type { MigrationConfig, MigrationRecord, RepositoryOptions } from './data/index.js';
 // ── Data Layer ──
 export {
@@ -185,6 +194,7 @@ export {
   FlowCancelledError,
   LeaseLostError,
   PlumbusError,
+  UnauthorizedError,
   createErrorService,
   isPlumbusError,
 } from './errors/index.js';
@@ -312,7 +322,12 @@ export {
   injectTraceHeaders,
   parseTraceparent,
 } from './observability/index.js';
-export type { PlumbusServer, ServerConfig } from './server/index.js';
+export type {
+  AuthComponentHealth,
+  HttpAuthenticationRuntime,
+  PlumbusServer,
+  ServerConfig,
+} from './server/index.js';
 // ── Server Bootstrap ──
 export { createServer } from './server/index.js';
 // ── Translations ──

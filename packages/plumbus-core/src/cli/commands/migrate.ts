@@ -116,7 +116,7 @@ export function registerMigrateCommand(program: Command): void {
 
       try {
         const resources = await discoverResources();
-        const schemas = collectSchemas(resources.entities);
+        const schemas = collectSchemas(resources.entities, resources.schemas);
         const schemaCount = Object.keys(schemas).length;
 
         if (schemaCount === 0) {
@@ -343,7 +343,7 @@ export function registerMigrateCommand(program: Command): void {
         }
 
         const resources = await discoverResources();
-        const schemas = collectSchemas(resources.entities);
+        const schemas = collectSchemas(resources.entities, resources.schemas);
         const { pushSchema } = await import('drizzle-kit/api');
 
         // Workaround for drizzle-kit#5293: pushSchema expects execute() to
@@ -613,7 +613,7 @@ export function registerMigrateCommand(program: Command): void {
 
       try {
         const resources = await discoverResources();
-        const schemas = collectSchemas(resources.entities);
+        const schemas = collectSchemas(resources.entities, resources.schemas);
         const schemaCount = Object.keys(schemas).length;
 
         if (schemaCount === 0) {

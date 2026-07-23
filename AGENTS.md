@@ -110,6 +110,17 @@ pnpm add @plumbus/knowledge-base
 
 Apps that only need a single direct RAG corpus in chat can use `ragContext` from `@plumbus/chat` without installing KB. Vector ingest remains in `@plumbus/core` (`plumbus rag ingest`).
 
+### Optional add-on: `@plumbus/auth` (+ `@plumbus/auth-cognito`)
+
+`@plumbus/auth` provides the OIDC relying-party runtime (`createAuthRuntime`, `/auth/*` routes, opaque server sessions, CSRF, protected PostgreSQL stores). It peer-depends on `@plumbus/core` (version-locked `0.6.x`). Apps that want federated browser login with HttpOnly session cookies install it explicitly:
+
+```
+pnpm add @plumbus/auth
+pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers
+```
+
+Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.1.x`). Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+
 ### From `@plumbus/ui`
 
 | Package | Provided by |
@@ -208,6 +219,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/sdk-reference/` — define functions, execution context, data layer, configuration (worker observability)
 - `docs/cli/` — all CLI commands and options (incl. `browser-extension scaffold`)
 - `docs/security/` — security model, auth, tenant isolation
+- `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
 - `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
 - `docs/ui/` — client generation, hooks, Next.js scaffolding

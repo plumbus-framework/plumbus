@@ -4,6 +4,15 @@
 
 export { createJwtAdapter, signJwt } from './adapter.js';
 export type { AuthAdapter, JwtAdapterConfig, JwtClaimMapping, SignJwtOptions } from './adapter.js';
+export type {
+  AuthenticationRequest,
+  AuthenticationResult,
+  RequestAuthenticator,
+} from './http-authentication.js';
+export {
+  createCompositeRequestAuthenticator,
+  wrapAuthAdapter,
+} from './http-authentication.js';
 export { createOidcAdapter } from './oidc-adapter.js';
 export type { OidcAdapterConfig, JsonWebKey as OidcJwk } from './oidc-adapter.js';
 export { hashPassword, verifyPassword } from './password.js';

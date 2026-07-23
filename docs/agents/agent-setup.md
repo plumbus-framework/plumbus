@@ -52,6 +52,8 @@ plumbus init
 │ node_modules/@plumbus/voice/instructions/                   │
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
+│ node_modules/@plumbus/auth/instructions/                    │
+│ node_modules/@plumbus/auth-cognito/instructions/            │
 │ node_modules/@plumbus/browser-extension/instructions/       │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
@@ -74,6 +76,8 @@ plumbus init
 │                     chat wiring, testing (when installed)     │
 │  api/*.md           ← Partner API expose, manifest, CLI,    │
 │                     testing (when @plumbus/api installed)   │
+│  auth/*.md          ← OIDC runtime, sessions, CSRF, Cognito │
+│                     (when @plumbus/auth installed)          │
 └───────────────────────────┬─────────────────────────────────┘
                             │
                             ▼
@@ -130,6 +134,7 @@ After initialization, your AI agent understands:
 | **Chat** | How to define chats, configure guards, pick context sources, test, and extend the runtime |
 | **Knowledge base** | How to define knowledge sources, pick providers, wire `knowledgeContext`, and test registries (when `@plumbus/knowledge-base` is installed) |
 | **Partner API** | How to expose capabilities with `exposeAs: ['api']`, maintain `api.yaml`, generate OpenAPI, and test partner routes (when `@plumbus/api` is installed) |
+| **OIDC auth** | How to wire `createAuthRuntime`, server sessions, CSRF, resolvers, and Cognito (when `@plumbus/auth` is installed) |
 | **Voice** | How to define voices, wire STT/TTS providers, and secure voice routes (when `@plumbus/voice` is installed) |
 | **Browser extension** | How to scaffold a WXT extension wired to capabilities (when `@plumbus/browser-extension` is installed) |
 
@@ -280,6 +285,17 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |
 | `node_modules/@plumbus/api/instructions/manifest-and-cli.md` | `api.yaml`, validation, OpenAPI/docs, `plumbus api` CLI |
 | `node_modules/@plumbus/api/instructions/testing.md` | Test intent, idempotency, fixture validation |
+| `node_modules/@plumbus/auth/instructions/README.md` | Auth instruction index (optional package) |
+| `node_modules/@plumbus/auth/instructions/framework.md` | Auth package boundary, public exports, critical rules |
+| `node_modules/@plumbus/auth/instructions/configure-runtime.md` | `createAuthRuntime` + `createServer({ authenticationRuntime })` recipe |
+| `node_modules/@plumbus/auth/instructions/providers.md` | OIDC provider registration and integrations |
+| `node_modules/@plumbus/auth/instructions/sessions-and-csrf.md` | `/auth/session` contract and CSRF headers |
+| `node_modules/@plumbus/auth/instructions/resolvers.md` | `resolveIdentity` and `resolveAuthorization` hooks |
+| `node_modules/@plumbus/auth/instructions/testing.md` | Fake OIDC provider integration tests |
+| `node_modules/@plumbus/auth-cognito/instructions/README.md` | Cognito instruction index (optional package) |
+| `node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md` | `cognito()` integration registration |
+| `node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md` | Hosted UI IdP allowlist |
+| `node_modules/@plumbus/auth-cognito/instructions/logout.md` | Cognito logout URL builder |
 | `node_modules/@plumbus/voice/instructions/framework.md` | Voice runtime overview and critical rules (optional package) |
 | `node_modules/@plumbus/voice/instructions/defining-voices.md` | `defineVoice` and route registration |
 | `node_modules/@plumbus/voice/instructions/providers.md` | STT, TTS, and transport providers |

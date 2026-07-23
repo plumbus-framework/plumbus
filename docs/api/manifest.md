@@ -108,6 +108,8 @@ expose:
 | `identity` | No | Audience label and default auth scheme hint for OpenAPI. |
 | `identity.audience` | No | Human-readable audience; added to OpenAPI `info.description`. |
 | `identity.defaultAuth` | No | `oauth2` or bearer hint. OAuth2 security scheme is emitted when any operation has scopes. |
+
+When the app uses `@plumbus/auth` for first-party browser login, keep partner **`identity.defaultAuth`** aligned with how external integrators authenticate (typically OAuth2 client credentials or bearer). First-party cookie sessions are documented in [docs/auth/](../auth/) — they are not expressed as an OpenAPI security scheme on partner routes.
 | `policy` | No | Structure policy (see [structure-policy](./structure-policy.md)). |
 | `expose` | Yes | Array of capability projections. |
 

@@ -44,6 +44,13 @@ export class FlowCancelledError extends PlumbusError {
   }
 }
 
+export class UnauthorizedError extends PlumbusError {
+  constructor(message: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.Unauthorized, message, metadata);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 export function createErrorService(): ErrorService {
   return {
     validation: (message, metadata) => createError(ErrorCode.Validation, message, metadata),

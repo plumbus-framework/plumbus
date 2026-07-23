@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.2
+
+### Added
+
+- **Auth transport** — `AuthHelperConfig.transport` (`session` | `bearer`) with session branch: credentialed `/auth/session`, in-memory CSRF, provider-picker login, no `localStorage`.
+- **`ClientGeneratorConfig.authTransport`** — generated clients use `credentials: "include"` and `csrfHeaders()` for session transport; bearer clients merge `getAuthHeaders()`.
+- **Next.js template session mode** — provider login page, `loadSession` in `AuthProvider`, no signup page when `authTransport: "session"`.
+- **`__resetTransportWarningForTests`** — test helper for one-time deprecation warning when transport is omitted.
+- **Auth documentation cross-links** — README ecosystem table and [docs/ui/ui-generation.md](../../docs/ui/ui-generation.md) section on adapting generated clients for `@plumbus/auth` cookie sessions + CSRF.
+
+### Changed
+
+- Omitted auth transport retains legacy bearer behavior and emits a deprecation warning (spec §22.3).
+- CLI: `plumbus ui generate` and `plumbus ui nextjs` accept `--auth-transport session|bearer`.
+
 ## 0.7.1
 
 ### Fixed

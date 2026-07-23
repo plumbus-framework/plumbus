@@ -5,6 +5,7 @@ import type { NextjsTemplateConfig } from '../nextjs-template.js';
 import {
   generateAuthProvider,
   generateCapabilityPage,
+  generateEnvLocal,
   generateGlobalsCss,
   generateHomePage,
   generateLayout,
@@ -193,7 +194,7 @@ describe('generateCapabilityPage', () => {
 
 describe('generateAuthProvider', () => {
   it('generates AuthProvider component', () => {
-    const file = generateAuthProvider();
+    const file = generateAuthProvider(makeConfig());
     expect(file.path).toBe('components/AuthProvider.tsx');
     expect(file.content).toContain('"use client"');
     expect(file.content).toContain('createContext');
@@ -201,12 +202,18 @@ describe('generateAuthProvider', () => {
     expect(file.content).toContain('export function useAuthContext');
   });
 
-  it('imports from generated auth in lib/', () => {
-    const file = generateAuthProvider();
+  it('imports bearer helpers by default', () => {
+    const file = generateAuthProvider(makeConfig());
     expect(file.content).toContain('@/lib/auth');
     expect(file.content).toContain('getStoredToken');
     expect(file.content).toContain('isTokenExpired');
     expect(file.content).toContain('refreshSession');
+  });
+
+  it('uses loadSession for session transport', () => {
+    const file = generateAuthProvider(makeConfig({ authTransport: 'session' }));
+    expect(file.content).toContain('loadSession');
+    expect(file.content).not.toContain('getStoredToken');
   });
 });
 
@@ -257,10 +264,34 @@ describe('generateNextjsTemplate', () => {
     expect(paths).not.toContain('app/approve-refund/page.tsx');
   });
 
+  it('excludes signup page for session transport', () => {
+    const files = generateNextjsTemplate(makeConfig({ authTransport: 'session' }));
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain('app/login/page.tsx');
+    expect(paths).toContain('app/login/error/page.tsx');
+    expect(paths).not.toContain('app/signup/page.tsx');
+  });
+
+  it('renders auth callback error codes on session login surfaces', () => {
+    const login = generateLoginPage({ authTransport: 'session' });
+    expect(login.content).toContain('authErrorMessage');
+    expect(login.content).toContain('searchParams.get("code")');
+    const errorPage = generateNextjsTemplate(makeConfig({ authTransport: 'session' })).find(
+      (file) => file.path === 'app/login/error/page.tsx',
+    );
+    expect(errorPage?.content).toContain('authErrorMessage');
+    expect(errorPage?.content).toContain('requestId');
+  });
+
   it('does not generate API proxy route', () => {
     const files = generateNextjsTemplate(makeConfig());
     const paths = files.map((f) => f.path);
     expect(paths).not.toContain('app/api/plumbus/[...path]/route.ts');
+  });
+  it('omits AUTH_SECRET for session transport env template', () => {
+    const file = generateEnvLocal(makeConfig({ authTransport: 'session' }));
+    expect(file.content).not.toContain('AUTH_SECRET=');
+    expect(file.content).toContain('HttpOnly cookies');
   });
 });
 
@@ -297,26 +328,33 @@ describe('generateProxy', () => {
 // ── generateLoginPage ──
 
 describe('generateLoginPage', () => {
-  it('generates login page at app/login/page.tsx', () => {
-    const file = generateLoginPage();
+  it('generates bearer login page at app/login/page.tsx', () => {
+    const file = generateLoginPage(makeConfig());
     expect(file.path).toBe('app/login/page.tsx');
   });
 
-  it('is a client component with form', () => {
-    const file = generateLoginPage();
+  it('is a client component with email/password form for bearer transport', () => {
+    const file = generateLoginPage(makeConfig());
     expect(file.content).toContain('"use client"');
     expect(file.content).toContain('<form');
     expect(file.content).toContain('email');
     expect(file.content).toContain('password');
   });
 
-  it('imports login from @/lib/auth', () => {
-    const file = generateLoginPage();
+  it('generates provider picker for session transport', () => {
+    const file = generateLoginPage(makeConfig({ authTransport: 'session' }));
+    expect(file.content).toContain('fetchProviders');
+    expect(file.content).toContain('startLogin');
+    expect(file.content).not.toContain('password');
+  });
+
+  it('imports login from @/lib/auth for bearer transport', () => {
+    const file = generateLoginPage(makeConfig());
     expect(file.content).toContain('from "@/lib/auth"');
   });
 
-  it('links to signup page', () => {
-    const file = generateLoginPage();
+  it('links to signup page for bearer transport', () => {
+    const file = generateLoginPage(makeConfig());
     expect(file.content).toContain('/signup');
   });
 });

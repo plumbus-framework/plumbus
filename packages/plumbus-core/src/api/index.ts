@@ -6,6 +6,11 @@
 
 export { isApiExposed } from './exposure.js';
 export {
+  authenticationFailureToHttp,
+  buildAuthenticationRequest,
+} from './authentication-http.js';
+export { parseCookieHeader } from './cookies.js';
+export {
   LOCALE_COOKIE_NAME,
   registerAllRoutes,
   registerCapabilityRoute,

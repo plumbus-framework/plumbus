@@ -225,11 +225,34 @@ The generated module contains auth types, token utilities, login/logout/session-
 
 The `provider` field is part of the config shape, but the current generator does not branch on provider type. Endpoint configuration, token key configuration, and the `multiTenant` flag are the parts that change generated behavior.
 
+### Auth transport (`session` vs `bearer`)
+
+`plumbus ui generate` and `plumbus ui nextjs` accept **`--auth-transport session|bearer`**. Invalid values are rejected at CLI time.
+
+| Transport | Generated behavior |
+|---|---|
+| `bearer` (default) | `localStorage` token storage, `Authorization: Bearer` headers |
+| `session` | `credentials: 'include'`, in-memory CSRF from `GET /auth/session`, no `AUTH_SECRET` in `.env.local` |
+
+Use **`session`** when the backend wires `@plumbus/auth`. Use **`bearer`** for JWT/OIDC adapter apps or service-style clients.
+
 ### Security posture
 
 The generated auth module stores bearer tokens in `localStorage`. This makes the helpers simple to use in client-side scaffolding, but it also means tokens are readable by JavaScript and are not available to Next.js proxy/middleware. `RouteGuard` is therefore a view-level UX helper only.
 
 Applications must continue to enforce authorization in backend Plumbus capabilities and policies. Production applications that require server-readable sessions should replace or adapt the generated token storage with an HttpOnly cookie or another server-side session mechanism.
+
+### Cookie sessions with `@plumbus/auth`
+
+When the backend uses **`@plumbus/auth`**, browser clients should **not** use the generated localStorage bearer flow. Instead:
+
+1. Redirect users to `/auth/login` (or `/auth/login/:provider`).
+2. Load identity from **`GET /auth/session`** with `credentials: 'include'`.
+3. Send **`X-CSRF-Token`** on mutating API calls alongside the session cookie.
+
+Adapt generated `lib/client.ts` fetch wrappers to use `credentials: 'include'` and CSRF headers rather than `Authorization: Bearer` from `getAuthHeaders()`.
+
+See [docs/auth/sessions-and-csrf.md](../auth/sessions-and-csrf.md) and [docs/auth/migration.md](../auth/migration.md).
 
 ## Form hint generation
 

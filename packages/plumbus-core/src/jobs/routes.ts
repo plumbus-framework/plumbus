@@ -1,11 +1,17 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
 import type { AuthAdapter } from '../auth/adapter.js';
+import type { RequestAuthenticator } from '../auth/http-authentication.js';
+import {
+  authenticationFailureToHttp,
+  buildAuthenticationRequest,
+} from '../api/authentication-http.js';
 import { createJobService } from './service.js';
 
 export interface JobStatusRouteConfig {
   db: PostgresJsDatabase;
   authAdapter: AuthAdapter;
+  requestAuthenticator?: RequestAuthenticator;
 }
 
 /** Register GET /api/jobs/:jobId — additive job status endpoint. */
@@ -13,11 +19,43 @@ export function registerJobStatusRoute(app: FastifyInstance, config: JobStatusRo
   const jobs = createJobService(config.db);
 
   app.get('/api/jobs/:jobId', async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    const auth = await config.authAdapter.authenticate(authHeader);
-    if (!auth?.userId) {
-      reply.status(401);
-      return { error: { code: 'unauthorized', message: 'Authentication required' } };
+    let auth: Awaited<ReturnType<AuthAdapter['authenticate']>>;
+
+    if (!config.requestAuthenticator) {
+      const authHeader = request.headers.authorization;
+      auth = await config.authAdapter.authenticate(authHeader);
+      if (!auth?.userId) {
+        reply.status(401);
+        return { error: { code: 'unauthorized', message: 'Authentication required' } };
+      }
+    } else {
+      const authResult = await config.requestAuthenticator.authenticate(
+        buildAuthenticationRequest(request),
+      );
+
+      if (authResult.status === 'authenticated') {
+        auth = authResult.auth;
+      } else if (authResult.status === 'anonymous') {
+        if (authResult.clearCookieHeader) {
+          reply.header('set-cookie', authResult.clearCookieHeader);
+        }
+        reply.status(401);
+        return { error: { code: 'unauthorized', message: 'Authentication required' } };
+      } else {
+        const httpFailure = authenticationFailureToHttp(authResult);
+        reply.status(httpFailure.statusCode);
+        if (httpFailure.headers) {
+          for (const [key, value] of Object.entries(httpFailure.headers)) {
+            reply.header(key, value);
+          }
+        }
+        return httpFailure.body;
+      }
+
+      if (!auth.userId) {
+        reply.status(401);
+        return { error: { code: 'unauthorized', message: 'Authentication required' } };
+      }
     }
 
     const { jobId } = request.params as { jobId: string };

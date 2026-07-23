@@ -10,4 +10,5 @@ export {
   loadPromptOverrides,
   validateConfig,
 } from './loader.js';
+export { parseDurationToMs } from './duration.js';
 export type { ConfigLoadOptions, ConfigValidationResult } from './loader.js';

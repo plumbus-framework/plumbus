@@ -221,17 +221,7 @@ These files describe how to use the generator package safely and how to avoid tr
 
 ## Related Plumbus packages
 
-The repository currently contains these sibling packages under `packages/`:
-
-| Package | Purpose | When to use |
-|---|---|---|
-| `@plumbus/core` | Core framework definitions and runtime primitives. | Required by Plumbus projects and generator inputs. |
-| `@plumbus/ui` | Frontend source generation and thin `next-intl` re-export subpaths. | When generating a Plumbus web frontend. |
-| `@plumbus/mcp` | MCP runtime for exposing capabilities to AI agents. | When serving Plumbus capabilities through MCP. |
-| `@plumbus/chat` | Conversational runtime definitions and turn handling. | When adding a chat surface. |
-| `@plumbus/chat-ui` | React helpers for the `@plumbus/chat` turn protocol. | When building a browser chat client. |
-| `@plumbus/knowledge-base` | Knowledge provider and source registry support. | When sharing named knowledge across Plumbus features. |
-| `@plumbus/browser-extension` | Browser-extension scaffolding wired to Plumbus capabilities. | When shipping a Chrome/Firefox extension UI. |
+`@plumbus/ui` is one package in the Plumbus framework. For the full list of packages and when to use each, see the [Plumbus monorepo README](https://github.com/plumbus-framework/plumbus#packages).
 
 ## License
 

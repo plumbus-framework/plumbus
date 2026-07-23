@@ -49,6 +49,43 @@ importers:
         specifier: ^3.24.2
         version: 3.25.76
 
+  packages/auth:
+    dependencies:
+      openid-client:
+        specifier: ^6.8.0
+        version: 6.8.4
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(@opentelemetry/api@1.9.1)(postgres@3.4.8)
+      fastify:
+        specifier: ^5.0.0
+        version: 5.8.2
+      postgres:
+        specifier: ^3.4.8
+        version: 3.4.8
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/auth-cognito:
+    devDependencies:
+      '@plumbus/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
   packages/browser-extension:
     devDependencies:
       '@biomejs/biome':
@@ -3005,6 +3042,9 @@ packages:
   nwsapi@2.2.23:
     resolution: {integrity: sha512-7wfH4sLbt4M0gCDzGE6vzQBo0bfTKjU7Sfpqy/7gs1qBfYz2vEJH6vXcBKpO3+6Yu1telwd0t9HpyOoLEQQbIQ==}
 
+  oauth4webapi@3.8.6:
+    resolution: {integrity: sha512-iwemM91xz8nryHti2yTmg5fhyEMVOkOXwHNqbvcATjyajb5oQxCQzrNOA6uElRHuMhQQTKUyFKV9y/CNyg25BQ==}
+
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
     engines: {node: '>=0.10.0'}
@@ -3037,6 +3077,9 @@ packages:
         optional: true
       zod:
         optional: true
+
+  openid-client@6.8.4:
+    resolution: {integrity: sha512-QSw0BA08piujetEwfZsHoTrDpMEha7GDZDicQqVwX4u0ChCjefvjDB++TZ8BTg76UpwhzIQgdvvfgfl3HpCSAw==}
 
   parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
@@ -5928,6 +5971,8 @@ snapshots:
 
   nwsapi@2.2.23: {}
 
+  oauth4webapi@3.8.6: {}
+
   object-assign@4.1.1: {}
 
   object-inspect@1.13.4: {}
@@ -5952,6 +5997,11 @@ snapshots:
     optionalDependencies:
       ws: 8.21.0
       zod: 3.25.76
+
+  openid-client@6.8.4:
+    dependencies:
+      jose: 6.2.3
+      oauth4webapi: 3.8.6
 
   parse5@7.3.0:
     dependencies:

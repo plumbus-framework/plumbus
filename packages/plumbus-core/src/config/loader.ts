@@ -338,7 +338,13 @@ export function validateConfig(config: PlumbusConfig): ConfigValidationResult {
     errors.push('auth.secret must be changed from default in production');
   }
   if (config.environment === 'production' && !config.auth.secret && !config.auth.jwksUri) {
-    errors.push('auth.secret or auth.jwksUri is required in production');
+    if (config.auth.provider === 'custom') {
+      warnings.push(
+        "auth.provider is 'custom' — the server must supply an authAdapter or authenticationRuntime",
+      );
+    } else {
+      errors.push('auth.secret or auth.jwksUri is required in production');
+    }
   }
 
   // AI (optional but validate if present)

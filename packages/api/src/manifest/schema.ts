@@ -30,6 +30,69 @@ const ApiPolicySchema = z
   .strict()
   .optional();
 
+const HttpSecuritySchemeSchema = z
+  .object({
+    type: z.literal('http'),
+    scheme: z.string(),
+    bearerFormat: z.string().optional(),
+  })
+  .strict();
+
+const ApiKeySecuritySchemeSchema = z
+  .object({
+    type: z.literal('apiKey'),
+    in: z.enum(['cookie', 'header', 'query']),
+    name: z.string(),
+    'x-plumbus-csrf': z
+      .object({
+        unsafeMethods: z.array(z.enum(['POST', 'PUT', 'PATCH', 'DELETE'])),
+        headerName: z.string(),
+        tokenEndpoint: z.string(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const OAuth2FlowSchema = z
+  .object({
+    tokenUrl: z.string(),
+    scopes: z.record(z.string()).optional(),
+    authorizationUrl: z.string().optional(),
+    refreshUrl: z.string().optional(),
+  })
+  .strict();
+
+const OAuth2SecuritySchemeSchema = z
+  .object({
+    type: z.literal('oauth2'),
+    flows: z
+      .object({
+        clientCredentials: OAuth2FlowSchema.optional(),
+        authorizationCode: OAuth2FlowSchema.optional(),
+        implicit: OAuth2FlowSchema.optional(),
+        password: OAuth2FlowSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const OpenIdConnectSecuritySchemeSchema = z
+  .object({
+    type: z.literal('openIdConnect'),
+    openIdConnectUrl: z.string(),
+  })
+  .strict();
+
+export const SecuritySchemeSchema = z.discriminatedUnion('type', [
+  HttpSecuritySchemeSchema,
+  ApiKeySecuritySchemeSchema,
+  OAuth2SecuritySchemeSchema,
+  OpenIdConnectSecuritySchemeSchema,
+]);
+
+export type SecurityScheme = z.infer<typeof SecuritySchemeSchema>;
+
 const ApiManifestEntrySchema = z
   .object({
     capability: z.string(),
@@ -39,6 +102,7 @@ const ApiManifestEntrySchema = z
     stability: z.enum(['experimental', 'beta', 'stable', 'deprecated', 'internal']).optional(),
     auth: z
       .object({
+        scheme: z.union([z.string(), z.array(z.string().min(1)).min(1)]).optional(),
         scopes: z.array(z.string()).optional(),
       })
       .strict()
@@ -91,11 +155,29 @@ export const ApiManifestSchema = z
     identity: z
       .object({
         audience: z.string().optional(),
+        /** @deprecated Use defaultSecurityScheme */
         defaultAuth: z.string().optional(),
+        defaultSecurityScheme: z.string().optional(),
       })
       .strict()
       .optional(),
+    securitySchemes: z.record(SecuritySchemeSchema).optional(),
     policy: ApiPolicySchema,
     expose: z.array(ApiManifestEntrySchema),
   })
-  .strict();
+  .strict()
+  .superRefine((manifest, ctx) => {
+    for (const [name, scheme] of Object.entries(manifest.securitySchemes ?? {})) {
+      if (scheme.type !== 'oauth2') {
+        continue;
+      }
+      const configuredFlows = Object.values(scheme.flows).filter(Boolean);
+      if (configuredFlows.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['securitySchemes', name, 'flows'],
+          message: 'oauth2 security scheme requires at least one configured flow',
+        });
+      }
+    }
+  });

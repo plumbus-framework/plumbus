@@ -16,7 +16,7 @@ describe('plumbus init', () => {
     it('generates reference-mode instructions', () => {
       const content = generateCopilotInstructions(false);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('plumbus:agent-wiring version=8');
+      expect(content).toContain('plumbus:agent-wiring version=9');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('git checkout');
       expect(content).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
@@ -52,6 +52,23 @@ describe('plumbus init', () => {
       expect(content).toContain(
         'node_modules/@plumbus/browser-extension/instructions/browser-extension.md',
       );
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/framework.md');
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/configure-runtime.md');
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/providers.md');
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/sessions-and-csrf.md');
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/resolvers.md');
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/testing.md');
+      expect(content).toContain('node_modules/@plumbus/auth/instructions/README.md');
+      expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/framework.md');
+      expect(content).toContain(
+        'node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md',
+      );
+      expect(content).toContain(
+        'node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md',
+      );
+      expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/logout.md');
+      expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/testing.md');
+      expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/README.md');
       expect(content).toContain('node_modules/@plumbus/core/instructions/capabilities.md');
       expect(content).toContain(
         'node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md',
@@ -67,7 +84,7 @@ describe('plumbus init', () => {
     it('generates inline-mode instructions', () => {
       const content = generateCopilotInstructions(true);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('plumbus:agent-wiring version=8');
+      expect(content).toContain('plumbus:agent-wiring version=9');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
@@ -81,7 +98,7 @@ describe('plumbus init', () => {
       expect(content).toContain('---');
       expect(content).toContain('description:');
       expect(content).toContain('globs: app/**');
-      expect(content).toContain('plumbus:agent-wiring version=8');
+      expect(content).toContain('plumbus:agent-wiring version=9');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('git reset');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
@@ -94,7 +111,7 @@ describe('plumbus init', () => {
       const content = generateCursorCapabilityRule();
       expect(content).toContain('globs: app/capabilities/**');
       expect(content).toContain('defineCapability()');
-      expect(content).toContain('plumbus:agent-wiring version=8');
+      expect(content).toContain('plumbus:agent-wiring version=9');
       expect(content).toContain('ctx.capabilities.invoke');
       expect(content).toContain('exposeAs: ["api"]');
       expect(content).toContain(
@@ -111,7 +128,7 @@ describe('plumbus init', () => {
     it('generates agent-agnostic reference format', () => {
       const content = generateAgentsMd(false);
       expect(content).toContain('AGENTS.md');
-      expect(content).toContain('plumbus:agent-wiring version=8');
+      expect(content).toContain('plumbus:agent-wiring version=9');
       expect(content).toContain('Directory Structure');
       expect(content).toContain('Edit Zones');
       expect(content).toContain('Non-Negotiable Guardrails');
@@ -127,7 +144,7 @@ describe('plumbus init', () => {
 
     it('generates inline format', () => {
       const content = generateAgentsMd(true);
-      expect(content).toContain('plumbus:agent-wiring version=8');
+      expect(content).toContain('plumbus:agent-wiring version=9');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
@@ -168,6 +185,33 @@ describe('plumbus init', () => {
         expect(results[0]?.action).toBe('skipped');
         expect(results[0]?.message).toContain('--patch');
         expect(readFileSync(filePath, 'utf-8')).toBe('custom instructions');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('patches v8 wiring to v9 and adds auth instruction references', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
+
+      try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        const v8WithoutAuth = generateCopilotInstructions(false)
+          .replace(/plumbus:agent-wiring version=9/g, 'plumbus:agent-wiring version=8')
+          .split('\n')
+          .filter((line) => !line.includes('@plumbus/auth'))
+          .join('\n');
+        writeFileSync(filePath, v8WithoutAuth, 'utf-8');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false, false, 'patch');
+        const updated = readFileSync(filePath, 'utf-8');
+
+        expect(results[0]?.action).toBe('patched');
+        expect(updated).toContain('plumbus:agent-wiring version=9');
+        expect(updated).toContain('node_modules/@plumbus/auth/instructions/framework.md');
+        expect(updated).toContain(
+          'node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md',
+        );
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -243,7 +287,7 @@ describe('plumbus init', () => {
         const updated = readFileSync(filePath, 'utf-8');
 
         expect(results[0]?.action).toBe('replaced');
-        expect(updated).toContain('plumbus:agent-wiring version=8');
+        expect(updated).toContain('plumbus:agent-wiring version=9');
         expect(updated).not.toBe('custom instructions');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });

@@ -5,3 +5,4 @@
 
 export { createServer } from './bootstrap.js';
 export type { PlumbusServer, ServerConfig } from './bootstrap.js';
+export type { AuthComponentHealth, HttpAuthenticationRuntime } from './authentication-runtime.js';

@@ -7,9 +7,11 @@ export {
   parseManifest,
   resolveExposure,
   validateManifest,
+  validateSecurityConfig,
   type ApiManifest,
   type ApiManifestEntry,
   type ApiManifestFinding,
+  type SecurityScheme,
 } from './manifest/index.js';
 export { diffOpenApi } from './diff/index.js';
 export {

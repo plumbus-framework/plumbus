@@ -2,25 +2,71 @@
 // Generates auth utilities from auth adapter config:
 // login/logout, session hooks, route guards, tenant context, user identity hooks.
 
+export type AuthTransport = 'session' | 'bearer';
+
 export interface AuthHelperConfig {
   /** Auth provider type */
   provider: string;
-  /** Token storage key */
+  /** Credential transport — session (cookie + CSRF) or bearer (localStorage JWT) */
+  transport?: AuthTransport;
+  /** Token storage key (bearer transport only) */
   tokenKey?: string;
-  /** Login endpoint */
+  /** Login endpoint (bearer transport) */
   loginEndpoint?: string;
   /** Logout endpoint */
   logoutEndpoint?: string;
-  /** Session refresh endpoint */
+  /** Session refresh endpoint (bearer transport) */
   refreshEndpoint?: string;
+  /** Session state endpoint (session transport) */
+  sessionEndpoint?: string;
+  /** Provider discovery endpoint (session transport) */
+  providersEndpoint?: string;
   /** Include tenant context provider */
   multiTenant?: boolean;
+}
+
+let transportWarningEmitted = false;
+
+/** Reset deprecation warning state — for tests only. */
+export function __resetTransportWarningForTests(): void {
+  transportWarningEmitted = false;
+}
+
+function resolveTransport(config?: AuthHelperConfig): AuthTransport {
+  if (config?.transport) {
+    return config.transport;
+  }
+  if (!transportWarningEmitted) {
+    transportWarningEmitted = true;
+    console.warn(
+      '[@plumbus/ui] Auth transport omitted; defaulting to bearer (deprecated). Pass transport: "session" or transport: "bearer" explicitly.',
+    );
+  }
+  return 'bearer';
 }
 
 // ── Auth Types Generator ──
 
 /** Generate TypeScript types for auth state */
-export function generateAuthTypes(): string {
+export function generateAuthTypes(transport: AuthTransport = 'bearer'): string {
+  const providerInfo =
+    transport === 'session'
+      ? `
+export interface AuthProviderInfo {
+  id: string;
+  label: string;
+  loginUrl: string;
+  available: boolean;
+}
+
+export interface SessionResponse {
+  authenticated: boolean;
+  user?: AuthUser;
+  csrfToken?: string;
+  expiresAt?: string;
+}`
+      : '';
+
   return `export interface AuthUser {
   userId: string;
   roles: string[];
@@ -28,6 +74,8 @@ export function generateAuthTypes(): string {
   tenantId?: string;
   provider: string;
   sessionId?: string;
+  providerId?: string;
+  authenticatedAt?: string;
 }
 
 export interface AuthState {
@@ -56,12 +104,12 @@ export interface AuthConfig {
   logoutEndpoint: string;
   refreshEndpoint: string;
   tokenKey: string;
-}`;
+}${providerInfo}`;
 }
 
-// ── Token Management ──
+// ── Token Management (bearer) ──
 
-/** Generate token storage utilities */
+/** Generate token storage utilities for bearer transport */
 export function generateTokenUtils(config?: AuthHelperConfig): string {
   const key = config?.tokenKey ?? 'plumbus_auth_token';
 
@@ -86,7 +134,8 @@ export function parseJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
-    const payload = parts[1]!;
+    const payload = parts[1];
+    if (!payload) return null;
     const decoded = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
     return JSON.parse(decoded) as Record<string, unknown>;
   } catch {
@@ -101,10 +150,121 @@ export function isTokenExpired(token: string): boolean {
 }`;
 }
 
-// ── Login/Logout Functions ──
+// ── CSRF + session helpers (session transport) ──
 
-/** Generate login/logout functions */
-export function generateAuthFunctions(config?: AuthHelperConfig): string {
+/** Map auth callback error codes (§15.4) to user-facing copy for generated login surfaces. */
+export function generateAuthErrorMessages(): string {
+  return `export const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  login_failed: "Sign-in failed. Please try again.",
+  login_cancelled: "Sign-in was cancelled.",
+  provider_unavailable: "The sign-in provider is temporarily unavailable.",
+};
+
+export function authErrorMessage(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return AUTH_ERROR_MESSAGES[code] ?? "Sign-in failed. Please try again.";
+}`;
+}
+
+/** Generate in-memory CSRF utilities for session transport */
+export function generateCsrfUtils(): string {
+  return `let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null): void {
+  csrfToken = token;
+}
+
+export function getCsrfToken(): string | null {
+  return csrfToken;
+}
+
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export function csrfHeaders(method: string): Record<string, string> {
+  if (!csrfToken || !UNSAFE_METHODS.has(method.toUpperCase())) return {};
+  return { "X-CSRF-Token": csrfToken };
+}`;
+}
+
+/** Generate session transport auth functions */
+export function generateSessionAuthFunctions(config?: AuthHelperConfig): string {
+  const sessionUrl = config?.sessionEndpoint ?? '/auth/session';
+  const logoutUrl = config?.logoutEndpoint ?? '/auth/logout';
+  const providersUrl = config?.providersEndpoint ?? '/auth/providers';
+
+  return `export async function fetchProviders(): Promise<AuthProviderInfo[]> {
+  const response = await fetch("${providersUrl}", { credentials: "include" });
+  if (!response.ok) {
+    throw new Error("Failed to load auth providers");
+  }
+  const data = await response.json() as { providers?: AuthProviderInfo[] };
+  return data.providers ?? [];
+}
+
+export function startLogin(providerId: string, returnTo?: string): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams();
+  if (returnTo) params.set("returnTo", returnTo);
+  const qs = params.toString();
+  const url = qs ? \`/auth/login/\${encodeURIComponent(providerId)}?\${qs}\` : \`/auth/login/\${encodeURIComponent(providerId)}\`;
+  window.location.assign(url);
+}
+
+export async function loadSession(): Promise<AuthUser | null> {
+  const response = await fetch("${sessionUrl}", { credentials: "include" });
+  if (!response.ok) {
+    setCsrfToken(null);
+    return null;
+  }
+  const data = await response.json() as SessionResponse;
+  if (!data.authenticated || !data.user) {
+    setCsrfToken(null);
+    return null;
+  }
+  setCsrfToken(data.csrfToken ?? null);
+  return data.user;
+}
+
+export async function login(credentials: LoginCredentials): Promise<AuthUser> {
+  if (credentials.provider) {
+    startLogin(credentials.provider);
+    throw new Error("Redirecting to login provider");
+  }
+  throw new Error("Session transport requires a provider id for login");
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch("${logoutUrl}", {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders("POST") },
+  }).catch(() => undefined);
+  setCsrfToken(null);
+  if (response?.ok) {
+    const data = await response.json().catch(() => ({})) as { providerLogoutUrl?: string };
+    if (data.providerLogoutUrl && typeof window !== "undefined") {
+      window.location.assign(data.providerLogoutUrl);
+    }
+  }
+}
+
+export async function refreshSession(): Promise<AuthUser | null> {
+  return loadSession();
+}
+
+export function getStoredToken(): string | null {
+  return null;
+}
+
+export function getAuthHeaders(method = "GET"): Record<string, string> {
+  return csrfHeaders(method);
+}`;
+}
+
+// ── Login/Logout Functions (bearer) ──
+
+/** Generate login/logout functions for bearer transport */
+export function generateBearerAuthFunctions(config?: AuthHelperConfig): string {
   const loginUrl = config?.loginEndpoint ?? '/api/auth/login';
   const logoutUrl = config?.logoutEndpoint ?? '/api/auth/logout';
   const refreshUrl = config?.refreshEndpoint ?? '/api/auth/refresh';
@@ -157,20 +317,30 @@ export function getAuthHeaders(): Record<string, string> {
 }`;
 }
 
+/** Generate login/logout functions for the selected transport */
+export function generateAuthFunctions(config?: AuthHelperConfig): string {
+  const transport = resolveTransport(config);
+  return transport === 'session'
+    ? generateSessionAuthFunctions(config)
+    : generateBearerAuthFunctions(config);
+}
+
 // ── React Hooks ──
 
 /** Generate useAuth React hook */
-export function generateUseAuthHook(): string {
-  return `export function useAuth(): AuthState & AuthActions {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    isAuthenticated: false,
-    isLoading: true,
-    error: null,
-  });
-
-  useEffect(() => {
-    const token = getStoredToken();
+export function generateUseAuthHook(transport: AuthTransport = 'bearer'): string {
+  const mountEffect =
+    transport === 'session'
+      ? `    loadSession()
+      .then((user) => {
+        setState({
+          user,
+          isAuthenticated: !!user,
+          isLoading: false,
+          error: null,
+        });
+      })`
+      : `    const token = getStoredToken();
     if (!token || isTokenExpired(token)) {
       setState({ user: null, isAuthenticated: false, isLoading: false, error: null });
       return;
@@ -183,7 +353,20 @@ export function generateUseAuthHook(): string {
           isLoading: false,
           error: null,
         });
-      })
+      })`;
+
+  const getTokenFn = transport === 'session' ? 'getStoredToken' : 'getStoredToken';
+
+  return `export function useAuth(): AuthState & AuthActions {
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    isAuthenticated: false,
+    isLoading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+${mountEffect}
       .catch((err) => {
         setState({
           user: null,
@@ -220,7 +403,7 @@ export function generateUseAuthHook(): string {
         error: null,
       });
     },
-    getToken: getStoredToken,
+    getToken: ${getTokenFn},
   };
 }`;
 }
@@ -297,24 +480,35 @@ export function useTenant(): TenantContextValue {
 
 /** Generate a complete auth helpers module */
 export function generateAuthModule(config?: AuthHelperConfig): string {
+  const transport = resolveTransport(config);
   const lines: string[] = [
     '// Auto-generated by @plumbus/ui — do not edit',
     '// eslint-disable-next-line @typescript-eslint/no-unused-vars',
     'import React, { useState, useEffect } from "react";',
     '',
-    generateAuthTypes(),
-    '',
-    generateTokenUtils(config),
-    '',
-    generateAuthFunctions(config),
-    '',
-    generateUseAuthHook(),
-    '',
-    generateUseCurrentUserHook(),
-    '',
-    generateRouteGuard(),
+    generateAuthTypes(transport),
     '',
   ];
+
+  if (transport === 'session') {
+    lines.push(generateAuthErrorMessages());
+    lines.push('');
+    lines.push(generateCsrfUtils());
+    lines.push('');
+    lines.push(generateSessionAuthFunctions(config));
+  } else {
+    lines.push(generateTokenUtils(config));
+    lines.push('');
+    lines.push(generateBearerAuthFunctions(config));
+  }
+
+  lines.push('');
+  lines.push(generateUseAuthHook(transport));
+  lines.push('');
+  lines.push(generateUseCurrentUserHook());
+  lines.push('');
+  lines.push(generateRouteGuard());
+  lines.push('');
 
   if (config?.multiTenant) {
     lines.push(generateTenantContext());

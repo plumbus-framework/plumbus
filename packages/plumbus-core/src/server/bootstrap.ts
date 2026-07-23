@@ -19,6 +19,7 @@ import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
+import type { HttpAuthenticationRuntime } from './authentication-runtime.js';
 import type { EntityRegistry } from '../data/registry.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventQueue } from '../events/queue.js';
@@ -52,6 +53,10 @@ import {
 
 // ── Server Config ──
 
+const denyAllAuthAdapter: AuthAdapter = {
+  authenticate: async () => null,
+};
+
 export interface ServerConfig {
   /** Plumbus framework config */
   config: PlumbusConfig;
@@ -69,6 +74,8 @@ export interface ServerConfig {
   promptRegistry?: PromptRegistry;
   /** Optional custom auth adapter (default: JWT from config) */
   authAdapter?: AuthAdapter;
+  /** Optional session/OIDC authentication runtime, e.g. from @plumbus/auth */
+  authenticationRuntime?: HttpAuthenticationRuntime;
   /** Optional custom logger */
   logger?: LoggerService;
   /** Fastify listen host (default: "0.0.0.0") */
@@ -182,23 +189,34 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   warnAiSecurityBlockMode(config, logger);
 
   // Auth adapter
-  if (!config.auth.secret && config.environment !== 'development') {
+  if (
+    !config.auth.secret &&
+    config.environment !== 'development' &&
+    !serverConfig.authAdapter &&
+    !serverConfig.authenticationRuntime
+  ) {
     throw new Error(
       'auth.secret is required outside development — refusing to start with no secret',
     );
   }
-  if (!config.auth.secret) {
+  const useDefaultJwtAdapter =
+    !serverConfig.authAdapter &&
+    !serverConfig.authenticationRuntime &&
+    (Boolean(config.auth.secret) || config.environment === 'development');
+  if (useDefaultJwtAdapter && !config.auth.secret) {
     logger.warn(
       'No auth.secret configured — using insecure development fallback. Do NOT use in production.',
     );
   }
   const authAdapter =
     serverConfig.authAdapter ??
-    createJwtAdapter({
-      secret: config.auth.secret ?? 'development-secret-placeholder-32chars-min',
-      issuer: config.auth.issuer,
-      audience: config.auth.audience,
-    });
+    (useDefaultJwtAdapter
+      ? createJwtAdapter({
+          secret: config.auth.secret ?? 'development-secret-placeholder-32chars-min',
+          issuer: config.auth.issuer,
+          audience: config.auth.audience,
+        })
+      : denyAllAuthAdapter);
 
   // Fastify instance
   const app = Fastify({
@@ -214,12 +232,16 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   });
 
   // Health check endpoint
-  app.get('/health', async () => ({
-    status: 'ok',
-    environment: config.environment,
-    timestamp: new Date().toISOString(),
-    capabilities: capabilities.getAll().length,
-  }));
+  app.get('/health', async () => {
+    const authHealth = serverConfig.authenticationRuntime?.describeHealth?.();
+    return {
+      status: 'ok',
+      environment: config.environment,
+      timestamp: new Date().toISOString(),
+      capabilities: capabilities.getAll().length,
+      ...(authHealth ? { components: { auth: authHealth } } : {}),
+    };
+  });
 
   // Readiness check (verifies DB is reachable)
   app.get('/ready', async (_req, reply) => {
@@ -323,6 +345,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const routeConfig: RouteGeneratorConfig = {
     db,
     authAdapter,
+    requestAuthenticator: serverConfig.authenticationRuntime?.authenticator,
     defaultLocale,
     supportedLocales: resolvedSupportedLocales,
     createDependencies: (auth: AuthContext, options?): ContextDependencies => {
@@ -378,7 +401,22 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   // Register all capability routes
   registerAllRoutes(app, capabilities.getAll(), routeConfig);
 
-  registerJobStatusRoute(app, { db, authAdapter });
+  registerJobStatusRoute(app, {
+    db,
+    authAdapter,
+    requestAuthenticator: serverConfig.authenticationRuntime?.authenticator,
+  });
+
+  const authenticationRuntime = serverConfig.authenticationRuntime;
+  if (authenticationRuntime) {
+    app.register(async (instance) => {
+      await authenticationRuntime.initialize();
+      await authenticationRuntime.registerRoutes(instance);
+    });
+    app.addHook('onClose', async () => {
+      await authenticationRuntime.close?.();
+    });
+  }
 
   // Fastify-level error handler — catches malformed requests, timeouts, uncaught route errors
   if (serverConfig.onProcessError) {

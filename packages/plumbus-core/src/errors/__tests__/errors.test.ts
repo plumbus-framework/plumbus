@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createErrorService, isPlumbusError, PlumbusError } from '../index.js';
+import { errorToHttpStatus } from '../http.js';
+import { createErrorService, isPlumbusError, PlumbusError, UnauthorizedError } from '../index.js';
 
 describe('ErrorService', () => {
   const errors = createErrorService();
@@ -80,5 +81,15 @@ describe('isPlumbusError', () => {
     expect(isPlumbusError({ code: 'unknown', message: 'x' })).toBe(false);
     expect(isPlumbusError(null)).toBe(false);
     expect(isPlumbusError('string')).toBe(false);
+  });
+});
+
+describe('UnauthorizedError', () => {
+  it('maps to unauthorized code and 401 status', () => {
+    const err = new UnauthorizedError('Authentication required');
+    expect(err.code).toBe('unauthorized');
+    expect(err.name).toBe('UnauthorizedError');
+    expect(errorToHttpStatus(err)).toBe(401);
+    expect(isPlumbusError(err)).toBe(true);
   });
 });

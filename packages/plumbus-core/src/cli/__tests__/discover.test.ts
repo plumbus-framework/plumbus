@@ -28,6 +28,7 @@ describe('discoverResources', () => {
     expect(result.flows).toEqual([]);
     expect(result.events).toEqual([]);
     expect(result.prompts).toEqual([]);
+    expect(result.schemas).toEqual({});
   });
 
   it('hasAppDirectory returns false when app/ missing', () => {

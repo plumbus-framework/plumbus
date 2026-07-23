@@ -57,6 +57,30 @@ jobs:
             pnpm publish --access public --no-git-checks
           fi
 
+      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.6.x).
+      - name: Publish @plumbus/auth
+        working-directory: packages/auth
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.1.x).
+      - name: Publish @plumbus/auth-cognito
+        working-directory: packages/auth-cognito
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
       - name: Publish @plumbus/voice
         working-directory: packages/voice
         run: |

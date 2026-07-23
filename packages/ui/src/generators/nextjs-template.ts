@@ -4,11 +4,15 @@
 
 import type { CapabilityContract } from '@plumbus/core';
 
+import type { AuthTransport } from './auth-generator.js';
+
 export interface NextjsTemplateConfig {
   /** Application name */
   appName: string;
   /** Whether to include auth wiring */
   auth?: boolean;
+  /** Auth credential transport */
+  authTransport?: AuthTransport;
   /** Base URL for API calls */
   apiBaseUrl?: string;
 }
@@ -239,14 +243,35 @@ export default function ${pascal}Page() {
 }
 
 /** Generate AuthProvider component */
-export function generateAuthProvider(): GeneratedFile {
+export function generateAuthProvider(config?: NextjsTemplateConfig): GeneratedFile {
+  const session = config?.authTransport === 'session';
+  const sessionInit = session
+    ? `    loadSession()
+      .then((user: AuthUser | null) => {
+        setState({ user, isAuthenticated: !!user, isLoading: false, error: null });
+      })`
+    : `    const token = getStoredToken();
+    if (!token || isTokenExpired(token)) {
+      setState({ user: null, isAuthenticated: false, isLoading: false, error: null });
+      return;
+    }
+    refreshSession()
+      .then((user: AuthUser | null) => {
+        setState({ user, isAuthenticated: !!user, isLoading: false, error: null });
+      })`;
+
+  const imports = session
+    ? `import { loadSession } from "@/lib/auth";
+import type { AuthUser, AuthState } from "@/lib/auth";`
+    : `import { getStoredToken, isTokenExpired, refreshSession } from "@/lib/auth";
+import type { AuthUser, AuthState } from "@/lib/auth";`;
+
   return {
     path: 'components/AuthProvider.tsx',
     content: `"use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { getStoredToken, isTokenExpired, refreshSession } from "@/lib/auth";
-import type { AuthUser, AuthState } from "@/lib/auth";
+${imports}
 
 const AuthContext = createContext<AuthState>({
   user: null,
@@ -268,15 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    const token = getStoredToken();
-    if (!token || isTokenExpired(token)) {
-      setState({ user: null, isAuthenticated: false, isLoading: false, error: null });
-      return;
-    }
-    refreshSession()
-      .then((user: AuthUser | null) => {
-        setState({ user, isAuthenticated: !!user, isLoading: false, error: null });
-      })
+${sessionInit}
       .catch((err: unknown) => {
         setState({
           user: null,
@@ -310,6 +327,13 @@ export function generatePlaceholderFiles(): GeneratedFile[] {
 /** Generate .env.local template with Plumbus-specific variables */
 export function generateEnvLocal(config: NextjsTemplateConfig): GeneratedFile {
   const baseUrl = config.apiBaseUrl ?? 'http://localhost:3000';
+  const authLines =
+    config.authTransport === 'session'
+      ? `# Session auth uses HttpOnly cookies — no client-side secret required
+`
+      : `# Bearer auth (local JWT verification in Next.js middleware)
+AUTH_SECRET=change-me-in-production
+`;
   return {
     path: '.env.local',
     content: `# Plumbus API
@@ -317,8 +341,7 @@ NEXT_PUBLIC_API_BASE_URL=${baseUrl}
 
 # Auth
 NEXT_PUBLIC_AUTH_ENABLED=${config.auth !== false ? 'true' : 'false'}
-AUTH_SECRET=change-me-in-production
-
+${authLines}
 # Database (if using Next.js API routes with direct DB access)
 # DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plumbus
 `,
@@ -373,18 +396,24 @@ export function generateLoadingComponent(): GeneratedFile {
   };
 }
 
-/** Generate Next.js proxy (proxy.ts replaces middleware.ts in Next.js 16+) */
-export function generateProxy(_config: NextjsTemplateConfig): GeneratedFile {
+/** Generate proxy with transport-aware comments */
+export function generateProxy(config: NextjsTemplateConfig): GeneratedFile {
+  const sessionComment =
+    config.authTransport === 'session'
+      ? `  // Session transport uses HttpOnly cookies validated by the Plumbus API layer.
+  // Edge route gating may inspect the session cookie when deployment topology is same-site.`
+      : `  // Authentication is enforced by the Plumbus API layer (deny-by-default capability access policies),
+  // using the Authorization: Bearer header. The session token is stored in localStorage and is NOT
+  // readable by Next.js middleware, so route gating cannot be done here. To gate routes at the edge,
+  // move the token to an HttpOnly cookie and validate its signature/expiry in this middleware.`;
+
   return {
     path: 'proxy.ts',
     content: `import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function proxy(request: NextRequest) {
-  // Authentication is enforced by the Plumbus API layer (deny-by-default capability access policies),
-  // using the Authorization: Bearer header. The session token is stored in localStorage and is NOT
-  // readable by Next.js middleware, so route gating cannot be done here. To gate routes at the edge,
-  // move the token to an HttpOnly cookie and validate its signature/expiry in this middleware.
+${sessionComment}
   return NextResponse.next();
 }
 
@@ -398,8 +427,8 @@ export const config = {
   };
 }
 
-/** Generate a login page (only when auth is enabled) */
-export function generateLoginPage(): GeneratedFile {
+/** Generate a bearer login page (email/password) */
+export function generateBearerLoginPage(): GeneratedFile {
   return {
     path: 'app/login/page.tsx',
     content: `"use client";
@@ -450,7 +479,110 @@ export default function LoginPage() {
   };
 }
 
-/** Generate a signup page (only when auth is enabled) */
+/** Generate a session login page (provider picker) */
+export function generateSessionLoginPage(): GeneratedFile {
+  return {
+    path: 'app/login/page.tsx',
+    content: `"use client";
+
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { authErrorMessage, fetchProviders, startLogin, type AuthProviderInfo } from "@/lib/auth";
+
+export default function LoginPage() {
+  const searchParams = useSearchParams();
+  const [providers, setProviders] = useState<AuthProviderInfo[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const callbackError = authErrorMessage(searchParams.get("code"));
+    if (callbackError) {
+      setError(callbackError);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    fetchProviders()
+      .then(setProviders)
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load providers");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <main>
+        <h1>Sign in</h1>
+        <p>Loading sign-in options...</p>
+      </main>
+    );
+  }
+
+  return (
+    <main>
+      <h1>Sign in</h1>
+      {error && <p role="alert">{error}</p>}
+      <ul>
+        {providers.map((provider) => (
+          <li key={provider.id}>
+            <button
+              type="button"
+              disabled={!provider.available}
+              onClick={() => startLogin(provider.id, "/")}
+            >
+              {provider.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+`,
+  };
+}
+
+/** Generate the default auth error page for OIDC callback redirects (§15.4). */
+export function generateSessionLoginErrorPage(): GeneratedFile {
+  return {
+    path: 'app/login/error/page.tsx',
+    content: `"use client";
+
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { authErrorMessage } from "@/lib/auth";
+
+export default function LoginErrorPage() {
+  const searchParams = useSearchParams();
+  const code = searchParams.get("code");
+  const requestId = searchParams.get("requestId");
+  const message = authErrorMessage(code) ?? "Sign-in failed. Please try again.";
+
+  return (
+    <main>
+      <h1>Sign-in problem</h1>
+      <p role="alert">{message}</p>
+      {requestId ? <p>Reference: {requestId}</p> : null}
+      <p>
+        <Link href="/login">Try again</Link>
+      </p>
+    </main>
+  );
+}
+`,
+  };
+}
+
+/** Generate login page for the configured auth transport */
+export function generateLoginPage(config?: NextjsTemplateConfig): GeneratedFile {
+  return config?.authTransport === 'session'
+    ? generateSessionLoginPage()
+    : generateBearerLoginPage();
+}
+
+/** Generate a signup page (bearer transport only) */
 export function generateSignupPage(): GeneratedFile {
   return {
     path: 'app/signup/page.tsx',
@@ -535,9 +667,14 @@ export function generateNextjsTemplate(
   ];
 
   if (config.auth !== false) {
-    files.push(generateAuthProvider());
-    files.push(generateLoginPage());
-    files.push(generateSignupPage());
+    files.push(generateAuthProvider(config));
+    files.push(generateLoginPage(config));
+    if (config.authTransport === 'session') {
+      files.push(generateSessionLoginErrorPage());
+    }
+    if (config.authTransport !== 'session') {
+      files.push(generateSignupPage());
+    }
   }
 
   return files;

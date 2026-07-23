@@ -261,7 +261,7 @@ describe('diffOpenApi', () => {
     expect(changed?.path).toBe('/api/v1/items');
   });
 
-  it('detects breaking tightened scopes', () => {
+  it('detects breaking tightened scopes for oauth2 security', () => {
     const prev: OpenApiDocument = {
       ...baseDoc(),
       paths: {
@@ -281,6 +281,37 @@ describe('diffOpenApi', () => {
           get: {
             operationId: 'listItems',
             security: [{ oauth2: ['items:read', 'items:admin'] }],
+            responses: { '200': { description: 'ok' } },
+          },
+        },
+      },
+    };
+    const diff = diffOpenApi(prev, next);
+    expect(diff.breaking.some((b) => b.kind === 'tightened-scopes')).toBe(true);
+  });
+
+  it('detects breaking tightened scopes for named bearer schemes', () => {
+    const prev: OpenApiDocument = {
+      ...baseDoc(),
+      paths: {
+        '/api/v1/items': {
+          get: {
+            operationId: 'listItems',
+            security: [{ bearer: [] }],
+            'x-plumbus-required-scopes': ['items:read'],
+            responses: { '200': { description: 'ok' } },
+          },
+        },
+      },
+    };
+    const next: OpenApiDocument = {
+      ...prev,
+      paths: {
+        '/api/v1/items': {
+          get: {
+            operationId: 'listItems',
+            security: [{ bearer: [] }],
+            'x-plumbus-required-scopes': ['items:read', 'items:admin'],
             responses: { '200': { description: 'ok' } },
           },
         },

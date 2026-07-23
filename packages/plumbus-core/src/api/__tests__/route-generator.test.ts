@@ -75,6 +75,7 @@ function makeMockReply() {
   const reply = {
     status: vi.fn().mockReturnThis(),
     send: vi.fn().mockReturnThis(),
+    header: vi.fn().mockReturnThis(),
   };
   return reply;
 }
@@ -557,5 +558,166 @@ describe('registerCapabilityRoute locale wiring', () => {
       expect.objectContaining({ tenantId: 'tenant-1' }),
       expect.objectContaining({ locale: 'he' }),
     );
+  });
+});
+
+describe('requestAuthenticator path', () => {
+  function registerHandler(config: ReturnType<typeof makeMockConfig>, cap = makeCapability()) {
+    const app = makeMockApp();
+    registerCapabilityRoute(app as any, cap, config);
+    return app.get.mock.calls[0]?.[1] as (request: any, reply: any) => Promise<void>;
+  }
+
+  it('uses legacy authAdapter path when requestAuthenticator is undefined', async () => {
+    const config = makeMockConfig();
+    const handler = registerHandler(config);
+    const reply = makeMockReply();
+
+    await handler(makeMockRequest({ id: '1' }), reply);
+
+    expect(config.authAdapter.authenticate).toHaveBeenCalledWith('Bearer test-token');
+    expect(config.createDependencies).toHaveBeenCalled();
+  });
+
+  it('returns authenticated context from requestAuthenticator', async () => {
+    const config = makeMockConfig();
+    config.requestAuthenticator = {
+      authenticate: vi.fn().mockResolvedValue({
+        status: 'authenticated',
+        auth: {
+          userId: 'session-user',
+          roles: ['admin'],
+          scopes: [],
+          provider: 'oidc',
+        },
+      }),
+    };
+    const handler = registerHandler(config);
+    const reply = makeMockReply();
+
+    await handler(
+      {
+        headers: { cookie: 'session=abc' },
+        query: { id: '1' },
+        url: '/api/users/get-user',
+        ip: '127.0.0.1',
+      },
+      reply,
+    );
+
+    expect(config.authAdapter.authenticate).not.toHaveBeenCalled();
+    expect(config.createDependencies).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'session-user', provider: 'oidc' }),
+      expect.anything(),
+    );
+  });
+
+  it('returns 401 for anonymous access to protected capability', async () => {
+    const config = makeMockConfig();
+    config.requestAuthenticator = {
+      authenticate: vi.fn().mockResolvedValue({ status: 'anonymous' }),
+    };
+    const handler = registerHandler(config);
+    const reply = makeMockReply();
+
+    await handler(
+      { headers: {}, query: { id: '1' }, url: '/api/users/get-user', ip: '127.0.0.1' },
+      reply,
+    );
+
+    expect(reply.status).toHaveBeenCalledWith(401);
+    expect(reply.send).toHaveBeenCalledWith({
+      error: { code: 'unauthorized', message: 'Authentication required' },
+    });
+  });
+
+  it('allows anonymous access to public capability', async () => {
+    const config = makeMockConfig();
+    config.requestAuthenticator = {
+      authenticate: vi.fn().mockResolvedValue({ status: 'anonymous' }),
+    };
+    const cap = makeCapability({ access: { public: true } });
+    const handler = registerHandler(config, cap);
+    const reply = makeMockReply();
+
+    await handler(
+      { headers: {}, query: { id: '1' }, url: '/api/users/get-user', ip: '127.0.0.1' },
+      reply,
+    );
+
+    expect(config.createDependencies).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'anonymous' }),
+      expect.anything(),
+    );
+  });
+
+  it('clears stale session cookie for anonymous result', async () => {
+    const config = makeMockConfig();
+    config.requestAuthenticator = {
+      authenticate: vi.fn().mockResolvedValue({
+        status: 'anonymous',
+        clearCookieHeader: 'session=; Max-Age=0; Path=/',
+      }),
+    };
+    const cap = makeCapability({ access: { public: true } });
+    const handler = registerHandler(config, cap);
+    const reply = { ...makeMockReply(), header: vi.fn().mockReturnThis() };
+
+    await handler(
+      { headers: {}, query: { id: '1' }, url: '/api/users/get-user', ip: '127.0.0.1' },
+      reply,
+    );
+
+    expect(reply.header).toHaveBeenCalledWith('set-cookie', 'session=; Max-Age=0; Path=/');
+  });
+
+  it('maps invalid authorization to 401 response', async () => {
+    const config = makeMockConfig();
+    config.requestAuthenticator = {
+      authenticate: vi.fn().mockResolvedValue({
+        status: 'invalid',
+        code: 'invalid_authorization',
+      }),
+    };
+    const handler = registerHandler(config);
+    const reply = { ...makeMockReply(), header: vi.fn().mockReturnThis() };
+
+    await handler(
+      {
+        headers: { authorization: 'Bearer bad' },
+        query: { id: '1' },
+        url: '/api/users/get-user',
+        ip: '127.0.0.1',
+      },
+      reply,
+    );
+
+    expect(reply.status).toHaveBeenCalledWith(401);
+    expect(reply.header).toHaveBeenCalledWith('www-authenticate', 'Bearer error="invalid_token"');
+  });
+
+  it('maps unavailable authentication to 503 response', async () => {
+    const config = makeMockConfig();
+    config.requestAuthenticator = {
+      authenticate: vi.fn().mockResolvedValue({
+        status: 'unavailable',
+        code: 'authentication_unavailable',
+      }),
+    };
+    const handler = registerHandler(config);
+    const reply = makeMockReply();
+
+    await handler(
+      { headers: {}, query: { id: '1' }, url: '/api/users/get-user', ip: '127.0.0.1' },
+      reply,
+    );
+
+    expect(reply.status).toHaveBeenCalledWith(503);
+    expect(reply.send).toHaveBeenCalledWith({
+      error: {
+        code: 'authentication_unavailable',
+        message: 'Authentication temporarily unavailable',
+      },
+    });
   });
 });

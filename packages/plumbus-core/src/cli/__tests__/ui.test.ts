@@ -148,6 +148,27 @@ describe('plumbus ui helpers', () => {
     expect(capturedOptions?.splitLocaleBundles).toBe(true);
     expect(files.map((f) => f.path)).toContain('i18n/messages.ts');
   });
+
+  it('passes authTransport to auth and client generators', () => {
+    let authConfig: { transport?: string } | undefined;
+    let clientConfig: { authTransport?: string } | undefined;
+    const generators: UiGeneratorModule = {
+      ...mockUiGenerators(),
+      generateAuthModule: (config) => {
+        authConfig = config;
+        return 'auth-module';
+      },
+      generateClientModule: (_caps, _flows, config) => {
+        clientConfig = config;
+        return 'client-module';
+      },
+    };
+
+    generateUiModuleFiles([], [], generators, { authTransport: 'session' });
+
+    expect(authConfig?.transport).toBe('session');
+    expect(clientConfig?.authTransport).toBe('session');
+  });
 });
 
 describe('enforceLocaleParity', () => {
