@@ -10,10 +10,15 @@
 - **`__resetTransportWarningForTests`** — test helper for one-time deprecation warning when transport is omitted.
 - **Auth documentation cross-links** — README ecosystem table and [docs/ui/ui-generation.md](../../docs/ui/ui-generation.md) section on adapting generated clients for `@plumbus/auth` cookie sessions + CSRF.
 
+### Fixed
+
+- **Generated `i18n/messages.ts` is now assignable to the next-intl provider for multi-locale catalogs.** `generateMessagesCatalog` (and the split-locale `generateSplitMessagesAggregator`) froze the whole catalog with `as const`, which gave every locale a *divergent literal type* (`messages["en"].greeting` = `"Hello"`, `messages["he"].greeting` = `"שלום"` — different types). The generated `provider.tsx` / `request.ts` index it with a runtime locale (`messages[locale]`, `locale: Locale`), producing the union `messages["en"] | messages["he"]`, which is **not** assignable to `Messages` — the default-locale shape next-intl reads from `AppConfig`. Result: `NextIntlClientProvider`'s `messages` prop and `getRequestConfig`'s return both failed to typecheck (`TS2322: '…"Hello"… | …"שלום"…' is not assignable to 'DeepPartial<…"Hello"…>'`) for **any** project with ≥2 locales whose values differ (single-locale or identical-value catalogs were unaffected, which is how it slipped through). The catalog is now emitted as `const rawMessages = … as const` plus a per-locale→default-locale assertion (`export const messages = rawMessages as unknown as { [L in keyof typeof rawMessages]: (typeof rawMessages)[<defaultLocale>] }`), so every locale is typed as the default-locale shape and `messages[locale]` stays exactly `Messages`. The specific translated string *values* are never needed at the type level (keys come from `keyof`; ICU inference reads the default locale), so no type information is lost. **Runtime output is byte-identical** (`rawMessages` holds the same object); only the binding's type changes.
+
 ### Changed
 
 - Omitted auth transport retains legacy bearer behavior and emits a deprecation warning (spec §22.3).
 - CLI: `plumbus ui generate` and `plumbus ui nextjs` accept `--auth-transport session|bearer`.
+- Regenerate `i18n/*` (`plumbus ui generate`) to pick up the corrected `messages.ts`. No app-code changes required; no runtime behavior change.
 
 ## 0.7.0
 
