@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/chat-ui",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "React UI for @plumbus/chat",
   "type": "module",
   "main": "./dist/index.js",

@@ -240,4 +240,23 @@ describe('checkLivePending', () => {
     const s = await chatSessionRepo(ctx).findById(session.id);
     expect(s?.leaseToken).toBe('a1'); // lease left intact
   });
+
+  it('fails closed with chat.storage_unsupported when a reap is needed but updateWhere is missing', async () => {
+    const ctx = createTestContext();
+    const session = await createSession(ctx, {
+      chatName: 'help',
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    // A confirming row means checkLivePending will need a conditional write.
+    await chatPendingActionRepo(ctx).create(
+      pending(session.id, { status: 'confirming', attemptId: 'a1' }),
+    );
+    // Simulate a store (older @plumbus/core) without a conditional-write path.
+    (ctx.data as Record<string, { updateWhere?: unknown }>).ChatPendingAction.updateWhere =
+      undefined;
+
+    await expect(checkLivePending(ctx, session.id)).rejects.toThrow(/conditional-write/i);
+  });
 });

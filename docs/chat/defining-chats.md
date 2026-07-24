@@ -80,7 +80,7 @@ defineChat({
     privacy?:     { redact: ['ssn', 'cardNumber'] },
     provenance?:  { required: true, minSources?: 1 },
     behavioral?:  { cooldowns: [{ trigger, count, durationSeconds, scope }] },
-    action?:      { allowedCapabilities: ['openSupportTicket'], frameworkExecuteOnConfirm?: false },  // Path A; frameworkExecuteOnConfirm defaults false (decision-only)
+    action?:      { allowedCapabilities: ['openSupportTicket'], frameworkExecuteOnConfirm?: false },  // Path A is decision-only; frameworkExecuteOnConfirm is reserved / not yet enforced (no code reads it)
     toolCalling?: {                           // Path B — provider-native tool calling (see below)
       enabled: true,
       capabilities?: ['openSupportTicket'],   // capability tools (confirm/auto per binding)

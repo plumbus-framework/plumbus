@@ -75,6 +75,7 @@ If you need to find or extend something, this is where it lives:
 3. **Wiring up context:** see [`context-sources.md`](./context-sources.md). Built-in helpers cover most cases; custom `ContextSource` only when truly bespoke.
 4. **Writing tests:** see [`testing.md`](./testing.md). Always use `mockChatRuntime`; never spin up a real provider in unit tests.
 5. **Extending the framework:** see [`extending.md`](./extending.md). Custom guards, custom context sources, custom prompts.
+6. **Provider-native tool calling (Path B):** see [`defining-chats.md`](./defining-chats.md) and [`policies.md`](./policies.md). Enable `policy.toolCalling` to bind capabilities/flows as provider tools; complete both Path B setup steps (re-export prompts + `chatRegistry`) first.
 
 ## Deeper Reference
 

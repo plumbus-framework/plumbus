@@ -185,11 +185,11 @@ const CHAT_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/chat/instructions/framework.md',
   },
   {
-    area: 'adding a new chat with defineChat (recipe + full config shape)',
+    area: 'adding a new chat with defineChat (recipe + full config shape), including enabling provider-native tool calling (policy.toolCalling, Path B)',
     path: 'node_modules/@plumbus/chat/instructions/defining-chats.md',
   },
   {
-    area: 'configuring chat policy guards (audience, scope, behavioral, action, etc.)',
+    area: 'configuring chat policy guards (audience, scope, behavioral, action, etc.), tool calling (policy.toolCalling, Path B)',
     path: 'node_modules/@plumbus/chat/instructions/policies.md',
   },
   {

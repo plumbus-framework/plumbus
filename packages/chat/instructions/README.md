@@ -5,8 +5,8 @@ This folder ships with the npm tarball and is the entry point for AI coding agen
 | File | When to read |
 |---|---|
 | [`framework.md`](./framework.md) | First. What the package is for, package conventions, file map, critical rules. |
-| [`defining-chats.md`](./defining-chats.md) | When the user asks you to add a new chat. Step-by-step recipe + full config shape. |
-| [`policies.md`](./policies.md) | When the user asks to add a guard, refusal cooldown, audience check, or action confirmation. |
+| [`defining-chats.md`](./defining-chats.md) | When the user asks you to add a new chat. Step-by-step recipe + full config shape. Includes the *Enable provider-native tool calling (Path B)* recipe. |
+| [`policies.md`](./policies.md) | When the user asks to add a guard, refusal cooldown, audience check, or action confirmation. Also tool calling (Path B) via `policy.toolCalling`. |
 | [`context-sources.md`](./context-sources.md) | When wiring up `knowledgeContext` / `capabilityContext` / `staticContext`, or writing a custom one. |
 | [`testing.md`](./testing.md) | When writing tests with `mockChatRuntime` or the pure UI helpers. |
 | [`extending.md`](./extending.md) | When the built-ins don't cover the use case (custom prompt, custom context source, custom guard). |

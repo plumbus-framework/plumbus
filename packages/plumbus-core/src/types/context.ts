@@ -142,7 +142,13 @@ export interface Repository<
    * Tenant scope and (for tenant-scoped entities) the tenant WHERE predicate are
    * applied exactly as in `update`.
    */
-  updateWhere(
+  /**
+   * Optional so a pre-existing custom `Repository`/`DataService` implementation still
+   * satisfies this interface without change. The framework's own repositories
+   * (drizzle + in-memory) always provide it; features that need a compare-and-set
+   * (e.g. @plumbus/chat confirmation claims) require an implementation that has it.
+   */
+  updateWhere?(
     id: string,
     predicate: Partial<T>,
     updates: TUpdate,
@@ -327,7 +333,10 @@ export interface AIGenerateConfig {
  * `finishReason` is newly added and additive; existing consumers may ignore it.
  */
 export interface AIFinalGenerateResult<T = Record<string, any>> {
-  finishReason: 'stop' | 'length' | 'refusal' | 'other';
+  // Optional so constructing a result literal (test doubles, custom AIService
+  // implementations, mock AI) stays source-compatible with the pre-0.6.9 shape,
+  // which had no finishReason. Readers narrow on it; the framework always sets it.
+  finishReason?: 'stop' | 'length' | 'refusal' | 'other';
   data: T;
   toolCalls?: never;
   usage: AITokenUsage;

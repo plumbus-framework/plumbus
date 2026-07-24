@@ -22,8 +22,8 @@ export const chatConfirmAction = defineCapability({
     // used ONLY as match keys — never to drive execution (C3).
     inputSchemaHash: z.string(),
     toolBindingHash: z.string(),
-    // Route sets true for Path B tools and for Path A when
-    // policy.action.frameworkExecuteOnConfirm === true; false = decision-only.
+    // Route sets true for Path B tools; false = decision-only. (Path A's
+    // policy.action.frameworkExecuteOnConfirm is RESERVED / not yet enforced.)
     execute: z.boolean(),
   }),
 

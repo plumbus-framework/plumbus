@@ -1,6 +1,6 @@
 # @plumbus/core changelog
 
-## Unreleased — provider-native tool calling
+## 0.6.10 — 2026-07-24 — provider-native tool calling
 
 ### Added
 
@@ -9,7 +9,9 @@
 - **`generateWithUsage` result overloads** — no-tool callers keep the flat `AIFinalGenerateResult<T>` with unconditional `.data`; tool-enabled config returns the discriminated `AIToolEnabledGenerateResult<T>` (keyed on `finishReason`). `AIGenerateResult` is preserved as a back-compat alias of the flat result; `finishReason` is an additive field existing consumers may ignore.
 - **`runToolLoop`** (`src/ai/tool-loop.ts`) — bounded request→tool→observe loop for capability authors. Default `maxRounds` 8, hard maximum 20; the exhausted-loop final request omits **both** `tools` and `toolChoice`. Invalid-argument calls are never executed and surface as a `tool_arguments_invalid` observation.
 - **`EntityIndexDefinition.unique`** — `indexes` accepts the legacy `string[][]` form or `{ columns, unique? }`. Additive; existing entity index declarations are unchanged.
-- **Conditional/transactional write path** — `Repository` gains a conditional (CAS) update and a transaction-capable path surfaced to `@plumbus/chat` for atomic lease-based session mutations.
+- **`FlowService.describe()`** — returns a `FlowDescription` (flow name, input JSON schema, input-schema hash) so callers such as `@plumbus/chat` can bind flows as provider-native tools without reaching into flow internals.
+- **`safeJsonStringify`** (exported) — best-effort JSON serialization that never throws (handles circular refs / non-serializable values), used for tool observations and structured logging. **`AIInvalidRequestError`** (exported) — structured `PlumbusError` subclass for provider-rejected/invalid AI requests; existing `catch` blocks are unaffected.
+- **`Repository.updateWhere` (optional conditional/CAS update) + transaction-capable write path** — `Repository` gains the optional `updateWhere` method returning `ConditionalUpdateResult`, surfaced to `@plumbus/chat` for atomic lease-based session mutations. `updateWhere` is **optional** on the `Repository` interface, so pre-existing custom `Repository` implementations still compile; stores that lack it fail closed at startup with `chat.storage_unsupported` rather than silently losing conditional semantics.
 
 ### Notes
 

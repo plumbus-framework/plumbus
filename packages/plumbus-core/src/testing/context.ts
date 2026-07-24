@@ -576,6 +576,9 @@ function withFieldValidation<T extends Record<string, unknown>>(
     },
     async updateWhere(id, predicate, updates) {
       check(updates as Record<string, unknown>);
+      if (!repo.updateWhere) {
+        throw new Error('updateWhere is not supported by the wrapped repository');
+      }
       return repo.updateWhere(id, predicate, updates);
     },
     delete: (id) => repo.delete(id),

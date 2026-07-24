@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased — provider-native tool calling
+## 0.1.11 — 2026-07-24 — provider-native tool calling
 
 ### Added
 
-- **Path B — provider-native tool calling (`policy.toolCalling`).** Capabilities and `autoStartFlows` are bound as provider-native tools; a bounded per-turn loop (`maxToolRounds` default 5, range 1..20) drives the provider through tool rounds using the registered `chat.toolRound` prompt. Chat does **not** call core's `runToolLoop`. Auto-mode tools execute inline via `ctx.__runtime.resolveCapability` + `executeCapability` (access policy enforced); confirm-mode tools pause the turn with `confirmation_required` and execute on confirm.
+- **Path B — provider-native tool calling (`policy.toolCalling`).** Capabilities and `autoStartFlows` are bound as provider-native tools; a bounded per-turn loop (`maxToolRounds` default 5, range 1..20) drives the provider through tool rounds using the registered `chat.toolRound` prompt. Chat does **not** call core's `runToolLoop`. Auto-mode tools execute inline via `ctx.__runtime.resolveCapability` + `executeCapability` (access policy enforced); confirm-mode tools pause the turn with `confirmation_required` and execute on confirm. `autoStartFlows` tools additionally run under a bounded per-turn flow budget so a single turn cannot start an unbounded number of flows.
 - **`POST /chat/:name/confirm` — always framework-invoke + resume.** Confirm-mode tool calls (Path B) are always executed through the framework capability pipeline on confirm, then the tool loop is resumed from a durable `resumePayload` to produce the final answer. Confirm reuses `/turn` authentication via `ChatRequestAuthenticator`; cookie-authenticated writes additionally require exact-Origin + a session-bound CSRF token.
 - **New events** — `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved`. `confirmation_required` keeps its underscore discriminator (wire compat) and gains optional `inputSchemaHash` and a validated `projection`. `pendingStatus` includes `expired`.
 - **Lease-based `ChatConversationStore`** — `acquireSessionMutation` / `commitProposal` / `claimPending` / `completePending` make propose and confirm+resume atomic; `ChatTurn` uses a unique `(sessionId, ordinal)` index. Adapters without a conditional/transactional write path fail closed at startup with `chat.storage_unsupported`.
@@ -14,12 +14,26 @@
 
 ### Changed
 
-- **Path A `frameworkExecuteOnConfirm` (opt-in, default `false`).** `policy.action` gains `frameworkExecuteOnConfirm`. With it unset (default), a confirmed legacy `requestedAction` stays **decision-only** — validate, mark confirmed, emit events, no side effects (unchanged historical behavior). With it `true`, the confirmed action executes through the framework capability pipeline. This is **not** a blanket breaking execute; the default preserves existing behavior.
+- **Path A `frameworkExecuteOnConfirm` (accepted but RESERVED — not yet enforced).** `policy.action` accepts `frameworkExecuteOnConfirm`, but it is **reserved and not enforced in this release** — no code path reads it. Path A confirm remains **decision-only** regardless of its value: validate, mark confirmed, emit events, no side effects (unchanged historical behavior). Whether a confirm performs framework execution is gated by the request's `execute` flag, not this field. The knob is reserved so a future release can enable framework execution without a schema break.
 
 ### Requires
 
-- **Prompt re-export.** Re-export `chatToolRoundPrompt` (`chat.toolRound`) and `chatScopeCheckPrompt` (`chat.scopeCheck`) from `@plumbus/chat` into `app/prompts/` so directory discovery registers them (same one-time wiring as `chat.turn`). Path B fails at startup with `chat.prompt_not_registered` if either is absent.
+- **Prompt re-export.** Re-export `chatToolRoundPrompt` (`chat.toolRound`) and `chatScopeCheckPrompt` (`chat.scopeCheck`) from `@plumbus/chat` into `app/prompts/` so directory discovery registers them (same one-time wiring as `chat.turn`). Path B fails at startup with `chat.prompt_not_registered` if either is absent. The `createChatRegistry` used to enforce this prompt-registration check is wired at `registerChatRoutes`, so the check runs during route registration.
 - Core with the provider tool protocol, `runToolLoop`, `EntityIndexDefinition.unique`, and the conditional/transactional repository write path (see `@plumbus/core` changelog). Peer range stays `0.6.x`.
+
+### Breaking
+
+- **`chatConfirmAction` input/output shape changed.** Input is now `{ actionId, chatName, decision: 'confirm' | 'reject', inputSchemaHash, toolBindingHash, execute }` and output is `{ decisionRecorded, pendingStatus, executionStatus, events }`. The prior 0.1.10 input `{ actionId, schemaHash, execute }` / output `{ executed }` is **superseded**. Real-world impact is minimal — the prior 0.1.10 handler was a non-executing stub with no shipped caller — but the wire shape did change, so any code constructing the old input or reading `executed` must migrate.
+
+### Migration
+
+- **Run migrations.** Existing persisted-chat apps must run:
+
+  ```bash
+  plumbus migrate generate && plumbus migrate apply
+  ```
+
+  The schema change is **additive**: the new `chat_pending_action` columns (`input_schema_hash`, `tool_binding_hash`) are `NOT NULL DEFAULT ''`, the legacy `schema_hash` column is **retained**, and a new `UNIQUE` index is added on `chat_turn (session_id, ordinal)`. No backfill is needed. The unique index can fail to create if a pre-existing high-concurrency `chat_turn` table already holds duplicate `(session_id, ordinal)` rows — dedupe those rows first, then re-apply.
 
 ## 0.1.10
 

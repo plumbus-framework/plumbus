@@ -15,8 +15,15 @@ export const chatPendingActionEntity = defineEntity({
     // C3: normalized value ONLY (Zod-parsed, defaults/coercions applied). Never
     // re-read from the client at confirm time.
     input: field.json({ required: true }),
-    inputSchemaHash: field.string({ required: true }),
-    toolBindingHash: field.string({ required: true }),
+    // Legacy pre-tool-calling hash. Retained (optional) so upgrading an existing
+    // chat_pending_action table does NOT drop the column — keeps the migration
+    // non-destructive. Superseded by inputSchemaHash; not written by new code.
+    schemaHash: field.string({ optional: true }),
+    // Required with a '' default so ADD COLUMN on an existing table is
+    // non-destructive (NOT NULL DEFAULT '') and needs no backfill. New rows are
+    // always created with a real hash; the default only backs pre-upgrade rows.
+    inputSchemaHash: field.string({ required: true, default: '' }),
+    toolBindingHash: field.string({ required: true, default: '' }),
     confirmationMessage: field.string({ required: true }),
     confirmationProjection: field.json({ optional: true }),
     // pending → confirming → { confirmed | failed | indeterminate }; plus

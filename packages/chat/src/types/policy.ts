@@ -16,6 +16,13 @@ export interface ChatActionPolicy {
   allowedCapabilities?: string[];
   /** C8: NEW optional Path-A field. When true, a confirmed legacy requestedAction
    *  executes through the framework capability pipeline. Default false (decision-only). */
+  /**
+   * RESERVED — not yet enforced. Intended to gate whether a confirmed legacy
+   * `requestedAction` (Path A) executes through the framework pipeline. No runtime
+   * code branches on it today; Path B tool confirmation always executes, and Path A
+   * execution is driven by the confirm request's `execute` flag. Kept optional and
+   * additive; wiring it is a future change.
+   */
   frameworkExecuteOnConfirm?: boolean;
 }
 

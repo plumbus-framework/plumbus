@@ -27,10 +27,11 @@ Two paths now coexist. Neither breaks the other.
 ### Path A — legacy `requestedAction` (unchanged default)
 
 `policy.action.allowedCapabilities` + `output.requestedAction` still work exactly as
-before and remain **decision-only by default**. New optional field
-`policy.action.frameworkExecuteOnConfirm` (default `false`): when `true`, a confirmed
-Path-A action executes through the framework capability pipeline instead of returning a
-stub. This is opt-in; leaving it unset preserves the historical decision-only behavior.
+before and remain **decision-only**. The optional field
+`policy.action.frameworkExecuteOnConfirm` is **reserved and not yet enforced** in this
+release — no code reads it, so setting it has no effect. Path A confirm records the
+decision (driven by the confirm request's `execute` flag) without executing the target
+capability through the framework.
 
 ### Path B — provider-native tool calling (new, opt-in)
 

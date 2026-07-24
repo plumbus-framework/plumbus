@@ -53,6 +53,25 @@ export async function checkLivePending(
   };
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
+  // If any row will need a conditional-write (reap a stale confirming row, or expire a
+  // lapsed pending), fail closed with a clear chat.storage_unsupported error when the
+  // store lacks updateWhere — e.g. a new @plumbus/chat resolved against an older
+  // @plumbus/core predating Repository.updateWhere — instead of a raw "not a function".
+  const needsConditionalWrite = rows.some(
+    (r) =>
+      r.status === 'confirming' ||
+      (r.status === 'pending' && new Date(r.expiresAt).getTime() <= now),
+  );
+  if (needsConditionalWrite) {
+    const probe = (ctx.data as Record<string, unknown>).ChatPendingAction as
+      | { updateWhere?: unknown }
+      | undefined;
+    if (!probe || typeof probe.updateWhere !== 'function') {
+      throw ctx.errors.internal('Chat storage adapter lacks a conditional-write path', {
+        code: 'chat.storage_unsupported',
+      });
+    }
+  }
   for (const row of rows) {
     if (row.status === 'confirming') {
       const sessionLease = await sessionLeaseForConfirmingRow(row, loadSessionLease, now);
