@@ -9,7 +9,7 @@ This file covers the four extension points the framework intentionally exposes. 
 | Authoring style (per-chat prompt body, output schema additions) | `defineChat({ prompt: customPrompt })` | Pass `definePrompt` result |
 | Context resolution (new data source type) | Custom `ContextSource` | Implement the interface |
 | Policy behavior (new check the built-ins don't cover) | `policy.custom: Guard[]` | Implement `Guard` type |
-| Action confirmation flow | Standard `actions:` + `policy.action` | Use, don't replace |
+| Action confirmation flow | Path A: `actions:` + `policy.action`. Path B: `policy.toolCalling` (model calls capabilities/flows as provider-native tools) | Use, don't replace |
 
 ## Custom Prompt (per-chat)
 
@@ -161,13 +161,14 @@ defineChat({
 | Reorder the guard pipeline | Override `compilePolicy` | The order is intentionally fixed. Use built-ins + custom |
 | Add a new event type | Add to `ChatEvent` union ad-hoc | File an issue; events are part of the wire protocol |
 | Persist extra session data | Add columns to `ChatSession` | Use a separate entity in your app, key it on `sessionId` |
-| Skip the action confirmation flow | Execute capabilities from a custom guard | Use `actions:` + `policy.action`; that's the safe path |
+| Skip the action confirmation flow | Execute capabilities from a custom guard | Use `actions:` + `policy.action` (Path A) or `policy.toolCalling` (Path B); those are the safe paths |
 | Replace the runtime orchestrator | Fork `runChatTurn` | The orchestrator's order is load-bearing for guards, budgets, provenance |
 | Bypass the prompt's structured-output schema | Use a prompt with a different output shape | Custom prompts must keep the five base fields |
 
 ## Deeper Reference
 
 - `/docs/chat/design/` — every design decision; read before extending
+- `defining-chats.md` / `policies.md` (this folder) — `policy.toolCalling` (Path B): letting the model call capabilities/flows as provider-native tools instead of the single-shot Path A `requestedAction`
 - `src/types/policy.ts` — the `Guard` and `GuardVerdict` types
 - `src/types/context.ts` — the `ContextSource`, `ContextItem`, `ChatSourceRef` types
 - `src/runtime/run-turn.ts` — the orchestrator (read before assuming where in the pipeline your extension fires)

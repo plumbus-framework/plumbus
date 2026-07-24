@@ -87,6 +87,66 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 });
 ```
 
+`generateWithUsage` is **overloaded**: called without `tools` (as above) it returns the flat `AIFinalGenerateResult` — `.data` is always present, plus a `finishReason`. Called **with** `tools` it returns the discriminated `AIToolEnabledGenerateResult` (see [Tool calling](#tool-calling-provider-native)).
+
+### Tool calling (provider-native)
+
+Pass `tools` to `generate` / `generateWithUsage` to let the model call functions natively. Both built-in adapters implement caller tools on the wire (OpenAI `tools`/`tool_calls`; Anthropic `tool_use`/`tool_result` + `input_schema`). Build each `AITool.parameters` from `zodToProviderJsonSchema(schema).schema`:
+
+```ts
+import type { AITool } from "@plumbus/core";
+
+const tools: AITool[] = [
+  {
+    name: "lookupOrder",
+    description: "Look up an order by id",
+    parameters: zodToProviderJsonSchema(lookupOrderInput).schema,
+  },
+];
+
+const result = await ctx.ai.generateWithUsage({
+  prompt: "assistant.turn",
+  input: { userMessage },
+  tools,
+  toolChoice: "auto",                 // 'auto' | 'none' | { type: 'function', function: { name } }
+  toolExecution: { parallelToolCalls: false },
+  outputValidation: "none",            // disable output-schema validation during tool rounds
+});
+
+if (result.finishReason === "tool_calls") {
+  for (const call of result.toolCalls) {
+    // call.argumentsStatus is 'parsed' | 'invalid' — only execute 'parsed' calls.
+    // The tool-calls branch has NO `.data`.
+  }
+} else {
+  result.data; // final structured answer (flat AIFinalGenerateResult)
+}
+```
+
+**Result typing.** A no-tools call returns `AIFinalGenerateResult<T>` (`.data` unconditional — back-compatible). A tools-enabled call returns `AIToolEnabledGenerateResult<T>`, a union keyed on `finishReason`: `'tool_calls'` carries `toolCalls` and no `.data`; any other reason carries `.data` and no `toolCalls`. Narrow on `finishReason` before touching `.data`.
+
+**Bounded loop — `runToolLoop`.** For a full request→tool→observe→request loop, use `runToolLoop` (imported from `@plumbus/core`) instead of hand-rolling one:
+
+```ts
+import { runToolLoop } from "@plumbus/core";
+
+const { final, messages, rounds } = await runToolLoop(ctx.ai, {
+  prompt: "assistant.turn",           // a registered prompt NAME
+  input: { userMessage },
+  tools,
+  execute: async (call) => {          // only receives 'parsed' calls
+    return runMyTool(call.name, call.arguments);
+  },
+});
+// final is a flat AIFinalGenerateResult; final.data is the answer.
+```
+
+`runToolLoop` defaults to `maxRounds: 8` (hard cap 20). On round exhaustion it makes ONE final request that **omits both `tools` and `toolChoice`** (never `toolChoice: 'none'`), so it always resolves to a non-tool answer. Invalid-argument tool calls are **never** executed — they surface to the model as a bounded `tool_arguments_invalid` observation. Observations are byte-bounded and wrapped in an `untrusted_tool_result` envelope.
+
+An external `AIProviderAdapter` that omits the optional `capabilities` field is treated as declaring every capability `false` (no tool support).
+
+> `@plumbus/chat`'s tool calling (`policy.toolCalling`, Path B) runs its **own** bounded loop with a different default (`maxToolRounds: 5`) — it does **not** call `runToolLoop`. Use `runToolLoop` for capability/flow authors and standalone `ctx.ai` tool loops, not to reimplement chat.
+
 ### Stream Generate
 
 Stream partial output for long-running generations:

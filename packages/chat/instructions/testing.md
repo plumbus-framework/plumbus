@@ -158,5 +158,6 @@ For answer-quality eval you need a separate offline harness — the eval framewo
 ## Deeper Reference
 
 - `/docs/chat/testing.md` — full conceptual reference
-- `src/runtime/__tests__/run-turn.test.ts` — 11 reference tests including `countingAI` pattern
+- `src/runtime/__tests__/run-turn.test.ts` — 24 reference tests (11 `describe` blocks) using the `countingAI` pattern
+- `src/runtime/__tests__/run-turn-tools.test.ts` — Path B (`policy.toolCalling`) tool-calling + confirm/resume reference tests
 - `src/testing/mock-chat-runtime.ts` — the helper itself (read before writing alternatives)

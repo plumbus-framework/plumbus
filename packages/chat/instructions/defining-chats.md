@@ -107,7 +107,7 @@ defineChat({
 Two independent knobs. `messageContent` controls where the prose lives; `saveToDb` controls whether the runtime writes to `chat_session` / `chat_turn` / `chat_pending_action` at all.
 
 - `saveToDb: true` (default) — full audit, cross-device continuity, action confirmation, server-authoritative state.
-- `saveToDb: false` — no chat-table writes. The client owns `sessionId`; cooldowns and per-session message caps are enforced from `clientHistory` (assistant messages carry their `refusalReason` on the wire). `defineChat` rejects two combinations: `saveToDb: false` + `messageContent: 'server'`, and `saveToDb: false` + `policy.action.allowedCapabilities`. Action confirmation is therefore unavailable in ephemeral mode.
+- `saveToDb: false` — no chat-table writes. The client owns `sessionId`; cooldowns and per-session message caps are enforced from `clientHistory` (assistant messages carry their `refusalReason` on the wire). `defineChat` rejects three combinations: `saveToDb: false` + `messageContent: 'server'`, `saveToDb: false` + `policy.action.allowedCapabilities`, and `saveToDb: false` + `policy.toolCalling.enabled` (tool execution records require `chat_turn` rows). Action confirmation and Path B tool calling are therefore unavailable in ephemeral mode.
 
 ### `streaming`
 
