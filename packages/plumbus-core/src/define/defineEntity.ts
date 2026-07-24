@@ -1,4 +1,4 @@
-import type { EntityDefinition, EntityRetention } from '../types/entity.js';
+import type { EntityDefinition, EntityIndexDefinition, EntityRetention } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { throwDefineValidationError } from './validation-error.js';
@@ -11,7 +11,7 @@ interface DefineEntityInput {
   owner?: string;
 
   fields: Record<string, FieldDescriptor>;
-  indexes?: string[][];
+  indexes?: Array<string[] | EntityIndexDefinition>;
   retention?: EntityRetention;
   tenantScoped?: boolean;
 }
@@ -30,7 +30,8 @@ export function defineEntity(config: DefineEntityInput): EntityDefinition {
   if (config.indexes) {
     const fieldNames = new Set(Object.keys(config.fields));
     for (const idx of config.indexes) {
-      for (const col of idx) {
+      const cols = Array.isArray(idx) ? idx : idx.columns;
+      for (const col of cols) {
         if (!fieldNames.has(col)) {
           throwDefineValidationError(
             `Entity "${config.name}": index references unknown field "${col}"`,

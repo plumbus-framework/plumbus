@@ -17,6 +17,7 @@ import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import { createFlowService } from '../flows/flow-service.js';
 import type { createFlowEngine } from '../flows/engine.js';
+import type { FlowRegistry } from '../flows/registry.js';
 import { createJobService, JobClaimResult } from '../jobs/service.js';
 import { jobEventType, type JobQueuePayload } from '../jobs/types.js';
 import type { EntityRegistry } from '../data/registry.js';
@@ -33,6 +34,8 @@ export interface RegisterCapabilityConsumersOptions {
   db: PostgresJsDatabase;
   config: PlumbusConfig;
   flowEngine?: ReturnType<typeof createFlowEngine>;
+  /** Flow registry — enables `ctx.flows.describe()` for flow-tool binding on chat surfaces. */
+  flowRegistry?: FlowRegistry;
   aiService?: AIService;
   logger?: LoggerService;
   metrics?: PlumbusMetrics;
@@ -126,7 +129,9 @@ function buildConsumerContext(
   auth: AuthContext,
   eventMeta?: { correlationId?: string; causationId?: string },
 ): ReturnType<typeof createExecutionContext> {
-  const flows = opts.flowEngine ? createFlowService(opts.flowEngine, auth) : undefined;
+  const flows = opts.flowEngine
+    ? createFlowService(opts.flowEngine, auth, opts.flowRegistry)
+    : undefined;
   const capRuntime = buildCapabilityRuntimeDeps(opts.capabilities);
   const encryptionKey = resolveEncryptionKey();
 

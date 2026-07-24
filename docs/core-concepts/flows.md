@@ -262,6 +262,12 @@ A flow definition can carry **either** a `trigger` (event-driven), **or** a `sch
 
 Do not combine `trigger` and `schedule` on the same flow — pick one initiation model.
 
+A flow can also be started from a chat conversation: list it in a chat's
+`policy.toolCalling.autoStartFlows` and the runtime binds it as a `flow__<name>` provider
+tool. Per-turn limits (`maxFlowStartsPerTurn`, `flowAwaitBudgetMsPerTurn`) bound how much
+flow work a single turn may trigger. See
+[chat → provider-native tool calling](../chat/defining-chats.md#provider-native-tool-calling-policytoolcalling-path-b).
+
 ### Scheduled flow example
 
 Use `schedule.cron` when work should run on a timer (nightly cleanup, hourly sync, etc.). The flow scheduler lives in the **worker pool** and writes run state to the `flow_schedules` table.

@@ -527,3 +527,28 @@ describe('createTestContext', () => {
     expect(audit.records).toHaveLength(1);
   });
 });
+
+describe('createInMemoryRepository updateWhere', () => {
+  it('in-memory updateWhere matches SQL CAS semantics (equality + null)', async () => {
+    const repo = createInMemoryRepository<{
+      id: string;
+      revision: number;
+      leaseToken: string | null;
+    }>([{ id: 's1', revision: 0, leaseToken: null }]);
+
+    const win = await repo.updateWhere('s1', { revision: 0 }, { revision: 1 });
+    expect(win).toEqual({ matched: true, row: { id: 's1', revision: 1, leaseToken: null } });
+
+    const lose = await repo.updateWhere('s1', { revision: 0 }, { revision: 2 });
+    expect(lose).toEqual({ matched: false, row: null });
+
+    await repo.updateWhere('s1', { revision: 1 }, { leaseToken: 'tok' });
+    const nullMatch = await repo.updateWhere('s1', { leaseToken: null }, { leaseToken: 'new' });
+    expect(nullMatch.matched).toBe(false);
+
+    await repo.updateWhere('s1', { leaseToken: 'tok' }, { leaseToken: null });
+    const nullWin = await repo.updateWhere('s1', { leaseToken: null }, { leaseToken: 'held' });
+    expect(nullWin.matched).toBe(true);
+    expect(nullWin.row?.leaseToken).toBe('held');
+  });
+});

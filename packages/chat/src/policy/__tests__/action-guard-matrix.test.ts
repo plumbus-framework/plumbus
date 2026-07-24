@@ -9,7 +9,7 @@ import {
 import { createTestContext } from '@plumbus/core/testing';
 import { actionGuard } from '../action-guard.js';
 import { createSession } from '../../session/service.js';
-import { storePending } from '../../runtime/pending-actions.js';
+import { chatPendingActionRepo } from '../../internal/chat-repos.js';
 
 function ctxWithRegistry(registry: CapabilityRegistry) {
   const base = createTestContext();
@@ -81,15 +81,37 @@ describe('C6 action-guard matrix extensions', () => {
       locale: 'en',
     });
 
-    await storePending(ctx, {
+    await chatPendingActionRepo(ctx).create({
+      version: 2,
       id: '00000000-0000-4000-8000-000000000030',
       sessionId: session.id,
+      expectedSessionRevision: 0,
       capabilityName: 'orders.ship',
       input: { orderId: 'o-1' },
-      schemaHash: 'legacy',
+      inputSchemaHash: 'legacy',
+      toolBindingHash: 'legacy',
       confirmationMessage: 'pending',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       status: 'pending',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      resumePayload: {
+        version: 1,
+        chatName: 'help',
+        logicalTurnId: 'lt',
+        proposalAssistantTurnId: 'lt',
+        toolCallId: 'tc',
+        toolName: 'orders.ship',
+        messages: [{ role: 'user', content: 'x' }],
+        counters: {
+          toolRoundsUsed: 0,
+          flowStartsUsed: 0,
+          flowAwaitMsUsed: 0,
+          inputTokensUsed: 0,
+          outputTokensUsed: 0,
+          costUsed: 0,
+        },
+        toolsExecuted: [],
+        sourceRefs: [],
+      },
     });
 
     const verdict = await actionGuard(

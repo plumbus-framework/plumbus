@@ -43,8 +43,10 @@ export interface CapabilityInvocationRuntime {
 /** Strip internal invoker/registry/emit scope from handler-visible runtime metadata. */
 export function stripHandlerRuntime(
   runtime?: ExecutionRuntimeMetadata,
+  options?: { preserveCapabilityRuntime?: boolean },
 ): ExecutionRuntimeMetadata | undefined {
   if (!runtime) return undefined;
+  if (options?.preserveCapabilityRuntime) return runtime;
   const {
     invokeCapability: _invoker,
     resolveCapability: _resolve,

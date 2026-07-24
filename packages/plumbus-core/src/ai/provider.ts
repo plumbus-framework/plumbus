@@ -3,20 +3,63 @@
 
 import type { AIProviderConfig } from '../types/config.js';
 import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
-import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
+import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
 
+// ── Tool-calling protocol (provider-native caller tools) ──
+
+export interface AITool {
+  name: string;
+  description: string;
+  /** JSON Schema object root (from zodToProviderJsonSchema(...).schema). */
+  parameters: Record<string, unknown>;
+}
+
+export type AIToolChoice = 'auto' | 'none' | { type: 'function'; function: { name: string } };
+
+/** Discriminated on argumentsStatus. Adapters parse at the boundary (§6.4). */
+export type AIToolCall =
+  | {
+      id: string;
+      name: string;
+      argumentsStatus: 'parsed';
+      arguments: unknown;
+    }
+  | {
+      id: string;
+      name: string;
+      argumentsStatus: 'invalid';
+      /** Internal transcript data — MUST NOT reach browser events, audit, or user errors. Bounded. */
+      rawArguments: string;
+      /** Internal transcript data — MUST NOT reach browser events, audit, or user errors. Bounded. */
+      parseError: string;
+    };
+
+export interface AIToolExecutionOptions {
+  /** Chat tool rounds MUST set this false (§6.2). */
+  parallelToolCalls?: boolean;
+}
+
+export interface AIProviderCapabilities {
+  tools: boolean;
+  streamingTools: boolean;
+  parallelToolCalls: boolean;
+  parallelToolCallControl: boolean;
+  namedToolChoice: boolean;
+}
+
 /**
  * A single chat-history turn. Used for native multi-turn requests where the
- * model should see real conversation flow (assistant + user alternation).
- * Optional — when omitted, providers fall back to single-user-message mode
- * built from `ProviderRequest.prompt`.
+ * model should see real conversation flow. Optional — when omitted, providers
+ * fall back to single-user-message mode built from `ProviderRequest.prompt`.
+ * The user/assistant variants remain construction-compatible with existing
+ * callers; the `tool` variant carries a tool observation back to the model.
  */
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+export type ChatMessage =
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: AIToolCall[] }
+  | { role: 'tool'; content: string; toolCallId: string; name: string };
 
 export interface ProviderRequest {
   /** System prompt / instructions */
@@ -65,6 +108,12 @@ export interface ProviderRequest {
    * by providers that do not support it.
    */
   seed?: number;
+  /** Provider-native caller tools. When present the adapter forwards them and returns tool calls. */
+  tools?: AITool[];
+  /** Tool-choice directive forwarded to the provider. */
+  toolChoice?: AIToolChoice;
+  /** Tool-execution options (e.g. disable parallel tool calls). */
+  toolExecution?: AIToolExecutionOptions;
 }
 
 /** Compose a request's optional user signal with a timeout, returning a single AbortSignal. */
@@ -83,6 +132,8 @@ export interface ProviderResponse {
   model: string;
   usage: TokenUsage;
   finishReason: string;
+  /** Parsed provider tool calls (present when finishReason is 'tool_calls'/'tool_use'). */
+  toolCalls?: AIToolCall[];
 }
 
 // ── Token Usage ──
@@ -105,6 +156,8 @@ export interface ProviderStreamEvent {
   usage?: TokenUsage;
   /** Finish reason (for done events) */
   finishReason?: string;
+  /** Provider tool calls on a done event (streaming tools; unused by built-in adapters this release). */
+  toolCalls?: AIToolCall[];
   /** Error message (for error events) */
   error?: string;
 }
@@ -172,6 +225,14 @@ export interface ListModelsFilter {
 // ── AI Provider Adapter ──
 export interface AIProviderAdapter {
   readonly name: string;
+
+  /**
+   * Declared provider capabilities. Optional for backward compat with external
+   * adapters: an adapter that omits this MUST be treated by callers as
+   * declaring every value `false` (§6.2). Both built-in adapters declare it and
+   * implement caller tools natively (C11).
+   */
+  readonly capabilities?: AIProviderCapabilities;
 
   /** Send a completion request */
   complete(request: ProviderRequest): Promise<ProviderResponse>;
@@ -500,6 +561,202 @@ async function executeRequestWithRetry(args: {
   });
 }
 
+// ── Provider tool-calling helpers ──
+
+/** Portable tool-name grammar (C9). The reserved `flow__` prefix is enforced at chat bind time, not here. */
+const CALLER_TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+
+/** Validate caller-supplied tool definitions: portable name grammar + uniqueness. */
+function validateCallerTools(tools: AITool[]): void {
+  const seen = new Set<string>();
+  for (const tool of tools) {
+    if (!CALLER_TOOL_NAME_PATTERN.test(tool.name)) {
+      throw new AIInvalidRequestError({
+        reason: 'tool_name_invalid',
+        message: `Tool name "${tool.name}" does not match ^[A-Za-z][A-Za-z0-9_-]{0,63}$`,
+      });
+    }
+    if (seen.has(tool.name)) {
+      throw new AIInvalidRequestError({
+        reason: 'duplicate_tool_name',
+        message: `Duplicate tool name "${tool.name}"`,
+      });
+    }
+    seen.add(tool.name);
+  }
+}
+
+/** Normalize a provider-specific finish/stop reason into the framework's vocabulary. */
+export function normalizeFinishReason(
+  raw: string | undefined,
+): 'stop' | 'length' | 'refusal' | 'tool_calls' | 'other' {
+  switch (raw) {
+    case 'stop':
+    case 'end_turn':
+    case 'stop_sequence':
+      return 'stop';
+    case 'length':
+    case 'max_tokens':
+      return 'length';
+    case 'tool_calls':
+    case 'tool_use':
+      return 'tool_calls';
+    case 'refusal':
+    case 'content_filter':
+      return 'refusal';
+    default:
+      return 'other';
+  }
+}
+
+/** Guard used by both adapters: caller tools cannot coexist with the tool-transport structured output (§6.6). */
+function assertNoStructuredOutputToolConflict(request: ProviderRequest): void {
+  if (request.structuredOutputTransport === 'tool') {
+    throw new AIInvalidRequestError({
+      reason: 'caller_tools_conflict_with_structured_output_tool',
+      message: "Caller tools cannot be combined with structuredOutputTransport: 'tool'.",
+    });
+  }
+}
+
+/** Map framework ChatMessage[] to OpenAI chat-completions messages. */
+function toOpenAIMessages(request: ProviderRequest): Record<string, unknown>[] {
+  const messages: Record<string, unknown>[] = [];
+  if (request.system) messages.push({ role: 'system', content: request.system });
+  if (request.messages && request.messages.length > 0) {
+    for (const msg of request.messages) {
+      if (msg.role === 'tool') {
+        messages.push({ role: 'tool', tool_call_id: msg.toolCallId, content: msg.content });
+      } else if (msg.role === 'assistant') {
+        const entry: Record<string, unknown> = {
+          role: 'assistant',
+          content: msg.content.length > 0 ? msg.content : null,
+        };
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          entry.tool_calls = msg.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments:
+                tc.argumentsStatus === 'parsed'
+                  ? JSON.stringify(tc.arguments ?? {})
+                  : tc.rawArguments,
+            },
+          }));
+        }
+        messages.push(entry);
+      } else {
+        messages.push({ role: 'user', content: msg.content });
+      }
+    }
+  } else {
+    messages.push({ role: 'user', content: request.prompt });
+  }
+  return messages;
+}
+
+/** Map AIToolChoice to the OpenAI `tool_choice` wire value. */
+function buildOpenAIToolChoice(toolChoice: AIToolChoice | undefined): unknown {
+  if (toolChoice === undefined) return undefined;
+  if (toolChoice === 'auto' || toolChoice === 'none') return toolChoice;
+  return { type: 'function', function: { name: toolChoice.function.name } };
+}
+
+/** Parse OpenAI tool_calls into framework AIToolCall records (§6.4). */
+function parseOpenAIToolCalls(
+  toolCalls:
+    | Array<{ id?: string; type?: string; function?: { name?: string; arguments?: string } }>
+    | undefined,
+): AIToolCall[] {
+  if (!toolCalls) return [];
+  const result: AIToolCall[] = [];
+  for (const tc of toolCalls) {
+    const name = tc.function?.name;
+    if (!name) continue;
+    const id = tc.id ?? crypto.randomUUID();
+    const rawArguments = tc.function?.arguments ?? '';
+    try {
+      const parsed = rawArguments.trim().length === 0 ? {} : JSON.parse(rawArguments);
+      result.push({ id, name, argumentsStatus: 'parsed', arguments: parsed });
+    } catch (err) {
+      result.push({
+        id,
+        name,
+        argumentsStatus: 'invalid',
+        rawArguments: rawArguments.slice(0, 4096),
+        parseError: (err instanceof Error ? err.message : String(err)).slice(0, 512),
+      });
+    }
+  }
+  return result;
+}
+
+/** Map framework ChatMessage[] to Anthropic messages (tool_use / tool_result blocks). */
+function toAnthropicMessages(request: ProviderRequest): Record<string, unknown>[] {
+  if (!request.messages || request.messages.length === 0) {
+    return [{ role: 'user', content: request.prompt }];
+  }
+  const out: Record<string, unknown>[] = [];
+  for (const msg of request.messages) {
+    if (msg.role === 'tool') {
+      const block = { type: 'tool_result', tool_use_id: msg.toolCallId, content: msg.content };
+      const last = out[out.length - 1];
+      if (last && last.role === 'user' && Array.isArray(last.content)) {
+        (last.content as unknown[]).push(block);
+      } else {
+        out.push({ role: 'user', content: [block] });
+      }
+    } else if (msg.role === 'assistant') {
+      const blocks: Record<string, unknown>[] = [];
+      if (msg.content.length > 0) blocks.push({ type: 'text', text: msg.content });
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          blocks.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: tc.name,
+            input: tc.argumentsStatus === 'parsed' ? (tc.arguments ?? {}) : {},
+          });
+        }
+      }
+      out.push({ role: 'assistant', content: blocks.length > 0 ? blocks : msg.content });
+    } else {
+      out.push({ role: 'user', content: msg.content });
+    }
+  }
+  return out;
+}
+
+/** Map AIToolChoice + execution options to the Anthropic `tool_choice` wire value. */
+function buildAnthropicToolChoice(
+  toolChoice: AIToolChoice | undefined,
+  toolExecution: AIToolExecutionOptions | undefined,
+): Record<string, unknown> | undefined {
+  const disableParallel = toolExecution?.parallelToolCalls === false;
+  if (toolChoice === undefined && !disableParallel) return undefined;
+  let base: Record<string, unknown>;
+  if (toolChoice === undefined || toolChoice === 'auto') base = { type: 'auto' };
+  else if (toolChoice === 'none') base = { type: 'none' };
+  else base = { type: 'tool', name: toolChoice.function.name };
+  if (disableParallel && base.type !== 'none') base.disable_parallel_tool_use = true;
+  return base;
+}
+
+/** Parse Anthropic tool_use content blocks into framework AIToolCall records. */
+function parseAnthropicToolUse(
+  content: Array<{ type: string; id?: string; name?: string; input?: unknown }>,
+): AIToolCall[] {
+  return content
+    .filter((c) => c.type === 'tool_use')
+    .map((c) => ({
+      id: c.id ?? crypto.randomUUID(),
+      name: c.name ?? '',
+      argumentsStatus: 'parsed' as const,
+      arguments: c.input ?? {},
+    }));
+}
+
 // ── OpenAI Adapter ──
 export interface OpenAIAdapterConfig {
   apiKey: string;
@@ -518,23 +775,17 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
   return {
     name: 'openai',
+    capabilities: {
+      tools: true,
+      streamingTools: false,
+      parallelToolCalls: true,
+      parallelToolCallControl: true,
+      namedToolChoice: true,
+    },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? defaultModel;
-      const messages: Array<{ role: string; content: string }> = [];
-      if (request.system) {
-        messages.push({ role: 'system', content: request.system });
-      }
-      // Multi-turn path: when `messages` is supplied, append them verbatim
-      // (preserving role + order). Single-turn path (legacy): build a single
-      // user message from `prompt`.
-      if (request.messages && request.messages.length > 0) {
-        for (const msg of request.messages) {
-          messages.push({ role: msg.role, content: msg.content });
-        }
-      } else {
-        messages.push({ role: 'user', content: request.prompt });
-      }
+      const messages = toOpenAIMessages(request);
 
       const body: Record<string, unknown> = {
         model,
@@ -542,19 +793,33 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         temperature: request.temperature ?? 0.7,
       };
       applyOpenAITokenLimit(body, model, request.maxTokens);
-      const structuredToolSchema = shouldUseOpenAIStructuredTool({ request })
-        ? request.responseSchema
-        : undefined;
-      if (structuredToolSchema) {
-        body.tools = [buildOpenAIStructuredOutputTool(structuredToolSchema)];
-        body.tool_choice = {
+      if (request.tools && request.tools.length > 0) {
+        assertNoStructuredOutputToolConflict(request);
+        validateCallerTools(request.tools);
+        body.tools = request.tools.map((t) => ({
           type: 'function',
-          function: { name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME },
-        };
+          function: { name: t.name, description: t.description, parameters: t.parameters },
+        }));
+        const callerToolChoice = buildOpenAIToolChoice(request.toolChoice);
+        if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
+        if (request.toolExecution?.parallelToolCalls === false) {
+          body.parallel_tool_calls = false;
+        }
       } else {
-        const responseFormat = buildOpenAIResponseFormat(request);
-        if (responseFormat) {
-          body.response_format = responseFormat;
+        const structuredToolSchema = shouldUseOpenAIStructuredTool({ request })
+          ? request.responseSchema
+          : undefined;
+        if (structuredToolSchema) {
+          body.tools = [buildOpenAIStructuredOutputTool(structuredToolSchema)];
+          body.tool_choice = {
+            type: 'function',
+            function: { name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME },
+          };
+        } else {
+          const responseFormat = buildOpenAIResponseFormat(request);
+          if (responseFormat) {
+            body.response_format = responseFormat;
+          }
         }
       }
       if (typeof request.seed === 'number') {
@@ -582,6 +847,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
             content: string | null;
             refusal?: string | null;
             tool_calls?: Array<{
+              id?: string;
               type?: string;
               function?: { name?: string; arguments?: string };
             }>;
@@ -608,6 +874,15 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           refusalText: choice.message.refusal,
           usage,
         });
+      }
+      if (request.tools && request.tools.length > 0 && choice.finish_reason === 'tool_calls') {
+        return {
+          content,
+          model: data.model,
+          usage,
+          finishReason: 'tool_calls',
+          toolCalls: parseOpenAIToolCalls(choice.message.tool_calls),
+        };
       }
       // Only treat `finish_reason === 'length'` as a hard failure when the
       // caller asked for structured JSON output. For free-text generation,
@@ -792,14 +1067,16 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
 
   return {
     name: 'anthropic',
+    capabilities: {
+      tools: true,
+      streamingTools: false,
+      parallelToolCalls: true,
+      parallelToolCallControl: true,
+      namedToolChoice: true,
+    },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
-      // Multi-turn path: when `messages` is supplied, send them verbatim.
-      // Single-turn path: synthesize a single user message from `prompt`.
-      const messages =
-        request.messages && request.messages.length > 0
-          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
-          : [{ role: 'user', content: request.prompt }];
+      const messages = toAnthropicMessages(request);
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
         messages,
@@ -814,6 +1091,20 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
             schema: request.responseSchema,
           },
         };
+      }
+      if (request.tools && request.tools.length > 0) {
+        assertNoStructuredOutputToolConflict(request);
+        validateCallerTools(request.tools);
+        body.tools = request.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters,
+        }));
+        const callerToolChoice = buildAnthropicToolChoice(
+          request.toolChoice,
+          request.toolExecution,
+        );
+        if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
       }
 
       const resp = await executeRequestWithRetry({
@@ -833,7 +1124,13 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       });
 
       const data = (await resp.json()) as {
-        content: Array<{ type: string; text: string }>;
+        content: Array<{
+          type: string;
+          text?: string;
+          id?: string;
+          name?: string;
+          input?: unknown;
+        }>;
         model: string;
         usage: {
           input_tokens: number;
@@ -847,7 +1144,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       const usage = anthropicUsageToTokenUsage(data.usage);
       const text = data.content
         .filter((c) => c.type === 'text')
-        .map((c) => c.text)
+        .map((c) => c.text ?? '')
         .join('');
 
       if (data.stop_reason === 'refusal') {
@@ -857,6 +1154,15 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           refusalText: text || 'Request refused by Anthropic',
           usage,
         });
+      }
+      if (request.tools && request.tools.length > 0 && data.stop_reason === 'tool_use') {
+        return {
+          content: text,
+          model: data.model,
+          usage,
+          finishReason: 'tool_use',
+          toolCalls: parseAnthropicToolUse(data.content),
+        };
       }
       // Mirror the OpenAI adapter: only throw on max_tokens when the caller
       // requested structured JSON output. Free-text completions should return

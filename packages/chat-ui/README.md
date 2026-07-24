@@ -49,7 +49,7 @@ The server owns policy, retrieval, audit; the UI just renders state derived from
 
 ## Status
 
-Peer-locked to `@plumbus/chat` `0.1.x`. **`useChat.confirm()` only clears local UI state** — apps that ship action-confirmation flows must call the server-side `chatConfirmAction` capability directly (see [Key gotchas](#key-gotchas)).
+Peer-locked to `@plumbus/chat` `0.1.x`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
 
 ## Install
 
@@ -114,7 +114,7 @@ The panel posts to `POST /chat/help/turn` with `credentials: 'include'`, streams
 ## Key gotchas
 
 - **`persistence` must match the server.** `<ChatPanel persistence="client" />` ships the last 20 messages on every turn; `'server'` ships nothing. Mismatching values still runs but breaks context (server-mode client + client-mode server = model sees no history).
-- **`useChat.confirm()` is a UI-only stub.** It clears local `pendingConfirmation` and sets `status = 'idle'` — nothing more. For action-confirmation flows, the client must call the auto-routed `chatConfirmAction` capability with `{ actionId, capabilityName, schemaHash, execute }`. The hook surfaces `pendingConfirmation.schemaHash` for exactly this purpose. See [`instructions/action-confirmation.md`](./instructions/action-confirmation.md).
+- **`useChat.confirm()` performs the server round-trip.** It POSTs to `confirmUrl` (default `/chat/{chatName}/confirm`); the server authenticates like `/turn`, executes the confirmed capability/flow through the framework pipeline, and resumes the turn. `decline(actionId)` posts a reject; the terminal outcome lands in `lastConfirmResult` and a `confirmation.resolved` event. Cookie-authenticated apps must be served from the server's configured origin (exact-Origin + CSRF enforced server-side).
 - **Cookie auth only.** `useChat` and `<ChatPanel />` hard-code `credentials: 'include'`. Bearer-auth flows need a small fork (~80 lines — see [`instructions/custom-ui.md`](./instructions/custom-ui.md)).
 - **`useChatSession` is a placeholder.** Kept on the barrel so a real multi-session API can land later without a breaking export change.
 - **No `/testing` subpath.** The pure helpers (`applyChatEvent`, `buildTurnRequestBody`, `pushUserMessage`) are testable with vitest directly — no jsdom needed.
@@ -126,7 +126,7 @@ The panel posts to `POST /chat/help/turn` with `credentials: 'include'`, streams
   - [`instructions/framework.md`](./instructions/framework.md) — package boundary (React-only), public exports, file map, critical rules
   - [`instructions/wiring-chat-panel.md`](./instructions/wiring-chat-panel.md) — default `<ChatPanel />` recipe, persistence pairing, `turnUrl`
   - [`instructions/custom-ui.md`](./instructions/custom-ui.md) — headless `useChat`, pure helpers, `readChatStream`, bearer-auth fork
-  - [`instructions/action-confirmation.md`](./instructions/action-confirmation.md) — wiring `chatConfirmAction` directly (the `confirm()` stub workaround)
+  - [`instructions/action-confirmation.md`](./instructions/action-confirmation.md) — confirmation round-trip (`confirm` / `decline`) and Path B tool confirmation
 
 ## The Plumbus ecosystem
 

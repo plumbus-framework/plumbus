@@ -36,7 +36,7 @@ export function HelpWidget() {
 }
 ```
 
-That's it. The panel renders messages, notices, an input, and a confirmation dialog (the dialog is currently a stub — see action-confirmation.md if the chat declares `actions`).
+That's it. The panel renders messages, notices, an input, and a confirmation dialog. When the chat declares `actions`, the dialog handles confirm/decline end-to-end — a real server round-trip that executes the confirmed action and resumes the turn (see action-confirmation.md).
 
 ## Props
 
@@ -48,6 +48,7 @@ That's it. The panel renders messages, notices, an input, and a confirmation dia
 | `locale` | `string` | yes | BCP-47-ish. Server's locale guard validates against `policy.scope.locales` if set. |
 | `persistence` | `'server' \| 'client'` | no (default `'server'`) | **MUST match the server's `defineChat({ persistence: { messageContent } })`.** |
 | `turnUrl` | `string` | no (default `/chat/{chatName}/turn`) | Override when the route is namespaced (e.g. `/api/chat/help/turn`). |
+| `confirmUrl` | `string` | no (default `/chat/{chatName}/confirm`) | Override when the confirm route is namespaced (e.g. `/api/chat/help/confirm`). |
 | `className` | `string` | no | Applied to the outer wrapper div. |
 
 ## sessionId — when to generate it

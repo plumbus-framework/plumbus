@@ -17,6 +17,12 @@ export const chatSessionEntity = defineEntity({
     behavioralState: field.json({ required: true }),
     summaryText: field.string({ optional: true }),
     summaryTurnCount: field.number({ required: true, default: 0 }),
+    // Authoritative optimistic-concurrency counter. Bumped once per committed
+    // single-request turn and once per committed proposal/resume. CAS target.
+    revision: field.number({ required: true, default: 0 }),
+    // Advisory session-mutation lease (fast-path chat.session_busy). Nullable.
+    leaseToken: field.string({ optional: true }),
+    leaseExpiresAt: field.timestamp({ optional: true }),
   },
   indexes: [
     ['chatName', 'userId'],

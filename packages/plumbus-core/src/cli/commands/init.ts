@@ -204,6 +204,10 @@ const CHAT_INSTRUCTION_REFERENCES = [
     area: 'extending chat with custom prompts, context sources, or guards',
     path: 'node_modules/@plumbus/chat/instructions/extending.md',
   },
+  {
+    area: 'chat instruction index and reading order',
+    path: 'node_modules/@plumbus/chat/instructions/README.md',
+  },
 ] as const;
 
 const KNOWLEDGE_BASE_INSTRUCTION_REFERENCES = [
@@ -247,7 +251,7 @@ const CHAT_UI_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/chat-ui/instructions/custom-ui.md',
   },
   {
-    area: 'action confirmation — wiring chatConfirmAction directly (useChat.confirm is a v0.1 stub)',
+    area: 'action confirmation — useChat.confirm()/decline() drive the real POST /chat/:name/confirm round-trip and Path B tool confirmation',
     path: 'node_modules/@plumbus/chat-ui/instructions/action-confirmation.md',
   },
   {

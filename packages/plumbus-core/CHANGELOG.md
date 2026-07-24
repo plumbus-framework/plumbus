@@ -1,5 +1,20 @@
 # @plumbus/core changelog
 
+## Unreleased — provider-native tool calling
+
+### Added
+
+- **Provider tool protocol** — `AITool`, `AIToolChoice`, `AIToolCall` (discriminated on `argumentsStatus`), `AIToolExecutionOptions`, and `AIProviderCapabilities`. `ChatMessage` is now a union (`user` | `assistant` with optional `toolCalls` | `tool`); the existing `user`/`assistant` construction forms are unchanged.
+- **Adapter caller tools** — `createOpenAIAdapter` and `createAnthropicAdapter` implement caller tools natively (OpenAI `tools`/`tool_calls`; Anthropic `tool_use`/`tool_result` + `input_schema`). `AIProviderAdapter.capabilities` is optional; an adapter that omits it is treated as declaring every capability `false`.
+- **`generateWithUsage` result overloads** — no-tool callers keep the flat `AIFinalGenerateResult<T>` with unconditional `.data`; tool-enabled config returns the discriminated `AIToolEnabledGenerateResult<T>` (keyed on `finishReason`). `AIGenerateResult` is preserved as a back-compat alias of the flat result; `finishReason` is an additive field existing consumers may ignore.
+- **`runToolLoop`** (`src/ai/tool-loop.ts`) — bounded request→tool→observe loop for capability authors. Default `maxRounds` 8, hard maximum 20; the exhausted-loop final request omits **both** `tools` and `toolChoice`. Invalid-argument calls are never executed and surface as a `tool_arguments_invalid` observation.
+- **`EntityIndexDefinition.unique`** — `indexes` accepts the legacy `string[][]` form or `{ columns, unique? }`. Additive; existing entity index declarations are unchanged.
+- **Conditional/transactional write path** — `Repository` gains a conditional (CAS) update and a transaction-capable path surfaced to `@plumbus/chat` for atomic lease-based session mutations.
+
+### Notes
+
+All changes are additive and stay within the `0.6.x` line, so `@plumbus/ui`, `@plumbus/chat`, and `@plumbus/voice` peer ranges (`0.6.x`) remain satisfied. No install-time or wire-format break.
+
 ## 0.6.9
 
 ### Added (M5 — authentication contract)

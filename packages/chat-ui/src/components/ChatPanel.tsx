@@ -12,6 +12,7 @@ export function ChatPanel({
   sessionId,
   persistence = 'server',
   turnUrl,
+  confirmUrl,
   className,
 }: {
   chatName: string;
@@ -20,9 +21,10 @@ export function ChatPanel({
   sessionId: string;
   persistence?: 'server' | 'client';
   turnUrl?: string;
+  confirmUrl?: string;
   className?: string;
 }) {
-  const chat = useChat({ chatName, sessionId, audience, locale, persistence, turnUrl });
+  const chat = useChat({ chatName, sessionId, audience, locale, persistence, turnUrl, confirmUrl });
 
   return (
     <div className={className}>
@@ -34,8 +36,9 @@ export function ChatPanel({
       <ChatMessages messages={chat.messages} />
       <ConfirmationDialog
         pendingConfirmation={chat.pendingConfirmation}
-        onConfirm={() => chat.confirm(chat.pendingConfirmation?.actionId ?? '')}
-        onReject={chat.cancel}
+        onConfirm={() => void chat.confirm(chat.pendingConfirmation?.actionId ?? '')}
+        onReject={() => void chat.decline(chat.pendingConfirmation?.actionId ?? '')}
+        busy={chat.status === 'streaming'}
       />
       <ChatInput pending={chat.status === 'streaming'} onSend={(t) => void chat.send(t)} />
     </div>

@@ -80,7 +80,19 @@ defineChat({
     privacy?:     { redact: ['ssn', 'cardNumber'] },
     provenance?:  { required: true, minSources?: 1 },
     behavioral?:  { cooldowns: [{ trigger, count, durationSeconds, scope }] },
-    action?:      { allowedCapabilities: ['openSupportTicket'] },
+    action?:      { allowedCapabilities: ['openSupportTicket'], frameworkExecuteOnConfirm?: false },  // Path A; frameworkExecuteOnConfirm defaults false (decision-only)
+    toolCalling?: {                           // Path B — provider-native tool calling (see below)
+      enabled: true,
+      capabilities?: ['openSupportTicket'],   // capability tools (confirm/auto per binding)
+      autoStartFlows?: ['refundFlow'],        // flow tools, bound flow__<name>
+      maxToolRounds?: 5,                       // default 5, range 1..20
+      maxTools?: 32,                           // default 32, range 1..64
+      flowAwaitMs?: 10000,                     // default 10_000
+      flowPollIntervalMs?: 250,                // default 250
+      flowAwaitBudgetMsPerTurn?: 15000,        // default 15_000; 0 disables flow polling
+      maxFlowStartsPerTurn?: 2,                // default 2, range 0..20
+      confirmationTtlMs?: 900000,              // default 900_000 (15 min)
+    },
     custom?:      [myGuard],                  // run after built-ins
   },
 
@@ -151,6 +163,56 @@ export const helpChat = defineChat({
 ```
 
 **The five base output fields are required** — the runtime's scope, provenance, and action guards depend on them. Custom fields can be added freely.
+
+## Provider-native tool calling (`policy.toolCalling`, Path B)
+
+`policy.toolCalling` turns capabilities and flows into provider-native tools the model
+calls over a bounded per-turn loop, instead of the single-shot `requestedAction` field
+(Path A). The two paths coexist; Path B is opt-in.
+
+```ts
+export const supportChat = defineChat({
+  name: 'support',
+  access: { roles: ['user'] },
+  policy: {
+    toolCalling: {
+      enabled: true,
+      capabilities: ['lookupOrder', 'openSupportTicket'],
+      autoStartFlows: ['issueRefund'],
+      maxToolRounds: 5,
+    },
+  },
+});
+```
+
+Requirements and behavior:
+
+- **Prompts must be registered (step a).** Re-export `chatToolRoundPrompt` and
+  `chatScopeCheckPrompt` from `@plumbus/chat` into `app/prompts/` so directory discovery
+  registers `chat.toolRound` and `chat.scopeCheck` (same one-time wiring as `chat.turn`).
+  If either is missing, the first Path B turn fails with `chat.prompt_not_registered`
+  (a per-turn `turn.failed`, not a boot-time error).
+- **Chat registry must be wired (step b).** Build `createChatRegistry(promptRegistry)` from
+  the runtime `PromptRegistry` and pass it as the `chatRegistry` opt of
+  `registerChatRoutes(app, config, chats, { store, chatRegistry })`. Without it Path B
+  cannot resolve `chat.toolRound` / `chat.scopeCheck`, so the first turn fails the same way.
+- **Storage must be transactional.** Path B uses the lease-based `ChatConversationStore`
+  and a unique `(sessionId, ordinal)` index. Adapters without a conditional/transactional
+  write path fail closed at startup with `chat.storage_unsupported`.
+- **Auto vs confirm.** Auto-mode tools execute inline through the capability pipeline
+  (access policy still enforced). Confirm-mode tools pause the turn with
+  `confirmation_required`; the client commits with `POST /chat/:name/confirm`, which
+  executes the tool and resumes the turn for a single answer-only completion (no further
+  tool rounds or nested confirmation).
+- **Flows** are bound as `flow__<flowName>` tools (portable grammar, flow names ≤ 57
+  chars). `maxFlowStartsPerTurn` and `flowAwaitBudgetMsPerTurn` bound the work per turn.
+- **Round limit** is non-fatal: at `maxToolRounds` the runtime makes one final tool-less
+  model call and emits a `chat.tool_round_limit` notice.
+- **Chat does not use core's `runToolLoop`** — the chat loop default is `maxToolRounds: 5`;
+  core's `runToolLoop` default (8, hard cap 20) is for capability authors.
+
+Full error/status semantics: [policies.md → Tool calling (Path B)](./policies.md#tool-calling-path-b).
+Design rationale: [design/tool-calling.md](./design/tool-calling.md).
 
 ## `exposeAs` — controlling the public surface
 

@@ -38,14 +38,20 @@ export type {
 // ── Context ──
 export type {
   AIDocument,
+  AIFinalGenerateResult,
+  AIGenerateConfig,
   AIGenerateResult,
+  AIGenerateWithUsageConfig,
   AIService,
   AIStreamEvent,
   AITokenUsage,
+  AIToolCallsGenerateResult,
+  AIToolEnabledGenerateResult,
   ConfigService,
   DataService,
   EventService,
   ExecutionContext,
+  FlowDescription,
   FlowExecution,
   FlowService,
   LoggerService,
@@ -54,12 +60,13 @@ export type {
   AggregateValue,
   QueryOptions,
   Repository,
+  ConditionalUpdateResult,
   RequestMeta,
   SecurityService,
   TimeService,
 } from './context.js';
 // ── Entity ──
-export type { EntityDefinition, EntityRetention } from './entity.js';
+export type { EntityDefinition, EntityIndexDefinition, EntityRetention } from './entity.js';
 // ── Enums & Constants ──
 export {
   BackoffStrategy,

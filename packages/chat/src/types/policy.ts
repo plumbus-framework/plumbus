@@ -11,6 +11,36 @@ export interface Cooldown {
   scope?: 'session' | 'user';
 }
 
+/** Path A action policy. */
+export interface ChatActionPolicy {
+  allowedCapabilities?: string[];
+  /** C8: NEW optional Path-A field. When true, a confirmed legacy requestedAction
+   *  executes through the framework capability pipeline. Default false (decision-only). */
+  frameworkExecuteOnConfirm?: boolean;
+}
+
+export interface ChatToolCallingPolicy {
+  enabled: boolean;
+  capabilities?: string[];
+  autoStartFlows?: string[];
+
+  /** Default 5; range 1..20. */
+  maxToolRounds?: number;
+  /** Default 32; range 1..64. */
+  maxTools?: number;
+
+  /** Default 10_000; range 0..120_000. */
+  flowAwaitMs?: number;
+  /** Default 250; range 50..10_000. */
+  flowPollIntervalMs?: number;
+  /** Default 15_000; range 0..120_000. `0` disables flow polling for the turn. */
+  flowAwaitBudgetMsPerTurn?: number;
+  /** Default 2; range 0..20. */
+  maxFlowStartsPerTurn?: number;
+  /** Default 900_000 (15 min); range 60_000..3_600_000. */
+  confirmationTtlMs?: number;
+}
+
 export interface ChatPolicy {
   audience?: { roles: string[]; default?: string; mode?: 'strict' | 'permissive' };
   scope?: { description?: string; classifier?: 'inline' | 'custom'; locales?: string[] };
@@ -18,7 +48,8 @@ export interface ChatPolicy {
   privacy?: { redact?: string[] };
   provenance?: { required?: boolean; minSources?: number };
   behavioral?: { cooldowns: Cooldown[] };
-  action?: { allowedCapabilities?: string[] };
+  action?: ChatActionPolicy;
+  toolCalling?: ChatToolCallingPolicy;
   /** Custom guards that run **pre-turn**, after the pre-turn built-ins and
    * before the model call. They see `turnCtx` (incl. `userMessage`) but NOT
    * `state.modelOutput`. Use for input gating (block before spending tokens). */

@@ -48,6 +48,11 @@ If you need to find or extend something, this is where it lives:
 | System prompt builder | `src/prompt/build-system-prompt.ts` |
 | Provenance issuer + validator | `src/runtime/provenance.ts` |
 | Pending action store | `src/runtime/pending-actions.ts` |
+| Provider-native tool binding | `src/runtime/bind-tools.ts` |
+| Lease-based conversation store | `src/runtime/chat-conversation-store.ts` (+ `src/runtime/in-memory-conversation-store.ts`) |
+| Confirm + resume service | `src/runtime/resume-after-confirm.ts` (+ `src/runtime/pending-actions.ts`, `handleConfirm` in `src/runtime/http.ts`) |
+| Durable pending action v2 + resume payload | `src/session/pending-action-v2.ts` |
+| Tool-calling prompts (re-export into `app/prompts/`) | `src/prompt/chat-tool-round.prompt.ts`, `src/prompt/chat-scope-check.prompt.ts` |
 
 ## Cross-Package Composition
 
@@ -81,7 +86,7 @@ For the full conceptual documentation (when to use which primitive, design ratio
 - `/docs/chat/context-sources.md` — every context source helper
 - `/docs/chat/testing.md` — test patterns
 - `/docs/chat/evaluations.md` — eval harness (`defineChatEvaluation` / `runChatEvaluation`)
-- `/docs/chat/design/` — 10 decision records explaining why the framework is shaped the way it is
+- `/docs/chat/design/` — 11 decision records explaining why the framework is shaped the way it is
 
 The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do that). The files under `/docs/chat/` are EXPLANATORY (what it is, why it exists). Use both.
 
@@ -93,3 +98,5 @@ The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do tha
 - **Never store sensitive prose in `ChatTurn.content` without setting `persistence: { messageContent: 'client' }`.** Audit + cross-device hydration are nice but they have privacy implications — pick the mode deliberately.
 - **Never invent source IDs in tests or fixtures.** The resolver issues handles (`src_a`, `src_b`, ...) in the order sources are declared in the chat config; cite using those exact strings.
 - **Never bypass the action-guard for capability-backed writes.** Configure `policy.action.allowedCapabilities` and let the framework re-validate + confirm. Do not exec capabilities directly from a context source.
+- **Never resolve tools with `ctx.capabilities.invoke`.** Chat's tool allowlist is dynamic, so `invoke` throws `undeclaredInvocation`. Tool calling resolves via `ctx.__runtime.resolveCapability(name)` and `executeCapability(cap, ctx, input)` — which still enforces the target's access policy. This is framework internals; do not re-implement it in app code.
+- **Never enable `policy.toolCalling` without completing both Path B setup steps.** (a) Re-export `chatToolRoundPrompt` and `chatScopeCheckPrompt` from `@plumbus/chat` into `app/prompts/` (same one-time wiring as `chat.turn`); and (b) build `createChatRegistry(promptRegistry)` and pass it as the `chatRegistry` opt to `registerChatRoutes(app, config, chats, { store, chatRegistry })`. Missing prompts fail on the first Path B turn — a per-turn `turn.failed` carrying `chat.prompt_not_registered`, not a boot-time error. Path B also requires a transactional store; a non-transactional adapter fails closed with `chat.storage_unsupported`.

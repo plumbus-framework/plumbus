@@ -63,6 +63,7 @@ handler: async (ctx, input) => {
 - **Job** capabilities cannot be invoke targets — use job dispatch or flows.
 - Do **not** import other capability modules, call `.handler` directly, or use internal `ctx.__runtime` invokers — handlers only get the policy-enforced `ctx.capabilities` surface.
 - Flow steps should use flow `capability` step types rather than `ctx.capabilities.invoke` unless the runtime context explicitly supports it.
+- Runtimes with a **dynamic** allowlist (e.g. `@plumbus/chat` tool calling) cannot use `ctx.capabilities.invoke` — it throws `undeclaredInvocation` because the target is not in a static `effects.capabilities`. They resolve via `ctx.__runtime.resolveCapability(name)` and call `executeCapability(cap, ctx, input)`, which still enforces the target's access policy (`evaluateAccess`).
 
 ---
 
@@ -242,7 +243,10 @@ AI operations — generate, extract, classify, and retrieve:
 ```typescript
 interface AIService {
   generate(config: GenerateConfig): Promise<unknown>;
-  generateWithUsage(config: GenerateConfig): Promise<AIGenerateResult>;
+  // No tools → flat AIFinalGenerateResult (`.data` unconditional).
+  // Tools enabled → AIToolEnabledGenerateResult discriminated union (keyed on finishReason).
+  generateWithUsage(config: GenerateConfig): Promise<AIFinalGenerateResult>;
+  generateWithUsage(config: GenerateConfig & { tools: AITool[] }): Promise<AIToolEnabledGenerateResult>;
   streamGenerate(config: StreamConfig): AsyncIterable<AIStreamEvent>;
   extract(config: ExtractConfig): Promise<unknown>;
   classify(config: ClassifyConfig): Promise<string[]>;
@@ -264,14 +268,21 @@ interface AIService {
 //   signal?: AbortSignal                // defaults to ctx.signal inside flows
 //   costContext?: AICostContext         // per-call billing metadata
 //   seed?: number                       // deterministic sampling (OpenAI-compatible)
+//   tools?: AITool[]                     // provider-native tool calling (generate/generateWithUsage)
+//   toolChoice?: AIToolChoice            // 'auto' | 'none' | { type:'function'; function:{ name } }
+//   toolExecution?: { parallelToolCalls?: boolean }
+//   outputValidation?: 'prompt' | 'none' // 'none' disables output-schema validation
 
-interface AIGenerateResult {
-  data: Record<string, any>;
+// AIGenerateResult is the flat, back-compatible alias of AIFinalGenerateResult:
+interface AIFinalGenerateResult<T = Record<string, any>> {
+  finishReason: 'stop' | 'length' | 'refusal' | 'other';  // additive; existing consumers may ignore
+  data: T;                 // always present on the flat/no-tool result
   usage: AITokenUsage;
   model: string;
   provider: string;
   cost: number;
 }
+type AIGenerateResult<T = Record<string, any>> = AIFinalGenerateResult<T>;
 
 interface AITokenUsage {
   inputTokens: number;

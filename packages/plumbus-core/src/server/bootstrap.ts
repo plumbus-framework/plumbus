@@ -372,7 +372,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
           encryptionKey,
         },
         {
-          flows: createFlowService(requestFlowEngine, auth),
+          flows: createFlowService(requestFlowEngine, auth, flows),
           ...(serverConfig.jobQueue
             ? {
                 jobs: createJobDispatchService({
@@ -540,10 +540,10 @@ export function wrapAIServiceWithDynamicOverrides(
       await refreshOverrides();
       return base.generate(params);
     },
-    async generateWithUsage(params) {
+    generateWithUsage: (async (config: Parameters<AIService['generateWithUsage']>[0]) => {
       await refreshOverrides();
-      return base.generateWithUsage(params);
-    },
+      return base.generateWithUsage(config);
+    }) as AIService['generateWithUsage'],
     async *streamGenerate(params) {
       await refreshOverrides();
       yield* base.streamGenerate(params);

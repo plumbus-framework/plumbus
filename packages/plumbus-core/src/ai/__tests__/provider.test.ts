@@ -558,6 +558,29 @@ describe('AI Provider Adapters', () => {
 
       vi.unstubAllGlobals();
     });
+
+    it('still maps plain user/assistant messages (no tools) unchanged', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+          model: 'gpt-4o',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      await adapter.complete({
+        prompt: 'fallback',
+        messages: [{ role: 'user', content: 'Hello legacy' }],
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages).toEqual([{ role: 'user', content: 'Hello legacy' }]);
+
+      vi.unstubAllGlobals();
+    });
   });
 
   describe('createAnthropicAdapter', () => {
@@ -721,7 +744,7 @@ describe('AI Provider Adapters', () => {
       expect(body.system).toBe('Merged system text');
       expect(body.messages).toEqual([
         { role: 'user', content: 'First' },
-        { role: 'assistant', content: 'Second' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Second' }] },
       ]);
 
       vi.unstubAllGlobals();

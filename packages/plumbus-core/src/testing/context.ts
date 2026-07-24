@@ -12,9 +12,11 @@ import type {
   AggregateValue,
   AIDocument,
   AIService,
+  AIToolEnabledGenerateResult,
   DataService,
   EventService,
   ExecutionContext,
+  FlowDescription,
   FlowExecution,
   FlowService,
   LoggerService,
@@ -110,8 +112,15 @@ export interface MockFlowService extends FlowService {
   clear(): void;
 }
 
+export interface MockFlowsOptions {
+  /** Flow descriptions returned by `describe(flowName)`. */
+  describe?: Record<string, FlowDescription>;
+  /** Scripted `status(executionId)` results, keyed by execution id. */
+  statuses?: Record<string, FlowExecution>;
+}
+
 /** Create a mock flow service that captures flow operations */
-export function mockFlows(): MockFlowService {
+export function mockFlows(options?: MockFlowsOptions): MockFlowService {
   const started: Array<{ flowName: string; input: unknown }> = [];
   let counter = 0;
   return {
@@ -125,9 +134,18 @@ export function mockFlows(): MockFlowService {
     async resume() {},
     async cancel() {},
     async status(executionId) {
-      return { id: executionId, flowName: 'unknown', status: 'unknown' };
+      return (
+        options?.statuses?.[executionId] ?? {
+          id: executionId,
+          flowName: 'unknown',
+          status: 'unknown',
+        }
+      );
     },
     async heartbeat() {},
+    describe(flowName) {
+      return options?.describe?.[flowName];
+    },
     clear() {
       started.length = 0;
     },
@@ -152,7 +170,9 @@ export function mockAI(responses?: AIResponse): AIService {
       if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };
     },
-    async generateWithUsage(_config) {
+    generateWithUsage: (async (
+      _config: Parameters<AIService['generateWithUsage']>[0],
+    ): Promise<AIToolEnabledGenerateResult> => {
       const data =
         responses?.generate !== undefined
           ? (responses.generate as Record<string, any>)
@@ -160,6 +180,7 @@ export function mockAI(responses?: AIResponse): AIService {
       const inputStr = JSON.stringify(_config);
       const outputStr = JSON.stringify(data);
       return {
+        finishReason: 'stop',
         data,
         usage: {
           inputTokens: Math.ceil(inputStr.length / 4),
@@ -170,7 +191,7 @@ export function mockAI(responses?: AIResponse): AIService {
         provider: 'mock',
         cost: 0,
       };
-    },
+    }) as AIService['generateWithUsage'],
     async *streamGenerate(_config) {
       const result =
         responses?.generate !== undefined
@@ -369,6 +390,19 @@ export function createInMemoryRepository<
       store.set(id, updated);
       return updated;
     },
+    async updateWhere(id, predicate, updates) {
+      const existing = store.get(id);
+      if (!existing) return { matched: false, row: null };
+      const ok = Object.entries(predicate as Record<string, unknown>).every(([k, v]) => {
+        const actual = (existing as Record<string, unknown>)[k];
+        if (v === null) return actual === null || actual === undefined;
+        return actual === v;
+      });
+      if (!ok) return { matched: false, row: null };
+      const updated = { ...existing, ...updates } as T;
+      store.set(id, updated);
+      return { matched: true, row: updated };
+    },
     async delete(id) {
       store.delete(id);
     },
@@ -539,6 +573,10 @@ function withFieldValidation<T extends Record<string, unknown>>(
     async update(id, updates) {
       check(updates as Record<string, unknown>);
       return repo.update(id, updates);
+    },
+    async updateWhere(id, predicate, updates) {
+      check(updates as Record<string, unknown>);
+      return repo.updateWhere(id, predicate, updates);
     },
     delete: (id) => repo.delete(id),
     findMany: (query, options) => repo.findMany(query, options),

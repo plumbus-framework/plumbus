@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { defineFlow } from '../../define/defineFlow.js';
+import { FlowRegistry } from '../registry.js';
 import { createFlowService } from '../flow-service.js';
 
 describe('FlowService', () => {
@@ -62,5 +65,61 @@ describe('FlowService', () => {
     const svc = createFlowService(engine as any, auth);
 
     await expect(svc.heartbeat()).resolves.toBeUndefined();
+  });
+
+  it('describe() returns undefined when no registry is supplied', () => {
+    const engine = mockEngine();
+    const svc = createFlowService(engine as any, auth);
+    expect(svc.describe?.('x')).toBeUndefined();
+  });
+
+  it('describe() returns undefined for an unregistered flow', () => {
+    const engine = mockEngine();
+    const registry = new FlowRegistry();
+    const svc = createFlowService(engine as any, auth, registry);
+    expect(svc.describe?.('missing')).toBeUndefined();
+  });
+
+  it('describe() returns name/domain/inputSchema/parameters for a registered flow', () => {
+    const engine = mockEngine();
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'demo-flow',
+        domain: 'test',
+        description: 'A demo flow',
+        input: z.object({ q: z.string().optional() }),
+        steps: [{ type: 'capability', name: 'stepA' }],
+      }),
+    );
+    const svc = createFlowService(engine as any, auth, registry);
+    const desc = svc.describe?.('demo-flow');
+    expect(desc).toBeDefined();
+    expect(desc?.name).toBe('demo-flow');
+    expect(desc?.domain).toBe('test');
+    expect(desc?.inputSchema).toBeDefined();
+    expect(desc?.parameters).toBeDefined();
+    expect(typeof desc?.parameters).toBe('object');
+  });
+
+  it('describe() degrades parameters to undefined on ProviderJsonSchemaError', () => {
+    const engine = mockEngine();
+    const registry = new FlowRegistry();
+    const shape: Record<string, z.ZodTypeAny> = {};
+    for (let index = 0; index < 25; index += 1) {
+      shape[`field${index}`] = z.string().optional();
+    }
+    registry.register(
+      defineFlow({
+        name: 'too-many-optionals',
+        domain: 'test',
+        input: z.object(shape),
+        steps: [{ type: 'capability', name: 'stepA' }],
+      }),
+    );
+    const svc = createFlowService(engine as any, auth, registry);
+    const desc = svc.describe?.('too-many-optionals');
+    expect(desc?.inputSchema).toBeDefined();
+    expect(desc?.parameters).toBeUndefined();
   });
 });

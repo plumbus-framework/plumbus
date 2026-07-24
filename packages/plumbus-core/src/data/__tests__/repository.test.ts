@@ -1,5 +1,15 @@
-import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('drizzle-orm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('drizzle-orm')>();
+  return {
+    ...actual,
+    isNull: vi.fn((column: Parameters<typeof actual.isNull>[0]) => actual.isNull(column)),
+  };
+});
+
+import { isNull } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { field } from '../../fields/index.js';
 import type { AuditService } from '../../types/audit.js';
 import type { EntityDefinition } from '../../types/entity.js';
@@ -930,6 +940,63 @@ describe('createRepository', () => {
         encryptionKey: Buffer.alloc(32, 1),
       });
       await expect(repo.aggregate({}, { sum: 'token' })).rejects.toThrow(/encrypted/);
+    });
+  });
+
+  describe('updateWhere', () => {
+    function makeLeaseEntity(): EntityDefinition {
+      return makeEntity({
+        name: 'LeaseRow',
+        fields: {
+          id: field.id(),
+          title: field.string({ required: true }),
+          leaseToken: field.string({ optional: true }),
+          revision: field.number({ optional: true }),
+        },
+      });
+    }
+
+    it('updateWhere applies when predicate matches and returns matched:true', async () => {
+      const entity = makeLeaseEntity();
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      const updated = [{ id: 'row-1', title: 'Updated', leaseToken: null, revision: 1 }];
+      db._chainable.returning.mockResolvedValueOnce(updated);
+      const repo = createRepository({ entity, table, db: db as any, auth: makeAuth() });
+
+      const result = await repo.updateWhere(
+        'row-1',
+        { revision: 0 },
+        { revision: 1, title: 'Updated' },
+      );
+      expect(result.matched).toBe(true);
+      expect(result.row?.title).toBe('Updated');
+    });
+
+    it('updateWhere returns matched:false when predicate loses (concurrent value)', async () => {
+      const entity = makeLeaseEntity();
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      db._chainable.returning.mockResolvedValueOnce([]);
+      const repo = createRepository({ entity, table, db: db as any, auth: makeAuth() });
+
+      const result = await repo.updateWhere('row-1', { revision: 0 }, { revision: 1 });
+      expect(result).toEqual({ matched: false, row: null });
+    });
+
+    it('updateWhere treats a null predicate value as IS NULL', async () => {
+      const entity = makeLeaseEntity();
+      const table = generateDrizzleSchema(entity);
+      const db = makeMockDb();
+      db._chainable.returning.mockResolvedValueOnce([
+        { id: 'row-1', title: 'Test', leaseToken: 'tok', revision: 0 },
+      ]);
+      const repo = createRepository({ entity, table, db: db as any, auth: makeAuth() });
+
+      vi.mocked(isNull).mockClear();
+      const result = await repo.updateWhere('row-1', { leaseToken: null }, { leaseToken: 'tok' });
+      expect(result.matched).toBe(true);
+      expect(isNull).toHaveBeenCalled();
     });
   });
 });

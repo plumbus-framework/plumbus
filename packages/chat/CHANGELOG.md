@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — provider-native tool calling
+
+### Added
+
+- **Path B — provider-native tool calling (`policy.toolCalling`).** Capabilities and `autoStartFlows` are bound as provider-native tools; a bounded per-turn loop (`maxToolRounds` default 5, range 1..20) drives the provider through tool rounds using the registered `chat.toolRound` prompt. Chat does **not** call core's `runToolLoop`. Auto-mode tools execute inline via `ctx.__runtime.resolveCapability` + `executeCapability` (access policy enforced); confirm-mode tools pause the turn with `confirmation_required` and execute on confirm.
+- **`POST /chat/:name/confirm` — always framework-invoke + resume.** Confirm-mode tool calls (Path B) are always executed through the framework capability pipeline on confirm, then the tool loop is resumed from a durable `resumePayload` to produce the final answer. Confirm reuses `/turn` authentication via `ChatRequestAuthenticator`; cookie-authenticated writes additionally require exact-Origin + a session-bound CSRF token.
+- **New events** — `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved`. `confirmation_required` keeps its underscore discriminator (wire compat) and gains optional `inputSchemaHash` and a validated `projection`. `pendingStatus` includes `expired`.
+- **Lease-based `ChatConversationStore`** — `acquireSessionMutation` / `commitProposal` / `claimPending` / `completePending` make propose and confirm+resume atomic; `ChatTurn` uses a unique `(sessionId, ordinal)` index. Adapters without a conditional/transactional write path fail closed at startup with `chat.storage_unsupported`.
+- **Durable `ChatPendingActionV2`** — stores only the **normalized** input (resolved contract, `argumentsStatus 'parsed'`, Zod-validated, defaults/coercions applied); confirm never re-reads input from the client. Invalid arguments produce no pending row — one safe `chat.tool_arguments_invalid` observation instead.
+- **Binding hash** — `toolBindingHash` (with `targetVersion` from `CapabilityContract.version` or the input-schema-hash fallback; flow `targetVersion` is the flow input-schema hash) is re-verified at confirm time; drift fails with `chat.binding_changed`. Flow tools use the reserved `flow__` prefix and portable grammar (flow names ≤ 57 chars).
+- **Existing-pending rule** — `/turn` checks the live pending action before scope/provider work: `pending` → `chat.pending_action_exists`; `confirming` → `chat.session_busy`; expired pending is atomically terminalized then the turn proceeds. `409` body is `{ code, actionId, expiresAt }`.
+
+### Changed
+
+- **Path A `frameworkExecuteOnConfirm` (opt-in, default `false`).** `policy.action` gains `frameworkExecuteOnConfirm`. With it unset (default), a confirmed legacy `requestedAction` stays **decision-only** — validate, mark confirmed, emit events, no side effects (unchanged historical behavior). With it `true`, the confirmed action executes through the framework capability pipeline. This is **not** a blanket breaking execute; the default preserves existing behavior.
+
+### Requires
+
+- **Prompt re-export.** Re-export `chatToolRoundPrompt` (`chat.toolRound`) and `chatScopeCheckPrompt` (`chat.scopeCheck`) from `@plumbus/chat` into `app/prompts/` so directory discovery registers them (same one-time wiring as `chat.turn`). Path B fails at startup with `chat.prompt_not_registered` if either is absent.
+- Core with the provider tool protocol, `runToolLoop`, `EntityIndexDefinition.unique`, and the conditional/transactional repository write path (see `@plumbus/core` changelog). Peer range stays `0.6.x`.
+
 ## 0.1.10
 
 ### Breaking behavior changes

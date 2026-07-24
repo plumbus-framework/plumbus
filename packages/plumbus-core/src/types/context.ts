@@ -1,6 +1,21 @@
 import type { z } from 'zod';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
-import type { ChatMessage } from '../ai/provider.js';
+import type {
+  AITool,
+  AIToolCall,
+  AIToolChoice,
+  AIToolExecutionOptions,
+  ChatMessage,
+} from '../ai/provider.js';
+
+// Re-export the provider tool-calling protocol types on the context surface.
+export type {
+  AITool,
+  AIToolCall,
+  AIToolChoice,
+  AIToolExecutionOptions,
+  AIProviderCapabilities,
+} from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
 import type {
@@ -89,6 +104,19 @@ export interface AggregateOptions
   limit?: number;
 }
 
+// ── Conditional (CAS) update result ──
+/**
+ * Result of `Repository.updateWhere`. `matched` is `true` only when a row with
+ * the given id satisfied EVERY predicate equality at write time; the write then
+ * applied and `row` is the updated record. `matched: false` (`row: null`) means
+ * the predicate lost the race (or no such id) — the caller MUST treat this as a
+ * lost compare-and-set, never as a not-found error.
+ */
+export interface ConditionalUpdateResult<T = Record<string, any>> {
+  matched: boolean;
+  row: T | null;
+}
+
 // ── Repository (per-entity data access) ──
 export interface Repository<
   T = Record<string, any>,
@@ -105,6 +133,20 @@ export interface Repository<
    */
   createMany(records: TCreate[]): Promise<T[]>;
   update(id: string, updates: TUpdate): Promise<T>;
+  /**
+   * Compare-and-set update: applies `updates` to the row with `id` only if the
+   * row currently equals every field in `predicate` (a `null` predicate value
+   * matches SQL `IS NULL`). Returns `{ matched: true, row }` on success and
+   * `{ matched: false, row: null }` when no row matched — enabling single-winner
+   * lease acquisition and status transitions without `SELECT … FOR UPDATE`.
+   * Tenant scope and (for tenant-scoped entities) the tenant WHERE predicate are
+   * applied exactly as in `update`.
+   */
+  updateWhere(
+    id: string,
+    predicate: Partial<T>,
+    updates: TUpdate,
+  ): Promise<ConditionalUpdateResult<T>>;
   delete(id: string): Promise<void>;
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
   count(
@@ -165,6 +207,25 @@ export interface FlowExecution {
   status: string;
 }
 
+// ── Flow Description (for provider-tool exposure) ──
+export interface FlowDescription {
+  name: string;
+  domain: string;
+  description?: string;
+  /**
+   * Raw flow input JSON Schema (same representation as
+   * `CapabilityDescription.inputSchema`). Always present; used to derive the
+   * flow input-schema hash that serves as the flow's tool `targetVersion` (C4).
+   */
+  inputSchema: Record<string, unknown>;
+  /**
+   * Structured-output-normalized JSON Schema suitable as a provider tool's
+   * `parameters`. `undefined` when the flow input schema cannot be represented
+   * as a provider tool schema (a `ProviderJsonSchemaError` was raised).
+   */
+  parameters?: Record<string, unknown>;
+}
+
 // ── Flow Service ──
 export interface FlowService {
   start(
@@ -177,6 +238,12 @@ export interface FlowService {
   status(executionId: string): Promise<FlowExecution>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. Throws LeaseLostError if the lease has been lost. */
   heartbeat(): Promise<void>;
+  /**
+   * Describe a registered flow for provider-tool exposure. Returns `undefined`
+   * when the flow is not registered or when no flow registry is wired into the
+   * flow service. Present only on flow services built with a registry.
+   */
+  describe?(flowName: string): FlowDescription | undefined;
 }
 
 // ── Job Dispatch Service ──
@@ -227,6 +294,8 @@ export interface AIStreamEvent {
    * billing and to mark the output as fragile.
    */
   validationFallbackFired?: boolean;
+  /** Provider tool calls surfaced on a done event when finishReason is 'tool_calls'. */
+  toolCalls?: AIToolCall[];
   /** Error message (for error events) */
   error?: string;
 }
@@ -242,14 +311,61 @@ export interface AITokenUsage {
   cacheWriteTokens?: number;
 }
 
-// ── AI Generate Result with Usage ──
-export interface AIGenerateResult {
-  data: Record<string, any>;
+// ── AI Tool-Calling Generation Config + Results (C1) ──
+
+/** Tool-calling generation fields mixed into generate/generateWithUsage config. */
+export interface AIGenerateConfig {
+  tools?: AITool[];
+  toolChoice?: AIToolChoice;
+  toolExecution?: AIToolExecutionOptions;
+  /** Default 'prompt'. 'none' disables output-schema validation (Chat tool rounds set 'none'). */
+  outputValidation?: 'prompt' | 'none';
+}
+
+/**
+ * C1: flat final result — `.data` is ALWAYS present. No-tool callers receive this.
+ * `finishReason` is newly added and additive; existing consumers may ignore it.
+ */
+export interface AIFinalGenerateResult<T = Record<string, any>> {
+  finishReason: 'stop' | 'length' | 'refusal' | 'other';
+  data: T;
+  toolCalls?: never;
   usage: AITokenUsage;
   model: string;
   provider: string;
   /** Estimated cost in USD based on published per-token rates. 0 for unknown models. */
   cost: number;
+}
+
+/** C1: tool-call branch — never carries `.data`. */
+export interface AIToolCallsGenerateResult {
+  finishReason: 'tool_calls';
+  toolCalls: AIToolCall[];
+  data?: never;
+  usage: AITokenUsage;
+  model: string;
+  provider: string;
+  cost: number;
+}
+
+/** C1: only tool-enabled config returns this discriminated union (keyed on finishReason). */
+export type AIToolEnabledGenerateResult<T = Record<string, any>> =
+  | AIFinalGenerateResult<T>
+  | AIToolCallsGenerateResult;
+
+/** TIER-1 public back-compat alias (was `{ data; usage; model; provider; cost }`). */
+export type AIGenerateResult<T = Record<string, any>> = AIFinalGenerateResult<T>;
+
+/** Base config for generateWithUsage (existing inline fields + outputValidation). */
+export interface AIGenerateWithUsageConfig {
+  prompt: string;
+  input: Record<string, unknown>;
+  messages?: ChatMessage[];
+  validation?: AIValidationOptions;
+  signal?: AbortSignal;
+  costContext?: AICostContext;
+  seed?: number;
+  outputValidation?: 'prompt' | 'none';
 }
 
 export interface AIValidationOptions {
@@ -315,20 +431,22 @@ export interface AIService {
     seed?: number;
   }): Promise<Record<string, any>>;
 
-  /** Like generate(), but also returns actual token usage from the provider */
-  generateWithUsage(config: {
-    prompt: string;
-    input: Record<string, unknown>;
-    /** Same semantics as `generate({ messages })`. */
-    messages?: ChatMessage[];
-    validation?: AIValidationOptions;
-    /** Abort the in-flight HTTP request to the provider when this signal fires. Defaults to ctx.signal inside flow steps. */
-    signal?: AbortSignal;
-    /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
-    costContext?: AICostContext;
-    /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
-    seed?: number;
-  }): Promise<AIGenerateResult>;
+  /** Like generate(), but also returns actual token usage. No tools → flat result; `.data` unconditional (C1). */
+  generateWithUsage<T extends Record<string, any> = Record<string, any>>(
+    config: AIGenerateWithUsageConfig & {
+      tools?: undefined;
+      toolChoice?: undefined;
+      toolExecution?: undefined;
+    },
+  ): Promise<AIFinalGenerateResult<T>>;
+  /** Tools enabled → discriminated union keyed on `finishReason` (C1). */
+  generateWithUsage<T extends Record<string, any> = Record<string, any>>(
+    config: AIGenerateWithUsageConfig & {
+      tools: AITool[];
+      toolChoice?: AIToolChoice;
+      toolExecution?: AIToolExecutionOptions;
+    },
+  ): Promise<AIToolEnabledGenerateResult<T>>;
 
   /** Stream AI generation, yielding incremental text deltas and a final validated result */
   streamGenerate(config: {

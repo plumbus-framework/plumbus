@@ -5,11 +5,59 @@ import {
   buildCapabilityRuntimeDeps,
   createExecutionContext,
 } from '@plumbus/core';
-import { confirmPending, rejectPending, storePending } from '../pending-actions.js';
+import { rejectPending } from '../pending-actions.js';
+import { chatPendingActionRepo } from '../../internal/chat-repos.js';
 import { createSession } from '../../session/service.js';
+import type {
+  ChatPendingActionV2,
+  ChatToolResumePayloadV1,
+} from '../../session/pending-action-v2.js';
+
+function minimalResume(): ChatToolResumePayloadV1 {
+  return {
+    version: 1,
+    chatName: 'help',
+    logicalTurnId: 'lt-1',
+    proposalAssistantTurnId: 'lt-1',
+    toolCallId: 'tc-1',
+    toolName: 'orders.ship',
+    messages: [{ role: 'user', content: 'x' }],
+    counters: {
+      toolRoundsUsed: 0,
+      flowStartsUsed: 0,
+      flowAwaitMsUsed: 0,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
+      costUsed: 0,
+    },
+    toolsExecuted: [],
+    sourceRefs: [],
+  };
+}
+
+function pending(
+  sessionId: string,
+  overrides: Partial<ChatPendingActionV2> = {},
+): ChatPendingActionV2 {
+  return {
+    version: 2,
+    id: '00000000-0000-4000-8000-000000000040',
+    sessionId,
+    expectedSessionRevision: 0,
+    capabilityName: 'orders.ship',
+    input: {},
+    inputSchemaHash: 'legacy',
+    toolBindingHash: 'legacy',
+    confirmationMessage: 'Ship?',
+    status: 'pending',
+    expiresAt: new Date(Date.now() - 1000).toISOString(),
+    resumePayload: minimalResume(),
+    ...overrides,
+  };
+}
 
 describe('pending-actions ownership guards', () => {
-  it('confirmPending returns notFound for foreign-user rows before mutating expiry', async () => {
+  it('rejectPending returns not_found for foreign-user rows', async () => {
     const ownerCtx = createTestContext({
       auth: { userId: 'owner', roles: [], scopes: [], provider: 'test' },
     });
@@ -19,17 +67,7 @@ describe('pending-actions ownership guards', () => {
       audience: 'user',
       locale: 'en',
     });
-    const actionId = '00000000-0000-4000-8000-000000000040';
-    await storePending(ownerCtx, {
-      id: actionId,
-      sessionId: session.id,
-      capabilityName: 'orders.ship',
-      input: {},
-      schemaHash: 'legacy',
-      confirmationMessage: 'Ship?',
-      expiresAt: new Date(Date.now() - 1000).toISOString(),
-      status: 'pending',
-    });
+    await chatPendingActionRepo(ownerCtx).create(pending(session.id));
 
     const attacker = createExecutionContext({
       auth: { userId: 'attacker', roles: [], scopes: [], provider: 'test' },
@@ -42,10 +80,16 @@ describe('pending-actions ownership guards', () => {
     });
 
     await expect(
-      confirmPending(attacker, actionId, async () => ({}), 'legacy'),
-    ).rejects.toMatchObject({ code: 'notFound' });
+      rejectPending(attacker, {
+        actionId: '00000000-0000-4000-8000-000000000040',
+        ownerUserId: 'attacker',
+        sessionUserId: session.userId,
+      }),
+    ).resolves.toEqual({ rejected: false, reason: 'not_found' });
 
-    const row = await ownerCtx.data.ChatPendingAction?.findById(actionId);
+    const row = await ownerCtx.data.ChatPendingAction?.findById(
+      '00000000-0000-4000-8000-000000000040',
+    );
     expect(row?.status).toBe('pending');
   });
 
@@ -57,21 +101,19 @@ describe('pending-actions ownership guards', () => {
       audience: 'user',
       locale: 'en',
     });
-    const actionId = '00000000-0000-4000-8000-000000000041';
-    await storePending(ctx, {
-      id: actionId,
-      sessionId: session.id,
-      capabilityName: 'orders.ship',
-      input: {},
-      schemaHash: 'legacy',
-      confirmationMessage: 'Ship?',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      status: 'pending',
-    });
+    await chatPendingActionRepo(ctx).create(
+      pending(session.id, {
+        id: '00000000-0000-4000-8000-000000000041',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    );
 
-    await expect(rejectPending(ctx, actionId, 'legacy')).resolves.toEqual({
-      rejected: true,
-      capabilityName: 'orders.ship',
-    });
+    await expect(
+      rejectPending(ctx, {
+        actionId: '00000000-0000-4000-8000-000000000041',
+        ownerUserId: ctx.auth.userId ?? 'u1',
+        sessionUserId: session.userId,
+      }),
+    ).resolves.toEqual({ rejected: true, capabilityName: 'orders.ship' });
   });
 });

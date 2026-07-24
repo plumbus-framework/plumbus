@@ -17,6 +17,11 @@ export const chatTurnEntity = defineEntity({
     sources: field.json({ required: true }),
     actionRequested: field.json({ optional: true }),
     actionConfirmed: field.boolean({ optional: true }),
+    // Multi-row logical turn grouping (user + assistant + resume rows share it).
+    logicalTurnId: field.string({ optional: true }),
+    continuationOfTurnId: field.string({ optional: true }),
+    // Bounded ToolExecutionRecord[] for this turn (post-validation/redaction).
+    toolsExecuted: field.json({ optional: true }),
     tokensIn: field.number({ required: true }),
     tokensOut: field.number({ required: true }),
     // costUsd is fractional dollars (e.g. 0.001595). Must be decimal — field.number
@@ -27,8 +32,5 @@ export const chatTurnEntity = defineEntity({
     recordedAt: field.timestamp({ required: true }),
     userId: field.string({ required: true }),
   },
-  indexes: [
-    ['sessionId', 'ordinal'],
-    ['userId', 'recordedAt'],
-  ],
+  indexes: [{ columns: ['sessionId', 'ordinal'], unique: true }, ['userId', 'recordedAt']],
 });

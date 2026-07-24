@@ -23,6 +23,9 @@ export async function createSession(
     status: 'active',
     behavioralState: {},
     summaryTurnCount: 0,
+    revision: 0,
+    leaseToken: null,
+    leaseExpiresAt: null,
   });
 }
 
@@ -73,6 +76,9 @@ export async function getOrCreateSession(
       status: 'active',
       behavioralState: {},
       summaryTurnCount: 0,
+      revision: 0,
+      leaseToken: null,
+      leaseExpiresAt: null,
     });
   } catch {
     // Concurrent insert won — re-load. Returning null here would mask the

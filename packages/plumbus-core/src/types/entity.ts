@@ -5,6 +5,12 @@ export interface EntityRetention {
   duration: string;
 }
 
+// ── Entity Index Definition ──
+export interface EntityIndexDefinition {
+  columns: string[];
+  unique?: boolean;
+}
+
 // ── Entity Definition ──
 export interface EntityDefinition {
   name: string;
@@ -14,7 +20,8 @@ export interface EntityDefinition {
   owner?: string;
 
   fields: Record<string, FieldDescriptor>;
-  indexes?: string[][];
+  /** Backward compatible: legacy `string[][]` still valid; new entries may declare `unique`. */
+  indexes?: Array<string[] | EntityIndexDefinition>;
   retention?: EntityRetention;
   tenantScoped?: boolean;
 }

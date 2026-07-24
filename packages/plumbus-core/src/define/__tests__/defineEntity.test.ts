@@ -57,4 +57,19 @@ describe('defineEntity', () => {
       }),
     ).toThrow('index references unknown field "nonexistent"');
   });
+
+  it('accepts object index form and validates its columns', () => {
+    const entity = defineEntity({
+      ...validConfig(),
+      indexes: [{ columns: ['name'], unique: true }],
+    });
+    expect(entity.indexes).toEqual([{ columns: ['name'], unique: true }]);
+
+    expect(() =>
+      defineEntity({
+        ...validConfig(),
+        indexes: [{ columns: ['nope'] }],
+      }),
+    ).toThrow('index references unknown field "nope"');
+  });
 });

@@ -1,127 +1,156 @@
-# Recipe: Action confirmation (the `confirm()` gap)
+# Recipe: Action confirmation
 
-This is the most surprising part of `@plumbus/chat-ui`. **`useChat.confirm(actionId)` does NOT call the server.** It clears local `pendingConfirmation` state and sets `status = 'idle'`. Nothing else.
+When a chat proposes a side-effecting action, the server pauses the turn and emits a `confirmation_required` event. The user approves or declines, and **the framework does the rest** — `@plumbus/chat-ui` ships a real, first-party confirm/decline round-trip. There is no gap to fill and no capability to call by hand.
 
-Apps that ship action-confirmation flows must call the server-side `chatConfirmAction` capability **directly**. The hook surfaces every field the server needs — `actionId`, `capabilityName`, `schemaHash` — so apps can wire the round-trip in ~20 lines.
+`useChat` exposes two server-backed methods:
 
-**`chatConfirmAction` does NOT execute the proposed capability.** A successful confirm (`execute: true`) validates the pending row, re-checks the v2 schema hash, marks the action confirmed, and emits `chat.action.confirmed`. It returns `{ executed: true }` without calling `executeCapability` on the target capability. Wire real side effects in your app after confirm succeeds.
+- **`confirm(actionId?)`** — approve the pending action.
+- **`decline(actionId?)`** — reject it (server-side audit trail).
+
+Both POST to the server, which executes (on confirm) and resumes the turn for a final answer. `cancel()` is a *local-only* dismiss — see below.
 
 ## What the server emits
 
-When the post-turn `action-guard` proposes an action, the runtime emits a `confirmation_required` event:
+When the model requests an action, the runtime emits `confirmation_required`:
 
 ```ts
 {
   type: 'confirmation_required',
-  actionId: string,          // server-minted UUID
-  capabilityName: string,    // the capability the model wants to call
-  confirmationMessage: string, // human-readable text from the model
-  expiresAt: string,         // ISO timestamp; the pending action expires
-  schemaHash?: string,       // hash of the capability's input schema at propose time
+  actionId: string,             // server-minted UUID
+  capabilityName: string,       // the capability/flow the model wants to run
+  confirmationMessage: string,  // human-readable text from the model
+  expiresAt: string,            // ISO timestamp; the pending action expires
+  schemaHash?: string,          // legacy Path A echo hash
+  inputSchemaHash?: string,     // Path B: echo this back on confirm/decline
+  projection?: unknown,         // Path B: validated, redacted preview for rendering
 }
 ```
 
-`applyChatEvent` stores this on `chat.pendingConfirmation` and flips `status` to `'awaiting_confirmation'`. The `<ConfirmationDialog />` component renders it.
+`applyChatEvent` folds this into `chat.pendingConfirmation` and flips `status` to `'awaiting_confirmation'`. The `<ConfirmationDialog />` renders it. The field the client echoes back is **`inputSchemaHash`** (not `schemaHash`).
 
-## What the agent must call
+## Confirming and declining
 
-The auto-routed capability `chatConfirmAction` at `POST /api/chat/chat-confirm-action`. Input:
+`confirm()` and `decline()` both POST to `confirmUrl ?? /chat/${chatName}/confirm`:
 
 ```ts
+// POST /chat/:name/confirm    (credentials: 'include')
 {
-  actionId: string,       // from pendingConfirmation.actionId
-  capabilityName: string, // from pendingConfirmation.capabilityName
-  schemaHash: string,     // from pendingConfirmation.schemaHash
-  execute: boolean,       // true to execute; false to reject without running
+  actionId: string,          // pendingConfirmation.actionId (or the arg you pass)
+  inputSchemaHash: string,   // echoed from pendingConfirmation.inputSchemaHash
+  decision: 'confirm' | 'reject',
 }
 ```
 
-The server:
-1. Loads the pending action.
-2. **Re-hashes the capability's current input schema and compares to `schemaHash` (v2 rows).** If they differ (e.g. a redeploy tightened the schema since the action was proposed), the call is rejected with `chat.action_schema_changed`. Legacy unprefixed hashes use echo-compare only (`chat.action_schema_mismatch`).
-3. Re-validates input against the current schema.
-4. Marks the action `confirmed` or `rejected` and emits the domain event.
-5. **Does not execute the target capability** — return value is `{ executed: true, result: { ok: true } }` stub today.
+The hook reads `pendingConfirmation.inputSchemaHash` for you and sets `status = 'streaming'` while the request is in flight. If `inputSchemaHash` is absent (a config error, or a server that never emitted it for Path B), the hook flips `status` to `'error'` and issues **no** request.
 
-After a successful confirm response, call your domain capability (or `executeCapability`) in app code if you need real writes.
+### On confirm
 
-## Recipe
+The server, using only server-side state:
+
+1. Re-resolves the tool binding for the stored `capabilityName` and checks the client-echoed `inputSchemaHash` against the current binding. Drift (a redeploy tightened the schema) is rejected with `chat.binding_changed`; an expired action returns `chat.action_expired`.
+2. Executes the capability/flow **through the full framework pipeline** via `executeCapability`, with **deny-by-default access preserved** — using the **stored, normalized input**. The client never supplies the capability name or the input; both come from the pending row.
+3. **Resumes the turn for a final answer.** Resume is **answer-only**: a single model completion with **no further tool rounds and no nested confirmation**.
+
+### On decline
+
+The server marks the pending row `rejected`, emits the rejection event, and returns immediately — **no execution, no resume**.
+
+### The outcome the UI sees
+
+Either decision produces a `confirmation.resolved` event, which the reducer folds into state:
+
+- Clears `pendingConfirmation`.
+- Sets `lastConfirmResult` (unless a fresh `confirmation_required` follows).
+
+```ts
+// chat.lastConfirmResult
+{
+  actionId: string,
+  decision: 'confirm' | 'reject',
+  pendingStatus: 'confirmed' | 'rejected' | 'failed' | 'indeterminate' | 'expired',
+  executionStatus: 'not_requested' | 'succeeded' | 'failed' | 'indeterminate',
+}
+```
+
+A confirm also streams the resumed assistant answer (`message.delta` → `turn.completed`) into `chat.messages`, exactly like a normal turn. A decline reports `executionStatus: 'not_requested'`.
+
+## CSRF — required on every confirm/decline POST
+
+The server enforces **exact-Origin + session-bound CSRF** on cookie-authenticated writes for **both** `/turn` and `/confirm`. `useChat` handles this automatically: it reads the non-HttpOnly cookie `plumbus_chat_csrf` (`CHAT_CSRF_COOKIE_NAME`) and echoes it in the `x-plumbus-chat-csrf` header (`CHAT_CSRF_HEADER_NAME`). Both constants are exported from `@plumbus/chat`.
+
+- **Cookie auth:** the header is mandatory — a POST without it is rejected `403`.
+- **Bearer (`Authorization`) auth:** CSRF-exempt.
+
+If you hand-roll the confirm fetch or fork the hook for Bearer auth, you **must** send `x-plumbus-chat-csrf` on every turn/confirm POST (import the constant; don't hard-code the string).
+
+## `cancel()` vs `decline()`
+
+- **`cancel()`** is a local-only dismiss: it sets `status` to `'idle'` and contacts the server **not at all**. The pending action stays open server-side until it expires. Kept for back-compat.
+- **`decline()`** posts a `reject` decision so the server records the rejection and emits `confirmation.resolved`.
+
+**Prefer `decline()` for the "Cancel" button** whenever you want a server-side audit trail of declined actions. Reach for `cancel()` only for a purely cosmetic dismiss.
+
+## Using `<ChatPanel />` and `<ConfirmationDialog />`
+
+Both are **production-ready** — the historical "v0.1 stub" is gone. `<ChatPanel />` wires the dialog straight through to the server:
 
 ```tsx
 'use client';
-import { useChat } from '@plumbus/chat-ui';
+import { ChatPanel } from '@plumbus/chat-ui';
 
-export function MyChat({ sessionId }: { sessionId: string }) {
-  const chat = useChat({ chatName: 'billing', sessionId, audience: 'user', locale: 'en' });
-
-  async function realConfirm() {
-    const pa = chat.pendingConfirmation;
-    if (!pa || !pa.schemaHash) {
-      console.error('No schemaHash on pending action — server is pre-0.1.4 or action-guard misconfigured');
-      return;
-    }
-    const res = await fetch('/api/chat/chat-confirm-action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        actionId: pa.actionId,
-        capabilityName: pa.capabilityName,
-        schemaHash: pa.schemaHash,
-        execute: true,
-      }),
-    });
-    if (!res.ok) {
-      // Likely chat.action_schema_changed — the schema drifted; ask the user again.
-      const err = await res.json();
-      console.error('Confirm rejected:', err);
-      return;
-    }
-    chat.cancel();  // clears local pendingConfirmation; server already marked confirmed — run your capability separately if needed.
-  }
-
-  return (
-    <>
-      {chat.pendingConfirmation && (
-        <div role="dialog">
-          <p>{chat.pendingConfirmation.confirmationMessage}</p>
-          <button onClick={() => void realConfirm()}>Confirm</button>
-          <button onClick={chat.cancel}>Cancel</button>
-        </div>
-      )}
-      {/* ... rest of the UI ... */}
-    </>
-  );
-}
+<ChatPanel chatName="billing" sessionId={s} audience="user" locale="en" />
+// Dialog "Confirm"  → chat.confirm(actionId)  → POST /chat/billing/confirm
+// Dialog "Cancel"   → chat.decline(actionId)  → POST /chat/billing/confirm (reject)
 ```
 
-**Do NOT use `<ChatPanel />`'s built-in confirmation dialog for production action-confirmation flows.** Its `onConfirm` calls `useChat.confirm` which is the stub. For now, either use a custom layout with `<ChatMessages />` + `<ChatInput />` and your own dialog, or fork the panel.
+Override the endpoint with `confirmUrl` when routes are namespaced (mirrors `turnUrl`):
 
-## What happens if you don't wire this
-
-The user clicks "Confirm" → `useChat.confirm()` clears `pendingConfirmation` locally → the user thinks the action executed → **nothing happened server-side**. The pending action expires at `expiresAt` and is garbage-collected. The model thinks the action was rejected.
-
-This will silently miss every action confirmation in the app. The audit logs will show pending actions that never confirmed.
-
-## Rejecting instead of confirming
-
-Same recipe with `execute: false`. The server marks the action `rejected` and emits the appropriate event. Use for the "Cancel" button when you want a server-side audit trail of declined actions.
-
-```ts
-body: JSON.stringify({
-  actionId: pa.actionId,
-  capabilityName: pa.capabilityName,
-  schemaHash: pa.schemaHash,
-  execute: false,
-}),
+```tsx
+<ChatPanel chatName="billing" sessionId={s} audience="user" locale="en"
+  turnUrl="/api/chat/billing/turn" confirmUrl="/api/chat/billing/confirm" />
 ```
 
-## Why the recipe is required
+`<ConfirmationDialog />` is a functional dialog: `onConfirm` and `onReject` are plain callbacks. In a custom layout, wire them to the hook:
 
-`useChat.confirm()` does not call the server, so **every action-confirmation flow needs the recipe above** — there is no shortcut. A first-party `useChat → chatConfirmAction` round-trip (likely a `confirm(actionId, { execute })` that calls the server, plus a `<ConfirmationDialog />` wired through `<ChatPanel />`) would supersede it; the contract above (action capability shape, schemaHash check) would stay the same.
+```tsx
+<ConfirmationDialog
+  pendingConfirmation={chat.pendingConfirmation}
+  onConfirm={() => void chat.confirm(chat.pendingConfirmation?.actionId ?? '')}
+  onReject={() => void chat.decline(chat.pendingConfirmation?.actionId ?? '')}
+  busy={chat.status === 'streaming'}
+/>
+```
+
+## Path A vs Path B — what executes on confirm
+
+The two ways a chat proposes actions behave differently on confirm:
+
+| | Trigger | On confirm |
+|---|---|---|
+| **Path A** (legacy `requestedAction`) | `policy.action` | Executes **only if** `policy.action.frameworkExecuteOnConfirm === true`. Default `false` = **decision-only** (validate, mark confirmed/rejected, emit events — no capability run). |
+| **Path B** (`policy.toolCalling`) | provider-native tool calling | **Always** executes the tool and resumes the turn for an answer. |
+
+The client wiring is identical for both — `confirm()` / `decline()` don't change. Only the server-side effect differs.
+
+### Path B server setup (two steps)
+
+Path B needs one-time app wiring, or the **first** Path B turn fails with a per-turn `turn.failed` carrying `chat.prompt_not_registered` (this is *not* a boot/startup error):
+
+1. **Re-export the tool-calling prompts.** Re-export `chatToolRoundPrompt` and `chatScopeCheckPrompt` from `@plumbus/chat` into `app/prompts/` (directory-discovered, same one-time wiring as `chat.turn`).
+2. **Pass a `chatRegistry`.** Build `createChatRegistry(promptRegistry)` (it takes the runtime `PromptRegistry` — any object with `has(name)`) and pass it as the `chatRegistry` field of the `registerChatRoutes(app, config, chats, { store, chatRegistry })` options.
+
+Path B also requires a **transactional** conversation `store`; a non-transactional adapter fails closed with `chat.storage_unsupported`.
+
+## Don'ts
+
+- **Don't call `confirm()`/`decline()` while streaming a turn.** They target the pending confirmation for the current session; issue them from the `'awaiting_confirmation'` state.
+- **Don't send the capability name or input from the client on confirm.** The server uses the stored, normalized input; client-supplied values are ignored.
+- **Don't use `cancel()` when you need an audit trail.** It never reaches the server — use `decline()`.
+- **Don't hard-code the CSRF cookie/header strings.** Import `CHAT_CSRF_COOKIE_NAME` / `CHAT_CSRF_HEADER_NAME` from `@plumbus/chat`.
 
 ## See also
 
-- Server-side action-guard: `node_modules/@plumbus/chat/instructions/policies.md` (action section)
-- The `chatConfirmAction` capability: `packages/chat/src/capabilities/chat-confirm-action.ts` in the Plumbus monorepo
-- Hook return shape: [custom-ui.md](./custom-ui.md)
+- Hook return shape and custom layouts: [custom-ui.md](./custom-ui.md)
+- Wiring the panel: [wiring-chat-panel.md](./wiring-chat-panel.md)
+- Server-side action policy (Path A / Path B): `node_modules/@plumbus/chat/instructions/policies.md`
+- Defining chats with actions/tool calling: `node_modules/@plumbus/chat/instructions/defining-chats.md`

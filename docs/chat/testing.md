@@ -155,3 +155,15 @@ The hook itself is a thin reducer wrapper — test the reducer, trust React.
 | Persistence-mode round-trip | same file, "persistence modes" suite |
 | Trace recorder coverage | same file, "trace recorder" suite |
 | Pure helper coverage | `packages/chat-ui/src/hooks/__tests__/useChat-helpers.test.ts` |
+| Tool-calling loop + confirm/resume | `packages/chat/src/runtime/__tests__/run-turn-tools.test.ts` |
+| Lease store conformance | `packages/chat/src/runtime/__tests__/conversation-store.test.ts` |
+
+## Testing tool calling (Path B)
+
+Script tool rounds through `mockAI` by returning an assistant message whose `toolCalls`
+carry `argumentsStatus: 'parsed'` for the first call(s) and a final tool-less answer for
+the last round. Assert on the tool event sequence (`tool.started` → `tool.completed` /
+`tool.failed`) and, for confirm-mode tools, on `confirmation_required` followed by
+`confirmation.resolved` after driving `POST /chat/:name/confirm`. Path B needs a
+transactional store; use the in-suite `ChatConversationStore` conformance fixture rather
+than the plain in-memory repository (which fails closed with `chat.storage_unsupported`).

@@ -152,7 +152,7 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
           encryptionKey,
         },
         {
-          flows: createFlowService(requestFlowEngine, auth),
+          flows: createFlowService(requestFlowEngine, auth, flows),
           ai: aiService,
           logger: requestLogger,
           config: config as unknown as Record<string, unknown>,

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — confirm round-trip + tool-calling events
+
+### Changed
+
+- **`useChat.confirm()` performs the real confirmation round-trip.** It now POSTs to `confirmUrl` (default `/chat/{chatName}/confirm`) instead of only clearing local state. Added `decline(actionId)` and `lastConfirmResult` (a `ChatConfirmResult`). Cookie-authenticated apps must be served from the server's configured origin (exact-Origin + CSRF enforced server-side).
+- **`applyChatEvent` reducer** handles the new `tool.started` / `tool.completed` / `tool.failed` / `confirmation.resolved` events and the additive `inputSchemaHash` / `projection` fields on `confirmation_required`.
+- **`<ConfirmationDialog />` is wired through `<ChatPanel />`** to `confirm` / `decline`.
+
+### Requires
+
+- `@plumbus/chat` with Path B provider-native tool calling and the `POST /chat/:name/confirm` route (see its changelog). Peer range unchanged.
+
 ## 0.1.6
 
 ### Changed

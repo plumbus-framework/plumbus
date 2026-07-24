@@ -122,6 +122,91 @@ describe('applyChatEvent — confirmation_required', () => {
     });
     expect(s.pendingConfirmation?.schemaHash).toBe('sha256:abc');
   });
+
+  it('confirmation_required carries inputSchemaHash and projection', () => {
+    const s = applyChatEvent(initialChatUiState, {
+      type: 'confirmation_required',
+      actionId: 'a1',
+      capabilityName: 'createTicket',
+      confirmationMessage: 'Create a ticket?',
+      expiresAt: '2099-01-01T00:00:00Z',
+      inputSchemaHash: 'sha256:def',
+      projection: { orderId: 'o-1' },
+    });
+    expect(s.pendingConfirmation?.inputSchemaHash).toBe('sha256:def');
+    expect(s.pendingConfirmation?.projection).toEqual({ orderId: 'o-1' });
+  });
+});
+
+describe('applyChatEvent — tool and confirmation.resolved', () => {
+  it('tool.completed and tool.failed become notices, never messages', () => {
+    let s = pushUserMessage(initialChatUiState, 'hi');
+    s = applyChatEvent(s, { type: 'message.delta', text: 'answer' });
+    const beforeCount = s.messages.length;
+    s = applyChatEvent(s, {
+      type: 'tool.completed',
+      toolCallId: 'tc-1',
+      name: 'search',
+      kind: 'capability',
+    });
+    s = applyChatEvent(s, {
+      type: 'tool.failed',
+      toolCallId: 'tc-2',
+      name: 'ship',
+      kind: 'capability',
+      code: 'chat.tool_failed',
+      message: 'failed',
+    });
+    expect(s.messages).toHaveLength(beforeCount);
+    expect(s.notices.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('confirmation.resolved clears pending and records lastConfirmResult', () => {
+    let s = applyChatEvent(initialChatUiState, {
+      type: 'confirmation_required',
+      actionId: 'a1',
+      capabilityName: 'cap',
+      confirmationMessage: 'go?',
+      expiresAt: '2099-01-01T00:00:00Z',
+    });
+    expect(s.status).toBe('awaiting_confirmation');
+    s = applyChatEvent(s, {
+      type: 'confirmation.resolved',
+      actionId: 'a1',
+      decision: 'confirm',
+      pendingStatus: 'confirmed',
+      executionStatus: 'succeeded',
+    });
+    expect(s.pendingConfirmation).toBeNull();
+    expect(s.status).toBe('idle');
+    expect(s.lastConfirmResult).toEqual({
+      actionId: 'a1',
+      decision: 'confirm',
+      pendingStatus: 'confirmed',
+      executionStatus: 'succeeded',
+    });
+  });
+
+  it('confirmation.resolved resets status to idle even when status was streaming (decline round-trip)', () => {
+    let s = applyChatEvent(initialChatUiState, {
+      type: 'confirmation_required',
+      actionId: 'a1',
+      capabilityName: 'cap',
+      confirmationMessage: 'go?',
+      expiresAt: '2099-01-01T00:00:00Z',
+      inputSchemaHash: 'v2:abc',
+    });
+    s = { ...s, status: 'streaming' };
+    s = applyChatEvent(s, {
+      type: 'confirmation.resolved',
+      actionId: 'a1',
+      decision: 'reject',
+      pendingStatus: 'rejected',
+      executionStatus: 'not_requested',
+    });
+    expect(s.status).toBe('idle');
+    expect(s.pendingConfirmation).toBeNull();
+  });
 });
 
 describe('applyChatEvent — terminal events', () => {

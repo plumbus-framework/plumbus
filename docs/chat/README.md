@@ -19,11 +19,13 @@ These docs are split in three:
 | [context-sources.md](./context-sources.md) | You're wiring up `ragContext`, registry `knowledgeContext`, `capabilityContext`, or `staticContext`. |
 | [testing.md](./testing.md) | You're writing tests with `mockChatRuntime` or the pure UI helpers. |
 | [evaluations.md](./evaluations.md) | You're writing eval scenarios for a chat with `defineChatEvaluation` / `runChatEvaluation`. |
+| [tool-calling.md](./tool-calling.md) | You're enabling `policy.toolCalling` so the model calls capabilities directly (Path B). |
+| [confirmation-persistence.md](./confirmation-persistence.md) | You're migrating chat entities or wiring durable confirmation + session revision CAS. |
 | [../chat-ui/README.md](../chat-ui/README.md) | You're wiring `<ChatPanel />`, `useChat`, or the SSE client helpers in a React app. |
 
 ## Design docs
 
-See [design/](./design/) for the ten decision records — why the framework is shaped the way it is, what alternatives were rejected, and what to watch out for when extending it.
+See [design/](./design/) for the eleven decision records — why the framework is shaped the way it is, what alternatives were rejected, and what to watch out for when extending it.
 
 ## Agent instructions
 
@@ -44,7 +46,7 @@ Read these when you're an AI agent extending a Plumbus app that uses chat. They 
 | A long-running multi-step workflow | `defineFlow` in `@plumbus/core` |
 | One-shot RAG-grounded answer with no chat surface | `ctx.ai.retrieve` + a normal capability |
 | **Multi-turn user conversation with scope, budgets, citations, and an event stream** | **`@plumbus/chat`** |
-| Conversational *agent* with autonomous tool selection | Not a chat primitive. Action confirmation is the closest — the model proposes a capability, the runtime validates and asks the user to confirm. |
+| Conversational *agent* with autonomous tool selection | **`@plumbus/chat`** with `policy.toolCalling` (Path B) — the model calls capabilities/flows as provider-native tools over a bounded loop; auto-mode tools execute inline, confirm-mode tools pause with `confirmation_required` and resume after `POST /chat/:name/confirm`. See [policies.md](./policies.md#tool-calling-path-b) and [design/tool-calling.md](./design/tool-calling.md). |
 
 Use chat when the surface itself is the product: a help bot, customer support, in-product Q&A. If the AI work is upstream of a capability and the user never sees a chat, you don't need this package.
 
@@ -110,6 +112,7 @@ This package composes on core; it does not duplicate. Specifically:
 - All five budget scopes (`perTurn`, `perSession`, `perUser`, `perTenant`, `contextTokens`) plus `actions.perSession` and per-turn timeout are enforced when configured.
 - Streaming runtime with a typed event protocol.
 - Pending-action confirmation with v2 schema-hash re-validation (`v2:` + capability input schema via `ctx.capabilities.describe`).
+- Provider-native tool calling (`policy.toolCalling`, Path B): capabilities + `autoStartFlows` bound as provider tools, a bounded per-turn tool loop, durable `ChatPendingActionV2`, and a `POST /chat/:name/confirm` route that executes through the capability pipeline and resumes the turn for an answer-only completion (no further tool rounds). Emits `tool.started` / `tool.completed` / `tool.failed` / `confirmation.resolved` events.
 - React hook (`useChat`) and components in `@plumbus/chat-ui`.
 - Session and turn persistence with opt-out for message content.
 - Domain events (`chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent`) emitted by the runtime.

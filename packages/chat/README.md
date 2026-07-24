@@ -16,6 +16,7 @@
 - Seven built-in policy guards (audience, locale, scope, privacy, provenance, action, behavioral)
 - Per-turn / per-session / per-user / per-tenant budgets, with cost recording
 - Action-confirmation flow with schema-hash re-validation
+- Provider-native tool calling (`policy.toolCalling`, Path B): capabilities and flows bound as tools, a bounded per-turn loop, and a confirm-and-resume round-trip
 - A streamed `ChatEvent` protocol consumed by `<ChatPanel />` in [`@plumbus/chat-ui`](../chat-ui/)
 
 If you're not using Plumbus, this package won't make sense in isolation — `defineChat` composes on the framework's `ExecutionContext`, capability registry, prompt registry, and audit pipeline.
@@ -105,7 +106,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 - **`exposeAs` defaults to `'sse'`** — the SSE route is the only one mounted. Set `exposeAs: 'capability'` for server-to-server clients that can't consume an event stream, or `'both'` to mount both (rare).
 - **`persistence.saveToDb: false` requires `messageContent: 'client'`.** And it rejects `policy.action.allowedCapabilities` — ephemeral chats can't survive the action-confirmation round-trip. `defineChat` validates this at startup.
 - **`policy.scope.classifier: 'inline'`** — the model classifies and answers in one call (Decision 0001). Refusal turns spend generation tokens; empirically cheaper than a preflight LLM call.
-- **`useChat.confirm()` in `@plumbus/chat-ui` only clears local state.** The server-side `chatConfirmAction` capability does the real schema-hash re-validation; clients must call it directly. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
+- **`useChat.confirm()` in `@plumbus/chat-ui` performs the real `POST /chat/:name/confirm` round-trip** (it also exposes `decline` and `lastConfirmResult`). Path B confirm-mode tools execute through the framework capability pipeline and resume the turn; legacy Path A confirmation is decision-only unless `policy.action.frameworkExecuteOnConfirm: true`. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
 
 ## Documentation
 
@@ -116,7 +117,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
   - [`context-sources.md`](../../docs/chat/context-sources.md) — context-source contract + every built-in
   - [`testing.md`](../../docs/chat/testing.md) — `mockChatRuntime` + helpers
   - [`evaluations.md`](../../docs/chat/evaluations.md) — eval scenarios with `defineChatEvaluation` / `runChatEvaluation`
-  - [`design/`](../../docs/chat/design/) — 10 design decisions explaining the framework's shape
+  - [`design/`](../../docs/chat/design/) — 11 design decisions explaining the framework's shape
 - **Agent recipes** (ship in this package, readable from `node_modules/@plumbus/chat/instructions/`):
   - [`instructions/framework.md`](./instructions/framework.md) — file map, package conventions, critical rules
   - [`instructions/defining-chats.md`](./instructions/defining-chats.md) — recipe for adding a chat

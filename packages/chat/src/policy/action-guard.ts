@@ -85,7 +85,7 @@ export const actionGuard: Guard = async (turnCtx, state) => {
     id: crypto.randomUUID(),
     sessionId: turnCtx.sessionId,
     capabilityName: req.capabilityName,
-    input: req.input,
+    input: req.input, // RAW — run-turn's buildNormalizedPending applies C3 normalization
     schemaHash: hash,
     confirmationMessage: req.confirmationMessage,
     expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),

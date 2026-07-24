@@ -467,7 +467,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             encryptionKey: resolveEncryptionKey(),
           },
           {
-            flows: createFlowService(flowEngine, systemAuth),
+            flows: createFlowService(flowEngine, systemAuth, flows),
             ai: poolConfig.aiService,
             logger,
             config: poolConfig.config as unknown as Record<string, unknown>,
@@ -493,7 +493,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       auth: systemAuth,
       data: dataService,
       events: eventService,
-      flows: createFlowService(flowEngine, systemAuth),
+      flows: createFlowService(flowEngine, systemAuth, flows),
       ai: poolConfig.aiService,
       audit: systemAudit,
       logger,

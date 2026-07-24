@@ -25,6 +25,7 @@ import type {
   AggregateOptions,
   AggregateRow,
   AggregateValue,
+  ConditionalUpdateResult,
   QueryOptions,
   Repository,
 } from '../types/context.js';
@@ -393,6 +394,49 @@ export function createRepository<
       }
       await auditMutation('update', { id, ...updateData });
       return updated;
+    },
+
+    async updateWhere(
+      id: string,
+      predicate: Record<string, unknown>,
+      updates: Record<string, unknown>,
+    ): Promise<ConditionalUpdateResult<T>> {
+      await assertTenantContext('updateWhere');
+      const conditions: SQL[] = [];
+      const idCol = (table as any).id;
+      if (idCol) {
+        conditions.push(eq(idCol, id));
+      }
+      const tf = tenantFilter();
+      if (tf) conditions.push(tf);
+      // Equality predicate; a `null` value maps to SQL `IS NULL` (drizzle `eq`
+      // never renders `col = NULL`). Unknown columns are ignored.
+      for (const [k, v] of Object.entries(predicate)) {
+        const c = (table as any)[k];
+        if (!c) continue;
+        conditions.push(v === null ? isNull(c) : eq(c, v as any));
+      }
+
+      const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+      if (!where) {
+        throw new DataInternalError(
+          `Refusing to updateWhere "${entity.name}" without a WHERE predicate (no id and no tenant filter)`,
+          { entity: entity.name, id },
+        );
+      }
+
+      const updateData: Record<string, unknown> = encryptRecordFields({
+        ...updates,
+        updatedAt: new Date(),
+      });
+
+      const rows = await db.update(table).set(updateData).where(where).returning();
+      const updated = decryptRow(rows[0] as T | undefined);
+      if (!updated) {
+        return { matched: false, row: null };
+      }
+      await auditMutation('update', { id, ...updateData });
+      return { matched: true, row: updated };
     },
 
     async delete(id: string): Promise<void> {
