@@ -93,6 +93,7 @@ The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do tha
 
 ## Critical Rules (read before writing chat code)
 
+- **Never bump `@plumbus/chat` without running migrations.** 0.1.11 adds columns to all three chat entities and a **unique** index on `chat_turn (session_id, ordinal)`. After upgrading, run `plumbus generate && plumbus migrate generate && plumbus migrate apply`. The change is additive with no backfill, but the unique index **fails to build** if the existing table already holds duplicate `(session_id, ordinal)` rows — check with `SELECT session_id, ordinal, count(*) FROM chat_turn GROUP BY 1,2 HAVING count(*) > 1` and dedupe first. Full detail: `/docs/chat/confirmation-persistence.md`.
 - **Never use a write-effect capability as `capabilityContext`.** The framework rejects it at construction time; if you bypass that, every turn mutates state.
 - **Never narrow the chat prompt's output schema.** The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required for the runtime's guards. Add extra fields if you need them.
 - **Never call `runChatTurn` directly from a route.** Use `registerChatRoutes(app, routeConfig, chats)` so SSE, auth, body validation, and `clientHistory` capping are handled correctly.

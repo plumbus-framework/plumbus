@@ -106,6 +106,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 ## Key gotchas
 
 - **Register the three chat entities.** Without `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` in your app entity list, migrations won't create the underlying tables and the runtime will fail at first turn.
+- **Upgrading to 0.1.11 requires a migration.** All three chat entities gain columns and `chat_turn` gains a **unique** `(session_id, ordinal)` index. Run `plumbus generate && plumbus migrate generate && plumbus migrate apply`; the index build fails if the table already holds duplicate ordinals. See [`docs/chat/confirmation-persistence.md`](../../docs/chat/confirmation-persistence.md).
 - **`exposeAs` defaults to `'sse'`** — the SSE route is the only one mounted. Set `exposeAs: 'capability'` for server-to-server clients that can't consume an event stream, or `'both'` to mount both (rare).
 - **`persistence.saveToDb: false` requires `messageContent: 'client'`.** And it rejects `policy.action.allowedCapabilities` — ephemeral chats can't survive the action-confirmation round-trip. `defineChat` validates this at startup.
 - **`policy.scope.classifier: 'inline'`** — the model classifies and answers in one call (Decision 0001). Refusal turns spend generation tokens; empirically cheaper than a preflight LLM call.

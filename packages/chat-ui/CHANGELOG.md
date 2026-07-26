@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.7 — 2026-07-24 — confirm round-trip + tool-calling events
+## 0.1.7 — 2026-07-26 — confirm round-trip + tool-calling events
 
 ### Changed
 

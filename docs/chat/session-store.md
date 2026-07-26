@@ -15,6 +15,13 @@ runChatTurn(ctx, args, { sessionStore, conversationStore });
 Both fields are optional. Omit them and nothing changes — the DB-backed default is
 used, which is what every existing application already gets.
 
+> **Migration:** this seam adds no schema of its own. But it ships in `@plumbus/chat`
+> 0.1.11 alongside the durable-confirmation work, which **does** require a migration —
+> all three chat entities gain columns and `chat_turn` gains a unique
+> `(session_id, ordinal)` index. If you are upgrading, follow
+> [confirmation-persistence.md](./confirmation-persistence.md) first. An app that runs
+> entirely on an injected store still needs it if it keeps the chat entities registered.
+
 The point of the seam is to remove the reason to fork. Before it existed the only way
 to run a chat on non-DB memory was to re-implement the turn pipeline out of the
 exported pieces (`compilePolicy`, `resolveContextSources`, `buildSystemPrompt`,

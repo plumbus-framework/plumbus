@@ -1,6 +1,6 @@
 # @plumbus/core changelog
 
-## 0.6.10 — 2026-07-24 — provider-native tool calling
+## 0.6.11 — 2026-07-26 — provider-native tool calling
 
 ### Added
 
@@ -14,13 +14,15 @@
 - **`normalizeFinishReason`** — TIER-1 export that maps provider-specific finish reasons onto the framework's canonical set, so tool-loop callers can branch on one vocabulary across adapters.
 - **`Repository.updateWhere` (optional conditional/CAS update) + transaction-capable write path** — `Repository` gains the optional `updateWhere` method returning `ConditionalUpdateResult`, surfaced to `@plumbus/chat` for atomic lease-based session mutations. `updateWhere` is **optional** on the `Repository` interface, so pre-existing custom `Repository` implementations still compile; stores that lack it fail closed with `chat.storage_unsupported` — raised on the first turn or confirm that needs a conditional write, not at process start — rather than silently losing conditional semantics.
 
-### Fixed
-
-- **OpenAI `gpt-5.5+` temperature** — the OpenAI adapter no longer sends `temperature` for `gpt-5.5` and later models (including `-pro` and dated snapshots). Those models only accept the API default (`1`); sending Plumbus's `0.7` default (or any other value) caused HTTP 400 `unsupported_value`. Earlier `gpt-5` lines such as `gpt-5.4-mini` still receive the configured temperature. `max_completion_tokens` mapping for the broader `gpt-5*` / `o*` family is unchanged.
-
 ### Notes
 
 All changes are additive and stay within the `0.6.x` line, so `@plumbus/ui`, `@plumbus/chat`, and `@plumbus/voice` peer ranges (`0.6.x`) remain satisfied. No install-time or wire-format break.
+
+## 0.6.10
+
+### Fixed
+
+- **OpenAI `gpt-5.5+` temperature** — the OpenAI adapter no longer sends `temperature` for `gpt-5.5` and later models (including `-pro` and dated snapshots). Those models only accept the API default (`1`); sending Plumbus's `0.7` default (or any other value) caused HTTP 400 `unsupported_value`. Earlier `gpt-5` lines such as `gpt-5.4-mini` still receive the configured temperature. `max_completion_tokens` mapping for the broader `gpt-5*` / `o*` family is unchanged.
 
 ## 0.6.9
 
