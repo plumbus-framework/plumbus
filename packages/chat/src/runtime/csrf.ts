@@ -1,10 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AuthContext } from '@plumbus/core';
 
-/** Non-HttpOnly cookie the browser echoes back in the header (double-submit). */
-export const CHAT_CSRF_COOKIE_NAME = 'plumbus_chat_csrf';
-/** Request header carrying the echoed CSRF token. Fastify lowercases header keys. */
-export const CHAT_CSRF_HEADER_NAME = 'x-plumbus-chat-csrf';
+// Declared in ../protocol.js so browser clients can read them without pulling
+// node:crypto (and the rest of this module's graph) into their bundle.
+export { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '../protocol.js';
 
 function b64url(buf: Buffer): string {
   return buf.toString('base64url');

@@ -1,7 +1,10 @@
 'use client';
 
 import type { ChatEvent } from '@plumbus/chat';
-import { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '@plumbus/chat';
+// Value import MUST come from the dependency-free `/protocol` subpath: the
+// package root reaches node:crypto and the @plumbus/core CLI, which a client
+// bundle cannot resolve.
+import { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '@plumbus/chat/protocol';
 import { useCallback, useRef, useState } from 'react';
 import { readChatStream } from '../client/event-stream.js';
 import {
