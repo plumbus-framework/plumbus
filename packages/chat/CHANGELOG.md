@@ -29,7 +29,7 @@
 ### Requires
 
 - **Prompt re-export.** Re-export `chatToolRoundPrompt` (`chat.toolRound`) and `chatScopeCheckPrompt` (`chat.scopeCheck`) from `@plumbus/chat` into `app/prompts/` so directory discovery registers them (same one-time wiring as `chat.turn`). Path B fails at startup with `chat.prompt_not_registered` if either is absent. The `createChatRegistry` used to enforce this prompt-registration check is wired at `registerChatRoutes`, so the check runs during route registration.
-- **`@plumbus/core` ≥ 0.6.11** with the provider tool protocol, `runToolLoop`, `EntityIndexDefinition.unique`, and the conditional/transactional repository write path (see `@plumbus/core` changelog). Peer range unchanged (`0.5.x || 0.6.x`).
+- **`@plumbus/core` ≥ 0.6.11** with the provider tool protocol, `runToolLoop`, `EntityIndexDefinition.unique`, and the conditional/transactional repository write path (see `@plumbus/core` changelog). The declared peer string stays `0.5.x || 0.6.x` (ecosystem literal), but **0.1.11 is not usable below 0.6.11** — `runChatTurn` loads those APIs on the default path.
 - Peer ranges for `@plumbus/knowledge-base` stay `^0.1.0`. Injectable session-store parameters are optional; apps that inject nothing keep the previous DB-backed path.
 
 ### Breaking

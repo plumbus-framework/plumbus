@@ -4,8 +4,9 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat-ui.svg)](https://www.npmjs.com/package/@plumbus/chat-ui)
 [![license](https://img.shields.io/npm/l/@plumbus/chat-ui.svg)](./LICENSE)
-[![peer: @plumbus/chat 0.1.x](https://img.shields.io/badge/peer-%40plumbus%2Fchat%200.1.x-blue)](https://www.npmjs.com/package/@plumbus/chat)
-[![peer: react ^19](https://img.shields.io/badge/peer-react%20%5E19-61dafb)](https://react.dev)
+[![peer: @plumbus/chat ≥0.1.11](https://img.shields.io/badge/peer-%40plumbus%2Fchat%20%E2%89%A50.1.11-blue)](https://www.npmjs.com/package/@plumbus/chat)
+[![peer: @plumbus/core ≥0.6.11](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%E2%89%A50.6.11-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: react ≥19](https://img.shields.io/badge/peer-react%20%E2%89%A519-61dafb)](https://react.dev)
 
 ## What is this?
 
@@ -58,8 +59,9 @@ pnpm add @plumbus/chat-ui
 ```
 
 Peers:
-- `@plumbus/chat` `^0.1.0 <0.2.0` — the server-side runtime that emits the event stream
-- `react` / `react-dom` `^19` — provided transitively by [`@plumbus/ui`](../ui/) in Plumbus apps; do not add them to your own `package.json`
+- `@plumbus/chat` `0.1.x` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
+- `@plumbus/core` `0.5.x || 0.6.x` (**≥ 0.6.11** via chat 0.1.11)
+- `react` `>=19` — provided transitively by [`@plumbus/ui`](../ui/) in Plumbus apps; do not add React to your own `package.json`
 
 Prerequisites: a server-side `defineChat({...})` declaration and `registerChatRoutes(app, routeConfig, [chat])` from `@plumbus/chat`.
 

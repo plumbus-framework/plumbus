@@ -19,6 +19,8 @@ The package is intentionally thin: a state-managing hook, a high-level panel com
 
 **`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
+**Runtime floor (0.1.7+):** install `@plumbus/chat` **≥ 0.1.11** (needs the `./protocol` subpath and Path B confirm route) and `@plumbus/core` **≥ 0.6.11** (chat's tool-protocol dependency). Declared peers stay coarse; the floors are what actually runs.
+
 ## Public exports
 
 ```ts

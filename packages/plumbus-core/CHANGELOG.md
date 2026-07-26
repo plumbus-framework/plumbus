@@ -16,7 +16,7 @@
 
 ### Notes
 
-All changes are additive and stay within the `0.6.x` line, so `@plumbus/ui`, `@plumbus/chat`, and `@plumbus/voice` peer ranges (`0.6.x`) remain satisfied. No install-time or wire-format break.
+All changes are additive and stay within the `0.6.x` line. Declared add-on peers remain satisfied (`@plumbus/chat` / `@plumbus/chat-ui` keep `0.5.x || 0.6.x`; `@plumbus/voice` keeps `0.6.x`). **`@plumbus/chat` 0.1.11 requires this core line in practice** (≥ 0.6.11) for the tool protocol and `updateWhere` path. No install-time or wire-format break for callers that stay on older chat.
 
 ## 0.6.10
 

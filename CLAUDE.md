@@ -81,14 +81,14 @@ Then run `plumbus browser-extension scaffold`. The generated extension does not 
 
 ### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
 
-`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.5.x || 0.6.x`). Apps that want a chat surface install it explicitly:
+`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.5.x || 0.6.x`; **runtime floor ≥ 0.6.11** from chat 0.1.11). Apps that want a chat surface install it explicitly:
 
 ```
 pnpm add @plumbus/chat
 pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 ```
 
-`@plumbus/chat-ui` peer-depends on `@plumbus/chat` and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
+`@plumbus/chat-ui` peer-depends on `@plumbus/chat` (`0.1.x`, **≥ 0.1.11** for this UI line) and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
 
 ### Optional add-on: `@plumbus/voice`
 

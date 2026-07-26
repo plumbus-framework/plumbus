@@ -677,7 +677,7 @@ For the voice-specific runtime, provider, and security guidance, see:
 3. Route voice/media spend through `ctx.ai.recordProviderCost(...)` so `onAICostRecorded` stays the single hook.
 4. Pre-check shared USD caps with `ctx.ai.checkProviderCostBudget({ estimatedCostUsd })` before opening realtime sessions or calling STT/TTS.
 
-`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `0.5.x || 0.6.x` (same literal as other optional add-ons). `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` also declare `0.5.x || 0.6.x` and install alongside core **0.6.x**.
+`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `0.6.x`. `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` declare `0.5.x || 0.6.x` and install alongside core **0.6.x**. `@plumbus/chat` **0.1.11+** needs core **≥ 0.6.11** at runtime (tool protocol / `updateWhere`) even though its declared peer is wider.
 
 ### Deterministic sampling with `seed`
 

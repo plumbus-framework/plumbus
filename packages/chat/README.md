@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat.svg)](https://www.npmjs.com/package/@plumbus/chat)
 [![license](https://img.shields.io/npm/l/@plumbus/chat.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core ≥0.6.11](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%E2%89%A50.6.11-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -34,7 +34,7 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Peer-locked to `@plumbus/core` `0.5.x || 0.6.x`. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
+Declared peer: `@plumbus/core` `0.5.x || 0.6.x`. **Ship with `@plumbus/core` ≥ 0.6.11** — 0.1.11 loads the provider tool protocol (`safeJsonStringify`, `AITool*`, unique entity indexes, `Repository.updateWhere`) from the turn pipeline, so older 0.5.x / early 0.6.x cores fail at import or first turn. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
 
 ## Install
 
@@ -42,7 +42,7 @@ Peer-locked to `@plumbus/core` `0.5.x || 0.6.x`. The surface is implemented end-
 pnpm add @plumbus/chat
 ```
 
-Required peer: `@plumbus/core` `0.5.x || 0.6.x`. The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
+Required peer: `@plumbus/core` `0.5.x || 0.6.x` (**≥ 0.6.11** in practice for this release). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
 
 For the React UI, also install [`@plumbus/chat-ui`](../chat-ui/). For registry-backed knowledge sources, [`@plumbus/knowledge-base`](../knowledge-base/).
 

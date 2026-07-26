@@ -4,6 +4,8 @@ This package is the chat primitive for Plumbus apps. Use it when the user wants 
 
 **`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`. Never use `^0.x` caret ranges.
 
+**Runtime floor (0.1.11+):** install `@plumbus/core` **≥ 0.6.11**. The declared peer still accepts 0.5.x / early 0.6.x for npm install, but the turn pipeline imports the provider tool protocol and conditional repository APIs that only exist from 0.6.11.
+
 **Do NOT use this package** for: one-shot AI calls (use `defineCapability` + `ctx.ai.generate`), background workflows (use `defineFlow`), or pure RAG search with no chat UI (use `ctx.ai.retrieve` directly).
 
 ## Entry Points

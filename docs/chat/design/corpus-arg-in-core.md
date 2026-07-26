@@ -70,4 +70,4 @@ Corpus ingestion remains the consumer's responsibility (via `plumbus rag ingest`
 
 **API rename:** Direct corpus RAG in chat is `ragContext({ corpus, query, filter?, … })`. Registry-backed KB uses `knowledgeContext({ registry, source, … })`. The old `knowledgeContext({ corpus, query })` shape is the deprecated alias `knowledgeContextLegacy`.
 
-**Peer range:** `@plumbus/chat` requires `@plumbus/core` `"0.5.x || 0.6.x"` (copy from `packages/chat/package.json`).
+**Peer range:** `@plumbus/chat` declares `@plumbus/core` `"0.5.x || 0.6.x"` (copy from `packages/chat/package.json`). From chat **0.1.11**, ship core **≥ 0.6.11** — see `packages/plumbus-core/instructions/peer-dependencies.md` runtime floors.
