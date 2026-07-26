@@ -211,8 +211,25 @@ interface FlowService {
   status(executionId: string): Promise<FlowExecution>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. */
   heartbeat(): Promise<void>;
+  /** Describe a registered flow — name, domain, description, and input schema. */
+  describe?(flowName: string): FlowDescription | undefined;
+}
+
+interface FlowDescription {
+  name: string;
+  domain: string;
+  description?: string;
+  inputSchema: unknown;
+  parameters?: unknown;
 }
 ```
+
+`describe(flowName)` returns the registered flow's contract, or `undefined` when the
+name is unknown. It is optional on the interface, so probe before calling. Its purpose
+is to expose a flow to a model as a callable tool: `@plumbus/chat` uses it to bind
+`policy.toolCalling.autoStartFlows` entries into provider-native tool definitions,
+deriving each tool's JSON schema from `inputSchema`. Application code rarely needs it —
+prefer `start` / `status` / `resume` / `cancel`.
 
 `cancel(executionId)` is now cooperative — it aborts the running step's `AbortController` (the same signal exposed as `ctx.signal` inside the step). See [Cancellation](../core-concepts/flows.md#cancellation) in the flow docs for how to thread `ctx.signal` into in-flight AI / HTTP calls.
 
@@ -275,7 +292,10 @@ interface AIService {
 
 // AIGenerateResult is the flat, back-compatible alias of AIFinalGenerateResult:
 interface AIFinalGenerateResult<T = Record<string, any>> {
-  finishReason: 'stop' | 'length' | 'refusal' | 'other';  // additive; existing consumers may ignore
+  finishReason?: 'stop' | 'length' | 'refusal' | 'other'; // OPTIONAL in the type so pre-0.6.9
+                                                          // result literals (mocks, custom AIService
+                                                          // impls) still compile. The framework
+                                                          // always sets it; readers should narrow.
   data: T;                 // always present on the flat/no-tool result
   usage: AITokenUsage;
   model: string;

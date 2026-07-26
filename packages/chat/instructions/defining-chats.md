@@ -65,7 +65,7 @@ defineChat({
     privacy?:  { redact: string[] },
     provenance?: { required: boolean, minSources?: number },
     behavioral?: { cooldowns: Cooldown[] },
-    action?:   { allowedCapabilities: string[], frameworkExecuteOnConfirm?: boolean }, // Path A; default false (decision-only)
+    action?:   { allowedCapabilities: string[], frameworkExecuteOnConfirm?: boolean }, // Path A is decision-only; the flag is reserved / not yet enforced
     toolCalling?: {                                    // Path B — provider-native tool calling
       enabled: true,
       capabilities?: string[],
@@ -124,6 +124,10 @@ The optional fourth argument is `RegisterChatRoutesOpts`:
 | `audienceTenantOverride: (audience, auth) => tenantId \| undefined` | Audience-implied tenant routing when the auth adapter couldn't infer one. Only applied when `auth.tenantId` is empty. |
 | `beforeTurn: (ctx, parsed, rawBody) => { userMessage? } \| { error: { status, body } }` | Sanitize the user message or short-circuit with a typed error before any runtime work. |
 | `afterTurn: (ctx, rawBody, events) => Promise<void>` | Observability hook. Receives the full ordered `ChatEvent[]` after the turn completes. Errors are swallowed with `console.warn`. |
+| `store: ChatConversationStore` | **Required for confirmations.** Mounts `POST /chat/:name/confirm` and the lease/CAS commit path. |
+| `sessionStore: ChatSessionStore` | Serve session/turn state from somewhere other than `ctx.data` — deployments with no local database. Validated against every registered chat at registration. See `/docs/chat/session-store.md`. |
+| `authenticator: ChatRequestAuthenticator` | Replace the default credential resolution (Authorization header, then cookies). |
+| `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. |
 
 ### `<ChatPanel turnUrl=… />`
 
@@ -145,7 +149,7 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 - **Don't** use a write-effect capability as `capabilityContext`. The framework rejects this at construction time; use `actions:` + `policy.action.allowedCapabilities` for writes.
 - **Don't** narrow the prompt output schema when using `defineChat({ prompt })`. The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required by runtime guards. Extra fields are fine.
 - **Don't** call `runChatTurn` directly from your route handlers. Use `registerChatRoutes(app, routeConfig, chats)` — it wires auth, body validation, SSE, and `clientHistory` capping correctly.
-- **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed` — defined in `src/types/event.ts`.
+- **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed`, plus the Path B tool events `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved` — defined in `src/types/event.ts`.
 - **Don't** invent source IDs. The resolver issues handles in source-declaration order (`src_a`, `src_b`, ...). Cite using exactly those strings.
 - **Don't** set speculative budget caps expecting silent no-ops — `perTurn`, `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced at runtime.
 

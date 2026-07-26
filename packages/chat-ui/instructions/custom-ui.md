@@ -63,7 +63,9 @@ export function MyChat({ sessionId }: { sessionId: string }) {
 For a non-React client, compose `readChatStream` with the pure helpers.
 
 ```ts
-import { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '@plumbus/chat';
+// Browser code MUST import these from the `/protocol` subpath, never the package
+// root — see "Importing protocol constants in client code" below.
+import { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '@plumbus/chat/protocol';
 import { applyChatEvent, buildTurnRequestBody, initialChatUiState, readChatStream } from '@plumbus/chat-ui';
 
 let state = initialChatUiState;
@@ -106,7 +108,21 @@ These helpers are pure — they're testable with vitest and have no React or DOM
 
 ### CSRF on hand-rolled fetches
 
-The server enforces an exact-`Origin` + session-bound CSRF check on **every cookie-authenticated write** to `/chat/:name/turn` and `/chat/:name/confirm` (`enforceBrowserWrite`). `useChat` and `<ChatPanel />` handle this for you; any hand-rolled fetch that authenticates by cookie — the Option 2 client above — **must** read the `CHAT_CSRF_COOKIE_NAME` cookie (`plumbus_chat_csrf`) and echo it in the `CHAT_CSRF_HEADER_NAME` header (`x-plumbus-chat-csrf`) on **both** the turn and confirm POSTs, or the server rejects the write. Both constants are exported from `@plumbus/chat`. Only requests that authenticate with an `Authorization: Bearer` header and no cookie are CSRF-exempt.
+The server enforces an exact-`Origin` + session-bound CSRF check on **every cookie-authenticated write** to `/chat/:name/turn` and `/chat/:name/confirm` (`enforceBrowserWrite`). `useChat` and `<ChatPanel />` handle this for you; any hand-rolled fetch that authenticates by cookie — the Option 2 client above — **must** read the `CHAT_CSRF_COOKIE_NAME` cookie (`plumbus_chat_csrf`) and echo it in the `CHAT_CSRF_HEADER_NAME` header (`x-plumbus-chat-csrf`) on **both** the turn and confirm POSTs, or the server rejects the write. Only requests that authenticate with an `Authorization: Bearer` header and no cookie are CSRF-exempt.
+
+### Importing protocol constants in client code
+
+Import both constants from **`@plumbus/chat/protocol`**, never from `@plumbus/chat`:
+
+```ts
+import { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '@plumbus/chat/protocol';
+```
+
+`/protocol` is dependency-free and browser-safe. The package root re-exports the same
+constants for server code, but reaching them that way pulls in `runtime/csrf.ts`
+(`node:crypto`) and, through `@plumbus/core`, the whole CLI — drizzle-kit and esbuild
+included. Strict bundlers such as Turbopack refuse to resolve that graph for a client
+component, so a root import fails the build rather than degrading quietly.
 
 ## Option 3: Reuse the sub-components with custom wrapping
 
@@ -156,7 +172,7 @@ If you're writing a custom renderer for `notifications/progress` or anything out
 
 The hook hard-codes `credentials: 'include'`. For Bearer-only flows, the smallest fork: copy the body of `useChat` (it's ~80 lines), swap the `fetch` call to send `Authorization: Bearer <token>` and drop `credentials`. Don't try to monkey-patch the hook from outside — there's no extension point.
 
-Because a true Bearer fork drops `credentials` and authenticates via the `Authorization` header, it's CSRF-exempt — skip the CSRF header. But if the fork keeps cookie auth (or sends both), it stays subject to the cookie-auth CSRF check above and **must** read `CHAT_CSRF_COOKIE_NAME` and send `CHAT_CSRF_HEADER_NAME` on every turn/confirm POST.
+Because a true Bearer fork drops `credentials` and authenticates via the `Authorization` header, it's CSRF-exempt — skip the CSRF header. But if the fork keeps cookie auth (or sends both), it stays subject to the cookie-auth CSRF check above and **must** read `CHAT_CSRF_COOKIE_NAME` and send `CHAT_CSRF_HEADER_NAME` (from `@plumbus/chat/protocol`) on every turn/confirm POST.
 
 ## Testing the pure helpers
 

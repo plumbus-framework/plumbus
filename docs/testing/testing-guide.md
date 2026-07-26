@@ -368,6 +368,18 @@ expect(flows.started).toContainEqual({
 });
 ```
 
+`mockFlows(options?)` also accepts scripted responses, so a capability that reads a flow
+back can be driven deterministically:
+
+```typescript
+const flows = mockFlows({
+  // what `ctx.flows.status(id)` returns
+  status: { id: "exec-1", status: "completed", output: { ok: true } },
+  // what `ctx.flows.describe(name)` returns — used when binding flows as model tools
+  describe: { name: "refundFlow", domain: "billing", inputSchema: refundInput },
+});
+```
+
 ### fixedTime
 
 Deterministic clock:
@@ -393,7 +405,19 @@ expect(user?.name).toBe("Alice");
 // aggregate() is supported — same semantics as the Drizzle repository
 const [totals] = await repo.aggregate({}, { sum: "score", count: true });
 expect(totals).toMatchObject({ sum_score: expect.any(Number), count: 2 });
+
+// updateWhere() is supported too — compare-and-set with the same result shape
+const claim = await repo.updateWhere("u-1", { name: "Alice" }, { name: "Alicia" });
+expect(claim).toMatchObject({ matched: true, row: { name: "Alicia" } });
+
+// A predicate that no longer holds writes nothing.
+const stale = await repo.updateWhere("u-1", { name: "Alice" }, { name: "Al" });
+expect(stale).toMatchObject({ matched: false, row: null });
 ```
+
+`updateWhere` matches `null` in a predicate as SQL `IS NULL`, exactly like the Drizzle
+repository, so lease- and revision-based code paths exercise the real semantics under
+test. See [Data Layer → updateWhere](../sdk-reference/data-layer.md#updatewhereid-predicate-updates).
 
 `createTestContext()` wires the same in-memory implementation into `ctx.data`, so capability tests can call `ctx.data.Entity.aggregate()` without a database. See [Data Layer → aggregate](../sdk-reference/data-layer.md#aggregatequery-options).
 

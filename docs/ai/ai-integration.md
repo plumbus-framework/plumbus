@@ -189,7 +189,10 @@ if (result.finishReason === "tool_calls") {
     // call.argumentsStatus is 'parsed' | 'invalid' — only execute 'parsed'
   }
 } else {
-  result.data; // final structured answer (flat AIFinalGenerateResult)
+  // With `tools` present, `.data` is the model's raw text as `{ content: string }` —
+  // NOT a schema-validated object. `outputValidation: "none"` (set above, and required
+  // during tool rounds) disables output-schema validation, so parse it yourself.
+  result.data;
 }
 ```
 

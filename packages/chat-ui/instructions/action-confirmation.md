@@ -76,7 +76,7 @@ A confirm also streams the resumed assistant answer (`message.delta` → `turn.c
 
 ## CSRF — required on every confirm/decline POST
 
-The server enforces **exact-Origin + session-bound CSRF** on cookie-authenticated writes for **both** `/turn` and `/confirm`. `useChat` handles this automatically: it reads the non-HttpOnly cookie `plumbus_chat_csrf` (`CHAT_CSRF_COOKIE_NAME`) and echoes it in the `x-plumbus-chat-csrf` header (`CHAT_CSRF_HEADER_NAME`). Both constants are exported from `@plumbus/chat`.
+The server enforces **exact-Origin + session-bound CSRF** on cookie-authenticated writes for **both** `/turn` and `/confirm`. `useChat` handles this automatically: it reads the non-HttpOnly cookie `plumbus_chat_csrf` (`CHAT_CSRF_COOKIE_NAME`) and echoes it in the `x-plumbus-chat-csrf` header (`CHAT_CSRF_HEADER_NAME`). Both constants are exported from `@plumbus/chat/protocol` — browser code must use that subpath, not the package root.
 
 - **Cookie auth:** the header is mandatory — a POST without it is rejected `403`.
 - **Bearer (`Authorization`) auth:** CSRF-exempt.
@@ -127,7 +127,7 @@ The two ways a chat proposes actions behave differently on confirm:
 
 | | Trigger | On confirm |
 |---|---|---|
-| **Path A** (legacy `requestedAction`) | `policy.action` | Executes **only if** `policy.action.frameworkExecuteOnConfirm === true`. Default `false` = **decision-only** (validate, mark confirmed/rejected, emit events — no capability run). |
+| **Path A** (legacy `requestedAction`) | `policy.action` | **Decision-only in this release** — validate, mark confirmed/rejected, emit events; the capability is never run. `policy.action.frameworkExecuteOnConfirm` is reserved and not yet enforced (no code reads it). |
 | **Path B** (`policy.toolCalling`) | provider-native tool calling | **Always** executes the tool and resumes the turn for an answer. |
 
 The client wiring is identical for both — `confirm()` / `decline()` don't change. Only the server-side effect differs.
@@ -146,7 +146,7 @@ Path B also requires a **transactional** conversation `store`; a non-transaction
 - **Don't call `confirm()`/`decline()` while streaming a turn.** They target the pending confirmation for the current session; issue them from the `'awaiting_confirmation'` state.
 - **Don't send the capability name or input from the client on confirm.** The server uses the stored, normalized input; client-supplied values are ignored.
 - **Don't use `cancel()` when you need an audit trail.** It never reaches the server — use `decline()`.
-- **Don't hard-code the CSRF cookie/header strings.** Import `CHAT_CSRF_COOKIE_NAME` / `CHAT_CSRF_HEADER_NAME` from `@plumbus/chat`.
+- **Don't hard-code the CSRF cookie/header strings.** Import `CHAT_CSRF_COOKIE_NAME` / `CHAT_CSRF_HEADER_NAME` from `@plumbus/chat/protocol` (browser-safe; the package root drags `node:crypto` and the CLI into a client bundle).
 
 ## See also
 

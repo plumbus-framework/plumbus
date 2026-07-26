@@ -268,7 +268,7 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/chat-ui/instructions/framework.md` | chat-ui package boundary, public exports, critical rules |
 | `node_modules/@plumbus/chat-ui/instructions/wiring-chat-panel.md` | `<ChatPanel />` recipe, persistence pairing, `turnUrl` |
 | `node_modules/@plumbus/chat-ui/instructions/custom-ui.md` | Headless `useChat`, pure helpers, `readChatStream` |
-| `node_modules/@plumbus/chat-ui/instructions/action-confirmation.md` | Wiring `chatConfirmAction` directly (the v0.1 `confirm()` stub) |
+| `node_modules/@plumbus/chat-ui/instructions/action-confirmation.md` | The confirm/decline round-trip: `useChat.confirm()` / `decline()` POST to `/chat/:name/confirm`, plus CSRF and `lastConfirmResult` |
 | `node_modules/@plumbus/knowledge-base/instructions/README.md` | Knowledge-base instruction index (optional package) |
 | `node_modules/@plumbus/knowledge-base/instructions/conventions.md` | KB conventions, file map, critical rules |
 | `node_modules/@plumbus/knowledge-base/instructions/defining-sources.md` | `defineKnowledgeSource` + registry recipe |

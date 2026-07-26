@@ -333,7 +333,7 @@ User-scoped data in scheduled steps still respects tenant rules on `ctx.data`; t
 **Operational notes**
 
 - Inspect schedules: `plumbus flow schedule list` (or `--json`). Merges app definitions with `flow_schedules` run state.
-- Default poll interval: `schedulerPollIntervalMs` = 60_000 (1 minute). Tune in worker config — see [configuration](../sdk-reference/configuration.md#worker-pool).
+- Default poll interval: `schedulerPollIntervalMs` = 60_000 (1 minute). Tune in worker config — see [configuration](../sdk-reference/configuration.md#worker-pool-configuration).
 - First sync of a new schedule sets `nextRunAt` to **now**, so the first run happens on the next poll (not necessarily exactly at cron boundary).
 - Verify the scheduler is active: `plumbus worker status` reports a `scheduler` component when scheduled flows are registered.
 - Split deployments (API-only + worker-only) need Redis for durable queues when running multiple replicas — see [upgrading-workers](../upgrading-workers.md).

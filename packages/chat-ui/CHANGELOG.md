@@ -11,6 +11,7 @@
 ### Requires
 
 - `@plumbus/chat` with Path B provider-native tool calling and the `POST /chat/:name/confirm` route (see its changelog). Peer range unchanged.
+- **A `@plumbus/chat` that ships the `./protocol` export subpath.** `useChat` imports `CHAT_CSRF_COOKIE_NAME` / `CHAT_CSRF_HEADER_NAME` from `@plumbus/chat/protocol` rather than the package root, so the browser bundle does not pull in `node:crypto` and the `@plumbus/core` CLI — a graph strict bundlers such as Turbopack refuse to resolve for a client component. Against an older `@plumbus/chat` without that subpath, module resolution fails at build time.
 
 ## 0.1.6
 

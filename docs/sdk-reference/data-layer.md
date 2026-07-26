@@ -143,10 +143,55 @@ interface Repository<
 
   // SUM / AVG / MIN / MAX / COUNT / COUNT(DISTINCT), optionally grouped — see below
   aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]>;
+
+  // Compare-and-set update: applies `updates` only if the row still matches
+  // `predicate`. Optional — an adapter may not implement it. See below.
+  updateWhere?(
+    id: string,
+    predicate: Partial<T>,
+    updates: TUpdate,
+  ): Promise<ConditionalUpdateResult<T>>;
 }
 ```
 
 After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` / `createMany()` / `update()`.
+
+### `updateWhere(id, predicate, updates)`
+
+A conditional (compare-and-set) write. The update lands only if the row identified by
+`id` still matches every column in `predicate`; otherwise nothing is written. Use it to
+make a read-then-write sequence safe against a concurrent writer without holding a
+transaction open.
+
+```typescript
+interface ConditionalUpdateResult<T> {
+  /** `true` only when a row matched the predicate and was updated. */
+  matched: boolean;
+  /** The updated row when `matched`, otherwise `null`. */
+  row: T | null;
+}
+```
+
+```typescript
+// Claim a job only if nobody else has: status must still be 'pending'.
+const claim = await ctx.data.Job.updateWhere(
+  jobId,
+  { status: 'pending' },
+  { status: 'running', workerId },
+);
+if (!claim.matched) return; // someone else won the race
+```
+
+Notes:
+
+- **It is optional on the interface.** Custom `DataService` adapters may omit it, so
+  framework code that requires it probes first and fails closed — `@plumbus/chat`'s
+  lease-based conversation store does exactly this and raises
+  `chat.storage_unsupported` when the method is absent.
+- A `null` in `predicate` matches SQL `IS NULL`, so you can condition on "not yet set".
+- Tenant scoping applies exactly as it does for `update`.
+- `createInMemoryRepository` in `@plumbus/core/testing` implements it with the same
+  semantics, so tests exercise the real code path.
 
 ### `findMany`
 

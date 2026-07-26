@@ -29,7 +29,7 @@ useChat({ chatName, sessionId, audience, locale, persistence?, turnUrl?, confirm
 ChatPanel                                          // pre-wired: messages + notices + input + confirmation dialog
 ChatMessages                                       // just the message list with cited sources
 ChatInput                                          // just the textarea + send button
-ConfirmationDialog                                 // renders pendingConfirmation; Confirm / Cancel callbacks
+ConfirmationDialog                                 // renders pendingConfirmation; onConfirm / onReject callbacks + optional `busy` to disable both buttons in flight
 SourceCitation                                     // single cited-source pill
 
 // Pure helpers (use for custom UIs / non-React consumers)
@@ -40,7 +40,7 @@ initialChatUiState
 readChatStream(Response)                           // async-iterable SSE parser
 
 // State shapes
-ChatUiState, ChatUiMessage, ChatUiNotice, ChatUiStatus, ChatUiPendingConfirmation
+ChatUiState, ChatUiMessage, ChatUiNotice, ChatUiStatus, ChatUiPendingConfirmation, ChatUiConfirmResult
 BuildTurnBodyArgs, TurnRequestBody
 
 useChatSession()                                   // PLACEHOLDER — returns local useState defaults; do not depend on the shape
@@ -68,7 +68,7 @@ src/
 ## Critical rules
 
 1. **Cookie auth only.** `useChat` and `<ChatPanel />` POST with `credentials: 'include'`. For Bearer-auth flows, copy the hook and swap the `fetch` call — do not add a `headers` option to the helper (out of scope).
-   - **CSRF.** The hook reads the `CHAT_CSRF_COOKIE_NAME` (`plumbus_chat_csrf`) cookie and echoes it in the `CHAT_CSRF_HEADER_NAME` (`x-plumbus-chat-csrf`) header on every turn/confirm POST — both are exported from `@plumbus/chat`. A hand-rolled cookie-auth fetch UI must send this header too or the server rejects the write (Bearer requests are CSRF-exempt).
+   - **CSRF.** The hook reads the `CHAT_CSRF_COOKIE_NAME` (`plumbus_chat_csrf`) cookie and echoes it in the `CHAT_CSRF_HEADER_NAME` (`x-plumbus-chat-csrf`) header on every turn/confirm POST — both are exported from `@plumbus/chat/protocol` (browser-safe subpath; the package root is server-only for client bundles). A hand-rolled cookie-auth fetch UI must send this header too or the server rejects the write (Bearer requests are CSRF-exempt).
 2. **`persistence` must match the server.** The `<ChatPanel persistence="client" />` prop tells the panel to ship `clientHistory` on every turn. If the server-side chat was defined with `persistence: { messageContent: 'server' }`, the panel still ships history that the server ignores (wasted bytes). If the server is `'client'` and the panel says `'server'`, the model loses conversational context. See wiring-chat-panel.md.
 3. **`confirm()` / `decline()` perform a real server round-trip.** `confirm(actionId?)` and `decline(actionId?)` POST to `confirmUrl ?? /chat/${chatName}/confirm` (`credentials: 'include'`, CSRF header set) with `{ actionId, inputSchemaHash, decision }`. The server executes the confirmed capability/flow through the full pipeline from the stored normalized input (never a client-supplied name or input), then resumes the turn for a final answer — clearing `pendingConfirmation` and setting `lastConfirmResult`. `cancel()` is a local-only dismiss (`status → 'idle'`, no network). See action-confirmation.md.
 4. **`useChatSession` is a placeholder.** It returns local `useState` defaults — `sessions` never populates. Kept on the barrel so a real multi-session API can land later without a breaking export change. Do not depend on its shape.

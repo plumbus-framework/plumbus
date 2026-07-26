@@ -157,7 +157,7 @@ The hook itself is a thin reducer wrapper — test the reducer, trust React.
 | Trace recorder coverage | same file, "trace recorder" suite |
 | Pure helper coverage | `packages/chat-ui/src/hooks/__tests__/useChat-helpers.test.ts` |
 | Tool-calling loop + confirm/resume | `packages/chat/src/runtime/__tests__/run-turn-tools.test.ts` |
-| Lease store conformance | `packages/chat/src/runtime/__tests__/conversation-store.test.ts` |
+| Lease store conformance | `packages/chat/src/runtime/__tests__/chat-conversation-store.test.ts` and `in-memory-conversation-store.test.ts` |
 | Injected session store, no `ctx.data` | `packages/chat/src/session/__tests__/session-store-injection.test.ts` |
 | Injected session store over HTTP routes | `packages/chat/src/runtime/__tests__/http-session-store.test.ts` |
 

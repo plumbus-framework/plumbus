@@ -98,6 +98,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 | `compilePolicy(policy)` | Returns the ordered guard list — for advanced custom runtimes. |
 | `chatConfirmAction`, `chatListTurns`, `createChatTurnCapability` | Auto-routed capabilities. |
 | `validateCitations`, `stripInvalidFromAnswer` | Provenance helpers. |
+| `CHAT_CSRF_COOKIE_NAME`, `CHAT_CSRF_HEADER_NAME` (from `@plumbus/chat/protocol`) | Wire-protocol constants for the double-submit CSRF check. Browser code must use the `/protocol` subpath — it is dependency-free, while the package root pulls `node:crypto` and the CLI into a client bundle. Also re-exported from the root for server code. |
 | `mockChatRuntime` (from `@plumbus/chat/testing`) | Drop-in test harness — runs the full pipeline with a mocked AI. |
 | `createInMemoryChatSessionStore`, `createInMemoryChatConversationStore` (from `@plumbus/chat/testing`) | Map-backed stores — test doubles and reference implementations for storage adapters. |
 | `defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder` | Deterministic eval harness — script a model, run scenarios, assert on the event stream and trace. See [`docs/chat/evaluations.md`](../../docs/chat/evaluations.md). |
@@ -108,7 +109,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 - **`exposeAs` defaults to `'sse'`** — the SSE route is the only one mounted. Set `exposeAs: 'capability'` for server-to-server clients that can't consume an event stream, or `'both'` to mount both (rare).
 - **`persistence.saveToDb: false` requires `messageContent: 'client'`.** And it rejects `policy.action.allowedCapabilities` — ephemeral chats can't survive the action-confirmation round-trip. `defineChat` validates this at startup.
 - **`policy.scope.classifier: 'inline'`** — the model classifies and answers in one call (Decision 0001). Refusal turns spend generation tokens; empirically cheaper than a preflight LLM call.
-- **`useChat.confirm()` in `@plumbus/chat-ui` performs the real `POST /chat/:name/confirm` round-trip** (it also exposes `decline` and `lastConfirmResult`). Path B confirm-mode tools execute through the framework capability pipeline and resume the turn; legacy Path A confirmation is decision-only unless `policy.action.frameworkExecuteOnConfirm: true`. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
+- **`useChat.confirm()` in `@plumbus/chat-ui` performs the real `POST /chat/:name/confirm` round-trip** (it also exposes `decline` and `lastConfirmResult`). Path B confirm-mode tools execute through the framework capability pipeline and resume the turn; legacy Path A confirmation is decision-only in this release — `policy.action.frameworkExecuteOnConfirm` is reserved and not yet enforced, so no code reads it. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
 
 ## Documentation
 
@@ -119,6 +120,9 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
   - [`context-sources.md`](../../docs/chat/context-sources.md) — context-source contract + every built-in
   - [`testing.md`](../../docs/chat/testing.md) — `mockChatRuntime` + helpers
   - [`evaluations.md`](../../docs/chat/evaluations.md) — eval scenarios with `defineChatEvaluation` / `runChatEvaluation`
+  - [`tool-calling.md`](../../docs/chat/tool-calling.md) — provider-native tool calling (Path B)
+  - [`confirmation-persistence.md`](../../docs/chat/confirmation-persistence.md) — durable confirmations + session revision CAS
+  - [`session-store.md`](../../docs/chat/session-store.md) — injectable session storage for deployments with no local database
   - [`design/`](../../docs/chat/design/) — 11 design decisions explaining the framework's shape
 - **Agent recipes** (ship in this package, readable from `node_modules/@plumbus/chat/instructions/`):
   - [`instructions/framework.md`](./instructions/framework.md) — file map, package conventions, critical rules

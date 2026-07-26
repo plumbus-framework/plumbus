@@ -109,7 +109,7 @@ When the model returns `requestedAction`, the action-guard:
 
 **Confirmation is a server capability, not a UI helper.** Call `chatConfirmAction` (`POST /api/chat/chat-confirm-action`) with `{ actionId, capabilityName, schemaHash, execute: true }`. The server re-derives v2 schema hashes and rejects drift with `chat.action_schema_changed`.
 
-**`chatConfirmAction` (Path A) is decision-only by default.** It validates, marks the pending row confirmed/rejected, and emits domain events. To execute the target capability through the framework pipeline on confirm, set `policy.action.frameworkExecuteOnConfirm: true` (default `false`, so existing behavior is unchanged). Path B provider-native tool calling always executes on confirm and resumes the turn for a single answer-only completion (no further tool rounds or nested confirmation).
+**`chatConfirmAction` (Path A) is decision-only in this release.** It validates, marks the pending row confirmed/rejected, and emits domain events — it never executes the target capability through the framework pipeline. `policy.action.frameworkExecuteOnConfirm` is **reserved and not yet enforced**: no code reads it, so setting it has no effect. Do not rely on it to run a capability. Path B provider-native tool calling always executes on confirm and resumes the turn for a single answer-only completion (no further tool rounds or nested confirmation).
 
 In `@plumbus/chat-ui`, `useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip (with `decline` and `lastConfirmResult`). See `packages/chat-ui/instructions/action-confirmation.md`.
 

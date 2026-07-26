@@ -150,7 +150,7 @@ Same arg shape as `<ChatPanel />` minus `className`. Returns:
   status: 'idle' | 'streaming' | 'awaiting_confirmation' | 'cooldown' | 'error';
   notices: ChatUiNotice[];
   pendingConfirmation: ChatUiPendingConfirmation | null;
-  lastConfirmResult: ChatConfirmResult | null;
+  lastConfirmResult: ChatUiConfirmResult | null;   // exported from @plumbus/chat-ui; not @plumbus/chat's ChatConfirmResult
   send: (text: string, extras?: { sessionId?: string; locale?: string; extraBody?: Record<string, unknown> }) => Promise<void>;
   confirm: (actionId: string) => Promise<void>;   // POSTs to confirmUrl (default /chat/{chatName}/confirm)
   decline: (actionId: string) => Promise<void>;    // POSTs a reject decision

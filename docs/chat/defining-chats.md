@@ -289,8 +289,8 @@ registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
 | `beforeTurn` | Mutate the user message (sanitise, normalise) or short-circuit with a typed `{ error: { status, body } }` reply before any runtime work fires. |
 | `afterTurn` | Observability / audit. Receives the full ordered `ChatEvent[]` after the turn completes (or after the SSE stream ends). Errors are swallowed with a `console.warn`; do not rely on this for correctness. |
 | `chatRegistry` | Required for chats with `policy.toolCalling.enabled` — supplies `chat.toolRound` / `chat.scopeCheck` registration status. Build with `createChatRegistry(promptRegistry)`. |
-| `store` | A `ChatConversationStore`. Enables the `POST /chat/:name/confirm` route and the pre-turn live-pending check. Required for tool confirmations. |
-| `sessionStore` | A `ChatSessionStore`. Serves session and turn state from somewhere other than `ctx.data` — for deployments with no local database. Validated against every registered chat at registration time. See [session-store.md](./session-store.md). |
+| `store` | A `ChatConversationStore`. Mounting it enables the `POST /chat/:name/confirm` route and switches the pre-turn live-pending check to the store's `inspectSession`. Required for tool confirmations. Without it, the pre-turn check falls back to reading `ctx.data` directly. |
+| `sessionStore` | A `ChatSessionStore`. Serves session and turn state from somewhere other than `ctx.data` — for deployments with no local database. Validated against every registered chat at registration time. Supplying it without `store` also **skips** the pre-turn live-pending probe, which would otherwise read `ctx.data`: a tier-1-only deployment cannot hold pending actions. See [session-store.md](./session-store.md). |
 | `authenticator` | Replace the default credential resolution (Authorization header, then cookies). |
 | `externalBaseUrl` + `csrfSecret` | Set both to enable exact-Origin and session-bound CSRF enforcement on cookie-authenticated writes. |
 
