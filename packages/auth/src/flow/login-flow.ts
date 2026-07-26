@@ -1,11 +1,12 @@
-import type { NormalizedAuthRuntimeConfig } from '../config/types.js';
+import { LOGIN_CONTEXT_TYPE_MAX_BYTES } from '../config/constants.js';
+import type { LoginContextRequest, NormalizedAuthRuntimeConfig } from '../config/types.js';
 import { validateProviderParams } from '../providers/registry.js';
 import type { DiscoveredProvider } from '../providers/discovery.js';
 import type { TransactionManager } from '../transactions/manager.js';
 import { resolveBindingRaw } from '../transactions/manager.js';
 import type { SessionManager } from '../sessions/manager.js';
-import type { VerifiedExternalIdentity } from '../resolvers/types.js';
-import { executeResolveIdentity } from '../resolvers/execute.js';
+import type { AuthLoginApplicationContext, VerifiedExternalIdentity } from '../resolvers/types.js';
+import { executeResolveIdentity, withTimeout } from '../resolvers/execute.js';
 import * as client from 'openid-client';
 
 function containsForbiddenReturnToChars(value: string): boolean {
@@ -61,6 +62,127 @@ export function validateReturnTo(
   return `${resolved.pathname}${resolved.search}`;
 }
 
+/**
+ * Splits a login request query into the `returnTo` path, the parameters forwarded to
+ * the identity provider, and the application-owned login-context parameters.
+ *
+ * Context parameters are removed before provider parameter validation, so declaring a
+ * parameter under `loginContext.params` both stops it from being rejected as an unknown
+ * provider parameter and guarantees it is never appended to the authorization URL.
+ */
+export function splitLoginQuery(
+  query: Readonly<Record<string, string | undefined>>,
+  contextParams: readonly string[],
+): {
+  returnTo?: string;
+  providerParams: Record<string, string>;
+  contextParams: Record<string, string>;
+} {
+  const providerParams: Record<string, string> = {};
+  const context: Record<string, string> = {};
+  let returnTo: string | undefined;
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (key === 'returnTo') {
+      returnTo = value;
+    } else if (contextParams.includes(key)) {
+      context[key] = value;
+    } else {
+      providerParams[key] = value;
+    }
+  }
+
+  return { returnTo, providerParams, contextParams: context };
+}
+
+/**
+ * Validates an application-supplied login context and returns a frozen, JSON-only copy.
+ *
+ * Throws `invalid_login_context` when the shape is wrong, the data is not
+ * JSON-serializable, or the serialized context exceeds `maxBytes`.
+ */
+export function normalizeApplicationContext(
+  context: AuthLoginApplicationContext,
+  maxBytes: number,
+): AuthLoginApplicationContext {
+  if (typeof context !== 'object' || context === null || Array.isArray(context)) {
+    throw new Error('invalid_login_context');
+  }
+  if (typeof context.type !== 'string' || context.type.length === 0) {
+    throw new Error('invalid_login_context');
+  }
+  if (Buffer.byteLength(context.type, 'utf8') > LOGIN_CONTEXT_TYPE_MAX_BYTES) {
+    throw new Error('invalid_login_context');
+  }
+
+  let data: Record<string, unknown> | undefined;
+  if (context.data !== undefined) {
+    if (typeof context.data !== 'object' || context.data === null || Array.isArray(context.data)) {
+      throw new Error('invalid_login_context');
+    }
+    let serializedData: string | undefined;
+    try {
+      serializedData = JSON.stringify(context.data);
+    } catch {
+      throw new Error('invalid_login_context');
+    }
+    if (serializedData === undefined) {
+      throw new Error('invalid_login_context');
+    }
+    data = JSON.parse(serializedData) as Record<string, unknown>;
+  }
+
+  const normalized: AuthLoginApplicationContext = {
+    type: context.type,
+    ...(data ? { data } : {}),
+  };
+  if (Buffer.byteLength(JSON.stringify(normalized), 'utf8') > maxBytes) {
+    throw new Error('invalid_login_context');
+  }
+  return Object.freeze(normalized);
+}
+
+/**
+ * Invokes the application `loginContext.resolve` hook under the resolver timeout budget.
+ *
+ * A hook failure or timeout throws `login_context_unavailable` — login fails closed rather
+ * than silently downgrading an admission-bearing login to an anonymous one.
+ */
+async function resolveApplicationContext(
+  config: NormalizedAuthRuntimeConfig,
+  request: LoginContextRequest,
+): Promise<AuthLoginApplicationContext | undefined> {
+  const loginContext = config.loginContext;
+  if (!loginContext) {
+    return undefined;
+  }
+
+  let resolved: AuthLoginApplicationContext | undefined;
+  try {
+    resolved = await withTimeout(
+      Promise.resolve(
+        loginContext.resolve({
+          providerId: request.providerId,
+          returnTo: request.returnTo,
+          params: Object.freeze({ ...request.params }),
+          cookies: request.cookies,
+        }),
+      ),
+      config.resolverTimeoutMs,
+    );
+  } catch {
+    throw new Error('login_context_unavailable');
+  }
+
+  if (resolved === undefined || resolved === null) {
+    return undefined;
+  }
+  return normalizeApplicationContext(resolved, loginContext.maxBytes);
+}
+
 export interface LoginFlowDeps {
   config: NormalizedAuthRuntimeConfig;
   transactions: TransactionManager;
@@ -78,6 +200,7 @@ export function createLoginFlow(deps: LoginFlowDeps) {
       providerId: string;
       returnTo?: string;
       query: Record<string, string>;
+      contextParams?: Readonly<Record<string, string>>;
       cookies: Readonly<Record<string, string>>;
     }) {
       const provider = deps.config.providers[input.providerId];
@@ -99,11 +222,19 @@ export function createLoginFlow(deps: LoginFlowDeps) {
         throw new Error('invalid_provider_params');
       }
 
+      const applicationContext = await resolveApplicationContext(deps.config, {
+        providerId: input.providerId,
+        returnTo: returnPath,
+        params: input.contextParams ?? {},
+        cookies: input.cookies,
+      });
+
       const binding = resolveBindingRaw(input.cookies, deps.config);
       const tx = await deps.transactions.createTransaction({
         providerId: input.providerId,
         returnTo: returnPath,
         providerParams: { ...paramResult.params },
+        ...(applicationContext ? { applicationContext } : {}),
         bindingRaw: binding.bindingRaw,
         now: nowFn(),
       });
@@ -258,6 +389,7 @@ export function createLoginFlow(deps: LoginFlowDeps) {
         deps.config.resolveIdentity,
         identity,
         deps.config.resolverTimeoutMs,
+        { applicationContext: payload.applicationContext },
       );
       if (admission.status === 'temporary') {
         throw new Error('provider_unavailable');

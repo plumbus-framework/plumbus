@@ -1,5 +1,5 @@
 import type { ExecutionContext } from '@plumbus/core';
-import { chatTurnRepo } from '../internal/chat-repos.js';
+import { resolveChatSessionStore, type ChatSessionStore } from '../session/session-store.js';
 import type { ChatMessage } from '../types/session.js';
 
 export async function loadHistoryWindow(
@@ -7,13 +7,13 @@ export async function loadHistoryWindow(
   sessionId: string,
   includeLastTurns: number,
   persistence: 'server' | 'client',
+  sessionStore?: ChatSessionStore,
 ): Promise<ChatMessage[]> {
   if (persistence === 'client') return [];
 
-  const rows = await chatTurnRepo(ctx).findMany(
-    { sessionId },
-    { orderBy: 'ordinal', orderDir: 'asc', limit: includeLastTurns },
-  );
+  const rows = await resolveChatSessionStore(sessionStore).listTurns(ctx, sessionId, {
+    limit: includeLastTurns,
+  });
   return rows
     .filter((r: { content: string }) => r.content.length > 0)
     .map((r: { role: string; content: string }) => ({

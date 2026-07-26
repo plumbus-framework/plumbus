@@ -1,9 +1,5 @@
-import type { Guard } from '../types/policy.js';
-import {
-  loadMergedUserBehavioralState,
-  loadSession,
-  updateSessionBehavioralState,
-} from '../session/service.js';
+import type { Guard, GuardState } from '../types/policy.js';
+import { resolveChatSessionStore } from '../session/session-store.js';
 
 function cooldownScopeKey(
   cd: { scope?: 'session' | 'user' },
@@ -46,6 +42,11 @@ function recordCooldownTrigger(
   }
 }
 
+/** Session I/O for guards goes through the injected store when runChatTurn set one. */
+function storeOf(state: GuardState) {
+  return resolveChatSessionStore(state.sessionStore);
+}
+
 function pickUserScopedBehavioralKeys(state: Record<string, unknown>): Record<string, unknown> {
   const filtered: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(state)) {
@@ -84,7 +85,8 @@ export const behavioralPreGuard: Guard = async (turnCtx, state) => {
     return { decision: 'allow' };
   }
 
-  const session = await loadSession(state.ctx, turnCtx.sessionId);
+  const store = storeOf(state);
+  const session = await store.loadSession(state.ctx, turnCtx.sessionId);
   if (!session) return { decision: 'allow' };
 
   // Session-local state first, then overlay fresher `*:user:*` keys from other
@@ -93,7 +95,7 @@ export const behavioralPreGuard: Guard = async (turnCtx, state) => {
     ? {
         ...(session.behavioralState as Record<string, { until?: number }>),
         ...pickUserScopedBehavioralKeys(
-          await loadMergedUserBehavioralState(state.ctx, turnCtx.userId),
+          await store.loadMergedUserBehavioralState(state.ctx, turnCtx.userId),
         ),
       }
     : (session.behavioralState as Record<string, { until?: number }>);
@@ -124,11 +126,14 @@ export const behavioralPostGuard: Guard = async (turnCtx, state) => {
 
   if (state.saveToDb === false) return { decision: 'allow' };
 
-  const session = await loadSession(state.ctx, turnCtx.sessionId);
+  const store = storeOf(state);
+  const session = await store.loadSession(state.ctx, turnCtx.sessionId);
   if (!session) return { decision: 'allow' };
 
   const mergedUserState = usesUserScope(cooldowns)
-    ? pickUserScopedBehavioralKeys(await loadMergedUserBehavioralState(state.ctx, turnCtx.userId))
+    ? pickUserScopedBehavioralKeys(
+        await store.loadMergedUserBehavioralState(state.ctx, turnCtx.userId),
+      )
     : {};
   // Same precedence as pre-guard: fresher cross-session user keys override stale local copies.
   const bs = {
@@ -146,7 +151,7 @@ export const behavioralPostGuard: Guard = async (turnCtx, state) => {
     recordCooldownTrigger(bs, cd, turnCtx, now);
   }
 
-  await updateSessionBehavioralState(state.ctx, turnCtx.sessionId, bs);
+  await store.updateSessionBehavioralState(state.ctx, turnCtx.sessionId, bs);
   return { decision: 'allow' };
 };
 

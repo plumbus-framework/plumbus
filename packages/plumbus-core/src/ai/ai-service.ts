@@ -7,16 +7,29 @@ import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-er
 import type {
   AICostContext,
   AIDocument,
-  AIGenerateResult,
+  AIFinalGenerateResult,
+  AIGenerateWithUsageConfig,
   AIService,
   AIStreamEvent,
+  AIToolCallsGenerateResult,
+  AIToolEnabledGenerateResult,
 } from '../types/context.js';
 import type { PromptDefinition } from '../types/prompt.js';
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import { calculateModelCost } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
-import type { AIProviderAdapter, ChatMessage, ProviderRequest, TokenUsage } from './provider.js';
+import {
+  type AIProviderAdapter,
+  type AITool,
+  type AIToolCall,
+  type AIToolChoice,
+  type AIToolExecutionOptions,
+  type ChatMessage,
+  normalizeFinishReason,
+  type ProviderRequest,
+  type TokenUsage,
+} from './provider.js';
 import type { RAGPipeline } from './rag/pipeline.js';
 import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 import type { AISecurityConfig } from './security.js';
@@ -344,7 +357,11 @@ export function createAIService(config: AIServiceConfig): AIService {
     signal?: AbortSignal;
     costContext?: AICostContext;
     seed?: number;
-  }): Promise<AIGenerateResult> {
+    tools?: AITool[];
+    toolChoice?: AIToolChoice;
+    toolExecution?: AIToolExecutionOptions;
+    outputValidation?: 'prompt' | 'none';
+  }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
     const { inputForAI, securityResult } = applyPromptSecurity(params.input);
@@ -374,6 +391,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       ? [promptInfo.system, basePrompt].filter((s) => s && String(s).trim().length > 0).join('\n\n')
       : promptInfo.system;
 
+    const toolsEnabled = params.tools !== undefined;
+    const outputValidationNone = params.outputValidation === 'none';
+    const skipStructuredOutput = toolsEnabled || outputValidationNone;
+    const structuredResponseFormat = promptDef && !singleTextField ? 'json' : undefined;
     const request: ProviderRequest = {
       system: mergedSystem || undefined,
       prompt: useMultiTurn ? '' : basePrompt,
@@ -381,12 +402,19 @@ export function createAIService(config: AIServiceConfig): AIService {
       model: promptInfo.model ?? config.defaultModel,
       temperature: promptInfo.temperature,
       maxTokens: promptInfo.maxTokens,
-      responseFormat: promptDef && !singleTextField ? 'json' : undefined,
-      responseSchema,
-      structuredOutputTransport: promptDef?.structuredOutputTransport,
+      responseFormat: skipStructuredOutput ? undefined : structuredResponseFormat,
+      responseSchema: skipStructuredOutput ? undefined : responseSchema,
+      structuredOutputTransport: skipStructuredOutput
+        ? undefined
+        : promptDef?.structuredOutputTransport,
       signal: params.signal,
       seed: params.seed,
     };
+    if (toolsEnabled) {
+      request.tools = params.tools;
+      if (params.toolChoice !== undefined) request.toolChoice = params.toolChoice;
+      if (params.toolExecution !== undefined) request.toolExecution = params.toolExecution;
+    }
 
     const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
 
@@ -394,9 +422,29 @@ export function createAIService(config: AIServiceConfig): AIService {
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     let validationAttempts = 1;
     let validationPassed = true;
+    let finalFinishReason: 'stop' | 'length' | 'refusal' | 'other' = 'stop';
+    let toolCallsResult: AIToolCall[] | undefined;
+    let toolFinishNormalized: 'stop' | 'length' | 'refusal' | 'tool_calls' | 'other' | undefined;
 
     try {
-      if (promptDef) {
+      if (toolsEnabled) {
+        // Tool-enabled generation: forward tools verbatim, skip Zod output
+        // validation entirely (honors outputValidation:'none'), and surface
+        // the provider tool calls when finishReason normalizes to 'tool_calls'.
+        // A non-tool final answer returns { content } as data.
+        const response = await activeProvider.complete(request);
+        result = { content: response.content };
+        totalUsage = response.usage;
+        toolCallsResult = response.toolCalls;
+        toolFinishNormalized = normalizeFinishReason(response.finishReason);
+      } else if (outputValidationNone) {
+        // Explicit no-validation path (no tools): return raw content as data.
+        const response = await activeProvider.complete(request);
+        result = { content: response.content };
+        totalUsage = response.usage;
+        const nf = normalizeFinishReason(response.finishReason);
+        finalFinishReason = nf === 'tool_calls' ? 'other' : nf;
+      } else if (promptDef) {
         // Use validated generation
         const validated = await generateWithValidation(activeProvider, request, promptDef.output, {
           ...config.validation,
@@ -408,11 +456,14 @@ export function createAIService(config: AIServiceConfig): AIService {
         totalUsage = validated.usage;
         validationAttempts = validated.attempts;
         validationPassed = validated.attempts === 1;
+        finalFinishReason = 'stop';
       } else {
         // Raw generation
         const response = await activeProvider.complete(request);
         result = response.content;
         totalUsage = response.usage;
+        const nf = normalizeFinishReason(response.finishReason);
+        finalFinishReason = nf === 'tool_calls' ? 'other' : nf;
       }
     } catch (err) {
       // Failure-path cost recording: capture whatever usage we know about
@@ -500,13 +551,59 @@ export function createAIService(config: AIServiceConfig): AIService {
       },
     );
 
+    if (
+      toolsEnabled &&
+      toolFinishNormalized === 'tool_calls' &&
+      toolCallsResult &&
+      toolCallsResult.length > 0
+    ) {
+      return {
+        finishReason: 'tool_calls',
+        toolCalls: toolCallsResult,
+        usage: totalUsage,
+        model: resolvedModel,
+        provider: activeProvider.name,
+        cost,
+      };
+    }
+
+    let resolvedFinishReason: 'stop' | 'length' | 'refusal' | 'other' = finalFinishReason;
+    if (toolsEnabled && toolFinishNormalized) {
+      resolvedFinishReason = toolFinishNormalized === 'tool_calls' ? 'other' : toolFinishNormalized;
+    }
+
     return {
+      finishReason: resolvedFinishReason,
       data: result,
       usage: totalUsage,
       model: resolvedModel,
       provider: activeProvider.name,
       cost,
     };
+  }
+
+  function generateWithUsage<T extends Record<string, any> = Record<string, any>>(
+    config: AIGenerateWithUsageConfig & {
+      tools?: undefined;
+      toolChoice?: undefined;
+      toolExecution?: undefined;
+    },
+  ): Promise<AIFinalGenerateResult<T>>;
+  function generateWithUsage<T extends Record<string, any> = Record<string, any>>(
+    config: AIGenerateWithUsageConfig & {
+      tools: AITool[];
+      toolChoice?: AIToolChoice;
+      toolExecution?: AIToolExecutionOptions;
+    },
+  ): Promise<AIToolEnabledGenerateResult<T>>;
+  function generateWithUsage(
+    config: AIGenerateWithUsageConfig & {
+      tools?: AITool[];
+      toolChoice?: AIToolChoice;
+      toolExecution?: AIToolExecutionOptions;
+    },
+  ): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
+    return _generateCore(config);
   }
 
   return {
@@ -525,25 +622,16 @@ export function createAIService(config: AIServiceConfig): AIService {
       costContext?: AICostContext;
       seed?: number;
     }): Promise<Record<string, any>> {
-      const { data } = await _generateCore(params);
-      return data;
+      const result = await _generateCore(params);
+      if (result.finishReason === 'tool_calls') {
+        throw new Error(
+          'ai.generate(): provider returned tool calls, but generate() does not support tools — use generateWithUsage({ tools }).',
+        );
+      }
+      return result.data;
     },
 
-    async generateWithUsage(params: {
-      prompt: string;
-      input: Record<string, unknown>;
-      /**
-       * Optional native multi-turn conversation history. See `streamGenerate`
-       * for semantics — same behavior, applies to non-streaming completions.
-       */
-      messages?: ChatMessage[];
-      validation?: ValidationRetryConfig;
-      signal?: AbortSignal;
-      costContext?: AICostContext;
-      seed?: number;
-    }): Promise<AIGenerateResult> {
-      return _generateCore(params);
-    },
+    generateWithUsage,
 
     async *streamGenerate(params: {
       prompt: string;

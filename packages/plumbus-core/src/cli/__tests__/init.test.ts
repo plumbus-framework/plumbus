@@ -16,7 +16,7 @@ describe('plumbus init', () => {
     it('generates reference-mode instructions', () => {
       const content = generateCopilotInstructions(false);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('plumbus:agent-wiring version=9');
+      expect(content).toContain('plumbus:agent-wiring version=10');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('git checkout');
       expect(content).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
@@ -84,7 +84,7 @@ describe('plumbus init', () => {
     it('generates inline-mode instructions', () => {
       const content = generateCopilotInstructions(true);
       expect(content).toContain('Plumbus Framework');
-      expect(content).toContain('plumbus:agent-wiring version=9');
+      expect(content).toContain('plumbus:agent-wiring version=10');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
@@ -98,7 +98,7 @@ describe('plumbus init', () => {
       expect(content).toContain('---');
       expect(content).toContain('description:');
       expect(content).toContain('globs: app/**');
-      expect(content).toContain('plumbus:agent-wiring version=9');
+      expect(content).toContain('plumbus:agent-wiring version=10');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('git reset');
       expect(content).toContain('node_modules/@plumbus/core/instructions/');
@@ -111,7 +111,7 @@ describe('plumbus init', () => {
       const content = generateCursorCapabilityRule();
       expect(content).toContain('globs: app/capabilities/**');
       expect(content).toContain('defineCapability()');
-      expect(content).toContain('plumbus:agent-wiring version=9');
+      expect(content).toContain('plumbus:agent-wiring version=10');
       expect(content).toContain('ctx.capabilities.invoke');
       expect(content).toContain('exposeAs: ["api"]');
       expect(content).toContain(
@@ -128,7 +128,7 @@ describe('plumbus init', () => {
     it('generates agent-agnostic reference format', () => {
       const content = generateAgentsMd(false);
       expect(content).toContain('AGENTS.md');
-      expect(content).toContain('plumbus:agent-wiring version=9');
+      expect(content).toContain('plumbus:agent-wiring version=10');
       expect(content).toContain('Directory Structure');
       expect(content).toContain('Edit Zones');
       expect(content).toContain('Non-Negotiable Guardrails');
@@ -144,7 +144,7 @@ describe('plumbus init', () => {
 
     it('generates inline format', () => {
       const content = generateAgentsMd(true);
-      expect(content).toContain('plumbus:agent-wiring version=9');
+      expect(content).toContain('plumbus:agent-wiring version=10');
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
@@ -190,14 +190,14 @@ describe('plumbus init', () => {
       }
     });
 
-    it('patches v8 wiring to v9 and adds auth instruction references', () => {
+    it('patches v8 wiring to the current version and adds auth instruction references', () => {
       const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
       const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
 
       try {
         mkdirSync(path.dirname(filePath), { recursive: true });
         const v8WithoutAuth = generateCopilotInstructions(false)
-          .replace(/plumbus:agent-wiring version=9/g, 'plumbus:agent-wiring version=8')
+          .replace(/plumbus:agent-wiring version=10/g, 'plumbus:agent-wiring version=8')
           .split('\n')
           .filter((line) => !line.includes('@plumbus/auth'))
           .join('\n');
@@ -207,11 +207,34 @@ describe('plumbus init', () => {
         const updated = readFileSync(filePath, 'utf-8');
 
         expect(results[0]?.action).toBe('patched');
-        expect(updated).toContain('plumbus:agent-wiring version=9');
+        expect(updated).toContain('plumbus:agent-wiring version=10');
         expect(updated).toContain('node_modules/@plumbus/auth/instructions/framework.md');
         expect(updated).toContain(
           'node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md',
         );
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('patches v9 wiring to v10 and adds the loginContext admission pointer', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-'));
+      const filePath = path.join(tempDir, '.github', 'copilot-instructions.md');
+
+      try {
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        const v9 = generateCopilotInstructions(false)
+          .replace(/plumbus:agent-wiring version=10/g, 'plumbus:agent-wiring version=9')
+          .replace(/, and invitation-only admission via loginContext[^|\n]*/g, '');
+        writeFileSync(filePath, v9, 'utf-8');
+        expect(v9).not.toContain('invitation-only admission via loginContext');
+
+        const results = writeAgentFiles(tempDir, ['copilot'], false, false, false, 'patch');
+        const updated = readFileSync(filePath, 'utf-8');
+
+        expect(results[0]?.action).toBe('patched');
+        expect(updated).toContain('plumbus:agent-wiring version=10');
+        expect(updated).toContain('invitation-only admission via loginContext');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -287,7 +310,7 @@ describe('plumbus init', () => {
         const updated = readFileSync(filePath, 'utf-8');
 
         expect(results[0]?.action).toBe('replaced');
-        expect(updated).toContain('plumbus:agent-wiring version=9');
+        expect(updated).toContain('plumbus:agent-wiring version=10');
         expect(updated).not.toBe('custom instructions');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });

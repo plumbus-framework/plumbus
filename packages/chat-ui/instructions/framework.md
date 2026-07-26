@@ -19,17 +19,19 @@ The package is intentionally thin: a state-managing hook, a high-level panel com
 
 **`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
+**Runtime floor (0.1.7+):** install `@plumbus/chat` **≥ 0.1.11** (needs the `./protocol` subpath and Path B confirm route) and `@plumbus/core` **≥ 0.6.11** (chat's tool-protocol dependency). Declared peers stay coarse; the floors are what actually runs.
+
 ## Public exports
 
 ```ts
 // from '@plumbus/chat-ui'
-useChat({ chatName, sessionId, audience, locale, persistence?, turnUrl? })
-                                                  // → { messages, status, notices, pendingConfirmation, send, confirm, cancel }
+useChat({ chatName, sessionId, audience, locale, persistence?, turnUrl?, confirmUrl? })
+                                                  // → { messages, status, notices, pendingConfirmation, lastConfirmResult, send, confirm, decline, cancel }
 
 ChatPanel                                          // pre-wired: messages + notices + input + confirmation dialog
 ChatMessages                                       // just the message list with cited sources
 ChatInput                                          // just the textarea + send button
-ConfirmationDialog                                 // renders pendingConfirmation; Confirm / Cancel callbacks
+ConfirmationDialog                                 // renders pendingConfirmation; onConfirm / onReject callbacks + optional `busy` to disable both buttons in flight
 SourceCitation                                     // single cited-source pill
 
 // Pure helpers (use for custom UIs / non-React consumers)
@@ -40,7 +42,7 @@ initialChatUiState
 readChatStream(Response)                           // async-iterable SSE parser
 
 // State shapes
-ChatUiState, ChatUiMessage, ChatUiNotice, ChatUiStatus, ChatUiPendingConfirmation
+ChatUiState, ChatUiMessage, ChatUiNotice, ChatUiStatus, ChatUiPendingConfirmation, ChatUiConfirmResult
 BuildTurnBodyArgs, TurnRequestBody
 
 useChatSession()                                   // PLACEHOLDER — returns local useState defaults; do not depend on the shape
@@ -68,8 +70,9 @@ src/
 ## Critical rules
 
 1. **Cookie auth only.** `useChat` and `<ChatPanel />` POST with `credentials: 'include'`. For Bearer-auth flows, copy the hook and swap the `fetch` call — do not add a `headers` option to the helper (out of scope).
+   - **CSRF.** The hook reads the `CHAT_CSRF_COOKIE_NAME` (`plumbus_chat_csrf`) cookie and echoes it in the `CHAT_CSRF_HEADER_NAME` (`x-plumbus-chat-csrf`) header on every turn/confirm POST — both are exported from `@plumbus/chat/protocol` (browser-safe subpath; the package root is server-only for client bundles). A hand-rolled cookie-auth fetch UI must send this header too or the server rejects the write (Bearer requests are CSRF-exempt).
 2. **`persistence` must match the server.** The `<ChatPanel persistence="client" />` prop tells the panel to ship `clientHistory` on every turn. If the server-side chat was defined with `persistence: { messageContent: 'server' }`, the panel still ships history that the server ignores (wasted bytes). If the server is `'client'` and the panel says `'server'`, the model loses conversational context. See wiring-chat-panel.md.
-3. **`useChat.confirm()` is a UI stub.** Calling `confirm(actionId)` only clears local state. Apps that need action confirmation must call the server-side `chatConfirmAction` capability directly. The hook surfaces `pendingConfirmation.schemaHash` exactly so apps can do this. See action-confirmation.md.
+3. **`confirm()` / `decline()` perform a real server round-trip.** `confirm(actionId?)` and `decline(actionId?)` POST to `confirmUrl ?? /chat/${chatName}/confirm` (`credentials: 'include'`, CSRF header set) with `{ actionId, inputSchemaHash, decision }`. The server executes the confirmed capability/flow through the full pipeline from the stored normalized input (never a client-supplied name or input), then resumes the turn for a final answer — clearing `pendingConfirmation` and setting `lastConfirmResult`. `cancel()` is a local-only dismiss (`status → 'idle'`, no network). See action-confirmation.md.
 4. **`useChatSession` is a placeholder.** It returns local `useState` defaults — `sessions` never populates. Kept on the barrel so a real multi-session API can land later without a breaking export change. Do not depend on its shape.
 5. **No subpath exports.** Everything imports from `@plumbus/chat-ui`. There is no `/testing` subpath (chat-ui has no test helpers of its own — use vitest jsdom and exercise the pure helpers directly).
 

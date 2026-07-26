@@ -1,10 +1,11 @@
 # Testing chats
 
-Three test affordances:
+Four test affordances:
 
 1. **`mockChatRuntime`** for end-to-end turn tests with a scripted provider.
 2. **Plumbus core's `createTestContext` + `mockAI`** for unit-testing capabilities, prompts, or context sources in isolation.
 3. **Pure helper functions** (`applyChatEvent`, `buildTurnRequestBody`, etc.) for unit-testing UI reducers and request shaping without React.
+4. **In-memory stores** (`createInMemoryChatSessionStore`, `createInMemoryChatConversationStore`) for driving the runtime with no database at all.
 
 ## End-to-end turn tests with `mockChatRuntime`
 
@@ -155,3 +156,39 @@ The hook itself is a thin reducer wrapper — test the reducer, trust React.
 | Persistence-mode round-trip | same file, "persistence modes" suite |
 | Trace recorder coverage | same file, "trace recorder" suite |
 | Pure helper coverage | `packages/chat-ui/src/hooks/__tests__/useChat-helpers.test.ts` |
+| Tool-calling loop + confirm/resume | `packages/chat/src/runtime/__tests__/run-turn-tools.test.ts` |
+| Lease store conformance | `packages/chat/src/runtime/__tests__/chat-conversation-store.test.ts` and `in-memory-conversation-store.test.ts` |
+| Injected session store, no `ctx.data` | `packages/chat/src/session/__tests__/session-store-injection.test.ts` |
+| Injected session store over HTTP routes | `packages/chat/src/runtime/__tests__/http-session-store.test.ts` |
+
+## Testing a session store adapter
+
+`createInMemoryChatSessionStore` from `@plumbus/chat/testing` drives the whole pipeline
+with no database:
+
+```ts
+import { createInMemoryChatSessionStore } from '@plumbus/chat/testing';
+
+const sessionStore = createInMemoryChatSessionStore();
+for await (const evt of runChatTurn(ctx, args, { sessionStore })) {
+  events.push(evt);
+}
+expect(sessionStore.__turns.map((t) => t.ordinal)).toEqual([0, 1]);
+```
+
+To prove your own adapter is genuinely free of `ctx.data`, run a turn against a context
+whose `data` throws on every property access. Copy the `contextWithoutData` helper from
+`packages/chat/src/session/__tests__/session-store-injection.test.ts`; asserting only on
+the event stream would pass even if the pipeline silently fell back to repositories.
+
+See [session-store.md](./session-store.md) for the adapter contract itself.
+
+## Testing tool calling (Path B)
+
+Script tool rounds through `mockAI` by returning an assistant message whose `toolCalls`
+carry `argumentsStatus: 'parsed'` for the first call(s) and a final tool-less answer for
+the last round. Assert on the tool event sequence (`tool.started` → `tool.completed` /
+`tool.failed`) and, for confirm-mode tools, on `confirmation_required` followed by
+`confirmation.resolved` after driving `POST /chat/:name/confirm`. Path B needs a
+transactional store; use the in-suite `ChatConversationStore` conformance fixture rather
+than the plain in-memory repository (which fails closed with `chat.storage_unsupported`).

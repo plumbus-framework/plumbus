@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.7 — 2026-07-26 — confirm round-trip + tool-calling events
+
+### Changed
+
+- **`useChat.confirm()` performs the real confirmation round-trip.** It now POSTs to `confirmUrl` (default `/chat/{chatName}/confirm`) instead of only clearing local state. Added `decline(actionId)` and `lastConfirmResult` (a `ChatUiConfirmResult`). Cookie-authenticated apps must be served from the server's configured origin (exact-Origin + CSRF enforced server-side).
+- **`applyChatEvent` reducer** handles the new `tool.started` / `tool.completed` / `tool.failed` / `confirmation.resolved` events and the additive `inputSchemaHash` / `projection` fields on `confirmation_required`.
+- **`<ConfirmationDialog />` is wired through `<ChatPanel />`** to `confirm` / `decline`.
+
+### Requires
+
+- **`@plumbus/chat` ≥ 0.1.11** with Path B provider-native tool calling and the `POST /chat/:name/confirm` route (see its changelog). Declared peer stays `0.1.x`.
+- **`@plumbus/core` ≥ 0.6.11** in practice (via chat 0.1.11). Declared peer stays `0.5.x || 0.6.x`.
+- **A `@plumbus/chat` that ships the `./protocol` export subpath.** `useChat` imports `CHAT_CSRF_COOKIE_NAME` / `CHAT_CSRF_HEADER_NAME` from `@plumbus/chat/protocol` rather than the package root, so the browser bundle does not pull in `node:crypto` and the `@plumbus/core` CLI — a graph strict bundlers such as Turbopack refuse to resolve for a client component. Against an older `@plumbus/chat` without that subpath, module resolution fails at build time.
+
 ## 0.1.6
 
 ### Changed

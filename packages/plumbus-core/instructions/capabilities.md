@@ -160,7 +160,7 @@ Rules:
 - Declare every invoke target in `effects.capabilities` using **canonical names** (`billing.getInvoice`, not `getInvoice`).
 - Undeclared calls, cycles, missing targets, and synchronous job invokes fail at runtime with `dependencyViolation`.
 - Do **not** import other capability handlers or call `.handler` directly — `plumbus verify` flags direct handler imports.
-- Handler-visible `ctx.__runtime` does not expose internal invokers; use `ctx.capabilities.invoke` only.
+- Handler-visible `ctx.__runtime` does not expose internal invokers; use `ctx.capabilities.invoke` only. (One framework-internal exception: the built-in `chat.chatConfirmAction` capability receives the unstripped runtime, matched by canonical name in `capability-executor.ts`. Application capabilities cannot opt into this.)
 - Prefer flows for multi-step orchestration; use invoke when you need a callee's result in the same execution path.
 
 The local `name` field in `defineCapability` stays short (`getInvoice`); the framework derives the canonical registry key from `domain` + `name`. Run `plumbus generate` after changes so `RegisteredCapabilityName` and manifests stay in sync.

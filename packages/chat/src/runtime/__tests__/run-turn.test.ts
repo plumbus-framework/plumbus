@@ -1,4 +1,6 @@
 import { describe, expect, it, createTestContext, mockAI } from '@plumbus/core/testing';
+import { defineCapability } from '@plumbus/core';
+import { z } from '@plumbus/core/zod';
 import type { AIService } from '@plumbus/core';
 import { defineChat } from '../../define/defineChat.js';
 import { runChatTurn } from '../run-turn.js';
@@ -847,5 +849,104 @@ describe('runChatTurn — custom guards (pre-turn vs post-turn)', () => {
     // Blocked pre-turn → the model is never called.
     expect(callCount.generate).toBe(0);
     expect(callCount.streamGenerate).toBe(0);
+  });
+});
+
+describe('runChatTurn — confirmation proposal', () => {
+  const shipCap = defineCapability({
+    name: 'ship',
+    kind: 'action',
+    domain: 'orders',
+    input: z.object({ orderId: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+    effects: { data: [], events: [], external: [], ai: false },
+    handler: async () => ({ ok: true }),
+  });
+
+  it('require_confirmation commits a proposal (2 turns + pending) and does not double-write via appendTurn', async () => {
+    const ctx = createTestContext({
+      capabilities: [shipCap],
+      ai: mockAI({
+        generate: {
+          inScope: true,
+          answer: 'I can ship that.',
+          refusalReason: null,
+          citedSources: [],
+          requestedAction: {
+            capabilityName: 'orders.ship',
+            input: { orderId: 'o-1' },
+            confirmationMessage: 'Ship order o-1?',
+          },
+        },
+      }),
+    });
+    const chat = defineChat({
+      name: 'test',
+      access: {},
+      instructions: ['x'],
+      policy: { action: { allowedCapabilities: ['orders.ship'] } },
+    });
+    const session = await newSession(ctx);
+    const events = collectEvents();
+
+    for await (const evt of runChatTurn(ctx, {
+      chatDefinition: chat,
+      sessionId: session.id,
+      userMessage: 'ship order o-1',
+      audience: 'user',
+      locale: 'en',
+    })) {
+      events.push(evt);
+    }
+
+    expect(events.byType('confirmation_required')).toHaveLength(1);
+    const turns = await ctx.data.ChatTurn?.findMany({ sessionId: session.id });
+    expect(turns?.length).toBe(2);
+    const pending = await ctx.data.ChatPendingAction?.findMany({ sessionId: session.id });
+    expect(pending?.length).toBe(1);
+  });
+
+  it('require_confirmation with un-normalizable input emits one chat.tool_arguments_invalid notice and no pending', async () => {
+    const invalidGuard: Guard = async () => ({
+      decision: 'require_confirmation',
+      pendingAction: {
+        id: '00000000-0000-4000-8000-000000000401',
+        sessionId: 'placeholder',
+        capabilityName: 'orders.ship',
+        input: { orderId: 123 },
+        schemaHash: 'hash',
+        confirmationMessage: 'Ship?',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        status: 'pending',
+      },
+    });
+    const ctx = createTestContext({
+      capabilities: [shipCap],
+      ai: mockAI({ generate: inScopeResponse }),
+    });
+    const chat = defineChat({
+      name: 'test',
+      access: {},
+      instructions: ['x'],
+      policy: { customPostTurn: [invalidGuard] },
+    });
+    const session = await newSession(ctx);
+    const events = collectEvents();
+
+    for await (const evt of runChatTurn(ctx, {
+      chatDefinition: chat,
+      sessionId: session.id,
+      userMessage: 'ship',
+      audience: 'user',
+      locale: 'en',
+    })) {
+      events.push(evt);
+    }
+
+    const notices = events
+      .byType('notice')
+      .filter((n) => n.type === 'notice' && n.code === 'chat.tool_arguments_invalid');
+    expect(notices).toHaveLength(1);
+    expect(await ctx.data.ChatPendingAction?.findMany({ sessionId: session.id })).toEqual([]);
   });
 });

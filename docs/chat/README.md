@@ -19,11 +19,14 @@ These docs are split in three:
 | [context-sources.md](./context-sources.md) | You're wiring up `ragContext`, registry `knowledgeContext`, `capabilityContext`, or `staticContext`. |
 | [testing.md](./testing.md) | You're writing tests with `mockChatRuntime` or the pure UI helpers. |
 | [evaluations.md](./evaluations.md) | You're writing eval scenarios for a chat with `defineChatEvaluation` / `runChatEvaluation`. |
+| [tool-calling.md](./tool-calling.md) | You're enabling `policy.toolCalling` so the model calls capabilities directly (Path B). |
+| [confirmation-persistence.md](./confirmation-persistence.md) | You're migrating chat entities or wiring durable confirmation + session revision CAS. |
+| [session-store.md](./session-store.md) | Your deployment has no local database and needs chat memory served from a remote platform or port. |
 | [../chat-ui/README.md](../chat-ui/README.md) | You're wiring `<ChatPanel />`, `useChat`, or the SSE client helpers in a React app. |
 
 ## Design docs
 
-See [design/](./design/) for the ten decision records — why the framework is shaped the way it is, what alternatives were rejected, and what to watch out for when extending it.
+See [design/](./design/) for the eleven decision records — why the framework is shaped the way it is, what alternatives were rejected, and what to watch out for when extending it.
 
 ## Agent instructions
 
@@ -44,7 +47,7 @@ Read these when you're an AI agent extending a Plumbus app that uses chat. They 
 | A long-running multi-step workflow | `defineFlow` in `@plumbus/core` |
 | One-shot RAG-grounded answer with no chat surface | `ctx.ai.retrieve` + a normal capability |
 | **Multi-turn user conversation with scope, budgets, citations, and an event stream** | **`@plumbus/chat`** |
-| Conversational *agent* with autonomous tool selection | Not a chat primitive. Action confirmation is the closest — the model proposes a capability, the runtime validates and asks the user to confirm. |
+| Conversational *agent* with autonomous tool selection | **`@plumbus/chat`** with `policy.toolCalling` (Path B) — the model calls capabilities/flows as provider-native tools over a bounded loop; auto-mode tools execute inline, confirm-mode tools pause with `confirmation_required` and resume after `POST /chat/:name/confirm`. See [policies.md](./policies.md#tool-calling-path-b) and [design/tool-calling.md](./design/tool-calling.md). |
 
 Use chat when the surface itself is the product: a help bot, customer support, in-product Q&A. If the AI work is upstream of a capability and the user never sees a chat, you don't need this package.
 
@@ -110,6 +113,7 @@ This package composes on core; it does not duplicate. Specifically:
 - All five budget scopes (`perTurn`, `perSession`, `perUser`, `perTenant`, `contextTokens`) plus `actions.perSession` and per-turn timeout are enforced when configured.
 - Streaming runtime with a typed event protocol.
 - Pending-action confirmation with v2 schema-hash re-validation (`v2:` + capability input schema via `ctx.capabilities.describe`).
+- Provider-native tool calling (`policy.toolCalling`, Path B): capabilities + `autoStartFlows` bound as provider tools, a bounded per-turn tool loop, durable `ChatPendingActionV2`, and a `POST /chat/:name/confirm` route that executes through the capability pipeline and resumes the turn for an answer-only completion (no further tool rounds). Emits `tool.started` / `tool.completed` / `tool.failed` / `confirmation.resolved` events.
 - React hook (`useChat`) and components in `@plumbus/chat-ui`.
 - Session and turn persistence with opt-out for message content.
 - Domain events (`chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent`) emitted by the runtime.
@@ -129,6 +133,12 @@ This package composes on core; it does not duplicate. Specifically:
 | Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | auto-routed; `chatConfirmAction` is what a client calls to commit a pending action |
 | Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | register in your app's entity list |
 | Session service | `createSession`, `loadSession`, `appendTurn`, `aggregateForBudget`, `updateSessionBehavioralState`, `updateSessionSummary` | advanced — for custom turn pipelines / migrations; most apps never need these |
+| Session storage (tier 1) | `ChatSessionStore`, `RunChatTurnOpts`, `dbChatSessionStore`, `resolveChatSessionStore`, `requireChatBudgetAggregator`, `assertChatSessionStoreSupportsBudget`, `assertChatStoresSupportChats`, `ChatStoreUnsupportedError`, `ChatBudgetAggregate`, `ChatBudgetAggregateQuery`, `ChatBudgetAggregator`, `CreateChatSessionArgs`, `GetOrCreateChatSessionArgs` | inject non-DB chat persistence — see [session-store.md](./session-store.md) |
+| Wire protocol (`@plumbus/chat/protocol`) | `CHAT_CSRF_COOKIE_NAME`, `CHAT_CSRF_HEADER_NAME` | dependency-free, browser-safe. **Client code must import from this subpath**, not the package root — the root drags `node:crypto` and the CLI (drizzle-kit, esbuild) into the browser graph, which Turbopack refuses to resolve. Both are also re-exported from the root for server use. |
+| Tool calling (Path B) | `bindChatCapabilityTools`, `ChatToolBindError`, `BoundChatTool`, `BoundToolKind`, `BoundToolMode`, `ChatToolAnnotations`, `ChatToolPresentation`, `isConfirmCapability`, `runToolPhase`, `RunToolPhaseArgs`, `ToolPhaseResult`, `resumeAfterConfirm`, `ChatConfirmResult`, `createChatRegistry`, `ChatRegistry` | mostly advanced — apps configure `policy.toolCalling` and let `registerChatRoutes` drive it. `createChatRegistry` is required wiring for Path B; see [tool-calling.md](./tool-calling.md) |
+| Conversation storage (tier 2) | `ChatConversationStore`, `createChatConversationStore`, `assertChatStorageSupported`, `ChatTurnWrite`, `SessionMutationLease`, `AcquireSessionMutationResult`, `ClaimPendingResult`, `ChatPendingActionV2`, `ChatToolResumePayloadV1` | the lease/CAS store behind durable confirmations — see [confirmation-persistence.md](./confirmation-persistence.md) |
+| Browser-write security | `csrfBindingFromAuth`, `issueCsrfToken`, `verifyCsrfToken`, `normalizeOrigin`, `originAllowed` | server-side helpers for the exact-Origin + session-bound CSRF check on cookie-authenticated writes |
+| HTTP authentication | `ChatHttpOptions`, `ChatRequestAuthentication`, `ChatRequestAuthenticator` | replace the default credential resolution on `/turn` and `/confirm` |
 | Runtime utilities | `ChatEventEmitter`, `validateCitations`, `stripInvalidFromAnswer`, `setTokenCounter` | advanced — only reach for these when wrapping the runtime or swapping the token counter (e.g. local tiktoken vs heuristic) |
 | Evaluation | `runChatEvaluation`, `TraceRecorder` | run scenarios against a scripted model and assert on the event stream — see [evaluations.md](./evaluations.md) |
-| Events | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent` | domain events emitted by the runtime; subscribe with an `eventHandler` capability |
+| Events | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatActionRejectedEvent`, `chatRefusalRecordedEvent` | domain events emitted by the runtime; subscribe with an `eventHandler` capability |

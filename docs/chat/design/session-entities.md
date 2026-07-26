@@ -71,3 +71,5 @@ Consumers must register these three entities in their entity boot (alongside the
 **Confirm path:** `chatConfirmAction` re-derives v2 hashes on confirm and rejects schema drift with `chat.action_schema_changed`. Input is re-validated against the live Zod schema.
 
 **Execution gap:** `chatConfirmAction` validates and updates pending-action status but **does not call `executeCapability`** on the target capability yet. Apps must trigger real writes in their own handler after confirm succeeds. The hash machinery still prevents confirming against a schema the user never saw.
+
+> **Update (provider-native tool calling).** This gap is closed for Path B: `policy.toolCalling` always executes the confirmed tool through the capability pipeline and resumes the turn. Path A remains decision-only as described above — `policy.action.frameworkExecuteOnConfirm` is reserved and not yet enforced (no code reads it). See [tool-calling.md](./tool-calling.md).

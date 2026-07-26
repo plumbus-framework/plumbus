@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.1.11 — 2026-07-26 — provider-native tool calling + injectable session store
+
+### Added
+
+- **Path B — provider-native tool calling (`policy.toolCalling`).** Capabilities and `autoStartFlows` are bound as provider-native tools; a bounded per-turn loop (`maxToolRounds` default 5, range 1..20) drives the provider through tool rounds using the registered `chat.toolRound` prompt. Chat does **not** call core's `runToolLoop`. Auto-mode tools execute inline via `ctx.__runtime.resolveCapability` + `executeCapability` (access policy enforced); confirm-mode tools pause the turn with `confirmation_required` and execute on confirm. `autoStartFlows` tools additionally run under a bounded per-turn flow budget so a single turn cannot start an unbounded number of flows.
+- **`POST /chat/:name/confirm` — always framework-invoke + resume.** Confirm-mode tool calls (Path B) are always executed through the framework capability pipeline on confirm, then the tool loop is resumed from a durable `resumePayload` to produce the final answer. Confirm reuses `/turn` authentication via `ChatRequestAuthenticator`; cookie-authenticated writes additionally require exact-Origin + a session-bound CSRF token.
+- **New events** — `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved`. `confirmation_required` keeps its underscore discriminator (wire compat) and gains optional `inputSchemaHash` and a validated `projection`. `pendingStatus` includes `expired`.
+- **Lease-based `ChatConversationStore`** — `acquireSessionMutation` / `commitProposal` / `claimPending` / `completePending` make propose and confirm+resume atomic; `ChatTurn` uses a unique `(sessionId, ordinal)` index. Adapters without a conditional/transactional write path fail closed with `chat.storage_unsupported`, raised the first time a turn or confirm needs a conditional write (`createChatConversationStore` probes the repository), not at process start.
+- **Durable `ChatPendingActionV2`** — stores only the **normalized** input (resolved contract, `argumentsStatus 'parsed'`, Zod-validated, defaults/coercions applied); confirm never re-reads input from the client. Invalid arguments produce no pending row — one safe `chat.tool_arguments_invalid` observation instead.
+- **Binding hash** — `toolBindingHash` (with `targetVersion` from `CapabilityContract.version` or the input-schema-hash fallback; flow `targetVersion` is the flow input-schema hash) is re-verified at confirm time; drift fails with `chat.binding_changed`. Flow tools use the reserved `flow__` prefix and portable grammar (flow names ≤ 57 chars).
+- **Existing-pending rule** — `/turn` checks the live pending action before scope/provider work: `pending` → `chat.pending_action_exists`; `confirming` → `chat.session_busy`; expired pending is atomically terminalized then the turn proceeds. `409` body is `{ code, actionId, expiresAt }`.
+- **New `@plumbus/chat/protocol` subpath.** `CHAT_CSRF_COOKIE_NAME` and `CHAT_CSRF_HEADER_NAME` now live in a dependency-free, browser-safe module and are re-exported unchanged from the package root, so existing server-side imports keep working. **Browser code must import them from `@plumbus/chat/protocol`**: reaching them through the package root pulls in `runtime/csrf.ts` (`node:crypto`) and, via `@plumbus/core`, the whole CLI including drizzle-kit and esbuild — a graph strict bundlers such as Turbopack refuse to resolve for a client component. `@plumbus/chat-ui`'s `useChat` was switched to the subpath; hand-rolled clients should do the same.
+- **Injectable session storage (`runChatTurn(ctx, args, { sessionStore })`).** Chat persistence is now a two-tier contract. Tier 1, the new `ChatSessionStore`, covers session bootstrap, turn append/read, behavioral state, summaries, and budget rollups; tier 2 is the existing lease-based `ChatConversationStore` for tool confirmations. Supplying a tier-1 store lets a deployment with no local database run the stock turn pipeline against its own memory backend instead of maintaining a fork of it. Every method takes `ctx` first so an adapter can reach an app-owned port. See [`docs/chat/session-store.md`](../../docs/chat/session-store.md).
+- **`sessionStore` option on the entry points** — `RegisterChatRoutesOpts.sessionStore`, `createChatTurnCapability(chat, opts)`, `runChatEvaluation(..., { stores })`, and `mockChatRuntime(..., options, stores)`. Guards receive the store as `GuardState.sessionStore`; custom guards should resolve it with `resolveChatSessionStore(state.sessionStore)` rather than reading `ctx.data`. When `registerChatRoutes` is given a `sessionStore` and no `store`, the C5 pre-turn live-pending probe is skipped: a tier-1-only deployment cannot hold pending actions, and the probe would otherwise read `ctx.data`.
+- **`createInMemoryChatSessionStore`** (`@plumbus/chat/testing`) — a Map-backed tier-1 store that never touches `ctx.data`, usable as both a test double and a reference implementation. It covers the whole required surface plus `aggregateForBudget` and `createSession`; it omits `countActivePendingActions`, which is meaningless without tier 2.
+- **New exports.** From the root barrel: `ChatSessionStore`, `RunChatTurnOpts`, `ChatBudgetAggregate`, `ChatBudgetAggregateQuery`, `ChatBudgetAggregator`, `CreateChatSessionArgs`, `GetOrCreateChatSessionArgs` (types); `dbChatSessionStore`, `resolveChatSessionStore`, `requireChatBudgetAggregator`, `assertChatSessionStoreSupportsBudget`, `assertChatStoresSupportChats`, `ChatStoreUnsupportedError` (values). From `@plumbus/chat/testing`: `createInMemoryChatSessionStore`.
+- **Startup validation via `assertChatStoresSupportChats`,** applied by `registerChatRoutes` to every registered chat. It is a no-op unless a `sessionStore` is injected, and throws `ChatStoreUnsupportedError` when a chat declares a `budget` the store cannot aggregate (`chat.budget_unsupported`), caps pending actions the store cannot count (`chat.budget_unsupported`), or can raise confirmations with no `conversationStore` supplied (`chat.storage_unsupported`). The same conditions also fail closed at turn time.
+- **New error code `chat.budget_unsupported`** — an injected store cannot aggregate the stored turns needed to enforce a configured `budget`. Raised instead of silently leaving a cap unenforced. This is about cap **enforcement** only: AI cost recording (`costContext`, the cost tracker, `onAICostRecorded`) lives in `@plumbus/core`'s AI service, reads nothing from `ChatSession`/`ChatTurn`, and is unaffected by an injected store. Unreachable unless a `sessionStore` is injected.
+
+### Changed
+
+- **Path A `frameworkExecuteOnConfirm` (accepted but RESERVED — not yet enforced).** `policy.action` accepts `frameworkExecuteOnConfirm`, but it is **reserved and not enforced in this release** — no code path reads it. Path A confirm remains **decision-only** regardless of its value: validate, mark confirmed, emit events, no side effects (unchanged historical behavior). Whether a confirm performs framework execution is gated by the request's `execute` flag, not this field. The knob is reserved so a future release can enable framework execution without a schema break.
+- `actionGuard` counts pending actions through `ChatSessionStore.countActivePendingActions` instead of reaching `ctx.data` directly. The DB-backed default preserves the previous behavior exactly, including lazy expiry of lapsed rows.
+- `chat.storage_unsupported` gains a second trigger. It already fired when a store adapter lacked a conditional-write path; it is now also raised when a chat that can request confirmations runs on an injected `sessionStore` with no `conversationStore`. The original trigger is unchanged.
+- Internal signatures widened with an optional store parameter: `checkBudgetPreflight`, `maybeSummarize`, `loadHistoryWindow`. None are exported from the package barrel or `/testing`.
+
+### Requires
+
+- **Prompt re-export.** Re-export `chatToolRoundPrompt` (`chat.toolRound`) and `chatScopeCheckPrompt` (`chat.scopeCheck`) from `@plumbus/chat` into `app/prompts/` so directory discovery registers them (same one-time wiring as `chat.turn`). Path B fails at startup with `chat.prompt_not_registered` if either is absent. The `createChatRegistry` used to enforce this prompt-registration check is wired at `registerChatRoutes`, so the check runs during route registration.
+- **`@plumbus/core` ≥ 0.6.11** with the provider tool protocol, `runToolLoop`, `EntityIndexDefinition.unique`, and the conditional/transactional repository write path (see `@plumbus/core` changelog). The declared peer string stays `0.5.x || 0.6.x` (ecosystem literal), but **0.1.11 is not usable below 0.6.11** — `runChatTurn` loads those APIs on the default path.
+- Peer ranges for `@plumbus/knowledge-base` stay `^0.1.0`. Injectable session-store parameters are optional; apps that inject nothing keep the previous DB-backed path.
+
+### Breaking
+
+- **`chatConfirmAction` input/output shape changed.** Input is now `{ actionId, chatName, decision: 'confirm' | 'reject', inputSchemaHash, toolBindingHash, execute }` and output is `{ decisionRecorded, pendingStatus, executionStatus, events }`. The prior 0.1.10 input `{ actionId, schemaHash, execute }` / output `{ executed }` is **superseded**. Real-world impact is minimal — the prior 0.1.10 handler was a non-executing stub with no shipped caller — but the wire shape did change, so any code constructing the old input or reading `executed` must migrate.
+
+### Notes
+
+- **Session-store seam is additive.** Every new `sessionStore` parameter is optional and every behavior change is gated on `opts.sessionStore` being supplied, which no existing caller does — so applications that inject nothing take the previous code path. `GuardState` gained an optional `sessionStore` field, which is source-compatible for consumer-authored guards.
+
+### Migration
+
+- **Run migrations.** Existing persisted-chat apps must run:
+
+  ```bash
+  plumbus migrate generate && plumbus migrate apply
+  ```
+
+  The schema change is **additive**: the new `chat_pending_action` columns (`input_schema_hash`, `tool_binding_hash`) are `NOT NULL DEFAULT ''`, the legacy `schema_hash` column is **retained**, and a new `UNIQUE` index is added on `chat_turn (session_id, ordinal)`. No backfill is needed. The unique index can fail to create if a pre-existing high-concurrency `chat_turn` table already holds duplicate `(session_id, ordinal)` rows — dedupe those rows first, then re-apply. Entity-by-entity DDL and a duplicate-detection query: [`docs/chat/confirmation-persistence.md`](../../docs/chat/confirmation-persistence.md).
+- **Optional session-store adoption.** To adopt the seam, implement `ChatSessionStore` and pass it as `runChatTurn(ctx, args, { sessionStore })` or `registerChatRoutes(..., { sessionStore })`.
+
 ## 0.1.10
 
 ### Breaking behavior changes

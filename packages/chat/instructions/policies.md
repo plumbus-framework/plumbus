@@ -109,9 +109,32 @@ When the model returns `requestedAction`, the action-guard:
 
 **Confirmation is a server capability, not a UI helper.** Call `chatConfirmAction` (`POST /api/chat/chat-confirm-action`) with `{ actionId, capabilityName, schemaHash, execute: true }`. The server re-derives v2 schema hashes and rejects drift with `chat.action_schema_changed`.
 
-**`chatConfirmAction` does not execute the target capability** — it validates, marks the pending row confirmed/rejected, and emits domain events. Wire real execution in app code after a successful confirm if you need side effects.
+**`chatConfirmAction` (Path A) is decision-only in this release.** It validates, marks the pending row confirmed/rejected, and emits domain events — it never executes the target capability through the framework pipeline. `policy.action.frameworkExecuteOnConfirm` is **reserved and not yet enforced**: no code reads it, so setting it has no effect. Do not rely on it to run a capability. Path B provider-native tool calling always executes on confirm and resumes the turn for a single answer-only completion (no further tool rounds or nested confirmation).
 
-In `@plumbus/chat-ui`, `useChat.confirm()` is a UI-only stub. See `packages/chat-ui/instructions/action-confirmation.md`.
+In `@plumbus/chat-ui`, `useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip (with `decline` and `lastConfirmResult`). See `packages/chat-ui/instructions/action-confirmation.md`.
+
+### Tool calling (Path B) — capabilities and flows as provider tools
+
+```ts
+policy: {
+  toolCalling: {
+    enabled: true,
+    capabilities: ['lookupOrder', 'openSupportTicket'],
+    autoStartFlows: ['issueRefund'],
+    maxToolRounds: 5,  // default 5, range 1..20
+  },
+},
+```
+
+- Bind capabilities and `autoStartFlows` as provider-native tools; the model calls them
+  over a bounded per-turn loop. Auto-mode tools execute inline (access policy enforced);
+  confirm-mode tools pause with `confirmation_required` and execute on `POST
+  /chat/:name/confirm`.
+- **Re-export `chatToolRoundPrompt` and `chatScopeCheckPrompt`** into `app/prompts/` first —
+  missing prompts fail startup with `chat.prompt_not_registered`.
+- Path B needs a transactional store (`chat.storage_unsupported` on failure) and never
+  uses core's `runToolLoop`. See `/docs/chat/policies.md#tool-calling-path-b` for the full
+  error/status table.
 
 ### Provenance (require citations)
 

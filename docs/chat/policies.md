@@ -145,11 +145,11 @@ The server-side confirmation capability (`chatConfirmAction`, auto-routed at `PO
 4. Re-validates stored input against the current Zod schema.
 5. Marks the action `confirmed` and emits `chat.action.confirmed`.
 
-**`chatConfirmAction` does not execute the target capability today.** The handler validates, updates pending-action status, and returns `{ executed: true }` with a stub result. Apps that need real side effects must call `executeCapability` (or a domain capability) in their own wiring after a successful confirm response.
+**`chatConfirmAction` (Path A) is decision-only in this release.** A confirmed Path-A action validates, marks the pending row confirmed, emits domain events, and returns without executing the target capability through the framework; the outcome is driven by the confirm request's `execute` flag (`execute: true` records a confirm, `false` a decline). `policy.action.frameworkExecuteOnConfirm` is **reserved and not yet enforced** — no code reads it, so setting it has no effect in this release. Provider-native tool calling (Path B, below) always executes on confirm and resumes the turn for a single answer-only completion (no further tool rounds or nested confirmation).
 
 This `schemaHash` check is still load-bearing: it guarantees the user confirmed against the schema that was live at propose time. The client carries `schemaHash` as a witness — the server re-derives v2 hashes from the live schema.
 
-> **UI wiring gap.** `useChat`'s `confirm(actionId)` in `@plumbus/chat-ui` only clears local UI state — it does **not** call `chatConfirmAction` on the server. Apps that ship action-confirmation flows should read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash`) and call `chatConfirmAction` directly via the auto-routed endpoint; see [`packages/chat-ui/src/hooks/useChat.ts`](../../packages/chat-ui/src/hooks/useChat.ts).
+> **UI wiring.** `useChat`'s `confirm(actionId)` in `@plumbus/chat-ui` performs the real `POST /chat/:name/confirm` round-trip (it also exposes `decline` and `lastConfirmResult`). Apps no longer hand-wire the confirm call; see [`packages/chat-ui/src/hooks/useChat.ts`](../../packages/chat-ui/src/hooks/useChat.ts) and [chat-ui docs](../chat-ui/README.md).
 
 ## Custom guards (`policy.custom`, `policy.customPostTurn`)
 
@@ -198,3 +198,120 @@ If you find yourself writing the same custom guard across multiple chats, file a
 - **Authentication.** That's the `access` block (standard Plumbus AccessPolicy). Policies run *after* the framework has authenticated the caller.
 - **Rate limiting at the HTTP level.** Use budget `perUser.turnsPerHour` instead — it's chat-aware and respects sessions.
 - **Capability execution semantics.** Capabilities own their own `access`, `effects`, retry rules. The chat's `action-guard` only mediates the confirmation flow.
+
+## Tool calling (Path B)
+
+`policy.toolCalling` is the provider-native tool-calling path (see
+[defining-chats.md → Provider-native tool calling](./defining-chats.md#provider-native-tool-calling-policytoolcalling-path-b) for the config shape). This section is the normative source for its error vocabulary and HTTP status mapping.
+
+### Confirm round-trip
+
+Confirm-mode tools pause the turn with `confirmation_required` (which now also carries an
+optional `inputSchemaHash` and a validated `projection`). The client commits with
+`POST /chat/:name/confirm`. That endpoint:
+
+1. Authenticates via the same `ChatRequestAuthenticator` as `/turn` (Authorization header
+   beats cookie). Cookie-authenticated writes additionally require an exact-Origin match
+   and a session-bound CSRF token, else `chat.origin_invalid`.
+2. Atomically **claims** the pending row (owner + chatName + `inputSchemaHash` +
+   `toolBindingHash` + expiry + `status === 'pending'` + session revision), flipping it
+   `pending → confirming`.
+3. Executes the tool through the capability pipeline (`executeCapability`, access enforced).
+4. **Resumes** the turn for a single answer-only completion (no further tool rounds or
+   nested confirmation), then persists the terminal turn.
+
+`/turn` checks the live pending action **before** any scope/provider work: an existing
+`pending` action → `chat.pending_action_exists`; an in-flight `confirming` action →
+`chat.session_busy`; an expired `pending` or a `confirming` row whose resume session
+lease has expired (and claim grace elapsed) is atomically terminalized (`expired` or
+`failed`) then the turn proceeds. Pending rows are read before the session lease; when
+`executionStartedAt` is set but the first lease read is inactive, the lease is re-read
+once before reaping, and the reap CAS is scoped to `{ status: 'confirming', attemptId }`.
+
+### Error codes
+
+| Code | Meaning |
+|---|---|
+| `chat.tool_calling_disabled` | Tool endpoint/operation used while tool calling is disabled. |
+| `chat.tools_runtime_unavailable` | `ctx.__runtime.resolveCapability` unavailable at bind time. |
+| `chat.tools_flows_unavailable` | Flow describe/execution service unavailable. |
+| `chat.tool_unknown_capability` | Configured capability cannot be resolved. |
+| `chat.tool_unknown_flow` | Configured flow cannot be described. |
+| `chat.tool_flow_schema_invalid` | Flow input schema cannot be exposed as a provider tool. |
+| `chat.tool_name_invalid` | Bound name violates the portable grammar or reserved `flow__` prefix. |
+| `chat.tool_not_bound` | Provider requested a tool name absent from the bound set. |
+| `chat.tool_arguments_invalid` | Provider arguments could not be parsed, or normalize-before-confirm validation failed. |
+| `chat.tool_access_denied` | `evaluateAccess` denied capability execution. |
+| `chat.tool_failed` | Capability failed with a safe known error. |
+| `chat.tool_not_executed_confirmation_boundary` | A later batch call was suppressed after a confirmation pause. |
+| `chat.tool_round_limit` | Tool round limit reached — **non-fatal** notice/audit code. |
+| `chat.flow_start_budget_exceeded` | `maxFlowStartsPerTurn` exhausted. |
+| `chat.flow_await_budget_exceeded` | `flowAwaitBudgetMsPerTurn` exhausted. |
+| `chat.prompt_not_registered` | `chat.toolRound` or `chat.scopeCheck` absent from the prompt registry; Path B fails before provider I/O. |
+| `chat.pending_action_exists` | A live `pending` action already exists for the session. |
+| `chat.session_busy` | Another turn/confirm mutation owns the session lease, or a `confirming` action is in flight. |
+| `chat.storage_unsupported` | Store adapter lacks the transactional/conditional-write path; startup fail-closed. Also raised when a chat that can request confirmations runs on an injected `sessionStore` with no `conversationStore` — see [session-store.md](./session-store.md). |
+| `chat.budget_unsupported` | A chat declares a `budget` (or `budget.actions.perSession`) but the injected session store cannot aggregate the stored turns needed to **enforce** it. Fail-closed, so a cap is never silently unenforced. Concerns cap enforcement only — AI cost recording (`onAICostRecorded`, the cost ledger) is core's and is unaffected. Unreachable unless a `sessionStore` is injected. |
+| `chat.turn_aborted` | Request disconnect or timeout aborted the turn. |
+| `chat.action_not_found` | Pending action does not exist for the authenticated owner. |
+| `chat.action_expired` | Pending action expired before claim. |
+| `chat.action_already_claimed` | Pending action is not claimable (lost the atomic claim). |
+| `chat.confirm_stale` | Session revision changed after the proposal. |
+| `chat.binding_changed` | Current binding no longer matches the proposal (allowlist/version/schema/mode/effects). |
+| `chat.origin_invalid` | Cookie-authenticated write failed exact-Origin validation. |
+| `chat.resume_payload_invalid` | Resume payload malformed, unsupported version, or oversized. |
+| `chat.resume_failed` | Capability succeeded but chat continuation failed; no re-execution. |
+
+### HTTP status mapping
+
+Errors detected **before** the SSE stream opens map to a status code; errors after stream
+start are emitted as a terminal `turn.failed` SSE event (SSE-terminal). The `409` body is
+`{ code, actionId, expiresAt }`.
+
+| HTTP status | Codes |
+|---|---|
+| `400 Bad Request` | request-body schema invalid; `chat.tool_calling_disabled`; `chat.resume_payload_invalid` |
+| `401 Unauthorized` | authenticator failure (no/invalid credential) |
+| `403 Forbidden` | `chat.tool_access_denied`; `chat.origin_invalid` |
+| `404 Not Found` | `chat.action_not_found` (owner-miss) |
+| `409 Conflict` | `chat.session_busy`; `chat.pending_action_exists`; `chat.confirm_stale`; `chat.binding_changed`; `chat.action_already_claimed` |
+| `410 Gone` | `chat.action_expired` |
+| SSE-terminal (`turn.failed` event) | `chat.resume_failed` (post-confirm resume failure); `chat.turn_aborted`; `chat.tool_failed`; and `chat.tool_round_limit` as a non-fatal `notice` |
+
+## Flow tools (`toolCalling.autoStartFlows`) and the confirm/auto asymmetry
+
+When tool calling is enabled, two kinds of things can be exposed to the model as
+provider tools, and they resolve to **different confirmation modes on purpose**:
+
+- **Capabilities** (`toolCalling.capabilities`). A capability that carries write
+  effects — non-empty `effects.data`, `effects.events`, `effects.external`, or a
+  non-empty `effects.flows` — is bound in **confirm** mode: the model proposes the
+  call, the runtime pauses with a `confirmation_required` event, and the action
+  only executes after the user confirms.
+- **Flows** (`toolCalling.autoStartFlows`). A flow listed here is bound as a tool
+  named `flow__<flowName>` in **auto** mode: when the model selects it, the runtime
+  starts the flow immediately (no confirmation step) and briefly polls for a
+  terminal status within the turn's await budget.
+
+**Why the asymmetry is intentional.** `effects.flows` on a *capability* means the
+capability itself performs side-effecting work, so it inherits the same
+confirm-gated treatment as any other write capability. `autoStartFlows`, by
+contrast, is an explicit allowlist the app author opts into specifically so the
+model may start those flows directly — listing a flow there is the author's
+pre-authorization. Only put flows in `autoStartFlows` that are safe to start
+without per-turn user confirmation.
+
+**Turn budgets.** Flow tool calls are bounded per turn by
+`maxFlowStartsPerTurn` (default 2) and the cumulative `flowAwaitBudgetMsPerTurn`
+(default 15 000 ms; `0` disables in-turn polling so a started flow is reported as
+`in_progress`). Each individual start additionally waits at most `flowAwaitMs`
+(default 10 000 ms), polling every `flowPollIntervalMs` (default 250 ms). A flow
+that has not reached a terminal status when the budget elapses is reported as
+`in_progress` — never `completed` — and continues running in the background.
+
+**Requirements.** Flow tools require a flow registry wired into `ctx.flows`
+(so `ctx.flows.describe()` is available); the HTTP server and MCP serve contexts
+supply it. A flow whose input schema cannot be represented as a provider tool
+schema is rejected at bind time (`chat.tool_flow_schema_invalid`), and flow names
+longer than 57 characters (or containing characters outside `[A-Za-z0-9_-]`) are
+rejected as `chat.tool_name_invalid`.

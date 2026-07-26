@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 9;
+export const AGENT_WIRING_VERSION = 10;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -185,11 +185,11 @@ const CHAT_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/chat/instructions/framework.md',
   },
   {
-    area: 'adding a new chat with defineChat (recipe + full config shape)',
+    area: 'adding a new chat with defineChat (recipe + full config shape), including enabling provider-native tool calling (policy.toolCalling, Path B)',
     path: 'node_modules/@plumbus/chat/instructions/defining-chats.md',
   },
   {
-    area: 'configuring chat policy guards (audience, scope, behavioral, action, etc.)',
+    area: 'configuring chat policy guards (audience, scope, behavioral, action, etc.), tool calling (policy.toolCalling, Path B)',
     path: 'node_modules/@plumbus/chat/instructions/policies.md',
   },
   {
@@ -203,6 +203,10 @@ const CHAT_INSTRUCTION_REFERENCES = [
   {
     area: 'extending chat with custom prompts, context sources, or guards',
     path: 'node_modules/@plumbus/chat/instructions/extending.md',
+  },
+  {
+    area: 'chat instruction index and reading order',
+    path: 'node_modules/@plumbus/chat/instructions/README.md',
   },
 ] as const;
 
@@ -247,7 +251,7 @@ const CHAT_UI_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/chat-ui/instructions/custom-ui.md',
   },
   {
-    area: 'action confirmation — wiring chatConfirmAction directly (useChat.confirm is a v0.1 stub)',
+    area: 'action confirmation — useChat.confirm()/decline() drive the real POST /chat/:name/confirm round-trip and Path B tool confirmation',
     path: 'node_modules/@plumbus/chat-ui/instructions/action-confirmation.md',
   },
   {
@@ -354,7 +358,9 @@ const AUTH_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/auth/instructions/framework.md',
   },
   {
-    area: 'wiring createAuthRuntime, stores, resolvers, and createServer({ authenticationRuntime })',
+    area:
+      'wiring createAuthRuntime, stores, resolvers, optional loginContext, and ' +
+      'createServer({ authenticationRuntime })',
     path: 'node_modules/@plumbus/auth/instructions/configure-runtime.md',
   },
   {
@@ -366,7 +372,10 @@ const AUTH_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/auth/instructions/sessions-and-csrf.md',
   },
   {
-    area: 'resolveIdentity and resolveAuthorization hooks (admit/deny and roles/scopes/tenant)',
+    area:
+      'resolveIdentity and resolveAuthorization hooks (admit/deny and roles/scopes/tenant), and ' +
+      'invitation-only admission via loginContext when login must carry app context (invite, account link) ' +
+      'that resolveIdentity needs but no user session exists yet',
     path: 'node_modules/@plumbus/auth/instructions/resolvers.md',
   },
   {

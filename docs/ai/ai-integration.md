@@ -157,6 +157,63 @@ for await (const ev of ctx.ai.streamGenerate({
 }
 ```
 
+`ChatMessage` is a discriminated union: `{ role: 'user'; content }`, `{ role:
+'assistant'; content; toolCalls? }`, or `{ role: 'tool'; content; toolCallId; name }`.
+The plain user/assistant forms above stay construction-compatible.
+
+### Provider-native tool calling
+
+Pass `tools` (and optionally `toolChoice`, `toolExecution`) to `generate` /
+`generateWithUsage`. Both built-in adapters implement caller tools natively — Anthropic
+via `tool_use` / `tool_result` + `input_schema`, OpenAI via `tools` / `tool_calls`. Build
+each `AITool.parameters` from `zodToProviderJsonSchema(schema).schema`.
+
+```typescript
+import type { AITool } from "@plumbus/core";
+
+const tools: AITool[] = [
+  { name: "lookupOrder", description: "Look up an order by id",
+    parameters: zodToProviderJsonSchema(lookupOrderInput).schema },
+];
+
+const result = await ctx.ai.generateWithUsage({
+  prompt: "assistant.turn",
+  input: { userMessage },
+  tools,
+  toolExecution: { parallelToolCalls: false },
+  outputValidation: "none", // disable output-schema validation during tool rounds
+});
+
+if (result.finishReason === "tool_calls") {
+  for (const call of result.toolCalls) {
+    // call.argumentsStatus is 'parsed' | 'invalid' — only execute 'parsed'
+  }
+} else {
+  // With `tools` present, `.data` is the model's raw text as `{ content: string }` —
+  // NOT a schema-validated object. `outputValidation: "none"` (set above, and required
+  // during tool rounds) disables output-schema validation, so parse it yourself.
+  result.data;
+}
+```
+
+**Result typing (overloads).** A call with **no** tools returns the flat
+`AIFinalGenerateResult<T>` whose `.data` is always present (back-compat). A call **with**
+`tools` returns the discriminated union `AIToolEnabledGenerateResult<T>` keyed on
+`finishReason` (`'tool_calls'` carries `toolCalls` and no `.data`; otherwise `.data`).
+
+**Bounded loops.** For a full request→tool→observe→request loop, use `runToolLoop`
+(`packages/plumbus-core/src/ai/tool-loop.ts`): default `maxRounds` 8, hard maximum 20. On
+round exhaustion the final request **omits both `tools` and `toolChoice`** (never
+`toolChoice: 'none'`). Invalid-argument calls are never executed and surface as a
+`tool_arguments_invalid` observation.
+
+> `@plumbus/chat`'s Path B tool calling is a **separate** loop (default `maxToolRounds`
+> 5); chat does **not** call `runToolLoop`. See [chat policies →
+> Tool calling](../chat/policies.md#tool-calling-path-b).
+
+An external adapter that omits the optional `AIProviderAdapter.capabilities` field is
+treated as declaring every capability `false` (no tool support).
+
 ### Extract (Data Extraction)
 
 ```typescript
@@ -620,7 +677,7 @@ For the voice-specific runtime, provider, and security guidance, see:
 3. Route voice/media spend through `ctx.ai.recordProviderCost(...)` so `onAICostRecorded` stays the single hook.
 4. Pre-check shared USD caps with `ctx.ai.checkProviderCostBudget({ estimatedCostUsd })` before opening realtime sessions or calling STT/TTS.
 
-`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `0.5.x || 0.6.x` (same literal as other optional add-ons). `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` also declare `0.5.x || 0.6.x` and install alongside core **0.6.x**.
+`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `0.6.x`. `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` declare `0.5.x || 0.6.x` and install alongside core **0.6.x**. `@plumbus/chat` **0.1.11+** needs core **≥ 0.6.11** at runtime (tool protocol / `updateWhere`) even though its declared peer is wider.
 
 ### Deterministic sampling with `seed`
 

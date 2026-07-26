@@ -4,6 +4,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CHAT_CSRF_COOKIE_NAME, CHAT_CSRF_HEADER_NAME } from '@plumbus/chat';
 import { readChatStream } from '../client/event-stream.js';
 import { useChat } from '../hooks/useChat.js';
 
@@ -126,5 +127,276 @@ describe('useChat', () => {
       '/api/chat/help/turn',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('confirm POSTs {actionId,inputSchemaHash,decision:confirm} with credentials include', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({ events: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let chat: ReturnType<typeof useChat> | undefined;
+    function Host() {
+      chat = useChat({
+        chatName: 'help',
+        sessionId: 'sess-1',
+        audience: 'user',
+        locale: 'en',
+      });
+      return null;
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({
+        events: [
+          {
+            type: 'confirmation_required',
+            actionId: 'a1',
+            capabilityName: 'cap',
+            confirmationMessage: 'go?',
+            expiresAt: '2099-01-01T00:00:00Z',
+            inputSchemaHash: 'hash-1',
+          },
+        ],
+      }),
+    });
+
+    await act(async () => {
+      root?.render(createElement(Host));
+    });
+
+    await act(async () => {
+      await chat?.send('trigger confirm');
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({ events: [] }),
+    });
+
+    await act(async () => {
+      await chat?.confirm('a1');
+    });
+
+    const confirmCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('/confirm'),
+    );
+    expect(confirmCall?.[0]).toBe('/chat/help/confirm');
+    expect(confirmCall?.[1]).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+    });
+    expect(JSON.parse(String(confirmCall?.[1]?.body))).toEqual({
+      actionId: 'a1',
+      inputSchemaHash: 'hash-1',
+      decision: 'confirm',
+    });
+  });
+
+  it('confirm sends the CSRF header when the cookie is present', async () => {
+    // biome-ignore lint/suspicious/noDocumentCookie: testing CSRF cookie echo in hook
+    document.cookie = `${CHAT_CSRF_COOKIE_NAME}=csrf-token-value`;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({ events: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let chat: ReturnType<typeof useChat> | undefined;
+    function Host() {
+      chat = useChat({
+        chatName: 'help',
+        sessionId: 'sess-1',
+        audience: 'user',
+        locale: 'en',
+      });
+      return null;
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({
+        events: [
+          {
+            type: 'confirmation_required',
+            actionId: 'a1',
+            capabilityName: 'cap',
+            confirmationMessage: 'go?',
+            expiresAt: '2099-01-01T00:00:00Z',
+            inputSchemaHash: 'hash-1',
+          },
+        ],
+      }),
+    });
+
+    await act(async () => {
+      root?.render(createElement(Host));
+    });
+    await act(async () => {
+      await chat?.send('x');
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({ events: [] }),
+    });
+
+    await act(async () => {
+      await chat?.confirm();
+    });
+
+    const confirmCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('/confirm'),
+    );
+    expect(confirmCall?.[1]?.headers?.[CHAT_CSRF_HEADER_NAME]).toBe('csrf-token-value');
+  });
+
+  it('decline POSTs decision:reject', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({ events: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let chat: ReturnType<typeof useChat> | undefined;
+    function Host() {
+      chat = useChat({
+        chatName: 'help',
+        sessionId: 'sess-1',
+        audience: 'user',
+        locale: 'en',
+      });
+      return null;
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({
+        events: [
+          {
+            type: 'confirmation_required',
+            actionId: 'a1',
+            capabilityName: 'cap',
+            confirmationMessage: 'go?',
+            expiresAt: '2099-01-01T00:00:00Z',
+            inputSchemaHash: 'hash-1',
+          },
+        ],
+      }),
+    });
+
+    await act(async () => {
+      root?.render(createElement(Host));
+    });
+    await act(async () => {
+      await chat?.send('x');
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({ events: [] }),
+    });
+
+    await act(async () => {
+      await chat?.decline();
+    });
+
+    const declineCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('/confirm'),
+    );
+    expect(JSON.parse(String(declineCall?.[1]?.body))).toMatchObject({ decision: 'reject' });
+  });
+
+  it('confirm with a pending missing inputSchemaHash does not POST and sets status error', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    let chat: ReturnType<typeof useChat> | undefined;
+    function Host() {
+      chat = useChat({
+        chatName: 'help',
+        sessionId: 'sess-1',
+        audience: 'user',
+        locale: 'en',
+      });
+      return null;
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      json: async () => ({
+        events: [
+          {
+            type: 'confirmation_required',
+            actionId: 'a1',
+            capabilityName: 'cap',
+            confirmationMessage: 'go?',
+            expiresAt: '2099-01-01T00:00:00Z',
+          },
+        ],
+      }),
+    });
+
+    await act(async () => {
+      root?.render(createElement(Host));
+    });
+    await act(async () => {
+      await chat?.send('x');
+    });
+
+    const callsBefore = fetchMock.mock.calls.length;
+    await act(async () => {
+      await chat?.confirm();
+    });
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+    expect(chat?.status).toBe('error');
   });
 });

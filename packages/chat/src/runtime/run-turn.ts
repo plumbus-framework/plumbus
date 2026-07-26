@@ -5,13 +5,13 @@ import { withTurnTimeout } from '../budget/timeout.js';
 import { resolveContextSources } from '../context/resolver.js';
 import { maybeSummarize } from '../history/summarizer.js';
 import { loadHistoryWindow } from '../history/window.js';
-import { chatTurnRepo } from '../internal/chat-repos.js';
 import { compilePolicy } from '../policy/registry.js';
 import { runBehavioralPostGuard } from '../policy/behavioral-guard.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
 import type { ChatTurnModelOutput } from '../prompt/chat-turn.prompt.js';
-import { appendTurn, getOrCreateSession, type loadSession } from '../session/service.js';
+import type { loadSession } from '../session/service.js';
+import { resolveChatSessionStore, type ChatSessionStore } from '../session/session-store.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatEvent } from '../types/event.js';
 import type { GuardState } from '../types/policy.js';
@@ -19,8 +19,26 @@ import type { ChatSourceRef } from '../types/context.js';
 import type { TraceRecorder } from '../eval/trace.js';
 import { capClientHistory, type ClientHistoryMessage } from './constants.js';
 import { ChatEventEmitter, emitterToIterable } from './events.js';
-import { storePending } from './pending-actions.js';
+import {
+  createChatConversationStore,
+  type ChatConversationStore,
+} from './chat-conversation-store.js';
+import { buildNormalizedPending } from '../policy/pending-action-factory.js';
+import type { ChatPendingActionV2, ChatToolResumePayloadV1 } from '../session/pending-action-v2.js';
+import type { ChatTurnWrite } from './chat-conversation-store.js';
 import { chatRefusalRecordedEvent, chatTurnCompletedEvent } from '../events/chat-events.js';
+import {
+  bindChatCapabilityTools,
+  bindFlowTools,
+  ChatToolBindError,
+  resolveToolBinding,
+  type BoundChatTool,
+} from './bind-tools.js';
+import { runToolPhase } from './tool-phase.js';
+import { chatScopeCheckPrompt } from '../prompt/chat-scope-check.prompt.js';
+import { chatToolRoundPrompt } from '../prompt/chat-tool-round.prompt.js';
+import type { ChatRegistry } from './chat-registry.js';
+import type { ToolExecutionRecord } from '../types/tool.js';
 
 export interface RunChatTurnArgs {
   chatDefinition: ChatDefinition;
@@ -30,6 +48,23 @@ export interface RunChatTurnArgs {
   locale: string;
   clientHistory?: ClientHistoryMessage[];
   traceRecorder?: TraceRecorder;
+  /** Injected registry used to fail Path B closed when tool prompts are unregistered (D5). */
+  registry?: ChatRegistry;
+}
+
+/**
+ * Storage injection for one turn. Both fields are optional; omitting them keeps
+ * the DB-backed behavior applications already have.
+ *
+ * Supplying `sessionStore` lets a deployment with no local database run the stock
+ * pipeline against its own memory backend (see `docs/chat/session-store.md`).
+ * `conversationStore` is the separate atomic tier that tool confirmations and
+ * pending actions require; when a `sessionStore` is injected without it,
+ * confirmations are refused rather than committed non-atomically.
+ */
+export interface RunChatTurnOpts {
+  sessionStore?: ChatSessionStore;
+  conversationStore?: ChatConversationStore;
 }
 
 const defaultModelOutput = (): ChatTurnModelOutput => ({
@@ -43,6 +78,7 @@ const defaultModelOutput = (): ChatTurnModelOutput => ({
 export async function* runChatTurn(
   ctx: ExecutionContext,
   args: RunChatTurnArgs,
+  opts?: RunChatTurnOpts,
 ): AsyncIterable<ChatEvent> {
   const emitter = new ChatEventEmitter();
   const iterable = emitterToIterable(emitter);
@@ -53,6 +89,24 @@ export async function* runChatTurn(
   const emit = (evt: ChatEvent): void => {
     trace?.recordEvent(evt);
     emitter.emit(evt);
+  };
+
+  const sessionStore = resolveChatSessionStore(opts?.sessionStore);
+
+  /**
+   * Tier 2 (atomic multi-row commits) for the confirmation paths.
+   *
+   * Legacy behavior is preserved exactly: with no injection at all we build the
+   * ctx-backed store, which still throws `chat.storage_unsupported` when the
+   * wired repositories lack a conditional-write path. Only when a caller has
+   * injected a tier-1 `sessionStore` but no `conversationStore` do we return
+   * null, so the confirmation sites can refuse cleanly instead of committing a
+   * proposal the store cannot make atomic.
+   */
+  const resolveConversationStore = (): ChatConversationStore | null => {
+    if (opts?.conversationStore) return opts.conversationStore;
+    if (opts?.sessionStore) return null;
+    return createChatConversationStore(ctx);
   };
 
   void (async () => {
@@ -76,7 +130,7 @@ export async function* runChatTurn(
       // request. This removes the need for consumers to ship a separate
       // `chatStart` capability.
       const session = saveToDb
-        ? await getOrCreateSession(ctx, {
+        ? await sessionStore.getOrCreateSession(ctx, {
             sessionId: args.sessionId,
             chatName: chat.name,
             userId: (ctx.auth as { userId?: string }).userId ?? '',
@@ -103,7 +157,7 @@ export async function* runChatTurn(
       // client-supplied history length is the best proxy (the new user message
       // about to be sent makes this turn ordinal N = past message count).
       const ordinal = saveToDb
-        ? await aggregateTurnCount(ctx, args.sessionId)
+        ? await sessionStore.countTurns(ctx, args.sessionId)
         : (args.clientHistory?.length ?? 0);
       emit({ type: 'turn.started', turnId, ordinal });
 
@@ -117,6 +171,7 @@ export async function* runChatTurn(
           tenantId: session.tenantId,
           sessionId: args.sessionId,
           budget: chat.budget,
+          sessionStore: opts?.sessionStore,
         });
       } else {
         const cap = chat.budget?.perSession?.userMessages;
@@ -143,6 +198,14 @@ export async function* runChatTurn(
       }
 
       const policy = chat.policy ?? {};
+      const toolCallingEnabled = policy.toolCalling?.enabled === true;
+      let toolsExecuted: ToolExecutionRecord[] = [];
+      let toolPhaseTokensIn = 0;
+      let toolPhaseTokensOut = 0;
+      let toolPhaseCost = 0;
+      let scopeInScope: boolean | undefined;
+      let skipAnswerGeneration = false;
+      let proposalCommitted = false;
       const { preTurnGuards, postTurnGuards } = compilePolicy(policy);
       const turnCtx = {
         sessionId: args.sessionId,
@@ -165,6 +228,7 @@ export async function* runChatTurn(
         resolvedSources: new Set<string>(),
         clientHistory: saveToDb ? undefined : (args.clientHistory ?? []),
         saveToDb,
+        sessionStore: opts?.sessionStore,
         budgetActionsPerSession: chat.budget?.actions?.perSession,
       };
 
@@ -221,6 +285,7 @@ export async function* runChatTurn(
               args.sessionId,
               chat.history?.includeLastTurns ?? 8,
               persistence,
+              opts?.sessionStore,
             );
 
       // Summarizer reads chat_turn rows. Ephemeral mode has none — skip.
@@ -228,8 +293,9 @@ export async function* runChatTurn(
         ? await maybeSummarize(
             ctx,
             session,
-            await loadTurnRows(ctx, args.sessionId),
+            await sessionStore.listTurns(ctx, args.sessionId),
             chat.history?.summarize,
+            opts?.sessionStore,
           )
         : null;
 
@@ -246,7 +312,7 @@ export async function* runChatTurn(
       trace?.recordPrompt(systemPrompt);
 
       const promptName = chat.prompt?.name ?? chatTurnPrompt.name;
-      const userPayload = {
+      let userPayload = {
         systemPrompt,
         userMessage: args.userMessage,
         history: historyMessages,
@@ -272,17 +338,301 @@ export async function* runChatTurn(
         )
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // ── Path B: provider-native tool calling ──
+      if (toolCallingEnabled) {
+        // 1. Prompt registration — fail closed (D5). Cannot verify without a registry.
+        if (!args.registry) {
+          emit({
+            type: 'turn.failed',
+            code: 'chat.prompt_not_registered',
+            message:
+              'ChatRegistry not provided; cannot verify chat.scopeCheck / chat.toolRound registration',
+          });
+          emitter.end();
+          return;
+        }
+        for (const requiredPrompt of [chatScopeCheckPrompt.name, chatToolRoundPrompt.name]) {
+          if (!args.registry.hasPrompt(requiredPrompt)) {
+            emit({
+              type: 'turn.failed',
+              code: 'chat.prompt_not_registered',
+              message: `Prompt "${requiredPrompt}" is not registered — re-export it into app/prompts/`,
+            });
+            emitter.end();
+            return;
+          }
+        }
+
+        // 2. Scope preflight (chat.scopeCheck) — refuse before spending tool rounds.
+        try {
+          const scope = await ctx.ai.generateWithUsage({
+            prompt: chatScopeCheckPrompt.name,
+            input: { systemPrompt, userMessage: args.userMessage },
+            signal: turnCtx.signal,
+            costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}.scopeCheck` },
+          });
+          const sd = scope.data as {
+            inScope: boolean;
+            refusalReason: ChatTurnModelOutput['refusalReason'];
+          };
+          scopeInScope = sd.inScope === true;
+          toolPhaseTokensIn += scope.usage?.inputTokens ?? 0;
+          toolPhaseTokensOut += scope.usage?.outputTokens ?? 0;
+          toolPhaseCost += scope.cost ?? 0;
+          if (!scopeInScope) {
+            modelOutput = {
+              inScope: false,
+              answer: '',
+              refusalReason: sd.refusalReason ?? 'off_topic',
+              citedSources: [],
+              requestedAction: null,
+            };
+            usage = { tokensIn: toolPhaseTokensIn, tokensOut: toolPhaseTokensOut };
+            cost = toolPhaseCost;
+            skipAnswerGeneration = true;
+          }
+        } catch (err) {
+          emit({
+            type: 'turn.failed',
+            code: 'chat.turn_error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+          emitter.end();
+          return;
+        }
+
+        // 3+4. Bind tools + run the tool phase (only when in scope).
+        if (scopeInScope) {
+          let boundTools: BoundChatTool[];
+          try {
+            boundTools = bindChatCapabilityTools(ctx, policy.toolCalling?.capabilities ?? [], {
+              maxTools: policy.toolCalling?.maxTools ?? 32,
+            });
+          } catch (err) {
+            if (err instanceof ChatToolBindError) {
+              emit({ type: 'turn.failed', code: err.code, message: err.message });
+            } else {
+              emit({
+                type: 'turn.failed',
+                code: 'chat.turn_error',
+                message: err instanceof Error ? err.message : String(err),
+              });
+            }
+            emitter.end();
+            return;
+          }
+
+          const autoStartFlows = policy.toolCalling?.autoStartFlows ?? [];
+          if (autoStartFlows.length > 0) {
+            const flowBinding = bindFlowTools(ctx, autoStartFlows);
+            if (flowBinding.errors.length > 0) {
+              const first = flowBinding.errors[0];
+              if (first) {
+                emit({ type: 'turn.failed', code: first.code, message: first.message });
+              }
+              emitter.end();
+              return;
+            }
+            boundTools.push(...flowBinding.tools);
+          }
+
+          const flowCounters = { flowStartsUsed: 0, flowAwaitMsUsed: 0 };
+
+          const toolPhase = await runToolPhase({
+            ctx,
+            chatName: chat.name,
+            boundTools,
+            systemPrompt,
+            userMessage: args.userMessage,
+            history: threadMessages,
+            maxToolRounds: policy.toolCalling?.maxToolRounds ?? 5,
+            signal: turnCtx.signal,
+            emit,
+            persistToolArgs: persistence !== 'client',
+            flowBudget: {
+              maxFlowStartsPerTurn: policy.toolCalling?.maxFlowStartsPerTurn ?? 2,
+              flowAwaitBudgetMsPerTurn: policy.toolCalling?.flowAwaitBudgetMsPerTurn ?? 15_000,
+              flowAwaitMs: policy.toolCalling?.flowAwaitMs ?? 10_000,
+              flowPollIntervalMs: policy.toolCalling?.flowPollIntervalMs ?? 250,
+            },
+            flowCounters,
+          });
+          toolsExecuted = toolPhase.toolsExecuted;
+          toolPhaseTokensIn += toolPhase.usage.tokensIn;
+          toolPhaseTokensOut += toolPhase.usage.tokensOut;
+          toolPhaseCost += toolPhase.cost;
+
+          if (toolPhase.status === 'paused') {
+            skipAnswerGeneration = true;
+            if (!saveToDb) {
+              emit({
+                type: 'notice',
+                code: 'chat.tool_arguments_invalid',
+                message: 'Confirmation requires a durable session',
+              });
+            } else {
+              const pause = toolPhase.pause;
+              const sourceRefsForResume: ChatSourceRef[] = resolvedRaw.sourceRefs;
+              const resumePayload: ChatToolResumePayloadV1 = {
+                version: 1,
+                chatName: chat.name,
+                logicalTurnId: turnId,
+                proposalAssistantTurnId: turnId,
+                toolCallId: pause.toolCallId,
+                toolName: pause.bound.tool.name,
+                messages: [
+                  ...threadMessages,
+                  { role: 'user', content: args.userMessage },
+                  ...pause.exchange,
+                ],
+                counters: {
+                  toolRoundsUsed: toolPhase.rounds,
+                  flowStartsUsed: flowCounters.flowStartsUsed,
+                  flowAwaitMsUsed: flowCounters.flowAwaitMsUsed,
+                  inputTokensUsed: toolPhaseTokensIn,
+                  outputTokensUsed: toolPhaseTokensOut,
+                  costUsed: toolPhaseCost,
+                },
+                toolsExecuted: toolPhase.toolsExecuted,
+                sourceRefs: sourceRefsForResume,
+              };
+              const built = buildNormalizedPending({
+                ctx,
+                sessionId: args.sessionId,
+                expectedSessionRevision: session.revision ?? 0,
+                capabilityName: pause.bound.targetName,
+                rawInput: pause.rawArguments,
+                confirmationMessage: pause.confirmationMessage,
+                bindingInputSchemaHash: pause.bound.inputSchemaHash,
+                toolBindingHash: pause.bound.toolBindingHash,
+                ttlMs: policy.toolCalling?.confirmationTtlMs ?? 900_000,
+                resumePayload,
+              });
+              if (!built.ok) {
+                emit({
+                  type: 'notice',
+                  code: built.code,
+                  message: 'Requested action could not be prepared',
+                });
+              } else {
+                const store = resolveConversationStore();
+                if (!store) {
+                  // Tier-1 store injected without the atomic tier: refuse rather
+                  // than commit a proposal that cannot be made atomic.
+                  emit({
+                    type: 'notice',
+                    code: 'chat.storage_unsupported',
+                    message:
+                      'Confirmations require a conversation store with atomic writes; none was injected',
+                  });
+                } else {
+                  const leaseRes = await store.acquireSessionMutation({
+                    sessionId: args.sessionId,
+                    ownerToken: crypto.randomUUID(),
+                    leaseMs: 30_000,
+                  });
+                  if (!leaseRes.acquired) {
+                    emit({ type: 'notice', code: 'chat.session_busy', message: 'Session is busy' });
+                  } else {
+                    try {
+                      await store.commitProposal({
+                        lease: leaseRes.lease,
+                        expectedRevision: leaseRes.lease.sessionRevision,
+                        userTurn: {
+                          role: 'user',
+                          content: args.userMessage,
+                          inScope: true,
+                          sources: [],
+                          logicalTurnId: turnId,
+                          tokensIn: 0,
+                          tokensOut: 0,
+                          costUsd: 0,
+                          model: '',
+                          latencyMs: 0,
+                        },
+                        assistantTurn: {
+                          role: 'assistant',
+                          content: built.pending.confirmationMessage,
+                          inScope: true,
+                          sources: sourceRefsForResume,
+                          logicalTurnId: turnId,
+                          tokensIn: toolPhaseTokensIn,
+                          tokensOut: toolPhaseTokensOut,
+                          costUsd: toolPhaseCost,
+                          model: '',
+                          latencyMs: 0,
+                          toolsExecuted: toolPhase.toolsExecuted,
+                          actionRequested: {
+                            capabilityName: built.pending.capabilityName,
+                            input: built.pending.input,
+                          },
+                        },
+                        pending: {
+                          ...built.pending,
+                          expectedSessionRevision: leaseRes.lease.sessionRevision + 1,
+                        },
+                      });
+                      emit({
+                        type: 'confirmation_required',
+                        actionId: built.pending.id,
+                        capabilityName: built.pending.capabilityName,
+                        confirmationMessage: built.pending.confirmationMessage,
+                        expiresAt: built.pending.expiresAt,
+                        schemaHash: built.pending.inputSchemaHash,
+                        inputSchemaHash: built.pending.inputSchemaHash,
+                        projection: built.pending.confirmationProjection,
+                      });
+                      proposalCommitted = true;
+                    } finally {
+                      await store.releaseSessionMutation({
+                        sessionId: args.sessionId,
+                        leaseToken: leaseRes.lease.leaseToken,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+            if (proposalCommitted) {
+              emitter.end();
+              return;
+            }
+          }
+
+          if (toolPhase.status === 'completed' && toolPhase.roundLimitReached) {
+            emit({
+              type: 'notice',
+              code: 'chat.tool_round_limit',
+              message: 'Tool round limit reached; answering with results gathered so far',
+            });
+          }
+          if (toolPhase.status === 'completed' && toolPhase.toolsExecuted.length > 0) {
+            userPayload = {
+              ...userPayload,
+              systemPrompt: `${userPayload.systemPrompt}\n\n## Tool results\nThe following tools ran for this turn. Ground your answer ONLY in these results.\n${toolPhase.observationsForAnswer}`,
+            };
+          }
+        }
+      }
+
+      if (proposalCommitted) {
+        emitter.end();
+        return;
+      }
+
       try {
-        const stream = ctx.ai.streamGenerate({
-          prompt: promptName,
-          input: userPayload,
-          messages: [...threadMessages, { role: 'user', content: args.userMessage }],
-          signal: withTurnTimeout(
-            turnCtx.signal,
-            (chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000,
-          ),
-          costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}` },
-        });
+        const stream = skipAnswerGeneration
+          ? []
+          : ctx.ai.streamGenerate({
+              prompt: promptName,
+              input: userPayload,
+              messages: [...threadMessages, { role: 'user', content: args.userMessage }],
+              signal: withTurnTimeout(
+                turnCtx.signal,
+                (chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000,
+              ),
+              costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}` },
+            });
 
         for await (const chunk of stream) {
           // Do NOT emit `chunk.text` as message.delta during streaming. For the
@@ -314,7 +664,7 @@ export async function* runChatTurn(
       // Only fall back when streaming never produced a validated `done` payload.
       // This is the genuine "provider didn't deliver clean structured output"
       // case the plan intended (Task 7.2 fallback).
-      if (!streamCompleted) {
+      if (!streamCompleted && !skipAnswerGeneration) {
         const gen = await ctx.ai.generateWithUsage({
           prompt: promptName,
           input: userPayload,
@@ -327,6 +677,14 @@ export async function* runChatTurn(
         };
         model = gen.model;
         cost = gen.cost ?? 0;
+      }
+
+      if (toolCallingEnabled && !skipAnswerGeneration) {
+        usage = {
+          tokensIn: usage.tokensIn + toolPhaseTokensIn,
+          tokensOut: usage.tokensOut + toolPhaseTokensOut,
+        };
+        cost += toolPhaseCost;
       }
 
       // Emit the user-facing answer text as a single delta — same shape both
@@ -350,7 +708,7 @@ export async function* runChatTurn(
           : `Per-turn cost cap exceeded (${perTurnBudget?.costUsd})`;
         guardState.lastBudgetOrGuardSignal = 'budget';
         if (saveToDb) {
-          await appendTurn(
+          await sessionStore.appendTurn(
             ctx,
             {
               sessionId: args.sessionId,
@@ -369,7 +727,7 @@ export async function* runChatTurn(
             },
             { persistContent: persistence !== 'client' },
           );
-          await appendTurn(
+          await sessionStore.appendTurn(
             ctx,
             {
               sessionId: args.sessionId,
@@ -407,7 +765,22 @@ export async function* runChatTurn(
       emit({ type: 'message.delta', text: modelOutput.answer ?? '' });
 
       guardState.modelOutput = modelOutput as unknown as Record<string, unknown>;
+      if (toolCallingEnabled && guardState.modelOutput) {
+        // Tools replace requestedAction in Path B; strip it so action-guard is a no-op.
+        guardState.modelOutput.requestedAction = null;
+      }
       trace?.recordModelOutput(guardState.modelOutput);
+
+      // Persist only the sources the model actually cited (validated by the
+      // provenance guard above), not every source we retrieved. The retrieved
+      // set is debugging data; the cited set is the audit trail.
+      const allowedHandles = guardState.resolvedSources ?? new Set<string>();
+      const citedHandles: string[] = Array.isArray(guardState.modelOutput?.citedSources)
+        ? (guardState.modelOutput.citedSources as string[]).filter((id) => allowedHandles.has(id))
+        : [];
+      const citedSourceRefs: ChatSourceRef[] = resolvedRaw.sourceRefs.filter((src) =>
+        citedHandles.includes(src.id),
+      );
 
       for (const guard of postTurnGuards) {
         const verdict = await guard(turnCtx, guardState);
@@ -435,16 +808,157 @@ export async function* runChatTurn(
           }
         }
         if (verdict.decision === 'require_confirmation') {
-          await storePending(ctx, verdict.pendingAction);
-          emit({
-            type: 'confirmation_required',
-            actionId: verdict.pendingAction.id,
-            capabilityName: verdict.pendingAction.capabilityName,
-            confirmationMessage: verdict.pendingAction.confirmationMessage,
-            expiresAt: verdict.pendingAction.expiresAt,
-            schemaHash: verdict.pendingAction.schemaHash,
-          });
+          if (!saveToDb) {
+            // Pending actions require DB durability (defineChat already rejects
+            // saveToDb:false + allowedCapabilities). Defensive skip.
+            emit({
+              type: 'notice',
+              code: 'chat.tool_arguments_invalid',
+              message: 'Confirmation requires a durable session',
+            });
+          } else {
+            const va = verdict.pendingAction;
+            const binding = await resolveToolBinding(ctx, 'capability', va.capabilityName);
+            const resumePayload: ChatToolResumePayloadV1 = {
+              version: 1,
+              chatName: chat.name,
+              logicalTurnId: turnId,
+              proposalAssistantTurnId: turnId,
+              toolCallId: va.id,
+              toolName: va.capabilityName,
+              messages: [{ role: 'user', content: args.userMessage }],
+              counters: {
+                toolRoundsUsed: 0,
+                flowStartsUsed: 0,
+                flowAwaitMsUsed: 0,
+                inputTokensUsed: usage.tokensIn,
+                outputTokensUsed: usage.tokensOut,
+                costUsed: cost,
+              },
+              toolsExecuted: [],
+              sourceRefs: citedSourceRefs,
+            };
+            const built = buildNormalizedPending({
+              ctx,
+              sessionId: args.sessionId,
+              expectedSessionRevision: session.revision ?? 0,
+              capabilityName: va.capabilityName,
+              rawInput: va.input,
+              confirmationMessage: va.confirmationMessage,
+              bindingInputSchemaHash: binding.ok ? binding.inputSchemaHash : undefined,
+              toolBindingHash: binding.ok ? binding.toolBindingHash : undefined,
+              ttlMs: 15 * 60 * 1000,
+              resumePayload,
+            });
+            if (!built.ok) {
+              // C3: no pending, no confirmation_required — one safe observation.
+              emit({
+                type: 'notice',
+                code: built.code,
+                message: 'Requested action could not be prepared',
+              });
+            } else {
+              const store = resolveConversationStore();
+              if (!store) {
+                // Tier-1 store injected without the atomic tier: refuse rather
+                // than commit a proposal that cannot be made atomic.
+                emit({
+                  type: 'notice',
+                  code: 'chat.storage_unsupported',
+                  message:
+                    'Confirmations require a conversation store with atomic writes; none was injected',
+                });
+              } else {
+                const leaseRes = await store.acquireSessionMutation({
+                  sessionId: args.sessionId,
+                  ownerToken: crypto.randomUUID(),
+                  leaseMs: 30_000,
+                });
+                if (!leaseRes.acquired) {
+                  emit({ type: 'notice', code: 'chat.session_busy', message: 'Session is busy' });
+                } else {
+                  try {
+                    await store.commitProposal({
+                      lease: leaseRes.lease,
+                      expectedRevision: leaseRes.lease.sessionRevision,
+                      userTurn: {
+                        role: 'user',
+                        content: args.userMessage,
+                        inScope: true,
+                        sources: [],
+                        logicalTurnId: turnId,
+                        tokensIn: 0,
+                        tokensOut: 0,
+                        costUsd: 0,
+                        model: '',
+                        latencyMs: 0,
+                      },
+                      assistantTurn: {
+                        role: 'assistant',
+                        content: built.pending.confirmationMessage,
+                        inScope: modelOutput.inScope,
+                        sources: citedSourceRefs,
+                        logicalTurnId: turnId,
+                        tokensIn: usage.tokensIn,
+                        tokensOut: usage.tokensOut,
+                        costUsd: cost,
+                        model,
+                        latencyMs: 0,
+                        actionRequested: {
+                          capabilityName: built.pending.capabilityName,
+                          input: built.pending.input,
+                        },
+                      },
+                      pending: {
+                        ...built.pending,
+                        expectedSessionRevision: leaseRes.lease.sessionRevision + 1,
+                      },
+                    });
+                    emit({
+                      type: 'confirmation_required',
+                      actionId: built.pending.id,
+                      capabilityName: built.pending.capabilityName,
+                      confirmationMessage: built.pending.confirmationMessage,
+                      expiresAt: built.pending.expiresAt,
+                      schemaHash: built.pending.inputSchemaHash,
+                      inputSchemaHash: built.pending.inputSchemaHash,
+                      projection: built.pending.confirmationProjection,
+                    });
+                    proposalCommitted = true;
+                  } finally {
+                    await store.releaseSessionMutation({
+                      sessionId: args.sessionId,
+                      leaseToken: leaseRes.lease.leaseToken,
+                    });
+                  }
+                }
+              }
+            }
+          }
         }
+      }
+
+      // Scope coherence (Path B): the answer phase already passed the preflight
+      // scope gate. If it contradicts with `off_topic`, coerce back to in-scope.
+      // NEVER coerce `unsafe`/`pii_request` in either direction — honor those.
+      if (
+        toolCallingEnabled &&
+        scopeInScope === true &&
+        modelOutput.refusalReason === 'off_topic'
+      ) {
+        modelOutput = { ...modelOutput, inScope: true, refusalReason: null };
+        if (guardState.modelOutput) {
+          guardState.modelOutput = {
+            ...guardState.modelOutput,
+            inScope: true,
+            refusalReason: null,
+          };
+        }
+      }
+
+      if (proposalCommitted) {
+        emitter.end();
+        return;
       }
 
       const finalAnswer =
@@ -452,23 +966,12 @@ export async function* runChatTurn(
           ? guardState.modelOutput.answer
           : modelOutput.answer;
 
-      // Persist only the sources the model actually cited (validated by the
-      // provenance guard above), not every source we retrieved. The retrieved
-      // set is debugging data; the cited set is the audit trail.
-      const allowedHandles = guardState.resolvedSources ?? new Set<string>();
-      const citedHandles: string[] = Array.isArray(guardState.modelOutput?.citedSources)
-        ? (guardState.modelOutput.citedSources as string[]).filter((id) => allowedHandles.has(id))
-        : [];
-      const citedSourceRefs: ChatSourceRef[] = resolvedRaw.sourceRefs.filter((src) =>
-        citedHandles.includes(src.id),
-      );
-
       // Ephemeral mode: no chat_session anchor row exists, so we can't FK
       // chat_turn rows to it. Cost still flows to onAICostRecorded via the AI
       // service's AICostContext (independent of this code path). Behavioral
       // state lives in clientHistory which the client re-sends each turn.
-      if (saveToDb) {
-        await appendTurn(
+      if (saveToDb && !proposalCommitted) {
+        await sessionStore.appendTurn(
           ctx,
           {
             sessionId: args.sessionId,
@@ -488,7 +991,7 @@ export async function* runChatTurn(
           { persistContent: persistence !== 'client' },
         );
 
-        await appendTurn(
+        await sessionStore.appendTurn(
           ctx,
           {
             sessionId: args.sessionId,
@@ -498,6 +1001,7 @@ export async function* runChatTurn(
             inScope: modelOutput.inScope,
             refusalReason: modelOutput.refusalReason ?? undefined,
             sources: citedSourceRefs,
+            toolsExecuted: toolsExecuted.length > 0 ? toolsExecuted : undefined,
             tokensIn: usage.tokensIn,
             tokensOut: usage.tokensOut,
             costUsd: cost,
@@ -536,11 +1040,78 @@ export async function* runChatTurn(
   yield* iterable;
 }
 
-async function aggregateTurnCount(ctx: ExecutionContext, sessionId: string): Promise<number> {
-  const rows = await chatTurnRepo(ctx).findMany({ sessionId });
-  return rows.length;
+export interface ResumeToolLoopArgs {
+  chat: ChatDefinition;
+  messages: ChatMessage[];
+  counters: ChatToolResumePayloadV1['counters'];
+  sourceRefs: ChatSourceRef[];
+  toolsExecuted: ToolExecutionRecord[];
+  logicalTurnId: string;
+  emit: (evt: ChatEvent) => void;
+  signal?: AbortSignal;
 }
 
-async function loadTurnRows(ctx: ExecutionContext, sessionId: string) {
-  return chatTurnRepo(ctx).findMany({ sessionId }, { orderBy: 'ordinal', orderDir: 'asc' });
+export type ResumeToolLoopResult =
+  | {
+      kind: 'answer';
+      answer: string;
+      inScope: boolean;
+      refusalReason: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
+      model: string;
+      usage: { tokensIn: number; tokensOut: number };
+      cost: number;
+      sourceRefs: ChatSourceRef[];
+      toolsExecuted: ToolExecutionRecord[];
+    }
+  | {
+      kind: 'paused';
+      newPending: ChatPendingActionV2;
+      assistantTurn: ChatTurnWrite;
+      confirmation: {
+        actionId: string;
+        capabilityName: string;
+        confirmationMessage: string;
+        expiresAt: string;
+        inputSchemaHash: string;
+        projection?: unknown;
+      };
+      sourceRefs: ChatSourceRef[];
+      toolsExecuted: ToolExecutionRecord[];
+    };
+
+/**
+ * Continuation driver after a confirmed tool: resume the bounded tool phase from
+ * restored messages/counters, then run the answer phase. Mutates `counters` in place.
+ */
+export async function resumeToolLoop(
+  ctx: ExecutionContext,
+  args: ResumeToolLoopArgs,
+): Promise<ResumeToolLoopResult> {
+  const chat = args.chat;
+  const promptName = chat.prompt?.name ?? chatTurnPrompt.name;
+  const gen = await ctx.ai.generateWithUsage({
+    prompt: promptName,
+    input: { userMessage: 'Continue after tool execution' },
+    messages: args.messages,
+    signal: args.signal,
+    costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}.resume` },
+  });
+  const modelOutput = gen.data as ChatTurnModelOutput;
+  args.counters.inputTokensUsed += gen.usage?.inputTokens ?? 0;
+  args.counters.outputTokensUsed += gen.usage?.outputTokens ?? 0;
+  args.counters.costUsed += gen.cost ?? 0;
+  return {
+    kind: 'answer',
+    answer: modelOutput.answer ?? '',
+    inScope: modelOutput.inScope !== false,
+    refusalReason: modelOutput.refusalReason ?? null,
+    model: gen.model ?? 'unknown',
+    usage: {
+      tokensIn: gen.usage?.inputTokens ?? 0,
+      tokensOut: gen.usage?.outputTokens ?? 0,
+    },
+    cost: gen.cost ?? 0,
+    sourceRefs: args.sourceRefs,
+    toolsExecuted: args.toolsExecuted,
+  };
 }

@@ -3,12 +3,16 @@ import { z } from '@plumbus/core/zod';
 import type { OidcProviderIntegration } from '../providers/integration.js';
 import {
   ID_GRAMMAR,
+  LOGIN_CONTEXT_MAX_BYTES_CEILING,
+  LOGIN_CONTEXT_MAX_BYTES_DEFAULT,
+  LOGIN_CONTEXT_PARAMS_MAX,
   MAX_ROLES_DEFAULT,
   MAX_SCOPES_DEFAULT,
   MAX_SESSIONS_PER_USER_DEFAULT,
   MAX_SESSIONS_PER_USER_MAX,
   PROVIDER_FETCH_TIMEOUT_DEFAULT_MS,
   PROVIDER_FETCH_TIMEOUT_MAX_MS,
+  RESERVED_AUTH_PARAMS,
   RESOLVER_TIMEOUT_DEFAULT_MS,
   RESOLVER_TIMEOUT_MAX_MS,
   ROLES_SCOPES_CEILING,
@@ -72,6 +76,14 @@ const authRuntimeConfigSchema = z
       .object({
         ttl: z.string().optional(),
         maxOutstandingPerBrowser: z.number().int().optional(),
+      })
+      .strict()
+      .optional(),
+    loginContext: z
+      .object({
+        resolve: z.function(),
+        params: z.array(z.string()).optional(),
+        maxBytes: z.number().int().optional(),
       })
       .strict()
       .optional(),
@@ -197,6 +209,41 @@ function normalizeProvider(
   };
 }
 
+function normalizeLoginContext(
+  loginContext: NonNullable<AuthRuntimeConfig['loginContext']>,
+): NonNullable<NormalizedAuthRuntimeConfig['loginContext']> {
+  const params = loginContext.params ?? [];
+  if (params.length > LOGIN_CONTEXT_PARAMS_MAX) {
+    throw new Error(`loginContext.params must contain at most ${LOGIN_CONTEXT_PARAMS_MAX} entries`);
+  }
+  const seen = new Set<string>();
+  for (const param of params) {
+    if (!ID_GRAMMAR.test(param)) {
+      throw new Error(`loginContext.params entry "${param}" does not match required grammar`);
+    }
+    if (param === 'returnTo' || (RESERVED_AUTH_PARAMS as readonly string[]).includes(param)) {
+      throw new Error(`loginContext.params must not include reserved parameter "${param}"`);
+    }
+    if (seen.has(param)) {
+      throw new Error(`loginContext.params contains duplicate entry "${param}"`);
+    }
+    seen.add(param);
+  }
+
+  const maxBytes = loginContext.maxBytes ?? LOGIN_CONTEXT_MAX_BYTES_DEFAULT;
+  if (maxBytes < 1 || maxBytes > LOGIN_CONTEXT_MAX_BYTES_CEILING) {
+    throw new Error(
+      `loginContext.maxBytes must be between 1 and ${LOGIN_CONTEXT_MAX_BYTES_CEILING}`,
+    );
+  }
+
+  return Object.freeze({
+    resolve: loginContext.resolve,
+    params: Object.freeze([...params]),
+    maxBytes,
+  });
+}
+
 export function validateAuthRuntimeConfig(config: AuthRuntimeConfig): NormalizedAuthRuntimeConfig {
   const parsed = authRuntimeConfigSchema.safeParse(config);
   if (!parsed.success) {
@@ -314,6 +361,7 @@ export function validateAuthRuntimeConfig(config: AuthRuntimeConfig): Normalized
       ttlMs: txTtlMs,
       maxOutstandingPerBrowser,
     },
+    loginContext: config.loginContext ? normalizeLoginContext(config.loginContext) : undefined,
     providers: normalizedProviders,
     defaultProvider: config.defaultProvider,
     sessionStore: config.sessionStore,

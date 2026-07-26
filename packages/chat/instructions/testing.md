@@ -91,6 +91,17 @@ For multi-turn tests where responses should vary by call, wrap `mockAI` manually
 
 For behavioral cooldowns, seed `ChatSession.behavioralState` with keys like `cooldown:refusal:session:{sessionId}` (`{ until: epochMs }`) or counter keys `{trigger}:{scopeKey}` with `{ count, windowStart }`. See `packages/chat/src/budget/__tests__/enforcer.test.ts` and `src/runtime/__tests__/run-turn.test.ts` for budget/cooldown examples.
 
+## Testing tool calling (Path B)
+
+Script tool rounds with `mockAI` by returning an assistant message whose `toolCalls` carry
+`argumentsStatus: 'parsed'` for early rounds and a tool-less final answer for the last
+round. Assert on `tool.started` → `tool.completed` / `tool.failed`, and for confirm-mode
+tools on `confirmation_required` → `confirmation.resolved` after driving `POST
+/chat/:name/confirm`. Path B requires a transactional store — use the `ChatConversationStore`
+conformance fixture, not the plain in-memory repository (which fails closed with
+`chat.storage_unsupported`). Never enable `policy.toolCalling` in a test without registering
+`chat.toolRound` + `chat.scopeCheck` (`chat.prompt_not_registered` otherwise).
+
 ## Pure UI helpers (no React needed)
 
 `@plumbus/chat-ui` exports `applyChatEvent` and `buildTurnRequestBody`:
@@ -147,5 +158,6 @@ For answer-quality eval you need a separate offline harness — the eval framewo
 ## Deeper Reference
 
 - `/docs/chat/testing.md` — full conceptual reference
-- `src/runtime/__tests__/run-turn.test.ts` — 11 reference tests including `countingAI` pattern
+- `src/runtime/__tests__/run-turn.test.ts` — 24 reference tests (11 `describe` blocks) using the `countingAI` pattern
+- `src/runtime/__tests__/run-turn-tools.test.ts` — Path B (`policy.toolCalling`) tool-calling + confirm/resume reference tests
 - `src/testing/mock-chat-runtime.ts` — the helper itself (read before writing alternatives)

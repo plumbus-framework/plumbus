@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat.svg)](https://www.npmjs.com/package/@plumbus/chat)
 [![license](https://img.shields.io/npm/l/@plumbus/chat.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core ≥0.6.11](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%E2%89%A50.6.11-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -16,6 +16,7 @@
 - Seven built-in policy guards (audience, locale, scope, privacy, provenance, action, behavioral)
 - Per-turn / per-session / per-user / per-tenant budgets, with cost recording
 - Action-confirmation flow with schema-hash re-validation
+- Provider-native tool calling (`policy.toolCalling`, Path B): capabilities and flows bound as tools, a bounded per-turn loop, and a confirm-and-resume round-trip
 - A streamed `ChatEvent` protocol consumed by `<ChatPanel />` in [`@plumbus/chat-ui`](../chat-ui/)
 
 If you're not using Plumbus, this package won't make sense in isolation — `defineChat` composes on the framework's `ExecutionContext`, capability registry, prompt registry, and audit pipeline.
@@ -33,7 +34,7 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Peer-locked to `@plumbus/core` `0.5.x || 0.6.x`. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
+Declared peer: `@plumbus/core` `0.5.x || 0.6.x`. **Ship with `@plumbus/core` ≥ 0.6.11** — 0.1.11 loads the provider tool protocol (`safeJsonStringify`, `AITool*`, unique entity indexes, `Repository.updateWhere`) from the turn pipeline, so older 0.5.x / early 0.6.x cores fail at import or first turn. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
 
 ## Install
 
@@ -41,7 +42,7 @@ Peer-locked to `@plumbus/core` `0.5.x || 0.6.x`. The surface is implemented end-
 pnpm add @plumbus/chat
 ```
 
-Required peer: `@plumbus/core` `0.5.x || 0.6.x`. The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
+Required peer: `@plumbus/core` `0.5.x || 0.6.x` (**≥ 0.6.11** in practice for this release). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
 
 For the React UI, also install [`@plumbus/chat-ui`](../chat-ui/). For registry-backed knowledge sources, [`@plumbus/knowledge-base`](../knowledge-base/).
 
@@ -88,24 +89,28 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 | Surface | What it does |
 |---|---|
 | `defineChat({...})` | The declarative entrypoint. Validated with Zod, deep-frozen. |
-| `runChatTurn(ctx, args)` | Streaming runtime — yields `ChatEvent`s. Composable in custom transports. |
-| `registerChatRoutes(app, routeConfig, chats, opts?)` | Mount one SSE/JSON route per chat. Opts: `authCookieNames`, `audienceTenantOverride`, `beforeTurn`, `afterTurn`. |
+| `runChatTurn(ctx, args, opts?)` | Streaming runtime — yields `ChatEvent`s. Composable in custom transports. `opts` injects storage (`sessionStore`, `conversationStore`). |
+| `registerChatRoutes(app, routeConfig, chats, opts?)` | Mount one SSE/JSON route per chat. Opts: `authCookieNames`, `audienceTenantOverride`, `beforeTurn`, `afterTurn`, `chatRegistry`, `store`, `sessionStore`, `authenticator`, `externalBaseUrl`, `csrfSecret`. |
+| `ChatSessionStore` + `dbChatSessionStore` | Injectable session/turn persistence for deployments with no local database. See [`docs/chat/session-store.md`](../../docs/chat/session-store.md). |
 | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations` | Built-in context sources. |
 | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | Entities — register in the app entity list. |
 | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | Prompt building blocks. Override per-chat via `definePrompt`. |
 | `compilePolicy(policy)` | Returns the ordered guard list — for advanced custom runtimes. |
 | `chatConfirmAction`, `chatListTurns`, `createChatTurnCapability` | Auto-routed capabilities. |
 | `validateCitations`, `stripInvalidFromAnswer` | Provenance helpers. |
+| `CHAT_CSRF_COOKIE_NAME`, `CHAT_CSRF_HEADER_NAME` (from `@plumbus/chat/protocol`) | Wire-protocol constants for the double-submit CSRF check. Browser code must use the `/protocol` subpath — it is dependency-free, while the package root pulls `node:crypto` and the CLI into a client bundle. Also re-exported from the root for server code. |
 | `mockChatRuntime` (from `@plumbus/chat/testing`) | Drop-in test harness — runs the full pipeline with a mocked AI. |
+| `createInMemoryChatSessionStore`, `createInMemoryChatConversationStore` (from `@plumbus/chat/testing`) | Map-backed stores — test doubles and reference implementations for storage adapters. |
 | `defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder` | Deterministic eval harness — script a model, run scenarios, assert on the event stream and trace. See [`docs/chat/evaluations.md`](../../docs/chat/evaluations.md). |
 
 ## Key gotchas
 
 - **Register the three chat entities.** Without `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` in your app entity list, migrations won't create the underlying tables and the runtime will fail at first turn.
+- **Upgrading to 0.1.11 requires a migration.** All three chat entities gain columns and `chat_turn` gains a **unique** `(session_id, ordinal)` index. Run `plumbus generate && plumbus migrate generate && plumbus migrate apply`; the index build fails if the table already holds duplicate ordinals. See [`docs/chat/confirmation-persistence.md`](../../docs/chat/confirmation-persistence.md).
 - **`exposeAs` defaults to `'sse'`** — the SSE route is the only one mounted. Set `exposeAs: 'capability'` for server-to-server clients that can't consume an event stream, or `'both'` to mount both (rare).
 - **`persistence.saveToDb: false` requires `messageContent: 'client'`.** And it rejects `policy.action.allowedCapabilities` — ephemeral chats can't survive the action-confirmation round-trip. `defineChat` validates this at startup.
 - **`policy.scope.classifier: 'inline'`** — the model classifies and answers in one call (Decision 0001). Refusal turns spend generation tokens; empirically cheaper than a preflight LLM call.
-- **`useChat.confirm()` in `@plumbus/chat-ui` only clears local state.** The server-side `chatConfirmAction` capability does the real schema-hash re-validation; clients must call it directly. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
+- **`useChat.confirm()` in `@plumbus/chat-ui` performs the real `POST /chat/:name/confirm` round-trip** (it also exposes `decline` and `lastConfirmResult`). Path B confirm-mode tools execute through the framework capability pipeline and resume the turn; legacy Path A confirmation is decision-only in this release — `policy.action.frameworkExecuteOnConfirm` is reserved and not yet enforced, so no code reads it. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
 
 ## Documentation
 
@@ -116,7 +121,10 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
   - [`context-sources.md`](../../docs/chat/context-sources.md) — context-source contract + every built-in
   - [`testing.md`](../../docs/chat/testing.md) — `mockChatRuntime` + helpers
   - [`evaluations.md`](../../docs/chat/evaluations.md) — eval scenarios with `defineChatEvaluation` / `runChatEvaluation`
-  - [`design/`](../../docs/chat/design/) — 10 design decisions explaining the framework's shape
+  - [`tool-calling.md`](../../docs/chat/tool-calling.md) — provider-native tool calling (Path B)
+  - [`confirmation-persistence.md`](../../docs/chat/confirmation-persistence.md) — durable confirmations + session revision CAS
+  - [`session-store.md`](../../docs/chat/session-store.md) — injectable session storage for deployments with no local database
+  - [`design/`](../../docs/chat/design/) — 11 design decisions explaining the framework's shape
 - **Agent recipes** (ship in this package, readable from `node_modules/@plumbus/chat/instructions/`):
   - [`instructions/framework.md`](./instructions/framework.md) — file map, package conventions, critical rules
   - [`instructions/defining-chats.md`](./instructions/defining-chats.md) — recipe for adding a chat

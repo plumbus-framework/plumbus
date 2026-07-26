@@ -1,4 +1,5 @@
 import { getTableColumns, getTableName } from 'drizzle-orm';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { field } from '../../fields/index.js';
 import type { EntityDefinition } from '../../types/entity.js';
@@ -110,6 +111,24 @@ describe('generateDrizzleSchema', () => {
     });
     const table = generateDrizzleSchema(entity);
     expect(table).toBeDefined();
+  });
+
+  it('emits a unique index for EntityIndexDefinition { unique: true }', () => {
+    const entity = makeEntity({
+      name: 'Indexed',
+      fields: {
+        id: field.id(),
+        a: field.string(),
+        b: field.string(),
+        c: field.string(),
+      },
+      indexes: [{ columns: ['a', 'b'], unique: true }, ['c']],
+    });
+    const table = generateDrizzleSchema(entity);
+    const cfg = getTableConfig(table);
+    const byName = new Map(cfg.indexes.map((idx) => [idx.config.name, idx.config]));
+    expect(byName.get('indexed_a_b_idx')?.unique).toBe(true);
+    expect(byName.get('indexed_c_idx')?.unique).toBeFalsy();
   });
 });
 

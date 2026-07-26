@@ -62,6 +62,27 @@ const authenticationRuntime = createAuthRuntime({
 await createServer({ authenticationRuntime /* … */ });
 ```
 
+## Invitation-only admission
+
+Apps that admit new users only through invitations attach trusted context when login starts and receive it in `resolveIdentity`:
+
+```typescript
+loginContext: {
+  params: ["invite"],           // app-owned login-URL param — never sent to the IdP
+  resolve: async ({ params }) => {
+    const invitation = await invitations.findUsable(params.invite);
+    return invitation ? { type: "invitation", data: { invitationId: invitation.id } } : undefined;
+  },
+},
+
+resolveIdentity: async (identity, context) => {
+  const invitationId = context?.applicationContext?.data?.invitationId;
+  // …admit known users; admit unknown users only with a valid invitation
+},
+```
+
+The context is sealed in the login transaction — single-use, browser-bound, and expiring with `transactions.ttl` (default `10m`). See [`docs/auth/configuration.md`](../../docs/auth/configuration.md#login-context).
+
 ## Routes
 
 Default prefix **`/auth`**: `providers`, `login`, `login/:provider`, `callback/:provider`, `session`, `logout`.

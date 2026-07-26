@@ -7,6 +7,7 @@ export {
   type ChatUiMessage,
   type ChatUiNotice,
   type ChatUiPendingConfirmation,
+  type ChatUiConfirmResult,
   type ChatUiState,
   type ChatUiStatus,
   type BuildTurnBodyArgs,

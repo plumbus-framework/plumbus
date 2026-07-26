@@ -1,10 +1,32 @@
 import type { AuditWriter } from '@plumbus/core';
 import type { SecretSource, StorageProtectionConfig } from '../crypto/protection.js';
 import type { OidcProviderIntegration } from '../providers/integration.js';
-import type { ResolveAuthorization, ResolveIdentity } from '../resolvers/types.js';
+import type {
+  AuthLoginApplicationContext,
+  ResolveAuthorization,
+  ResolveIdentity,
+} from '../resolvers/types.js';
 import type { LoginTransactionStore, SessionStore } from '../stores/types.js';
 
 export type Duration = string;
+
+/**
+ * Server-side view of a login-initiation request, passed to `loginContext.resolve`.
+ *
+ * `params` contains only the query parameters the application declared under
+ * `loginContext.params` — those are stripped from the request before provider
+ * parameter validation, so they are never forwarded to the identity provider.
+ */
+export interface LoginContextRequest {
+  providerId: string;
+  returnTo: string;
+  params: Readonly<Record<string, string>>;
+  cookies: Readonly<Record<string, string>>;
+}
+
+export type ResolveLoginContext = (
+  request: LoginContextRequest,
+) => Promise<AuthLoginApplicationContext | undefined> | AuthLoginApplicationContext | undefined;
 
 export const CookieSameSite = {
   Lax: 'Lax',
@@ -32,6 +54,12 @@ export interface AuthRuntimeConfig {
   transactions?: {
     ttl?: Duration;
     maxOutstandingPerBrowser?: number;
+  };
+
+  loginContext?: {
+    resolve: ResolveLoginContext;
+    params?: string[];
+    maxBytes?: number;
   };
 
   providers: Record<string, OidcProviderRegistration>;
@@ -90,6 +118,12 @@ export interface NormalizedAuthRuntimeConfig {
   transactions: {
     ttlMs: number;
     maxOutstandingPerBrowser: number;
+  };
+
+  loginContext?: {
+    resolve: ResolveLoginContext;
+    params: readonly string[];
+    maxBytes: number;
   };
 
   providers: Record<string, NormalizedOidcProviderRegistration>;

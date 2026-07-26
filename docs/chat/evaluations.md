@@ -81,7 +81,7 @@ it('help chat passes its evaluation', async () => {
 });
 ```
 
-`runChatEvaluation(evaluation, ctx, { sessionId, audience, locale, trace? })` runs each scenario's `when.send` through the real turn pipeline (`runChatTurn`), collects the emitted events, checks the assertions, and returns one `EvalVerdict` per scenario:
+`runChatEvaluation(evaluation, ctx, { sessionId, audience, locale, trace?, stores? })` runs each scenario's `when.send` through the real turn pipeline (`runChatTurn`), collects the emitted events, checks the assertions, and returns one `EvalVerdict` per scenario. `stores` is a `RunChatTurnOpts` forwarded to every turn — pass `{ sessionStore }` to evaluate a chat against injected storage instead of `ctx.data` (see [session-store.md](./session-store.md)):
 
 ```ts
 interface EvalVerdict {

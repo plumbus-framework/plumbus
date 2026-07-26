@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/chat",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Plumbus chat primitive — policy, context sources, guards, budgets, evals.",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,10 @@
     "./eval": {
       "types": "./dist/eval/index.d.ts",
       "default": "./dist/eval/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
     }
   },
   "scripts": {

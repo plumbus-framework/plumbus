@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   type PgTableWithColumns,
 } from 'drizzle-orm/pg-core';
@@ -47,14 +48,17 @@ export function generateDrizzleSchema(entity: EntityDefinition): PgTableWithColu
 
     if (entity.indexes) {
       for (let i = 0; i < entity.indexes.length; i++) {
-        const idxFields: string[] | undefined = entity.indexes[i];
-        if (!idxFields) continue;
+        const entry = entity.indexes[i];
+        if (!entry) continue;
+        const idxFields: string[] = Array.isArray(entry) ? entry : entry.columns;
+        const isUnique = Array.isArray(entry) ? false : entry.unique === true;
+        if (idxFields.length === 0) continue;
         const idxName = `${tableName}_${idxFields.map(camelToSnake).join('_')}_idx`;
 
         const cols = idxFields.map((f: string) => (table as any)[f]).filter(Boolean);
         if (cols.length > 0) {
           const [first, ...rest] = cols;
-          indexes.push(index(idxName).on(first, ...rest));
+          indexes.push((isUnique ? uniqueIndex(idxName) : index(idxName)).on(first, ...rest));
         }
       }
     }

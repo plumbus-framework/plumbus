@@ -74,6 +74,38 @@ See [`packages/auth/src/__tests__/integration.test.ts`](../../packages/auth/src/
 
 ---
 
+## Login context tests
+
+When the app configures `loginContext` ([configuration.md](./configuration.md#login-context)), test admission end to end rather than calling the hook directly:
+
+```typescript
+// 1. start login with the app-owned param
+const login = await app.inject({ method: "GET", url: "/auth/login/test?invite=inv_1" });
+const binding = login.headers["set-cookie"];
+
+// 2. the param must not reach the IdP
+expect(login.headers.location).not.toContain("invite");
+expect(Object.keys(fake.lastAuthorizeParams ?? {})).not.toContain("invite");
+
+// 3. complete the callback — resolveIdentity receives the sealed context
+const callback = await app.inject({ method: "GET", url: callbackPath, headers: { cookie: binding } });
+expect(resolverCalls[0].context.applicationContext).toEqual({
+  type: "invitation",
+  data: { invitationId: "inv_1" },
+});
+```
+
+Worth covering in app tests:
+
+- Login **without** the param → resolver sees no `applicationContext` → denied
+- Hook throwing → `503 login_unavailable`; oversized or non-JSON context → `400 invalid_request`
+- Expired transaction (advance the injected `clock` past `transactions.ttl`), replayed callback, missing binding cookie, mismatched provider → resolver never runs
+- Context absent from `GET /auth/session` and from captured audit metadata
+
+Inject `createAuthRuntime(config, { clock })` with a mutable clock to test TTL expiry without waiting. See [`packages/auth/src/flow/__tests__/login-context.test.ts`](../../packages/auth/src/flow/__tests__/login-context.test.ts) for the full suite.
+
+---
+
 ## Security negative tests
 
 The package includes tests for:
@@ -82,6 +114,7 @@ The package includes tests for:
 - Invalid or expired login transactions
 - Provider param injection blocked by integration allowlists
 - Session cap eviction
+- Login context withheld on expired, replayed, wrong-browser, and wrong-provider transactions
 
 Mirror these patterns when adding app-specific resolver tests.
 

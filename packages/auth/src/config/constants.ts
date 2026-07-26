@@ -18,6 +18,11 @@ export const IDENTIFIER_MAX_BYTES = 256;
 export const USER_ID_MAX_BYTES = 512;
 export const ID_GRAMMAR = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 
+export const LOGIN_CONTEXT_TYPE_MAX_BYTES = 128;
+export const LOGIN_CONTEXT_MAX_BYTES_DEFAULT = 1_024;
+export const LOGIN_CONTEXT_MAX_BYTES_CEILING = 4_096;
+export const LOGIN_CONTEXT_PARAMS_MAX = 8;
+
 export const RESERVED_AUTH_PARAMS = [
   'client_id',
   'redirect_uri',

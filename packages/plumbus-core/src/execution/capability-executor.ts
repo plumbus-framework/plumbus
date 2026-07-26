@@ -37,7 +37,9 @@ function buildHandlerContext(
   invocationRuntime: CapabilityInvocationRuntime | undefined,
   scope?: TransactionScope,
 ): ExecutionContext {
-  const handlerRuntime = stripHandlerRuntime(ctx.__runtime);
+  const handlerRuntime = stripHandlerRuntime(ctx.__runtime, {
+    preserveCapabilityRuntime: getCanonicalCapabilityName(capability) === 'chat.chatConfirmAction',
+  });
   const deferred = scope?.deferred;
   const flows =
     scope && deferred && ctx.flows ? createDeferredFlowService(ctx.flows, deferred) : ctx.flows;

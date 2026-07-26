@@ -26,6 +26,18 @@ export type ChatUiPendingConfirmation = {
    * pre-0.1.4 server — apps that wire confirmation should treat that as a
    * configuration error. */
   schemaHash?: string;
+  /** Path B: echoed back to `POST /chat/:name/confirm` as `inputSchemaHash`.
+   * Required to confirm a tool-calling action; absence is a config error. */
+  inputSchemaHash?: string;
+  /** Path B: validated, redacted projection for rendering the confirmation. */
+  projection?: unknown;
+};
+
+export type ChatUiConfirmResult = {
+  actionId: string;
+  decision: 'confirm' | 'reject';
+  pendingStatus: 'confirmed' | 'rejected' | 'failed' | 'indeterminate' | 'expired';
+  executionStatus: 'not_requested' | 'succeeded' | 'failed' | 'indeterminate';
 };
 
 export interface ChatUiState {
@@ -33,6 +45,7 @@ export interface ChatUiState {
   status: ChatUiStatus;
   notices: ChatUiNotice[];
   pendingConfirmation: ChatUiPendingConfirmation | null;
+  lastConfirmResult: ChatUiConfirmResult | null;
 }
 
 export const initialChatUiState: ChatUiState = {
@@ -40,6 +53,7 @@ export const initialChatUiState: ChatUiState = {
   status: 'idle',
   notices: [],
   pendingConfirmation: null,
+  lastConfirmResult: null,
 };
 
 /**
@@ -95,6 +109,40 @@ export function applyChatEvent(state: ChatUiState, evt: ChatEvent): ChatUiState 
           confirmationMessage: evt.confirmationMessage,
           expiresAt: evt.expiresAt,
           schemaHash: evt.schemaHash,
+          inputSchemaHash: evt.inputSchemaHash,
+          projection: evt.projection,
+        },
+      };
+
+    // tool.* events surface as notices only — never as chat message bubbles.
+    case 'tool.started':
+      return state;
+
+    case 'tool.completed':
+      return {
+        ...state,
+        notices: [
+          ...state.notices,
+          { code: 'chat.tool_completed', message: `Tool ${evt.name} completed` },
+        ],
+      };
+
+    case 'tool.failed':
+      return {
+        ...state,
+        notices: [...state.notices, { code: evt.code, message: evt.message }],
+      };
+
+    case 'confirmation.resolved':
+      return {
+        ...state,
+        pendingConfirmation: null,
+        status: 'idle',
+        lastConfirmResult: {
+          actionId: evt.actionId,
+          decision: evt.decision,
+          pendingStatus: evt.pendingStatus,
+          executionStatus: evt.executionStatus,
         },
       };
 

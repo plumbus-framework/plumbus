@@ -6,12 +6,18 @@ import {
   buildCapabilityRuntimeDeps,
   createExecutionContext,
   defineCapability,
+  executeCapability,
 } from '@plumbus/core';
 import type { ExecutionContext } from '@plumbus/core';
 import { capabilityActionHashV2 } from '../../policy/action-schema-hash.js';
 import { actionGuard } from '../../policy/action-guard.js';
-import { confirmPending, storePending } from '../pending-actions.js';
+import { chatConfirmAction } from '../../capabilities/chat-confirm-action.js';
+import { chatPendingActionRepo } from '../../internal/chat-repos.js';
 import { createSession } from '../../session/service.js';
+import type {
+  ChatPendingActionV2,
+  ChatToolResumePayloadV1,
+} from '../../session/pending-action-v2.js';
 
 function ctxWithRegistry(registry: CapabilityRegistry): ExecutionContext {
   const base = createTestContext();
@@ -26,23 +32,51 @@ function ctxWithRegistry(registry: CapabilityRegistry): ExecutionContext {
   });
 }
 
-function ctxWithSharedData(
-  registry: CapabilityRegistry,
-  shared: ExecutionContext,
-): ExecutionContext {
-  return createExecutionContext({
-    auth: shared.auth,
-    data: shared.data,
-    events: shared.events,
-    audit: shared.audit,
-    logger: shared.logger,
-    time: shared.time,
-    ...buildCapabilityRuntimeDeps(registry),
-  });
+function minimalResume(): ChatToolResumePayloadV1 {
+  return {
+    version: 1,
+    chatName: 'help',
+    logicalTurnId: 'lt-1',
+    proposalAssistantTurnId: 'lt-1',
+    toolCallId: 'tc-1',
+    toolName: 'orders.ship',
+    messages: [{ role: 'user', content: 'go' }],
+    counters: {
+      toolRoundsUsed: 0,
+      flowStartsUsed: 0,
+      flowAwaitMsUsed: 0,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
+      costUsed: 0,
+    },
+    toolsExecuted: [],
+    sourceRefs: [],
+  };
+}
+
+function pendingRow(
+  sessionId: string,
+  overrides: Partial<ChatPendingActionV2> = {},
+): ChatPendingActionV2 {
+  return {
+    version: 2,
+    id: '00000000-0000-4000-8000-000000000002',
+    sessionId,
+    expectedSessionRevision: 0,
+    capabilityName: 'orders.ship',
+    input: { orderId: 'o-1' },
+    inputSchemaHash: 'hash-a',
+    toolBindingHash: 'bind-a',
+    confirmationMessage: 'Ship order?',
+    status: 'pending',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    resumePayload: minimalResume(),
+    ...overrides,
+  };
 }
 
 describe('C6 action-confirm matrix', () => {
-  it('uses real core describe + v2 hash binding schema and payload', async () => {
+  it('uses real core describe + v2 hash binding at claim time', async () => {
     const cap = defineCapability({
       name: 'ship',
       kind: 'action',
@@ -68,79 +102,19 @@ describe('C6 action-confirm matrix', () => {
       locale: 'en',
     });
 
-    await storePending(ctx, {
-      id: '00000000-0000-4000-8000-000000000002',
-      sessionId: session.id,
-      capabilityName: 'orders.ship',
-      input: { orderId: 'o-1' },
-      schemaHash: hash,
-      confirmationMessage: 'Ship order?',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      status: 'pending',
-    });
-
-    await expect(
-      confirmPending(ctx, '00000000-0000-4000-8000-000000000002', async () => ({ ok: true }), hash),
-    ).resolves.toEqual({ ok: true });
-  });
-
-  it('rejects v2 confirm when capability schema changes after propose', async () => {
-    const v1 = defineCapability({
-      name: 'ship',
-      kind: 'action',
-      domain: 'orders',
-      input: z.object({ orderId: z.string() }),
-      output: z.object({ ok: z.boolean() }),
-      effects: { data: [], events: [], external: [], ai: false },
-      handler: async () => ({ ok: true }),
-    });
-    const registryV1 = new CapabilityRegistry();
-    registryV1.register(v1);
-    const ctxV1 = ctxWithRegistry(registryV1);
-
-    const described = ctxV1.capabilities.describe?.('orders.ship');
-    const hash = capabilityActionHashV2(described?.inputSchema ?? {}, { orderId: 'o-1' });
-
-    const session = await createSession(ctxV1, {
-      chatName: 'help',
-      userId: ctxV1.auth.userId ?? 'test-user',
-      audience: 'user',
-      locale: 'en',
-    });
-
-    await storePending(ctxV1, {
-      id: '00000000-0000-4000-8000-000000000003',
-      sessionId: session.id,
-      capabilityName: 'orders.ship',
-      input: { orderId: 'o-1' },
-      schemaHash: hash,
-      confirmationMessage: 'Ship?',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      status: 'pending',
-    });
-
-    const registryV2 = new CapabilityRegistry();
-    registryV2.register(
-      defineCapability({
-        name: 'ship',
-        kind: 'action',
-        domain: 'orders',
-        input: z.object({ orderId: z.string(), tracking: z.string() }),
-        output: z.object({ ok: z.boolean() }),
-        effects: { data: [], events: [], external: [], ai: false },
-        handler: async () => ({ ok: true }),
-      }),
+    await chatPendingActionRepo(ctx).create(
+      pendingRow(session.id, { inputSchemaHash: hash, toolBindingHash: hash }),
     );
-    const ctxV2 = ctxWithSharedData(registryV2, ctxV1);
 
-    await expect(
-      confirmPending(
-        ctxV2,
-        '00000000-0000-4000-8000-000000000003',
-        async () => ({ ok: true }),
-        hash,
-      ),
-    ).rejects.toMatchObject({ metadata: { code: 'chat.action_schema_changed' } });
+    const result = await executeCapability(chatConfirmAction, ctx, {
+      actionId: '00000000-0000-4000-8000-000000000002',
+      chatName: 'help',
+      decision: 'confirm',
+      inputSchemaHash: hash,
+      toolBindingHash: hash,
+      execute: true,
+    });
+    expect(result.success).toBe(true);
   });
 
   it('action-guard blocks when pending cap excludes expired rows', async () => {
@@ -152,16 +126,13 @@ describe('C6 action-confirm matrix', () => {
       locale: 'en',
     });
 
-    await storePending(ctx, {
-      id: '00000000-0000-4000-8000-000000000010',
-      sessionId: session.id,
-      capabilityName: 'testAction',
-      input: {},
-      schemaHash: 'legacy',
-      confirmationMessage: 'old',
-      expiresAt: new Date(Date.now() - 60_000).toISOString(),
-      status: 'pending',
-    });
+    await chatPendingActionRepo(ctx).create(
+      pendingRow(session.id, {
+        id: '00000000-0000-4000-8000-000000000010',
+        capabilityName: 'testAction',
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    );
 
     const verdict = await actionGuard(
       {
@@ -191,82 +162,28 @@ describe('C6 action-confirm matrix', () => {
     expect(verdict.decision).toBe('require_confirmation');
   });
 
-  it('accepts legacy unprefixed schema hash via echo compare', async () => {
-    const ctx = ctxWithRegistry(new CapabilityRegistry());
+  it('claim rejects binding mismatch with chat.binding_changed', async () => {
+    const ctx = createTestContext();
     const session = await createSession(ctx, {
       chatName: 'help',
-      userId: ctx.auth.userId ?? 'test-user',
+      userId: ctx.auth.userId ?? 'u1',
       audience: 'user',
       locale: 'en',
     });
-    const legacyHash = 'abc123legacy';
+    await chatPendingActionRepo(ctx).create(pendingRow(session.id));
 
-    await storePending(ctx, {
-      id: '00000000-0000-4000-8000-000000000020',
-      sessionId: session.id,
-      capabilityName: 'unknown.cap',
-      input: { x: 1 },
-      schemaHash: legacyHash,
-      confirmationMessage: 'Confirm?',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      status: 'pending',
-    });
-
-    await expect(
-      confirmPending(
-        ctx,
-        '00000000-0000-4000-8000-000000000020',
-        async () => ({ ok: true }),
-        legacyHash,
-      ),
-    ).resolves.toEqual({ ok: true });
-  });
-
-  it('distinguishes action_schema_mismatch (echo) from action_schema_changed (re-derived)', async () => {
-    const cap = defineCapability({
-      name: 'ship',
-      kind: 'action',
-      domain: 'orders',
-      input: z.object({ orderId: z.string() }),
-      output: z.object({ ok: z.boolean() }),
-      effects: { data: [], events: [], external: [], ai: false },
-      handler: async () => ({ ok: true }),
-    });
-    const registry = new CapabilityRegistry();
-    registry.register(cap);
-    const ctx = ctxWithRegistry(registry);
-    const session = await createSession(ctx, {
+    const result = await executeCapability(chatConfirmAction, ctx, {
+      actionId: '00000000-0000-4000-8000-000000000002',
       chatName: 'help',
-      userId: ctx.auth.userId ?? 'test-user',
-      audience: 'user',
-      locale: 'en',
+      decision: 'confirm',
+      inputSchemaHash: 'wrong-echo',
+      toolBindingHash: 'bind-a',
+      execute: false,
     });
 
-    const described = ctx.capabilities.describe?.('orders.ship');
-    const hash = capabilityActionHashV2(described?.inputSchema ?? {}, { orderId: 'o-1' });
-
-    await storePending(ctx, {
-      id: '00000000-0000-4000-8000-000000000021',
-      sessionId: session.id,
-      capabilityName: 'orders.ship',
-      input: { orderId: 'o-1' },
-      schemaHash: hash,
-      confirmationMessage: 'Ship?',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      status: 'pending',
-    });
-
-    await expect(
-      confirmPending(
-        ctx,
-        '00000000-0000-4000-8000-000000000021',
-        async () => ({ ok: true }),
-        'wrong-echo',
-      ),
-    ).rejects.toMatchObject({ metadata: { code: 'chat.action_schema_mismatch' } });
-
-    await expect(
-      confirmPending(ctx, '00000000-0000-4000-8000-000000000021', async () => ({ ok: true }), hash),
-    ).resolves.toEqual({ ok: true });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error?.metadata?.code).toBe('chat.binding_changed');
+    }
   });
 });

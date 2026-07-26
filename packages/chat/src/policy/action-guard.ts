@@ -1,5 +1,5 @@
 import type { ExecutionContext } from '@plumbus/core';
-import { chatPendingActionRepo } from '../internal/chat-repos.js';
+import { resolveChatSessionStore } from '../session/session-store.js';
 import type { Guard } from '../types/policy.js';
 import type { PendingAction } from '../types/action.js';
 import {
@@ -25,20 +25,20 @@ export const actionGuard: Guard = async (turnCtx, state) => {
 
   const perSessionActions = state.budgetActionsPerSession;
   if (perSessionActions !== undefined) {
-    const repo = chatPendingActionRepo(state.ctx);
-    const rows = await repo.findMany({
-      sessionId: turnCtx.sessionId,
-      status: 'pending',
-    });
-    const now = Date.now();
-    let activeCount = 0;
-    for (const row of rows) {
-      if (new Date(row.expiresAt).getTime() <= now) {
-        await repo.update(row.id, { status: 'expired' });
-        continue;
-      }
-      activeCount += 1;
+    const store = resolveChatSessionStore(state.sessionStore);
+    const countActive = store.countActivePendingActions;
+    if (!countActive) {
+      // Reaching ctx.data here would defeat the injected store. registerChatRoutes
+      // refuses this combination at startup; this covers direct runChatTurn callers.
+      throw state.ctx.errors.internal(
+        'Pending action budget requires a session store that implements countActivePendingActions',
+        { code: 'chat.budget_unsupported', chatName: state.chatName },
+      );
     }
+    const activeCount = await countActive.call(store, state.ctx, {
+      sessionId: turnCtx.sessionId,
+      now: new Date(),
+    });
     if (activeCount >= perSessionActions) {
       return {
         decision: 'block',
@@ -85,7 +85,7 @@ export const actionGuard: Guard = async (turnCtx, state) => {
     id: crypto.randomUUID(),
     sessionId: turnCtx.sessionId,
     capabilityName: req.capabilityName,
-    input: req.input,
+    input: req.input, // RAW — run-turn's buildNormalizedPending applies C3 normalization
     schemaHash: hash,
     confirmationMessage: req.confirmationMessage,
     expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),

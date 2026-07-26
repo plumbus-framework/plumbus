@@ -262,6 +262,12 @@ A flow definition can carry **either** a `trigger` (event-driven), **or** a `sch
 
 Do not combine `trigger` and `schedule` on the same flow — pick one initiation model.
 
+A flow can also be started from a chat conversation: list it in a chat's
+`policy.toolCalling.autoStartFlows` and the runtime binds it as a `flow__<name>` provider
+tool. Per-turn limits (`maxFlowStartsPerTurn`, `flowAwaitBudgetMsPerTurn`) bound how much
+flow work a single turn may trigger. See
+[chat → provider-native tool calling](../chat/defining-chats.md#provider-native-tool-calling-policytoolcalling-path-b).
+
 ### Scheduled flow example
 
 Use `schedule.cron` when work should run on a timer (nightly cleanup, hourly sync, etc.). The flow scheduler lives in the **worker pool** and writes run state to the `flow_schedules` table.
@@ -327,7 +333,7 @@ User-scoped data in scheduled steps still respects tenant rules on `ctx.data`; t
 **Operational notes**
 
 - Inspect schedules: `plumbus flow schedule list` (or `--json`). Merges app definitions with `flow_schedules` run state.
-- Default poll interval: `schedulerPollIntervalMs` = 60_000 (1 minute). Tune in worker config — see [configuration](../sdk-reference/configuration.md#worker-pool).
+- Default poll interval: `schedulerPollIntervalMs` = 60_000 (1 minute). Tune in worker config — see [configuration](../sdk-reference/configuration.md#worker-pool-configuration).
 - First sync of a new schedule sets `nextRunAt` to **now**, so the first run happens on the next poll (not necessarily exactly at cron boundary).
 - Verify the scheduler is active: `plumbus worker status` reports a `scheduler` component when scheduled flows are registered.
 - Split deployments (API-only + worker-only) need Redis for durable queues when running multiple replicas — see [upgrading-workers](../upgrading-workers.md).

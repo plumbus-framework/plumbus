@@ -73,7 +73,10 @@ docs/
 │   ├── context-sources.md
 │   ├── testing.md
 │   ├── evaluations.md
-│   └── design/                10 design decisions (ADRs) explaining the framework's shape
+│   ├── tool-calling.md        Provider-native tool calling (Path B)
+│   ├── confirmation-persistence.md  Durable confirmations + session revision CAS
+│   ├── session-store.md       Injectable session storage for deployments with no local DB
+│   └── design/                11 design decisions (ADRs) explaining the framework's shape
 ├── chat-ui/                   React hooks/components for the chat turn protocol
 │   └── README.md
 ├── voice/                     Optional @plumbus/voice package (realtime speech I/O runtime)

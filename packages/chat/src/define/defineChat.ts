@@ -47,7 +47,26 @@ const chatConfigSchema = z.object({
           ),
         })
         .optional(),
-      action: z.object({ allowedCapabilities: z.array(z.string()).optional() }).optional(),
+      action: z
+        .object({
+          allowedCapabilities: z.array(z.string()).optional(),
+          frameworkExecuteOnConfirm: z.boolean().optional(),
+        })
+        .optional(),
+      toolCalling: z
+        .object({
+          enabled: z.boolean(),
+          capabilities: z.array(z.string()).optional(),
+          autoStartFlows: z.array(z.string()).optional(),
+          maxToolRounds: z.number().int().min(1).max(20).optional(),
+          maxTools: z.number().int().min(1).max(64).optional(),
+          flowAwaitMs: z.number().int().min(0).max(120_000).optional(),
+          flowPollIntervalMs: z.number().int().min(50).max(10_000).optional(),
+          flowAwaitBudgetMsPerTurn: z.number().int().min(0).max(120_000).optional(),
+          maxFlowStartsPerTurn: z.number().int().min(0).max(20).optional(),
+          confirmationTtlMs: z.number().int().min(60_000).max(3_600_000).optional(),
+        })
+        .optional(),
     })
     .optional(),
   budget: z.record(z.unknown()).optional(),
@@ -110,14 +129,41 @@ export function defineChat(config: ChatConfig): ChatDefinition {
       "defineChat: persistence.saveToDb=false requires persistence.messageContent='client' — there is no chat_turn row to hold server-side content",
     );
   }
-  if (!saveToDb && (config.policy?.action?.allowedCapabilities?.length ?? 0) > 0) {
+  const legacyAllowlist = config.policy?.action?.allowedCapabilities ?? config.actions ?? [];
+  const toolCallingEnabled = config.policy?.toolCalling?.enabled === true;
+  if (!saveToDb && legacyAllowlist.length > 0) {
     throwDefineValidationError(
-      'defineChat: persistence.saveToDb=false cannot coexist with policy.action.allowedCapabilities — pending actions require chat_pending_action rows to survive across requests',
+      'defineChat: persistence.saveToDb=false cannot coexist with an action allowlist (actions / policy.action.allowedCapabilities) — pending actions require chat_pending_action rows to survive across requests',
+    );
+  }
+  if (!saveToDb && toolCallingEnabled) {
+    throwDefineValidationError(
+      'defineChat: persistence.saveToDb=false cannot coexist with policy.toolCalling.enabled — tool execution records require chat_turn rows',
+    );
+  }
+  if (toolCallingEnabled && legacyAllowlist.length > 0) {
+    throwDefineValidationError(
+      'defineChat: policy.toolCalling.enabled cannot be combined with the legacy action allowlist (actions / policy.action.allowedCapabilities) — choose one action path',
     );
   }
 
+  // Fold the legacy top-level `actions` list into `policy.action.allowedCapabilities`
+  // (Path A allowlist) so the runtime reads a single source. `policy.action`
+  // takes precedence when both are set.
+  const legacyActions = config.actions ?? [];
+  const normalizedPolicy =
+    config.policy || legacyActions.length > 0
+      ? {
+          ...config.policy,
+          ...(legacyActions.length > 0 && !config.policy?.action?.allowedCapabilities
+            ? { action: { ...config.policy?.action, allowedCapabilities: legacyActions } }
+            : {}),
+        }
+      : undefined;
+
   return deepFreeze({
     ...config,
+    ...(normalizedPolicy ? { policy: normalizedPolicy } : {}),
     context: config.context ?? [],
     persistence: {
       messageContent: config.persistence?.messageContent ?? 'server',

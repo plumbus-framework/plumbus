@@ -1,6 +1,6 @@
 # Chat design decisions
 
-Why the chat framework is shaped the way it is. Ten records covering the load-bearing decisions made while building it.
+Why the chat framework is shaped the way it is. Eleven records covering the load-bearing decisions made while building it.
 
 Read these before "fixing" something that looks weird. They explain tradeoffs, rejected alternatives, and what to watch out for when extending the runtime.
 
@@ -10,6 +10,7 @@ Read these before "fixing" something that looks weird. They explain tradeoffs, r
 - [Scope enforcement: single-call structured output](./scope-via-structured-output.md) — why we trust the model's `inScope` boolean instead of running a preflight classifier
 - [Audience as a first-class policy slot](./audience-policy.md) — multi-audience help-bots without two codebases
 - [Locale required on every turn](./locale-everywhere.md) — how language threads through context, prompt, guards, notices
+- [Provider-native tool calling](./tool-calling.md) — Path A (`requestedAction`) vs Path B (`policy.toolCalling`), the lease-based store, confirm+resume, and why chat does not call core's `runToolLoop`
 
 ### Stateful enforcement
 - [Behavioral cooldowns](./behavioral-cooldowns.md) — when budgets and guards aren't enough

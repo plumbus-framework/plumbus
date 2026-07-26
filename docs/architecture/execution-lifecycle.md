@@ -138,7 +138,7 @@ Opt out globally with `execution.transactionalOutbox: false` (or `PLUMBUS_TRANSA
 
 ### Nested capability invocation
 
-When a capability handler calls `ctx.capabilities.invoke`, the framework runs the callee through the same pipeline (access, validation, audit) with inherited auth and correlation metadata. Targets must be listed in the caller's `effects.capabilities`. Undeclared calls, cycles, missing targets, and synchronous job invokes return `dependencyViolation`. Handler-visible `ctx.__runtime` does not expose internal invokers — only `ctx.capabilities.invoke` is supported in application code. Prefer flows for multi-step orchestration; use invoke when a callee's result is needed in the same execution path.
+When a capability handler calls `ctx.capabilities.invoke`, the framework runs the callee through the same pipeline (access, validation, audit) with inherited auth and correlation metadata. Targets must be listed in the caller's `effects.capabilities`. Undeclared calls, cycles, missing targets, and synchronous job invokes return `dependencyViolation`. Handler-visible `ctx.__runtime` does not expose internal invokers — only `ctx.capabilities.invoke` is supported in application code. (`stripHandlerRuntime` makes one framework-internal exception, keyed on the canonical name `chat.chatConfirmAction`, so that confirming a pending chat action can re-enter the capability pipeline; application capabilities cannot request it.) Prefer flows for multi-step orchestration; use invoke when a callee's result is needed in the same execution path.
 
 ## Event Processing Pipeline
 

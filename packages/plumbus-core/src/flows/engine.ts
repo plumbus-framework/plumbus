@@ -1137,7 +1137,8 @@ function wrapAiWithDefaultSignal(ai: AIService, defaultSignal: AbortSignal): AIS
     recordProviderCost: (entry, costContext) => ai.recordProviderCost(entry, costContext),
     checkProviderCostBudget: (config) => ai.checkProviderCostBudget(config),
     generate: (params) => ai.generate(withSignal(params)),
-    generateWithUsage: (params) => ai.generateWithUsage(withSignal(params)),
+    generateWithUsage: ((config: Parameters<AIService['generateWithUsage']>[0]) =>
+      ai.generateWithUsage(withSignal(config))) as AIService['generateWithUsage'],
     streamGenerate: (params) => ai.streamGenerate(withSignal(params)),
     extract: (params) => ai.extract(withSignal(params)),
     classify: (params) => ai.classify(withSignal(params)),

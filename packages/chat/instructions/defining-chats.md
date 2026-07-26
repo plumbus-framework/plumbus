@@ -65,7 +65,13 @@ defineChat({
     privacy?:  { redact: string[] },
     provenance?: { required: boolean, minSources?: number },
     behavioral?: { cooldowns: Cooldown[] },
-    action?:   { allowedCapabilities: string[] },
+    action?:   { allowedCapabilities: string[], frameworkExecuteOnConfirm?: boolean }, // Path A is decision-only; the flag is reserved / not yet enforced
+    toolCalling?: {                                    // Path B — provider-native tool calling
+      enabled: true,
+      capabilities?: string[],
+      autoStartFlows?: string[],
+      maxToolRounds?: number,                          // default 5, range 1..20
+    },
     custom?:   Guard[],
   },
 
@@ -101,7 +107,7 @@ defineChat({
 Two independent knobs. `messageContent` controls where the prose lives; `saveToDb` controls whether the runtime writes to `chat_session` / `chat_turn` / `chat_pending_action` at all.
 
 - `saveToDb: true` (default) — full audit, cross-device continuity, action confirmation, server-authoritative state.
-- `saveToDb: false` — no chat-table writes. The client owns `sessionId`; cooldowns and per-session message caps are enforced from `clientHistory` (assistant messages carry their `refusalReason` on the wire). `defineChat` rejects two combinations: `saveToDb: false` + `messageContent: 'server'`, and `saveToDb: false` + `policy.action.allowedCapabilities`. Action confirmation is therefore unavailable in ephemeral mode.
+- `saveToDb: false` — no chat-table writes. The client owns `sessionId`; cooldowns and per-session message caps are enforced from `clientHistory` (assistant messages carry their `refusalReason` on the wire). `defineChat` rejects three combinations: `saveToDb: false` + `messageContent: 'server'`, `saveToDb: false` + `policy.action.allowedCapabilities`, and `saveToDb: false` + `policy.toolCalling.enabled` (tool execution records require `chat_turn` rows). Action confirmation and Path B tool calling are therefore unavailable in ephemeral mode.
 
 ### `streaming`
 
@@ -114,9 +120,14 @@ The optional fourth argument is `RegisterChatRoutesOpts`:
 | Option | When to use |
 |---|---|
 | `authCookieNames: string[]` | Browser callers carry the session token in a cookie rather than `Authorization`. First non-empty cookie wins; it becomes `Bearer <value>`. |
+| `chatRegistry: ChatRegistry` | **Required for `policy.toolCalling` (Path B) chats.** Build with `createChatRegistry(promptRegistry)`; supplies the `chat.toolRound` / `chat.scopeCheck` prompt-registration status Path B checks. Pass alongside the transactional `store`. |
 | `audienceTenantOverride: (audience, auth) => tenantId \| undefined` | Audience-implied tenant routing when the auth adapter couldn't infer one. Only applied when `auth.tenantId` is empty. |
 | `beforeTurn: (ctx, parsed, rawBody) => { userMessage? } \| { error: { status, body } }` | Sanitize the user message or short-circuit with a typed error before any runtime work. |
 | `afterTurn: (ctx, rawBody, events) => Promise<void>` | Observability hook. Receives the full ordered `ChatEvent[]` after the turn completes. Errors are swallowed with `console.warn`. |
+| `store: ChatConversationStore` | **Required for confirmations.** Mounts `POST /chat/:name/confirm` and the lease/CAS commit path. |
+| `sessionStore: ChatSessionStore` | Serve session/turn state from somewhere other than `ctx.data` — deployments with no local database. Validated against every registered chat at registration. See `/docs/chat/session-store.md`. |
+| `authenticator: ChatRequestAuthenticator` | Replace the default credential resolution (Authorization header, then cookies). |
+| `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. |
 
 ### `<ChatPanel turnUrl=… />`
 
@@ -138,7 +149,7 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 - **Don't** use a write-effect capability as `capabilityContext`. The framework rejects this at construction time; use `actions:` + `policy.action.allowedCapabilities` for writes.
 - **Don't** narrow the prompt output schema when using `defineChat({ prompt })`. The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required by runtime guards. Extra fields are fine.
 - **Don't** call `runChatTurn` directly from your route handlers. Use `registerChatRoutes(app, routeConfig, chats)` — it wires auth, body validation, SSE, and `clientHistory` capping correctly.
-- **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed` — defined in `src/types/event.ts`.
+- **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed`, plus the Path B tool events `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved` — defined in `src/types/event.ts`.
 - **Don't** invent source IDs. The resolver issues handles in source-declaration order (`src_a`, `src_b`, ...). Cite using exactly those strings.
 - **Don't** set speculative budget caps expecting silent no-ops — `perTurn`, `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced at runtime.
 
@@ -198,6 +209,58 @@ export const helpChat = defineChat({
   prompt: helpBotPrompt,
 });
 ```
+
+### Enable provider-native tool calling (Path B)
+
+Path B needs two one-time app setup steps — (a) re-export the prompts and (b) wire a
+`ChatRegistry` into `registerChatRoutes` — plus a transactional store.
+
+1. **(a) Re-export the tool-calling prompts into `app/prompts/`** so directory discovery
+   registers them (same one-time wiring as `chat.turn`). Missing prompts fail on the first
+   Path B turn — a per-turn `turn.failed` carrying `chat.prompt_not_registered`, not a
+   boot-time error.
+
+   ```ts
+   // app/prompts/chat-tool-round.prompt.ts
+   export { chatToolRoundPrompt } from '@plumbus/chat';
+
+   // app/prompts/chat-scope-check.prompt.ts
+   export { chatScopeCheckPrompt } from '@plumbus/chat';
+   ```
+
+2. **(b) Build a `ChatRegistry` and pass it as `chatRegistry`** in the `registerChatRoutes`
+   opts, alongside the transactional store. This is what lets Path B check that the two
+   prompts above are registered.
+
+   ```ts
+   import { createChatRegistry, registerChatRoutes } from '@plumbus/chat';
+
+   // promptRegistry is the runtime PromptRegistry (any object with has(name))
+   const chatRegistry = createChatRegistry(promptRegistry);
+   registerChatRoutes(app, routeConfig, [supportChat], { store, chatRegistry });
+   ```
+
+3. **Turn on `policy.toolCalling`** and list capabilities / flows.
+
+   ```ts
+   export const supportChat = defineChat({
+     name: 'support',
+     access: { roles: ['user'] },
+     policy: {
+       toolCalling: {
+         enabled: true,
+         capabilities: ['lookupOrder', 'openSupportTicket'],
+         autoStartFlows: ['issueRefund'],   // bound as flow__issueRefund (flow name <= 57 chars)
+         maxToolRounds: 5,
+       },
+     },
+   });
+   ```
+
+4. **Use a transactional store.** Path B needs the lease-based `ChatConversationStore`;
+   a non-transactional adapter fails closed with `chat.storage_unsupported`.
+   Confirm-mode tools commit via `POST /chat/:name/confirm`, which the client's
+   `useChat.confirm()` calls automatically.
 
 ### Add a refusal cooldown
 

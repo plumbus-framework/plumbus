@@ -11,7 +11,7 @@ The package is intentionally thin: a state-managing hook, a high-level panel com
   - [`instructions/framework.md`](../../packages/chat-ui/instructions/framework.md) — package boundary, exports, file map, critical rules
   - [`instructions/wiring-chat-panel.md`](../../packages/chat-ui/instructions/wiring-chat-panel.md) — default recipe with `<ChatPanel />`
   - [`instructions/custom-ui.md`](../../packages/chat-ui/instructions/custom-ui.md) — headless `useChat`, pure helpers, `readChatStream`
-  - [`instructions/action-confirmation.md`](../../packages/chat-ui/instructions/action-confirmation.md) — wiring `chatConfirmAction` directly (the `confirm()` stub)
+  - [`instructions/action-confirmation.md`](../../packages/chat-ui/instructions/action-confirmation.md) — the `confirm()` / `decline()` round-trip against `POST /chat/:name/confirm`
 
 ## Glossary
 
@@ -65,7 +65,7 @@ The server owns chat definition and policy; the wire format is `ChatEvent[]`; th
 pnpm add @plumbus/chat-ui
 ```
 
-Peers: `@plumbus/chat` `0.1.x`, `@plumbus/core` `0.5.x || 0.6.x`, `react` `>=19` (React DOM comes through `@plumbus/ui`; it is not a peer of `@plumbus/chat-ui`).
+Peers: `@plumbus/chat` `0.1.x` (**≥ 0.1.11** for this UI line), `@plumbus/core` `0.5.x || 0.6.x` (**≥ 0.6.11** via chat), `react` `>=19` (React DOM comes through `@plumbus/ui`; it is not a peer of `@plumbus/chat-ui`).
 
 ## Minimal usage
 
@@ -98,7 +98,7 @@ By default the panel POSTs to `/chat/help/turn` with `credentials: 'include'` (c
 | `ChatInput` | component | Just the textarea + send button, disables itself while a turn is in-flight. |
 | `ConfirmationDialog` | component | Renders the model's `confirmationMessage` and exposes Confirm / Cancel callbacks. |
 | `SourceCitation` | component | A single cited source pill. |
-| `useChat` | hook | The state machine. Exposes `messages`, `status`, `notices`, `pendingConfirmation`, `send`, `confirm`, `cancel`. |
+| `useChat` | hook | The state machine. Exposes `messages`, `status`, `notices`, `pendingConfirmation`, `lastConfirmResult`, `send`, `confirm`, `decline`, `cancel`. |
 | `useChatSession` | hook | **Placeholder** — returns local `useState` defaults. Stub kept on the barrel as a stable export point; `sessions` never populates. Do not depend on its shape. |
 | `applyChatEvent` | helper | Pure reducer: `(state, ChatEvent) → state`. Use this to roll your own hook. |
 | `buildTurnRequestBody` | helper | Pure: builds the POST body, including capped `clientHistory` for `persistence: 'client'`. |
@@ -116,9 +116,13 @@ A turn produces a sequence of `ChatEvent`s — the same `ChatEvent` union export
 | `message.delta` | `text` | A chunk of assistant prose to append to the current assistant bubble. Multiple per turn. |
 | `source.added` | `source: { id, origin, label? }` | A retrieved context source the model is using. Attach to the in-progress assistant message for citation rendering. |
 | `notice` | `code`, `message`, `retryAfterSeconds?` | A non-fatal advisory: cooldown active, out of scope, provenance missing, etc. Render alongside the message stream; `chat.cooldown_active` flips the hook into `'cooldown'` status. |
-| `confirmation_required` | `actionId`, `capabilityName`, `confirmationMessage`, `expiresAt`, `schemaHash` | The post-turn `action-guard` paused the turn awaiting user approval. Render the confirmation dialog; the client supplies `{ actionId, schemaHash, capabilityName, execute }` to the `chatConfirmAction` capability to commit or reject. |
+| `confirmation_required` | `actionId`, `capabilityName`, `confirmationMessage`, `expiresAt`, `schemaHash?`, `inputSchemaHash?`, `projection?` | A turn paused awaiting user approval (Path A `action-guard`, or a Path B confirm-mode tool). Render the confirmation dialog; the hook's `confirm(actionId)` commits it via `POST /chat/:name/confirm`. `projection` (Path B) is a validated, ≤ 8 KiB preview — never a raw result. |
+| `tool.started` | `toolCallId`, `name`, `kind` (`'capability'` \| `'flow'`) | A Path B tool call began executing. |
+| `tool.completed` | `toolCallId`, `name`, `kind`, `projection?` | A tool call succeeded. `projection` is validated and ≤ 8 KiB — never a raw capability/flow result. |
+| `tool.failed` | `toolCallId`, `name`, `kind`, `code`, `message` | A tool call failed with a safe error code. |
+| `confirmation.resolved` | `actionId`, `decision` (`'confirm'` \| `'reject'`), `pendingStatus`, `executionStatus` | Terminal confirmation outcome. `pendingStatus` is one of `confirmed` \| `rejected` \| `failed` \| `indeterminate` \| `expired`. |
 | `turn.completed` | `turnId`, `usage`, `cost`, `inScope?`, `refusalReason?`, `sources?` | Terminal success event. Hook flips status back to `'idle'`. |
-| `turn.failed` | `code`, `message` | Terminal failure event (`chat.not_found`, budget exhaustion, etc.). Hook flips to `'error'`. |
+| `turn.failed` | `code`, `message` | Terminal failure event (`chat.not_found`, budget exhaustion, `chat.resume_failed`, etc.). Hook flips to `'error'`. |
 
 Exactly one of `turn.completed` or `turn.failed` (or `confirmation_required` followed by an out-of-band confirm) ends every turn. The hook's `status` field tracks the lifecycle so app code rarely needs to inspect events directly — but if you're writing a custom renderer, this is the full set.
 
@@ -146,14 +150,16 @@ Same arg shape as `<ChatPanel />` minus `className`. Returns:
   status: 'idle' | 'streaming' | 'awaiting_confirmation' | 'cooldown' | 'error';
   notices: ChatUiNotice[];
   pendingConfirmation: ChatUiPendingConfirmation | null;
+  lastConfirmResult: ChatUiConfirmResult | null;   // exported from @plumbus/chat-ui; not @plumbus/chat's ChatConfirmResult
   send: (text: string, extras?: { sessionId?: string; locale?: string; extraBody?: Record<string, unknown> }) => Promise<void>;
-  confirm: (actionId: string) => Promise<void>;
+  confirm: (actionId: string) => Promise<void>;   // POSTs to confirmUrl (default /chat/{chatName}/confirm)
+  decline: (actionId: string) => Promise<void>;    // POSTs a reject decision
   cancel: () => void;
 }
 ```
 
 - `send(text, extras?)` POSTs a turn. Detects `Content-Type` on the response: `application/json` payloads are unmarshalled as `{ events: ChatEvent[] }`; anything else is read via `readChatStream`. The `extras.extraBody` map is merged into the POST body — use it to forward app-specific fields when `beforeTurn` on `registerChatRoutes` reads them.
-- `confirm(actionId)` is currently a UI-only stub (clears `pendingConfirmation` and sets status back to `idle`). It does **not** call the server-side `chatConfirmAction` capability. For action confirmation, read `pendingConfirmation` off the hook (it carries `actionId`, `capabilityName`, and `schemaHash` from the `confirmation_required` event) and call `chatConfirmAction` directly via the auto-routed `POST /api/chat/chat-confirm-action` endpoint with `{ actionId, capabilityName, schemaHash, execute: true }`.
+- `confirm(actionId)` performs the real confirmation round-trip: it POSTs to `confirmUrl` (default `/chat/{chatName}/confirm`), which the server authenticates like `/turn`, executes the confirmed capability/flow through the framework pipeline, and resumes the turn. The terminal outcome lands in `lastConfirmResult` and a `confirmation.resolved` event. `decline(actionId)` POSTs a reject decision. Cookie-authenticated apps must be served from the configured `externalBaseUrl` origin (exact-Origin + CSRF are enforced server-side).
 - `cancel()` resets `status` to `'idle'` without server interaction.
 
 ## Persistence pairing
@@ -197,7 +203,7 @@ The pure helpers are the same ones `useChat` uses internally — test them direc
 
 ## What's not here
 
-- **Action confirmation round-trip.** `confirm()` is a UI-only stub (see above).
+- **Bespoke confirmation UX.** `confirm()` / `decline()` perform the server round-trip, but the built-in `<ConfirmationDialog />` is intentionally minimal — build your own dialog on `pendingConfirmation` + `confirm` / `decline` for richer flows.
 - **Multi-session management.** `useChatSession` is a placeholder; build your own list/picker on top of `useChat` if you need it.
 - **Bearer-token transport.** `useChat` and `<ChatPanel />` always send `credentials: 'include'`. For bearer-auth flows, copy the hook and swap the `fetch` call.
 - **A non-React client.** `readChatStream` is framework-agnostic; the rest of the package is React-only.

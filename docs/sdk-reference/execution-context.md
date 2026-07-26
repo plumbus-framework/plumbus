@@ -63,6 +63,7 @@ handler: async (ctx, input) => {
 - **Job** capabilities cannot be invoke targets — use job dispatch or flows.
 - Do **not** import other capability modules, call `.handler` directly, or use internal `ctx.__runtime` invokers — handlers only get the policy-enforced `ctx.capabilities` surface.
 - Flow steps should use flow `capability` step types rather than `ctx.capabilities.invoke` unless the runtime context explicitly supports it.
+- Runtimes with a **dynamic** allowlist (e.g. `@plumbus/chat` tool calling) cannot use `ctx.capabilities.invoke` — it throws `undeclaredInvocation` because the target is not in a static `effects.capabilities`. They resolve via `ctx.__runtime.resolveCapability(name)` and call `executeCapability(cap, ctx, input)`, which still enforces the target's access policy (`evaluateAccess`).
 
 ---
 
@@ -210,8 +211,25 @@ interface FlowService {
   status(executionId: string): Promise<FlowExecution>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. */
   heartbeat(): Promise<void>;
+  /** Describe a registered flow — name, domain, description, and input schema. */
+  describe?(flowName: string): FlowDescription | undefined;
+}
+
+interface FlowDescription {
+  name: string;
+  domain: string;
+  description?: string;
+  inputSchema: unknown;
+  parameters?: unknown;
 }
 ```
+
+`describe(flowName)` returns the registered flow's contract, or `undefined` when the
+name is unknown. It is optional on the interface, so probe before calling. Its purpose
+is to expose a flow to a model as a callable tool: `@plumbus/chat` uses it to bind
+`policy.toolCalling.autoStartFlows` entries into provider-native tool definitions,
+deriving each tool's JSON schema from `inputSchema`. Application code rarely needs it —
+prefer `start` / `status` / `resume` / `cancel`.
 
 `cancel(executionId)` is now cooperative — it aborts the running step's `AbortController` (the same signal exposed as `ctx.signal` inside the step). See [Cancellation](../core-concepts/flows.md#cancellation) in the flow docs for how to thread `ctx.signal` into in-flight AI / HTTP calls.
 
@@ -242,7 +260,10 @@ AI operations — generate, extract, classify, and retrieve:
 ```typescript
 interface AIService {
   generate(config: GenerateConfig): Promise<unknown>;
-  generateWithUsage(config: GenerateConfig): Promise<AIGenerateResult>;
+  // No tools → flat AIFinalGenerateResult (`.data` unconditional).
+  // Tools enabled → AIToolEnabledGenerateResult discriminated union (keyed on finishReason).
+  generateWithUsage(config: GenerateConfig): Promise<AIFinalGenerateResult>;
+  generateWithUsage(config: GenerateConfig & { tools: AITool[] }): Promise<AIToolEnabledGenerateResult>;
   streamGenerate(config: StreamConfig): AsyncIterable<AIStreamEvent>;
   extract(config: ExtractConfig): Promise<unknown>;
   classify(config: ClassifyConfig): Promise<string[]>;
@@ -264,14 +285,24 @@ interface AIService {
 //   signal?: AbortSignal                // defaults to ctx.signal inside flows
 //   costContext?: AICostContext         // per-call billing metadata
 //   seed?: number                       // deterministic sampling (OpenAI-compatible)
+//   tools?: AITool[]                     // provider-native tool calling (generate/generateWithUsage)
+//   toolChoice?: AIToolChoice            // 'auto' | 'none' | { type:'function'; function:{ name } }
+//   toolExecution?: { parallelToolCalls?: boolean }
+//   outputValidation?: 'prompt' | 'none' // 'none' disables output-schema validation
 
-interface AIGenerateResult {
-  data: Record<string, any>;
+// AIGenerateResult is the flat, back-compatible alias of AIFinalGenerateResult:
+interface AIFinalGenerateResult<T = Record<string, any>> {
+  finishReason?: 'stop' | 'length' | 'refusal' | 'other'; // OPTIONAL in the type so pre-0.6.9
+                                                          // result literals (mocks, custom AIService
+                                                          // impls) still compile. The framework
+                                                          // always sets it; readers should narrow.
+  data: T;                 // always present on the flat/no-tool result
   usage: AITokenUsage;
   model: string;
   provider: string;
   cost: number;
 }
+type AIGenerateResult<T = Record<string, any>> = AIFinalGenerateResult<T>;
 
 interface AITokenUsage {
   inputTokens: number;

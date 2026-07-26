@@ -50,3 +50,20 @@ export class AIIncompleteOutputError extends Error {
     this.finishReason = args.finishReason;
   }
 }
+
+/**
+ * Thrown when an AI request is structurally invalid before any provider I/O —
+ * e.g. caller tools combined with a tool-transport structured output, an
+ * out-of-grammar tool name, or duplicate tool names. Bare `Error` with a name
+ * string (same shape as AIRefusalError / AIIncompleteOutputError), NOT a
+ * PlumbusError.
+ */
+export class AIInvalidRequestError extends Error {
+  readonly reason: string;
+
+  constructor(args: { reason: string; message?: string }) {
+    super(args.message ?? `AI request is invalid: ${args.reason}`);
+    this.name = 'AIInvalidRequestError';
+    this.reason = args.reason;
+  }
+}

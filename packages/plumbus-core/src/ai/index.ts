@@ -52,7 +52,13 @@ export {
   createOpenAIAdapter,
   createProviderAdapter,
   joinAndFilterModels,
+  normalizeFinishReason,
   type AIProviderAdapter,
+  type AIProviderCapabilities,
+  type AITool,
+  type AIToolCall,
+  type AIToolChoice,
+  type AIToolExecutionOptions,
   type ChatMessage,
   type AnthropicAdapterConfig,
   type EmbeddingRequest,
@@ -65,8 +71,15 @@ export {
   type ProviderStreamEvent,
   type TokenUsage,
 } from './provider.js';
+// Bounded provider-native tool loop
+export {
+  runToolLoop,
+  safeJsonStringify,
+  type RunToolLoopParams,
+  type RunToolLoopResult,
+} from './tool-loop.js';
 // Provider-side structured output errors
-export { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
+export { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 // Provider-compatible schema conversion
 export {
   ProviderJsonSchemaError,

@@ -13,8 +13,10 @@ export type { AuthMetrics } from './runtime/metrics.js';
 export type { AuthDiagnosticsReport, AuthDiagnosticFinding } from './diagnostics/diagnostics.js';
 export type {
   AuthRuntimeConfig,
+  LoginContextRequest,
   NormalizedAuthRuntimeConfig,
   OidcProviderRegistration,
+  ResolveLoginContext,
   SecretSource,
   StorageProtectionConfig,
 } from './config/types.js';
@@ -27,8 +29,10 @@ export type {
 } from './stores/types.js';
 export type { OidcProviderIntegration } from './providers/integration.js';
 export type {
+  AuthLoginApplicationContext,
   AuthorizationResolution,
   IdentityResolution,
+  IdentityResolutionContext,
   ResolveAuthorization,
   ResolveIdentity,
   SessionPrincipal,

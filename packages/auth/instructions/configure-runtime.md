@@ -51,6 +51,22 @@ resolveAuthorization: async (principal) => {
 },
 ```
 
+## 3b. Optional — login context for invitation-only admission
+
+Only when new users must arrive through an invitation (or account-link / onboarding link). Skip otherwise.
+
+```ts
+loginContext: {
+  params: ["invite"],           // app-owned login-URL params, never sent to the IdP
+  resolve: async ({ params }) => {
+    const invitation = await db.invitations.findUsable(params.invite);
+    return invitation ? { type: "invitation", data: { invitationId: invitation.id } } : undefined;
+  },
+},
+```
+
+`resolveIdentity` then receives `context.applicationContext` after the callback validates. Full rules in [resolvers.md](./resolvers.md#invitation-only-admission-logincontext). Context is sealed in the login transaction and expires with `transactions.ttl` (default `10m`).
+
 ## 4. Build runtime
 
 ```ts
@@ -113,5 +129,6 @@ Set `auth.provider: 'custom'` when not using default JWT. With `authenticationRu
 - Register duplicate `/auth/login` or `/auth/callback` routes in app code.
 - Set `ctx.auth` manually in middleware — use the runtime authenticator.
 - Use memory stores in multi-instance production.
+- Append undeclared query params to `/auth/login` URLs — declare them under `loginContext.params` or they are rejected as provider params.
 
 Human docs: [docs/auth/getting-started.md](https://github.com/plumbus-framework/plumbus/blob/main/docs/auth/getting-started.md).

@@ -19,6 +19,14 @@ Read this file **before** editing `peerDependencies` in any `packages/*/package.
 
 When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x"` unless the package genuinely requires core 0.6+ only (then use the voice pattern).
 
+**Documented runtime floors (declared peer may be wider):** npm peer strings stay on the coarse literals above. When a release needs a patch floor inside a minor line, document it in that package's README / CHANGELOG / `instructions/framework.md` — do not invent fine-grained peer ranges. Current floors:
+
+| Package | Declared peer | Runtime floor |
+|---|---|---|
+| `@plumbus/chat` **0.1.11+** | `0.5.x \|\| 0.6.x` | `@plumbus/core` **≥ 0.6.11** (tool protocol + `updateWhere`) |
+| `@plumbus/chat-ui` **0.1.7+** | `0.5.x \|\| 0.6.x` (+ `@plumbus/chat` `0.1.x`) | `@plumbus/chat` **≥ 0.1.11** (and thus core **≥ 0.6.11**) |
+| `@plumbus/auth` | `0.6.x` | `@plumbus/core` **≥ 0.6.8** (`HttpAuthenticationRuntime`) |
+
 ## Other publishable peer strings
 
 | Declaring package | Peer target | Literal | Required? | Canonical copy-from |

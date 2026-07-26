@@ -12,7 +12,7 @@ These docs are split in two:
 | Doc | Read when… |
 |---|---|
 | [getting-started.md](./getting-started.md) | You want the minimal wiring: install, stores, resolvers, `createServer({ authenticationRuntime })`. |
-| [configuration.md](./configuration.md) | You need the full `AuthRuntimeConfig` shape, URLs, TTLs, and storage protection. |
+| [configuration.md](./configuration.md) | You need the full `AuthRuntimeConfig` shape, URLs, TTLs, storage protection, and login context for invitation-only admission. |
 | [providers.md](./providers.md) | You are registering OIDC providers, discovery, integrations, or provider logout. |
 | [sessions-and-csrf.md](./sessions-and-csrf.md) | You are wiring the frontend to `/auth/session`, CSRF headers, or same-site cookies. |
 | [cognito.md](./cognito.md) | Your IdP is Amazon Cognito — pool setup, hosted UI, and `@plumbus/auth-cognito`. |
@@ -34,7 +34,7 @@ These docs are split in two:
 
 ## Architecture in one paragraph
 
-The app registers one or more OIDC providers. Login starts a short-lived **login transaction** (state + PKCE + browser binding cookie), redirects to the IdP, and on callback verifies the authorization code, runs **`resolveIdentity`** (admit or deny the external subject), creates an opaque session in the configured store, and sets a **`__Host-plumbus_session`** cookie. Subsequent HTTP requests authenticate via that cookie (with CSRF on mutating verbs) or an optional bearer adapter passed to `createAuthRuntime`. Before handler execution, **`resolveAuthorization`** maps the session principal to roles, scopes, and optional `tenantId` for Plumbus access policies. Protected PostgreSQL stores seal principal payloads and CSRF hashes with app-owned storage protection keys.
+The app registers one or more OIDC providers. Login starts a short-lived **login transaction** (state + PKCE + browser binding cookie, plus optional app-supplied **login context** for invitation-style admission), redirects to the IdP, and on callback verifies the authorization code, runs **`resolveIdentity`** (admit or deny the external subject), creates an opaque session in the configured store, and sets a **`__Host-plumbus_session`** cookie. Subsequent HTTP requests authenticate via that cookie (with CSRF on mutating verbs) or an optional bearer adapter passed to `createAuthRuntime`. Before handler execution, **`resolveAuthorization`** maps the session principal to roles, scopes, and optional `tenantId` for Plumbus access policies. Protected PostgreSQL stores seal principal payloads and CSRF hashes with app-owned storage protection keys.
 
 ## Relationship to `@plumbus/core`
 
