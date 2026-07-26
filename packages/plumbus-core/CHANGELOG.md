@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+## 0.6.10
+
+### Fixed
+
+- **OpenAI `gpt-5.5+` temperature** — the OpenAI adapter no longer sends `temperature` for `gpt-5.5` and later models (including `-pro` and dated snapshots). Those models only accept the API default (`1`); sending Plumbus's `0.7` default (or any other value) caused HTTP 400 `unsupported_value`. Earlier `gpt-5` lines such as `gpt-5.4-mini` still receive the configured temperature. `max_completion_tokens` mapping for the broader `gpt-5*` / `o*` family is unchanged.
+
 ## 0.6.9
 
 ### Added (M5 — authentication contract)

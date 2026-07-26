@@ -198,7 +198,11 @@ Plumbus supports multiple AI providers simultaneously. Each prompt can specify w
 
 For OpenAI chat completions, Plumbus maps prompt `maxTokens` to the provider-specific request
 field expected by the selected model. Older models receive `max_tokens`; newer completion models
-such as `gpt-5*` and `o*` receive `max_completion_tokens`.
+such as `gpt-5*` and `o*` receive `max_completion_tokens`. Separately, OpenAI `gpt-5.5+` models
+only accept the API default temperature (`1`), so Plumbus omits `temperature` from the request
+for those models — configured prompt/`generate` temperatures are ignored for them rather than
+causing a 400 `unsupported_value` error. Earlier `gpt-5` lines (for example `gpt-5.4-mini`)
+still receive the configured temperature.
 
 ```typescript
 import { createAIService, createProviderAdapter } from "@plumbus/core";
