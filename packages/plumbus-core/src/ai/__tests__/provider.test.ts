@@ -149,6 +149,91 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
+    it('omits temperature for gpt-5.5+ models', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hello' }, finish_reason: 'stop' }],
+          model: 'gpt-5.5',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5' });
+      await adapter.complete({ prompt: 'Say hello', temperature: 0.2 });
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body);
+      expect(body.temperature).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it('omits temperature for gpt-5.5 streaming models', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response('data: [DONE]\n\n', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5-pro' });
+      for await (const event of adapter.stream({ prompt: 'Stream hello', temperature: 0.2 })) {
+        expect(event.type).toBe('done');
+        break;
+      }
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body);
+      expect(body.temperature).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it('sends temperature for gpt-5.4-mini', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hello' }, finish_reason: 'stop' }],
+          model: 'gpt-5.4-mini',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.4-mini' });
+      await adapter.complete({ prompt: 'Say hello', temperature: 0.2 });
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body);
+      expect(body.temperature).toBe(0.2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('sends default temperature for classic OpenAI models', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hello' }, finish_reason: 'stop' }],
+          model: 'gpt-4o',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-4o' });
+      await adapter.complete({ prompt: 'Say hello' });
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call?.[1].body);
+      expect(body.temperature).toBe(0.7);
+
+      vi.unstubAllGlobals();
+    });
+
     it('sends strict JSON Schema response_format when responseSchema is provided', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,

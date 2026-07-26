@@ -484,6 +484,19 @@ function shouldUseOpenAIMaxCompletionTokens(model: string): boolean {
   return /^(?:o\d|o\d-|o\d\.)/.test(normalizedModel) || normalizedModel.startsWith('gpt-5');
 }
 
+/**
+ * `gpt-5.5+` only accept the API default temperature (1). Sending any other
+ * value (including Plumbus's 0.7 default) returns HTTP 400 `unsupported_value`.
+ *
+ * Do not broaden this to all `gpt-5*` models — earlier lines such as
+ * `gpt-5.4` / `gpt-5.4-mini` still support custom temperature. Token-limit
+ * mapping (`max_completion_tokens`) remains a separate, wider check.
+ */
+function shouldOmitOpenAITemperature(model: string): boolean {
+  const normalizedModel = model.trim().toLowerCase();
+  return /^gpt-5\.(?:[5-9]|\d{2,})(?:$|[-.])/.test(normalizedModel);
+}
+
 function applyOpenAITokenLimit(
   body: Record<string, unknown>,
   model: string,
@@ -495,6 +508,15 @@ function applyOpenAITokenLimit(
     return;
   }
   body.max_tokens = maxTokens;
+}
+
+function applyOpenAITemperature(
+  body: Record<string, unknown>,
+  model: string,
+  temperature?: number,
+): void {
+  if (shouldOmitOpenAITemperature(model)) return;
+  body.temperature = temperature ?? 0.7;
 }
 
 function anthropicUsageToTokenUsage(usage: {
@@ -790,8 +812,8 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       const body: Record<string, unknown> = {
         model,
         messages,
-        temperature: request.temperature ?? 0.7,
       };
+      applyOpenAITemperature(body, model, request.temperature);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
@@ -930,10 +952,10 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       const body: Record<string, unknown> = {
         model,
         messages,
-        temperature: request.temperature ?? 0.7,
         stream: true,
         stream_options: { include_usage: true },
       };
+      applyOpenAITemperature(body, model, request.temperature);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {

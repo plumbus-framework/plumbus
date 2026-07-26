@@ -13,6 +13,10 @@
 - **`safeJsonStringify`** (exported) — best-effort JSON serialization that never throws (handles circular refs / non-serializable values), used for tool observations and structured logging. **`AIInvalidRequestError`** (exported) — structured `PlumbusError` subclass for provider-rejected/invalid AI requests; existing `catch` blocks are unaffected.
 - **`Repository.updateWhere` (optional conditional/CAS update) + transaction-capable write path** — `Repository` gains the optional `updateWhere` method returning `ConditionalUpdateResult`, surfaced to `@plumbus/chat` for atomic lease-based session mutations. `updateWhere` is **optional** on the `Repository` interface, so pre-existing custom `Repository` implementations still compile; stores that lack it fail closed at startup with `chat.storage_unsupported` rather than silently losing conditional semantics.
 
+### Fixed
+
+- **OpenAI `gpt-5.5+` temperature** — the OpenAI adapter no longer sends `temperature` for `gpt-5.5` and later models (including `-pro` and dated snapshots). Those models only accept the API default (`1`); sending Plumbus's `0.7` default (or any other value) caused HTTP 400 `unsupported_value`. Earlier `gpt-5` lines such as `gpt-5.4-mini` still receive the configured temperature. `max_completion_tokens` mapping for the broader `gpt-5*` / `o*` family is unchanged.
+
 ### Notes
 
 All changes are additive and stay within the `0.6.x` line, so `@plumbus/ui`, `@plumbus/chat`, and `@plumbus/voice` peer ranges (`0.6.x`) remain satisfied. No install-time or wire-format break.

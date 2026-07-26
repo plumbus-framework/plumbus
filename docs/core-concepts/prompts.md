@@ -33,6 +33,8 @@ Return valid JSON matching the output schema.`,
 
 `model` is a `ModelConfig` object — `{ provider?, name?, temperature?, maxTokens? }`. Leaving any field unset falls back to the provider's default. Set `provider: "openai" | "anthropic" | …` when you have multiple providers configured and want this prompt to pin to one.
 
+For OpenAI `gpt-5.5+` models, `temperature` is omitted from the API request (those models only support the default value of `1`). Earlier `gpt-5` lines such as `gpt-5.4-mini` still send the configured temperature. Separately, `maxTokens` is sent as `max_completion_tokens` for the broader `gpt-5*` / `o*` family.
+
 ## Using Prompts via ctx.ai
 
 ### Generate (structured output)
