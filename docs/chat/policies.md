@@ -250,7 +250,8 @@ once before reaping, and the reap CAS is scoped to `{ status: 'confirming', atte
 | `chat.prompt_not_registered` | `chat.toolRound` or `chat.scopeCheck` absent from the prompt registry; Path B fails before provider I/O. |
 | `chat.pending_action_exists` | A live `pending` action already exists for the session. |
 | `chat.session_busy` | Another turn/confirm mutation owns the session lease, or a `confirming` action is in flight. |
-| `chat.storage_unsupported` | Store adapter lacks the transactional/conditional-write path; startup fail-closed. |
+| `chat.storage_unsupported` | Store adapter lacks the transactional/conditional-write path; startup fail-closed. Also raised when a chat that can request confirmations runs on an injected `sessionStore` with no `conversationStore` — see [session-store.md](./session-store.md). |
+| `chat.budget_unsupported` | A chat declares a `budget` (or `budget.actions.perSession`) but the injected session store cannot aggregate the stored turns needed to **enforce** it. Fail-closed, so a cap is never silently unenforced. Concerns cap enforcement only — AI cost recording (`onAICostRecorded`, the cost ledger) is core's and is unaffected. Unreachable unless a `sessionStore` is injected. |
 | `chat.turn_aborted` | Request disconnect or timeout aborted the turn. |
 | `chat.action_not_found` | Pending action does not exist for the authenticated owner. |
 | `chat.action_expired` | Pending action expired before claim. |

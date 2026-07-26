@@ -1,4 +1,5 @@
 import type { ExecutionContext } from '@plumbus/core';
+import type { ChatSessionStore } from '../session/session-store.js';
 import type { TurnContext } from './turn.js';
 import type { ChatEvent } from './event.js';
 import type { PendingAction } from './action.js';
@@ -88,6 +89,10 @@ export interface GuardState {
     content: string;
     refusalReason?: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
   }>;
+  /** Set by runChatTurn from its `sessionStore` option. Guards that read or write
+   * session state must go through this rather than `ctx.data` so chats backed by
+   * an injected store work; when absent, the DB-backed default applies. */
+  sessionStore?: ChatSessionStore;
   /** From chat.budget.actions.perSession — enforced in action-guard. */
   budgetActionsPerSession?: number;
   /** Set when a guard blocks so behavioral post-guard can record guardFailure/budget triggers. */

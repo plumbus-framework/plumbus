@@ -10,6 +10,31 @@ This file covers the four extension points the framework intentionally exposes. 
 | Context resolution (new data source type) | Custom `ContextSource` | Implement the interface |
 | Policy behavior (new check the built-ins don't cover) | `policy.custom: Guard[]` | Implement `Guard` type |
 | Action confirmation flow | Path A: `actions:` + `policy.action`. Path B: `policy.toolCalling` (model calls capabilities/flows as provider-native tools) | Use, don't replace |
+| Where session/turn state is stored | `runChatTurn(ctx, args, { sessionStore })` | Implement `ChatSessionStore` |
+
+## Session storage (no local database)
+
+Use this **only** when the app genuinely cannot reach `ctx.data` for chat — conversation memory lives on a remote platform or behind a port. If the app has a database, use the default; do not write an adapter to "customize" persistence.
+
+```ts
+import type { ChatSessionStore } from '@plumbus/chat';
+
+const store: ChatSessionStore = {
+  /* getOrCreateSession, loadSession, appendTurn, countTurns, listTurns,
+     updateSessionBehavioralState, updateSessionSummary, loadMergedUserBehavioralState */
+};
+
+registerChatRoutes(app, routeConfig, chats, { sessionStore: store, authenticator });
+```
+
+Rules:
+
+- **Do not fork `runChatTurn`.** Injecting a store is the supported way to run the pipeline on non-DB memory; re-stitching `compilePolicy` / `resolveContextSources` / `buildSystemPrompt` yourself is the thing this replaces.
+- **Honor the documented invariants** — `appendTurn` assigns the ordinal and advances `lastTurnAt`, `persistContent: false` means store empty content, `getOrCreateSession` raises `notFound` on a userId mismatch, `listTurns` is ascending by ordinal. They are listed in full on the `ChatSessionStore` doc comment and in `/docs/chat/session-store.md`.
+- **Implement `aggregateForBudget` if any chat declares a `budget`,** and `countActivePendingActions` if any sets `budget.actions.perSession`. Omitting them is a startup failure (`chat.budget_unsupported`), not a silent skip.
+- **Tool confirmations need the second tier.** They require atomic compare-and-set writes; pass a `ChatConversationStore` as `store` too, or the chat must not enable `policy.toolCalling` / `policy.action.allowedCapabilities`.
+- **In custom guards, read `state.sessionStore`** via `resolveChatSessionStore(state.sessionStore)` — never `ctx.data` directly, or the guard breaks under an injected store.
+- **Start from `createInMemoryChatSessionStore`** in `@plumbus/chat/testing`; it implements the full required tier-1 surface. For `countActivePendingActions`, copy `dbChatSessionStore`'s version in `src/session/session-store.ts`.
 
 ## Custom Prompt (per-chat)
 
@@ -162,12 +187,13 @@ defineChat({
 | Add a new event type | Add to `ChatEvent` union ad-hoc | File an issue; events are part of the wire protocol |
 | Persist extra session data | Add columns to `ChatSession` | Use a separate entity in your app, key it on `sessionId` |
 | Skip the action confirmation flow | Execute capabilities from a custom guard | Use `actions:` + `policy.action` (Path A) or `policy.toolCalling` (Path B); those are the safe paths |
-| Replace the runtime orchestrator | Fork `runChatTurn` | The orchestrator's order is load-bearing for guards, budgets, provenance |
+| Replace the runtime orchestrator | Fork `runChatTurn` | The orchestrator's order is load-bearing for guards, budgets, provenance. If the blocker is storage, inject a `sessionStore` instead |
 | Bypass the prompt's structured-output schema | Use a prompt with a different output shape | Custom prompts must keep the five base fields |
 
 ## Deeper Reference
 
 - `/docs/chat/design/` — every design decision; read before extending
+- `/docs/chat/session-store.md` — the two-tier storage contract, adapter invariants, startup validation
 - `defining-chats.md` / `policies.md` (this folder) — `policy.toolCalling` (Path B): letting the model call capabilities/flows as provider-native tools instead of the single-shot Path A `requestedAction`
 - `src/types/policy.ts` — the `Guard` and `GuardVerdict` types
 - `src/types/context.ts` — the `ContextSource`, `ContextItem`, `ChatSourceRef` types

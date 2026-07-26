@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@plumbus/core';
 import type { ChatSessionRow, ChatTurnRow } from '../types/session.js';
-import { updateSessionSummary } from '../session/service.js';
+import { resolveChatSessionStore, type ChatSessionStore } from '../session/session-store.js';
 
 export async function maybeSummarize(
   ctx: ExecutionContext,
@@ -11,6 +11,7 @@ export async function maybeSummarize(
     thresholdTurns?: number;
     targetTokens?: number;
   },
+  sessionStore?: ChatSessionStore,
 ): Promise<{ summary: string; turnsConsumed: number } | null> {
   if (!opts?.thresholdTurns) return null;
   const total = session.summaryTurnCount + history.length;
@@ -27,7 +28,12 @@ export async function maybeSummarize(
   });
 
   const summary = (data as { summary?: string }).summary ?? '';
-  await updateSessionSummary(ctx, session.id, summary, session.summaryTurnCount + older.length);
+  await resolveChatSessionStore(sessionStore).updateSessionSummary(
+    ctx,
+    session.id,
+    summary,
+    session.summaryTurnCount + older.length,
+  );
 
   return { summary, turnsConsumed: older.length };
 }

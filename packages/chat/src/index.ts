@@ -14,6 +14,21 @@ export {
   updateSessionSummary,
 } from './session/service.js';
 
+export {
+  type ChatSessionStore,
+  type ChatBudgetAggregate,
+  type ChatBudgetAggregateQuery,
+  type ChatBudgetAggregator,
+  type CreateChatSessionArgs,
+  type GetOrCreateChatSessionArgs,
+  dbChatSessionStore,
+  resolveChatSessionStore,
+  requireChatBudgetAggregator,
+  assertChatSessionStoreSupportsBudget,
+  assertChatStoresSupportChats,
+  ChatStoreUnsupportedError,
+} from './session/session-store.js';
+
 export { knowledgeContext, CHAT_TIER_TOOLS_ERROR_PREFIX } from './context/knowledge-context.js';
 export { ragContext } from './context/rag-context.js';
 /**
@@ -34,7 +49,7 @@ export { buildSystemPrompt } from './prompt/build-system-prompt.js';
 export { renderContext } from './prompt/render-context.js';
 
 export { compilePolicy } from './policy/registry.js';
-export { runChatTurn } from './runtime/run-turn.js';
+export { runChatTurn, type RunChatTurnOpts } from './runtime/run-turn.js';
 export {
   registerChatRoutes,
   type RegisterChatRoutesOpts,

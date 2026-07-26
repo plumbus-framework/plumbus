@@ -21,6 +21,7 @@ These docs are split in three:
 | [evaluations.md](./evaluations.md) | You're writing eval scenarios for a chat with `defineChatEvaluation` / `runChatEvaluation`. |
 | [tool-calling.md](./tool-calling.md) | You're enabling `policy.toolCalling` so the model calls capabilities directly (Path B). |
 | [confirmation-persistence.md](./confirmation-persistence.md) | You're migrating chat entities or wiring durable confirmation + session revision CAS. |
+| [session-store.md](./session-store.md) | Your deployment has no local database and needs chat memory served from a remote platform or port. |
 | [../chat-ui/README.md](../chat-ui/README.md) | You're wiring `<ChatPanel />`, `useChat`, or the SSE client helpers in a React app. |
 
 ## Design docs
@@ -132,6 +133,7 @@ This package composes on core; it does not duplicate. Specifically:
 | Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | auto-routed; `chatConfirmAction` is what a client calls to commit a pending action |
 | Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | register in your app's entity list |
 | Session service | `createSession`, `loadSession`, `appendTurn`, `aggregateForBudget`, `updateSessionBehavioralState`, `updateSessionSummary` | advanced — for custom turn pipelines / migrations; most apps never need these |
+| Session storage | `ChatSessionStore`, `RunChatTurnOpts`, `dbChatSessionStore`, `resolveChatSessionStore`, `assertChatStoresSupportChats`, `ChatStoreUnsupportedError` | inject non-DB chat persistence — see [session-store.md](./session-store.md) |
 | Runtime utilities | `ChatEventEmitter`, `validateCitations`, `stripInvalidFromAnswer`, `setTokenCounter` | advanced — only reach for these when wrapping the runtime or swapping the token counter (e.g. local tiktoken vs heuristic) |
 | Evaluation | `runChatEvaluation`, `TraceRecorder` | run scenarios against a scripted model and assert on the event stream — see [evaluations.md](./evaluations.md) |
 | Events | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent` | domain events emitted by the runtime; subscribe with an `eventHandler` capability |

@@ -11,6 +11,8 @@ import { resolveToolBinding } from './bind-tools.js';
 import type { ChatRegistry } from './chat-registry.js';
 import { capClientHistory, validateClientHistorySize } from './constants.js';
 import type { ChatConversationStore } from './chat-conversation-store.js';
+import { assertChatStoresSupportChats, type ChatSessionStore } from '../session/session-store.js';
+import type { RunChatTurnOpts } from './run-turn.js';
 import {
   CHAT_CSRF_COOKIE_NAME,
   CHAT_CSRF_HEADER_NAME,
@@ -93,6 +95,14 @@ export interface RegisterChatRoutesOpts {
   authenticator?: ChatRequestAuthenticator;
   /** D1 — conversation store; when present the /confirm route + C5 pre-turn pending check are enabled. */
   store?: ChatConversationStore;
+  /**
+   * Tier-1 session/turn storage for `runChatTurn`. Supply this to serve chats from
+   * a backend other than `ctx.data` — e.g. a remote memory platform reached through
+   * a port. Omit it to keep the DB-backed default. Chats declaring a `budget` need a
+   * store implementing `aggregateForBudget`; the mismatch is reported here at
+   * registration rather than mid-conversation.
+   */
+  sessionStore?: ChatSessionStore;
   /** D3 — required alongside csrfSecret to enable browser Origin + CSRF enforcement on cookie auth. */
   externalBaseUrl?: string;
   /** D3 — HMAC secret for session-bound CSRF tokens. Enables browser write protection when set. */
@@ -185,6 +195,17 @@ export function registerChatRoutes(
   const cookieNames = opts?.authCookieNames ?? [];
   const authenticator = opts?.authenticator ?? defaultAuthenticator(routeConfig, cookieNames);
   const store = opts?.store;
+  // Fail fast when injected storage cannot serve the registered chats (no-op
+  // unless a sessionStore was injected).
+  assertChatStoresSupportChats({
+    chats,
+    sessionStore: opts?.sessionStore,
+    conversationStore: opts?.store,
+  });
+  const runOpts: RunChatTurnOpts = {
+    sessionStore: opts?.sessionStore,
+    conversationStore: opts?.store,
+  };
   const browserSecurityEnabled = Boolean(opts?.csrfSecret && opts?.externalBaseUrl);
   const csrfSecret = opts?.csrfSecret ?? '';
   const externalBaseUrl = opts?.externalBaseUrl ?? '';
@@ -266,6 +287,11 @@ export function registerChatRoutes(
           });
         }
       } else if (
+        // Skipped for a tier-1-only deployment: no conversation store means no
+        // pending action can exist (runChatTurn refuses confirmations, and startup
+        // validation rejects chats that could raise them), and checkLivePending
+        // reads ctx.data — the very thing an injected session store exists to avoid.
+        !opts?.sessionStore &&
         (chat.persistence?.saveToDb ?? true) &&
         (chat.persistence?.messageContent ?? 'server') !== 'client'
       ) {
@@ -323,7 +349,7 @@ export function registerChatRoutes(
 
       if (!streaming) {
         const events: ChatEvent[] = [];
-        for await (const evt of runChatTurn(ctx, runArgs)) {
+        for await (const evt of runChatTurn(ctx, runArgs, runOpts)) {
           events.push(evt);
         }
         if (opts?.afterTurn) {
@@ -345,7 +371,7 @@ export function registerChatRoutes(
       });
 
       const events: ChatEvent[] = [];
-      for await (const evt of runChatTurn(ctx, runArgs)) {
+      for await (const evt of runChatTurn(ctx, runArgs, runOpts)) {
         events.push(evt);
         reply.raw.write(`data: ${JSON.stringify(evt)}\n\n`);
       }

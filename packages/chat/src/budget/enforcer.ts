@@ -1,6 +1,10 @@
 import type { ExecutionContext } from '@plumbus/core';
 import type { ChatBudget } from '../types/budget.js';
-import { aggregateForBudget } from '../session/service.js';
+import {
+  requireChatBudgetAggregator,
+  resolveChatSessionStore,
+  type ChatSessionStore,
+} from '../session/session-store.js';
 
 export async function checkBudgetPreflight(
   ctx: ExecutionContext,
@@ -10,10 +14,18 @@ export async function checkBudgetPreflight(
     tenantId?: string;
     sessionId: string;
     budget?: ChatBudget;
+    sessionStore?: ChatSessionStore;
   },
 ): Promise<void> {
   const budget = args.budget;
   if (!budget) return;
+
+  // An injected store that cannot roll up usage must not silently leave a
+  // configured spend cap unenforced — this throws chat.budget_unsupported.
+  const aggregateForBudget = requireChatBudgetAggregator(ctx, {
+    chatName: args.chatName,
+    store: resolveChatSessionStore(args.sessionStore),
+  });
 
   const agg = await aggregateForBudget(ctx, {
     sessionId: args.sessionId,

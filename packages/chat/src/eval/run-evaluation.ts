@@ -1,6 +1,6 @@
 import type { ChatEvaluationDefinition, ChatAssertion } from '../define/defineChatEvaluation.js';
 import type { TraceRecorder } from './trace.js';
-import { runChatTurn } from '../runtime/run-turn.js';
+import { runChatTurn, type RunChatTurnOpts } from '../runtime/run-turn.js';
 import type { ExecutionContext } from '@plumbus/core';
 
 export interface EvalVerdict {
@@ -12,21 +12,32 @@ export interface EvalVerdict {
 export async function runChatEvaluation(
   evaluation: ChatEvaluationDefinition,
   ctx: ExecutionContext,
-  opts: { sessionId: string; audience: string; locale: string; trace?: TraceRecorder },
+  opts: {
+    sessionId: string;
+    audience: string;
+    locale: string;
+    trace?: TraceRecorder;
+    /** Evaluate against injected storage instead of `ctx.data`. */
+    stores?: RunChatTurnOpts;
+  },
 ): Promise<EvalVerdict[]> {
   const results: EvalVerdict[] = [];
 
   for (const scenario of evaluation.scenarios) {
     const failures: string[] = [];
     const events: unknown[] = [];
-    for await (const evt of runChatTurn(ctx, {
-      chatDefinition: evaluation.chat,
-      sessionId: opts.sessionId,
-      userMessage: scenario.when.send,
-      audience: opts.audience,
-      locale: opts.locale,
-      traceRecorder: opts.trace,
-    })) {
+    for await (const evt of runChatTurn(
+      ctx,
+      {
+        chatDefinition: evaluation.chat,
+        sessionId: opts.sessionId,
+        userMessage: scenario.when.send,
+        audience: opts.audience,
+        locale: opts.locale,
+        traceRecorder: opts.trace,
+      },
+      opts.stores,
+    )) {
       events.push(evt);
       opts.trace?.recordEvent(evt);
     }

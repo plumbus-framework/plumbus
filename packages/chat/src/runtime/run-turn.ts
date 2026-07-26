@@ -5,13 +5,13 @@ import { withTurnTimeout } from '../budget/timeout.js';
 import { resolveContextSources } from '../context/resolver.js';
 import { maybeSummarize } from '../history/summarizer.js';
 import { loadHistoryWindow } from '../history/window.js';
-import { chatTurnRepo } from '../internal/chat-repos.js';
 import { compilePolicy } from '../policy/registry.js';
 import { runBehavioralPostGuard } from '../policy/behavioral-guard.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
 import type { ChatTurnModelOutput } from '../prompt/chat-turn.prompt.js';
-import { appendTurn, getOrCreateSession, type loadSession } from '../session/service.js';
+import type { loadSession } from '../session/service.js';
+import { resolveChatSessionStore, type ChatSessionStore } from '../session/session-store.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatEvent } from '../types/event.js';
 import type { GuardState } from '../types/policy.js';
@@ -19,7 +19,10 @@ import type { ChatSourceRef } from '../types/context.js';
 import type { TraceRecorder } from '../eval/trace.js';
 import { capClientHistory, type ClientHistoryMessage } from './constants.js';
 import { ChatEventEmitter, emitterToIterable } from './events.js';
-import { createChatConversationStore } from './chat-conversation-store.js';
+import {
+  createChatConversationStore,
+  type ChatConversationStore,
+} from './chat-conversation-store.js';
 import { buildNormalizedPending } from '../policy/pending-action-factory.js';
 import type { ChatPendingActionV2, ChatToolResumePayloadV1 } from '../session/pending-action-v2.js';
 import type { ChatTurnWrite } from './chat-conversation-store.js';
@@ -49,6 +52,21 @@ export interface RunChatTurnArgs {
   registry?: ChatRegistry;
 }
 
+/**
+ * Storage injection for one turn. Both fields are optional; omitting them keeps
+ * the DB-backed behavior applications already have.
+ *
+ * Supplying `sessionStore` lets a deployment with no local database run the stock
+ * pipeline against its own memory backend (see `docs/chat/session-store.md`).
+ * `conversationStore` is the separate atomic tier that tool confirmations and
+ * pending actions require; when a `sessionStore` is injected without it,
+ * confirmations are refused rather than committed non-atomically.
+ */
+export interface RunChatTurnOpts {
+  sessionStore?: ChatSessionStore;
+  conversationStore?: ChatConversationStore;
+}
+
 const defaultModelOutput = (): ChatTurnModelOutput => ({
   inScope: true,
   answer: '',
@@ -60,6 +78,7 @@ const defaultModelOutput = (): ChatTurnModelOutput => ({
 export async function* runChatTurn(
   ctx: ExecutionContext,
   args: RunChatTurnArgs,
+  opts?: RunChatTurnOpts,
 ): AsyncIterable<ChatEvent> {
   const emitter = new ChatEventEmitter();
   const iterable = emitterToIterable(emitter);
@@ -70,6 +89,24 @@ export async function* runChatTurn(
   const emit = (evt: ChatEvent): void => {
     trace?.recordEvent(evt);
     emitter.emit(evt);
+  };
+
+  const sessionStore = resolveChatSessionStore(opts?.sessionStore);
+
+  /**
+   * Tier 2 (atomic multi-row commits) for the confirmation paths.
+   *
+   * Legacy behavior is preserved exactly: with no injection at all we build the
+   * ctx-backed store, which still throws `chat.storage_unsupported` when the
+   * wired repositories lack a conditional-write path. Only when a caller has
+   * injected a tier-1 `sessionStore` but no `conversationStore` do we return
+   * null, so the confirmation sites can refuse cleanly instead of committing a
+   * proposal the store cannot make atomic.
+   */
+  const resolveConversationStore = (): ChatConversationStore | null => {
+    if (opts?.conversationStore) return opts.conversationStore;
+    if (opts?.sessionStore) return null;
+    return createChatConversationStore(ctx);
   };
 
   void (async () => {
@@ -93,7 +130,7 @@ export async function* runChatTurn(
       // request. This removes the need for consumers to ship a separate
       // `chatStart` capability.
       const session = saveToDb
-        ? await getOrCreateSession(ctx, {
+        ? await sessionStore.getOrCreateSession(ctx, {
             sessionId: args.sessionId,
             chatName: chat.name,
             userId: (ctx.auth as { userId?: string }).userId ?? '',
@@ -120,7 +157,7 @@ export async function* runChatTurn(
       // client-supplied history length is the best proxy (the new user message
       // about to be sent makes this turn ordinal N = past message count).
       const ordinal = saveToDb
-        ? await aggregateTurnCount(ctx, args.sessionId)
+        ? await sessionStore.countTurns(ctx, args.sessionId)
         : (args.clientHistory?.length ?? 0);
       emit({ type: 'turn.started', turnId, ordinal });
 
@@ -134,6 +171,7 @@ export async function* runChatTurn(
           tenantId: session.tenantId,
           sessionId: args.sessionId,
           budget: chat.budget,
+          sessionStore: opts?.sessionStore,
         });
       } else {
         const cap = chat.budget?.perSession?.userMessages;
@@ -190,6 +228,7 @@ export async function* runChatTurn(
         resolvedSources: new Set<string>(),
         clientHistory: saveToDb ? undefined : (args.clientHistory ?? []),
         saveToDb,
+        sessionStore: opts?.sessionStore,
         budgetActionsPerSession: chat.budget?.actions?.perSession,
       };
 
@@ -246,6 +285,7 @@ export async function* runChatTurn(
               args.sessionId,
               chat.history?.includeLastTurns ?? 8,
               persistence,
+              opts?.sessionStore,
             );
 
       // Summarizer reads chat_turn rows. Ephemeral mode has none — skip.
@@ -253,8 +293,9 @@ export async function* runChatTurn(
         ? await maybeSummarize(
             ctx,
             session,
-            await loadTurnRows(ctx, args.sessionId),
+            await sessionStore.listTurns(ctx, args.sessionId),
             chat.history?.summarize,
+            opts?.sessionStore,
           )
         : null;
 
@@ -474,69 +515,80 @@ export async function* runChatTurn(
                   message: 'Requested action could not be prepared',
                 });
               } else {
-                const store = createChatConversationStore(ctx);
-                const leaseRes = await store.acquireSessionMutation({
-                  sessionId: args.sessionId,
-                  ownerToken: crypto.randomUUID(),
-                  leaseMs: 30_000,
-                });
-                if (!leaseRes.acquired) {
-                  emit({ type: 'notice', code: 'chat.session_busy', message: 'Session is busy' });
+                const store = resolveConversationStore();
+                if (!store) {
+                  // Tier-1 store injected without the atomic tier: refuse rather
+                  // than commit a proposal that cannot be made atomic.
+                  emit({
+                    type: 'notice',
+                    code: 'chat.storage_unsupported',
+                    message:
+                      'Confirmations require a conversation store with atomic writes; none was injected',
+                  });
                 } else {
-                  try {
-                    await store.commitProposal({
-                      lease: leaseRes.lease,
-                      expectedRevision: leaseRes.lease.sessionRevision,
-                      userTurn: {
-                        role: 'user',
-                        content: args.userMessage,
-                        inScope: true,
-                        sources: [],
-                        logicalTurnId: turnId,
-                        tokensIn: 0,
-                        tokensOut: 0,
-                        costUsd: 0,
-                        model: '',
-                        latencyMs: 0,
-                      },
-                      assistantTurn: {
-                        role: 'assistant',
-                        content: built.pending.confirmationMessage,
-                        inScope: true,
-                        sources: sourceRefsForResume,
-                        logicalTurnId: turnId,
-                        tokensIn: toolPhaseTokensIn,
-                        tokensOut: toolPhaseTokensOut,
-                        costUsd: toolPhaseCost,
-                        model: '',
-                        latencyMs: 0,
-                        toolsExecuted: toolPhase.toolsExecuted,
-                        actionRequested: {
-                          capabilityName: built.pending.capabilityName,
-                          input: built.pending.input,
+                  const leaseRes = await store.acquireSessionMutation({
+                    sessionId: args.sessionId,
+                    ownerToken: crypto.randomUUID(),
+                    leaseMs: 30_000,
+                  });
+                  if (!leaseRes.acquired) {
+                    emit({ type: 'notice', code: 'chat.session_busy', message: 'Session is busy' });
+                  } else {
+                    try {
+                      await store.commitProposal({
+                        lease: leaseRes.lease,
+                        expectedRevision: leaseRes.lease.sessionRevision,
+                        userTurn: {
+                          role: 'user',
+                          content: args.userMessage,
+                          inScope: true,
+                          sources: [],
+                          logicalTurnId: turnId,
+                          tokensIn: 0,
+                          tokensOut: 0,
+                          costUsd: 0,
+                          model: '',
+                          latencyMs: 0,
                         },
-                      },
-                      pending: {
-                        ...built.pending,
-                        expectedSessionRevision: leaseRes.lease.sessionRevision + 1,
-                      },
-                    });
-                    emit({
-                      type: 'confirmation_required',
-                      actionId: built.pending.id,
-                      capabilityName: built.pending.capabilityName,
-                      confirmationMessage: built.pending.confirmationMessage,
-                      expiresAt: built.pending.expiresAt,
-                      schemaHash: built.pending.inputSchemaHash,
-                      inputSchemaHash: built.pending.inputSchemaHash,
-                      projection: built.pending.confirmationProjection,
-                    });
-                    proposalCommitted = true;
-                  } finally {
-                    await store.releaseSessionMutation({
-                      sessionId: args.sessionId,
-                      leaseToken: leaseRes.lease.leaseToken,
-                    });
+                        assistantTurn: {
+                          role: 'assistant',
+                          content: built.pending.confirmationMessage,
+                          inScope: true,
+                          sources: sourceRefsForResume,
+                          logicalTurnId: turnId,
+                          tokensIn: toolPhaseTokensIn,
+                          tokensOut: toolPhaseTokensOut,
+                          costUsd: toolPhaseCost,
+                          model: '',
+                          latencyMs: 0,
+                          toolsExecuted: toolPhase.toolsExecuted,
+                          actionRequested: {
+                            capabilityName: built.pending.capabilityName,
+                            input: built.pending.input,
+                          },
+                        },
+                        pending: {
+                          ...built.pending,
+                          expectedSessionRevision: leaseRes.lease.sessionRevision + 1,
+                        },
+                      });
+                      emit({
+                        type: 'confirmation_required',
+                        actionId: built.pending.id,
+                        capabilityName: built.pending.capabilityName,
+                        confirmationMessage: built.pending.confirmationMessage,
+                        expiresAt: built.pending.expiresAt,
+                        schemaHash: built.pending.inputSchemaHash,
+                        inputSchemaHash: built.pending.inputSchemaHash,
+                        projection: built.pending.confirmationProjection,
+                      });
+                      proposalCommitted = true;
+                    } finally {
+                      await store.releaseSessionMutation({
+                        sessionId: args.sessionId,
+                        leaseToken: leaseRes.lease.leaseToken,
+                      });
+                    }
                   }
                 }
               }
@@ -656,7 +708,7 @@ export async function* runChatTurn(
           : `Per-turn cost cap exceeded (${perTurnBudget?.costUsd})`;
         guardState.lastBudgetOrGuardSignal = 'budget';
         if (saveToDb) {
-          await appendTurn(
+          await sessionStore.appendTurn(
             ctx,
             {
               sessionId: args.sessionId,
@@ -675,7 +727,7 @@ export async function* runChatTurn(
             },
             { persistContent: persistence !== 'client' },
           );
-          await appendTurn(
+          await sessionStore.appendTurn(
             ctx,
             {
               sessionId: args.sessionId,
@@ -806,68 +858,79 @@ export async function* runChatTurn(
                 message: 'Requested action could not be prepared',
               });
             } else {
-              const store = createChatConversationStore(ctx);
-              const leaseRes = await store.acquireSessionMutation({
-                sessionId: args.sessionId,
-                ownerToken: crypto.randomUUID(),
-                leaseMs: 30_000,
-              });
-              if (!leaseRes.acquired) {
-                emit({ type: 'notice', code: 'chat.session_busy', message: 'Session is busy' });
+              const store = resolveConversationStore();
+              if (!store) {
+                // Tier-1 store injected without the atomic tier: refuse rather
+                // than commit a proposal that cannot be made atomic.
+                emit({
+                  type: 'notice',
+                  code: 'chat.storage_unsupported',
+                  message:
+                    'Confirmations require a conversation store with atomic writes; none was injected',
+                });
               } else {
-                try {
-                  await store.commitProposal({
-                    lease: leaseRes.lease,
-                    expectedRevision: leaseRes.lease.sessionRevision,
-                    userTurn: {
-                      role: 'user',
-                      content: args.userMessage,
-                      inScope: true,
-                      sources: [],
-                      logicalTurnId: turnId,
-                      tokensIn: 0,
-                      tokensOut: 0,
-                      costUsd: 0,
-                      model: '',
-                      latencyMs: 0,
-                    },
-                    assistantTurn: {
-                      role: 'assistant',
-                      content: built.pending.confirmationMessage,
-                      inScope: modelOutput.inScope,
-                      sources: citedSourceRefs,
-                      logicalTurnId: turnId,
-                      tokensIn: usage.tokensIn,
-                      tokensOut: usage.tokensOut,
-                      costUsd: cost,
-                      model,
-                      latencyMs: 0,
-                      actionRequested: {
-                        capabilityName: built.pending.capabilityName,
-                        input: built.pending.input,
+                const leaseRes = await store.acquireSessionMutation({
+                  sessionId: args.sessionId,
+                  ownerToken: crypto.randomUUID(),
+                  leaseMs: 30_000,
+                });
+                if (!leaseRes.acquired) {
+                  emit({ type: 'notice', code: 'chat.session_busy', message: 'Session is busy' });
+                } else {
+                  try {
+                    await store.commitProposal({
+                      lease: leaseRes.lease,
+                      expectedRevision: leaseRes.lease.sessionRevision,
+                      userTurn: {
+                        role: 'user',
+                        content: args.userMessage,
+                        inScope: true,
+                        sources: [],
+                        logicalTurnId: turnId,
+                        tokensIn: 0,
+                        tokensOut: 0,
+                        costUsd: 0,
+                        model: '',
+                        latencyMs: 0,
                       },
-                    },
-                    pending: {
-                      ...built.pending,
-                      expectedSessionRevision: leaseRes.lease.sessionRevision + 1,
-                    },
-                  });
-                  emit({
-                    type: 'confirmation_required',
-                    actionId: built.pending.id,
-                    capabilityName: built.pending.capabilityName,
-                    confirmationMessage: built.pending.confirmationMessage,
-                    expiresAt: built.pending.expiresAt,
-                    schemaHash: built.pending.inputSchemaHash,
-                    inputSchemaHash: built.pending.inputSchemaHash,
-                    projection: built.pending.confirmationProjection,
-                  });
-                  proposalCommitted = true;
-                } finally {
-                  await store.releaseSessionMutation({
-                    sessionId: args.sessionId,
-                    leaseToken: leaseRes.lease.leaseToken,
-                  });
+                      assistantTurn: {
+                        role: 'assistant',
+                        content: built.pending.confirmationMessage,
+                        inScope: modelOutput.inScope,
+                        sources: citedSourceRefs,
+                        logicalTurnId: turnId,
+                        tokensIn: usage.tokensIn,
+                        tokensOut: usage.tokensOut,
+                        costUsd: cost,
+                        model,
+                        latencyMs: 0,
+                        actionRequested: {
+                          capabilityName: built.pending.capabilityName,
+                          input: built.pending.input,
+                        },
+                      },
+                      pending: {
+                        ...built.pending,
+                        expectedSessionRevision: leaseRes.lease.sessionRevision + 1,
+                      },
+                    });
+                    emit({
+                      type: 'confirmation_required',
+                      actionId: built.pending.id,
+                      capabilityName: built.pending.capabilityName,
+                      confirmationMessage: built.pending.confirmationMessage,
+                      expiresAt: built.pending.expiresAt,
+                      schemaHash: built.pending.inputSchemaHash,
+                      inputSchemaHash: built.pending.inputSchemaHash,
+                      projection: built.pending.confirmationProjection,
+                    });
+                    proposalCommitted = true;
+                  } finally {
+                    await store.releaseSessionMutation({
+                      sessionId: args.sessionId,
+                      leaseToken: leaseRes.lease.leaseToken,
+                    });
+                  }
                 }
               }
             }
@@ -908,7 +971,7 @@ export async function* runChatTurn(
       // service's AICostContext (independent of this code path). Behavioral
       // state lives in clientHistory which the client re-sends each turn.
       if (saveToDb && !proposalCommitted) {
-        await appendTurn(
+        await sessionStore.appendTurn(
           ctx,
           {
             sessionId: args.sessionId,
@@ -928,7 +991,7 @@ export async function* runChatTurn(
           { persistContent: persistence !== 'client' },
         );
 
-        await appendTurn(
+        await sessionStore.appendTurn(
           ctx,
           {
             sessionId: args.sessionId,
@@ -975,15 +1038,6 @@ export async function* runChatTurn(
   })();
 
   yield* iterable;
-}
-
-async function aggregateTurnCount(ctx: ExecutionContext, sessionId: string): Promise<number> {
-  const rows = await chatTurnRepo(ctx).findMany({ sessionId });
-  return rows.length;
-}
-
-async function loadTurnRows(ctx: ExecutionContext, sessionId: string) {
-  return chatTurnRepo(ctx).findMany({ sessionId }, { orderBy: 'ordinal', orderDir: 'asc' });
 }
 
 export interface ResumeToolLoopArgs {

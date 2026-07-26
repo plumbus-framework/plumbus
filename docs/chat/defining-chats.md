@@ -288,6 +288,11 @@ registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
 | `audienceTenantOverride` | Public/multi-tenant chats where the audience implies a tenant the auth adapter couldn't infer (e.g. anonymous `audience: 'support'` → marketing tenant). Only applied when `auth.tenantId` is empty. |
 | `beforeTurn` | Mutate the user message (sanitise, normalise) or short-circuit with a typed `{ error: { status, body } }` reply before any runtime work fires. |
 | `afterTurn` | Observability / audit. Receives the full ordered `ChatEvent[]` after the turn completes (or after the SSE stream ends). Errors are swallowed with a `console.warn`; do not rely on this for correctness. |
+| `chatRegistry` | Required for chats with `policy.toolCalling.enabled` — supplies `chat.toolRound` / `chat.scopeCheck` registration status. Build with `createChatRegistry(promptRegistry)`. |
+| `store` | A `ChatConversationStore`. Enables the `POST /chat/:name/confirm` route and the pre-turn live-pending check. Required for tool confirmations. |
+| `sessionStore` | A `ChatSessionStore`. Serves session and turn state from somewhere other than `ctx.data` — for deployments with no local database. Validated against every registered chat at registration time. See [session-store.md](./session-store.md). |
+| `authenticator` | Replace the default credential resolution (Authorization header, then cookies). |
+| `externalBaseUrl` + `csrfSecret` | Set both to enable exact-Origin and session-bound CSRF enforcement on cookie-authenticated writes. |
 
 ## Examples
 

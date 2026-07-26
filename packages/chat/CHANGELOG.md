@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Injectable session storage (`runChatTurn(ctx, args, { sessionStore })`).** Chat persistence is now a two-tier contract. Tier 1, the new `ChatSessionStore`, covers session bootstrap, turn append/read, behavioral state, summaries, and budget rollups; tier 2 is the existing lease-based `ChatConversationStore` for tool confirmations. Supplying a tier-1 store lets a deployment with no local database run the stock turn pipeline against its own memory backend instead of maintaining a fork of it. Every method takes `ctx` first so an adapter can reach an app-owned port. See [`docs/chat/session-store.md`](../../docs/chat/session-store.md).
+- **`sessionStore` option on the entry points** — `RegisterChatRoutesOpts.sessionStore`, `createChatTurnCapability(chat, opts)`, `runChatEvaluation(..., { stores })`, and `mockChatRuntime(..., options, stores)`. Guards receive the store as `GuardState.sessionStore`; custom guards should resolve it with `resolveChatSessionStore(state.sessionStore)` rather than reading `ctx.data`. When `registerChatRoutes` is given a `sessionStore` and no `store`, the C5 pre-turn live-pending probe is skipped: a tier-1-only deployment cannot hold pending actions, and the probe would otherwise read `ctx.data`.
+- **`createInMemoryChatSessionStore`** (`@plumbus/chat/testing`) — a Map-backed tier-1 store that never touches `ctx.data`, usable as both a test double and a reference implementation. It covers the whole required surface plus `aggregateForBudget` and `createSession`; it omits `countActivePendingActions`, which is meaningless without tier 2.
+- **New exports.** From the root barrel: `ChatSessionStore`, `RunChatTurnOpts`, `ChatBudgetAggregate`, `ChatBudgetAggregateQuery`, `ChatBudgetAggregator`, `CreateChatSessionArgs`, `GetOrCreateChatSessionArgs` (types); `dbChatSessionStore`, `resolveChatSessionStore`, `requireChatBudgetAggregator`, `assertChatSessionStoreSupportsBudget`, `assertChatStoresSupportChats`, `ChatStoreUnsupportedError` (values). From `@plumbus/chat/testing`: `createInMemoryChatSessionStore`.
+- **Startup validation via `assertChatStoresSupportChats`,** applied by `registerChatRoutes` to every registered chat. It is a no-op unless a `sessionStore` is injected, and throws `ChatStoreUnsupportedError` when a chat declares a `budget` the store cannot aggregate (`chat.budget_unsupported`), caps pending actions the store cannot count (`chat.budget_unsupported`), or can raise confirmations with no `conversationStore` supplied (`chat.storage_unsupported`). The same conditions also fail closed at turn time.
+- **New error code `chat.budget_unsupported`** — an injected store cannot aggregate the stored turns needed to enforce a configured `budget`. Raised instead of silently leaving a cap unenforced. This is about cap **enforcement** only: AI cost recording (`costContext`, the cost tracker, `onAICostRecorded`) lives in `@plumbus/core`'s AI service, reads nothing from `ChatSession`/`ChatTurn`, and is unaffected by an injected store. Unreachable unless a `sessionStore` is injected.
+
+### Changed
+
+- `actionGuard` counts pending actions through `ChatSessionStore.countActivePendingActions` instead of reaching `ctx.data` directly. The DB-backed default preserves the previous behavior exactly, including lazy expiry of lapsed rows.
+- `chat.storage_unsupported` gains a second trigger. It already fired when a store adapter lacked a conditional-write path; it is now also raised when a chat that can request confirmations runs on an injected `sessionStore` with no `conversationStore`. The original trigger is unchanged.
+- Internal signatures widened with an optional store parameter: `checkBudgetPreflight`, `maybeSummarize`, `loadHistoryWindow`. None are exported from the package barrel or `/testing`.
+
+### Requires
+
+- Nothing new. Peer ranges are unchanged (`@plumbus/core` stays `0.5.x || 0.6.x`, `@plumbus/knowledge-base` stays `^0.1.0`), so this does not affect npm installs in backend Docker builds.
+
+### Breaking
+
+- **None.** Every new parameter is optional and every behavior change is gated on `opts.sessionStore` being supplied, which no existing caller does — so applications that inject nothing take byte-for-byte the previous code path. `GuardState` gained an optional `sessionStore` field, which is source-compatible for consumer-authored guards. No entity, schema, event, or HTTP wire-shape change.
+
+### Migration
+
+- None required. To adopt the seam, implement `ChatSessionStore` and pass it as `runChatTurn(ctx, args, { sessionStore })` or `registerChatRoutes(..., { sessionStore })`.
+
 ## 0.1.11 — 2026-07-24 — provider-native tool calling
 
 ### Added
