@@ -11,7 +11,26 @@ export interface VerifiedExternalIdentity {
 
 export type IdentityResolution = { status: 'admitted'; userId: string } | { status: 'denied' };
 
-export type ResolveIdentity = (identity: VerifiedExternalIdentity) => Promise<IdentityResolution>;
+/**
+ * Trusted, application-defined context attached to a login transaction when login
+ * starts, and handed back to `resolveIdentity` after the callback is validated.
+ *
+ * Sealed inside the login transaction: single-use, browser-bound, never sent to the
+ * identity provider, never stored in the session, never emitted to audit.
+ */
+export interface AuthLoginApplicationContext {
+  type: string;
+  data?: Readonly<Record<string, unknown>>;
+}
+
+export interface IdentityResolutionContext {
+  applicationContext?: AuthLoginApplicationContext;
+}
+
+export type ResolveIdentity = (
+  identity: VerifiedExternalIdentity,
+  context?: IdentityResolutionContext,
+) => Promise<IdentityResolution>;
 
 export interface SessionPrincipal {
   userId: string;

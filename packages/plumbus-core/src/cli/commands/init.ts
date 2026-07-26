@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 9;
+export const AGENT_WIRING_VERSION = 10;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -358,7 +358,9 @@ const AUTH_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/auth/instructions/framework.md',
   },
   {
-    area: 'wiring createAuthRuntime, stores, resolvers, and createServer({ authenticationRuntime })',
+    area:
+      'wiring createAuthRuntime, stores, resolvers, optional loginContext, and ' +
+      'createServer({ authenticationRuntime })',
     path: 'node_modules/@plumbus/auth/instructions/configure-runtime.md',
   },
   {
@@ -370,7 +372,10 @@ const AUTH_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/auth/instructions/sessions-and-csrf.md',
   },
   {
-    area: 'resolveIdentity and resolveAuthorization hooks (admit/deny and roles/scopes/tenant)',
+    area:
+      'resolveIdentity and resolveAuthorization hooks (admit/deny and roles/scopes/tenant), and ' +
+      'invitation-only admission via loginContext when login must carry app context (invite, account link) ' +
+      'that resolveIdentity needs but no user session exists yet',
     path: 'node_modules/@plumbus/auth/instructions/resolvers.md',
   },
   {

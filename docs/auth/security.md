@@ -14,6 +14,7 @@ Security properties of `@plumbus/auth` and how they compose with Plumbus deny-by
 | Principal payload (userId, issuer, subject) | Envelope encryption via `storageProtection` |
 | CSRF token | Stored as hash; compared timing-safe on mutating requests |
 | Login state (PKCE verifier, nonce) | Short-lived transaction rows; browser binding cookie |
+| Application login context (`loginContext`) | Sealed in the same transaction row — see [Login context](#login-context) |
 | OIDC tokens | Used during callback only — not stored in session cookie |
 
 Authorization (**roles/scopes/tenant**) is re-resolved on **every request** via `resolveAuthorization`. Changing group membership in your directory takes effect on the next HTTP call (subject to resolver caching you add in app code).
@@ -106,6 +107,37 @@ See [deployment.md](./deployment.md#urls-and-same-site).
 | `resolveAuthorization` | `{ status: 'revoked' }` → session deleted, anonymous |
 
 Keep resolver logic deterministic and within configured timeouts. Slow resolvers block request authentication and return **503** `authentication_unavailable` when the store is unreachable.
+
+---
+
+## Login context
+
+`loginContext` lets an application attach trusted admission context (invitation, account link, administrative onboarding) to a login transaction and receive it in `resolveIdentity`. Configuration reference: [configuration.md](./configuration.md#login-context).
+
+| Property | How it holds |
+|---|---|
+| Supplied server-side only | The value comes from the app's `loginContext.resolve` hook — declared query params are *inputs to a lookup*, never the stored value |
+| Encrypted and integrity-protected | Sealed in the login-transaction envelope alongside the PKCE verifier |
+| Bound to browser, state, provider, nonce | Same record as those values; consumption verifies all of them |
+| Single-use | The containing transaction is single-use |
+| **Time-limited** | Expires with the transaction — `transactions.ttl` (default `"10m"`, ceiling 6h); no separate lifetime, no renewal |
+| Released only after callback validation | Read from the consumed payload after code exchange and ID-token verification |
+| Never sent to the identity provider | Declared params are stripped before provider-parameter validation, so they cannot reach the authorization URL |
+| Never in the browser | Not written to the session cookie and not returned by `/auth/session` |
+| Not persisted in the session | Sessions store the principal only |
+| Size-limited, JSON-only | Validated and re-serialized before sealing; over-budget or non-serializable context fails the login start |
+| Absent from audit | Audit metadata is allowlisted to `providerId`, `reason`, `requestId`, `durationMs` |
+
+**Fails closed.** A hook that throws or exceeds `timeouts.resolver` returns **503 `login_unavailable`** instead of starting a context-free login. Silently downgrading would turn an infrastructure blip into a wrong-reason denial at admission time.
+
+### What login context does *not* protect against
+
+Attaching context proves the login attempt carried a valid invitation — **not** that the person completing it is the intended recipient. Anyone holding an invitation link can bind it to their own IdP identity. Where that matters:
+
+- Cross-check the invitation against verified claims in `resolveIdentity` (match the invited address, and require `email_verified` — an unverified email claim proves nothing).
+- Otherwise, accept bearer-link semantics deliberately and keep invitation TTLs short.
+
+**Make admission side effects idempotent.** `resolveIdentity` runs under `timeouts.resolver`, and any throw or timeout maps to a temporary failure *after* the transaction is consumed. A resolver that creates the user and burns the invitation non-idempotently leaves a retrying user with a spent invitation — key the operation on `(issuer, subject)`.
 
 ---
 

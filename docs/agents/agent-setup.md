@@ -290,7 +290,7 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/auth/instructions/configure-runtime.md` | `createAuthRuntime` + `createServer({ authenticationRuntime })` recipe |
 | `node_modules/@plumbus/auth/instructions/providers.md` | OIDC provider registration and integrations |
 | `node_modules/@plumbus/auth/instructions/sessions-and-csrf.md` | `/auth/session` contract and CSRF headers |
-| `node_modules/@plumbus/auth/instructions/resolvers.md` | `resolveIdentity` and `resolveAuthorization` hooks |
+| `node_modules/@plumbus/auth/instructions/resolvers.md` | `resolveIdentity` and `resolveAuthorization` hooks, invitation-only admission via `loginContext` |
 | `node_modules/@plumbus/auth/instructions/testing.md` | Fake OIDC provider integration tests |
 | `node_modules/@plumbus/auth-cognito/instructions/README.md` | Cognito instruction index (optional package) |
 | `node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md` | `cognito()` integration registration |

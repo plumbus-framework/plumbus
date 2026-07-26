@@ -2,6 +2,7 @@ import { IDENTIFIER_MAX_BYTES, USER_ID_MAX_BYTES } from '../config/constants.js'
 import type {
   AuthorizationResolution,
   IdentityResolution,
+  IdentityResolutionContext,
   ResolveAuthorization,
   ResolveIdentity,
 } from './types.js';
@@ -53,9 +54,10 @@ export async function executeResolveIdentity(
   resolve: ResolveIdentity,
   input: Parameters<ResolveIdentity>[0],
   timeoutMs: number,
+  context: IdentityResolutionContext = {},
 ): Promise<IdentityResolution | { status: 'temporary' }> {
   try {
-    const result = await withTimeout(resolve(input), timeoutMs);
+    const result = await withTimeout(resolve(input, Object.freeze({ ...context })), timeoutMs);
     if (result.status === 'admitted') {
       if (!result.userId || byteLength(result.userId) > USER_ID_MAX_BYTES) {
         throw new Error('invalid userId');

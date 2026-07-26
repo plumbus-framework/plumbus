@@ -68,6 +68,7 @@ const authenticationRuntime = createAuthRuntime({
     // Map issuer+subject to your app's userId — deny unknown users
     const user = await findUserBySubject(identity.subject);
     return user ? { status: "admitted", userId: user.id } : { status: "denied" };
+    // Admitting *new* users only via invitation? See configuration.md#login-context
   },
 
   resolveAuthorization: async (principal) => ({
@@ -127,13 +128,13 @@ See [deployment.md](./deployment.md) for secrets, same-site URLs, and health che
 After installing auth packages, refresh AI agent wiring so coding agents read `@plumbus/auth` instructions:
 
 ```bash
-plumbus doctor          # detects stale wiring (version < 9)
+plumbus doctor          # detects stale wiring (version < 10)
 plumbus init --patch    # updates managed blocks only; preserves your edits outside markers
 ```
 
 Bare `plumbus init` **skips existing** agent files — use `--patch` or `--force`. `plumbus init` writes `AGENTS.md`, Cursor rules, and Copilot instructions; copy references to `CLAUDE.md` manually if your workflow uses it.
 
-See [migration.md](./migration.md#agent-wiring) for the v9 auth instruction upgrade.
+See [migration.md](./migration.md#agent-wiring) for the auth instruction wiring upgrade (v10).
 
 ---
 

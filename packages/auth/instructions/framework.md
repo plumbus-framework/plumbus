@@ -22,7 +22,7 @@ pnpm add @plumbus/auth
 
 Install when the app needs **browser login** with **HttpOnly session cookies**. Skip when all traffic uses bearer JWT/OIDC adapters only (`createJwtAdapter`, `createOidcAdapter`).
 
-If agent wiring predates the current template, run `plumbus init --patch` after install. Wiring at **`AGENT_WIRING_VERSION` 9+** references this folder.
+If agent wiring predates the current template, run `plumbus init --patch` after install. Wiring at **`AGENT_WIRING_VERSION` 9+** references this folder; **10+** also points at the `loginContext` admission recipe in [resolvers.md](./resolvers.md).
 
 ## Public exports
 
@@ -36,6 +36,10 @@ randomToken()
 createMemorySessionStore()
 createMemoryLoginTransactionStore()
 AuthAuditEvents, sanitizeAuditMetadata
+
+// types: ResolveIdentity, ResolveAuthorization, VerifiedExternalIdentity,
+//        AuthLoginApplicationContext, IdentityResolutionContext,
+//        LoginContextRequest, ResolveLoginContext
 
 // from '@plumbus/auth/postgres'
 createPostgresSessionStore(db)
@@ -64,6 +68,16 @@ src/
 └── testing/                 # fake OIDC provider
 ```
 
+## Symptom → answer
+
+| The app needs… / you hit… | Read |
+|---|---|
+| "Admission depends on **how login started**" — invitation-only signup, workspace invite, account linking, onboarding or recovery link | [resolvers.md](./resolvers.md#invitation-only-admission-logincontext) — `loginContext` |
+| "`resolveIdentity` has no user context, but an invite has no user yet" | Same. `resolveIdentity` takes an optional **second argument** carrying app context sealed into the login transaction |
+| `400 invalid_request` after adding a query param to `/auth/login/:provider` | Undeclared params are validated as **provider** params. Declare app-owned params under `loginContext.params` |
+| `503 login_unavailable` at login start | The app's `loginContext.resolve` hook threw or exceeded `timeouts.resolver` — login fails closed by design |
+| Need to pass state through the IdP round trip | Never use `returnTo` or provider params for trusted state — use `loginContext` |
+
 ## Critical rules
 
 1. **Never bypass Plumbus auth for capabilities.** Session auth populates `ctx.auth`; handlers still declare `access` policies.
@@ -72,5 +86,6 @@ src/
 4. **`@plumbus/core` MUST NOT import from `@plumbus/auth`.** Wire at app bootstrap only.
 5. **Frontend `@plumbus/ui` auth helpers default to localStorage bearer** — adapt for cookie sessions (see [sessions-and-csrf.md](./sessions-and-csrf.md)).
 6. **Session auth assumes XSS-free frontend.** Deploy CSP; same-origin XSS can read CSRF tokens from `/auth/session` and make authenticated requests.
+7. **Trusted admission state goes through `loginContext`.** Do not smuggle invitation tokens through `returnTo`, provider params, or a pre-login cookie, and do not admit unknown identities "temporarily" to gate them afterwards.
 
 Human docs: `docs/auth/` in the monorepo.

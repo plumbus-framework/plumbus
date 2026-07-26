@@ -83,11 +83,11 @@ Apply `@plumbus/auth` SQL migration (`auth_sessions`, `auth_login_transactions`)
 After upgrade, refresh agent instructions:
 
 ```bash
-plumbus doctor          # recommends plumbus init --patch when wiring version < 9
+plumbus doctor          # recommends plumbus init --patch when wiring version < 10
 plumbus init --patch
 ```
 
-`AGENT_WIRING_VERSION` **9** references `@plumbus/auth` and `@plumbus/auth-cognito` instruction files.
+`AGENT_WIRING_VERSION` **10** references `@plumbus/auth` and `@plumbus/auth-cognito` instruction files, including the `loginContext` admission recipe in `resolvers.md`.
 
 - **Bare `plumbus init` does not update** existing agent files — it skips them and prints a hint to use `--patch` or `--force`.
 - **`plumbus init --patch`** replaces only the managed block between `plumbus:agent-wiring` markers; user content outside those markers is preserved.

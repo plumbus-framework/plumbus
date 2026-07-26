@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { randomToken } from '../crypto/random.js';
 import type { NormalizedAuthRuntimeConfig } from '../config/types.js';
 import type { StorageProtection } from '../crypto/protection.js';
+import type { AuthLoginApplicationContext } from '../resolvers/types.js';
 import type { LoginTransactionStore } from '../stores/types.js';
 import { buildBindingCookieHeader, readBindingCookie } from './binding-cookie.js';
 
@@ -11,6 +12,7 @@ export interface LoginTransactionPayload {
   pkceVerifier: string;
   returnTo: string;
   providerParams: Record<string, string>;
+  applicationContext?: AuthLoginApplicationContext;
 }
 
 function pkceVerifier(): string {
@@ -28,6 +30,7 @@ export interface TransactionManager {
     providerId: string;
     returnTo: string;
     providerParams: Record<string, string>;
+    applicationContext?: AuthLoginApplicationContext;
     bindingRaw: string;
     now: Date;
   }): Promise<{ state: string; nonce: string; codeChallenge: string; bindingCookie?: string }>;
@@ -71,6 +74,7 @@ export function createTransactionManager(opts: {
         pkceVerifier: pkceVerifierValue,
         returnTo: input.returnTo,
         providerParams: input.providerParams,
+        ...(input.applicationContext ? { applicationContext: input.applicationContext } : {}),
       } satisfies LoginTransactionPayload);
 
       await store.create({

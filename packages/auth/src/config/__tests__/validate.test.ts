@@ -141,6 +141,66 @@ describe('validateAuthRuntimeConfig', () => {
     expect(withLiteral.providers.test?.clientSecret).toEqual({ literal: 'dev-only-secret' });
   });
 
+  describe('loginContext', () => {
+    const resolve = () => ({ type: 'invitation' });
+
+    it('is undefined when not configured', () => {
+      expect(validateAuthRuntimeConfig(baseConfig()).loginContext).toBeUndefined();
+    });
+
+    it('defaults params to empty and maxBytes to 1024', () => {
+      const normalized = validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve } }));
+      expect(normalized.loginContext?.params).toEqual([]);
+      expect(normalized.loginContext?.maxBytes).toBe(1024);
+    });
+
+    it('rejects reserved parameter names', () => {
+      expect(() =>
+        validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve, params: ['returnTo'] } })),
+      ).toThrow(/reserved parameter "returnTo"/);
+      expect(() =>
+        validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve, params: ['state'] } })),
+      ).toThrow(/reserved parameter "state"/);
+    });
+
+    it('rejects malformed and duplicate parameter names', () => {
+      expect(() =>
+        validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve, params: ['9bad'] } })),
+      ).toThrow(/required grammar/);
+      expect(() =>
+        validateAuthRuntimeConfig(
+          baseConfig({ loginContext: { resolve, params: ['invite', 'invite'] } }),
+        ),
+      ).toThrow(/duplicate entry "invite"/);
+    });
+
+    it('rejects more than eight parameters', () => {
+      const params = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+      expect(() =>
+        validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve, params } })),
+      ).toThrow(/at most 8 entries/);
+    });
+
+    it('rejects maxBytes out of range', () => {
+      expect(() =>
+        validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve, maxBytes: 0 } })),
+      ).toThrow(/between 1 and 4096/);
+      expect(() =>
+        validateAuthRuntimeConfig(baseConfig({ loginContext: { resolve, maxBytes: 4097 } })),
+      ).toThrow(/between 1 and 4096/);
+    });
+
+    it('rejects unknown keys via strict schema', () => {
+      expect(() =>
+        validateAuthRuntimeConfig(
+          baseConfig({
+            loginContext: { resolve, ttl: '5m' } as AuthRuntimeConfig['loginContext'],
+          }),
+        ),
+      ).toThrow();
+    });
+  });
+
   it('defaults session.sameSite to Lax and accepts Strict', () => {
     expect(validateAuthRuntimeConfig(baseConfig()).session.sameSite).toBe('Lax');
     expect(
