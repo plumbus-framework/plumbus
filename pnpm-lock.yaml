@@ -336,8 +336,8 @@ importers:
   packages/voice-deepdub:
     dependencies:
       '@deepdub/node':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^3.0.2
+        version: 3.0.2
     devDependencies:
       '@plumbus/core':
         specifier: workspace:*
@@ -446,8 +446,8 @@ importers:
   packages/voice-soniox:
     dependencies:
       '@soniox/node':
-        specifier: ^2.1.1
-        version: 2.1.1
+        specifier: ^2.2.0
+        version: 2.2.0
     devDependencies:
       '@plumbus/core':
         specifier: workspace:*
@@ -571,8 +571,8 @@ packages:
   '@datastructures-js/deque@1.0.8':
     resolution: {integrity: sha512-PSBhJ2/SmeRPRHuBv7i/fHWIdSC3JTyq56qb+Rq0wjOagi0/fdV5/B/3Md5zFZus/W6OkSPMaxMKKMNMrSmubg==}
 
-  '@deepdub/node@2.0.0':
-    resolution: {integrity: sha512-+Fyskp4mwif3ty0x3AUICJXXRG/S6n9hhLBYwj01Er4NpVkims2kk2oEYrGD0El3Z+cvCafY7XJkOOcEFuzeyA==}
+  '@deepdub/node@3.0.2':
+    resolution: {integrity: sha512-Qmwz2CjAKHHNpeUZAyACKJINdWtvnHuzCGSlgE7CVviYQctt/AgpS0+HOvXaGyWHz9B2f3qiamyCl+aHJuNmeg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -1930,8 +1930,8 @@ packages:
     resolution: {integrity: sha512-9YJxzzHftlW936E5z9aEKK2CrPfUgc3HgZ2keyQ5e2Pb5bx+6tykYQ2Gyudvxd7Sxmlnar7SemDMFfx0OuVuGA==}
     engines: {node: '>=20', pnpm: '>=10'}
 
-  '@soniox/node@2.1.1':
-    resolution: {integrity: sha512-vPXDJ58nTMxAiFMZD3DqQd2owsuySAZ4PKH++woNz0GSX6o8C66VFfn4vzJ9PcnwdmpUzRZrZcdgiNzkippLKA==}
+  '@soniox/node@2.2.0':
+    resolution: {integrity: sha512-5gYrhlbINfNs9CcNmHETEhNBKaniP6RgdYuZYOXyRx/tnjzZ/M4kKGMXatdUGquji0biO7IfOcmr9fZqJYDB2Q==}
 
   '@swc/core-darwin-arm64@1.15.18':
     resolution: {integrity: sha512-+mIv7uBuSaywN3C9LNuWaX1jJJ3SKfiJuE6Lr3bd+/1Iv8oMU7oLBjYMluX1UrEPzwN2qCdY6Io0yVicABoCwQ==}
@@ -3968,7 +3968,7 @@ snapshots:
 
   '@datastructures-js/deque@1.0.8': {}
 
-  '@deepdub/node@2.0.0':
+  '@deepdub/node@3.0.2':
     dependencies:
       commander: 12.1.0
       dotenv: 16.6.1
@@ -4997,7 +4997,7 @@ snapshots:
 
   '@shiguredo/rnnoise-wasm@2025.1.5': {}
 
-  '@soniox/node@2.1.1': {}
+  '@soniox/node@2.2.0': {}
 
   '@swc/core-darwin-arm64@1.15.18':
     optional: true

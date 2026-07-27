@@ -46,6 +46,11 @@ export interface TTSProviderCatalogEntry extends TTSProviderCapabilities {
   knownModels: VoiceModelOption[];
   knownVoices?: VoicePersonaOption[];
   voicesSource?: VoiceCatalogSource;
+  /**
+   * Derived from `TTSProviderRegistration.clone.capabilities` when listing
+   * with a registry — not authored on static descriptors.
+   */
+  clone?: import('./clone.js').VoiceCloneCapabilities;
 }
 
 export interface VoiceProviderCatalog {

@@ -1,7 +1,8 @@
-import type { ExecutionContext, RouteGeneratorConfig } from '@plumbus/core';
-import type { VoiceDefinition } from './voice.js';
-import type { VoiceProvidersConfig } from './provider.js';
+import type { AccessPolicy, ExecutionContext, RouteGeneratorConfig } from '@plumbus/core';
+import type { ClonedVoice } from './clone.js';
 import type { VoiceSessionBudgetConfig } from './cost.js';
+import type { VoiceProvidersConfig } from './provider.js';
+import type { VoiceDefinition } from './voice.js';
 
 /** Room / participant mint options for transport-agnostic `POST /token`. */
 export interface VoiceBeforeSessionRoom {
@@ -56,3 +57,40 @@ export type RegisterVoiceRoutes = (
   voices: VoiceDefinition[],
   opts: RegisterVoiceRoutesOpts,
 ) => void;
+
+/** Auth principal returned by `routeConfig.authAdapter.authenticate`. */
+export type VoiceCloneAuth = NonNullable<
+  Awaited<ReturnType<RouteGeneratorConfig['authAdapter']['authenticate']>>
+>;
+
+export interface RegisterVoiceCloneRoutesOpts {
+  providers: VoiceProvidersConfig;
+  registry?: import('../providers/registry.js').VoiceProviderRegistry;
+  resolveRegistry?: () => Promise<import('../providers/registry.js').VoiceProviderRegistry>;
+  authCookieNames?: string[];
+  /** Who may call clone lifecycle routes (create/get/delete/wait/recompute). */
+  access: AccessPolicy;
+  /**
+   * Stricter policy for POST .../synthesize-reference (spoofing surface).
+   * When unset, that route is not registered.
+   */
+  referenceAccess?: AccessPolicy;
+  resolveCloneOwner: (args: {
+    providerId: string;
+    voiceId: string;
+    auth: VoiceCloneAuth;
+  }) => Promise<string | null>;
+  afterCloneCreate: (args: {
+    providerId: string;
+    voice: ClonedVoice;
+    auth: VoiceCloneAuth;
+  }) => Promise<void>;
+  afterCloneDelete?: (args: {
+    providerId: string;
+    voiceId: string;
+    auth: VoiceCloneAuth;
+  }) => Promise<void>;
+  /** App DB list of clones owned by the principal. */
+  listOwnedClones: (args: { providerId: string; auth: VoiceCloneAuth }) => Promise<ClonedVoice[]>;
+  maxSampleBytes?: number;
+}

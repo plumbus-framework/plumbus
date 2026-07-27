@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-deepdub",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deepdub TTS provider for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
@@ -37,7 +37,7 @@
     "@plumbus/voice": "0.4.x"
   },
   "dependencies": {
-    "@deepdub/node": "^2.0.0"
+    "@deepdub/node": "^3.0.2"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",

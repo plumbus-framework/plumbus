@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-soniox",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Soniox STT and TTS providers for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -37,7 +42,7 @@
     "@plumbus/voice": "0.4.x"
   },
   "dependencies": {
-    "@soniox/node": "^2.1.1"
+    "@soniox/node": "^2.2.0"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",

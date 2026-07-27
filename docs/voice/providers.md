@@ -28,8 +28,8 @@ Cloud/vendor adapters (including OpenAI) ship as separate packages. Install the 
 | STT | `openai-whisper` / `openai-realtime` | `@plumbus/voice-openai` | batch Whisper + streaming Realtime STT |
 | TTS | `openai` | `@plumbus/voice-openai` | server TTS (pace-only tone) |
 | STT | `soniox` | `@plumbus/voice-soniox` | multilingual streaming STT |
-| TTS | `soniox` | `@plumbus/voice-soniox` | REST streaming TTS (`pcm_s16le` @ 16 kHz); same package as STT |
-| TTS | `deepdub` | `@plumbus/voice-deepdub` | streaming server TTS |
+| TTS | `soniox` | `@plumbus/voice-soniox` | REST streaming TTS (`pcm_s16le` @ 16 kHz); same package as STT; persisted voice cloning via `tts.voices` (`@soniox/node` ^2.2.0); UUID `voice` = clone id |
+| TTS | `deepdub` | `@plumbus/voice-deepdub` | streaming server TTS; persisted cloning (`addVoice` + REST get/delete); instant `voiceReference` preview only |
 | TTS | `minimax` | `@plumbus/voice-minimax` | richer delivery-axis mapping; maps `base_resp` API errors; validates audio enums; optional `textNormalization` / `forceCbr` / `voiceModify`; catalog includes system/cloned/generated voices |
 | TTS | `elevenlabs` | `@plumbus/voice-elevenlabs` | flash + v3 via official SDK |
 
@@ -42,6 +42,7 @@ Cloud/vendor adapters (including OpenAI) ship as separate packages. Install the 
 | Need browser-only prototype | `web-speech` + `browser-tts` |
 | Need authoritative transcripts | use a server STT provider (`soniox` or `openai-whisper`) |
 | Need better TTS tone control | evaluate `deepdub`, `minimax`, or `elevenlabs` per locale/latency constraints |
+| Need client voice cloning / audiobook voiceIds | see [voice-cloning.md](./voice-cloning.md); prefer Deepdub for long-form TTS fit |
 
 ## Catalog API
 

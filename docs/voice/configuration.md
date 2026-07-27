@@ -157,7 +157,16 @@ the user resumes speaking.
 - `enableDebugEventStream` — admin-only SSE heartbeat at `GET /api/voice/:name/debug/events`
 - `beforeSession` / `afterSession` — app hooks around session minting
 
+## Voice clone routes
+
+`registerVoiceCloneRoutes(app, routeConfig, opts)` is separate from `registerVoiceRoutes` (keeps Fastify optional). Register `@fastify/multipart` on the app before create / synthesize-reference uploads — missing multipart yields a clear dependency error.
+
+Required opts: `access`, `resolveCloneOwner`, `afterCloneCreate`, `listOwnedClones`. Optional `referenceAccess` registers the Deepdub-style preview route. Deepdub session TTS with `tts.options.voiceReference` uses HTTP `generateToBuffer` wrapped as a **one-shot** async iterable (non-streaming for that utterance — not for manuscripts).
+
+Full lifecycle, ownership, and spoofing guidance: [voice-cloning.md](./voice-cloning.md).
+
 ## Related docs
 
 - [providers.md](./providers.md)
 - [security.md](./security.md)
+- [voice-cloning.md](./voice-cloning.md)

@@ -147,3 +147,12 @@ beforeSession: async () => ({
 ## Dependency direction
 
 Add-ons peer-depend on `@plumbus/voice` `0.4.x` and `@plumbus/core` `0.6.x` (copy those literals). `@plumbus/voice` does **not** peer-depend on the add-ons.
+
+## Voice cloning (0.4.3 / add-on 0.1.2)
+
+`@plumbus/voice` `0.4.3+` adds `createVoiceCloneProvider`, `synthesizeWithVoiceReference`, and `registerVoiceCloneRoutes`. Register Deepdub/Soniox TTS as usual — clone factories live on `*_TTS_REGISTRATION.clone`.
+
+- **Deepdub** `@plumbus/voice-deepdub` `0.1.2` — `@deepdub/node` `^3.0.2`; create via SDK `addVoice`; get/delete via REST.
+- **Soniox** `@plumbus/voice-soniox` `0.1.2` — requires `@soniox/node` `^2.2.0` for `client.tts.voices.*`. After upgrade, reinstall the add-on so the SDK bump lands.
+
+Ownership-aware HTTP, rollback, and preview vs long-form guidance: [voice/voice-cloning.md](./voice/voice-cloning.md).

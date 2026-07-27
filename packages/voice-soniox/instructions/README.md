@@ -19,3 +19,4 @@ Package overview: [../README.md](../README.md). Conceptual voice docs: `docs/voi
 - **Import kit types/helpers from `@plumbus/voice/provider-kit`**, not deep voice paths.
 - **Business logic stays in `brain.run` / capabilities** — this package adapts Soniox's SDK to voice STT/TTS contracts.
 - **Require `SONIOX_API_KEY`** at runtime for Soniox STT and/or TTS.
+- **Voice cloning** — UUID `voice` ids are clones; use `createVoiceCloneProvider` / `waitUntilReady`. Requires `@soniox/node` ^2.2.0. See `docs/voice/voice-cloning.md`.

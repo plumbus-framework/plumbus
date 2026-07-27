@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+### Added
+
+- Persisted voice cloning on `SONIOX_TTS_REGISTRATION.clone` (`client.tts.voices.*`, `waitUntilReady` / `recompute`).
+
+### Changed
+
+- Dependency `@soniox/node` bumped to `^2.2.0` (required for `tts.voices`).
+
 ## 0.1.1
 
 ### Added

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3
+
+### Added
+
+- **Voice cloning** — `ClonedVoice` / `VoiceCloneProvider` types; `TTSProviderRegistration.clone`; `createVoiceCloneProvider`, `supportsVoiceCloning`, `synthesizeWithVoiceReference`; ownership-aware `registerVoiceCloneRoutes` (create-persist rollback, `listOwnedClones`, optional `referenceAccess` for instant-reference preview).
+- **`VoiceUsageKind`** includes `'clone'` for persist create/delete usage records.
+
 ## 0.4.2
 
 ### Added

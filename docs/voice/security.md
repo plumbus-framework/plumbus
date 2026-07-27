@@ -55,6 +55,19 @@ Production rule of thumb:
 - prototypes and low-risk browser flows => `web-speech` may be fine
 - billing/compliance/authoritative transcripts => use server STT
 
+## Voice cloning
+
+`registerVoiceCloneRoutes` adds ownership-aware clone HTTP. See [voice-cloning.md](./voice-cloning.md).
+
+- Reference audio is PII — never log raw samples.
+- Every per-id route must pass `resolveCloneOwner` (framework compares to `auth.userId`).
+- `GET /clones` uses app `listOwnedClones` only — never dump the shared API-key vendor bank.
+- Create → `afterCloneCreate` failure triggers best-effort vendor `delete` (no orphan unowned voices).
+- `POST .../synthesize-reference` is a spoofing surface — require `referenceAccess` (stricter than self-clone), consent, and rate limits.
+- Shared vendor API keys share one voice bank; true tenant isolation needs per-tenant vendor projects/keys.
+- Upload size is capped by `min(opts.maxSampleBytes, capabilities.maxSampleBytes)`.
+- S7 still applies: session/token payloads must never include vendor secrets or raw clone samples.
+
 ## Testing expectations
 
 At minimum, test:
@@ -64,9 +77,11 @@ At minimum, test:
 - catalog routes reject non-admin callers
 - session/token payloads do not contain secrets
 - websocket rejects bad/expired session tokens
+- clone routes: 401/403 access, 403 ownership, create-persist rollback delete, listOwnedClones-only list
 
 ## Related docs
 
 - [client-stt.md](./client-stt.md)
 - [testing.md](./testing.md)
 - [configuration.md](./configuration.md)
+- [voice-cloning.md](./voice-cloning.md)

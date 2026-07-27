@@ -5,3 +5,4 @@ export * from './provider.js';
 export * from './cost.js';
 export * from './http.js';
 export * from './noise-cancellation.js';
+export * from './clone.js';

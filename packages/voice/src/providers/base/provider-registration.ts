@@ -1,5 +1,10 @@
 import type { VoicePricingEntry } from '../../cost/voice-pricing.js';
 import type {
+  SynthesizeWithVoiceReferenceInput,
+  VoiceCloneCapabilities,
+  VoiceCloneProvider,
+} from '../../types/clone.js';
+import type {
   STTProviderCatalogEntry,
   TTSProviderCatalogEntry,
   VoiceModelOption,
@@ -56,6 +61,18 @@ export interface TTSProviderRegistration {
     modelId: string | undefined,
     context: VoiceProviderListContext,
   ): Promise<VoicePersonaOption[]>;
+  /**
+   * Optional persisted voice-cloning surface (DeepDub / Soniox).
+   * Capabilities are the single source of truth; catalog derives from here.
+   */
+  clone?: {
+    capabilities: VoiceCloneCapabilities;
+    create(credentials: VoiceProviderCredentials): VoiceCloneProvider;
+    synthesizeWithVoiceReference?(
+      credentials: VoiceProviderCredentials,
+      input: SynthesizeWithVoiceReferenceInput,
+    ): Promise<Uint8Array>;
+  };
 }
 
 export interface TransportProviderRegistration {

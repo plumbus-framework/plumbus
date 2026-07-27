@@ -34,6 +34,7 @@ Read these files in order when you need to add, modify, or extend a voice surfac
 | [`cost-tracking.md`](./cost-tracking.md) | When tagging STT/TTS/transport spend into the shared AI ledger. |
 | [`testing.md`](./testing.md) | When writing smoke, route, websocket, or e2e coverage. |
 | [`extending.md`](./extending.md) | When the built-ins are not enough and you need tone hooks, custom providers, or runtime extension points. |
+| [`voice-cloning.md`](./voice-cloning.md) | Persisted client voice clones, ownership-aware HTTP routes, Deepdub preview vs long-form TTS. |
 | [`noise-cancellation.md`](./noise-cancellation.md) | When configuring Krisp/RNNoise/DTLN on LiveKit transports. |
 
 Provider add-ons ship their own instructions — read `node_modules/@plumbus/voice-<provider>/instructions/framework.md` when wiring that provider.

@@ -6,6 +6,7 @@ const EXPECTED_RUNTIME_EXPORTS = [
   'NoiseCancellationEngine',
   'NoiseCancellationModel',
   'NoiseCancellationPlacement',
+  'assertCloneSampleWithinLimit',
   'assertExclusiveNoiseCancellation',
   'assertOkResponse',
   'concatAudioChunks',

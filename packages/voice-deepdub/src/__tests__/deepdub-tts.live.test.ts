@@ -18,15 +18,25 @@ describe.runIf(live)('Deepdub TTS live smoke', () => {
     const provider = createTTSProvider({
       registry,
       providers: { providers: { deepdub: { apiKey } } },
-      voiceSlice: { provider: 'deepdub', model: 'phantom-x', voiceId, locale: 'he-IL' },
+      // Plumbus default model is dd-etts-3.2. Cost key deepdub-phantom-x is
+      // ledger-only — never pass it as tts.model.
+      voiceSlice: {
+        provider: 'deepdub',
+        model: process.env.DEEPDUB_MODEL ?? 'dd-etts-3.2',
+        voiceId,
+        locale: process.env.DEEPDUB_LOCALE ?? 'en-US',
+      },
     });
 
     const chunks: Uint8Array[] = [];
-    for await (const chunk of provider.synthesizeStream?.('shalom', provider.mapDeliveryTone({})) ??
-      []) {
+    for await (const chunk of provider.synthesizeStream?.(
+      'Hello world',
+      provider.mapDeliveryTone({}),
+    ) ?? []) {
       chunks.push(chunk);
     }
     expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.reduce((n, c) => n + c.byteLength, 0)).toBeGreaterThan(0);
   }, 60_000);
 });
 

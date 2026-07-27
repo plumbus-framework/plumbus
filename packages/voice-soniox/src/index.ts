@@ -9,3 +9,7 @@ export {
 export { SONIOX_VOICE_PRICING } from './pricing.js';
 export { SONIOX_STT_REGISTRATION } from './soniox-stt.js';
 export { SONIOX_TTS_REGISTRATION } from './soniox-tts.js';
+export {
+  SONIOX_CLONE_CAPABILITIES,
+  SonioxVoiceCloneProvider,
+} from './soniox-voice-clone.js';

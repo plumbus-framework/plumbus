@@ -21,7 +21,7 @@ Deepdub's Node SDK is a heavy, vendor-specific dependency. Shipping it as an opt
 
 | Surface | What it does |
 |---|---|
-| `DEEPDUB_TTS_REGISTRATION` | Factory + descriptor for `createProviderRegistry({ tts: { deepdub: … } })`. |
+| `DEEPDUB_TTS_REGISTRATION` | Factory + descriptor for `createProviderRegistry({ tts: { deepdub: … } })`. Includes `.clone` for persisted voice cloning. |
 | `DEEPDUB_TTS_DESCRIPTOR` / `DEEPDUB_TTS_MODELS` | Catalog entry and static model list. |
 | `DEEPDUB_VOICE_PRICING` | Pricing rows for voice cost estimation. |
 | `resolveCredentialsFromEnv` | Reads `DEEPDUB_API_KEY` / optional `DEEPDUB_BASE_URL`. |
@@ -38,7 +38,7 @@ pnpm add @plumbus/voice @plumbus/voice-deepdub
 
 Peers (copy literals): `@plumbus/core` `0.6.x`, `@plumbus/voice` `0.4.x`.
 
-Env: `DEEPDUB_API_KEY` (optional `DEEPDUB_BASE_URL`).
+Env: `DEEPDUB_API_KEY` (optional `DEEPDUB_BASE_URL`, default `https://restapi.deepdub.ai/api/v1`). Default TTS model: `dd-etts-3.2`.
 
 ## Quick start
 

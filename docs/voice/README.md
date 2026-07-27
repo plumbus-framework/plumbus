@@ -23,6 +23,7 @@ These docs are split in three:
 | [testing.md](./testing.md) | You're writing smoke, route, websocket, or e2e tests. |
 | [livekit-continuous-voice.md](./livekit-continuous-voice.md) | You're wiring a continuous (always-listening) LiveKit voice stack. |
 | [security.md](./security.md) | You're exposing voice routes on a real app and need the S1-S10 threat model. |
+| [voice-cloning.md](./voice-cloning.md) | Persisted voice clones, ownership-aware HTTP routes, Deepdub preview vs long-form TTS. |
 | [design/providers.md](./design/providers.md) | You need the capability model, tone mapping rules, or ElevenLabs dual-model behavior. |
 | [../upgrading-voice-provider-packages.md](../upgrading-voice-provider-packages.md) | You're moving from `@plumbus/voice` 0.3.x to 0.4.x provider add-on packages. |
 

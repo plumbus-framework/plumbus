@@ -42,8 +42,9 @@ Provider `usage()` may report vendor model IDs (`stt-rt-v5`, `dd-etts-3.2`). `re
 Use these `operation` values:
 
 - `transcribe` — STT
-- `synthesize` — TTS
+- `synthesize` — TTS (including Deepdub instant-reference preview; characters = text length)
 - `transport` — realtime session infrastructure
+- `clone` — persisted voice create/delete (`VoiceUsageKind: 'clone'`, typically `unit: 'events'`, quantity 1). Clone usage is recorded via usage helpers / observability even when no USD pricing row exists.
 
 ## `recordVoiceCost(...)`
 

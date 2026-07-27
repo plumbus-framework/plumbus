@@ -22,7 +22,7 @@ Soniox's Node SDK and streaming protocols are vendor-specific. Shipping them as 
 | Surface | What it does |
 |---|---|
 | `SONIOX_STT_REGISTRATION` | Factory + descriptor for `createProviderRegistry({ stt: { soniox: … } })`. |
-| `SONIOX_TTS_REGISTRATION` | Factory + descriptor for `createProviderRegistry({ tts: { soniox: … } })`. |
+| `SONIOX_TTS_REGISTRATION` | Factory + descriptor for `createProviderRegistry({ tts: { soniox: … } })`. Includes `.clone` for persisted voice cloning (`@soniox/node` ^2.2.0). |
 | `SONIOX_STT_*` / `SONIOX_TTS_*` descriptors & models | Catalog entries and static model/voice lists. |
 | `SONIOX_VOICE_PRICING` | Pricing rows for STT + TTS cost estimation (TTS is an approximate $/character stand-in for Soniox token billing). |
 | `resolveCredentialsFromEnv` | Reads `SONIOX_API_KEY` / optional `SONIOX_BASE_URL`. |

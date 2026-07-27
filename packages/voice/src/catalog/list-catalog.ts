@@ -66,7 +66,16 @@ export function listVoiceProviderCatalog(registry?: VoiceProviderRegistry): Voic
   const tts = [
     ...BUILTIN_TTS_PROVIDERS,
     ...[...registry.tts.values()]
-      .map((entry) => entry.descriptor)
+      .map((entry) => {
+        const descriptor = entry.descriptor;
+        if (!entry.clone) {
+          return descriptor;
+        }
+        return {
+          ...descriptor,
+          clone: entry.clone.capabilities,
+        };
+      })
       .filter((descriptor) => !BUILTIN_TTS_PROVIDERS.some((b) => b.id === descriptor.id)),
   ];
 

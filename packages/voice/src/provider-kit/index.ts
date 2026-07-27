@@ -19,6 +19,20 @@ export type {
   VoiceCatalogFetch,
   VoiceProviderListContext,
 } from '../providers/base/provider-registration.js';
+export { assertCloneSampleWithinLimit } from '../providers/create-voice-clone-provider.js';
+export type {
+  ClonedVoice,
+  ClonedVoiceModelStatus,
+  ClonedVoiceReadyState,
+  CreateClonedVoiceInput,
+  ListClonedVoicesInput,
+  ListClonedVoicesResult,
+  RecomputeClonedVoiceInput,
+  SynthesizeWithVoiceReferenceInput,
+  VoiceCloneCapabilities,
+  VoiceCloneProvider,
+  WaitClonedVoiceReadyInput,
+} from '../types/clone.js';
 export type {
   STTProvider,
   STTProviderAudioChunk,

@@ -242,6 +242,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/chat/` — conversational runtime (defineChat, policies, context sources, evals)
 - `docs/chat-ui/` — React hooks and `<ChatPanel />` for the chat turn protocol
 - `docs/voice/` — realtime speech I/O (defineVoice, providers, transports, security, testing)
+- `docs/voice/voice-cloning.md` — persisted client voice clones, ownership-aware HTTP, preview vs long-form
 - `docs/voice/livekit-continuous-voice.md` — LiveKit continuous voice sessions
 - `docs/knowledge-base/` — scoped knowledge providers and registry (`@plumbus/knowledge-base`)
 - `docs/mcp/` — serve capabilities to AI agents (stdio + HTTP, skill files)

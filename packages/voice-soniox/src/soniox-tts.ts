@@ -9,6 +9,7 @@ import {
 } from '@plumbus/voice/provider-kit';
 import { SONIOX_TTS_DESCRIPTOR, SONIOX_TTS_MODELS, SONIOX_TTS_VOICES } from './descriptor.js';
 import { SONIOX_VOICE_PRICING } from './pricing.js';
+import { SONIOX_CLONE_CAPABILITIES, SonioxVoiceCloneProvider } from './soniox-voice-clone.js';
 
 /** Default matches `@plumbus/voice` transport PCM (`pcm16-16k`). SDK default is `wav`. */
 const DEFAULT_PCM_SAMPLE_RATE = 16_000;
@@ -133,6 +134,12 @@ export const SONIOX_TTS_REGISTRATION: TTSProviderRegistration = {
       return staticSonioxVoices(modelId);
     }
     return normalizeVoiceList(voices, { modelId });
+  },
+  clone: {
+    capabilities: SONIOX_CLONE_CAPABILITIES,
+    create(credentials) {
+      return new SonioxVoiceCloneProvider(credentials);
+    },
   },
 };
 

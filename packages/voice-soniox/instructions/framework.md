@@ -67,6 +67,7 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 
 - **STT:** realtime SDK session (`client.realtime.stt`) with endpoint detection.
 - **TTS:** REST streaming via `client.tts.generateStream()`; defaults to `pcm_s16le` @ **16 kHz** (aligned with transport `pcm16-16k`). Override with `tts.options.format` / `sampleRate` / `bitrate`. Forwards `AbortSignal` as SDK `signal`.
+- **Clone:** `client.tts.voices.*` on `SONIOX_TTS_REGISTRATION.clone` (`@soniox/node` ^2.2.0). UUID `voice` = clone id in `generateStream`. Catalog `listVoices` stays built-ins; user clones via clone provider + app DB.
 - **Locale:** `he-IL` → Soniox language `he` (prefix before `-`).
 - **Pricing:** `SONIOX_VOICE_PRICING['soniox-stt']` / `['soniox-tts']` attached on the matching registration. TTS `$/character` is approximate vs Soniox token billing.
 
@@ -76,7 +77,7 @@ This package ships no CLI of its own. `plumbus voice worker` and the voice route
 
 ## Docs
 
-- `docs/voice/providers.md`, `docs/voice/configuration.md`, `docs/voice/cost-tracking.md` (Plumbus monorepo)
+- `docs/voice/providers.md`, `docs/voice/configuration.md`, `docs/voice/cost-tracking.md`, `docs/voice/voice-cloning.md` (Plumbus monorepo)
 - `docs/upgrading-voice-provider-packages.md` — migrating from `@plumbus/voice` 0.3.x
 - Package overview: [`../README.md`](../README.md)
 

@@ -2,7 +2,6 @@ import type { TtsParams } from '@deepdub/node';
 import { ErrorCode, PlumbusError } from '@plumbus/core';
 import {
   type DeliveryTone,
-  fetchCatalogJson,
   getVoiceModelOption,
   normalizeVoiceList,
   type TTSProvider,
@@ -10,25 +9,19 @@ import {
   type VoiceProviderCredentials,
   type VoiceTtsConfig,
 } from '@plumbus/voice/provider-kit';
+import {
+  type DeepdubClientFactory,
+  type DeepdubSdkClient,
+  resolveDeepdubClientFactory,
+  resolveDeepdubRestBaseUrl,
+} from './deepdub-client.js';
+import {
+  DEEPDUB_CLONE_CAPABILITIES,
+  DeepdubVoiceCloneProvider,
+  deepdubSynthesizeWithVoiceReference,
+} from './deepdub-voice-clone.js';
 import { DEEPDUB_TTS_DESCRIPTOR, DEEPDUB_TTS_MODELS } from './descriptor.js';
 import { DEEPDUB_VOICE_PRICING } from './pricing.js';
-
-/**
- * Minimal structural surface of the official `@deepdub/node` SDK client we use.
- * We synthesize through the SDK (not a hand-rolled WebSocket) so the request and
- * audio handling are byte-for-byte identical to Deepdub Studio / the SDK example,
- * which is the configuration that pronounces Hebrew correctly.
- */
-interface DeepdubSdkClient {
-  connect(): Promise<unknown>;
-  generateToBuffer(text: string, params?: TtsParams): Promise<unknown>;
-  disconnect?(): void;
-}
-
-type DeepdubClientFactory = (
-  apiKey: string,
-  options: { protocol: 'websocket' },
-) => DeepdubSdkClient;
 
 class DeepdubTTSProvider implements TTSProvider {
   readonly capabilities = DEEPDUB_TTS_DESCRIPTOR;
@@ -50,14 +43,27 @@ class DeepdubTTSProvider implements TTSProvider {
       temperature: mapEnergy(tone.energy),
       promptBoost: Boolean(tone.emotion && tone.emotion !== 'neutral'),
       locale: this.voiceSlice.locale,
-      // Per-turn gender override (e.g. detected subject gender). Falls through to
-      // the static voice option in `#buildGenerationParams` when not provided.
       targetGender: tone.targetGender,
     };
   }
 
   async *synthesizeStream(text: string, params: unknown, signal?: AbortSignal) {
     this.#characters += text.length;
+    const voiceReference = resolveVoiceReference(this.voiceSlice.options, params);
+    if (voiceReference) {
+      const buffer = await deepdubSynthesizeWithVoiceReference(this.credentials, {
+        text,
+        audio: voiceReference,
+        locale: this.voiceSlice.locale,
+        model: this.voiceSlice.model,
+      });
+      if (signal?.aborted) {
+        return;
+      }
+      yield buffer;
+      return;
+    }
+
     const client = await this.#getClient();
     const options = this.#buildGenerationParams(params);
 
@@ -215,8 +221,6 @@ class DeepdubTTSProvider implements TTSProvider {
         toneParams?.model ?? this.voiceSlice.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.2',
       locale: toneParams?.locale ?? this.voiceSlice.locale ?? 'en-US',
     };
-    // Prefer a per-turn gender from the resolved tone (detected subject gender);
-    // fall back to the statically configured voice option.
     const targetGender =
       resolveDynamicGender(toneParams) ?? resolveDeepdubGender(this.voiceSlice.options);
     if (targetGender) {
@@ -226,9 +230,6 @@ class DeepdubTTSProvider implements TTSProvider {
     if (accentControl) {
       generationParams.accentControl = accentControl;
     }
-    // Delivery-shaping params are only sent when a tone profile is active. With the
-    // default tone (none resolved) we omit them so Deepdub uses its own defaults —
-    // matching the SDK example that produces correct Hebrew.
     if (toneParams) {
       generationParams.tempo = toneParams.tempo;
       generationParams.variance = toneParams.variance;
@@ -267,10 +268,30 @@ export const DEEPDUB_TTS_REGISTRATION: TTSProviderRegistration = {
   create(credentials, voiceSlice) {
     return new DeepdubTTSProvider(credentials, voiceSlice);
   },
-  async listVoices(credentials, modelId, context) {
-    const baseUrl = credentials.baseUrl ?? 'https://api.deepdub.com';
-    const payload = await fetchCatalogJson(credentials, context.fetcher, `${baseUrl}/v1/voices`);
-    return normalizeVoiceList(payload, { modelId });
+  async listVoices(credentials, modelId, _context) {
+    const factory = await resolveDeepdubClientFactory(credentials);
+    const client = factory(credentials.apiKey ?? '', {
+      protocol: 'http',
+      baseUrl: resolveDeepdubRestBaseUrl(credentials),
+    });
+    if (typeof client.listVoices !== 'function') {
+      throw new PlumbusError(
+        ErrorCode.DependencyViolation,
+        'DeepdubClient.listVoices is unavailable',
+      );
+    }
+    const payload = await client.listVoices();
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+    const prompts = Array.isArray(record.voicePrompts) ? record.voicePrompts : [];
+    return normalizeVoiceList({ voices: prompts }, { modelId });
+  },
+  clone: {
+    capabilities: DEEPDUB_CLONE_CAPABILITIES,
+    create(credentials) {
+      return new DeepdubVoiceCloneProvider(credentials);
+    },
+    synthesizeWithVoiceReference: deepdubSynthesizeWithVoiceReference,
   },
 };
 
@@ -316,6 +337,7 @@ interface DeepdubToneParams {
   promptBoost?: boolean;
   locale?: string;
   targetGender?: string;
+  voiceReference?: string | Buffer | Uint8Array;
 }
 
 function isDeepdubToneParams(value: unknown): value is DeepdubToneParams {
@@ -354,6 +376,24 @@ function resolveDeepdubAccentControl(
   return undefined;
 }
 
+function resolveVoiceReference(
+  options: VoiceTtsConfig['options'],
+  params: unknown,
+): Buffer | Uint8Array | undefined {
+  const fromParams =
+    params && typeof params === 'object'
+      ? (params as Record<string, unknown>).voiceReference
+      : undefined;
+  const raw = fromParams ?? options?.voiceReference;
+  if (Buffer.isBuffer(raw) || raw instanceof Uint8Array) {
+    return raw;
+  }
+  if (typeof raw === 'string' && raw.length > 0) {
+    return Buffer.from(raw, 'base64');
+  }
+  return undefined;
+}
+
 function isDeepdubDisconnectedError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -362,26 +402,4 @@ function isDeepdubDisconnectedError(error: unknown): boolean {
   );
 }
 
-async function resolveDeepdubClientFactory(
-  credentials: VoiceProviderCredentials,
-): Promise<DeepdubClientFactory> {
-  const injected = (credentials.options as Record<string, unknown> | undefined)
-    ?.deepdubClientFactory;
-  if (typeof injected === 'function') {
-    return injected as DeepdubClientFactory;
-  }
-  const imported = (await import('@deepdub/node')) as {
-    DeepdubClient?: new (apiKey: string, options: { protocol: 'websocket' }) => DeepdubSdkClient;
-    default?: {
-      DeepdubClient?: new (apiKey: string, options: { protocol: 'websocket' }) => DeepdubSdkClient;
-    };
-  };
-  const ClientCtor = imported.DeepdubClient ?? imported.default?.DeepdubClient;
-  if (typeof ClientCtor !== 'function') {
-    throw new PlumbusError(
-      ErrorCode.DependencyViolation,
-      'Unable to load DeepdubClient from @deepdub/node',
-    );
-  }
-  return (apiKey, options) => new ClientCtor(apiKey, options);
-}
+export type { DeepdubClientFactory };

@@ -25,6 +25,13 @@ export {
   createTransportProvider,
   createTTSProvider,
 } from './providers/factory.js';
+export {
+  assertCloneSampleWithinLimit,
+  createVoiceCloneProvider,
+  getVoiceCloneCapabilities,
+  supportsVoiceCloning,
+  synthesizeWithVoiceReference,
+} from './providers/create-voice-clone-provider.js';
 export type { VoiceProviderRegistry } from './providers/registry.js';
 export {
   createProviderRegistry,
@@ -32,6 +39,7 @@ export {
 } from './providers/registry.js';
 export { stripVoiceAssistantMarkers } from './runtime/assistant-text.js';
 export { createVoiceExecutionContext } from './runtime/create-voice-execution-context.js';
+export { registerVoiceCloneRoutes } from './runtime/http-clone.js';
 export { registerVoiceRoutes } from './runtime/http.js';
 export {
   assertExclusiveNoiseCancellation,
@@ -48,5 +56,10 @@ export {
 } from './runtime/tone-mapper.js';
 export type { VoiceSessionControllerOptions } from './runtime/voice-session-controller.js';
 export { VoiceSessionController } from './runtime/voice-session-controller.js';
-export type { RegisterVoiceRoutesOpts, VoiceBeforeSessionResult } from './types/http.js';
+export type {
+  RegisterVoiceCloneRoutesOpts,
+  RegisterVoiceRoutesOpts,
+  VoiceBeforeSessionResult,
+  VoiceCloneAuth,
+} from './types/http.js';
 export * from './types/index.js';

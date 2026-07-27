@@ -8,7 +8,7 @@ export interface AICostContextLike {
   relatedEntityId?: string;
 }
 
-export type VoiceUsageKind = 'transcribe' | 'synthesize' | 'transport' | 'other';
+export type VoiceUsageKind = 'transcribe' | 'synthesize' | 'transport' | 'clone' | 'other';
 export type VoiceCostOperation = Extract<
   AICostRecord['operation'],
   'transcribe' | 'synthesize' | 'transport'
