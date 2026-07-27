@@ -83,8 +83,11 @@ async function fetchSttProviderOptions(
   if (!registration) {
     throw new PlumbusError(
       ErrorCode.NotFound,
-      `Voice stt provider "${args.providerId}" is not registered.`,
-      { providerId: args.providerId, kind: args.kind },
+      `Voice stt provider "${args.providerId}" is not registered — pass its *_REGISTRATION to createProviderRegistry()`,
+      {
+        providerId: args.providerId,
+        kind: args.kind,
+      },
     );
   }
 
@@ -125,8 +128,11 @@ async function fetchTtsProviderOptions(
   if (!registration) {
     throw new PlumbusError(
       ErrorCode.NotFound,
-      `Voice tts provider "${args.providerId}" is not registered.`,
-      { providerId: args.providerId, kind: args.kind },
+      `Voice tts provider "${args.providerId}" is not registered — pass its *_REGISTRATION to createProviderRegistry()`,
+      {
+        providerId: args.providerId,
+        kind: args.kind,
+      },
     );
   }
 

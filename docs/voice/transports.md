@@ -2,12 +2,13 @@
 
 Transport answers one question: how does a voice session get established and how do audio/data frames move once the session is live?
 
-`@plumbus/voice` ships two transport families in v1.
+`@plumbus/voice` ships the `websocket` transport built-in. LiveKit ships as `@plumbus/voice-livekit` — install it and register `LIVEKIT_TRANSPORT_REGISTRATION` with `createProviderRegistry()`.
 
 ## `websocket` vs `livekit`
 
 | Concern | `websocket` | `livekit` |
 |---|---|---|
+| Install | built into `@plumbus/voice` | `pnpm add @plumbus/voice-livekit` |
 | Infra footprint | app-owned Fastify + websocket route | external media/session infra |
 | Bootstrap | `wsUrl` + short-lived session token | room/url/token grant |
 | Best for | simple push-to-talk apps, CI smoke, no vendor dependency | apps already standardized on LiveKit rooms/media |
@@ -39,7 +40,7 @@ Choose `livekit` when:
 - multi-party or media-room semantics matter
 - you want LiveKit's room/grant model more than raw app-owned websocket simplicity
 
-Server workers publish assistant audio as `pcm16;rate=16000;channels=1` on the `agent-voice` track by default (override with `transport.options.agentAudioTrackName`). Browser clients should use `createLiveKitVoiceSession()` from `@plumbus/voice/client`, which resamples captured agent audio to the same 16 kHz mono PCM format before `onAudioChunk`.
+Server workers publish assistant audio as `pcm16;rate=16000;channels=1` on the `agent-voice` track by default (override with `transport.options.agentAudioTrackName`). Browser clients should use `createLiveKitVoiceSession()` from `@plumbus/voice-livekit/client`, which resamples captured agent audio to the same 16 kHz mono PCM format before `onAudioChunk`.
 
 Push-to-talk over LiveKit uses reliable data messages (`ptt.down` / `ptt.up`) via `session.ptt` on the client helper or raw `publishData` control frames on custom clients.
 

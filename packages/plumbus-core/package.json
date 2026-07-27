@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.6.12",
+  "version": "0.6.14",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./errors": {
+      "types": "./dist/errors-entry.d.ts",
+      "import": "./dist/errors-entry.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",

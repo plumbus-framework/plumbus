@@ -20,7 +20,9 @@ Voice spend belongs in the same AI ledger as text prompts.
 
 ## Helper
 
-Use `recordVoiceCost(...)` when the provider call did not already flow through a core AI helper.
+Use `recordVoiceCost(...)` when the provider call did not already flow through a core AI helper. Import `recordLiveKitTransportCost(...)` from `@plumbus/voice-livekit` (it owns LiveKit transport pricing and passes an explicit `cost` into `recordVoiceCost`).
+
+Cloud/vendor add-on packages own their pricing constants (`SONIOX_VOICE_PRICING`, `DEEPDUB_VOICE_PRICING`, …) and attach them on `*_REGISTRATION.pricing`. `createProviderRegistry()` calls `registerVoicePricing()` for those rows so `lookupVoicePricing` / `calculateVoiceCost` / `recordVoiceCost` return real USD. Built-in provider keys stay in `@plumbus/voice`. `recordVoiceCost` still accepts an optional `cost` override (LiveKit transport uses this).
 
 Before starting a turn, the runtime may call:
 

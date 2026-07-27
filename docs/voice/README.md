@@ -24,6 +24,20 @@ These docs are split in three:
 | [livekit-continuous-voice.md](./livekit-continuous-voice.md) | You're wiring a continuous (always-listening) LiveKit voice stack. |
 | [security.md](./security.md) | You're exposing voice routes on a real app and need the S1-S10 threat model. |
 | [design/providers.md](./design/providers.md) | You need the capability model, tone mapping rules, or ElevenLabs dual-model behavior. |
+| [../upgrading-voice-provider-packages.md](../upgrading-voice-provider-packages.md) | You're moving from `@plumbus/voice` 0.3.x to 0.4.x provider add-on packages. |
+
+## Provider add-on packages
+
+`@plumbus/voice` ships builtins only: `websocket`, `web-speech`, and `browser-tts`. Cloud/vendor providers (including OpenAI) are separate packages — install them and pass their `*_REGISTRATION` into `createProviderRegistry()`. CLI/workers load `app/voice/registry.ts` (`voiceProviderRegistry`); there is no `createRegistryForVoices` / `VOICE_ADDON_PACKAGES` auto-load.
+
+| Provider id | Package | Open after install (consumer app) |
+|---|---|---|
+| `openai-whisper` / `openai-realtime` / `openai` | `@plumbus/voice-openai` | `node_modules/@plumbus/voice-openai/instructions/README.md` |
+| `livekit` | `@plumbus/voice-livekit` | `node_modules/@plumbus/voice-livekit/instructions/README.md` |
+| `soniox` | `@plumbus/voice-soniox` | `node_modules/@plumbus/voice-soniox/instructions/README.md` |
+| `deepdub` | `@plumbus/voice-deepdub` | `node_modules/@plumbus/voice-deepdub/instructions/README.md` |
+| `elevenlabs` | `@plumbus/voice-elevenlabs` | `node_modules/@plumbus/voice-elevenlabs/instructions/README.md` |
+| `minimax` | `@plumbus/voice-minimax` | `node_modules/@plumbus/voice-minimax/instructions/README.md` |
 
 ## Design docs
 
@@ -33,18 +47,9 @@ These docs are split in three:
 
 ## Agent instructions
 
-Read these when you're an AI agent extending a Plumbus app that uses voice. They live in the package itself ([`packages/voice/instructions/`](../../packages/voice/instructions/)) so they're available in `node_modules/@plumbus/voice/instructions/`:
+After `pnpm add @plumbus/voice`, open **`node_modules/@plumbus/voice/instructions/README.md` first**. That index lists every topic file and the exact `node_modules/@plumbus/voice-*/instructions/README.md` paths for provider add-ons. Run `plumbus init --patch` so project agent wiring (`AGENTS.md`, Copilot, Cursor) repeats those paths.
 
-- [`instructions/framework.md`](../../packages/voice/instructions/framework.md)
-- [`instructions/client-stt.md`](../../packages/voice/instructions/client-stt.md)
-- [`instructions/local-providers.md`](../../packages/voice/instructions/local-providers.md)
-- [`instructions/security.md`](../../packages/voice/instructions/security.md)
-- [`instructions/defining-voices.md`](../../packages/voice/instructions/defining-voices.md)
-- [`instructions/providers.md`](../../packages/voice/instructions/providers.md)
-- [`instructions/cost-tracking.md`](../../packages/voice/instructions/cost-tracking.md)
-- [`instructions/testing.md`](../../packages/voice/instructions/testing.md)
-- [`instructions/extending.md`](../../packages/voice/instructions/extending.md)
-- [`instructions/noise-cancellation.md`](../../packages/voice/instructions/noise-cancellation.md)
+Monorepo source: [`packages/voice/instructions/`](../../packages/voice/instructions/).
 
 ## SDK surface (selected exports)
 
@@ -53,12 +58,14 @@ Beyond `defineVoice`, `registerVoiceRoutes`, and `runVoiceTurn`, the barrel also
 | Group | Exports | Notes |
 |-------|---------|-------|
 | Catalog | `listVoiceProviderCatalog`, `suggestVoiceStacks`, `BUILTIN_*_PROVIDERS`, `fetchVoiceProviderOptions` | Powers `GET /api/voice/stacks` and admin catalog routes |
-| Provider factory | `createSTTProvider`, `createTTSProvider`, `createTransportProvider`, `createProviderRegistry`, `validateVoiceProviders`, `resolveVoiceProvidersFromEnv` | Credential validation + runtime wiring |
-| LiveKit / worker | `startVoiceWorker`, `mintLiveKitParticipantToken`, `createVoiceAgentEntry`, `bootstrapVoiceAgentConfigsFromModule`, `PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE_ENV` | CLI `plumbus voice worker` and agent bootstrap |
-| Noise cancellation | `parseNoiseCancellation`, `serializeNoiseCancellation`, `applyClientNoiseCancellation`, `createInboundAudioStream`, … | See [noise-cancellation.md](./noise-cancellation.md) |
-| Cost | `recordVoiceCost`, `recordLiveKitTransportCost`, `summarizeVoiceTurnCosts`, `lookupVoicePricing`, `listVoicePricing` | Shared AI ledger helpers |
+| Provider factory | `createSTTProvider`, `createTTSProvider`, `createTransportProvider`, `createProviderRegistry`, `validateVoiceProviders`, `resolveVoiceProvidersFromEnv`, `loadAppVoiceRegistry` | Credential validation + runtime wiring; CLI/workers load `app/voice/registry.ts` |
+| LiveKit / worker | — | Import from `@plumbus/voice-livekit` (`startVoiceAgentWorker`, `joinVoiceRoomSession`, `createVoiceAgentEntry`, …) or `@plumbus/voice-livekit/client` |
+| Noise cancellation | `parseNoiseCancellation`, `serializeNoiseCancellation`, … | Browser client NC (`applyClientNoiseCancellation`) and agent inbound stream helpers live on `@plumbus/voice-livekit` |
+| OpenAI STT/TTS | — | Import registrations from `@plumbus/voice-openai` (`OPENAI_WHISPER_STT_REGISTRATION`, `OPENAI_REALTIME_STT_REGISTRATION`, `OPENAI_TTS_REGISTRATION`) |
+| Provider kit | `@plumbus/voice/provider-kit` | Shared types/helpers for authoring `@plumbus/voice-*` add-ons |
+| Cost | `recordVoiceCost`, `summarizeVoiceTurnCosts`, `lookupVoicePricing`, `listVoicePricing` | Shared AI ledger helpers (`recordLiveKitTransportCost` lives on `@plumbus/voice-livekit`) |
 | Tone / text | `applyDeliveryToneToText`, `mapDeliveryToneForProvider`, `stripVoiceAssistantMarkers` | TTS delivery shaping |
-| Subpath | `@plumbus/voice/worker` | Worker entry used by `plumbus voice worker` |
+| Subpath | `@plumbus/voice/worker` | Discover / env / execution-context helpers (LiveKit worker APIs are on the livekit add-on) |
 
 ## When to reach for `@plumbus/voice`
 

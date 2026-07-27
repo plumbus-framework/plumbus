@@ -92,6 +92,73 @@ jobs:
             pnpm publish --access public --no-git-checks
           fi
 
+      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.4.x).
+      - name: Publish @plumbus/voice-openai
+        working-directory: packages/voice-openai
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      - name: Publish @plumbus/voice-deepdub
+        working-directory: packages/voice-deepdub
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      - name: Publish @plumbus/voice-soniox
+        working-directory: packages/voice-soniox
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      - name: Publish @plumbus/voice-elevenlabs
+        working-directory: packages/voice-elevenlabs
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      - name: Publish @plumbus/voice-minimax
+        working-directory: packages/voice-minimax
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      - name: Publish @plumbus/voice-livekit
+        working-directory: packages/voice-livekit
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
       # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.5.x).
       - name: Publish @plumbus/api
         working-directory: packages/api

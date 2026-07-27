@@ -48,23 +48,23 @@ const providers = {
 
 ## Credential summary
 
-| Provider | Required fields | Notes |
-|---|---|---|
-| `websocket` | none | raw app-owned websocket transport |
-| `livekit` | `url`, `apiKey`, `apiSecret` | separate secret from app auth |
-| `soniox` | `apiKey` | server STT; optional `options.contextTerms` maps to Soniox `context.terms` |
-| `openai-whisper` | `apiKey` | use `baseUrl` for local/self-hosted compatible endpoints |
-| `openai-realtime` | `apiKey` | STT-only transcription path, not full speech-to-speech |
-| `deepdub` | `apiKey` | streaming/server TTS |
-| `openai` | `apiKey` | server TTS |
-| `minimax` | `apiKey` | server TTS, richer tone mapping |
-| `elevenlabs` | `apiKey` | flash vs v3 tradeoffs differ by model |
-| `web-speech` | none | client STT |
-| `browser-tts` | none | client TTS |
+| Provider | Install | Required fields | Notes |
+|---|---|---|---|
+| `websocket` | built-in | none | raw app-owned websocket transport |
+| `livekit` | `@plumbus/voice-livekit` | `url`, `apiKey`, `apiSecret` | separate secret from app auth |
+| `soniox` | `@plumbus/voice-soniox` | `apiKey` | optional `options.contextTerms` → Soniox `context.terms` |
+| `openai-whisper` | `@plumbus/voice-openai` | `apiKey` | use `baseUrl` for local/self-hosted compatible endpoints |
+| `openai-realtime` | `@plumbus/voice-openai` | `apiKey` | STT-only transcription path, not full speech-to-speech |
+| `deepdub` | `@plumbus/voice-deepdub` | `apiKey` | streaming/server TTS |
+| `openai` | `@plumbus/voice-openai` | `apiKey` | server TTS |
+| `minimax` | `@plumbus/voice-minimax` | `apiKey` | server TTS, richer tone mapping |
+| `elevenlabs` | `@plumbus/voice-elevenlabs` | `apiKey` | flash vs v3 via official SDK |
+| `web-speech` | built-in | none | client STT |
+| `browser-tts` | built-in | none | client TTS |
 
 ## Validation
 
-Use `validateVoiceProviders({ voices, providers })` to fail fast before serving traffic. `registerVoiceRoutes()` also validates on mount and throws if the chosen voice stacks are missing required credential fields.
+Use `validateVoiceProviders({ voices, providers, registry })` to fail fast before serving traffic. Pass the same `registry` you built with explicit `*_REGISTRATION` entries so missing add-ons are reported as issues with `field: 'package'`. Without `registry`, validation only checks credential shape against the static catalog.
 
 ## Catalog/admin routes
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   ensureVoiceAgentBootstrapEnv,
@@ -46,4 +46,30 @@ describe('plumbus voice worker command routing', () => {
     );
     expect(existsSync(distBootstrap)).toBe(true);
   });
+
+  it('CLI loads LiveKit worker APIs from @plumbus/voice-livekit, not @plumbus/voice', async () => {
+    const voicePkg = await import('@plumbus/voice');
+    expect(typeof (voicePkg as { startVoiceAgentWorker?: unknown }).startVoiceAgentWorker).toBe(
+      'undefined',
+    );
+    expect(typeof (voicePkg as { joinVoiceRoomSession?: unknown }).joinVoiceRoomSession).toBe(
+      'undefined',
+    );
+    expect(typeof (voicePkg as { loadVoiceAddons?: unknown }).loadVoiceAddons).toBe('undefined');
+    expect(typeof (voicePkg as { createRegistryForVoices?: unknown }).createRegistryForVoices).toBe(
+      'undefined',
+    );
+    expect(typeof voicePkg.loadAppVoiceRegistry).toBe('function');
+
+    const voiceCommandSource = readFileSync(
+      new URL('../commands/voice.ts', import.meta.url),
+      'utf8',
+    );
+    expect(voiceCommandSource).toContain('@plumbus/voice-livekit');
+    expect(voiceCommandSource).not.toContain('createRegistryForVoices');
+    expect(voiceCommandSource).toContain('startVoiceAgentWorker');
+    expect(voiceCommandSource).toContain('joinVoiceRoomSession');
+    expect(resolveVoiceWorkerBranch({})).toBe('agent-dispatch');
+    expect(resolveVoiceWorkerBranch({ room: 'room-1' })).toBe('join-room');
+  }, 15_000);
 });

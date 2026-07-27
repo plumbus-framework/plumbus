@@ -1,3 +1,5 @@
+import { listVoiceProviderCatalog } from '../catalog/list-catalog.js';
+import { registerVoicePricing } from '../cost/voice-pricing.js';
 import type {
   STTProviderCatalogEntry,
   TTSProviderCatalogEntry,
@@ -6,30 +8,21 @@ import type {
   VoiceProviderCredentials,
   VoiceProviderValidationIssue,
 } from '../types/provider.js';
-import { listVoiceProviderCatalog } from '../catalog/list-catalog.js';
 import type {
   STTProviderCapabilities,
   TransportProviderCapabilities,
 } from './base/capabilities.js';
 import type {
   STTProviderRegistration,
-  TTSProviderRegistration,
   TransportProviderRegistration,
+  TTSProviderRegistration,
 } from './base/provider-registration.js';
 import type { STTProvider } from './base/stt-provider.js';
-import type { TTSProvider } from './base/tts-provider.js';
 import type { TransportProvider } from './base/transport-provider.js';
-import { SONIOX_STT_REGISTRATION } from './stt/soniox-stt.js';
-import { OPENAI_WHISPER_STT_REGISTRATION } from './stt/openai-whisper-stt.js';
-import { OPENAI_REALTIME_STT_REGISTRATION } from './stt/openai-realtime-stt.js';
+import type { TTSProvider } from './base/tts-provider.js';
 import { WEB_SPEECH_STT_REGISTRATION } from './stt/web-speech-stt.js';
-import { DEEPDUB_TTS_REGISTRATION } from './tts/deepdub-tts.js';
-import { OPENAI_TTS_REGISTRATION } from './tts/openai-tts.js';
-import { MINIMAX_TTS_REGISTRATION } from './tts/minimax-tts.js';
-import { ELEVENLABS_TTS_REGISTRATION } from './tts/elevenlabs-tts.js';
-import { BROWSER_TTS_REGISTRATION } from './tts/browser-tts.js';
-import { LIVEKIT_TRANSPORT_REGISTRATION } from './transport/livekit-transport.js';
 import { WEBSOCKET_TRANSPORT_REGISTRATION } from './transport/websocket-transport.js';
+import { BROWSER_TTS_REGISTRATION } from './tts/browser-tts.js';
 
 export interface CreateProviderRegistryOptions {
   includeBuiltins?: boolean;
@@ -52,18 +45,8 @@ export function createProviderRegistry(
   const transport = new Map<string, TransportProviderRegistration>();
 
   if (options.includeBuiltins !== false) {
-    stt.set('soniox', SONIOX_STT_REGISTRATION);
-    stt.set('openai-whisper', OPENAI_WHISPER_STT_REGISTRATION);
-    stt.set('openai-realtime', OPENAI_REALTIME_STT_REGISTRATION);
     stt.set('web-speech', WEB_SPEECH_STT_REGISTRATION);
-
-    tts.set('deepdub', DEEPDUB_TTS_REGISTRATION);
-    tts.set('openai', OPENAI_TTS_REGISTRATION);
-    tts.set('minimax', MINIMAX_TTS_REGISTRATION);
-    tts.set('elevenlabs', ELEVENLABS_TTS_REGISTRATION);
     tts.set('browser-tts', BROWSER_TTS_REGISTRATION);
-
-    transport.set('livekit', LIVEKIT_TRANSPORT_REGISTRATION);
     transport.set('websocket', WEBSOCKET_TRANSPORT_REGISTRATION);
   }
 
@@ -77,13 +60,20 @@ export function createProviderRegistry(
     transport.set(providerId, normalizeTransportRegistration(providerId, provider));
   }
 
+  // Seed ledger pricing from every registered add-on (and builtins if they declare any).
+  for (const registration of [...stt.values(), ...tts.values(), ...transport.values()]) {
+    if (registration.pricing) {
+      registerVoicePricing(registration.pricing);
+    }
+  }
+
   return { stt, tts, transport };
 }
 
 export function validateVoiceProviders(
   input: ValidateVoiceProvidersInput,
 ): ValidateVoiceProvidersResult {
-  const catalog = input.catalog ?? listVoiceProviderCatalog();
+  const catalog = input.catalog ?? listVoiceProviderCatalog(input.registry);
   const issues: VoiceProviderValidationIssue[] = [];
   const transportById = new Map(catalog.transport.map((provider) => [provider.id, provider]));
   const sttById = new Map(catalog.stt.map((provider) => [provider.id, provider]));
@@ -97,6 +87,7 @@ export function validateVoiceProviders(
       transportById.get(voice.transport.provider),
       input.providers.providers[voice.transport.provider],
       issues,
+      input.registry?.transport,
     );
     validateProviderRef(
       voice.name,
@@ -105,6 +96,7 @@ export function validateVoiceProviders(
       sttById.get(voice.stt.provider),
       input.providers.providers[voice.stt.provider],
       issues,
+      input.registry?.stt,
     );
     validateProviderRef(
       voice.name,
@@ -113,6 +105,7 @@ export function validateVoiceProviders(
       ttsById.get(voice.tts.provider),
       input.providers.providers[voice.tts.provider],
       issues,
+      input.registry?.tts,
     );
   }
 
@@ -133,6 +126,7 @@ function validateProviderRef(
     | undefined,
   credentials: VoiceProviderCredentials | undefined,
   issues: VoiceProviderValidationIssue[],
+  registeredProviders?: ReadonlyMap<string, unknown>,
 ): void {
   if (!descriptor) {
     issues.push({
@@ -140,9 +134,19 @@ function validateProviderRef(
       kind,
       provider: providerId,
       field: 'provider',
-      message: `Unknown ${kind} provider "${providerId}"`,
+      message: `Unknown ${kind} provider "${providerId}" — install the add-on and pass its *_REGISTRATION to createProviderRegistry()`,
     });
     return;
+  }
+
+  if (registeredProviders && !registeredProviders.has(providerId)) {
+    issues.push({
+      voiceName,
+      kind,
+      provider: providerId,
+      field: 'package',
+      message: `Provider "${providerId}" is not registered — pass its *_REGISTRATION to createProviderRegistry()`,
+    });
   }
 
   for (const field of descriptor.credentialSchema) {
@@ -210,20 +214,16 @@ function normalizeTransportRegistration(
   }
 
   return {
-    descriptor: createFallbackTransportDescriptor(providerId),
+    descriptor: {
+      id: providerId,
+      kind: 'transport',
+      displayName: providerId,
+      credentialSchema: [],
+      realtime: true,
+      modes: [],
+    },
     create() {
       return provider;
     },
-  };
-}
-
-function createFallbackTransportDescriptor(providerId: string): TransportProviderCapabilities {
-  return {
-    id: providerId,
-    kind: 'transport',
-    displayName: providerId,
-    credentialSchema: [],
-    realtime: true,
-    modes: [],
   };
 }

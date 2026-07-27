@@ -3,33 +3,6 @@ import { defineVoice } from '../../define/defineVoice.js';
 import { estimateVoiceTurnCost } from '../estimate-voice-turn-cost.js';
 
 describe('estimateVoiceTurnCost', () => {
-  it('maps soniox STT and minimax TTS to voice pricing models', () => {
-    const voice = defineVoice({
-      name: 'pricedVoice',
-      access: {},
-      transport: { provider: 'websocket' },
-      stt: { provider: 'soniox', model: 'stt-rt-preview' },
-      tts: { provider: 'minimax', model: 'speech-2.8-turbo', voiceId: 'voice-1' },
-      brain: {
-        async run() {
-          return { text: 'ok' };
-        },
-      },
-    });
-
-    const estimate = estimateVoiceTurnCost({
-      voice,
-      estimatedAudioInputSeconds: 60,
-      estimatedResponseCharacters: 100,
-    });
-
-    expect(estimate.sttModelKey).toBe('soniox-stt');
-    expect(estimate.ttsModelKey).toBe('minimax-speech-2.8-turbo');
-    expect(estimate.sttCostUsd).toBeGreaterThan(0);
-    expect(estimate.ttsCostUsd).toBeGreaterThan(0);
-    expect(estimate.estimatedCostUsd).toBe(estimate.sttCostUsd + estimate.ttsCostUsd);
-  });
-
   it('returns zero for client-side web-speech and browser-tts providers', () => {
     const voice = defineVoice({
       name: 'freeVoice',
@@ -55,7 +28,7 @@ describe('estimateVoiceTurnCost', () => {
     expect(estimate.ttsModelKey).toBeUndefined();
   });
 
-  it('maps openai-whisper and openai TTS models via costModelKey', () => {
+  it('maps cloud provider models via caller-supplied model tables', () => {
     const voice = defineVoice({
       name: 'openaiVoice',
       access: {},
@@ -73,10 +46,70 @@ describe('estimateVoiceTurnCost', () => {
       voice,
       estimatedAudioInputSeconds: 30,
       estimatedResponseCharacters: 50,
+      sttModels: [
+        {
+          id: 'gpt-4o-transcribe',
+          displayName: 'GPT-4o Transcribe',
+          streaming: false,
+          costModelKey: 'gpt-4o-transcribe',
+        },
+      ],
+      ttsModels: [
+        {
+          id: 'tts-1-hd',
+          displayName: 'tts-1-hd',
+          streaming: true,
+          costModelKey: 'tts-1-hd',
+        },
+      ],
     });
 
     expect(estimate.sttModelKey).toBe('gpt-4o-transcribe');
     expect(estimate.ttsModelKey).toBe('tts-1-hd');
-    expect(estimate.estimatedCostUsd).toBeGreaterThan(0);
+    // Pricing for cloud models lives in add-on packages — builtin table returns 0.
+    expect(estimate.estimatedCostUsd).toBe(0);
+  });
+
+  it('accepts add-on model tables without embedding vendor models in voice', () => {
+    const voice = defineVoice({
+      name: 'addonVoice',
+      access: {},
+      transport: { provider: 'websocket' },
+      stt: { provider: 'soniox', model: 'stt-rt-preview' },
+      tts: { provider: 'minimax', model: 'speech-2.8-turbo', voiceId: 'voice-1' },
+      brain: {
+        async run() {
+          return { text: 'ok' };
+        },
+      },
+    });
+
+    const estimate = estimateVoiceTurnCost({
+      voice,
+      estimatedAudioInputSeconds: 60,
+      estimatedResponseCharacters: 100,
+      sttModels: [
+        {
+          id: 'stt-rt-preview',
+          displayName: 'Soniox',
+          streaming: true,
+          costModelKey: 'soniox-stt',
+        },
+      ],
+      ttsModels: [
+        {
+          id: 'speech-2.8-turbo',
+          displayName: 'MiniMax turbo',
+          streaming: true,
+          costModelKey: 'minimax-speech-2.8-turbo',
+        },
+      ],
+    });
+
+    expect(estimate.sttModelKey).toBe('soniox-stt');
+    expect(estimate.ttsModelKey).toBe('minimax-speech-2.8-turbo');
+    // Pricing for add-on models lives in add-on packages — builtin table returns 0.
+    expect(estimate.sttCostUsd).toBe(0);
+    expect(estimate.ttsCostUsd).toBe(0);
   });
 });

@@ -1,17 +1,29 @@
 # LiveKit continuous voice integration
 
 This guide documents how to wire a continuous (always-listening) LiveKit voice
-stack onto `@plumbus/voice`. It is provider- and app-agnostic: substitute your
-own voice name, language(s), STT/TTS providers, and brain input.
+stack onto `@plumbus/voice`. Install the transport add-on first:
+
+```bash
+pnpm add @plumbus/voice @plumbus/voice-livekit
+```
+
+It is provider- and app-agnostic: substitute your own voice name, language(s),
+STT/TTS providers, and brain input. Install alone does **not** register LiveKit —
+pass `LIVEKIT_TRANSPORT_REGISTRATION` into `createProviderRegistry({ transport })`
+and that registry into `registerVoiceRoutes` / workers. Browser session helpers
+import from `@plumbus/voice-livekit/client`; agent/worker APIs
+(`startVoiceAgentWorker`, `mintLiveKitParticipantToken`, `joinVoiceRoomSession`)
+import from `@plumbus/voice-livekit` (or `./worker`). See
+[upgrading-voice-provider-packages.md](../upgrading-voice-provider-packages.md).
 
 ## Session minting
 
 Use `POST /api/voice/:name/token` with a `beforeSession` hook that returns
-LiveKit room metadata and execution context:
+room mint options and execution context:
 
 ```ts
 beforeSession: async (ctx, voice, body) => ({
-  livekit: {
+  room: {
     roomName: sessionId,
     identity: userId,
     tokenTtlSeconds: 3600,
@@ -28,7 +40,7 @@ beforeSession: async (ctx, voice, body) => ({
 }),
 ```
 
-The route passes `beforeSession.livekit` into `LiveKitTransportProvider.mintSession()`.
+The route passes `beforeSession.room` into the transport’s `mintSession()` (LiveKit via `LIVEKIT_TRANSPORT_REGISTRATION`).
 
 Browser participant tokens include LiveKit agent dispatch in the JWT `roomConfig`:
 
@@ -183,18 +195,20 @@ to avoid resampling artifacts.
 |---|---|
 | `plumbus voice worker` | Production/dev agent dispatch (auto-joins rooms) |
 | `plumbus voice worker --room <sessionId>` | Dev worker joins a specific room |
-| `startVoiceAgentWorker()` | Production LiveKit agent dispatch via `@livekit/agents` |
-| `joinVoiceRoomSession()` | Programmatic single-room join |
+| `startVoiceAgentWorker()` | Production LiveKit agent dispatch — import from `@plumbus/voice-livekit` |
+| `joinVoiceRoomSession()` | Programmatic single-room join — import from `@plumbus/voice-livekit` |
 
 Apps typically run the worker via `plumbus voice worker` alongside the app dev
-process — no app-local worker file required. `startVoiceAgentWorker()` calls
-LiveKit's `initializeLogger()` before constructing `AgentServer` (required by
-`@livekit/agents` 1.4.x).
+process — no app-local worker file required. The CLI dynamically imports
+`@plumbus/voice-livekit` and loads `app/voice/registry.ts` via
+`loadAppVoiceRegistry()` (`voiceProviderRegistry` + optional `voiceProviders`).
+`startVoiceAgentWorker()` calls LiveKit's `initializeLogger()` before
+constructing `AgentServer` (required by `@livekit/agents` 1.4.x).
 
 ## Client
 
 ```ts
-import { createLiveKitVoiceSession } from '@plumbus/voice/client';
+import { createLiveKitVoiceSession } from '@plumbus/voice-livekit/client';
 
 const session = await createLiveKitVoiceSession({
   voiceName: '<voice-name>',

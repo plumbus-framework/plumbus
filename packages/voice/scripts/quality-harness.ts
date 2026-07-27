@@ -6,8 +6,8 @@
  *   pnpm tsx packages/voice/scripts/quality-harness.ts /path/to/input.wav
  *
  * Environment (preferred — matches plan default stack):
- *   SONIOX_API_KEY            Soniox STT
- *   DEEPDUB_API_KEY           Deepdub TTS
+ *   SONIOX_API_KEY            Soniox STT (`@plumbus/voice-soniox` must be installed)
+ *   DEEPDUB_API_KEY           Deepdub TTS (`@plumbus/voice-deepdub` must be installed)
  *   DEEPDUB_VOICE_ID          Deepdub voice id (required with DEEPDUB_API_KEY)
  *
  * Fallback when Soniox/Deepdub keys are absent:
@@ -17,6 +17,9 @@
  *   QUALITY_HARNESS_TRANSCRIPT  Mock STT transcript (default: "quality harness transcript")
  *
  * Writes `<input-basename>.out.wav` next to the input file.
+ *
+ * Note: the soniox-deepdub profile explicitly registers `@plumbus/voice-soniox`
+ * and `@plumbus/voice-deepdub` — those packages must be present in node_modules.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -30,8 +33,28 @@ import {
 import { createMockSTTProvider, createMockTransportProvider } from '../src/testing/mock-providers.js';
 import { runVoiceTurn } from '../src/runtime/run-turn.js';
 import type { TTSProvider } from '../src/providers/base/tts-provider.js';
+import type {
+  STTProviderRegistration,
+  TTSProviderRegistration,
+} from '../src/providers/base/provider-registration.js';
 
 type HarnessProfile = 'soniox-deepdub' | 'openai' | 'mock';
+
+async function loadSonioxDeepdubRegistrations(): Promise<{
+  stt: Record<string, STTProviderRegistration>;
+  tts: Record<string, TTSProviderRegistration>;
+}> {
+  const soniox = (await import('@plumbus/voice-soniox')) as {
+    SONIOX_STT_REGISTRATION: STTProviderRegistration;
+  };
+  const deepdub = (await import('@plumbus/voice-deepdub')) as {
+    DEEPDUB_TTS_REGISTRATION: TTSProviderRegistration;
+  };
+  return {
+    stt: { soniox: soniox.SONIOX_STT_REGISTRATION },
+    tts: { deepdub: deepdub.DEEPDUB_TTS_REGISTRATION },
+  };
+}
 
 async function main(): Promise<void> {
   const inputPath = process.argv[2];
@@ -43,7 +66,9 @@ async function main(): Promise<void> {
   const profile = resolveHarnessProfile();
   const mockTranscript = process.env.QUALITY_HARNESS_TRANSCRIPT ?? 'quality harness transcript';
 
-  const registry = createProviderRegistry();
+  const addonRegs =
+    profile === 'soniox-deepdub' ? await loadSonioxDeepdubRegistrations() : { stt: {}, tts: {} };
+  const registry = createProviderRegistry(addonRegs);
   const providers = buildProvidersConfig(profile);
 
   let transcript = mockTranscript;

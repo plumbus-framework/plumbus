@@ -1,0 +1,48 @@
+{
+  "name": "@plumbus/voice-elevenlabs",
+  "version": "0.1.1",
+  "description": "ElevenLabs TTS provider for @plumbus/voice.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/voice-elevenlabs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "0.6.x",
+    "@plumbus/voice": "0.4.x"
+  },
+  "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.59.0"
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "@plumbus/voice": "workspace:*",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT"
+}

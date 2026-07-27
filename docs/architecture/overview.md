@@ -99,7 +99,8 @@ Plumbus is a **layered, contract-driven application framework**. Application beh
 
 ┌─────────────────────────────────────────────────────┐
 │                   @plumbus/voice                    │
-│  Realtime speech I/O (defineVoice, LiveKit worker)  │
+│  Realtime speech I/O (+ optional @plumbus/voice-*   │
+│  provider packages: livekit, soniox, deepdub, …)    │
 │         ┌──────────────────────────────┐            │
 │         │      @plumbus/core            │            │
 │         └──────────────────────────────┘            │

@@ -3,7 +3,8 @@ import type { VoiceDefinition } from './voice.js';
 import type { VoiceProvidersConfig } from './provider.js';
 import type { VoiceSessionBudgetConfig } from './cost.js';
 
-export interface VoiceBeforeSessionLiveKit {
+/** Room / participant mint options for transport-agnostic `POST /token`. */
+export interface VoiceBeforeSessionRoom {
   roomName: string;
   metadata?: Record<string, unknown>;
   attributes?: Record<string, string>;
@@ -20,7 +21,7 @@ export interface VoiceBeforeSessionExecution {
 export type VoiceBeforeSessionResult =
   | { error: { status: number; body: unknown } }
   | {
-      livekit?: VoiceBeforeSessionLiveKit;
+      room?: VoiceBeforeSessionRoom;
       execution?: VoiceBeforeSessionExecution;
     };
 
@@ -32,11 +33,14 @@ export interface RegisterVoiceRoutesOpts {
   sessionTokenIssuer?: string;
   sessionTokenTtlSeconds?: number;
   registry?: import('../providers/registry.js').VoiceProviderRegistry;
+  /** Optional lazy registry resolver used by HTTP routes when `registry` is omitted. */
+  resolveRegistry?: () => Promise<import('../providers/registry.js').VoiceProviderRegistry>;
   sessionBudget?: VoiceSessionBudgetConfig;
   sessionLifecycle?: {
     maxSessionDurationSeconds?: number;
     idleTimeoutSeconds?: number;
   };
+  enableCallEventStream?: boolean;
   enableDebugEventStream?: boolean;
   beforeSession?: (
     ctx: ExecutionContext,

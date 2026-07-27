@@ -7,7 +7,7 @@ export function createAgentStateEvent(state: AgentState): VoiceEvent {
 
 export function createSessionHelloEvent(args: {
   sessionId: string;
-  transport: 'livekit' | 'websocket';
+  transport: string;
   audioFormat: string;
   sttMode?: 'client' | 'server';
 }): VoiceEvent {

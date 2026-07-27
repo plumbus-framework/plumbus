@@ -1,12 +1,14 @@
 import type { ContextDependencies } from '../execution/context-factory.js';
 import type { VoiceDefinition } from '@plumbus/voice';
 import type { VoiceProvidersConfig } from '@plumbus/voice';
+import type { VoiceProviderRegistry } from '@plumbus/voice';
 import type { VoiceSessionBudgetConfig } from '@plumbus/voice';
 import { buildVoiceServeContext } from './voice-serve-context.js';
 
 export interface VoiceAgentBootstrapResult {
   voices: VoiceDefinition[];
   providers: VoiceProvidersConfig;
+  registry: VoiceProviderRegistry;
   createDependencies: (auth: {
     userId: string;
     tenantId?: string;
@@ -26,6 +28,7 @@ export async function bootstrapVoiceAgentRuntime(): Promise<VoiceAgentBootstrapR
   return {
     voices: ctx.voices,
     providers: ctx.providers,
+    registry: ctx.registry,
     createDependencies: (auth) => ctx.routeConfig.createDependencies(auth),
   };
 }

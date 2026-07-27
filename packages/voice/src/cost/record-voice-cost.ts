@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@plumbus/core';
-import { calculateVoiceCost, lookupVoicePricing } from './voice-pricing.js';
 import type { RecordVoiceCostInput } from '../types/cost.js';
+import { calculateVoiceCost, lookupVoicePricing } from './voice-pricing.js';
 
 export interface RecordVoiceCostResult {
   cost: number | null;
@@ -12,7 +12,12 @@ export async function recordVoiceCost(
   input: RecordVoiceCostInput,
 ): Promise<RecordVoiceCostResult> {
   const pricing = lookupVoicePricing(input.model);
-  const cost = pricing ? calculateVoiceCost(input.model, input.mediaUsage) : null;
+  const cost =
+    input.cost !== undefined
+      ? input.cost
+      : pricing
+        ? calculateVoiceCost(input.model, input.mediaUsage)
+        : null;
 
   await ctx.ai.recordProviderCost(
     {
@@ -35,6 +40,6 @@ export async function recordVoiceCost(
 
   return {
     cost,
-    pricingKnown: pricing !== undefined,
+    pricingKnown: input.cost !== undefined || pricing !== undefined,
   };
 }

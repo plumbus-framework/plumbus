@@ -46,7 +46,7 @@ That keeps voice output in the browser, avoids server credentials, and pairs nat
 |---|---|---|
 | Fully local browser | `websocket` + `web-speech` + `browser-tts` | demos, prototypes, no vendor keys |
 | Self-hosted STT + browser playback | `websocket` + `openai-whisper` (`baseUrl`) + `browser-tts` | server-owned transcripts, client-owned synthesis |
-| Self-hosted STT + cloud TTS | `websocket` + `openai-whisper` (`baseUrl`) + `openai`/`deepdub`/`minimax` | controlled STT with richer server TTS |
+| Self-hosted STT + cloud TTS | `websocket` + `openai-whisper` (`baseUrl`) + `openai` (`@plumbus/voice-openai`) or `deepdub`/`minimax` (add-ons) | controlled STT with richer server TTS |
 
 ## Sidecar checklist
 

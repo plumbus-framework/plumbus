@@ -51,7 +51,7 @@ export function onRoutesRegistered(app, routeConfig) {
 |---|---|
 | `name` | stable route/session identifier |
 | `access` | voice routes are deny-by-default |
-| `transport` | realtime session strategy (`websocket` or `livekit`) |
+| `transport` | realtime session strategy (`websocket` built-in, or `livekit` with `@plumbus/voice-livekit` installed) |
 | `stt` | transcript source/provider |
 | `tts` | synthesis provider |
 | `brain.run` | app logic hook |
@@ -111,7 +111,7 @@ Clients and servers exchange JSON control frames (and binary audio on WebSocket 
 
 Server STT adapters wire `onTranscript` into `stt.partial` / `stt.final`. TTS playback uses `Playing` once audio chunks (or `tts.speak`) begin.
 
-For LiveKit transports, clients use `createLiveKitVoiceSession()` (`@plumbus/voice/client`) to subscribe to the agent audio track and receive JSON control events. Agent audio is delivered as 16 kHz mono PCM16 via `onAudioChunk`; push-to-talk uses `session.ptt.down()` / `session.ptt.up()` data messages (or `{ type: 'ptt.down' }` / `{ type: 'ptt.up' }` on raw data channels).
+For LiveKit transports, clients use `createLiveKitVoiceSession()` (`@plumbus/voice-livekit/client`) to subscribe to the agent audio track and receive JSON control events. Agent audio is delivered as 16 kHz mono PCM16 via `onAudioChunk`; push-to-talk uses `session.ptt.down()` / `session.ptt.up()` data messages (or `{ type: 'ptt.down' }` / `{ type: 'ptt.up' }` on raw data channels).
 
 ## Related docs
 

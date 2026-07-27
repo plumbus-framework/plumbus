@@ -85,6 +85,8 @@ export interface ValidateVoiceProvidersInput {
   voices: VoiceDefinition[];
   providers: VoiceProvidersConfig;
   catalog?: VoiceProviderCatalog;
+  /** When set, flags catalog providers that require an unloaded add-on package. */
+  registry?: import('../providers/registry.js').VoiceProviderRegistry;
 }
 
 export interface ValidateVoiceProvidersResult {

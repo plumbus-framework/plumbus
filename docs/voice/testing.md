@@ -44,12 +44,19 @@ In-process websocket tests for:
 
 ### Tier 4 — optional live vendor checks
 
-Behind `VOICE_LIVE_TEST=1` (skipped in default CI):
+Behind `VOICE_LIVE_TEST=1` (skipped in default CI). OpenAI Whisper remains in `@plumbus/voice`. Soniox / Deepdub / LiveKit live smokes live in their add-on packages (`@plumbus/voice-soniox`, `-deepdub`, `-livekit`).
 
-- Soniox connect/finalize smoke
-- Deepdub synthesize smoke
-- LiveKit `mintSession` and worker turn loop (`voice-livekit-e2e.live.test.ts`)
-- OpenAI Whisper with `src/testing/fixtures/tiny.wav`
+## Where provider tests live
+
+`@plumbus/voice` has **no** dependency on the `@plumbus/voice-*` packages (optional peers only), so its tests never import them:
+
+| Test kind | Package |
+|---|---|
+| Vendor wire/live tests (`soniox`, `deepdub`, `elevenlabs`, `minimax`, `livekit`) | the matching `@plumbus/voice-*` package |
+| Route/registry tests needing an add-on provider id | `@plumbus/voice`, using local fake registrations (`src/providers/__tests__/fake-registrations.ts`) |
+| Browser bundle guard | both `@plumbus/voice` (`client/index.js`) and `@plumbus/voice-livekit` (`client.js`) |
+
+Two guards protect the split and should stay green: `public-api-surface.test.ts` (the `@plumbus/voice` export surface) and `dependency-hygiene.test.ts` (zero vendor SDK deps or imports in `@plumbus/voice`).
 
 ## Manual scripts
 
@@ -60,7 +67,7 @@ pnpm --filter @plumbus/voice smoke
 pnpm --filter @plumbus/voice exec tsx scripts/quality-harness.ts /path/to/input.wav
 ```
 
-`quality-harness.ts` runs WAV → STT → echo brain → TTS → `.out.wav` using Soniox+Deepdub when those env vars are set, otherwise OpenAI or mock fallbacks.
+`quality-harness.ts` runs WAV → STT → echo brain → TTS → `.out.wav` using Soniox+Deepdub when those env vars are set, otherwise OpenAI or mock fallbacks. The Soniox/Deepdub profile explicitly imports those packages and registers them.
 
 ## `@plumbus/voice/testing`
 

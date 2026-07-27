@@ -4,7 +4,7 @@ import { createAgentStateEvent, createSessionHelloEvent } from './events.js';
 export interface VoiceRuntimeSession {
   id: string;
   voiceName: string;
-  transport: 'livekit' | 'websocket';
+  transport: string;
   audioFormat: string;
   state: AgentState;
   userId?: string;
@@ -15,7 +15,7 @@ export interface VoiceRuntimeSession {
 export function createVoiceRuntimeSession(args: {
   id: string;
   voiceName: string;
-  transport: 'livekit' | 'websocket';
+  transport: string;
   audioFormat?: string;
   userId?: string;
   now?: Date;

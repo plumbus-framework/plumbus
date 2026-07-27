@@ -2,6 +2,8 @@
 
 Plumbus voice supports **one** enhanced noise-cancellation chain per session. Never stack client and agent NC on the same audio path.
 
+**Package boundary:** parse/serialize helpers stay in `@plumbus/voice`. Client apply (`applyClientNoiseCancellation`) and agent inbound/stream helpers (`createInboundAudioStream`, `resolveAgentNoiseCancellationOption`) live in `@plumbus/voice-livekit` (install that add-on for LiveKit NC).
+
 ## Config shape
 
 ```typescript
@@ -35,7 +37,7 @@ Change `placement` only:
 - Browser: `{ placement: 'client', engine: 'krisp', model: 'bvc' }`
 - Worker: `{ placement: 'agent', engine: 'krisp', model: 'bvc' }`
 
-LiveKit token responses include serialized `noiseCancellation` so `createLiveKitVoiceSession()` applies client engines automatically.
+LiveKit token responses include serialized `noiseCancellation` so `createLiveKitVoiceSession()` from `@plumbus/voice-livekit/client` applies client engines automatically.
 
 ## Mic constraints
 

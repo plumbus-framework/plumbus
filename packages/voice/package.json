@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice",
-  "version": "0.3.0",
+  "version": "0.4.2",
   "description": "Plumbus realtime voice runtime — defineVoice, provider registry, session routes, and cost ledger integration.",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,9 +18,17 @@
       "types": "./dist/client/index.d.ts",
       "default": "./dist/client/index.js"
     },
+    "./noise-cancellation": {
+      "types": "./dist/types/noise-cancellation.d.ts",
+      "default": "./dist/types/noise-cancellation.js"
+    },
     "./worker": {
       "types": "./dist/worker.d.ts",
       "default": "./dist/worker.js"
+    },
+    "./provider-kit": {
+      "types": "./dist/provider-kit/index.d.ts",
+      "default": "./dist/provider-kit/index.js"
     }
   },
   "scripts": {
@@ -52,39 +60,22 @@
   },
   "peerDependencies": {
     "@plumbus/core": "0.6.x",
-    "fastify": "^5.0.0",
-    "livekit-client": "^2.0.0",
-    "@livekit/krisp-noise-filter": "^0.4.0"
+    "fastify": "^5.0.0"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",
     "fastify": "^5.0.0",
-    "livekit-client": "^2.19.2",
     "tsx": "^4.21.0",
     "vitest": "^3.2.4"
   },
   "peerDependenciesMeta": {
     "fastify": {
       "optional": true
-    },
-    "livekit-client": {
-      "optional": true
-    },
-    "@livekit/krisp-noise-filter": {
-      "optional": true
     }
   },
   "license": "MIT",
   "dependencies": {
-    "@deepdub/node": "^2.0.0",
     "@fastify/websocket": "^11.2.0",
-    "@livekit/agents": "^1.4.6",
-    "@livekit/krisp-noise-filter": "^0.4.3",
-    "@livekit/noise-cancellation-node": "^0.1.9",
-    "@livekit/rtc-node": "^0.13.29",
-    "@shiguredo/rnnoise-wasm": "^2025.1.5",
-    "@soniox/node": "^2.1.1",
-    "livekit-server-sdk": "^2.15.4",
     "ws": "^8.21.0"
   }
 }

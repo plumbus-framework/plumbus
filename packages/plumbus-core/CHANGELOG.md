@@ -1,5 +1,22 @@
 # @plumbus/core changelog
 
+## 0.6.14 — 2026-07-27 — browser-safe errors subpath
+
+### Added
+
+- **`@plumbus/core/errors`** — browser-safe export of `PlumbusError`, `ErrorCode`, and related error helpers. Client packages (e.g. `@plumbus/voice-livekit/client`) must import from this subpath, not the package root — the root pulls the CLI (drizzle-kit / migrate) into the browser graph and breaks Next/Turbopack client builds.
+
+## 0.6.13 — 2026-07-26 — agent wiring version 11
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 11.** `plumbus init` now references the five optional voice provider add-on instruction files (`@plumbus/voice-deepdub`, `-soniox`, `-elevenlabs`, `-minimax`, `-livekit`). Pointers are inert when those packages are not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block. `plumbus doctor` reports files below version 11 as stale.
+- **`plumbus voice worker`** dynamically imports `@plumbus/voice-livekit` for agent-dispatch / join-room (no longer calls `loadVoiceAddons` / LiveKit helpers on `@plumbus/voice`).
+
+### Notes
+
+Pairs with `@plumbus/voice` **0.4.0** hard provider-package breakout (explicit `*_REGISTRATION`, transport-agnostic `/token`) — see `docs/upgrading-voice-provider-packages.md`.
+
 ## 0.6.12 — 2026-07-26 — agent wiring version 10
 
 ### Changed

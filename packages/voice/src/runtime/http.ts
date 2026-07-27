@@ -10,23 +10,20 @@ import { z } from '@plumbus/core/zod';
 import websocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
-  createProviderRegistry,
-  validateVoiceProviders,
-  type VoiceProviderRegistry,
-} from '../providers/registry.js';
-import {
   createSTTProvider,
   createTTSProvider,
   createTransportProvider,
 } from '../providers/factory.js';
+import {
+  createProviderRegistry,
+  validateVoiceProviders,
+  type VoiceProviderRegistry,
+} from '../providers/registry.js';
 import type {
   WebSocketTransportProvider,
   AttachWebSocketTransportArgs,
 } from '../providers/transport/websocket-transport.js';
-import type {
-  LiveKitTransportProvider,
-  LiveKitSessionMetadata,
-} from '../providers/transport/livekit-transport.js';
+import type { TransportProvider } from '../providers/base/transport-provider.js';
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from '../security/session-token.js';
 import { checkWebSocketOrigin } from '../security/ws-origin.js';
 import type { RegisterVoiceRoutesOpts, VoiceBeforeSessionResult } from '../types/http.js';
@@ -78,11 +75,64 @@ function isBeforeSessionError(
 
 function getBeforeSessionSuccess(
   before: VoiceBeforeSessionResult | undefined,
-): Extract<VoiceBeforeSessionResult, { livekit?: unknown; execution?: unknown }> | undefined {
+): Extract<VoiceBeforeSessionResult, { room?: unknown; execution?: unknown }> | undefined {
   if (!before || isBeforeSessionError(before)) {
     return undefined;
   }
   return before;
+}
+
+function installHintResponse(error: unknown): { status: 400; body: unknown } | undefined {
+  if (!(error instanceof PlumbusError)) {
+    return undefined;
+  }
+  const installPackage = error.metadata?.installPackage;
+  if (typeof installPackage !== 'string') {
+    return undefined;
+  }
+  return {
+    status: 400,
+    body: {
+      error: 'voice.provider_package_missing',
+      installPackage,
+      message: error.message,
+    },
+  };
+}
+
+function packageValidationResponse(providerId: string, issues: unknown[]) {
+  return {
+    error: 'voice.provider_not_registered',
+    provider: providerId,
+    issues,
+  };
+}
+
+function defaultRoomTokenPayload(
+  minted: { sessionId: string; transport: string; metadata?: Record<string, unknown> },
+  transportProviderId: string,
+): Record<string, unknown> | undefined {
+  const metadata = minted.metadata ?? {};
+  const url = metadata.url;
+  const token = metadata.token;
+  const room = metadata.room;
+  if (typeof url !== 'string' || typeof token !== 'string' || typeof room !== 'string') {
+    return undefined;
+  }
+  const audioTrackName =
+    typeof metadata.audioTrackName === 'string' ? metadata.audioTrackName : undefined;
+  return {
+    transport: transportProviderId,
+    url,
+    token,
+    room,
+    identity: typeof metadata.identity === 'string' ? metadata.identity : undefined,
+    audioTrackName,
+    agentAudioTrackName: audioTrackName,
+    audioFormat: typeof metadata.audioFormat === 'string' ? metadata.audioFormat : undefined,
+    mode: typeof metadata.mode === 'string' ? metadata.mode : undefined,
+    sessionId: minted.sessionId,
+  };
 }
 
 export function registerVoiceRoutes(
@@ -112,10 +162,18 @@ function registerVoiceRoutesOnApp(
   opts: RegisterVoiceRoutesOpts,
 ): void {
   const byName = new Map(voices.map((voice) => [voice.name, voice]));
-  const registry = opts.registry ?? createProviderRegistry();
+  let cachedRegistry: VoiceProviderRegistry | undefined = opts.registry;
+  const resolveRegistry = async (): Promise<VoiceProviderRegistry> => {
+    if (opts.resolveRegistry) {
+      return opts.resolveRegistry();
+    }
+    if (cachedRegistry) return cachedRegistry;
+    cachedRegistry = createProviderRegistry();
+    return cachedRegistry;
+  };
   const cookieNames = opts.authCookieNames ?? [];
 
-  registerVoiceCatalogRoutes(app, routeConfig, voices, { ...opts, registry });
+  registerVoiceCatalogRoutes(app, routeConfig, voices, { ...opts, resolveRegistry });
 
   for (const voice of voices) {
     const voiceName = voice.name;
@@ -140,22 +198,39 @@ function registerVoiceRoutesOnApp(
         return reply.status(400).send({ error: 'Voice does not use the websocket transport' });
       }
 
+      const registry = await resolveRegistry();
       const validation = validateVoiceProviders({
         voices: [voice],
         providers: opts.providers,
+        registry,
       });
       if (!validation.ok) {
+        const packageIssue = validation.issues.find((issue) => issue.field === 'package');
+        if (packageIssue) {
+          return reply
+            .status(400)
+            .send(packageValidationResponse(packageIssue.provider, validation.issues));
+        }
         return reply.status(400).send({
           error: 'Voice provider configuration is invalid',
           issues: validation.issues,
         });
       }
 
-      const transport = createTransportProvider({
-        registry,
-        providers: opts.providers,
-        voiceSlice: voice.transport,
-      }) as WebSocketTransportProvider;
+      let transport: WebSocketTransportProvider;
+      try {
+        transport = createTransportProvider({
+          registry,
+          providers: opts.providers,
+          voiceSlice: voice.transport,
+        }) as WebSocketTransportProvider;
+      } catch (error) {
+        const hint = installHintResponse(error);
+        if (hint) {
+          return reply.status(hint.status).send(hint.body);
+        }
+        throw error;
+      }
 
       const minted = await transport.mintSession({
         voiceName,
@@ -202,51 +277,83 @@ function registerVoiceRoutesOnApp(
         return reply.status(before.error.status).send(before.error.body);
       }
 
-      if (voice.transport.provider !== 'livekit') {
-        return reply.status(400).send({ error: 'Voice does not use the livekit transport' });
+      if (voice.transport.provider === 'websocket') {
+        return reply.status(400).send({
+          error: 'Voice websocket transport uses /session, not /token',
+        });
       }
 
+      const registry = await resolveRegistry();
       const validation = validateVoiceProviders({
         voices: [voice],
         providers: opts.providers,
+        registry,
       });
       if (!validation.ok) {
+        const packageIssue = validation.issues.find((issue) => issue.field === 'package');
+        if (packageIssue) {
+          return reply
+            .status(400)
+            .send(packageValidationResponse(packageIssue.provider, validation.issues));
+        }
         return reply.status(400).send({
           error: 'Voice provider configuration is invalid',
           issues: validation.issues,
         });
       }
 
-      const transport = createTransportProvider({
-        registry,
-        providers: opts.providers,
-        voiceSlice: voice.transport,
-      }) as LiveKitTransportProvider;
+      const registration = registry.transport.get(voice.transport.provider);
+      let transport: TransportProvider;
+      try {
+        transport = createTransportProvider({
+          registry,
+          providers: opts.providers,
+          voiceSlice: voice.transport,
+        });
+      } catch (error) {
+        const hint = installHintResponse(error);
+        if (hint) {
+          return reply.status(hint.status).send(hint.body);
+        }
+        throw error;
+      }
+
+      if (typeof transport.mintSession !== 'function') {
+        return reply.status(400).send({
+          error: 'Voice transport does not support session minting via /token',
+          transport: voice.transport.provider,
+        });
+      }
 
       const beforeSuccess = getBeforeSessionSuccess(before);
-      const livekitOpts = beforeSuccess?.livekit;
+      const roomOpts = beforeSuccess?.room;
       const minted = await transport.mintSession({
         voiceName,
         userId: beforeSuccess?.execution?.userId ?? auth.userId,
-        roomName: livekitOpts?.roomName,
-        identity: livekitOpts?.identity,
-        metadata: livekitOpts?.metadata,
-        attributes: livekitOpts?.attributes,
-        tokenTtlSeconds: livekitOpts?.tokenTtlSeconds,
+        roomName: roomOpts?.roomName,
+        identity: roomOpts?.identity,
+        metadata: roomOpts?.metadata,
+        attributes: roomOpts?.attributes,
+        tokenTtlSeconds: roomOpts?.tokenTtlSeconds,
       });
-      const metadata = minted.metadata as unknown as LiveKitSessionMetadata;
+
+      const mapped =
+        registration?.toClientSessionPayload?.(minted, {
+          voiceName,
+          transportProviderId: voice.transport.provider,
+        }) ?? defaultRoomTokenPayload(minted, voice.transport.provider);
+
+      if (!mapped) {
+        return reply.status(400).send({
+          error: 'Voice transport mintSession did not produce a client token payload',
+          transport: voice.transport.provider,
+        });
+      }
 
       const noiseCancellation = readNoiseCancellationFromTransportOptions(voice.transport.options);
       const body = {
-        transport: 'livekit' as const,
-        url: metadata.url,
-        token: metadata.token,
-        room: metadata.room,
-        identity: metadata.identity,
-        audioTrackName: metadata.audioTrackName,
-        agentAudioTrackName: metadata.audioTrackName,
-        audioFormat: metadata.audioFormat,
-        mode: metadata.mode,
+        ...mapped,
+        transport: voice.transport.provider,
         sessionId: minted.sessionId,
         sttMode: resolveSttMode(voice),
         noiseCancellation: serializeNoiseCancellation(noiseCancellation),
@@ -263,9 +370,11 @@ function registerVoiceRoutesOnApp(
         return reply.status(authResult.status).send(authResult.body);
       }
 
+      const registry = await resolveRegistry();
       const validation = validateVoiceProviders({
         voices: [voice],
         providers: opts.providers,
+        registry,
       });
 
       return reply.send({
@@ -307,7 +416,7 @@ function registerVoiceRoutesOnApp(
         voiceName,
         routeConfig,
         opts,
-        registry,
+        resolveRegistry,
       });
     });
   }
@@ -323,7 +432,7 @@ async function handleVoiceWebSocket(
     voiceName: string;
     routeConfig: RouteGeneratorConfig;
     opts: RegisterVoiceRoutesOpts;
-    registry: VoiceProviderRegistry;
+    resolveRegistry: () => Promise<VoiceProviderRegistry>;
   },
 ): Promise<void> {
   const originCheck = checkWebSocketOrigin(req.headers.origin, {
@@ -391,23 +500,61 @@ async function handleVoiceWebSocket(
   const ctx = createExecutionContext(deps);
 
   const budget = createVoiceSessionBudget(args.opts.sessionBudget);
-  const transport = createTransportProvider({
-    registry: args.registry,
-    providers: args.opts.providers,
-    voiceSlice: args.voice.transport,
-  }) as WebSocketTransportProvider;
+  const registry = await args.resolveRegistry();
 
-  const sttProvider = createSTTProvider({
-    registry: args.registry,
-    providers: args.opts.providers,
-    voiceSlice: args.voice.stt,
-  });
+  let transport: WebSocketTransportProvider;
+  let sttProvider: ReturnType<typeof createSTTProvider>;
+  let ttsProvider: ReturnType<typeof createTTSProvider>;
+  try {
+    transport = createTransportProvider({
+      registry,
+      providers: args.opts.providers,
+      voiceSlice: args.voice.transport,
+    }) as WebSocketTransportProvider;
 
-  const ttsProvider = createTTSProvider({
-    registry: args.registry,
-    providers: args.opts.providers,
-    voiceSlice: args.voice.tts,
-  });
+    sttProvider = createSTTProvider({
+      registry,
+      providers: args.opts.providers,
+      voiceSlice: args.voice.stt,
+    });
+
+    ttsProvider = createTTSProvider({
+      registry,
+      providers: args.opts.providers,
+      voiceSlice: args.voice.tts,
+    });
+  } catch (error) {
+    const hint = installHintResponse(error);
+    if (hint) {
+      socket.send(
+        JSON.stringify({
+          type: 'error',
+          code:
+            hint.body &&
+            typeof hint.body === 'object' &&
+            'error' in hint.body &&
+            typeof (hint.body as { error: unknown }).error === 'string'
+              ? (hint.body as { error: string }).error
+              : 'voice.provider_package_missing',
+          message:
+            hint.body && typeof hint.body === 'object' && 'message' in hint.body
+              ? String((hint.body as { message: unknown }).message)
+              : 'Required voice provider package is missing',
+          installPackage:
+            hint.body && typeof hint.body === 'object' && 'installPackage' in hint.body
+              ? (hint.body as { installPackage: unknown }).installPackage
+              : undefined,
+          loadError:
+            hint.body && typeof hint.body === 'object' && 'loadError' in hint.body
+              ? (hint.body as { loadError: unknown }).loadError
+              : undefined,
+        }),
+      );
+      socket.close(1011, 'Provider package missing');
+      return;
+    }
+    throw error;
+  }
 
   let controller!: VoiceSessionController;
   const lifecycle = createVoiceSessionLifecycle({

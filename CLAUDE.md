@@ -92,13 +92,28 @@ pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 
 ### Optional add-on: `@plumbus/voice`
 
-`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, transport/STT/TTS providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.6.x`). Apps that want speech input/output install it explicitly:
+`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, built-in websocket / web-speech / browser-tts providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.6.x`). Apps that want speech input/output install it explicitly:
 
 ```
 pnpm add @plumbus/voice
 ```
 
 Use it when the product needs speech I/O around an app-owned brain hook. It complements `@plumbus/chat` text surfaces; it is not a speech-to-speech replacement for Plumbus primitives. Start with `docs/voice/` for the runtime, transport, security, and testing guidance.
+
+### Optional add-ons: `@plumbus/voice-*` providers
+
+Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.4.x` (and `@plumbus/core` `0.6.x`). Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
+
+```
+pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
+pnpm add @plumbus/voice-livekit    # livekit transport + agent worker + browser session
+pnpm add @plumbus/voice-soniox     # soniox STT
+pnpm add @plumbus/voice-deepdub    # deepdub TTS
+pnpm add @plumbus/voice-elevenlabs # elevenlabs TTS
+pnpm add @plumbus/voice-minimax    # minimax TTS
+```
+
+**Documented import moves:** `createLiveKitVoiceSession` / `applyClientNoiseCancellation` → `@plumbus/voice-livekit/client`; `createVoiceAgentEntry` / `createInboundAudioStream` / `resolveAgentNoiseCancellationOption` / `startVoiceAgentWorker` / `joinVoiceRoomSession` → `@plumbus/voice-livekit`; OpenAI STT/TTS registrations → `@plumbus/voice-openai`. `/token` is transport-agnostic (`beforeSession.room`). When upgrading an app, follow the **Agent checklist** at the top of `docs/upgrading-voice-provider-packages.md` — install alone does not register providers.
 
 ### Optional add-on: `@plumbus/knowledge-base`
 
@@ -239,6 +254,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `packages/plumbus-core/instructions/upgrading-0.5-capabilities.md` — consumer agent playbook for 0.5.x capability invocation breaking changes
 - `docs/upgrading-workers.md` — 0.5.0 workers/queues migration and breaking-behavior checklist
 - `docs/upgrading-capability-names.md` — canonical capability names, invoke policy, flow auth snapshot
+- `docs/upgrading-voice-provider-packages.md` — 0.4.0 voice provider add-on packages migration
 
 ## Documentation — CRITICAL
 

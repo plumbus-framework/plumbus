@@ -96,11 +96,11 @@ describe('voice catalog smoke', () => {
       headers: { authorization: 'Bearer admin-token' },
     });
     expect(stacksAllowed.statusCode).toBe(200);
-    expect(JSON.stringify(stacksAllowed.json())).toContain('hebrew-production');
+    expect(JSON.stringify(stacksAllowed.json())).toContain('browser-dev');
 
     const optionsAllowed = await app.inject({
       method: 'GET',
-      url: '/api/voice/catalog/tts/elevenlabs/options',
+      url: '/api/voice/catalog/tts/browser-tts/options',
       headers: { authorization: 'Bearer admin-token' },
     });
     expect(optionsAllowed.statusCode).toBe(200);

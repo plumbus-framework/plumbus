@@ -688,7 +688,7 @@ plumbus api test-fixtures validate [--json]
 
 ### plumbus voice worker
 
-Join a LiveKit room as the realtime voice agent. Requires `@plumbus/voice` (`pnpm add @plumbus/voice`).
+Join a LiveKit room as the realtime voice agent. Requires `@plumbus/voice` and `@plumbus/voice-livekit` (`pnpm add @plumbus/voice @plumbus/voice-livekit`).
 
 ```bash
 plumbus voice worker [--room <room>] [--voice <name>]

@@ -7,10 +7,10 @@ Voice spend belongs in the same AI ledger as text prompts. `@plumbus/voice` does
 Ledger rows are written only when `costContext.projectId` is present. Thread it from the voice brain input (for example `brainInput.projectId` on LiveKit participant metadata) through:
 
 - **`recordProviderUsage()`** (runtime-internal) — per-turn STT and TTS after `runVoiceTurn()`
-- **`recordLiveKitTransportCost()`** (exported) — on LiveKit agent shutdown
+- **`recordLiveKitTransportCost()`** (exported by `@plumbus/voice-livekit`) — on LiveKit agent shutdown; computes USD via add-on pricing and passes it into `recordVoiceCost`
 - **`recordDirectUtteranceCost()`** (runtime-internal) — auxiliary TTS (backchannels, hearing repair, `tts.speak` replay)
 
-The runtime calls the internal helpers automatically when `projectId` is present on the turn/session context. App code should thread `projectId` on brain input and use exported helpers (`recordLiveKitTransportCost`, `recordVoiceCost`, `ctx.ai.recordProviderCost`) for adjunct costs.
+The runtime calls the internal helpers automatically when `projectId` is present on the turn/session context. App code should thread `projectId` on brain input and use exported helpers (`recordLiveKitTransportCost` from `@plumbus/voice-livekit`, `recordVoiceCost` from `@plumbus/voice`, `ctx.ai.recordProviderCost`) for adjunct costs.
 
 Without `projectId`, `onAICostRecorded` skips the row silently.
 
@@ -31,7 +31,7 @@ App-owned LLM adjuncts (for example `interview.classify_tone`) should pass the s
 
 ## Model pricing keys
 
-Provider `usage()` may report vendor model IDs (`stt-rt-v5`, `dd-etts-3.2`). `recordProviderUsage()` maps them to ledger pricing keys via `resolveSttCostModelKey` / `resolveTtsCostModelKey` (for example `soniox-stt`, `deepdub-phantom-x`) so `calculateVoiceCost` returns non-null USD.
+Provider `usage()` may report vendor model IDs (`stt-rt-v5`, `dd-etts-3.2`). `recordProviderUsage()` maps them to ledger pricing keys via `resolveSttCostModelKey` / `resolveTtsCostModelKey` (for example `soniox-stt`, `deepdub-phantom-x`) so `calculateVoiceCost` returns non-null USD. Cloud/vendor add-on packages own their descriptor, static models, and pricing constants (`LIVEKIT_VOICE_PRICING`, `SONIOX_VOICE_PRICING`, …) and attach them on `*_REGISTRATION.pricing`. `createProviderRegistry()` registers those rows into `lookupVoicePricing` automatically — install + register is enough; no separate pricing bootstrap. Built-in providers keep pricing in `@plumbus/voice`. `recordVoiceCost` also accepts an optional `cost` override (LiveKit transport uses this).
 
 ## Persisting usage in app ledgers
 

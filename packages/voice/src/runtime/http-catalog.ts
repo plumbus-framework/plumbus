@@ -43,7 +43,7 @@ export function registerVoiceCatalogRoutes(
             kind: params.kind,
             providerId: params.providerId,
             providers: opts.providers,
-            registry: opts.registry,
+            registry: opts.resolveRegistry ? await opts.resolveRegistry() : opts.registry,
           });
     return reply.send(options);
   });

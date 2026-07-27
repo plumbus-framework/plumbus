@@ -32,7 +32,8 @@ describe('voice client smoke', () => {
     expect(typeof voice.defineVoice).toBe('function');
     expect(typeof voice.runVoiceTurn).toBe('function');
     expect(typeof voice.registerVoiceRoutes).toBe('function');
-    expect(typeof voice.startVoiceWorker).toBe('function');
+    expect(typeof voice.createProviderRegistry).toBe('function');
+    expect(typeof (voice as { startVoiceWorker?: unknown }).startVoiceWorker).toBe('undefined');
   });
 
   it('wraps the Web Speech API when a browser recognizer is available', () => {

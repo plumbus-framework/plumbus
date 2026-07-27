@@ -7,6 +7,7 @@ import { recordVoiceCost } from '../cost/record-voice-cost.js';
 import type { STTProvider } from '../providers/base/stt-provider.js';
 import type { TTSProvider } from '../providers/base/tts-provider.js';
 import type { VoiceCostOperation, VoiceMediaUsage } from '../types/cost.js';
+import type { VoiceModelOption } from '../types/provider.js';
 import type { VoiceSttConfig, VoiceTtsConfig } from '../types/voice.js';
 
 export type DirectUtteranceCostOperation =
@@ -16,7 +17,7 @@ export type DirectUtteranceCostOperation =
 
 export async function recordProviderUsage(
   ctx: ExecutionContext,
-  provider: Pick<STTProvider | TTSProvider, 'usage'>,
+  provider: Pick<STTProvider | TTSProvider, 'usage' | 'capabilities'>,
   billable: boolean,
   args: {
     sessionId: string;
@@ -30,11 +31,13 @@ export async function recordProviderUsage(
   if (!billable) return;
 
   const usageRecords = provider.usage?.() ?? [];
+  const capabilities = provider.capabilities as { knownModels?: readonly VoiceModelOption[] };
+  const knownModels = capabilities.knownModels;
   for (const record of usageRecords) {
     const operation = mapUsageKind(record.kind);
     const mediaUsage = mapMediaUsage(record, args.text);
     const rawModel = record.model ?? record.provider;
-    const model = resolvePricingModelKey(operation, rawModel, args);
+    const model = resolvePricingModelKey(operation, rawModel, args, knownModels);
 
     await recordVoiceCost(ctx, {
       operation,
@@ -69,7 +72,7 @@ export async function recordDirectUtteranceCost(
     return;
   }
 
-  const model = resolveTtsCostModelKey(args.tts);
+  const model = resolveTtsCostModelKey(args.tts) ?? args.tts.model;
   if (!model) {
     return;
   }
@@ -94,12 +97,13 @@ function resolvePricingModelKey(
   operation: VoiceCostOperation,
   rawModel: string,
   args: { stt?: VoiceSttConfig; tts?: VoiceTtsConfig },
+  knownModels?: readonly VoiceModelOption[],
 ): string {
   if (operation === 'transcribe' && args.stt) {
-    return resolveSttCostModelKey(args.stt) ?? rawModel;
+    return resolveSttCostModelKey(args.stt, knownModels) ?? rawModel;
   }
   if (operation === 'synthesize' && args.tts) {
-    return resolveTtsCostModelKey(args.tts) ?? rawModel;
+    return resolveTtsCostModelKey(args.tts, knownModels) ?? rawModel;
   }
   return rawModel;
 }

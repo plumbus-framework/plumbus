@@ -42,8 +42,9 @@ const SPEECH_ENERGY_PEAK_DB = -45;
  * Failsafe silence (ms) after the last transcript before a server-STT turn fires.
  * Only used for providers that do NOT declare reliable endpoint detection
  * (`capabilities.endpointDetection`), or when an app explicitly re-enables the
- * failsafe via a positive `stt.options.endpointSilenceMs`. Providers like Soniox
- * drive turns from their own end-of-speech signal and skip this timer entirely.
+ * failsafe via a positive `stt.options.endpointSilenceMs`. Providers that declare
+ * `capabilities.endpointDetection` drive turns from their own end-of-speech
+ * signal and skip this timer entirely.
  */
 const DEFAULT_SERVER_SILENCE_MS = 4000;
 
@@ -59,7 +60,7 @@ const DEFAULT_BACKCHANNEL_COOLDOWN_MS = 6000;
 /** Fallback continuer when no phrase pool is configured. */
 const DEFAULT_BACKCHANNEL_PHRASES = ['mm-hm'] as const;
 
-/** Remove Soniox control markers (`<end>`, `<fin>`) from transcript text (defensive). */
+/** Strip leaked in-stream control markers from transcript text (defensive). */
 function stripEndpointMarkers(text: string): string {
   return text.replace(/<end>|<fin>/gi, '');
 }
@@ -119,7 +120,7 @@ export class VoiceSessionController {
     this.session = createVoiceRuntimeSession({
       id: options.sessionId,
       voiceName: options.voice.name,
-      transport: options.voice.transport.provider === 'livekit' ? 'livekit' : 'websocket',
+      transport: options.voice.transport.provider,
       audioFormat: options.voice.transport.audioFormat,
       userId: options.userId,
     });
@@ -158,8 +159,8 @@ export class VoiceSessionController {
   }
 
   async #handleEndpoint(): Promise<void> {
-    // After Soniox signals end-of-speech we wait a short grace window before
-    // starting the turn. If the user resumes speaking during that window
+    // After the STT provider signals end-of-speech we wait a short grace window
+    // before starting the turn. If the user resumes speaking during that window
     // (a new transcript arrives, see #handleServerStreamingTranscript) the
     // pending turn is cancelled so we do not answer a half-finished sentence.
     this.#clearBackchannelTimer();
@@ -256,7 +257,7 @@ export class VoiceSessionController {
   }
 
   /**
-   * Server STT (the @soniox/node SDK) emits a clean transcript per utterance and a
+   * Server STT streaming providers emit a clean transcript per utterance and a
    * reliable `endpoint` event at end-of-speech. We keep the latest utterance text as
    * the pending transcript and trigger the turn on the endpoint (see #handleEndpoint),
    * with a long silence failsafe in case an endpoint is ever missed.
@@ -308,9 +309,8 @@ export class VoiceSessionController {
 
   /**
    * True when the STT provider emits a reliable end-of-speech signal and the
-   * voice has not disabled endpoint detection. Such providers (e.g. Soniox)
-   * drive turns purely from `onEndpoint`, so the silence-timer failsafe is not
-   * scheduled.
+   * voice has not disabled endpoint detection. Those providers drive turns
+   * purely from `onEndpoint`, so the silence-timer failsafe is not scheduled.
    */
   #serverEndpointIsReliable(): boolean {
     if (!this.options.sttProvider.capabilities.endpointDetection) {

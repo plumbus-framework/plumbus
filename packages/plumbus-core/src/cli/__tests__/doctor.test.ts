@@ -17,6 +17,7 @@ import {
   runFullDoctorChecks,
 } from '../commands/doctor.js';
 import {
+  AGENT_WIRING_VERSION,
   generateAgentsMd,
   generateCopilotInstructions,
   generateCursorCapabilityRule,
@@ -186,7 +187,7 @@ describe('plumbus doctor', () => {
 
       const check = checkAgentWiring();
       expect(check.status).toBe('ok');
-      expect(check.message).toContain('template version 10');
+      expect(check.message).toContain(`template version ${AGENT_WIRING_VERSION}`);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

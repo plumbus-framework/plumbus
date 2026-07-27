@@ -32,6 +32,8 @@ plumbus init --patch --dry-run
 
 That's it. Your AI agent now understands Plumbus conventions.
 
+**Finding recipes after install:** open `node_modules/@plumbus/<package>/instructions/README.md` first. That index lists exact topic files (also written into `AGENTS.md` / Copilot wiring by `plumbus init`). Do not invent package wiring from memory.
+
 By default, `plumbus init` is non-destructive: it creates missing wiring files and skips existing ones. Use `plumbus init --patch` to update Plumbus-managed sections in generated files while preserving surrounding custom notes. Use `plumbus init --force` only when you want to replace an existing generated file outright.
 
 After upgrading `@plumbus/core`, prefer `plumbus init --patch` first. If doctor reports an old or unmanaged file that cannot be patched safely, use `plumbus init --force` for that full refresh.
@@ -50,6 +52,7 @@ plumbus init
 │ node_modules/@plumbus/chat-ui/instructions/                 │
 │ node_modules/@plumbus/knowledge-base/instructions/          │
 │ node_modules/@plumbus/voice/instructions/                   │
+│ node_modules/@plumbus/voice-*/instructions/                 │
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
 │ node_modules/@plumbus/auth/instructions/                    │
@@ -296,10 +299,32 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md` | `cognito()` integration registration |
 | `node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md` | Hosted UI IdP allowlist |
 | `node_modules/@plumbus/auth-cognito/instructions/logout.md` | Cognito logout URL builder |
+| `node_modules/@plumbus/voice/instructions/README.md` | Voice instruction index — open first after installing `@plumbus/voice` |
 | `node_modules/@plumbus/voice/instructions/framework.md` | Voice runtime overview and critical rules (optional package) |
+| `node_modules/@plumbus/voice/instructions/client-stt.md` | Client-side STT (`web-speech`) trust boundaries |
+| `node_modules/@plumbus/voice/instructions/local-providers.md` | Local / offline / browser-native providers |
 | `node_modules/@plumbus/voice/instructions/defining-voices.md` | `defineVoice` and route registration |
-| `node_modules/@plumbus/voice/instructions/providers.md` | STT, TTS, and transport providers |
+| `node_modules/@plumbus/voice/instructions/providers.md` | STT, TTS, transport picker + add-on path table |
+| `node_modules/@plumbus/voice/instructions/cost-tracking.md` | Voice cost tagging |
+| `node_modules/@plumbus/voice/instructions/security.md` | Session tokens, secrets, transcript trust |
 | `node_modules/@plumbus/voice/instructions/testing.md` | Voice testing helpers |
+| `node_modules/@plumbus/voice/instructions/extending.md` | Custom providers and extension points |
+| `node_modules/@plumbus/voice/instructions/noise-cancellation.md` | NC config shape (engines on LiveKit add-on) |
+| `node_modules/@plumbus/voice-openai/instructions/README.md` | OpenAI STT/TTS add-on index |
+| `node_modules/@plumbus/voice-openai/instructions/framework.md` | OpenAI Whisper / Realtime / TTS registration |
+| `node_modules/@plumbus/voice-livekit/instructions/README.md` | LiveKit add-on index — open first after installing |
+| `node_modules/@plumbus/voice-livekit/instructions/framework.md` | LiveKit install, peers, registration, env |
+| `node_modules/@plumbus/voice-livekit/instructions/client-session.md` | Browser session (`./client`) |
+| `node_modules/@plumbus/voice-livekit/instructions/agent-worker.md` | Agent worker / `plumbus voice worker` |
+| `node_modules/@plumbus/voice-livekit/instructions/noise-cancellation.md` | LiveKit NC matrix |
+| `node_modules/@plumbus/voice-soniox/instructions/README.md` | Soniox STT add-on index |
+| `node_modules/@plumbus/voice-soniox/instructions/framework.md` | Soniox STT registration |
+| `node_modules/@plumbus/voice-deepdub/instructions/README.md` | Deepdub TTS add-on index |
+| `node_modules/@plumbus/voice-deepdub/instructions/framework.md` | Deepdub TTS registration |
+| `node_modules/@plumbus/voice-elevenlabs/instructions/README.md` | ElevenLabs TTS add-on index |
+| `node_modules/@plumbus/voice-elevenlabs/instructions/framework.md` | ElevenLabs TTS registration |
+| `node_modules/@plumbus/voice-minimax/instructions/README.md` | MiniMax TTS add-on index |
+| `node_modules/@plumbus/voice-minimax/instructions/framework.md` | MiniMax TTS registration |
 | `node_modules/@plumbus/browser-extension/instructions/browser-extension.md` | Browser extension scaffold recipe (optional package) |
 
 ## Verifying Agent Setup

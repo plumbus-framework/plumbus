@@ -232,20 +232,3 @@ export function createBrowserSpeechSynthesizer(): BrowserSpeechSynthesizer {
     },
   };
 }
-
-export { createLiveKitVoiceSession } from './livekit-session.js';
-export type {
-  LiveKitVoiceSession,
-  LiveKitVoiceSessionOptions,
-  LiveKitVoiceSessionPtt,
-} from './livekit-session.js';
-export {
-  CLIENT_AGENT_AUDIO_FORMAT,
-  DEFAULT_AGENT_AUDIO_TRACK_NAME,
-  coerceVoiceEvent,
-  float32SamplesToPcm16,
-  isAgentAudioPublication,
-  normalizeBrowserCapturedPcm16,
-  parseLiveKitVoiceDataPayload,
-  resolveAgentAudioTrackName,
-} from './livekit-session-helpers.js';

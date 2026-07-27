@@ -5,13 +5,12 @@
 // which does not exist yet and triggers TS2307 in CI.
 //
 // Keep this in sync with @plumbus/voice's public surface used by plumbus-core
-// CLI bridges (packages/voice/src/index.ts); out-of-sync signatures will
-// quietly miscompile our CLI bridge.
+// CLI bridges. LiveKit worker APIs live on `@plumbus/voice-livekit` and are
+// typed locally in commands/voice.ts (runtime dynamic import).
 //
 // Relative imports below (not `@plumbus/core`) for the same reason as the MCP
 // shim: avoid pulling plumbus-core's own dist back into the input set.
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
-import type { ContextDependencies } from '../execution/context-factory.js';
 import type { ExecutionContext } from '../types/context.js';
 
 export interface VoiceTransportConfig {
@@ -74,64 +73,21 @@ export declare function resolveVoiceProvidersFromEnv(
   config?: Record<string, unknown>,
 ): VoiceProvidersConfig;
 
-export interface VoiceAgentAuth {
-  userId: string;
-  tenantId?: string;
-  roles: string[];
-  scopes: string[];
-  provider: string;
+/** Opaque registry handle — CLI only passes it through to voice-livekit. */
+export interface VoiceProviderRegistry {
+  stt: ReadonlyMap<string, unknown>;
+  tts: ReadonlyMap<string, unknown>;
+  transport: ReadonlyMap<string, unknown>;
 }
 
-export interface StartVoiceAgentWorkerOptions {
-  voices: VoiceDefinition[];
-  providers: VoiceProvidersConfig;
-  createDependencies: (auth: VoiceAgentAuth) => ContextDependencies;
-  signal?: AbortSignal;
-  sessionBudget?: VoiceSessionBudgetConfig;
-  agentName?: string;
-  wsURL?: string;
-  apiKey?: string;
-  apiSecret?: string;
-  bootstrapModule?: string;
+export interface AppVoiceRegistryModule {
+  registry: VoiceProviderRegistry;
+  providers?: VoiceProvidersConfig;
 }
 
-export interface VoiceAgentWorkerHandle {
-  started: boolean;
-  stop(): Promise<void>;
-}
-
-export declare function startVoiceAgentWorker(
-  options: StartVoiceAgentWorkerOptions,
-): Promise<VoiceAgentWorkerHandle>;
-
-export interface JoinVoiceRoomSessionOptions {
-  voice: VoiceDefinition;
-  providers: VoiceProvidersConfig;
-  roomName: string;
-  sessionId?: string;
-  createExecutionContext: (args: {
-    voiceName: string;
-    sessionId: string;
-    userId?: string;
-    tenantId?: string;
-    metadata?: Record<string, unknown>;
-  }) => ExecutionContext;
-  metadata?: Record<string, unknown>;
-  userId?: string;
-  tenantId?: string;
-  brainInput?: Record<string, unknown>;
-  signal?: AbortSignal;
-  sessionBudget?: VoiceSessionBudgetConfig;
-}
-
-export interface VoiceRoomSessionHandle {
-  sessionId: string;
-  stop(): Promise<void>;
-}
-
-export declare function joinVoiceRoomSession(
-  options: JoinVoiceRoomSessionOptions,
-): Promise<VoiceRoomSessionHandle>;
+export declare function loadAppVoiceRegistry(options?: {
+  appRoot?: string;
+}): Promise<AppVoiceRegistryModule | null>;
 
 export interface CreateVoiceExecutionContextFromRouteArgs {
   userId: string;
