@@ -286,6 +286,7 @@ my-app/
 ├── .github/
 │   └── copilot-instructions.md  # GitHub Copilot wiring
 ├── AGENTS.md                # Agent context file
+├── CLAUDE.md                # Claude Code context (same body as AGENTS.md)
 └── package.json
 ```
 
@@ -337,6 +338,7 @@ Generates configuration files that help AI coding agents understand your project
 plumbus init --agent copilot    # GitHub Copilot instructions
 plumbus init --agent cursor     # Cursor rules
 plumbus init --agent agents-md  # AGENTS.md
+plumbus init --agent claude     # CLAUDE.md (Claude Code)
 plumbus init --agent all        # All formats (default)
 ```
 
@@ -379,6 +381,7 @@ plumbus init --force
 # .github/copilot-instructions.md  — Points Copilot to framework docs
 # .cursor/rules/plumbus.mdc        — Cursor rules with SDK references
 # AGENTS.md                        — Universal agent context
+# CLAUDE.md                        — Claude Code context (same body as AGENTS.md)
 # .plumbus/briefs/project.md       — Project-specific brief
 ```
 

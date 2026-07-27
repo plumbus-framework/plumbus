@@ -148,7 +148,7 @@ plumbus init [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--agent <format>` | `string` | `all` | Agent format: `copilot`, `cursor`, `agents-md`, or `all` (default generates all three) |
+| `--agent <format>` | `string` | `all` | Agent format: `copilot`, `cursor`, `agents-md`, `claude`, or `all` (default generates all four) |
 | `--inline` | `boolean` | `false` | Inline instructions instead of referencing files |
 | `--patch` | `boolean` | `false` | Update Plumbus-managed sections and create missing files |
 | `--force` | `boolean` | `false` | Replace existing generated wiring files outright |
@@ -161,6 +161,7 @@ plumbus init
 plumbus init --agent copilot
 plumbus init --agent cursor
 plumbus init --agent agents-md
+plumbus init --agent claude
 plumbus init --agent all
 plumbus init --patch
 plumbus init --force
@@ -174,6 +175,7 @@ Files generated:
 | `copilot` | `.github/copilot-instructions.md` | GitHub Copilot instructions |
 | `cursor` | `.cursor/rules/plumbus.mdc`, `.cursor/rules/plumbus-capabilities.mdc` | Cursor rules files |
 | `agents-md` | `AGENTS.md` | Generic agent instruction file |
+| `claude` | `CLAUDE.md` | Claude Code instruction file (same body as `AGENTS.md`) |
 | (all formats) | `.plumbus/briefs/project.md` | Project brief for `plumbus agent` |
 
 Generated files include:
@@ -376,7 +378,7 @@ Checks performed:
 - PostgreSQL reachable
 - Redis reachable
 - App directory structure
-- Generated agent wiring freshness (warns when generated Copilot, Cursor, or `AGENTS.md` files predate the current template version)
+- Generated agent wiring freshness (warns when generated Copilot, Cursor, `AGENTS.md`, or `CLAUDE.md` files predate the current template version)
 - Legacy artifacts detection (stale `generated/`, `middleware.ts`, API proxy route)
 - `mcp.agents` (warn if `@plumbus/mcp` is installed but `mcp.agents` is empty)
 - `mcp.no-public-tools` (fail if any capability is both `exposeAs: ['mcp']` and `access.public: true`)

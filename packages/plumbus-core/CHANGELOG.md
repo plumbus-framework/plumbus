@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+### Added
+
+- **`plumbus init --agent claude`** — writes `CLAUDE.md` from the same generator as `AGENTS.md` (identical body; Claude-specific title and wiring marker). Default `plumbus init` / `--agent all` now includes `claude` alongside `copilot`, `cursor`, and `agents-md`. Claude Code reads `CLAUDE.md` natively and does not load `AGENTS.md`. `plumbus doctor` freshness checks cover generated `CLAUDE.md` the same way as `AGENTS.md`. Run `plumbus init` or `plumbus init --patch` on existing projects to create the file.
+
 ## 0.6.14 — 2026-07-27 — browser-safe errors subpath
 
 ### Added

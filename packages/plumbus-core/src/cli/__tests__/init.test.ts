@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_WIRING_VERSION,
   generateAgentsMd,
+  generateClaudeMd,
   generateCopilotInstructions,
   generateCursorCapabilityRule,
   generateCursorRule,
@@ -155,7 +156,8 @@ describe('plumbus init', () => {
   describe('AGENTS.md', () => {
     it('generates agent-agnostic reference format', () => {
       const content = generateAgentsMd(false);
-      expect(content).toContain('AGENTS.md');
+      expect(content).toContain('# AGENTS.md — Plumbus Framework');
+      expect(content).toContain('format=agents-md');
       expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
       expect(content).toContain('Directory Structure');
       expect(content).toContain('Edit Zones');
@@ -177,6 +179,40 @@ describe('plumbus init', () => {
       expect(content).toContain('bundled Plumbus instruction files');
       expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
       expect(content).toContain('Documentation Maintenance');
+    });
+  });
+
+  describe('CLAUDE.md', () => {
+    it('shares the AGENTS.md body with a Claude-specific title and marker', () => {
+      const agents = generateAgentsMd(false);
+      const claude = generateClaudeMd(false);
+      expect(claude).toContain('# CLAUDE.md — Plumbus Framework');
+      expect(claude).toContain('format=claude');
+      expect(claude).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
+      expect(claude).toContain('Non-Negotiable Guardrails');
+      expect(claude).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
+      expect(claude).toContain('<!-- /plumbus:agent-wiring -->');
+
+      const agentsBody = agents
+        .replace('# AGENTS.md — Plumbus Framework', '')
+        .replace('format=agents-md', '');
+      const claudeBody = claude
+        .replace('# CLAUDE.md — Plumbus Framework', '')
+        .replace('format=claude', '');
+      expect(claudeBody).toBe(agentsBody);
+    });
+
+    it('writes CLAUDE.md via writeAgentFiles', () => {
+      const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-claude-'));
+      try {
+        const written = writeAgentFiles(tempDir, ['claude'], false, false);
+        expect(written.map((result) => result.path)).toContain('CLAUDE.md');
+        const content = readFileSync(path.join(tempDir, 'CLAUDE.md'), 'utf-8');
+        expect(content).toContain('# CLAUDE.md — Plumbus Framework');
+        expect(content).toContain('format=claude');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -395,12 +431,27 @@ describe('plumbus init', () => {
       expect(content).toContain('Non-Negotiable Guardrails');
     });
 
+    it('generates CLAUDE.md with monorepo structure', () => {
+      const content = generateClaudeMd(false, true);
+      expect(content).toContain('backend/app/capabilities/');
+      expect(content).toContain('frontend/');
+      expect(content).toContain('libs/shared/types/');
+      expect(content).toContain('Non-Negotiable Guardrails');
+    });
+
     it('passes monorepo flag through writeAgentFiles', () => {
       const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-init-mono-'));
       try {
-        const written = writeAgentFiles(tempDir, ['copilot', 'agents-md'], false, false, true);
+        const written = writeAgentFiles(
+          tempDir,
+          ['copilot', 'agents-md', 'claude'],
+          false,
+          false,
+          true,
+        );
         expect(written.map((result) => result.path)).toContain('.github/copilot-instructions.md');
         expect(written.map((result) => result.path)).toContain('AGENTS.md');
+        expect(written.map((result) => result.path)).toContain('CLAUDE.md');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }

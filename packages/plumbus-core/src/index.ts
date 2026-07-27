@@ -449,6 +449,7 @@ export {
   flowTemplate,
   // Agent wiring (plumbus init)
   generateAgentsMd,
+  generateClaudeMd,
   // Code generation
   generateAll,
   // Agent briefs

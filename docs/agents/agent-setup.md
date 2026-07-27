@@ -22,6 +22,7 @@ plumbus init
 plumbus init --agent copilot
 plumbus init --agent cursor
 plumbus init --agent agents-md
+plumbus init --agent claude
 
 # Refresh only Plumbus-managed sections
 plumbus init --patch
@@ -32,7 +33,7 @@ plumbus init --patch --dry-run
 
 That's it. Your AI agent now understands Plumbus conventions.
 
-**Finding recipes after install:** open `node_modules/@plumbus/<package>/instructions/README.md` first. That index lists exact topic files (also written into `AGENTS.md` / Copilot wiring by `plumbus init`). Do not invent package wiring from memory.
+**Finding recipes after install:** open `node_modules/@plumbus/<package>/instructions/README.md` first. That index lists exact topic files (also written into `AGENTS.md` / `CLAUDE.md` / Copilot wiring by `plumbus init`). Do not invent package wiring from memory.
 
 By default, `plumbus init` is non-destructive: it creates missing wiring files and skips existing ones. Use `plumbus init --patch` to update Plumbus-managed sections in generated files while preserving surrounding custom notes. Use `plumbus init --force` only when you want to replace an existing generated file outright.
 
@@ -115,6 +116,14 @@ plumbus init --agent agents-md
 ```
 
 Creates `AGENTS.md` at the project root — a generic format supported by multiple agents.
+
+### Claude Code (`CLAUDE.md`)
+
+```bash
+plumbus init --agent claude
+```
+
+Creates `CLAUDE.md` at the project root from the **same generator** as `AGENTS.md` (identical body; Claude-specific title and wiring marker). Claude Code reads `CLAUDE.md` natively and does **not** load `AGENTS.md` automatically — so default `plumbus init` writes both.
 
 ## What Agents Learn
 
@@ -335,7 +344,7 @@ plumbus doctor
 
 The doctor command checks whether agent wiring files exist and are properly configured.
 
-It also warns when generated Copilot, Cursor, or `AGENTS.md` wiring files predate the current Plumbus template version. Doctor now recommends the safest follow-up command for each case: `plumbus init` for missing wiring, `plumbus init --patch` for patchable generated wiring, and `plumbus init --force` for files that cannot be safely patched.
+It also warns when generated Copilot, Cursor, `AGENTS.md`, or `CLAUDE.md` wiring files predate the current Plumbus template version. Doctor now recommends the safest follow-up command for each case: `plumbus init` for missing wiring, `plumbus init --patch` for patchable generated wiring, and `plumbus init --force` for files that cannot be safely patched.
 
 ## Troubleshooting
 

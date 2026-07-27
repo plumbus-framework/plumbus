@@ -13,7 +13,7 @@ import {
   writeFile,
 } from '../utils.js';
 
-export type AgentFormat = 'copilot' | 'cursor' | 'agents-md';
+export type AgentFormat = 'copilot' | 'cursor' | 'agents-md' | 'claude';
 
 export interface InitOptions {
   agent?: string;
@@ -46,7 +46,7 @@ const AGENT_WIRING_START_PATTERN =
   /^(?:<!--\s*plumbus:agent-wiring version=\d+\b.*?-->|#\s*plumbus:agent-wiring version=\d+\b.*)$/m;
 
 function buildAgentWiringStartMarker(
-  format: 'copilot' | 'cursor' | 'cursor-capabilities' | 'agents-md',
+  format: 'copilot' | 'cursor' | 'cursor-capabilities' | 'agents-md' | 'claude',
   inline = false,
   monorepo = false,
   style: 'html' | 'yaml' = 'html',
@@ -795,12 +795,19 @@ ${AGENT_WIRING_END_MARKER}
 `;
 }
 
-/** Generate AGENTS.md content */
-export function generateAgentsMd(inline: boolean, monorepo = false): string {
+type RootAgentMdFormat = 'agents-md' | 'claude';
+
+/** Shared body for root agent markdown files (`AGENTS.md` / `CLAUDE.md`). */
+function generateRootAgentMd(
+  format: RootAgentMdFormat,
+  fileLabel: 'AGENTS.md' | 'CLAUDE.md',
+  inline: boolean,
+  monorepo = false,
+): string {
   const appPrefix = monorepo ? 'backend/' : '';
   const lines = [
-    buildAgentWiringStartMarker('agents-md', inline, monorepo),
-    '# AGENTS.md — Plumbus Framework',
+    buildAgentWiringStartMarker(format, inline, monorepo),
+    `# ${fileLabel} — Plumbus Framework`,
     '',
     'This project is built with the Plumbus framework.',
     '',
@@ -850,6 +857,19 @@ export function generateAgentsMd(inline: boolean, monorepo = false): string {
   lines.push('', AGENT_WIRING_END_MARKER);
   lines.push('');
   return lines.join('\n');
+}
+
+/** Generate AGENTS.md content (generic cross-agent format). */
+export function generateAgentsMd(inline: boolean, monorepo = false): string {
+  return generateRootAgentMd('agents-md', 'AGENTS.md', inline, monorepo);
+}
+
+/**
+ * Generate CLAUDE.md content for Claude Code.
+ * Same body as {@link generateAgentsMd} — Claude Code reads `CLAUDE.md`, not `AGENTS.md`.
+ */
+export function generateClaudeMd(inline: boolean, monorepo = false): string {
+  return generateRootAgentMd('claude', 'CLAUDE.md', inline, monorepo);
 }
 
 /** Generate the project brief */
@@ -915,6 +935,14 @@ function buildAgentFileTargets(
         targets.push({
           path: path.join(projectRoot, 'AGENTS.md'),
           content: generateAgentsMd(inline, monorepo),
+          kind: 'wiring',
+        });
+        break;
+      }
+      case 'claude': {
+        targets.push({
+          path: path.join(projectRoot, 'CLAUDE.md'),
+          content: generateClaudeMd(inline, monorepo),
           kind: 'wiring',
         });
         break;
@@ -1042,22 +1070,26 @@ export function writeAgentFiles(
   return results;
 }
 
+const ALL_AGENT_FORMATS: AgentFormat[] = ['copilot', 'cursor', 'agents-md', 'claude'];
+
 function parseAgentFormats(agent?: string): AgentFormat[] {
   if (!agent || agent === 'all') {
-    return ['copilot', 'cursor', 'agents-md'];
+    return [...ALL_AGENT_FORMATS];
   }
-  const valid: AgentFormat[] = ['copilot', 'cursor', 'agents-md'];
-  if (valid.includes(agent as AgentFormat)) {
+  if (ALL_AGENT_FORMATS.includes(agent as AgentFormat)) {
     return [agent as AgentFormat];
   }
-  return ['copilot', 'cursor', 'agents-md'];
+  return [...ALL_AGENT_FORMATS];
 }
 
 export function registerInitCommand(program: Command): void {
   program
     .command('init')
     .description('Generate AI agent wiring files for the project')
-    .option('--agent <format>', 'Agent format: copilot, cursor, all (default: all)')
+    .option(
+      '--agent <format>',
+      'Agent format: copilot, cursor, agents-md, claude, all (default: all)',
+    )
     .option('--inline', 'Copy full instruction content instead of referencing node_modules')
     .option('--patch', 'Update only Plumbus-managed sections and create missing files')
     .option('--force', 'Replace existing generated wiring files outright')
