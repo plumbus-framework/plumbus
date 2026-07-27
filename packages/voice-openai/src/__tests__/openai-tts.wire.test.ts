@@ -2,40 +2,33 @@ import { createProviderRegistry, createTTSProvider } from '@plumbus/voice';
 import { describe, expect, it, vi } from 'vitest';
 import { OPENAI_TTS_REGISTRATION } from '../openai-tts.js';
 
-describe('OpenAI TTS wire protocol', () => {
-  it('posts speech synthesis requests with auth and streaming accept header', async () => {
-    const fetcher = vi.fn(
-      async (
-        url: string,
-        init?: { method?: string; headers?: Record<string, string>; body?: string },
-      ) => {
-        expect(url).toBe('https://api.openai.test/v1/audio/speech');
-        expect(init?.method).toBe('POST');
-        expect(init?.headers?.Authorization).toBe('Bearer openai-key');
-        expect(init?.headers?.Accept).toBe('application/octet-stream');
-        expect(JSON.parse(init?.body ?? '{}')).toMatchObject({
-          model: 'tts-1',
-          voice: 'alloy',
-          input: 'Hello there',
-        });
-
-        return {
-          ok: true,
-          status: 200,
-          async text() {
-            return '';
-          },
-          async json() {
-            return {};
-          },
-          body: {
-            async *[Symbol.asyncIterator]() {
-              yield Uint8Array.from([1, 2, 3]);
+describe('OpenAI TTS via openai SDK', () => {
+  it('calls audio.speech.create with custom baseURL and streams response body', async () => {
+    const create = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'tts-1',
+        voice: 'alloy',
+        input: 'Hello there',
+      });
+      return new Response(Uint8Array.from([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'application/octet-stream' },
+      });
+    });
+    const clientFactory = vi.fn(({ apiKey, baseURL }: { apiKey: string; baseURL?: string }) => {
+      expect(apiKey).toBe('openai-key');
+      expect(baseURL).toBe('https://api.openai.test/v1');
+      return {
+        audio: {
+          transcriptions: {
+            create: async () => {
+              throw new Error('unused');
             },
           },
-        };
-      },
-    );
+          speech: { create },
+        },
+      };
+    });
 
     const registry = createProviderRegistry({
       tts: { openai: OPENAI_TTS_REGISTRATION },
@@ -47,7 +40,7 @@ describe('OpenAI TTS wire protocol', () => {
           openai: {
             apiKey: 'openai-key',
             baseUrl: 'https://api.openai.test/v1',
-            options: { fetch: fetcher },
+            options: { openaiClientFactory: clientFactory },
           },
         },
       },
@@ -66,7 +59,8 @@ describe('OpenAI TTS wire protocol', () => {
       chunks.push(chunk);
     }
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(chunks).toHaveLength(1);
+    expect(clientFactory).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(chunks.length).toBeGreaterThan(0);
   });
 });

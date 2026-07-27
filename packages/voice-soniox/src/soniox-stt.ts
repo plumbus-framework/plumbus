@@ -372,7 +372,7 @@ class SonioxSTTProvider implements STTProvider {
 
 export const SONIOX_STT_REGISTRATION: STTProviderRegistration = {
   descriptor: SONIOX_STT_DESCRIPTOR,
-  pricing: SONIOX_VOICE_PRICING,
+  pricing: SONIOX_VOICE_PRICING['soniox-stt'],
   create(credentials, voiceSlice) {
     return new SonioxSTTProvider(credentials, voiceSlice);
   },

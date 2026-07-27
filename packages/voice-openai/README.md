@@ -19,7 +19,7 @@
 | `openai-realtime` | STT (streaming) | `OPENAI_REALTIME_STT_REGISTRATION` |
 | `openai` | TTS | `OPENAI_TTS_REGISTRATION` |
 
-Talks to OpenAI over HTTP/WebSocket with `fetch` / runtime WebSocket helpers — no separate `openai` npm SDK required.
+Whisper STT, OpenAI TTS, and Realtime streaming STT use the official [`openai`](https://www.npmjs.com/package/openai) SDK (dependency of this package; Realtime uses `OpenAIRealtimeWS` + `ws`). Apps must **not** import `openai` / `ws` directly.
 
 ## Why?
 
@@ -51,7 +51,7 @@ pnpm add @plumbus/voice @plumbus/voice-openai
 
 Peers (copy literals): `@plumbus/core` `0.6.x`, `@plumbus/voice` `0.4.x`.
 
-Env: `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`, default `https://api.openai.com/v1`). For a self-hosted Whisper-compatible sidecar, set `baseUrl` on the `openai-whisper` provider config — do not invent a new adapter.
+Env: `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`, default `https://api.openai.com/v1`). For Azure, LiteLLM, or a self-hosted OpenAI-compatible sidecar, set `baseUrl` / `OPENAI_BASE_URL` — passed as the SDK `baseURL` (Realtime also accepts `ws`/`wss` bases and normalizes them to HTTP(S)). Do not invent a parallel adapter.
 
 ## Quick start
 
@@ -110,7 +110,9 @@ Register only the exports your voices actually use. For CLI/workers, export the 
 
 - **OpenAI is not built into `@plumbus/voice`.** Missing registration fails with `voice.provider_package_missing` — install **and** register.
 - **No auto-load** — there is no `VOICE_ADDON_PACKAGES` / `createRegistryForVoices` soft path.
-- **Whisper local sidecars:** keep `stt.provider: 'openai-whisper'` and override `baseUrl`; do not invent a parallel adapter.
+- **Do not import `openai` / `ws` in app code** — this package owns the SDK boundary.
+- **Custom OpenAI-compatible endpoints:** keep provider ids and override `baseUrl` / `OPENAI_BASE_URL` (Realtime also accepts `ws`/`wss` bases).
+- **Realtime connection model** defaults to `gpt-realtime` (URL); transcription model is `stt.model` (default `gpt-realtime-whisper`). Override connection with `stt.options.realtimeConnectionModel` if needed.
 - **TTS tone is pace-only** on OpenAI.
 
 ## Documentation / Agent recipes

@@ -44,7 +44,7 @@ In-process websocket tests for:
 
 ### Tier 4 — optional live vendor checks
 
-Behind `VOICE_LIVE_TEST=1` (skipped in default CI). OpenAI Whisper remains in `@plumbus/voice`. Soniox / Deepdub / LiveKit live smokes live in their add-on packages (`@plumbus/voice-soniox`, `-deepdub`, `-livekit`).
+Behind `VOICE_LIVE_TEST=1` (skipped in default CI). OpenAI / Soniox / Deepdub / LiveKit live smokes live in their add-on packages (`@plumbus/voice-openai`, `-soniox`, `-deepdub`, `-livekit`).
 
 ## Where provider tests live
 
@@ -52,7 +52,7 @@ Behind `VOICE_LIVE_TEST=1` (skipped in default CI). OpenAI Whisper remains in `@
 
 | Test kind | Package |
 |---|---|
-| Vendor wire/live tests (`soniox`, `deepdub`, `elevenlabs`, `minimax`, `livekit`) | the matching `@plumbus/voice-*` package |
+| Vendor wire/live tests (`openai`, `soniox`, `deepdub`, `elevenlabs`, `minimax`, `livekit`) | the matching `@plumbus/voice-*` package |
 | Route/registry tests needing an add-on provider id | `@plumbus/voice`, using local fake registrations (`src/providers/__tests__/fake-registrations.ts`) |
 | Browser bundle guard | both `@plumbus/voice` (`client/index.js`) and `@plumbus/voice-livekit` (`client.js`) |
 

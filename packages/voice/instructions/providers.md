@@ -6,7 +6,7 @@ Use this when the user asks which transport/STT/TTS stack to choose.
 
 1. **Transport first**: `websocket` vs `livekit`
 2. **STT next**: client (`web-speech`) vs server (`soniox`, `openai-whisper`, `openai-realtime`)
-3. **TTS last**: browser (`browser-tts`) vs cloud/server (`openai`, `deepdub`, `minimax`, `elevenlabs`)
+3. **TTS last**: browser (`browser-tts`) vs cloud/server (`openai`, `soniox`, `deepdub`, `minimax`, `elevenlabs`)
 
 ## Install matrix — check this before recommending a provider
 
@@ -16,7 +16,7 @@ Only these ids work with `@plumbus/voice` alone: `websocket`, `web-speech`, `bro
 |---|---|---|
 | `openai-whisper` / `openai-realtime` / `openai` | stt / tts | `@plumbus/voice-openai` |
 | `livekit` | transport | `@plumbus/voice-livekit` |
-| `soniox` | stt | `@plumbus/voice-soniox` |
+| `soniox` | stt / tts | `@plumbus/voice-soniox` |
 | `deepdub` | tts | `@plumbus/voice-deepdub` |
 | `elevenlabs` | tts | `@plumbus/voice-elevenlabs` |
 | `minimax` | tts | `@plumbus/voice-minimax` |

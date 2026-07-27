@@ -3,10 +3,7 @@ import {
   concatAudioChunks,
   estimateAudioSeconds,
   fileExtensionForContentType,
-  type RuntimeFetch,
   readOption,
-  resolveHttpBaseUrl,
-  resolveRuntimeFetch,
   roundMetric,
   type STTProvider,
   type STTProviderAudioChunk,
@@ -19,18 +16,25 @@ import {
   type VoiceSttConfig,
   wrapPcm16AsWav,
 } from '@plumbus/voice/provider-kit';
+import { toFile } from 'openai';
 import { OPENAI_WHISPER_STT_DESCRIPTOR, OPENAI_WHISPER_STT_MODELS } from './descriptor.js';
+import {
+  type OpenAIAudioClientLike,
+  resolveOpenAIBaseURL,
+  resolveOpenAIClientFactory,
+} from './openai-client.js';
 import { OPENAI_VOICE_PRICING } from './pricing.js';
 
 class OpenAIWhisperSTTProvider implements STTProvider {
   readonly capabilities = OPENAI_WHISPER_STT_DESCRIPTOR;
   readonly #apiKey: string;
-  readonly #baseUrl: string;
-  readonly #fetch: RuntimeFetch;
+  readonly #baseURL: string | undefined;
+  readonly #clientFactory: ReturnType<typeof resolveOpenAIClientFactory>;
   readonly #model: string;
   readonly #prompt: string | undefined;
   #audioInputSeconds = 0;
   #audioChunks: Uint8Array[] = [];
+  #client: OpenAIAudioClientLike | undefined;
   #connectArgs: STTProviderConnectArgs | undefined;
   #contentType: string | undefined;
   #finalizedTranscript: STTProviderTranscriptEvent | undefined;
@@ -47,8 +51,8 @@ class OpenAIWhisperSTTProvider implements STTProvider {
       );
     }
     this.#apiKey = credentials.apiKey;
-    this.#baseUrl = resolveHttpBaseUrl(credentials, 'https://api.openai.com/v1');
-    this.#fetch = resolveRuntimeFetch(credentials, voiceSlice);
+    this.#baseURL = resolveOpenAIBaseURL(credentials);
+    this.#clientFactory = resolveOpenAIClientFactory(credentials);
     this.#model = voiceSlice.model ?? OPENAI_WHISPER_STT_MODELS[0]?.id ?? 'whisper-1';
     this.#prompt = readOption<string>(voiceSlice.options, 'prompt');
   }
@@ -75,38 +79,28 @@ class OpenAIWhisperSTTProvider implements STTProvider {
     }
 
     const audio = concatAudioChunks(this.#audioChunks);
-    const form = new FormData();
-    const file = createUploadBlob(audio, this.#contentType);
-    form.set('file', file, `turn.${fileExtensionForContentType(file.type)}`);
-    form.set('model', this.#model);
-    form.set('response_format', 'json');
-
+    const upload = createUploadBlob(audio, this.#contentType);
+    const file = await toFile(upload, `turn.${fileExtensionForContentType(upload.type)}`);
     const language = this.voiceSlice.languages?.[0];
-    if (language) {
-      form.set('language', language);
-    }
-    if (this.#prompt) {
-      form.set('prompt', this.#prompt);
-    }
+    const client = this.#getClient();
 
-    const response = await this.#fetch(`${this.#baseUrl}/audio/transcriptions`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.#apiKey}`,
-      },
-      body: form,
-    });
-
-    if (!response.ok) {
+    let result: { text?: string | null };
+    try {
+      result = await client.audio.transcriptions.create({
+        file,
+        model: this.#model,
+        response_format: 'json',
+        ...(language ? { language } : {}),
+        ...(this.#prompt ? { prompt: this.#prompt } : {}),
+      });
+    } catch (error) {
       throw new PlumbusError(
         ErrorCode.Internal,
-        `OpenAI transcription request failed with status ${response.status}`,
+        `OpenAI transcription request failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    const payload = (await response.json()) as { text?: unknown };
-    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    const text = typeof result.text === 'string' ? result.text.trim() : '';
     if (!text) {
       return undefined;
     }
@@ -135,6 +129,16 @@ class OpenAIWhisperSTTProvider implements STTProvider {
         metadata: { sessionId: this.#sessionId, streaming: false },
       },
     ];
+  }
+
+  #getClient(): OpenAIAudioClientLike {
+    if (!this.#client) {
+      this.#client = this.#clientFactory({
+        apiKey: this.#apiKey,
+        baseURL: this.#baseURL,
+      });
+    }
+    return this.#client;
   }
 }
 

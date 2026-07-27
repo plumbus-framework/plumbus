@@ -1,25 +1,34 @@
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import {
-  assertOkResponse,
   type DeliveryTone,
-  joinUrl,
   readResponseChunks,
-  resolveTtsFetch,
   type TTSProvider,
   type TTSProviderRegistration,
   type VoiceProviderCredentials,
   type VoiceTtsConfig,
 } from '@plumbus/voice/provider-kit';
 import { OPENAI_TTS_DESCRIPTOR, OPENAI_TTS_MODELS, OPENAI_TTS_VOICES } from './descriptor.js';
+import {
+  type OpenAIAudioClientLike,
+  resolveOpenAIBaseURL,
+  resolveOpenAIClientFactory,
+} from './openai-client.js';
 import { OPENAI_VOICE_PRICING } from './pricing.js';
 
 class OpenAITTSProvider implements TTSProvider {
   readonly capabilities = OPENAI_TTS_DESCRIPTOR;
+  readonly #baseURL: string | undefined;
+  readonly #clientFactory: ReturnType<typeof resolveOpenAIClientFactory>;
   #characters = 0;
+  #client: OpenAIAudioClientLike | undefined;
 
   constructor(
     private readonly credentials: VoiceProviderCredentials,
     private readonly voiceSlice: VoiceTtsConfig,
-  ) {}
+  ) {
+    this.#baseURL = resolveOpenAIBaseURL(credentials);
+    this.#clientFactory = resolveOpenAIClientFactory(credentials);
+  }
 
   mapDeliveryTone(tone: DeliveryTone) {
     return {
@@ -32,29 +41,42 @@ class OpenAITTSProvider implements TTSProvider {
 
   async *synthesizeStream(text: string, params: unknown) {
     this.#characters += text.length;
-    const baseUrl = this.credentials.baseUrl ?? 'https://api.openai.com/v1';
-    const url = joinUrl(baseUrl, 'audio/speech');
-    const request = resolveTtsFetch(this.credentials);
     const mapped = isOpenAIToneParams(params) ? params : this.mapDeliveryTone({});
-    const response = await request(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.credentials.apiKey ?? ''}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/octet-stream',
-      },
-      body: JSON.stringify({
+    const client = this.#getClient();
+    const apiKey = this.credentials.apiKey;
+    if (!apiKey) {
+      throw new PlumbusError(ErrorCode.Validation, 'OpenAI TTS provider requires an apiKey');
+    }
+
+    let response: Response;
+    try {
+      response = await client.audio.speech.create({
         model: mapped.model,
         voice: mapped.voice,
         input: text,
         speed: mapped.speed,
         response_format: resolveOpenAIResponseFormat(this.voiceSlice.options),
-        instructions: resolveOpenAIInstructions(this.voiceSlice.options),
-      }),
-    });
+        ...(resolveOpenAIInstructions(this.voiceSlice.options)
+          ? { instructions: resolveOpenAIInstructions(this.voiceSlice.options) }
+          : {}),
+      });
+    } catch (error) {
+      throw new PlumbusError(
+        ErrorCode.Internal,
+        `OpenAI speech request failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
-    await assertOkResponse(response, url);
-    for await (const chunk of readResponseChunks(response)) {
+    if (!response.ok) {
+      throw new PlumbusError(
+        ErrorCode.Internal,
+        `OpenAI speech request failed with status ${response.status}`,
+      );
+    }
+
+    for await (const chunk of readResponseChunks({
+      body: response.body ?? undefined,
+    })) {
       yield chunk;
     }
   }
@@ -73,6 +95,20 @@ class OpenAITTSProvider implements TTSProvider {
         model: this.voiceSlice.model ?? OPENAI_TTS_MODELS[0]?.id ?? 'tts-1',
       },
     ];
+  }
+
+  #getClient(): OpenAIAudioClientLike {
+    if (!this.#client) {
+      const apiKey = this.credentials.apiKey;
+      if (!apiKey) {
+        throw new PlumbusError(ErrorCode.Validation, 'OpenAI TTS provider requires an apiKey');
+      }
+      this.#client = this.#clientFactory({
+        apiKey,
+        baseURL: this.#baseURL,
+      });
+    }
+    return this.#client;
   }
 }
 

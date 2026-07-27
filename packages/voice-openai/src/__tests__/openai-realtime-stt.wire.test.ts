@@ -1,36 +1,47 @@
+import { EventEmitter } from 'node:events';
 import { createProviderRegistry, createSTTProvider } from '@plumbus/voice';
-import { afterEach, describe, expect, it } from 'vitest';
-import { OPENAI_REALTIME_STT_REGISTRATION } from '../openai-realtime-stt.js';
-import { createWsFixture, toJsonMessages } from './wire-fixtures.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  OPENAI_REALTIME_CONNECTION_MODEL,
+  OPENAI_REALTIME_STT_REGISTRATION,
+  type OpenAIRealtimeSessionLike,
+  resolveOpenAIRealtimeBaseURL,
+} from '../openai-realtime-stt.js';
 
-describe('OpenAI Realtime STT wire protocol', () => {
-  const fixtures: Array<{ close(): Promise<void> }> = [];
+class FakeRealtimeSession extends EventEmitter implements OpenAIRealtimeSessionLike {
+  readonly sent: Record<string, unknown>[] = [];
+  readonly socket = {
+    readyState: 1,
+    once: () => this.socket,
+    off: () => this.socket,
+  };
 
-  afterEach(async () => {
-    while (fixtures.length > 0) {
-      await fixtures.pop()?.close();
-    }
-  });
-
-  it('uses the GA realtime transcription websocket protocol', async () => {
-    const fixture = await createWsFixture('/v1/realtime');
-    fixtures.push(fixture);
-    fixture.onConnection((socket) => {
-      socket.on('message', (data, isBinary) => {
-        if (isBinary) {
-          return;
-        }
-        const message = JSON.parse(data.toString()) as Record<string, unknown>;
-        if (message.type === 'input_audio_buffer.commit') {
-          socket.send(
-            JSON.stringify({
-              type: 'conversation.item.input_audio_transcription.completed',
-              transcript: 'testing one two',
-            }),
-          );
-        }
+  send(event: Record<string, unknown>): void {
+    this.sent.push(event);
+    if (event.type === 'input_audio_buffer.commit') {
+      queueMicrotask(() => {
+        this.emit('conversation.item.input_audio_transcription.completed', {
+          type: 'conversation.item.input_audio_transcription.completed',
+          transcript: 'testing one two',
+        });
       });
-    });
+    }
+  }
+
+  close(): void {}
+}
+
+describe('OpenAI Realtime STT via openai SDK', () => {
+  it('opens a transcription session and streams GA client events through the SDK', async () => {
+    const session = new FakeRealtimeSession();
+    const realtimeFactory = vi.fn(
+      async (args: { apiKey: string; baseURL?: string; model: string }) => {
+        expect(args.apiKey).toBe('openai-key');
+        expect(args.baseURL).toBe('https://realtime.openai.test/v1');
+        expect(args.model).toBe(OPENAI_REALTIME_CONNECTION_MODEL);
+        return session;
+      },
+    );
 
     const registry = createProviderRegistry({
       stt: { 'openai-realtime': OPENAI_REALTIME_STT_REGISTRATION },
@@ -41,8 +52,8 @@ describe('OpenAI Realtime STT wire protocol', () => {
         providers: {
           'openai-realtime': {
             apiKey: 'openai-key',
-            baseUrl: fixture.url,
-            options: { createWebSocket: fixture.createWebSocket },
+            baseUrl: 'https://realtime.openai.test/v1',
+            options: { openaiRealtimeFactory: realtimeFactory },
           },
         },
       },
@@ -66,13 +77,8 @@ describe('OpenAI Realtime STT wire protocol', () => {
     });
     const finalized = await provider.finalize?.();
 
-    const connection = fixture.connections[0];
-    expect(connection).toBeTruthy();
-    expect(connection.url).toBe('/v1/realtime?intent=transcription');
-    expect(connection.headers.authorization).toBe('Bearer openai-key');
-
-    const jsonMessages = toJsonMessages(connection);
-    expect(jsonMessages[0]).toMatchObject({
+    expect(realtimeFactory).toHaveBeenCalledTimes(1);
+    expect(session.sent[0]).toMatchObject({
       type: 'session.update',
       session: {
         type: 'transcription',
@@ -85,12 +91,21 @@ describe('OpenAI Realtime STT wire protocol', () => {
         },
       },
     });
-    expect(jsonMessages[1]).toMatchObject({
+    expect(session.sent[1]).toMatchObject({
       type: 'input_audio_buffer.append',
       audio: Buffer.from([10, 20, 30, 40]).toString('base64'),
     });
-    expect(jsonMessages.at(-1)).toEqual({ type: 'input_audio_buffer.commit' });
+    expect(session.sent.at(-1)).toEqual({ type: 'input_audio_buffer.commit' });
     expect(finalized).toMatchObject({ final: true, text: 'testing one two' });
     expect(transcripts.at(-1)).toEqual({ final: true, text: 'testing one two' });
+  });
+
+  it('converts wss credential bases to https for the SDK client', () => {
+    expect(
+      resolveOpenAIRealtimeBaseURL({
+        apiKey: 'k',
+        baseUrl: 'wss://proxy.example/v1/',
+      }),
+    ).toBe('https://proxy.example/v1');
   });
 });

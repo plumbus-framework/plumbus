@@ -31,7 +31,7 @@ Heavy vendor SDKs (LiveKit, OpenAI voice adapters, Deepdub, Soniox, ElevenLabs, 
 ```bash
 pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
 pnpm add @plumbus/voice-livekit    # LiveKit transport + agent worker + browser session
-pnpm add @plumbus/voice-soniox     # Soniox STT
+pnpm add @plumbus/voice-soniox     # Soniox STT (+ optional Soniox TTS)
 pnpm add @plumbus/voice-deepdub    # Deepdub TTS
 pnpm add @plumbus/voice-elevenlabs # ElevenLabs TTS
 pnpm add @plumbus/voice-minimax    # MiniMax TTS
@@ -46,7 +46,7 @@ import {
   OPENAI_WHISPER_STT_REGISTRATION,
 } from '@plumbus/voice-openai';
 import { LIVEKIT_TRANSPORT_REGISTRATION } from '@plumbus/voice-livekit';
-import { SONIOX_STT_REGISTRATION } from '@plumbus/voice-soniox';
+import { SONIOX_STT_REGISTRATION, SONIOX_TTS_REGISTRATION } from '@plumbus/voice-soniox';
 import { DEEPDUB_TTS_REGISTRATION } from '@plumbus/voice-deepdub';
 
 export const voiceProviderRegistry = createProviderRegistry({
@@ -56,6 +56,7 @@ export const voiceProviderRegistry = createProviderRegistry({
   },
   tts: {
     openai: OPENAI_TTS_REGISTRATION,
+    soniox: SONIOX_TTS_REGISTRATION,
     deepdub: DEEPDUB_TTS_REGISTRATION,
   },
   transport: { livekit: LIVEKIT_TRANSPORT_REGISTRATION },
@@ -140,6 +141,8 @@ beforeSession: async () => ({
 ## ElevenLabs behavior note
 
 `@plumbus/voice-elevenlabs` uses the official `@elevenlabs/elevenlabs-js` SDK (`textToSpeech.stream`) for both v3 and flash. The previous untested WebSocket flash path was removed.
+
+`@plumbus/voice-openai` uses the official [`openai`](https://www.npmjs.com/package/openai) SDK for Whisper STT, TTS, and Realtime STT (`OpenAIRealtimeWS`). Apps must not import `openai` / `ws` — keep `baseUrl` / `OPENAI_BASE_URL` overrides on credentials. Realtime connection model defaults to `gpt-realtime` (`stt.options.realtimeConnectionModel`); transcription model remains `stt.model`.
 
 ## Dependency direction
 

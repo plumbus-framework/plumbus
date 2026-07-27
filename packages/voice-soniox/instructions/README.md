@@ -14,8 +14,8 @@ Package overview: [../README.md](../README.md). Conceptual voice docs: `docs/voi
 
 ## Critical rules
 
-- **Install only for `stt.provider: 'soniox'`** — do not use this package for builtin `web-speech` or OpenAI STT (`@plumbus/voice-openai`).
-- **Register explicitly** with `createProviderRegistry({ stt: { soniox: SONIOX_STT_REGISTRATION } })` and pass that registry to routes/workers. Install alone does **not** register the provider.
+- **Install for `stt.provider: 'soniox'` and/or `tts.provider: 'soniox'`** — do not use this package for builtin `web-speech` / `browser-tts` or OpenAI STT/TTS (`@plumbus/voice-openai`).
+- **Register explicitly** — STT: `createProviderRegistry({ stt: { soniox: SONIOX_STT_REGISTRATION } })`; TTS: `tts: { soniox: SONIOX_TTS_REGISTRATION }`. Install alone does **not** register.
 - **Import kit types/helpers from `@plumbus/voice/provider-kit`**, not deep voice paths.
-- **Business logic stays in `brain.run` / capabilities** — this package is an STT adapter only.
-- **Require `SONIOX_API_KEY`** at runtime for streaming transcription.
+- **Business logic stays in `brain.run` / capabilities** — this package adapts Soniox's SDK to voice STT/TTS contracts.
+- **Require `SONIOX_API_KEY`** at runtime for Soniox STT and/or TTS.

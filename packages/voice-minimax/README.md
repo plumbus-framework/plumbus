@@ -38,7 +38,7 @@ pnpm add @plumbus/voice @plumbus/voice-minimax
 
 Peers (copy literals): `@plumbus/core` `0.6.x`, `@plumbus/voice` `0.4.x`.
 
-Env: `MINIMAX_API_KEY` (optional `MINIMAX_BASE_URL`).
+Env: `MINIMAX_API_KEY` (optional `MINIMAX_BASE_URL`, `MINIMAX_GROUP_ID`).
 
 ## Quick start
 
@@ -91,6 +91,11 @@ For CLI/workers, export the same `voiceProviderRegistry` from `app/voice/registr
 - **Explicit registration required** — install alone does nothing.
 - **Do not call MiniMax HTTP/WebSocket APIs from app code** — this package owns the wire protocol.
 - Audio defaults to mono PCM at **16 kHz** (aligned with transport `pcm16-16k`). Emotion tags `whisper` / `fluent` are valid only on `speech-2.6-*`.
+- MiniMax API failures often arrive as HTTP 200 with `base_resp.status_code !== 0`; the adapter maps them to `Unauthorized` / `Validation` / rate-limit metadata (plus `trace_id` when present).
+- HTTP SSE plays only `data.status === 1` chunks; status `2` is metadata (and may include billable `usage_characters`).
+- Streaming does not support `wav` — keep the default `pcm` (or use `mp3` / `flac` / `opus` / `pcmu_*`). `sampleRate` / `bitrate` / `channel` are validated against MiniMax enums.
+- Optional `tts.options`: `textNormalization`, `forceCbr`, `voiceModify` (`pitch` / `intensity` / `timbre` / `soundEffects`).
+- Some MiniMax accounts need `GroupId` (`MINIMAX_GROUP_ID` or `providers.minimax.options.groupId`).
 
 ## Documentation / Agent recipes
 

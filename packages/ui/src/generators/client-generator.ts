@@ -17,7 +17,10 @@ export interface ClientGeneratorConfig {
   toastImport?: string;
   /** Auth transport for generated fetch clients */
   authTransport?: ClientAuthTransport;
-  /** Import path for auth helper module (default: "./auth") */
+  /**
+   * Import path for the auth helper module (default: "./auth", suited to bundler
+   * resolution). Targets using node16/nodenext resolution must pass "./auth.js".
+   */
   authModuleImport?: string;
 }
 
@@ -57,9 +60,13 @@ function capabilityPath(domain: string, name: string): string {
   return `/api/${domain}/${toKebabCase(name)}`;
 }
 
+// The specifier is emitted verbatim because the correct form depends on the consuming
+// target. The default suits the Next.js template (`moduleResolution: "bundler"`), where a
+// `.js` suffix is unresolvable — Turbopack has no `extensionAlias`, so `./auth.js` never
+// matches `auth.ts` (vercel/next.js#82945). Targets compiled with node16/nodenext (the
+// browser-extension scaffold) must pass an explicit `./auth.js`.
 function authImportPath(config?: ClientGeneratorConfig): string {
-  const base = config?.authModuleImport ?? './auth';
-  return base.endsWith('.js') ? base : `${base}.js`;
+  return config?.authModuleImport ?? './auth';
 }
 
 function generateClientFetchHelpers(config?: ClientGeneratorConfig): string {

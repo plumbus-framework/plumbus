@@ -42,7 +42,7 @@ registerVoiceRoutes(app, routeConfig, [supportVoice], {
 - `toneProfiles` declares named delivery presets.
 - `resolveTone(ctx, args)` chooses the tone profile per turn.
 - `preprocessForTts(text, ctx)` can normalize or annotate output before TTS.
-- For Soniox STT (`@plumbus/voice-soniox`), set `stt.options.contextTerms` to send `context.terms` for domain vocabulary.
+- For Soniox STT (`@plumbus/voice-soniox`), set `stt.options.contextTerms` to send `context.terms` for domain vocabulary. TTS uses the same package (`SONIOX_TTS_REGISTRATION`, `tts.provider: 'soniox'`).
 
 Use the hooks for delivery behavior, not for app business logic.
 

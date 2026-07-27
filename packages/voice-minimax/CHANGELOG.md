@@ -5,6 +5,18 @@
 ### Fixed
 
 - Attach `MINIMAX_VOICE_PRICING` on `MINIMAX_TTS_REGISTRATION.pricing` for ledger USD via `createProviderRegistry()`.
+- Surface MiniMax API errors from `base_resp.status_code` (HTTP SSE, WebSocket, and `get_voice`) instead of treating HTTP 200 as success.
+- Honor WebSocket `task_failed` and `is_final` termination signals.
+- Include `voice_generation` voices from `POST /v1/get_voice` (`voice_type: all`) in `listVoices`.
+- Play only HTTP SSE chunks with `data.status === 1` (skip status-2 aggregated/metadata audio).
+- Prefer MiniMax `extra_info.usage_characters` for cost quantity when the final chunk provides it.
+- Include `trace_id` in MiniMax `PlumbusError` metadata when present.
+- Reject unsupported streaming `wav` audio format up front.
+- Append optional `GroupId` query param from `credentials.options.groupId` / `MINIMAX_GROUP_ID`.
+- Parse HTTP SSE with `eventsource-parser` (spec-complete framing; incomplete trailing frames without a blank line are dropped).
+- Map MiniMax `base_resp.status_code` to `Unauthorized` / `Validation` / rate-limit metadata (`category`).
+- Validate streaming `format`, `sampleRate`, `channel`, and mp3 `bitrate` against MiniMax enums before request.
+- Passthrough optional `tts.options.textNormalization`, `forceCbr`, and `voiceModify` (`pitch` / `intensity` / `timbre` / `soundEffects`).
 
 ## 0.1.0
 

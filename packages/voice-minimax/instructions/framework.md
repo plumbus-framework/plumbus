@@ -58,13 +58,18 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 |---|---|---|
 | `MINIMAX_API_KEY` | yes | MiniMax API key |
 | `MINIMAX_BASE_URL` | no | Override API base (default `https://api.minimax.io`) |
+| `MINIMAX_GROUP_ID` | no | Optional account `GroupId` query param (also `credentials.options.groupId`) |
 
 ## Wire notes
 
-- **Audio defaults:** `audio_setting` is mono `pcm` at **16 kHz** (aligned with transport `pcm16-16k`). The voice runtime publishes/forwards raw PCM16 chunks with no mp3 decode — override with `tts.options.format` / `sampleRate` / `channel` / `bitrate` when needed (`bitrate` is sent only for `mp3`).
+- **Audio defaults:** `audio_setting` is mono `pcm` at **16 kHz** (aligned with transport `pcm16-16k`). The voice runtime publishes/forwards raw PCM16 chunks with no mp3 decode — override with `tts.options.format` / `sampleRate` / `channel` / `bitrate` when needed (`bitrate` is sent only for `mp3`). Values are validated against MiniMax enums (`sampleRate`: 8/16/22.05/24/32/44.1 kHz; streaming formats: `pcm`/`mp3`/`flac`/`pcmu_*`/`opus`; no streaming `wav`).
 - **Pitch:** delivery `warmth` maps to integer semitones (`low=-2`, `medium=0`, `high=2`), clamped to `[-12, 12]`.
 - **Emotions:** `whisper` and `fluent` are valid only on `speech-2.6-*`; they are omitted on `speech-2.8-*`.
-- **Voice catalog:** `listVoices` calls `POST /v1/get_voice` with `{ "voice_type": "all" }` and merges `system_voice` + `voice_cloning`.
+- **Optional wire passthroughs:** `tts.options.textNormalization` → `voice_setting.text_normalization`; `tts.options.forceCbr` → `audio_setting.force_cbr`; `tts.options.voiceModify` → `voice_modify` (`pitch` / `intensity` / `timbre` / `soundEffects`).
+- **Voice catalog:** `listVoices` calls `POST /v1/get_voice` with `{ "voice_type": "all" }` and merges `system_voice` + `voice_cloning` + `voice_generation`.
+- **API errors:** MiniMax often returns HTTP 200 with failures in `base_resp.status_code`. The adapter throws `PlumbusError` when `status_code !== 0`, mapping auth → `Unauthorized`, validation → `Validation`, rate-limit → `Internal` + `metadata.category: 'rateLimit'`, and includes `trace_id` when present. HTTP SSE is parsed with `eventsource-parser`.
+- **HTTP stream audio:** only `data.status === 1` chunks are played; status `2` is treated as final/metadata (may carry aggregated audio and `extra_info.usage_characters`).
+- **Billing:** usage falls back to input text length, then prefers vendor `usage_characters` when MiniMax returns it.
 
 ## CLI commands
 

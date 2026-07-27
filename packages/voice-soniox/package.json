@@ -1,7 +1,7 @@
 {
   "name": "@plumbus/voice-soniox",
   "version": "0.1.1",
-  "description": "Soniox STT provider for @plumbus/voice.",
+  "description": "Soniox STT and TTS providers for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

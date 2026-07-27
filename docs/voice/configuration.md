@@ -35,6 +35,8 @@ const providers = {
     minimax: {
       apiKey: process.env['MINIMAX_API_KEY'],
       baseUrl: process.env['MINIMAX_BASE_URL'],
+      // optional — required by some MiniMax account setups
+      options: { groupId: process.env['MINIMAX_GROUP_ID'] },
     },
     elevenlabs: {
       apiKey: process.env['ELEVENLABS_API_KEY'],
@@ -52,12 +54,12 @@ const providers = {
 |---|---|---|---|
 | `websocket` | built-in | none | raw app-owned websocket transport |
 | `livekit` | `@plumbus/voice-livekit` | `url`, `apiKey`, `apiSecret` | separate secret from app auth |
-| `soniox` | `@plumbus/voice-soniox` | `apiKey` | optional `options.contextTerms` → Soniox `context.terms` |
-| `openai-whisper` | `@plumbus/voice-openai` | `apiKey` | use `baseUrl` for local/self-hosted compatible endpoints |
-| `openai-realtime` | `@plumbus/voice-openai` | `apiKey` | STT-only transcription path, not full speech-to-speech |
+| `soniox` | `@plumbus/voice-soniox` | `apiKey` | STT and/or TTS; optional STT `options.contextTerms` → Soniox `context.terms` |
+| `openai-whisper` | `@plumbus/voice-openai` | `apiKey` | official `openai` SDK; use `baseUrl` / `OPENAI_BASE_URL` for OpenAI-compatible Whisper endpoints |
+| `openai-realtime` | `@plumbus/voice-openai` | `apiKey` | STT-only Realtime transcription via SDK (`OpenAIRealtimeWS`); connection model defaults to `gpt-realtime` (`stt.options.realtimeConnectionModel`); transcription model is `stt.model`; not full speech-to-speech |
 | `deepdub` | `@plumbus/voice-deepdub` | `apiKey` | streaming/server TTS |
-| `openai` | `@plumbus/voice-openai` | `apiKey` | server TTS |
-| `minimax` | `@plumbus/voice-minimax` | `apiKey` | server TTS, richer tone mapping |
+| `openai` | `@plumbus/voice-openai` | `apiKey` | official `openai` SDK TTS; same `baseUrl` override for compatible speech endpoints |
+| `minimax` | `@plumbus/voice-minimax` | `apiKey` | server TTS, richer tone mapping; optional `options.groupId` / `MINIMAX_GROUP_ID`; optional TTS options `textNormalization`, `forceCbr`, `voiceModify` |
 | `elevenlabs` | `@plumbus/voice-elevenlabs` | `apiKey` | flash vs v3 via official SDK |
 | `web-speech` | built-in | none | client STT |
 | `browser-tts` | built-in | none | client TTS |
@@ -88,7 +90,7 @@ These are meant for internal/admin tooling such as voice setup screens and shoul
 When STT/TTS providers are OpenAI-backed, bridge from your existing Plumbus bootstrap config instead of duplicating keys:
 
 ```ts
-import { resolveVoiceOpenAICredentials } from '@plumbus/voice';
+import { resolveVoiceOpenAICredentials } from '@plumbus/voice-openai';
 
 const openai = resolveVoiceOpenAICredentials(plumbusConfig);
 const providers = {

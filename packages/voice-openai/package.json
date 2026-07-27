@@ -1,7 +1,7 @@
 {
   "name": "@plumbus/voice-openai",
-  "version": "0.1.1",
-  "description": "OpenAI STT/TTS providers for @plumbus/voice.",
+  "version": "0.1.3",
+  "description": "OpenAI STT/TTS providers for @plumbus/voice (official openai SDK).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +20,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -39,8 +44,11 @@
   "devDependencies": {
     "@plumbus/core": "workspace:*",
     "@plumbus/voice": "workspace:*",
-    "vitest": "^3.2.4",
-    "ws": "^8.21.0"
+    "vitest": "^3.2.4"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "openai": "^6.49.0",
+    "ws": "^8.18.0"
+  }
 }

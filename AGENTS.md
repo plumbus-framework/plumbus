@@ -107,7 +107,7 @@ Cloud/vendor voice providers ship as separate packages that peer-depend on `@plu
 ```
 pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
 pnpm add @plumbus/voice-livekit    # livekit transport + agent worker + browser session
-pnpm add @plumbus/voice-soniox     # soniox STT
+pnpm add @plumbus/voice-soniox     # soniox STT + TTS
 pnpm add @plumbus/voice-deepdub    # deepdub TTS
 pnpm add @plumbus/voice-elevenlabs # elevenlabs TTS
 pnpm add @plumbus/voice-minimax    # minimax TTS

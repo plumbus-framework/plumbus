@@ -41,7 +41,7 @@ Cloud STT/TTS/transport vendors ship as separate `@plumbus/voice-*` packages. In
 |---|---|---|
 | `@plumbus/voice-openai` | `openai-whisper` / `openai-realtime` / `openai` | stt + tts |
 | `@plumbus/voice-livekit` | `livekit` | transport (+ agent worker / `./client` session) |
-| `@plumbus/voice-soniox` | `soniox` | stt |
+| `@plumbus/voice-soniox` | `soniox` | stt + tts |
 | `@plumbus/voice-deepdub` | `deepdub` | tts |
 | `@plumbus/voice-elevenlabs` | `elevenlabs` | tts |
 | `@plumbus/voice-minimax` | `minimax` | tts |

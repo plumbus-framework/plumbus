@@ -72,7 +72,7 @@ Install only what you use, then pass each package's `*_REGISTRATION` into `creat
 ```bash
 pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
 pnpm add @plumbus/voice-livekit    # livekit transport + agent worker + browser session
-pnpm add @plumbus/voice-soniox     # soniox STT
+pnpm add @plumbus/voice-soniox     # soniox STT + TTS
 pnpm add @plumbus/voice-deepdub    # deepdub TTS
 pnpm add @plumbus/voice-elevenlabs # elevenlabs TTS
 pnpm add @plumbus/voice-minimax    # minimax TTS
@@ -85,7 +85,7 @@ pnpm add @plumbus/voice-minimax    # minimax TTS
 | `browser-tts` | TTS | built-in |
 | `openai-whisper` / `openai-realtime` / `openai` | STT / TTS | [`@plumbus/voice-openai`](../voice-openai/) |
 | `livekit` | transport | [`@plumbus/voice-livekit`](../voice-livekit/) |
-| `soniox` | STT | [`@plumbus/voice-soniox`](../voice-soniox/) |
+| `soniox` | STT + TTS | [`@plumbus/voice-soniox`](../voice-soniox/) |
 | `deepdub` | TTS | [`@plumbus/voice-deepdub`](../voice-deepdub/) |
 | `elevenlabs` | TTS | [`@plumbus/voice-elevenlabs`](../voice-elevenlabs/) |
 | `minimax` | TTS | [`@plumbus/voice-minimax`](../voice-minimax/) |

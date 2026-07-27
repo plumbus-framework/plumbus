@@ -28,8 +28,9 @@ Cloud/vendor adapters (including OpenAI) ship as separate packages. Install the 
 | STT | `openai-whisper` / `openai-realtime` | `@plumbus/voice-openai` | batch Whisper + streaming Realtime STT |
 | TTS | `openai` | `@plumbus/voice-openai` | server TTS (pace-only tone) |
 | STT | `soniox` | `@plumbus/voice-soniox` | multilingual streaming STT |
+| TTS | `soniox` | `@plumbus/voice-soniox` | REST streaming TTS (`pcm_s16le` @ 16 kHz); same package as STT |
 | TTS | `deepdub` | `@plumbus/voice-deepdub` | streaming server TTS |
-| TTS | `minimax` | `@plumbus/voice-minimax` | richer delivery-axis mapping |
+| TTS | `minimax` | `@plumbus/voice-minimax` | richer delivery-axis mapping; maps `base_resp` API errors; validates audio enums; optional `textNormalization` / `forceCbr` / `voiceModify`; catalog includes system/cloned/generated voices |
 | TTS | `elevenlabs` | `@plumbus/voice-elevenlabs` | flash + v3 via official SDK |
 
 ## How to choose

@@ -20,7 +20,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -41,5 +46,8 @@
     "@plumbus/voice": "workspace:*",
     "vitest": "^3.2.4"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "eventsource-parser": "^3.0.8"
+  }
 }

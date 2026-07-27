@@ -3,11 +3,7 @@ import {
   Deferred,
   estimateAudioSeconds,
   parseAudioFormat,
-  type RuntimeWebSocket,
-  type RuntimeWebSocketFactory,
   readOption,
-  resolveRuntimeWebSocketFactory,
-  resolveWebSocketUrl,
   roundMetric,
   type STTProvider,
   type STTProviderAudioChunk,
@@ -18,17 +14,46 @@ import {
   type VoiceProviderCredentials,
   type VoiceSttConfig,
 } from '@plumbus/voice/provider-kit';
+import OpenAI from 'openai';
 import { OPENAI_REALTIME_STT_DESCRIPTOR, OPENAI_REALTIME_STT_MODELS } from './descriptor.js';
+import { resolveOpenAIBaseURL } from './openai-client.js';
 import { OPENAI_VOICE_PRICING } from './pricing.js';
+
+/** Default Realtime WebSocket connection model (URL `?model=`). Transcription model is separate. */
+export const OPENAI_REALTIME_CONNECTION_MODEL = 'gpt-realtime';
+
+/**
+ * Minimal surface of `OpenAIRealtimeWS` / `OpenAIRealtimeWebSocket` used for STT.
+ * Inject `credentials.options.openaiRealtimeFactory` in tests.
+ */
+export interface OpenAIRealtimeSessionLike {
+  send(event: Record<string, unknown>): void;
+  close(props?: { code?: number; reason?: string }): void;
+  on(event: string, listener: (...args: any[]) => void): unknown;
+  socket?: {
+    readyState?: number;
+    once(event: string, listener: (...args: any[]) => void): unknown;
+    off?(event: string, listener: (...args: any[]) => void): unknown;
+  };
+}
+
+export type OpenAIRealtimeFactory = (args: {
+  apiKey: string;
+  /** HTTP(S) OpenAI-compatible base; SDK converts to `wss` for Realtime. */
+  baseURL?: string;
+  /** Connection model for the Realtime WebSocket URL. */
+  model: string;
+}) => OpenAIRealtimeSessionLike | Promise<OpenAIRealtimeSessionLike>;
 
 class OpenAIRealtimeSTTProvider implements STTProvider {
   readonly capabilities = OPENAI_REALTIME_STT_DESCRIPTOR;
   readonly #apiKey: string;
-  readonly #baseUrl: string | undefined;
-  readonly #createWebSocket: RuntimeWebSocketFactory;
+  readonly #baseURL: string | undefined;
+  readonly #connectionModel: string;
   readonly #delay: string | undefined;
   readonly #language: string | undefined;
-  readonly #model: string;
+  readonly #realtimeFactory: OpenAIRealtimeFactory;
+  readonly #transcriptionModel: string;
   #audioInputSeconds = 0;
   #connectArgs: STTProviderConnectArgs | undefined;
   #currentPartial = '';
@@ -36,8 +61,8 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
   #lastItemId: string | undefined;
   #openPromise: Promise<void> | undefined;
   #pendingFinalize: Deferred<STTProviderTranscriptEvent | undefined> | undefined;
+  #session: OpenAIRealtimeSessionLike | undefined;
   #sessionId: string | undefined;
-  #socket: RuntimeWebSocket | undefined;
 
   constructor(
     credentials: VoiceProviderCredentials,
@@ -50,11 +75,15 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
       );
     }
     this.#apiKey = credentials.apiKey;
-    this.#baseUrl = credentials.baseUrl;
-    this.#createWebSocket = resolveRuntimeWebSocketFactory(credentials, voiceSlice);
+    this.#baseURL = resolveOpenAIRealtimeBaseURL(credentials);
+    this.#realtimeFactory = resolveOpenAIRealtimeFactory(credentials);
     this.#delay = readOption<string>(voiceSlice.options, 'delay');
     this.#language = voiceSlice.languages?.[0];
-    this.#model = voiceSlice.model ?? OPENAI_REALTIME_STT_MODELS[0]?.id ?? 'gpt-realtime-whisper';
+    this.#transcriptionModel =
+      voiceSlice.model ?? OPENAI_REALTIME_STT_MODELS[0]?.id ?? 'gpt-realtime-whisper';
+    this.#connectionModel =
+      readOption<string>(voiceSlice.options, 'realtimeConnectionModel') ??
+      OPENAI_REALTIME_CONNECTION_MODEL;
   }
 
   connect(args: STTProviderConnectArgs): void {
@@ -63,26 +92,24 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
   }
 
   async sendAudio(audio: STTProviderAudioChunk): Promise<void> {
-    await this.#ensureSocket(audio.contentType);
+    await this.#ensureSession(audio.contentType);
     this.#audioInputSeconds += estimateAudioSeconds(audio);
-    this.#socket?.send(
-      JSON.stringify({
-        type: 'input_audio_buffer.append',
-        audio: toBase64(audio.chunk),
-      }),
-    );
+    this.#session?.send({
+      type: 'input_audio_buffer.append',
+      audio: toBase64(audio.chunk),
+    });
   }
 
   onClientTranscript(_event: STTProviderTranscriptEvent): void {}
 
   async finalize(): Promise<STTProviderTranscriptEvent | undefined> {
-    await this.#ensureSocket();
-    if (!this.#socket) {
+    await this.#ensureSession();
+    if (!this.#session) {
       return undefined;
     }
     const pending = new Deferred<STTProviderTranscriptEvent | undefined>();
     this.#pendingFinalize = pending;
-    this.#socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    this.#session.send({ type: 'input_audio_buffer.commit' });
     return pending.promise;
   }
 
@@ -106,12 +133,12 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
   disconnect(): void {
     this.#pendingFinalize?.resolve(this.#buildFinalEvent());
     this.#pendingFinalize = undefined;
-    this.#socket?.close();
-    this.#socket = undefined;
+    this.#session?.close({ code: 1000, reason: 'OK' });
+    this.#session = undefined;
     this.#openPromise = undefined;
   }
 
-  #ensureSocket(contentType?: string): Promise<void> {
+  #ensureSession(contentType?: string): Promise<void> {
     if (this.#openPromise) {
       return this.#openPromise;
     }
@@ -122,77 +149,70 @@ class OpenAIRealtimeSTTProvider implements STTProvider {
       );
     }
 
-    const url = resolveWebSocketUrl(
-      this.#baseUrl,
-      'wss://api.openai.com',
-      '/v1/realtime',
-      new URLSearchParams({ intent: 'transcription' }),
-    );
-    const socket = this.#createWebSocket(url, {
-      headers: {
-        Authorization: `Bearer ${this.#apiKey}`,
+    this.#openPromise = this.#openSession(contentType);
+    return this.#openPromise;
+  }
+
+  async #openSession(contentType?: string): Promise<void> {
+    const session = await this.#realtimeFactory({
+      apiKey: this.#apiKey,
+      baseURL: this.#baseURL,
+      model: this.#connectionModel,
+    });
+    this.#session = session;
+
+    session.on('error', (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'OpenAI realtime error';
+      this.#pendingFinalize?.reject(new Error(message));
+    });
+    session.on('conversation.item.input_audio_transcription.delta', (event: unknown) => {
+      this.#handleMessage(asRecord(event));
+    });
+    session.on('conversation.item.input_audio_transcription.completed', (event: unknown) => {
+      this.#handleMessage(asRecord(event));
+    });
+    session.on('event', (event: unknown) => {
+      const message = asRecord(event);
+      if (message.type === 'error') {
+        this.#handleMessage(message);
+      }
+    });
+
+    await waitUntilRealtimeOpen(session);
+
+    const format = parseAudioFormat(contentType);
+    session.send({
+      type: 'session.update',
+      session: {
+        type: 'transcription',
+        audio: {
+          input: {
+            format: {
+              type: 'audio/pcm',
+              rate: format.sampleRate,
+            },
+            transcription: {
+              model: this.#transcriptionModel,
+              ...(this.#delay ? { delay: this.#delay } : {}),
+              ...(this.#language ? { language: this.#language } : {}),
+            },
+            turn_detection: null,
+          },
+        },
       },
     });
-    this.#socket = socket;
-    this.#openPromise = new Promise<void>((resolve, reject) => {
-      socket.once('open', () => {
-        try {
-          const format = parseAudioFormat(contentType);
-          socket.send(
-            JSON.stringify({
-              type: 'session.update',
-              session: {
-                type: 'transcription',
-                audio: {
-                  input: {
-                    format: {
-                      type: 'audio/pcm',
-                      rate: format.sampleRate,
-                    },
-                    transcription: {
-                      model: this.#model,
-                      ...(this.#delay ? { delay: this.#delay } : {}),
-                      ...(this.#language ? { language: this.#language } : {}),
-                    },
-                    turn_detection: null,
-                  },
-                },
-              },
-            }),
-          );
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      });
-      socket.once('error', reject);
-    });
-    socket.on('message', (data) => {
-      const message = parseMessage(data);
-      if (!message) {
-        return;
-      }
-      this.#handleMessage(message);
-    });
-    socket.on('error', (error) => {
-      this.#pendingFinalize?.reject(error);
-    });
-    socket.on('close', () => {
-      if (this.#pendingFinalize) {
-        this.#pendingFinalize.resolve(this.#buildFinalEvent());
-        this.#pendingFinalize = undefined;
-      }
-      this.#socket = undefined;
-      this.#openPromise = undefined;
-    });
-    return this.#openPromise;
   }
 
   #handleMessage(message: Record<string, unknown>): void {
     if (message.type === 'error') {
-      this.#pendingFinalize?.reject(
-        new Error(typeof message.message === 'string' ? message.message : 'OpenAI realtime error'),
-      );
+      const nested = asRecord(message.error);
+      const detail =
+        typeof nested.message === 'string'
+          ? nested.message
+          : typeof message.message === 'string'
+            ? message.message
+            : 'OpenAI realtime error';
+      this.#pendingFinalize?.reject(new Error(detail));
       return;
     }
 
@@ -255,22 +275,69 @@ export const OPENAI_REALTIME_STT_REGISTRATION: STTProviderRegistration = {
   },
 };
 
-function parseMessage(
-  payload: Buffer | ArrayBuffer | Buffer[],
-): Record<string, unknown> | undefined {
-  const text = payloadToText(payload);
-  if (!text) {
+/** Convert credential `baseUrl` to an HTTP(S) base the Realtime SDK can upgrade to `wss`. */
+export function resolveOpenAIRealtimeBaseURL(
+  credentials: VoiceProviderCredentials,
+): string | undefined {
+  const base = resolveOpenAIBaseURL(credentials);
+  if (!base) {
     return undefined;
   }
-  return JSON.parse(text) as Record<string, unknown>;
+  return base.replace(/^ws:/i, 'http:').replace(/^wss:/i, 'https:');
 }
 
-function payloadToText(payload: Buffer | ArrayBuffer | Buffer[]): string {
-  if (Array.isArray(payload)) {
-    return Buffer.concat(payload).toString('utf-8');
+export function resolveOpenAIRealtimeFactory(
+  credentials: VoiceProviderCredentials,
+): OpenAIRealtimeFactory {
+  const injected = (credentials.options as Record<string, unknown> | undefined)
+    ?.openaiRealtimeFactory;
+  if (typeof injected === 'function') {
+    return injected as OpenAIRealtimeFactory;
   }
-  if (payload instanceof ArrayBuffer) {
-    return Buffer.from(payload).toString('utf-8');
+  return createDefaultOpenAIRealtimeSession;
+}
+
+export async function createDefaultOpenAIRealtimeSession(args: {
+  apiKey: string;
+  baseURL?: string;
+  model: string;
+}): Promise<OpenAIRealtimeSessionLike> {
+  const { OpenAIRealtimeWS } = await import('openai/realtime/ws.js');
+  const client = new OpenAI({
+    apiKey: args.apiKey,
+    ...(args.baseURL ? { baseURL: args.baseURL } : {}),
+  });
+  const session = await OpenAIRealtimeWS.create(client, { model: args.model });
+  return session as unknown as OpenAIRealtimeSessionLike;
+}
+
+async function waitUntilRealtimeOpen(session: OpenAIRealtimeSessionLike): Promise<void> {
+  const socket = session.socket;
+  if (!socket) {
+    return;
   }
-  return payload.toString('utf-8');
+  // `ws` OPEN === 1
+  if (socket.readyState === 1) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: unknown) => {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const cleanup = () => {
+      socket.off?.('open', onOpen);
+      socket.off?.('error', onError);
+    };
+    socket.once('open', onOpen);
+    socket.once('error', onError);
+  });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }

@@ -9,7 +9,7 @@ Index: `node_modules/@plumbus/voice-openai/instructions/README.md`
 ## When not to use
 
 - Do **not** install this package for Soniox STT, Deepdub/ElevenLabs/MiniMax TTS, or LiveKit transport — those are other `@plumbus/voice-*` add-ons.
-- Do **not** add the `openai` npm SDK; this package talks to OpenAI over HTTP/WebSocket with `fetch` / runtime WebSocket helpers.
+- Do **not** import the `openai` / `ws` packages in app code — this package depends on them and owns the SDK boundary (Whisper, TTS, and Realtime STT via `OpenAIRealtimeWS`).
 - Skip it for browser-only / zero-cloud prototypes that should stay on `web-speech` / `browser-tts`.
 
 **Peers (copy literals):**
@@ -59,18 +59,25 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 | Export | Role |
 |---|---|
 | `OPENAI_WHISPER_STT_REGISTRATION` | Batch Whisper STT factory + descriptor |
-| `OPENAI_REALTIME_STT_REGISTRATION` | Streaming Realtime STT factory + descriptor |
+| `OPENAI_REALTIME_STT_REGISTRATION` | Streaming Realtime STT factory + descriptor (`OpenAIRealtimeWS`) |
 | `OPENAI_TTS_REGISTRATION` | OpenAI TTS factory + descriptor |
+| `OPENAI_REALTIME_CONNECTION_MODEL` | Default Realtime URL/connection model (`gpt-realtime`) |
 | `OPENAI_WHISPER_STT_DESCRIPTOR` / `OPENAI_REALTIME_STT_DESCRIPTOR` / `OPENAI_TTS_DESCRIPTOR` | Catalog entries |
 | `resolveCredentialsFromEnv` | Read `OPENAI_API_KEY` / `OPENAI_BASE_URL` |
 | `resolveVoiceOpenAICredentials` | Bridge Plumbus `aiProviders` / legacy `ai` config |
+
+## Realtime options
+
+- Transcription model: `stt.model` (default `gpt-realtime-whisper`)
+- Connection model: `stt.options.realtimeConnectionModel` (default `OPENAI_REALTIME_CONNECTION_MODEL` / `gpt-realtime`)
+- Custom bases: credential `baseUrl` / `OPENAI_BASE_URL` (HTTP or `ws`/`wss`; normalized to HTTP(S) for the SDK)
 
 ## Env vars
 
 | Variable | Required | Purpose |
 |---|---|---|
 | `OPENAI_API_KEY` | yes | OpenAI API key |
-| `OPENAI_BASE_URL` | no | Override API base (default `https://api.openai.com/v1`) |
+| `OPENAI_BASE_URL` | no | Override API base for OpenAI-compatible Whisper/TTS/Realtime (SDK `baseURL`; default `https://api.openai.com/v1`) |
 
 ## CLI commands
 
@@ -84,7 +91,7 @@ This package ships no CLI of its own. `plumbus voice worker` and the voice route
 
 ## Framework-first
 
-Keep app logic in Plumbus primitives (`defineCapability`, `ctx.*`, voice `brain`). This package only adapts OpenAI's HTTP/WebSocket APIs to the voice STT/TTS contracts.
+Keep app logic in Plumbus primitives (`defineCapability`, `ctx.*`, voice `brain`). This package adapts OpenAI's official SDK (Whisper, TTS, Realtime STT) to the voice STT/TTS contracts.
 
 ## Ecosystem
 

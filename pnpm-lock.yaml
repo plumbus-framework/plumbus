@@ -409,6 +409,10 @@ importers:
         version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
 
   packages/voice-minimax:
+    dependencies:
+      eventsource-parser:
+        specifier: ^3.0.8
+        version: 3.0.8
     devDependencies:
       '@plumbus/core':
         specifier: workspace:*
@@ -421,6 +425,13 @@ importers:
         version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
 
   packages/voice-openai:
+    dependencies:
+      openai:
+        specifier: ^6.49.0
+        version: 6.49.0(ws@8.21.0)(zod@3.25.76)
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
     devDependencies:
       '@plumbus/core':
         specifier: workspace:*
@@ -431,9 +442,6 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
-      ws:
-        specifier: ^8.21.0
-        version: 8.21.0
 
   packages/voice-soniox:
     dependencies:
@@ -3180,6 +3188,26 @@ packages:
       ws: ^8.18.0
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
+  openai@6.49.0:
+    resolution: {integrity: sha512-aYCc0C6L864eR6WSYIwQGyXriw/nIyZx0ObvhzOEVuk0zoBDpynjSbrionWI7q65B5H8jJX0DXR9snEzM6bfPg==}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
       ws:
         optional: true
       zod:
@@ -6114,6 +6142,11 @@ snapshots:
       wrappy: 1.0.2
 
   openai@6.42.0(ws@8.21.0)(zod@3.25.76):
+    optionalDependencies:
+      ws: 8.21.0
+      zod: 3.25.76
+
+  openai@6.49.0(ws@8.21.0)(zod@3.25.76):
     optionalDependencies:
       ws: 8.21.0
       zod: 3.25.76

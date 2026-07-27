@@ -91,7 +91,7 @@ Install only when you need the surface. All optional packages are explicit `pnpm
 | `@plumbus/chat-ui` | React hooks + `<ChatPanel />` for `@plumbus/chat` |
 | `@plumbus/voice` | Realtime speech I/O (`defineVoice`, routes, websocket transport) |
 | `@plumbus/voice-livekit` | LiveKit transport + agent worker + browser session (peer of voice) |
-| `@plumbus/voice-soniox` | Soniox STT adapter (peer of voice) |
+| `@plumbus/voice-soniox` | Soniox STT + TTS adapter (peer of voice) |
 | `@plumbus/voice-deepdub` | Deepdub TTS adapter (peer of voice) |
 | `@plumbus/voice-elevenlabs` | ElevenLabs TTS adapter (peer of voice) |
 | `@plumbus/voice-minimax` | MiniMax TTS adapter (peer of voice) |

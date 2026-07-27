@@ -16,6 +16,8 @@ Package overview: [../README.md](../README.md). Conceptual voice docs: `docs/voi
 
 - **Install for OpenAI voice providers** — `stt.provider: 'openai-whisper' | 'openai-realtime'` and/or `tts.provider: 'openai'`. Do not use this package for Soniox, Deepdub, ElevenLabs, MiniMax, or LiveKit.
 - **Register explicitly** with `createProviderRegistry({ stt/tts })` for each `*_REGISTRATION` you need and pass that registry to routes/workers. Install alone does **not** register providers.
+- **Do not import `openai` / `ws` in app code** — Whisper, TTS, and Realtime STT go through this package's SDK boundary; custom endpoints use `OPENAI_BASE_URL` / credential `baseUrl`.
+- **Realtime connection vs transcription model** — URL/connection model defaults to `gpt-realtime` (`stt.options.realtimeConnectionModel`); transcription model is `stt.model`.
 - **Import kit types/helpers from `@plumbus/voice/provider-kit`**, not deep voice paths.
 - **Business logic stays in `brain.run` / capabilities** — this package is an STT/TTS adapter only.
-- **Require `OPENAI_API_KEY`** at runtime (or bridge via `resolveVoiceOpenAICredentials` from Plumbus AI config).
+- **Require `OPENAI_API_KEY`** at runtime (or bridge via `resolveVoiceOpenAICredentials` from `@plumbus/voice-openai`).

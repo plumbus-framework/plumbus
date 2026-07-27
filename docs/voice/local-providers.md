@@ -2,18 +2,22 @@
 
 `@plumbus/voice` deliberately keeps the first local/offline story simple:
 
-- reuse `openai-whisper` with a custom `baseUrl` for Whisper-compatible sidecars
+- reuse `@plumbus/voice-openai` (`openai-whisper`) with a custom `baseUrl` for Whisper-compatible sidecars
 - use `browser-tts` when synthesis should happen entirely in the browser
 
 ## Self-hosted STT: Whisper-compatible sidecar
 
-If you have a local or self-hosted service that exposes an OpenAI-compatible transcription API, start with the built-in `openai-whisper` adapter and override `baseUrl`.
+If you have a local or self-hosted service that exposes an OpenAI-compatible transcription API, install `@plumbus/voice-openai`, register `OPENAI_WHISPER_STT_REGISTRATION`, keep `stt.provider: 'openai-whisper'`, and override `baseUrl` (passed as the official SDK `baseURL`). Do not invent a parallel adapter.
 
 ```ts
-stt: {
-  provider: 'openai-whisper',
-  model: 'whisper-1',
-}
+import { createProviderRegistry } from '@plumbus/voice';
+import { OPENAI_WHISPER_STT_REGISTRATION } from '@plumbus/voice-openai';
+
+const registry = createProviderRegistry({
+  stt: { 'openai-whisper': OPENAI_WHISPER_STT_REGISTRATION },
+});
+
+// defineVoice({ …, stt: { provider: 'openai-whisper', model: 'whisper-1' } })
 
 const providers = {
   providers: {
