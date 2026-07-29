@@ -116,6 +116,11 @@ export function extractDeepdubVoicePromptId(payload: unknown): string | undefine
     ) {
       return nestedRecord.voice_prompt_id;
     }
+    // Live POST /voice answers { response: { id, title, name, locale, … } } — the created
+    // prompt id is `id`, and no voice_prompt_id is present anywhere in the payload.
+    if (typeof nestedRecord.id === 'string' && nestedRecord.id.length > 0) {
+      return nestedRecord.id;
+    }
   }
   if (typeof record.id === 'string' && record.id.length > 0) {
     return record.id;

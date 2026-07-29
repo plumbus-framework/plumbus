@@ -842,6 +842,83 @@ describe('AI Service (ctx.ai)', () => {
       expect(call?.model).toBe('gpt-4o-mini');
     });
 
+    it('passes reasoningEffort from promptOverrides through to the provider request', async () => {
+      const openai = createNamedProvider('openai');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'gpt-5.5', provider: 'openai' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+        promptOverrides: {
+          'write-bio': { reasoningEffort: 'medium' },
+        },
+      });
+
+      await service.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.reasoningEffort).toBe('medium');
+    });
+
+    it('prefers override reasoningEffort over the prompt-defined value, absent means unset', async () => {
+      const openai = createNamedProvider('openai');
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'gpt-5.5', provider: 'openai', reasoningEffort: 'low' },
+        }),
+      );
+
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+        promptOverrides: {
+          'write-bio': { reasoningEffort: 'high' },
+        },
+      });
+
+      await service.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.reasoningEffort).toBe('high');
+
+      const plain = createNamedProvider('openai');
+      const plainRegistry = new PromptRegistry();
+      plainRegistry.register(
+        definePrompt({
+          name: 'write-bio',
+          description: 'Write a bio for {{name}}',
+          input: z.object({ name: z.string() }),
+          output: z.object({ result: z.string() }),
+          model: { name: 'gpt-4o', provider: 'openai' },
+        }),
+      );
+      const plainService = createAIService({
+        providers: { openai: plain },
+        defaultProvider: 'openai',
+        promptRegistry: plainRegistry,
+      });
+      await plainService.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
+      const plainCall = (plain.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(plainCall?.reasoningEffort).toBeUndefined();
+    });
+
     it('falls back to defaultModel when neither override nor prompt defines model', async () => {
       const openai = createNamedProvider('openai');
 

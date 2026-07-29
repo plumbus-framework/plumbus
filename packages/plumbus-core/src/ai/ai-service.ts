@@ -73,7 +73,13 @@ export interface AIServiceConfig {
   enableStrictStructuredOutputs?: boolean;
   promptOverrides?: Record<
     string,
-    { provider?: string; model?: string; temperature?: number; maxTokens?: number }
+    {
+      provider?: string;
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+      reasoningEffort?: 'low' | 'medium' | 'high';
+    }
   > /** Budget enforcement settings */;
   budget?: {
     tenantId?: string;
@@ -249,6 +255,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     provider?: string;
     temperature?: number;
     maxTokens?: number;
+    reasoningEffort?: 'low' | 'medium' | 'high';
     appendUnsubstitutedInput?: boolean;
     /**
      * Set of input keys that had a `{{key}}` placeholder in the prompt
@@ -295,6 +302,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       provider: override?.provider ?? def.model?.provider,
       temperature: override?.temperature ?? def.model?.temperature,
       maxTokens: override?.maxTokens ?? def.model?.maxTokens,
+      reasoningEffort: override?.reasoningEffort ?? def.model?.reasoningEffort,
       appendUnsubstitutedInput: def.appendUnsubstitutedInput,
       substitutedKeys,
     };
@@ -402,6 +410,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       model: promptInfo.model ?? config.defaultModel,
       temperature: promptInfo.temperature,
       maxTokens: promptInfo.maxTokens,
+      reasoningEffort: promptInfo.reasoningEffort,
       responseFormat: skipStructuredOutput ? undefined : structuredResponseFormat,
       responseSchema: skipStructuredOutput ? undefined : responseSchema,
       structuredOutputTransport: skipStructuredOutput
@@ -717,6 +726,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         model: promptInfo.model ?? config.defaultModel,
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,
+        reasoningEffort: promptInfo.reasoningEffort,
         responseFormat: singleTextField ? 'text' : 'json',
         responseSchema,
         structuredOutputTransport: promptDef?.structuredOutputTransport,

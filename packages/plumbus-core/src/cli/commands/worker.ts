@@ -120,13 +120,27 @@ export async function startWorkerProcess(
     if (shuttingDown) return;
     shuttingDown = true;
     info('Graceful shutdown initiated...');
+    // In-flight work can hang indefinitely (e.g. a wedged provider socket
+    // inside a flow step keeps workerPool.stop() waiting forever). Never let
+    // that turn a termination signal into a headless zombie worker that
+    // keeps polling the shared DB: force-exit after a hard deadline.
+    const deadline = setTimeout(() => {
+      logError('Graceful shutdown timed out after 10s — forcing exit');
+      process.exit(1);
+    }, 10_000);
+    deadline.unref();
     await health.stop();
     await workerPool.stop();
     await closeDatabaseConnection(dbConnection);
+    clearTimeout(deadline);
     info('Worker stopped');
   };
 
   const onSignal = () => {
+    if (shuttingDown) {
+      logError('Second signal received during shutdown — forcing exit');
+      process.exit(130);
+    }
     void shutdown();
   };
   process.on('SIGINT', onSignal);

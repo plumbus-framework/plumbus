@@ -52,6 +52,62 @@ describe('Deepdub voice cloning', () => {
     });
   });
 
+  it('maps the live { response: { id } } addVoice payload', async () => {
+    // Verbatim body observed from POST https://restapi.deepdub.ai/api/v1/voice — the live
+    // API returns no voice_prompt_id at any level, only response.id.
+    const registry = createProviderRegistry({
+      tts: { deepdub: DEEPDUB_TTS_REGISTRATION },
+    });
+    const clone = createVoiceCloneProvider({
+      providerId: 'deepdub',
+      providers: {
+        providers: {
+          deepdub: {
+            apiKey: 'dd-key',
+            options: {
+              deepdubClientFactory: () => ({
+                async connect() {
+                  return {};
+                },
+                async generateToBuffer() {
+                  return Buffer.from([]);
+                },
+                async addVoice() {
+                  return {
+                    response: {
+                      id: '0218c0c3-f32f-49ff-988b-8f35394fe455',
+                      title: 'probe.wav',
+                      name: 'plumbus-probe-shape',
+                      locale: 'he-IL',
+                      text: '',
+                      createdAt: '2026-07-28T12:18:28.687+00:00',
+                      speakingStyle: 'Neutral',
+                      gender: 'MALE',
+                    },
+                  };
+                },
+              }),
+            },
+          },
+        },
+      },
+      registry,
+    });
+
+    const created = await clone.create({
+      name: 'plumbus-probe-shape',
+      audio: Buffer.from('wav-bytes'),
+      filename: 'probe.wav',
+      gender: 'male',
+      locale: 'he-IL',
+    });
+    expect(created).toMatchObject({
+      id: '0218c0c3-f32f-49ff-988b-8f35394fe455',
+      providerId: 'deepdub',
+      status: 'ready',
+    });
+  });
+
   it('rejects missing gender/locale', async () => {
     const registry = createProviderRegistry({
       tts: { deepdub: DEEPDUB_TTS_REGISTRATION },

@@ -1,11 +1,21 @@
 import type { z } from 'zod';
 
 // ── Model Config ──
+/**
+ * Reasoning effort for models that support it (OpenAI o-series / gpt-5
+ * family `reasoning_effort`). Sent to the provider ONLY when explicitly
+ * configured — a model that rejects the parameter fails loudly rather than
+ * silently degrading. Adapters for providers without an equivalent
+ * parameter ignore it.
+ */
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
 export interface ModelConfig {
   provider?: string;
   name?: string;
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: ReasoningEffort;
 }
 
 // ── Prompt Definition ──
