@@ -49,6 +49,8 @@ export interface CreateClonedVoiceInput {
   gender?: 'male' | 'female';
   speakingStyle?: string;
   age?: number;
+  /** Transcript of the sample audio (DeepDub `text` metadata; ignored elsewhere). */
+  text?: string;
   /** Soniox readiness target model. */
   model?: string;
   signal?: AbortSignal;

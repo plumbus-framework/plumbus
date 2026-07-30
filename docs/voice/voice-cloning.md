@@ -49,6 +49,9 @@ const created = await clone.create({
   // Deepdub also requires:
   // gender: 'male' | 'female',
   // locale: 'he-IL',
+  // Deepdub optional metadata:
+  // speakingStyle: 'Reading',   // match the sample's register (default 'Neutral')
+  // text: sampleTranscript,     // transcript of the sample audio
 });
 const ready = await clone.waitUntilReady(created.id, { model: 'tts-rt-v1' });
 

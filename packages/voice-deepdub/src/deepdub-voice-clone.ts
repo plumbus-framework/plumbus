@@ -68,6 +68,7 @@ export class DeepdubVoiceCloneProvider implements VoiceCloneProvider {
       filename: input.filename,
       ...(input.speakingStyle ? { speakingStyle: input.speakingStyle } : {}),
       ...(input.age !== undefined ? { age: input.age } : {}),
+      ...(input.text ? { text: input.text } : {}),
     });
     const id = extractDeepdubVoicePromptId(response);
     if (!id) {

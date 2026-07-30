@@ -104,7 +104,7 @@ This package ships no CLI of its own. `plumbus voice worker` and the voice route
 
 ## Voice cloning
 
-`DEEPDUB_TTS_REGISTRATION.clone` supports persisted create (`addVoice`), REST get/delete, and instant-reference preview. Gender `'male' | 'female'` only (mapped to vendor `MALE`/`FEMALE`). Long-form audiobook synthesis uses persisted `voiceId` (`voicePromptId`) + streaming WS — not `voiceReference`. Upload cap 20 MB (vendor).
+`DEEPDUB_TTS_REGISTRATION.clone` supports persisted create (`addVoice`), REST get/delete, and instant-reference preview. Gender `'male' | 'female'` only (mapped to vendor `MALE`/`FEMALE`). Optional create metadata: `speakingStyle` (e.g. `'Reading'` for scripted samples), `age`, and `text` — the transcript of the sample audio, forwarded as the vendor `text` param. Long-form audiobook synthesis uses persisted `voiceId` (`voicePromptId`) + streaming WS — not `voiceReference`. Upload cap 20 MB (vendor).
 
 ## Framework-first
 

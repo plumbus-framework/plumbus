@@ -24,6 +24,8 @@ describe('Deepdub voice cloning', () => {
                 async addVoice(params: Record<string, unknown>) {
                   expect(params.gender).toBe('FEMALE');
                   expect(params.locale).toBe('he-IL');
+                  expect(params.speakingStyle).toBe('Reading');
+                  expect(params.text).toBe('A short passage read aloud.');
                   return { voice_prompt_id: 'vp-123' };
                 },
                 async listVoices() {
@@ -43,6 +45,8 @@ describe('Deepdub voice cloning', () => {
       filename: 'sample.wav',
       gender: 'female',
       locale: 'he-IL',
+      speakingStyle: 'Reading',
+      text: 'A short passage read aloud.',
     });
     expect(created).toMatchObject({
       id: 'vp-123',
@@ -72,7 +76,9 @@ describe('Deepdub voice cloning', () => {
                 async generateToBuffer() {
                   return Buffer.from([]);
                 },
-                async addVoice() {
+                async addVoice(params: Record<string, unknown>) {
+                  // No transcript supplied — the param must be omitted, not sent empty.
+                  expect(params.text).toBeUndefined();
                   return {
                     response: {
                       id: '0218c0c3-f32f-49ff-988b-8f35394fe455',
