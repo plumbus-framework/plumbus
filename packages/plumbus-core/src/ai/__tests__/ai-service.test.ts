@@ -1141,6 +1141,73 @@ describe('AI Service (ctx.ai)', () => {
       expect(records[0]?.errorMessage).toContain('Headers Timeout Error');
     });
 
+    it('streamGenerate treats bare z.string() outputs as text mode: responseFormat text, no schema, raw-string data, no fallback', async () => {
+      const captured: Array<Record<string, unknown>> = [];
+      const provider: AIProviderAdapter = {
+        name: 'mock',
+        complete: vi.fn(async () => {
+          throw new Error('validation fallback must not fire for text mode');
+        }),
+        async *stream(request) {
+          captured.push({
+            responseFormat: request.responseFormat,
+            responseSchema: request.responseSchema,
+            prompt: request.prompt,
+          });
+          yield { type: 'content_delta' as const, delta: 'טקסט ' };
+          yield { type: 'content_delta' as const, delta: 'מנוקד' };
+          yield {
+            type: 'usage' as const,
+            usage: { inputTokens: 5, outputTokens: 7, totalTokens: 12 },
+          };
+          yield { type: 'done' as const, finishReason: 'stop' };
+        },
+        embed: vi.fn(),
+      };
+
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'bare_text',
+          domain: 'test',
+          system: 'SYSTEM',
+          description: '{{text}}',
+          input: z.object({ text: z.string() }),
+          output: z.string(),
+          disableTextModeBrevityHint: true,
+        }),
+      );
+
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          promptRegistry,
+          defaultModel: 'mock-model',
+          enableStrictStructuredOutputs: true,
+        }),
+      );
+
+      const events: Array<Record<string, unknown>> = [];
+      for await (const event of service.streamGenerate({
+        prompt: 'bare_text',
+        input: { text: 'שלום' },
+      })) {
+        events.push(event as Record<string, unknown>);
+      }
+
+      // Request went out in text mode with no schema attached.
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.responseFormat).toBe('text');
+      expect(captured[0]?.responseSchema).toBeUndefined();
+      // disableTextModeBrevityHint honored — no English tail appended.
+      expect(captured[0]?.prompt).not.toMatch(/ONLY the plain text/);
+
+      const done = events.find((e) => e.type === 'done');
+      expect(done?.data).toBe('טקסט מנוקד');
+      expect(done?.usage).toEqual({ inputTokens: 5, outputTokens: 7, totalTokens: 12 });
+      // No JSON-validation fallback (provider.complete would have thrown).
+      expect(done?.validationFallbackFired).toBeFalsy();
+    });
+
     it('streamGenerate records status=failed on mid-stream transport error', async () => {
       const provider: AIProviderAdapter = {
         name: 'mock',

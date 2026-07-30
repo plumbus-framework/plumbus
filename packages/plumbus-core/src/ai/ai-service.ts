@@ -161,7 +161,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       }
       return undefined;
     }
-    if (getSingleTextFieldName(promptDef.output)) {
+    if (getSingleTextFieldName(promptDef.output) || promptDef.output instanceof z.ZodString) {
       if (promptDef.requireStrictStructuredOutputs) {
         throw new Error(
           `Prompt "${promptName}" requires provider-side structured outputs, but single-string output schemas use text mode`,
@@ -687,6 +687,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       // so the user sees readable words instead of JSON tokens.
       const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
       const singleTextField = promptDef ? getSingleTextFieldName(promptDef.output) : undefined;
+      // Bare `z.string()` outputs are text mode too — same contract as the
+      // non-streaming path, which returns the raw string as `data`.
+      const bareTextOutput = promptDef ? promptDef.output instanceof z.ZodString : false;
+      const streamTextMode = singleTextField !== undefined || bareTextOutput;
       const responseSchema = getStrictResponseSchema(params.prompt, promptDef);
 
       const basePrompt = buildBasePrompt(promptInfo, inputForAI);
@@ -702,7 +706,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       const useMultiTurn = Boolean(params.messages && params.messages.length > 0);
       const promptForProvider = useMultiTurn
         ? ''
-        : singleTextField
+        : streamTextMode
           ? skipTextBrevityHint
             ? basePrompt
             : `${basePrompt}\n\nRespond with ONLY the plain text content. Do NOT wrap your response in JSON or any other format.`
@@ -727,8 +731,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,
         reasoningEffort: promptInfo.reasoningEffort,
-        responseFormat: singleTextField ? 'text' : 'json',
-        responseSchema,
+        responseFormat: streamTextMode ? 'text' : 'json',
+        responseSchema: streamTextMode ? undefined : responseSchema,
         structuredOutputTransport: promptDef?.structuredOutputTransport,
         signal: params.signal,
         seed: params.seed,
@@ -872,7 +876,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       }
 
       // Build the final validated result
-      if (singleTextField) {
+      if (streamTextMode) {
         // Plain text mode — wrap the accumulated text in the schema field
         await recordProviderCost(
           {
@@ -896,7 +900,9 @@ export function createAIService(config: AIServiceConfig): AIService {
             model: resolvedModel,
             provider: activeProvider.name,
             input: params.input,
-            output: { [singleTextField]: fullText.trim() },
+            output: singleTextField
+              ? { [singleTextField]: fullText.trim() }
+              : { text: fullText.trim() },
             usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
             validation: { passed: true, attempts: 1 },
             securityWarnings: streamSecurityWarnings,
@@ -905,7 +911,13 @@ export function createAIService(config: AIServiceConfig): AIService {
             latencyMs: performance.now() - streamStart,
           });
         }
-        yield { type: 'done', data: { [singleTextField]: fullText.trim() }, ...doneBase };
+        yield {
+          type: 'done',
+          data: (singleTextField
+            ? { [singleTextField]: fullText.trim() }
+            : (fullText.trim() as unknown)) as Record<string, unknown>,
+          ...doneBase,
+        };
       } else if (promptDef) {
         let validatedData: unknown;
         let validationFellBackToNonStreaming = false;
