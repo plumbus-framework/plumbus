@@ -1142,7 +1142,7 @@ describe('AI Service (ctx.ai)', () => {
     });
 
     it('streamGenerate treats bare z.string() outputs as text mode: responseFormat text, no schema, raw-string data, no fallback', async () => {
-      const captured: Array<Record<string, unknown>> = [];
+      const captured: Record<string, unknown>[] = [];
       const provider: AIProviderAdapter = {
         name: 'mock',
         complete: vi.fn(async () => {
@@ -1186,7 +1186,7 @@ describe('AI Service (ctx.ai)', () => {
         }),
       );
 
-      const events: Array<Record<string, unknown>> = [];
+      const events: Record<string, unknown>[] = [];
       for await (const event of service.streamGenerate({
         prompt: 'bare_text',
         input: { text: 'שלום' },
