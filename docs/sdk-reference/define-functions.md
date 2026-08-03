@@ -326,7 +326,7 @@ const classifySentiment = definePrompt({
 | `owner` | `string` | No | Owning team |
 | `input` | `z.ZodTypeAny` | Yes | Zod schema for prompt input |
 | `output` | `z.ZodTypeAny` | Yes | Zod schema for expected output |
-| `model` | `ModelConfig` | No | AI model configuration (`provider`, `name`, `temperature`, `maxTokens`) |
+| `model` | `ModelConfig` | No | AI model configuration (`provider`, `name`, `temperature`, `maxTokens`, optional `reasoningEffort`: `'low' \| 'medium' \| 'high'`) |
 | `appendUnsubstitutedInput` | `boolean` | No | Defaults to appending unused input keys as `Input: {...}`. Set `false` when `description` already renders the full user message |
 | `disableStrictStructuredOutputs` | `boolean` | No | Opt this prompt out of provider-side structured outputs even when `enableStrictStructuredOutputs` is enabled globally. Use when the output schema can't fit the provider JSON Schema subset |
 | `requireStrictStructuredOutputs` | `boolean` | No | Refuse to run unless a provider JSON Schema can be sent. Use for production extraction paths that must not silently fall back to prompt-only JSON instructions |

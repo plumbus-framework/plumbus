@@ -357,7 +357,7 @@ Plumbus is built for horizontal scale: any number of worker processes can share 
 
 **How claims work.** Each poll cycle, `claimNext()` runs a single atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` against `flow_executions`. Postgres' `SKIP LOCKED` guarantees that concurrent workers never lock the same row, so each returned execution is owned by exactly the worker that claimed it. Expired leases (from a crashed worker) are picked up by the same query.
 
-**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each tick issues a `UPDATE … WHERE id = $1 AND lease_owner = $workerId`; if zero rows match, the lease has been stolen and the worker aborts the step.
+**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each tick issues a `UPDATE … WHERE id = $1 AND lease_owner = $workerId`; if zero rows match, the lease has been stolen and the worker aborts the step. Transient infrastructure failures on extend (or best-effort audit writes) are logged and retried on the next tick — they do not abort the step or surface as unhandled rejections.
 
 **Manual heartbeat.** Long-running step handlers that span multiple lease intervals can call `ctx.flows.heartbeat()` to extend the lease explicitly. Outside of flow execution it's a no-op, so helper code that calls it stays portable.
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.3
+
+### Fixed
+
+- **Generated `useTranslations` returns a stable `t` identity** — the wrapper is memoized on the underlying next-intl translator so listing `t` in React effect dependency arrays no longer tears down and recreates intervals/timers on every render (which could silently freeze UI that polled or ticked via `t`-keyed effects). Regenerate `i18n/*` (`plumbus ui generate`) to pick up the fix.
+
+### Changed
+
+- **`ClientGeneratorConfig.authModuleImport` default is `./auth` (no `.js` suffix)** — suited to Next/Turbopack (`moduleResolution: "bundler"`). Targets using `node16`/`nodenext` (e.g. the browser-extension scaffold) must pass `authModuleImport: "./auth.js"` explicitly. See [docs/ui/ui-generation.md](../../docs/ui/ui-generation.md).
+
 ## 0.7.2
 
 ### Added

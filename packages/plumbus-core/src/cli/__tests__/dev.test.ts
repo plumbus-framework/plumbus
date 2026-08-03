@@ -31,17 +31,29 @@ vi.mock('../../server/bootstrap.js', () => ({
   })),
 }));
 
-// Mock worker pool so we can capture stepDeps wired by dev.ts
-vi.mock('../../worker/bootstrap.js', () => ({
-  createWorkerPool: vi.fn(() => ({
-    start: vi.fn(async () => {}),
+vi.mock('../../runtime/queue-factory.js', () => ({
+  resolveRuntimeQueues: vi.fn(async () => ({
+    events: {},
+    flows: {},
+    jobs: {},
+    backend: 'memory',
+    isDurable: false,
+    close: vi.fn(async () => {}),
+  })),
+}));
+
+vi.mock('../../runtime/load-extensions.js', () => ({
+  loadServerExtensions: vi.fn(async () => ({})),
+}));
+
+vi.mock('../../runtime/start-worker-pool.js', () => ({
+  startWorkerPool: vi.fn(async () => ({
     stop: vi.fn(async () => {}),
   })),
 }));
 
 import { createServer } from '../../server/bootstrap.js';
-import { createWorkerPool } from '../../worker/bootstrap.js';
-import { FlowConditionError } from '../../flows/evaluate-condition.js';
+import { startWorkerPool } from '../../runtime/start-worker-pool.js';
 import { runDev, startDevServer } from '../commands/dev.js';
 import { discoverResources } from '../discover.js';
 
@@ -139,6 +151,7 @@ describe('CLI dev command', () => {
     beforeEach(() => {
       vi.mocked(createServer).mockClear();
       vi.mocked(discoverResources).mockClear();
+      vi.mocked(startWorkerPool).mockClear();
     });
 
     it('calls discoverResources to auto-discover app primitives', async () => {
@@ -161,9 +174,9 @@ describe('CLI dev command', () => {
       expect(serverConfig.db).toBe(mockDb);
     });
 
-    it('wires evaluateFlowCondition into the worker pool stepDeps (C1)', async () => {
-      // A flow with an event trigger forces the worker pool to be created
-      // so we can capture stepDeps.evaluateCondition.
+    it('starts the worker pool when flows need background work (C1)', async () => {
+      // A flow with an event trigger forces the worker pool to start.
+      // evaluateFlowCondition wiring into stepDeps is covered in runtime/bootstrap.test.ts.
       vi.mocked(discoverResources).mockResolvedValueOnce({
         capabilities: [],
         entities: [],
@@ -184,15 +197,7 @@ describe('CLI dev command', () => {
 
       await startDevServer({ db: { execute: vi.fn() } as never });
 
-      expect(createWorkerPool).toHaveBeenCalled();
-      const workerConfig = vi.mocked(createWorkerPool).mock.calls[0]?.[0];
-      const evaluate = workerConfig?.stepDeps?.evaluateCondition;
-      expect(typeof evaluate).toBe('function');
-
-      // Safe state.* expression evaluates without throwing.
-      expect(evaluate?.('state.amount > 100', { amount: 150 })).toBe(true);
-      // Arbitrary JS is rejected — the safe evaluator is wired, not `new Function`.
-      expect(() => evaluate?.('process.exit(1)', {})).toThrow(FlowConditionError);
+      expect(startWorkerPool).toHaveBeenCalled();
     });
   });
 });

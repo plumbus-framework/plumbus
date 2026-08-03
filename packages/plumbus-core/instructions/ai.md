@@ -27,7 +27,7 @@ export const summarizeTicket = definePrompt({
 });
 ```
 
-Prompts should NOT hardcode `provider` or model `name` unless you have a deliberate per-prompt override. Prefer env-based resolution (`AI_DEFAULT_*`, `PROMPT_{NAME}_*`) or `resolveAiOverrides` in `app/server.ts`. Only set `temperature` and `maxTokens` in the prompt definition when tuning is part of the contract. See `prompts.md` for `system`/`description` content.
+Prompts should NOT hardcode `provider` or model `name` unless you have a deliberate per-prompt override. Prefer env-based resolution (`AI_DEFAULT_*`, `PROMPT_{NAME}_*`) or `resolveAiOverrides` in `app/server.ts`. Only set `temperature`, `maxTokens`, and (when needed for OpenAI o-series / gpt-5) `reasoningEffort` in the prompt definition when tuning is part of the contract. Bare `z.string()` outputs run in plain text mode. See `prompts.md` for `system`/`description` content and the full `ModelConfig` table.
 
 ## `ctx.ai` Operations
 

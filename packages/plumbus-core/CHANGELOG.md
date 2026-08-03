@@ -1,16 +1,17 @@
 # @plumbus/core changelog
 
-## Unreleased
-
-### Added
-
-- **`plumbus init --agent claude`** — writes `CLAUDE.md` from the same generator as `AGENTS.md` (identical body; Claude-specific title and wiring marker). Default `plumbus init` / `--agent all` now includes `claude` alongside `copilot`, `cursor`, and `agents-md`. Claude Code reads `CLAUDE.md` natively and does not load `AGENTS.md`. `plumbus doctor` freshness checks cover generated `CLAUDE.md` the same way as `AGENTS.md`. Run `plumbus init` or `plumbus init --patch` on existing projects to create the file.
-
-## 0.6.14 — 2026-07-27 — browser-safe errors subpath
+## 0.6.14 — 2026-08-03 — AI reasoning, text-mode outputs, Claude agent wiring
 
 ### Added
 
 - **`@plumbus/core/errors`** — browser-safe export of `PlumbusError`, `ErrorCode`, and related error helpers. Client packages (e.g. `@plumbus/voice-livekit/client`) must import from this subpath, not the package root — the root pulls the CLI (drizzle-kit / migrate) into the browser graph and breaks Next/Turbopack client builds.
+- **`ModelConfig.reasoningEffort`** (`'low' | 'medium' | 'high'`) — optional prompt / override / env-resolver field. OpenAI adapter sends `reasoning_effort` **only when set** (o-series / gpt-5 family); providers without an equivalent ignore it. Misconfigured models that reject the parameter fail loudly (HTTP 400) rather than silently degrading.
+- **Bare `z.string()` prompt outputs** — treated as text mode (same contract as single-string-field objects such as `z.object({ content: z.string() })`) for both `generate` and `streamGenerate`, so plain-text prompts do not force JSON / structured-output validation fallbacks.
+- **`plumbus init --agent claude`** — writes `CLAUDE.md` from the same generator as `AGENTS.md` (identical body; Claude-specific title and wiring marker). Default `plumbus init` / `--agent all` now includes `claude` alongside `copilot`, `cursor`, and `agents-md`. Claude Code reads `CLAUDE.md` natively and does not load `AGENTS.md`. `plumbus doctor` freshness checks cover generated `CLAUDE.md` the same way as `AGENTS.md`. Run `plumbus init` or `plumbus init --patch` on existing projects to create the file.
+
+### Fixed
+
+- **Flow lease heartbeat** — transient `extendLease` / audit failures during the heartbeat interval are logged and retried on the next tick instead of surfacing as unhandled rejections or incorrectly taking the lease-lost path.
 
 ## 0.6.13 — 2026-07-26 — agent wiring version 11
 
