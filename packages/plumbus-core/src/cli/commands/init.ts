@@ -13,7 +13,7 @@ import {
   writeFile,
 } from '../utils.js';
 
-export type AgentFormat = 'copilot' | 'cursor' | 'agents-md';
+export type AgentFormat = 'copilot' | 'cursor' | 'agents-md' | 'claude';
 
 export interface InitOptions {
   agent?: string;
@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 10;
+export const AGENT_WIRING_VERSION = 11;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -46,7 +46,7 @@ const AGENT_WIRING_START_PATTERN =
   /^(?:<!--\s*plumbus:agent-wiring version=\d+\b.*?-->|#\s*plumbus:agent-wiring version=\d+\b.*)$/m;
 
 function buildAgentWiringStartMarker(
-  format: 'copilot' | 'cursor' | 'cursor-capabilities' | 'agents-md',
+  format: 'copilot' | 'cursor' | 'cursor-capabilities' | 'agents-md' | 'claude',
   inline = false,
   monorepo = false,
   style: 'html' | 'yaml' = 'html',
@@ -297,6 +297,92 @@ const VOICE_INSTRUCTION_REFERENCES = [
     area: 'extending voice with custom providers, hooks, and runtime adapters',
     path: 'node_modules/@plumbus/voice/instructions/extending.md',
   },
+  {
+    area: 'configuring noise cancellation options on room transports',
+    path: 'node_modules/@plumbus/voice/instructions/noise-cancellation.md',
+  },
+  {
+    area: 'voice instruction index and reading order',
+    path: 'node_modules/@plumbus/voice/instructions/README.md',
+  },
+] as const;
+
+const VOICE_DEEPDUB_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice-deepdub instruction index and reading order',
+    path: 'node_modules/@plumbus/voice-deepdub/instructions/README.md',
+  },
+  {
+    area: 'Deepdub TTS provider add-on for @plumbus/voice (tts.provider: deepdub)',
+    path: 'node_modules/@plumbus/voice-deepdub/instructions/framework.md',
+  },
+] as const;
+
+const VOICE_SONIOX_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice-soniox instruction index and reading order',
+    path: 'node_modules/@plumbus/voice-soniox/instructions/README.md',
+  },
+  {
+    area: 'Soniox STT provider add-on for @plumbus/voice (stt.provider: soniox)',
+    path: 'node_modules/@plumbus/voice-soniox/instructions/framework.md',
+  },
+] as const;
+
+const VOICE_ELEVENLABS_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice-elevenlabs instruction index and reading order',
+    path: 'node_modules/@plumbus/voice-elevenlabs/instructions/README.md',
+  },
+  {
+    area: 'ElevenLabs TTS provider add-on for @plumbus/voice (tts.provider: elevenlabs)',
+    path: 'node_modules/@plumbus/voice-elevenlabs/instructions/framework.md',
+  },
+] as const;
+
+const VOICE_MINIMAX_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice-minimax instruction index and reading order',
+    path: 'node_modules/@plumbus/voice-minimax/instructions/README.md',
+  },
+  {
+    area: 'MiniMax TTS provider add-on for @plumbus/voice (tts.provider: minimax)',
+    path: 'node_modules/@plumbus/voice-minimax/instructions/framework.md',
+  },
+] as const;
+
+const VOICE_LIVEKIT_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice-livekit instruction index and reading order',
+    path: 'node_modules/@plumbus/voice-livekit/instructions/README.md',
+  },
+  {
+    area: 'LiveKit transport install, peers, registration, env, and exports',
+    path: 'node_modules/@plumbus/voice-livekit/instructions/framework.md',
+  },
+  {
+    area: 'LiveKit browser session (createLiveKitVoiceSession from ./client)',
+    path: 'node_modules/@plumbus/voice-livekit/instructions/client-session.md',
+  },
+  {
+    area: 'LiveKit agent worker and plumbus voice worker',
+    path: 'node_modules/@plumbus/voice-livekit/instructions/agent-worker.md',
+  },
+  {
+    area: 'LiveKit noise cancellation (client/agent placement and engines)',
+    path: 'node_modules/@plumbus/voice-livekit/instructions/noise-cancellation.md',
+  },
+] as const;
+
+const VOICE_OPENAI_INSTRUCTION_REFERENCES = [
+  {
+    area: 'voice-openai instruction index and reading order',
+    path: 'node_modules/@plumbus/voice-openai/instructions/README.md',
+  },
+  {
+    area: 'OpenAI STT/TTS provider add-on for @plumbus/voice (openai-whisper / openai-realtime / openai)',
+    path: 'node_modules/@plumbus/voice-openai/instructions/framework.md',
+  },
 ] as const;
 
 const MCP_INSTRUCTION_REFERENCES = [
@@ -425,10 +511,15 @@ const UPGRADE_INSTRUCTION_REFERENCES = [
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, knowledge-base, mcp, api, auth, auth-cognito, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, auth, auth-cognito, and browser-extension) for full SDK documentation.',
+      'After installing any optional package, open `node_modules/@plumbus/<package>/instructions/README.md` first — that index lists the exact recipe files to read.',
     );
     return;
   }
+
+  lines.push(
+    '**Finding recipes:** after `pnpm add @plumbus/<package>`, open `node_modules/@plumbus/<package>/instructions/README.md` first. Paths below are the same files; do not invent wiring from memory.',
+  );
 
   for (const topic of CORE_INSTRUCTION_TOPICS) {
     lines.push(
@@ -449,6 +540,30 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of VOICE_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_DEEPDUB_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_SONIOX_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_ELEVENLABS_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_MINIMAX_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_LIVEKIT_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of VOICE_OPENAI_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 
@@ -680,12 +795,19 @@ ${AGENT_WIRING_END_MARKER}
 `;
 }
 
-/** Generate AGENTS.md content */
-export function generateAgentsMd(inline: boolean, monorepo = false): string {
+type RootAgentMdFormat = 'agents-md' | 'claude';
+
+/** Shared body for root agent markdown files (`AGENTS.md` / `CLAUDE.md`). */
+function generateRootAgentMd(
+  format: RootAgentMdFormat,
+  fileLabel: 'AGENTS.md' | 'CLAUDE.md',
+  inline: boolean,
+  monorepo = false,
+): string {
   const appPrefix = monorepo ? 'backend/' : '';
   const lines = [
-    buildAgentWiringStartMarker('agents-md', inline, monorepo),
-    '# AGENTS.md — Plumbus Framework',
+    buildAgentWiringStartMarker(format, inline, monorepo),
+    `# ${fileLabel} — Plumbus Framework`,
     '',
     'This project is built with the Plumbus framework.',
     '',
@@ -735,6 +857,19 @@ export function generateAgentsMd(inline: boolean, monorepo = false): string {
   lines.push('', AGENT_WIRING_END_MARKER);
   lines.push('');
   return lines.join('\n');
+}
+
+/** Generate AGENTS.md content (generic cross-agent format). */
+export function generateAgentsMd(inline: boolean, monorepo = false): string {
+  return generateRootAgentMd('agents-md', 'AGENTS.md', inline, monorepo);
+}
+
+/**
+ * Generate CLAUDE.md content for Claude Code.
+ * Same body as {@link generateAgentsMd} — Claude Code reads `CLAUDE.md`, not `AGENTS.md`.
+ */
+export function generateClaudeMd(inline: boolean, monorepo = false): string {
+  return generateRootAgentMd('claude', 'CLAUDE.md', inline, monorepo);
 }
 
 /** Generate the project brief */
@@ -800,6 +935,14 @@ function buildAgentFileTargets(
         targets.push({
           path: path.join(projectRoot, 'AGENTS.md'),
           content: generateAgentsMd(inline, monorepo),
+          kind: 'wiring',
+        });
+        break;
+      }
+      case 'claude': {
+        targets.push({
+          path: path.join(projectRoot, 'CLAUDE.md'),
+          content: generateClaudeMd(inline, monorepo),
           kind: 'wiring',
         });
         break;
@@ -927,22 +1070,26 @@ export function writeAgentFiles(
   return results;
 }
 
+const ALL_AGENT_FORMATS: AgentFormat[] = ['copilot', 'cursor', 'agents-md', 'claude'];
+
 function parseAgentFormats(agent?: string): AgentFormat[] {
   if (!agent || agent === 'all') {
-    return ['copilot', 'cursor', 'agents-md'];
+    return [...ALL_AGENT_FORMATS];
   }
-  const valid: AgentFormat[] = ['copilot', 'cursor', 'agents-md'];
-  if (valid.includes(agent as AgentFormat)) {
+  if (ALL_AGENT_FORMATS.includes(agent as AgentFormat)) {
     return [agent as AgentFormat];
   }
-  return ['copilot', 'cursor', 'agents-md'];
+  return [...ALL_AGENT_FORMATS];
 }
 
 export function registerInitCommand(program: Command): void {
   program
     .command('init')
     .description('Generate AI agent wiring files for the project')
-    .option('--agent <format>', 'Agent format: copilot, cursor, all (default: all)')
+    .option(
+      '--agent <format>',
+      'Agent format: copilot, cursor, agents-md, claude, all (default: all)',
+    )
     .option('--inline', 'Copy full instruction content instead of referencing node_modules')
     .option('--patch', 'Update only Plumbus-managed sections and create missing files')
     .option('--force', 'Replace existing generated wiring files outright')

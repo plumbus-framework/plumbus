@@ -50,6 +50,7 @@ export {
 } from './commands/generate.js';
 export {
   generateAgentsMd,
+  generateClaudeMd,
   generateCopilotInstructions,
   generateCursorCapabilityRule,
   generateCursorRule,

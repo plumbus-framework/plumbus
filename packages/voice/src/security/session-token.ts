@@ -4,7 +4,7 @@ import type { AuthContext } from '@plumbus/core';
 export interface VoiceSessionTokenClaims {
   voiceName: string;
   sessionId: string;
-  transport: 'livekit' | 'websocket';
+  transport: string;
   room?: string;
   identity?: string;
 }
@@ -64,7 +64,8 @@ export async function verifyVoiceSessionToken(args: {
   if (
     typeof payload.voice_name !== 'string' ||
     typeof payload.voice_session_id !== 'string' ||
-    (payload.voice_transport !== 'websocket' && payload.voice_transport !== 'livekit')
+    typeof payload.voice_transport !== 'string' ||
+    payload.voice_transport.length === 0
   ) {
     return null;
   }

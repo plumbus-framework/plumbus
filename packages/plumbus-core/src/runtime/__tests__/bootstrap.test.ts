@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { FlowConditionError } from '../../flows/evaluate-condition.js';
 import { createTestContext } from '../../testing/context.js';
 import { ErrorCode } from '../../types/enums.js';
 import type { CapabilityContract } from '../../types/capability.js';
@@ -120,5 +121,12 @@ describe('buildStepDeps', () => {
     if (result.success) return;
     expect(result.error.code).toBe(ErrorCode.DependencyViolation);
     expect((result.error.metadata as { reason?: string }).reason).toBe('unsupportedTargetKind');
+  });
+
+  it('wires evaluateFlowCondition as evaluateCondition (C1)', () => {
+    const stepDeps = buildStepDeps(new CapabilityRegistry());
+    expect(stepDeps.evaluateCondition('state.amount > 100', { amount: 150 })).toBe(true);
+    // Arbitrary JS is rejected — the safe evaluator is wired, not `new Function`.
+    expect(() => stepDeps.evaluateCondition('process.exit(1)', {})).toThrow(FlowConditionError);
   });
 });

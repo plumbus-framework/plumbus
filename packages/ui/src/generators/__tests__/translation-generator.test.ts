@@ -94,6 +94,20 @@ describe('generateTranslationModule', () => {
     expect(index).toContain('MessageKeyOf');
   });
 
+  it('memoizes the useTranslations wrapper so `t` keeps a stable identity', () => {
+    // Regression: an unmemoized wrapper returned a NEW `t` on every render.
+    // Any timer effect listing `t` in its deps inside a component that
+    // re-renders faster than the timer period (1s elapsed clock vs 5s poll)
+    // was torn down every render and never fired — a frozen UI with a silent
+    // console. The emitted hook must memoize its return on [translator].
+    const index =
+      generateTranslationModule(sampleDefinitions).find((f) => f.path === 'i18n/index.ts')
+        ?.content ?? '';
+    expect(index).toContain('import { useMemo } from "react";');
+    expect(index).toContain('return useMemo(() => {');
+    expect(index).toContain('}, [translator]);');
+  });
+
   it('emits TranslatedText brand and brands t()/markup return types', () => {
     const files = generateTranslationModule(sampleDefinitions);
     const paths = files.map((f) => f.path);

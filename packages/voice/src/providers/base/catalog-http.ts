@@ -1,4 +1,4 @@
-import { PlumbusError, ErrorCode } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { VoicePersonaOption, VoiceProviderCredentials } from '../../types/provider.js';
 import type { VoiceCatalogFetch } from './provider-registration.js';
 
@@ -24,6 +24,7 @@ export async function fetchCatalogJson(
   init?: {
     method?: string;
     headers?: Record<string, string>;
+    body?: string;
   },
 ): Promise<unknown> {
   const request = resolveCatalogFetch(fetcher);
@@ -35,6 +36,7 @@ export async function fetchCatalogJson(
   const response = await request(url, {
     method: init?.method ?? 'GET',
     headers,
+    body: init?.body,
   });
 
   if (!response.ok) {
@@ -106,7 +108,14 @@ function normalizeVoiceItem(
   return {
     id,
     displayName:
-      pickString(record, ['displayName', 'display_name', 'name', 'title', 'voiceName']) ?? id,
+      pickString(record, [
+        'displayName',
+        'display_name',
+        'name',
+        'title',
+        'voiceName',
+        'voice_name',
+      ]) ?? id,
     locale: pickString(record, ['locale', 'language', 'languageCode', 'language_code']),
     previewUrl: pickString(record, ['previewUrl', 'preview_url', 'sampleUrl', 'sample_url']),
     modelId:

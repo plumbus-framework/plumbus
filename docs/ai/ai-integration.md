@@ -55,6 +55,7 @@ export const classifyTicket = definePrompt({
     name: "gpt-4o-mini",
     temperature: 0.2,
     maxTokens: 256,
+    // reasoningEffort: "medium", // OpenAI o-series / gpt-5 only — omit unless needed
   },
 });
 ```
@@ -261,6 +262,12 @@ for those models — configured prompt/`generate` temperatures are ignored for t
 causing a 400 `unsupported_value` error. Earlier `gpt-5` lines (for example `gpt-5.4-mini`)
 still receive the configured temperature.
 
+Optional `model.reasoningEffort` (`'low' | 'medium' | 'high'`) maps to OpenAI `reasoning_effort`
+and is sent **only when explicitly set** — there is no auto-detection. Use it for o-series /
+gpt-5 reasoning models; a model that rejects the parameter fails with HTTP 400 so misconfiguration
+is visible immediately. Anthropic and other adapters ignore the field. The same override can be
+supplied via `resolveAiOverrides` / `promptOverrides`.
+
 ```typescript
 import { createAIService, createProviderAdapter } from "@plumbus/core";
 
@@ -443,7 +450,7 @@ Set `enableStrictStructuredOutputs: true` on `createAIService()` to have Plumbus
 
 - OpenAI-compatible providers receive `response_format: { type: "json_schema", json_schema: { strict: true, ... } }`.
 - Anthropic receives `output_config.format: { type: "json_schema", schema: ... }`.
-- Single-string-field outputs such as `z.object({ content: z.string() })` stay in plain text mode for streaming and are not constrained.
+- Single-string-field outputs such as `z.object({ content: z.string() })` **and bare `z.string()` outputs** stay in plain text mode for `generate` / `streamGenerate` and are not constrained.
 - Prompts can opt out with `disableStrictStructuredOutputs: true` when their schema cannot fit the provider JSON Schema subset.
 - Prompts can require strict mode with `requireStrictStructuredOutputs: true` — the AI service refuses to run the prompt unless it can send a provider JSON Schema, preventing silent fallback to prompt-only JSON instructions.
 - Transport can be switched with `structuredOutputTransport: "tool"` to use strict tool-call arguments instead of `response_format`, for provider/prompt combinations where JSON-schema response content is weak but tool calls are reliable.

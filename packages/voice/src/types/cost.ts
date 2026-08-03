@@ -8,7 +8,7 @@ export interface AICostContextLike {
   relatedEntityId?: string;
 }
 
-export type VoiceUsageKind = 'transcribe' | 'synthesize' | 'transport' | 'other';
+export type VoiceUsageKind = 'transcribe' | 'synthesize' | 'transport' | 'clone' | 'other';
 export type VoiceCostOperation = Extract<
   AICostRecord['operation'],
   'transcribe' | 'synthesize' | 'transport'
@@ -38,6 +38,11 @@ export interface RecordVoiceCostInput {
   model: string;
   mediaUsage: VoiceMediaUsage;
   latencyMs: number;
+  /**
+   * Optional USD override. When set, skips built-in `lookupVoicePricing` for
+   * the amount (add-on packages compute their own pricing and pass it here).
+   */
+  cost?: number;
   costContext?: AICostContextLike;
   status?: AICostRecord['status'];
   errorMessage?: string;

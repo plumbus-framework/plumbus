@@ -1,56 +1,25 @@
-# Local / Offline Voice — Agent Recipe
+# Local / Self-Hosted Voice Providers — Agent Recipe
 
-Read this when the user asks for self-hosted, offline-ish, or browser-native voice.
+Use this when the user wants offline, air-gapped, or self-hosted speech stacks.
 
-## Preferred local paths
+## Builtins (no add-on)
 
-### 1. Whisper-compatible sidecar
+| Goal | Stack |
+|---|---|
+| Zero cloud keys | `websocket` + `web-speech` + `browser-tts` |
 
-If the user wants local/server STT, start with:
+## Whisper-compatible sidecars
+
+Install `@plumbus/voice-openai` and register `OPENAI_WHISPER_STT_REGISTRATION`. Keep `stt.provider: 'openai-whisper'` and set `baseUrl` on credentials to the sidecar — do **not** invent a parallel adapter.
 
 ```ts
 stt: { provider: 'openai-whisper' }
+// providers.providers['openai-whisper'] = { apiKey: 'local', baseUrl: 'http://localhost:8080/v1' }
 ```
 
-and point its credentials at a local or self-hosted endpoint via `baseUrl`.
+## Do / don't
 
-This is the preferred path for Whisper-compatible APIs because:
-
-- Plumbus already has the adapter
-- the credential/config shape is stable
-- you do not need a custom adapter just to change the host
-
-### 2. Browser TTS
-
-If the user wants local/client TTS, start with:
-
-```ts
-tts: { provider: 'browser-tts' }
-```
-
-Use it when the audio should stay in the browser and the app can accept client-managed voices/quality.
-
-## Default recommendations
-
-| Goal | Suggested stack |
-|---|---|
-| No vendor keys, demo/prototype | `websocket` + `web-speech` + `browser-tts` |
-| Self-hosted STT, browser playback | `websocket` + `openai-whisper` (`baseUrl`) + `browser-tts` |
-| Self-hosted-ish STT, cloud TTS | `websocket` + `openai-whisper` (`baseUrl`) + chosen cloud TTS |
-
-## Do's
-
-- **Do** reuse `openai-whisper` with `baseUrl` for Whisper-compatible sidecars.
-- **Do** document what is client-executed vs server-executed.
-- **Do** keep the initial stack simple; only add a custom adapter if the wire protocol is actually different.
-
-## Don'ts
-
-- **Don't** invent a new provider id for a local Whisper clone.
-- **Don't** overbuild a fake "local transport" layer when raw websocket already fits the use case.
-- **Don't** promise true offline behavior if the chosen stack still depends on a remote app server.
-
-## Deeper reference
-
-- `/docs/voice/local-providers.md`
-- `/docs/voice/providers.md`
+- **Do** start with builtins for browser-only prototypes.
+- **Do** reuse `@plumbus/voice-openai` + `baseUrl` for Whisper-compatible local endpoints.
+- **Don't** invent a new STT adapter just to point at a local Whisper API.
+- **Don't** expect OpenAI providers to exist inside `@plumbus/voice` without the add-on package.

@@ -116,6 +116,7 @@ export const classifyTicket = definePrompt({
 | Import | Purpose |
 |--------|---------|
 | `@plumbus/core` | SDK surface — define functions, types, runtime |
+| `@plumbus/core/errors` | Browser-safe `PlumbusError` / `ErrorCode` (client packages must use this, not the root) |
 | `@plumbus/core/testing` | Test utilities — `runCapability`, `simulateFlow`, `mockAI`, `createTestContext` |
 | `@plumbus/core/zod` | Re-exported Zod (consumers should not install Zod separately) |
 | `@plumbus/core/vitest` | Vitest config helpers |

@@ -91,7 +91,7 @@ plumbus init --patch
 
 - **Bare `plumbus init` does not update** existing agent files — it skips them and prints a hint to use `--patch` or `--force`.
 - **`plumbus init --patch`** replaces only the managed block between `plumbus:agent-wiring` markers; user content outside those markers is preserved.
-- **Targets:** `.github/copilot-instructions.md`, `.cursor/rules/`, and `AGENTS.md` — not `CLAUDE.md` (copy references manually if needed).
+- **Targets:** `.github/copilot-instructions.md`, `.cursor/rules/`, `AGENTS.md`, and `CLAUDE.md`.
 
 ---
 

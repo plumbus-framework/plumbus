@@ -6,13 +6,14 @@ export type AgentState =
   | 'Synthesizing'
   | 'Playing';
 
-export interface LiveKitVoiceClientSession {
-  transport: 'livekit';
+/** Generic room-transport client session payload (shape from `/token` + mintSession). */
+export interface RoomVoiceClientSession {
+  transport: string;
   url: string;
   token: string;
   room: string;
   audioTrackName: string;
-  events: 'livekit-data';
+  events: string;
   sttMode: 'client' | 'server';
   sessionId: string;
   audioFormat: string;
@@ -28,4 +29,4 @@ export interface WebSocketVoiceClientSession {
   sessionId: string;
 }
 
-export type VoiceClientSession = LiveKitVoiceClientSession | WebSocketVoiceClientSession;
+export type VoiceClientSession = RoomVoiceClientSession | WebSocketVoiceClientSession;

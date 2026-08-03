@@ -370,15 +370,28 @@ describe('generateClientModule', () => {
 
   it('includes session transport fetch helpers', () => {
     const code = generateClientModule([makeCap()], [], { authTransport: 'session' });
-    expect(code).toContain('import { csrfHeaders } from "./auth.js"');
+    expect(code).toContain('import { csrfHeaders } from "./auth"');
     expect(code).toContain('credentials: "include"');
     expect(code).toContain('clientFetchInit');
   });
 
   it('includes bearer auth headers helper by default', () => {
     const code = generateClientModule([makeCap()], []);
-    expect(code).toContain('import { getAuthHeaders } from "./auth.js"');
+    expect(code).toContain('import { getAuthHeaders } from "./auth"');
     expect(code).not.toContain('credentials: "include"');
+  });
+
+  it('defaults to an extensionless auth specifier so bundler resolution works', () => {
+    // Turbopack has no `extensionAlias`, so "./auth.js" cannot resolve to auth.ts.
+    const bearer = generateClientModule([makeCap()], []);
+    const session = generateClientModule([makeCap()], [], { authTransport: 'session' });
+    expect(bearer).not.toContain('"./auth.js"');
+    expect(session).not.toContain('"./auth.js"');
+  });
+
+  it('emits an explicitly configured auth specifier verbatim for node16 targets', () => {
+    const code = generateClientModule([makeCap()], [], { authModuleImport: './auth.js' });
+    expect(code).toContain('import { getAuthHeaders } from "./auth.js"');
   });
 });
 

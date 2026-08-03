@@ -47,7 +47,7 @@ Optional add-on packages extend the core:
 
 - **MCP agent surface** — expose capabilities to AI agents over the Model Context Protocol (`@plumbus/mcp`)
 - **Conversational runtime** — `defineChat` with policy guards and context sources (`@plumbus/chat`, plus `@plumbus/chat-ui` for React clients)
-- **Realtime voice runtime** — `defineVoice` with transport/STT/TTS providers and session routing (`@plumbus/voice`)
+- **Realtime voice runtime** — `defineVoice` with transport/STT/TTS providers and session routing (`@plumbus/voice` builtins: websocket / web-speech / browser-tts; optional `@plumbus/voice-*` provider packages for OpenAI, LiveKit, and other vendors)
 - **Knowledge sources** — scoped, registry-backed grounding for chat, capabilities, and search UIs (`@plumbus/knowledge-base`)
 - **Partner API contracts** — versioned external HTTP surface with OpenAPI, docs, and compatibility diff (`@plumbus/api`)
 - **OIDC browser auth** — federated login, opaque server sessions, and CSRF (`@plumbus/auth`, plus `@plumbus/auth-cognito` for Amazon Cognito)
@@ -286,6 +286,7 @@ my-app/
 ├── .github/
 │   └── copilot-instructions.md  # GitHub Copilot wiring
 ├── AGENTS.md                # Agent context file
+├── CLAUDE.md                # Claude Code context (same body as AGENTS.md)
 └── package.json
 ```
 
@@ -337,6 +338,7 @@ Generates configuration files that help AI coding agents understand your project
 plumbus init --agent copilot    # GitHub Copilot instructions
 plumbus init --agent cursor     # Cursor rules
 plumbus init --agent agents-md  # AGENTS.md
+plumbus init --agent claude     # CLAUDE.md (Claude Code)
 plumbus init --agent all        # All formats (default)
 ```
 
@@ -379,6 +381,7 @@ plumbus init --force
 # .github/copilot-instructions.md  — Points Copilot to framework docs
 # .cursor/rules/plumbus.mdc        — Cursor rules with SDK references
 # AGENTS.md                        — Universal agent context
+# CLAUDE.md                        — Claude Code context (same body as AGENTS.md)
 # .plumbus/briefs/project.md       — Project-specific brief
 ```
 
@@ -405,7 +408,13 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
 | [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.1.x` — scoped knowledge providers and registry for registry-backed grounding |
-| [`@plumbus/voice`](packages/voice/) | Optional `0.3.x` — real-time voice runtime (`defineVoice`, STT/TTS/transport); peer `@plumbus/core` `0.6.x` |
+| [`@plumbus/voice`](packages/voice/) | Optional `0.4.x` — real-time voice runtime (`defineVoice`, routes, builtins: websocket / web-speech / browser-tts); peer `@plumbus/core` `0.6.x` |
+| [`@plumbus/voice-openai`](packages/voice-openai/) | Optional `0.1.x` — OpenAI Whisper / Realtime STT + OpenAI TTS; peer `@plumbus/voice` `0.4.x` |
+| [`@plumbus/voice-livekit`](packages/voice-livekit/) | Optional `0.1.x` — LiveKit transport, agent worker, browser session; peer `@plumbus/voice` `0.4.x` |
+| [`@plumbus/voice-soniox`](packages/voice-soniox/) | Optional `0.1.x` — Soniox STT adapter; peer `@plumbus/voice` `0.4.x` |
+| [`@plumbus/voice-deepdub`](packages/voice-deepdub/) | Optional `0.1.x` — Deepdub TTS adapter; peer `@plumbus/voice` `0.4.x` |
+| [`@plumbus/voice-elevenlabs`](packages/voice-elevenlabs/) | Optional `0.1.x` — ElevenLabs TTS adapter; peer `@plumbus/voice` `0.4.x` |
+| [`@plumbus/voice-minimax`](packages/voice-minimax/) | Optional `0.1.x` — MiniMax TTS adapter; peer `@plumbus/voice` `0.4.x` |
 | [`@plumbus/browser-extension`](packages/browser-extension/) | Optional `0.1.x` — dev-time WXT scaffolder for Chrome/Firefox extensions wired to your capabilities (with `@plumbus/ui`) |
 
 The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).
@@ -452,6 +461,12 @@ plumbus/
 │   ├── chat/                  # @plumbus/chat — optional chat primitive
 │   ├── chat-ui/               # @plumbus/chat-ui — optional React chat UI
 │   ├── voice/                 # @plumbus/voice — optional real-time voice runtime
+│   ├── voice-openai/          # @plumbus/voice-openai — OpenAI STT/TTS add-on
+│   ├── voice-livekit/         # @plumbus/voice-livekit — LiveKit transport add-on
+│   ├── voice-soniox/          # @plumbus/voice-soniox — Soniox STT add-on
+│   ├── voice-deepdub/         # @plumbus/voice-deepdub — Deepdub TTS add-on
+│   ├── voice-elevenlabs/      # @plumbus/voice-elevenlabs — ElevenLabs TTS add-on
+│   ├── voice-minimax/         # @plumbus/voice-minimax — MiniMax TTS add-on
 │   ├── knowledge-base/        # @plumbus/knowledge-base — optional knowledge providers
 │   └── browser-extension/     # @plumbus/browser-extension — optional extension scaffolder
 ├── design/                    # Architecture design documents

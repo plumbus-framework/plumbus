@@ -18,6 +18,7 @@ docs/
 │   └── diagrams.md
 ├── upgrading-workers.md       0.5.0 workers/queues migration guide
 ├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
+├── upgrading-voice-provider-packages.md  0.4.0 voice provider add-on packages
 ├── upgrading-contract-alignment.md  Runtime contract fixes (outbox, AI security, encryption, locale, chat/KB)
 │   (0.6.0 AI cost ledger: see ai/ai-integration.md → Upgrading to @plumbus/core 0.6.0)
 ├── core-concepts/             Deep dives into each primitive
@@ -128,6 +129,7 @@ docs/
 | Configure workers and queues | [Architecture → Workers and Queues](architecture/workers-and-queues.md) |
 | Migrate to 0.5.0 workers model | [Upgrading Workers](upgrading-workers.md) |
 | Migrate to canonical capability names | [Upgrading Capability Names](upgrading-capability-names.md) |
+| Migrate voice cloud providers to add-on packages (0.4.0) | [Upgrading Voice Provider Packages](upgrading-voice-provider-packages.md) |
 | Review runtime contract-alignment changes | [Upgrading for Contract Alignment](upgrading-contract-alignment.md) |
 | Migrate AI cost ledgers to 0.6.0 voice/media operations | [AI → Upgrading to 0.6.0](ai/ai-integration.md#upgrading-to-plumbuscore-060) |
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |

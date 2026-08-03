@@ -15,79 +15,8 @@ export interface VoicePricingEntry {
   usdPerUnit: number;
 }
 
-const VOICE_PRICING: Readonly<Record<string, VoicePricingEntry>> = {
-  'soniox-stt': {
-    model: 'soniox-stt',
-    operation: 'transcribe',
-    unit: 'audioInputSeconds',
-    usdPerUnit: 0.0001667,
-  },
-  'whisper-1': {
-    model: 'whisper-1',
-    operation: 'transcribe',
-    unit: 'audioInputSeconds',
-    usdPerUnit: 0.0001,
-  },
-  'gpt-4o-transcribe': {
-    model: 'gpt-4o-transcribe',
-    operation: 'transcribe',
-    unit: 'audioInputSeconds',
-    usdPerUnit: 0.0001,
-  },
-  'gpt-realtime-whisper': {
-    model: 'gpt-realtime-whisper',
-    operation: 'transcribe',
-    unit: 'audioInputMinutes',
-    usdPerUnit: 0.006,
-  },
-  'deepdub-phantom-x': {
-    model: 'deepdub-phantom-x',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.000024,
-  },
-  'tts-1': {
-    model: 'tts-1',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.000015,
-  },
-  'tts-1-hd': {
-    model: 'tts-1-hd',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.00003,
-  },
-  'minimax-speech-2.8-turbo': {
-    model: 'minimax-speech-2.8-turbo',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.000018,
-  },
-  'minimax-speech-2.8-hd': {
-    model: 'minimax-speech-2.8-hd',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.000024,
-  },
-  eleven_flash_v2_5: {
-    model: 'eleven_flash_v2_5',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.000016,
-  },
-  eleven_v3: {
-    model: 'eleven_v3',
-    operation: 'synthesize',
-    unit: 'characters',
-    usdPerUnit: 0.00003,
-  },
-  'livekit-cloud': {
-    model: 'livekit-cloud',
-    operation: 'transport',
-    unit: 'participantMinutes',
-    usdPerUnit: 0.02,
-  },
+/** Built-in websocket pricing only. Cloud/vendor pricing is registered from `@plumbus/voice-*`. */
+const BUILTIN_VOICE_PRICING: Readonly<Record<string, VoicePricingEntry>> = {
   websocket: {
     model: 'websocket',
     operation: 'transport',
@@ -96,12 +25,34 @@ const VOICE_PRICING: Readonly<Record<string, VoicePricingEntry>> = {
   },
 };
 
+/** Populated by `createProviderRegistry()` from each registration's `pricing` field. */
+let registeredVoicePricing: Record<string, VoicePricingEntry> = {};
+
+/**
+ * Merge add-on pricing rows into the runtime lookup used by `calculateVoiceCost` /
+ * `recordVoiceCost`. Prefer attaching `pricing` on `*_REGISTRATION` so
+ * `createProviderRegistry()` registers them automatically.
+ */
+export function registerVoicePricing(
+  entries: VoicePricingEntry | readonly VoicePricingEntry[],
+): void {
+  const list = Array.isArray(entries) ? entries : [entries];
+  for (const entry of list) {
+    registeredVoicePricing[entry.model] = entry;
+  }
+}
+
+/** Test helper — clears add-on pricing without touching builtins. */
+export function resetRegisteredVoicePricing(): void {
+  registeredVoicePricing = {};
+}
+
 export function listVoicePricing(): readonly VoicePricingEntry[] {
-  return Object.values(VOICE_PRICING);
+  return [...Object.values(BUILTIN_VOICE_PRICING), ...Object.values(registeredVoicePricing)];
 }
 
 export function lookupVoicePricing(model: string): VoicePricingEntry | undefined {
-  return VOICE_PRICING[model];
+  return registeredVoicePricing[model] ?? BUILTIN_VOICE_PRICING[model];
 }
 
 export function calculateVoiceCost(model: string, mediaUsage: VoiceMediaUsage): number {

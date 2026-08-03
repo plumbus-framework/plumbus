@@ -36,6 +36,7 @@ export const WEBSOCKET_TRANSPORT_DESCRIPTOR: TransportProviderCapabilities = {
 };
 
 export class WebSocketTransportProvider implements TransportProvider {
+  readonly capabilities = WEBSOCKET_TRANSPORT_DESCRIPTOR;
   private activeSocket?: AttachWebSocketTransportArgs['socket'];
 
   constructor(private readonly voiceSlice: VoiceTransportConfig) {}

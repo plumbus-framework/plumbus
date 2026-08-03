@@ -7,8 +7,8 @@ describe('recordProviderUsage', () => {
     name: 'pricedVoice',
     access: {},
     transport: { provider: 'websocket' },
-    stt: { provider: 'soniox', model: 'stt-rt-v5' },
-    tts: { provider: 'deepdub', model: 'dd-etts-3.2', voiceId: 'voice-1' },
+    stt: { provider: 'openai-whisper', model: 'whisper-1' },
+    tts: { provider: 'openai', model: 'tts-1', voiceId: 'voice-1' },
     brain: {
       async run() {
         return { text: 'ok' };
@@ -16,21 +16,39 @@ describe('recordProviderUsage', () => {
     },
   });
 
-  it('maps usage models to pricing keys and threads projectId with readable operation names', async () => {
+  it('maps usage models via provider knownModels and threads projectId', async () => {
     const recordProviderCost = vi.fn(async () => {});
     const ctx = { ai: { recordProviderCost } };
 
     await recordProviderUsage(
       ctx,
       {
+        capabilities: {
+          id: 'openai-whisper',
+          kind: 'stt',
+          displayName: 'Whisper',
+          credentialSchema: [],
+          hosting: 'cloud',
+          execution: 'server',
+          streaming: false,
+          languages: 'multilingual',
+          knownModels: [
+            {
+              id: 'whisper-1',
+              displayName: 'Whisper 1',
+              streaming: false,
+              costModelKey: 'whisper-1',
+            },
+          ],
+        },
         usage() {
           return [
             {
-              provider: 'soniox',
+              provider: 'openai-whisper',
               kind: 'transcribe' as const,
               quantity: 12,
               unit: 'seconds' as const,
-              model: 'stt-rt-v5',
+              model: 'whisper-1',
             },
           ];
         },
@@ -47,14 +65,29 @@ describe('recordProviderUsage', () => {
     await recordProviderUsage(
       ctx,
       {
+        capabilities: {
+          id: 'openai',
+          kind: 'tts',
+          displayName: 'OpenAI',
+          credentialSchema: [],
+          hosting: 'cloud',
+          execution: 'server',
+          streaming: true,
+          toneSupport: 'none',
+          deliveryAxes: [],
+          deliveryMode: 'none',
+          knownModels: [
+            { id: 'tts-1', displayName: 'tts-1', streaming: true, costModelKey: 'tts-1' },
+          ],
+        },
         usage() {
           return [
             {
-              provider: 'deepdub',
+              provider: 'openai',
               kind: 'synthesize' as const,
               quantity: 80,
               unit: 'characters' as const,
-              model: 'dd-etts-3.2',
+              model: 'tts-1',
             },
           ];
         },
@@ -73,7 +106,7 @@ describe('recordProviderUsage', () => {
       1,
       expect.objectContaining({
         operation: 'transcribe',
-        model: 'soniox-stt',
+        model: 'whisper-1',
         mediaUsage: { audioInputSeconds: 12 },
       }),
       {
@@ -88,7 +121,7 @@ describe('recordProviderUsage', () => {
       2,
       expect.objectContaining({
         operation: 'synthesize',
-        model: 'deepdub-phantom-x',
+        model: 'tts-1',
         mediaUsage: { characters: 80 },
       }),
       {
@@ -103,7 +136,7 @@ describe('recordProviderUsage', () => {
 });
 
 describe('recordDirectUtteranceCost', () => {
-  it('records auxiliary TTS from character count', async () => {
+  it('records auxiliary TTS from character count using the configured model id', async () => {
     const recordProviderCost = vi.fn(async () => {});
     const ctx = { ai: { recordProviderCost } };
 
@@ -112,14 +145,14 @@ describe('recordDirectUtteranceCost', () => {
       projectId: 'proj-9',
       sessionId: 'session-9',
       operationName: 'voice.backchannel',
-      tts: { provider: 'deepdub', model: 'dd-etts-3.2', voiceId: 'v1' },
-      provider: 'deepdub',
+      tts: { provider: 'openai', model: 'tts-1', voiceId: 'v1' },
+      provider: 'openai',
     });
 
     expect(recordProviderCost).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: 'synthesize',
-        model: 'deepdub-phantom-x',
+        model: 'tts-1',
         mediaUsage: { characters: 3 },
       }),
       {

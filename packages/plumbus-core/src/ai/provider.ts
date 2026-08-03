@@ -85,6 +85,12 @@ export interface ProviderRequest {
   temperature?: number;
   /** Max tokens for response */
   maxTokens?: number;
+  /**
+   * Reasoning effort for models that support it. Sent ONLY when set (OpenAI
+   * `reasoning_effort` on o-series / gpt-5 family); adapters for providers
+   * without an equivalent parameter ignore it.
+   */
+  reasoningEffort?: 'low' | 'medium' | 'high';
   /** Response format hint */
   responseFormat?: 'text' | 'json';
   /** Provider-compatible JSON Schema for strict structured outputs. */
@@ -519,6 +525,21 @@ function applyOpenAITemperature(
   body.temperature = temperature ?? 0.7;
 }
 
+/**
+ * `reasoning_effort` is sent ONLY when explicitly configured — no model
+ * detection. A model that rejects the parameter fails loudly (HTTP 400)
+ * instead of silently running without reasoning, so a misconfigured prompt
+ * is visible immediately.
+ */
+function applyOpenAIReasoningEffort(
+  body: Record<string, unknown>,
+  reasoningEffort?: 'low' | 'medium' | 'high',
+): void {
+  if (reasoningEffort) {
+    body.reasoning_effort = reasoningEffort;
+  }
+}
+
 function anthropicUsageToTokenUsage(usage: {
   input_tokens: number;
   output_tokens: number;
@@ -814,6 +835,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         messages,
       };
       applyOpenAITemperature(body, model, request.temperature);
+      applyOpenAIReasoningEffort(body, request.reasoningEffort);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
@@ -956,6 +978,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream_options: { include_usage: true },
       };
       applyOpenAITemperature(body, model, request.temperature);
+      applyOpenAIReasoningEffort(body, request.reasoningEffort);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {

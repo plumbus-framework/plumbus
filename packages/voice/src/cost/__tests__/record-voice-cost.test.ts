@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { recordVoiceCost } from '../record-voice-cost.js';
 
 describe('recordVoiceCost', () => {
-  it('records known pricing with costContext', async () => {
+  it('records known pricing with costContext via explicit cost override', async () => {
     const recordProviderCost = vi.fn(async () => {});
 
     const result = await recordVoiceCost(
@@ -13,6 +13,7 @@ describe('recordVoiceCost', () => {
         model: 'tts-1',
         mediaUsage: { characters: 120 },
         latencyMs: 500,
+        cost: 0.0018,
         costContext: {
           projectId: 'voice-project',
           serviceArea: 'voice',
@@ -24,14 +25,14 @@ describe('recordVoiceCost', () => {
     );
 
     expect(result.pricingKnown).toBe(true);
-    expect(result.cost).toBeGreaterThan(0);
+    expect(result.cost).toBe(0.0018);
     expect(recordProviderCost).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: 'synthesize',
         provider: 'openai',
         model: 'tts-1',
         mediaUsage: { characters: 120 },
-        cost: result.cost,
+        cost: 0.0018,
         status: undefined,
       }),
       {
@@ -89,6 +90,32 @@ describe('recordVoiceCost', () => {
       expect.objectContaining({
         status: 'failed',
         errorMessage: 'upstream timeout',
+      }),
+      undefined,
+    );
+  });
+
+  it('uses an explicit cost override from add-on pricing', async () => {
+    const recordProviderCost = vi.fn(async () => {});
+
+    const result = await recordVoiceCost(
+      { ai: { recordProviderCost } },
+      {
+        operation: 'transport',
+        provider: 'livekit',
+        model: 'addon-owned-model',
+        mediaUsage: { participantMinutes: 4 },
+        latencyMs: 0,
+        cost: 0.08,
+      },
+    );
+
+    expect(result.pricingKnown).toBe(true);
+    expect(result.cost).toBe(0.08);
+    expect(recordProviderCost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'addon-owned-model',
+        cost: 0.08,
       }),
       undefined,
     );

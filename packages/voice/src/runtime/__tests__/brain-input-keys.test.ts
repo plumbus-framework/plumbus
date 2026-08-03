@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeRoomBrainInput } from '../worker.js';
+import { mergeRoomBrainInput } from '../merge-room-brain-input.js';
 
 describe('mergeRoomBrainInput', () => {
   it('uses sessionId not interviewSessionId', () => {

@@ -132,7 +132,7 @@ plumbus doctor          # detects stale wiring (version < 10)
 plumbus init --patch    # updates managed blocks only; preserves your edits outside markers
 ```
 
-Bare `plumbus init` **skips existing** agent files — use `--patch` or `--force`. `plumbus init` writes `AGENTS.md`, Cursor rules, and Copilot instructions; copy references to `CLAUDE.md` manually if your workflow uses it.
+Bare `plumbus init` **skips existing** agent files — use `--patch` or `--force`. `plumbus init` writes `AGENTS.md`, `CLAUDE.md`, Cursor rules, and Copilot instructions (`--agent claude` for `CLAUDE.md` only).
 
 See [migration.md](./migration.md#agent-wiring) for the auth instruction wiring upgrade (v10).
 

@@ -69,7 +69,7 @@ function resolveRegisteredProvider<T>(
   if (!provider) {
     throw new PlumbusError(
       ErrorCode.NotFound,
-      `Voice ${kind} provider "${providerId}" is not registered yet`,
+      `Voice ${kind} provider "${providerId}" is not registered — pass its *_REGISTRATION to createProviderRegistry()`,
       { providerId, kind },
     );
   }

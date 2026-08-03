@@ -34,10 +34,10 @@ export interface DoctorOptions {
   json?: boolean;
 }
 
-const GENERATED_AGENTS_TITLE = '# AGENTS.md — Plumbus Framework';
+const GENERATED_ROOT_AGENT_TITLE = /^# (?:AGENTS|CLAUDE)\.md — Plumbus Framework$/m;
 
-function isGeneratedAgentsMd(content: string): boolean {
-  return content.includes(GENERATED_AGENTS_TITLE) || parseAgentWiringVersion(content) !== undefined;
+function isGeneratedRootAgentMd(content: string): boolean {
+  return GENERATED_ROOT_AGENT_TITLE.test(content) || parseAgentWiringVersion(content) !== undefined;
 }
 
 /** Check whether generated agent wiring files are missing or stale */
@@ -51,6 +51,7 @@ export function checkAgentWiring(): DoctorCheck {
       alwaysCandidate: true,
     },
     { path: 'AGENTS.md', label: 'agents-md', alwaysCandidate: false },
+    { path: 'CLAUDE.md', label: 'claude', alwaysCandidate: false },
   ] as const;
 
   const detected: Array<{ path: string; version?: number; label: string; patchable: boolean }> = [];
@@ -62,7 +63,7 @@ export function checkAgentWiring(): DoctorCheck {
     }
 
     const content = fs.readFileSync(absolutePath, 'utf-8');
-    if (!file.alwaysCandidate && !isGeneratedAgentsMd(content)) {
+    if (!file.alwaysCandidate && !isGeneratedRootAgentMd(content)) {
       continue;
     }
 

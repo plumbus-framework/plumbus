@@ -149,6 +149,55 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
+    it('sends reasoning_effort only when explicitly set', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hello' }, finish_reason: 'stop' }],
+          model: 'gpt-5.5',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5' });
+      await adapter.complete({ prompt: 'Say hello', reasoningEffort: 'medium' });
+      await adapter.complete({ prompt: 'Say hello' });
+
+      const withEffort = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(withEffort.reasoning_effort).toBe('medium');
+      const without = JSON.parse(mockFetch.mock.calls[1]?.[1].body);
+      expect(without.reasoning_effort).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it('sends reasoning_effort on the streaming path when set', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: null,
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5' });
+      try {
+        for await (const event of adapter.stream({
+          prompt: 'Stream hello',
+          reasoningEffort: 'high',
+        })) {
+          void event;
+          break;
+        }
+      } catch {
+        // Body handling is irrelevant here — only the request matters.
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.reasoning_effort).toBe('high');
+
+      vi.unstubAllGlobals();
+    });
+
     it('omits temperature for gpt-5.5+ models', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,

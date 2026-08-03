@@ -15,6 +15,49 @@ async function loadVoiceRuntime(): Promise<typeof import('@plumbus/voice')> {
   }
 }
 
+/** Minimal surface used by `plumbus voice worker` — typed locally to avoid a core→livekit type graph. */
+interface VoiceLiveKitCliModule {
+  startVoiceAgentWorker(options: {
+    voices: unknown[];
+    providers: unknown;
+    createDependencies: (auth: {
+      userId: string;
+      tenantId?: string;
+      roles: string[];
+      scopes: string[];
+      provider: string;
+    }) => unknown;
+    agentName?: string;
+    bootstrapModule?: string;
+    registry?: unknown;
+  }): Promise<{ stop(): Promise<void> }>;
+  joinVoiceRoomSession(options: {
+    voice: unknown;
+    providers: unknown;
+    roomName: string;
+    sessionId: string;
+    registry?: unknown;
+    createExecutionContext: (args: {
+      userId?: string;
+      tenantId?: string;
+      metadata?: Record<string, unknown>;
+    }) => unknown;
+  }): Promise<{ stop(): Promise<void> }>;
+}
+
+async function loadVoiceLiveKitRuntime(): Promise<VoiceLiveKitCliModule> {
+  try {
+    const pkg: string = '@plumbus/voice-livekit';
+    return (await import(pkg)) as VoiceLiveKitCliModule;
+  } catch {
+    console.error('');
+    console.error('LiveKit voice add-on not installed.');
+    console.error('Run: pnpm add @plumbus/voice-livekit');
+    console.error('');
+    process.exit(1);
+  }
+}
+
 export interface VoiceWorkerOptions {
   room?: string;
   voice?: string;
@@ -56,18 +99,20 @@ export function registerVoiceCommand(program: Command): void {
       }
 
       const voicePkg = await loadVoiceRuntime();
+      const livekitPkg = await loadVoiceLiveKitRuntime();
       const ctx = await buildVoiceServeContext();
       const branch = resolveVoiceWorkerBranch(opts);
 
       if (branch === 'agent-dispatch') {
         info('Starting LiveKit voice agent dispatch worker');
         ensureVoiceAgentBootstrapEnv();
-        const handle = await voicePkg.startVoiceAgentWorker({
+        const handle = await livekitPkg.startVoiceAgentWorker({
           voices: ctx.voices,
           providers: ctx.providers,
           createDependencies: (auth) => ctx.routeConfig.createDependencies(auth),
           agentName: opts.voice,
           bootstrapModule: process.env.PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE,
+          registry: ctx.registry,
         });
 
         const shutdown = async () => {
@@ -102,11 +147,12 @@ export function registerVoiceCommand(program: Command): void {
       );
 
       const roomName = opts.room ?? process.env.VOICE_AGENT_ROOM ?? '';
-      const handle = await voicePkg.joinVoiceRoomSession({
+      const handle = await livekitPkg.joinVoiceRoomSession({
         voice: selectedVoice,
         providers: ctx.providers,
         roomName,
         sessionId: roomName,
+        registry: ctx.registry,
         createExecutionContext: ({ userId, tenantId, metadata }) => {
           const resolvedUserId =
             userId ??

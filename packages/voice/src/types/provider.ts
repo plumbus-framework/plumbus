@@ -46,6 +46,11 @@ export interface TTSProviderCatalogEntry extends TTSProviderCapabilities {
   knownModels: VoiceModelOption[];
   knownVoices?: VoicePersonaOption[];
   voicesSource?: VoiceCatalogSource;
+  /**
+   * Derived from `TTSProviderRegistration.clone.capabilities` when listing
+   * with a registry — not authored on static descriptors.
+   */
+  clone?: import('./clone.js').VoiceCloneCapabilities;
 }
 
 export interface VoiceProviderCatalog {
@@ -85,6 +90,8 @@ export interface ValidateVoiceProvidersInput {
   voices: VoiceDefinition[];
   providers: VoiceProvidersConfig;
   catalog?: VoiceProviderCatalog;
+  /** When set, flags catalog providers that require an unloaded add-on package. */
+  registry?: import('../providers/registry.js').VoiceProviderRegistry;
 }
 
 export interface ValidateVoiceProvidersResult {

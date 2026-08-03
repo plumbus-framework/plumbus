@@ -120,7 +120,10 @@ describe('generated scaffold compiles', { timeout: 30_000 }, () => {
     const cap = makeCap();
     const exportName = capabilityClientFnName(cap);
     const registryEntries = [{ messageKey: exportName, exportName }];
-    const clientCode = generateClientModule([cap], [], { baseUrl: 'https://api.example.com' });
+    const clientCode = generateClientModule([cap], [], {
+      baseUrl: 'https://api.example.com',
+      authModuleImport: './auth.js',
+    });
 
     const shellFiles = generateBrowserExtensionScaffold({
       config: {
@@ -189,7 +192,10 @@ describe('generated scaffold compiles', { timeout: 30_000 }, () => {
       ...shellFiles,
       {
         path: 'src/client/api.ts',
-        content: generateClientModule([cap], [], { baseUrl: 'https://api.example.com' }),
+        content: generateClientModule([cap], [], {
+          baseUrl: 'https://api.example.com',
+          authModuleImport: './auth.js',
+        }),
       },
       { path: 'src/client/auth.ts', content: AUTH_STUB },
       { path: 'types/stubs.d.ts', content: STUB_TYPES },

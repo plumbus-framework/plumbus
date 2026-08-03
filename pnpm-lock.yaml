@@ -313,12 +313,60 @@ importers:
 
   packages/voice:
     dependencies:
-      '@deepdub/node':
-        specifier: ^2.0.0
-        version: 2.0.0
       '@fastify/websocket':
         specifier: ^11.2.0
         version: 11.2.0
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      fastify:
+        specifier: ^5.0.0
+        version: 5.8.2
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/voice-deepdub:
+    dependencies:
+      '@deepdub/node':
+        specifier: ^3.0.2
+        version: 3.0.2
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@plumbus/voice':
+        specifier: workspace:*
+        version: link:../voice
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/voice-elevenlabs:
+    dependencies:
+      '@elevenlabs/elevenlabs-js':
+        specifier: ^2.59.0
+        version: 2.59.0
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@plumbus/voice':
+        specifier: workspace:*
+        version: link:../voice
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/voice-livekit:
+    dependencies:
       '@livekit/agents':
         specifier: ^1.4.6
         version: 1.4.6(@livekit/rtc-node@0.13.29)(typescript@5.9.3)(zod@3.25.76)
@@ -334,9 +382,6 @@ importers:
       '@shiguredo/rnnoise-wasm':
         specifier: ^2025.1.5
         version: 2025.1.5
-      '@soniox/node':
-        specifier: ^2.1.1
-        version: 2.1.1
       livekit-server-sdk:
         specifier: ^2.15.4
         version: 2.15.4
@@ -347,6 +392,9 @@ importers:
       '@plumbus/core':
         specifier: workspace:*
         version: link:../plumbus-core
+      '@plumbus/voice':
+        specifier: workspace:*
+        version: link:../voice
       fastify:
         specifier: ^5.0.0
         version: 5.8.2
@@ -356,6 +404,57 @@ importers:
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/voice-minimax:
+    dependencies:
+      eventsource-parser:
+        specifier: ^3.0.8
+        version: 3.0.8
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@plumbus/voice':
+        specifier: workspace:*
+        version: link:../voice
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/voice-openai:
+    dependencies:
+      openai:
+        specifier: ^6.49.0
+        version: 6.49.0(ws@8.21.0)(zod@3.25.76)
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@plumbus/voice':
+        specifier: workspace:*
+        version: link:../voice
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/voice-soniox:
+    dependencies:
+      '@soniox/node':
+        specifier: ^2.2.0
+        version: 2.2.0
+    devDependencies:
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@plumbus/voice':
+        specifier: workspace:*
+        version: link:../voice
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
@@ -472,13 +571,17 @@ packages:
   '@datastructures-js/deque@1.0.8':
     resolution: {integrity: sha512-PSBhJ2/SmeRPRHuBv7i/fHWIdSC3JTyq56qb+Rq0wjOagi0/fdV5/B/3Md5zFZus/W6OkSPMaxMKKMNMrSmubg==}
 
-  '@deepdub/node@2.0.0':
-    resolution: {integrity: sha512-+Fyskp4mwif3ty0x3AUICJXXRG/S6n9hhLBYwj01Er4NpVkims2kk2oEYrGD0El3Z+cvCafY7XJkOOcEFuzeyA==}
+  '@deepdub/node@3.0.2':
+    resolution: {integrity: sha512-Qmwz2CjAKHHNpeUZAyACKJINdWtvnHuzCGSlgE7CVviYQctt/AgpS0+HOvXaGyWHz9B2f3qiamyCl+aHJuNmeg==}
     engines: {node: '>=18'}
     hasBin: true
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@elevenlabs/elevenlabs-js@2.59.0':
+    resolution: {integrity: sha512-X7c0yFo6tEPOXwf1btDZhB3E0NcNSXXAiNgbjGHdZ3QGw1pPXp3XkyYOWGiDaI0qR4kjWJB1o9xhZWWNQWtnAg==}
+    engines: {node: '>=18.0.0'}
 
   '@emnapi/runtime@1.9.1':
     resolution: {integrity: sha512-VYi5+ZVLhpgK4hQ0TAjiQiZ6ol0oe4mBx7mVv7IflsiEp0OWoVsp/+f9Vc1hOhE0TtkORVrI1GvzyreqpgWtkA==}
@@ -1827,8 +1930,8 @@ packages:
     resolution: {integrity: sha512-9YJxzzHftlW936E5z9aEKK2CrPfUgc3HgZ2keyQ5e2Pb5bx+6tykYQ2Gyudvxd7Sxmlnar7SemDMFfx0OuVuGA==}
     engines: {node: '>=20', pnpm: '>=10'}
 
-  '@soniox/node@2.1.1':
-    resolution: {integrity: sha512-vPXDJ58nTMxAiFMZD3DqQd2owsuySAZ4PKH++woNz0GSX6o8C66VFfn4vzJ9PcnwdmpUzRZrZcdgiNzkippLKA==}
+  '@soniox/node@2.2.0':
+    resolution: {integrity: sha512-5gYrhlbINfNs9CcNmHETEhNBKaniP6RgdYuZYOXyRx/tnjzZ/M4kKGMXatdUGquji0biO7IfOcmr9fZqJYDB2Q==}
 
   '@swc/core-darwin-arm64@1.15.18':
     resolution: {integrity: sha512-+mIv7uBuSaywN3C9LNuWaX1jJJ3SKfiJuE6Lr3bd+/1Iv8oMU7oLBjYMluX1UrEPzwN2qCdY6Io0yVicABoCwQ==}
@@ -2273,6 +2376,9 @@ packages:
   combined-stream@1.0.8:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
     engines: {node: '>= 0.8'}
+
+  command-exists@1.2.9:
+    resolution: {integrity: sha512-LTQ/SGc+s0Xc0Fu5WaKnR0YiygZkm9eKFvyS+fRsU7/ZWFF8ykFM6Pc9aCVf1+xasOOZpO3BAVgVrKvsqKHV7w==}
 
   commander@12.1.0:
     resolution: {integrity: sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==}
@@ -3039,6 +3145,15 @@ packages:
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
 
+  node-fetch@2.7.0:
+    resolution: {integrity: sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==}
+    engines: {node: 4.x || >=6.0.0}
+    peerDependencies:
+      encoding: ^0.1.0
+    peerDependenciesMeta:
+      encoding:
+        optional: true
+
   nwsapi@2.2.23:
     resolution: {integrity: sha512-7wfH4sLbt4M0gCDzGE6vzQBo0bfTKjU7Sfpqy/7gs1qBfYz2vEJH6vXcBKpO3+6Yu1telwd0t9HpyOoLEQQbIQ==}
 
@@ -3073,6 +3188,26 @@ packages:
       ws: ^8.18.0
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
+  openai@6.49.0:
+    resolution: {integrity: sha512-aYCc0C6L864eR6WSYIwQGyXriw/nIyZx0ObvhzOEVuk0zoBDpynjSbrionWI7q65B5H8jJX0DXR9snEzM6bfPg==}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
       ws:
         optional: true
       zod:
@@ -3527,6 +3662,9 @@ packages:
     resolution: {integrity: sha512-FVDYdxtnj0G6Qm/DhNPSb8Ju59ULcup3tuJxkFb5K8Bv2pUXILbf0xZWU8PX8Ov19OXljbUyveOFwRMwkXzO+A==}
     engines: {node: '>=16'}
 
+  tr46@0.0.3:
+    resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
+
   tr46@5.1.1:
     resolution: {integrity: sha512-hdF5ZgjTqgAntKkklYw0R03MG2x/bSzTtkxmIRw/sTNV8YXsCJ1tfLAX23lhxhHJlEf3CRCOCGGWw3vI3GaSPw==}
     engines: {node: '>=18'}
@@ -3658,6 +3796,9 @@ packages:
     resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
     engines: {node: '>=18'}
 
+  webidl-conversions@3.0.1:
+    resolution: {integrity: sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==}
+
   webidl-conversions@7.0.0:
     resolution: {integrity: sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g==}
     engines: {node: '>=12'}
@@ -3679,6 +3820,9 @@ packages:
     resolution: {integrity: sha512-De72GdQZzNTUBBChsXueQUnPKDkg/5A5zp7pFDuQAj5UFoENpiACU0wlCvzpAGnTkj++ihpKwKyYewn/XNUbKw==}
     engines: {node: '>=18'}
 
+  whatwg-url@5.0.0:
+    resolution: {integrity: sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==}
+
   which@1.3.1:
     resolution: {integrity: sha512-HxJdYWq1MTIQbJ3nw0cqssHoTNU267KlrDuGZ1WYlxDStUtKUhOaJmh112/TZmHxxUfuJqPXSOm7tDyas0OSIQ==}
     hasBin: true
@@ -3695,18 +3839,6 @@ packages:
 
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
-
-  ws@8.19.0:
-    resolution: {integrity: sha512-blAT2mjOEIi0ZzruJfIhb3nps74PRWTCz1IjglWEEpQl5XS/UNama6u2/rjFkDDouqr4L67ry+1aGIALViWjDg==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
 
   ws@8.21.0:
     resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
@@ -3836,7 +3968,7 @@ snapshots:
 
   '@datastructures-js/deque@1.0.8': {}
 
-  '@deepdub/node@2.0.0':
+  '@deepdub/node@3.0.2':
     dependencies:
       commander: 12.1.0
       dotenv: 16.6.1
@@ -3846,6 +3978,16 @@ snapshots:
       - utf-8-validate
 
   '@drizzle-team/brocli@0.10.2': {}
+
+  '@elevenlabs/elevenlabs-js@2.59.0':
+    dependencies:
+      command-exists: 1.2.9
+      node-fetch: 2.7.0
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - encoding
+      - utf-8-validate
 
   '@emnapi/runtime@1.9.1':
     dependencies:
@@ -4855,7 +4997,7 @@ snapshots:
 
   '@shiguredo/rnnoise-wasm@2025.1.5': {}
 
-  '@soniox/node@2.1.1': {}
+  '@soniox/node@2.2.0': {}
 
   '@swc/core-darwin-arm64@1.15.18':
     optional: true
@@ -5054,7 +5196,7 @@ snapshots:
       sirv: 3.0.2
       tinyrainbow: 2.0.0
       vitest: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
-      ws: 8.19.0
+      ws: 8.21.0
     optionalDependencies:
       playwright: 1.58.2
     transitivePeerDependencies:
@@ -5239,6 +5381,8 @@ snapshots:
   combined-stream@1.0.8:
     dependencies:
       delayed-stream: 1.0.0
+
+  command-exists@1.2.9: {}
 
   commander@12.1.0: {}
 
@@ -5769,7 +5913,7 @@ snapshots:
       whatwg-encoding: 3.1.1
       whatwg-mimetype: 4.0.0
       whatwg-url: 14.2.0
-      ws: 8.19.0
+      ws: 8.21.0
       xml-name-validator: 5.0.0
     transitivePeerDependencies:
       - bufferutil
@@ -5969,6 +6113,10 @@ snapshots:
 
   node-fetch-native@1.6.7: {}
 
+  node-fetch@2.7.0:
+    dependencies:
+      whatwg-url: 5.0.0
+
   nwsapi@2.2.23: {}
 
   oauth4webapi@3.8.6: {}
@@ -5994,6 +6142,11 @@ snapshots:
       wrappy: 1.0.2
 
   openai@6.42.0(ws@8.21.0)(zod@3.25.76):
+    optionalDependencies:
+      ws: 8.21.0
+      zod: 3.25.76
+
+  openai@6.49.0(ws@8.21.0)(zod@3.25.76):
     optionalDependencies:
       ws: 8.21.0
       zod: 3.25.76
@@ -6541,6 +6694,8 @@ snapshots:
     dependencies:
       tldts: 6.1.86
 
+  tr46@0.0.3: {}
+
   tr46@5.1.1:
     dependencies:
       punycode: 2.3.1
@@ -6679,6 +6834,8 @@ snapshots:
     dependencies:
       xml-name-validator: 5.0.0
 
+  webidl-conversions@3.0.1: {}
+
   webidl-conversions@7.0.0: {}
 
   webrtc-adapter@9.0.5:
@@ -6696,6 +6853,11 @@ snapshots:
       tr46: 5.1.1
       webidl-conversions: 7.0.0
 
+  whatwg-url@5.0.0:
+    dependencies:
+      tr46: 0.0.3
+      webidl-conversions: 3.0.1
+
   which@1.3.1:
     dependencies:
       isexe: 2.0.0
@@ -6710,8 +6872,6 @@ snapshots:
       stackback: 0.0.2
 
   wrappy@1.0.2: {}
-
-  ws@8.19.0: {}
 
   ws@8.21.0: {}
 

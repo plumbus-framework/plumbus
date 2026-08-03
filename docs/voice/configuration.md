@@ -35,6 +35,8 @@ const providers = {
     minimax: {
       apiKey: process.env['MINIMAX_API_KEY'],
       baseUrl: process.env['MINIMAX_BASE_URL'],
+      // optional — required by some MiniMax account setups
+      options: { groupId: process.env['MINIMAX_GROUP_ID'] },
     },
     elevenlabs: {
       apiKey: process.env['ELEVENLABS_API_KEY'],
@@ -48,23 +50,23 @@ const providers = {
 
 ## Credential summary
 
-| Provider | Required fields | Notes |
-|---|---|---|
-| `websocket` | none | raw app-owned websocket transport |
-| `livekit` | `url`, `apiKey`, `apiSecret` | separate secret from app auth |
-| `soniox` | `apiKey` | server STT; optional `options.contextTerms` maps to Soniox `context.terms` |
-| `openai-whisper` | `apiKey` | use `baseUrl` for local/self-hosted compatible endpoints |
-| `openai-realtime` | `apiKey` | STT-only transcription path, not full speech-to-speech |
-| `deepdub` | `apiKey` | streaming/server TTS |
-| `openai` | `apiKey` | server TTS |
-| `minimax` | `apiKey` | server TTS, richer tone mapping |
-| `elevenlabs` | `apiKey` | flash vs v3 tradeoffs differ by model |
-| `web-speech` | none | client STT |
-| `browser-tts` | none | client TTS |
+| Provider | Install | Required fields | Notes |
+|---|---|---|---|
+| `websocket` | built-in | none | raw app-owned websocket transport |
+| `livekit` | `@plumbus/voice-livekit` | `url`, `apiKey`, `apiSecret` | separate secret from app auth |
+| `soniox` | `@plumbus/voice-soniox` | `apiKey` | STT and/or TTS; optional STT `options.contextTerms` → Soniox `context.terms` |
+| `openai-whisper` | `@plumbus/voice-openai` | `apiKey` | official `openai` SDK; use `baseUrl` / `OPENAI_BASE_URL` for OpenAI-compatible Whisper endpoints |
+| `openai-realtime` | `@plumbus/voice-openai` | `apiKey` | STT-only Realtime transcription via SDK (`OpenAIRealtimeWS`); connection model defaults to `gpt-realtime` (`stt.options.realtimeConnectionModel`); transcription model is `stt.model`; not full speech-to-speech |
+| `deepdub` | `@plumbus/voice-deepdub` | `apiKey` | streaming/server TTS |
+| `openai` | `@plumbus/voice-openai` | `apiKey` | official `openai` SDK TTS; same `baseUrl` override for compatible speech endpoints |
+| `minimax` | `@plumbus/voice-minimax` | `apiKey` | server TTS, richer tone mapping; optional `options.groupId` / `MINIMAX_GROUP_ID`; optional TTS options `textNormalization`, `forceCbr`, `voiceModify` |
+| `elevenlabs` | `@plumbus/voice-elevenlabs` | `apiKey` | flash vs v3 via official SDK |
+| `web-speech` | built-in | none | client STT |
+| `browser-tts` | built-in | none | client TTS |
 
 ## Validation
 
-Use `validateVoiceProviders({ voices, providers })` to fail fast before serving traffic. `registerVoiceRoutes()` also validates on mount and throws if the chosen voice stacks are missing required credential fields.
+Use `validateVoiceProviders({ voices, providers, registry })` to fail fast before serving traffic. Pass the same `registry` you built with explicit `*_REGISTRATION` entries so missing add-ons are reported as issues with `field: 'package'`. Without `registry`, validation only checks credential shape against the static catalog.
 
 ## Catalog/admin routes
 
@@ -88,7 +90,7 @@ These are meant for internal/admin tooling such as voice setup screens and shoul
 When STT/TTS providers are OpenAI-backed, bridge from your existing Plumbus bootstrap config instead of duplicating keys:
 
 ```ts
-import { resolveVoiceOpenAICredentials } from '@plumbus/voice';
+import { resolveVoiceOpenAICredentials } from '@plumbus/voice-openai';
 
 const openai = resolveVoiceOpenAICredentials(plumbusConfig);
 const providers = {
@@ -155,7 +157,16 @@ the user resumes speaking.
 - `enableDebugEventStream` — admin-only SSE heartbeat at `GET /api/voice/:name/debug/events`
 - `beforeSession` / `afterSession` — app hooks around session minting
 
+## Voice clone routes
+
+`registerVoiceCloneRoutes(app, routeConfig, opts)` is separate from `registerVoiceRoutes` (keeps Fastify optional). Register `@fastify/multipart` on the app before create / synthesize-reference uploads — missing multipart yields a clear dependency error.
+
+Required opts: `access`, `resolveCloneOwner`, `afterCloneCreate`, `listOwnedClones`. Optional `referenceAccess` registers the Deepdub-style preview route. Deepdub session TTS with `tts.options.voiceReference` uses HTTP `generateToBuffer` wrapped as a **one-shot** async iterable (non-streaming for that utterance — not for manuscripts).
+
+Full lifecycle, ownership, and spoofing guidance: [voice-cloning.md](./voice-cloning.md).
+
 ## Related docs
 
 - [providers.md](./providers.md)
 - [security.md](./security.md)
+- [voice-cloning.md](./voice-cloning.md)

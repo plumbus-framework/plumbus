@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.4.3
+
+### Added
+
+- **Voice cloning** — `ClonedVoice` / `VoiceCloneProvider` types; `TTSProviderRegistration.clone`; `createVoiceCloneProvider`, `supportsVoiceCloning`, `synthesizeWithVoiceReference`; ownership-aware `registerVoiceCloneRoutes` (create-persist rollback, `listOwnedClones`, optional `referenceAccess` for instant-reference preview).
+- **`VoiceUsageKind`** includes `'clone'` for persist create/delete usage records.
+
+## 0.4.2
+
+### Added
+
+- **`registerVoicePricing()` / `resetRegisteredVoicePricing()`** — add-on pricing rows feed `lookupVoicePricing` / `calculateVoiceCost`. `createProviderRegistry()` auto-registers each `*_REGISTRATION.pricing` field so Soniox/Deepdub/etc. ledger USD is non-null after the provider-package split (without requiring a LiveKit-style `cost` override on every STT/TTS record).
+
+## 0.4.1
+
+### Added
+
+- **`@plumbus/voice/noise-cancellation`** — thin browser-safe export of noise-cancellation enums/types (`NoiseCancellationPlacement`, `SerializedNoiseCancellation`, …). `@plumbus/voice-livekit/client` must import these from this subpath (or keep them type-only), not from `@plumbus/voice` — the package root pulls server runtime + `@plumbus/core` CLI into the Next client graph.
+
+## 0.4.0
+
+### Changed
+
+- **Breaking:** `deepdub`, `soniox`, `elevenlabs`, `minimax`, and `livekit` ship as separate `@plumbus/voice-*` packages. They are **not** auto-registered — apps must pass each package’s `*_REGISTRATION` into `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. `@plumbus/voice` does **not** peer-depend on the add-ons.
+- **Breaking (imports):** LiveKit session/agent APIs moved to `@plumbus/voice-livekit` / `./client` (`createLiveKitVoiceSession`, `applyClientNoiseCancellation`, `createVoiceAgentEntry`, `createInboundAudioStream`, `resolveAgentNoiseCancellationOption`, `startVoiceAgentWorker`, `joinVoiceRoomSession`, `startVoiceWorker`, `mintLiveKitParticipantToken`, bootstrap helpers).
+- **Breaking:** `beforeSession.livekit` → `beforeSession.room`. `POST /api/voice/:name/token` is transport-agnostic (any minting transport; websocket still uses `/session`). Session tokens accept any non-empty `voice_transport` string (no hard-coded `livekit` allow-list).
+- Dropped vendor runtime dependencies from `@plumbus/voice` (`@deepdub/node`, `@soniox/node`, `@livekit/*`, `@shiguredo/rnnoise-wasm`, `livekit-server-sdk`, `livekit-client` peers).
+- The ElevenLabs provider moved to `@plumbus/voice-elevenlabs` and uses `@elevenlabs/elevenlabs-js` (`textToSpeech.stream()`). The hand-rolled flash WebSocket path and `chunkLengthSchedule` are gone.
+- `fetchCatalogJson` / `VoiceCatalogFetch` accept an optional request `body` for POST catalog endpoints (e.g. MiniMax `POST /v1/get_voice`).
+- `normalizeVoiceList` maps provider `voice_name` fields to `displayName`.
+
+### Added
+
+- `@plumbus/voice/provider-kit` subpath for provider add-on authors.
+- `loadAppVoiceRegistry()` — loads `app/voice/registry.ts` (`voiceProviderRegistry` + optional `voiceProviders`) for CLI/workers.
+- `TransportProviderRegistration.toClientSessionPayload` for transport-agnostic `/token` responses.
+- Public export needed by add-ons: `VoiceSessionController`, `recordVoiceCost` (optional `cost` override for add-on pricing).
+
+### Removed
+
+- `loadVoiceAddons()`, `VOICE_ADDON_PACKAGES`, `voiceAddonMissingHint`, `createRegistryForVoices`, `resolveAddonCredentialsFromEnv`, and all soft-load / install-hint maps.
+- OpenAI STT/TTS (now `@plumbus/voice-openai`) plus all other cloud/vendor descriptors, models, and pricing.
+- LiveKit-named types/helpers from `@plumbus/voice` / provider-kit / client.
+- Dead `src/runtime/worker-cli.ts` (superseded by `plumbus voice worker`).
+
+See [docs/upgrading-voice-provider-packages.md](../../docs/upgrading-voice-provider-packages.md).
+
 ## 0.3.0
 
 ### Added

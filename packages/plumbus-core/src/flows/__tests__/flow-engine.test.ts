@@ -431,6 +431,84 @@ describe('FlowEngine — lease claiming', () => {
     await expect(engine.runNext(exec.id, makeCtx())).rejects.toBeInstanceOf(LeaseLostError);
   });
 
+  it('heartbeat survives a throwing lease extension: no unhandled rejection, no lease-lost, step completes', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'single-step',
+        domain: 'test',
+        input: z.object({}),
+        steps: [{ name: 'only', type: FlowStepType.Capability }],
+      }),
+    );
+
+    const db = mockDb();
+    // Make ONLY the heartbeat's lease-extension update reject (transient DB
+    // blip). extendLease sets { leaseExpiresAt, updatedAt } and nothing else;
+    // claim/completion updates carry status/leaseOwner and must keep working.
+    const realUpdate = db.update;
+    db.update = vi.fn().mockImplementation((...args: unknown[]) => {
+      const chain = realUpdate(...args);
+      return {
+        set: (values: Record<string, unknown>) => {
+          if ('leaseExpiresAt' in values && !('status' in values) && !('leaseOwner' in values)) {
+            return { where: () => Promise.reject(new Error('connection reset')) };
+          }
+          return chain.set(values);
+        },
+      };
+    });
+
+    const warns: Array<{ event: string; meta: any }> = [];
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn().mockImplementation((event: string, meta: any) => {
+        warns.push({ event, meta });
+      }),
+      error: vi.fn(),
+    };
+
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const stepDeps = {
+        executeCapability: vi.fn().mockImplementation(async () => {
+          // Long enough for several 5ms heartbeat ticks to fire and throw.
+          await new Promise((r) => setTimeout(r, 40));
+          return { success: true, data: {} };
+        }),
+        evaluateCondition: vi.fn().mockReturnValue(true),
+      };
+
+      const engine = createFlowEngine({
+        db,
+        registry,
+        stepDeps,
+        workerId: 'worker-hb',
+        flowHeartbeatIntervalMs: 5,
+        flowLeaseDurationMs: 60_000,
+        logger: logger as any,
+      });
+
+      const exec = await engine.start('single-step', {}, makeAuth());
+      const result = await engine.runNext(exec.id, makeCtx());
+
+      // The step ran to completion — a throwing extension is NOT lease loss.
+      expect(result.status).toBe(FlowStatus.Completed);
+      expect(warns.some((w) => w.event === 'flow.heartbeat.extend_failed')).toBe(true);
+
+      // Give any stray rejection a beat to surface before asserting.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(rejections).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+
   it('skips completion audit when guardedUpdate reports the lease was lost', async () => {
     const registry = new FlowRegistry();
     registry.register(

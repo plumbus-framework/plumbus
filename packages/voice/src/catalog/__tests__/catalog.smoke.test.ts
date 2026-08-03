@@ -5,24 +5,21 @@ import {
   suggestVoiceStacks,
 } from '../../index.js';
 import type { VoiceCatalogFetch } from '../../providers/base/provider-registration.js';
+import { fakeTtsRegistration } from '../../providers/__tests__/fake-registrations.js';
+import { createProviderRegistry } from '../../providers/registry.js';
 
 describe('voice catalog smoke', () => {
   it('lists the built-in catalog and suggested stacks', () => {
     const catalog = listVoiceProviderCatalog();
     const stacks = suggestVoiceStacks();
 
-    expect(catalog.transport.map((provider) => provider.id)).toEqual(
-      expect.arrayContaining(['livekit', 'websocket']),
-    );
-    expect(catalog.stt.map((provider) => provider.id)).toEqual(
-      expect.arrayContaining(['soniox', 'openai-whisper', 'openai-realtime', 'web-speech']),
-    );
-    expect(catalog.tts.map((provider) => provider.id)).toEqual(
-      expect.arrayContaining(['deepdub', 'openai', 'minimax', 'elevenlabs', 'browser-tts']),
-    );
+    expect(catalog.transport.map((provider) => provider.id)).toEqual(['websocket']);
+    expect(catalog.stt.map((provider) => provider.id)).toEqual(['web-speech']);
+    expect(catalog.tts.map((provider) => provider.id)).toEqual(['browser-tts']);
     expect(stacks.map((stack) => stack.id)).toEqual(
-      expect.arrayContaining(['hebrew-production', 'fully-local-browser']),
+      expect.arrayContaining(['fully-local-browser', 'browser-dev']),
     );
+    expect(stacks.map((stack) => stack.id)).not.toContain('english-dev');
   });
 
   it('fetches live TTS voice options with cache-backed fixture responses', async () => {
@@ -57,10 +54,14 @@ describe('voice catalog smoke', () => {
       },
     };
 
+    const registry = createProviderRegistry({
+      tts: { deepdub: fakeTtsRegistration('deepdub') },
+    });
     const first = await fetchVoiceProviderOptions({
       kind: 'tts',
       providerId: 'deepdub',
       providers,
+      registry,
       fetcher,
       ttlMs: 60_000,
     });
@@ -68,6 +69,7 @@ describe('voice catalog smoke', () => {
       kind: 'tts',
       providerId: 'deepdub',
       providers,
+      registry,
       fetcher,
       ttlMs: 60_000,
     });
@@ -79,26 +81,42 @@ describe('voice catalog smoke', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to static catalog data when live fetch fails', async () => {
+  it('returns knownModels from a registered add-on TTS descriptor', async () => {
+    const registry = createProviderRegistry({
+      tts: {
+        custom: fakeTtsRegistration('custom', {
+          id: 'custom',
+          kind: 'tts',
+          displayName: 'Custom',
+          credentialSchema: [{ field: 'apiKey', required: true }],
+          hosting: 'cloud',
+          execution: 'server',
+          streaming: true,
+          toneSupport: 'none',
+          deliveryAxes: [],
+          deliveryMode: 'none',
+          hebrewQuality: 'unknown',
+          knownModels: [
+            { id: 'model-a', displayName: 'A', streaming: true, costModelKey: 'model-a' },
+          ],
+          knownVoices: [],
+          voicesSource: 'static',
+        }),
+      },
+    });
+
     const result = await fetchVoiceProviderOptions({
       kind: 'tts',
-      providerId: 'elevenlabs',
+      providerId: 'custom',
       providers: {
         providers: {
-          elevenlabs: { apiKey: 'elevenlabs-key', baseUrl: 'https://api.elevenlabs.test' },
+          custom: { apiKey: 'key' },
         },
       },
-      fetcher: vi.fn(async () => {
-        throw new Error('fixture upstream failure');
-      }),
+      registry,
       ttlMs: 0,
     });
 
-    expect(result.partial).toBe(true);
-    expect(result.source).toBe('live-api');
-    expect(result.models.map((model) => model.id)).toEqual(
-      expect.arrayContaining(['eleven_flash_v2_5', 'eleven_v3']),
-    );
-    expect(result.error).toContain('fixture upstream failure');
+    expect(result.models.map((model) => model.id)).toEqual(['model-a']);
   });
 });

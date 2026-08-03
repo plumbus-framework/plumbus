@@ -6,6 +6,8 @@ Three layers matter:
 2. **In-process runtime tests** with `mockVoiceRuntime` and mock providers.
 3. **Route/websocket/e2e tests** for session auth, secret stripping, and handshake flow.
 
+Provider add-on packages (`@plumbus/voice-*`) own their own vendor wire/live tests; `@plumbus/voice` tests stay vendor-free.
+
 ## Default helpers
 
 - `mockVoiceRuntime(...)`
@@ -23,6 +25,8 @@ Three layers matter:
 ## Don'ts
 
 - **Don't** require vendor credentials in the default test suite.
+- **Don't** add `@plumbus/voice-*` packages as `devDependencies` of `@plumbus/voice` — use local fake registrations under `src/providers/__tests__/fake-registrations.ts`.
+- **Don't** put provider wire/live tests for extracted vendors in `@plumbus/voice` — they live in the matching `@plumbus/voice-*` package.
 - **Don't** snapshot full websocket transcripts.
 - **Don't** treat browser STT as billable in tests.
 

@@ -38,8 +38,15 @@ When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x
 | `@plumbus/chat-ui` | `@plumbus/core` | `"0.5.x \|\| 0.6.x"` | required | `packages/chat-ui/package.json` |
 | `@plumbus/auth` | `@plumbus/core` | `"0.6.x"` | required | `packages/auth/package.json` |
 | `@plumbus/auth-cognito` | `@plumbus/auth` | `"0.1.x"` | required | `packages/auth-cognito/package.json` |
+| `@plumbus/voice-deepdub` / `-soniox` / `-elevenlabs` / `-minimax` / `-livekit` | `@plumbus/core` | `"0.6.x"` | required | `packages/voice-deepdub/package.json` (same literal on all five) |
+| `@plumbus/voice-deepdub` / `-soniox` / `-elevenlabs` / `-minimax` / `-livekit` | `@plumbus/voice` | `"0.4.x"` | required | `packages/voice-deepdub/package.json` (same literal on all five) |
+| `@plumbus/voice` | `@plumbus/voice-deepdub` | `"0.1.x"` | optional | `packages/voice/package.json` |
+| `@plumbus/voice` | `@plumbus/voice-soniox` | `"0.1.x"` | optional | `packages/voice/package.json` |
+| `@plumbus/voice` | `@plumbus/voice-elevenlabs` | `"0.1.x"` | optional | `packages/voice/package.json` |
+| `@plumbus/voice` | `@plumbus/voice-minimax` | `"0.1.x"` | optional | `packages/voice/package.json` |
+| `@plumbus/voice` | `@plumbus/voice-livekit` | `"0.1.x"` | optional | `packages/voice/package.json` |
 
-**Peering direction:** add-ons declare `@plumbus/core` as a peer — consumer apps install both. `@plumbus/core` optionally peers `@plumbus/mcp` and `@plumbus/api` when those packages are present. `@plumbus/chat` optionally peers `@plumbus/knowledge-base` for registry-backed context sources — **not** the reverse. `@plumbus/knowledge-base` only peers `@plumbus/core`. `@plumbus/auth-cognito` peers `@plumbus/auth` only — not `@plumbus/core` directly.
+**Peering direction:** add-ons declare `@plumbus/core` as a peer — consumer apps install both. `@plumbus/core` optionally peers `@plumbus/mcp` and `@plumbus/api` when those packages are present. `@plumbus/chat` optionally peers `@plumbus/knowledge-base` for registry-backed context sources — **not** the reverse. `@plumbus/knowledge-base` only peers `@plumbus/core`. `@plumbus/auth-cognito` peers `@plumbus/auth` only — not `@plumbus/core` directly. Voice provider packages peer `@plumbus/voice` `0.4.x` (and `@plumbus/core` `0.6.x`); `@plumbus/voice` does **not** peer the add-ons — apps install add-ons and pass `*_REGISTRATION` into `createProviderRegistry()` — **copy these literals; do not derive**.
 
 ## Forbidden patterns
 

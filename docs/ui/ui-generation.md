@@ -166,6 +166,28 @@ await getUser(
 
 Flow trigger generation is intentionally narrow. A flow descriptor produces a function named `start{PascalFlowName}` that posts to `/api/{domain}/{kebab-flow-name}/start` and returns `{ executionId: string; status: string }`. The package does not yet generate flow-status polling, timelines, approvals, wait/resume controls, or retry controls.
 
+### Auth module specifier
+
+The generated client imports its auth helpers from `authModuleImport`, which defaults to
+`./auth` — an extensionless specifier suited to the Next.js template, whose `tsconfig.json`
+uses `moduleResolution: "bundler"`.
+
+Do not add a `.js` suffix for Next.js targets. Turbopack does not implement webpack's
+`resolve.extensionAlias` ([vercel/next.js#82945](https://github.com/vercel/next.js/issues/82945)),
+so `./auth.js` never resolves against `auth.ts` and the app fails to build with
+`Module not found: Can't resolve './auth.js'`. Next.js 16 uses Turbopack by default.
+
+Targets compiled with `node16`/`nodenext` resolution require the explicit extension instead,
+because TypeScript rejects extensionless relative imports there (`TS2835`). The
+browser-extension scaffold is such a target and passes it explicitly:
+
+```ts
+generateClientModule(capabilities, flows, {
+  baseUrl: apiBaseUrl,
+  authModuleImport: "./auth.js",
+});
+```
+
 ## React hook generation
 
 Use `generateHooksModule` to generate hooks that call the generated client module.

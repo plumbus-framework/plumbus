@@ -89,14 +89,22 @@ Install only when you need the surface. All optional packages are explicit `pnpm
 | `@plumbus/api` | Partner-facing HTTP API contracts (OpenAPI, manifest) |
 | `@plumbus/chat` | Conversational runtime (`defineChat`, policy guards) |
 | `@plumbus/chat-ui` | React hooks + `<ChatPanel />` for `@plumbus/chat` |
-| `@plumbus/voice` | Realtime speech I/O (`defineVoice`, LiveKit worker) |
+| `@plumbus/voice` | Realtime speech I/O (`defineVoice`, routes, websocket transport) |
+| `@plumbus/voice-livekit` | LiveKit transport + agent worker + browser session (peer of voice) |
+| `@plumbus/voice-soniox` | Soniox STT + TTS adapter (peer of voice) |
+| `@plumbus/voice-deepdub` | Deepdub TTS adapter (peer of voice) |
+| `@plumbus/voice-elevenlabs` | ElevenLabs TTS adapter (peer of voice) |
+| `@plumbus/voice-minimax` | MiniMax TTS adapter (peer of voice) |
 | `@plumbus/knowledge-base` | Registry-backed knowledge providers for chat/RAG |
 | `@plumbus/browser-extension` | Dev-time browser extension scaffolder (with `@plumbus/ui`) |
 
 ```bash
 pnpm add @plumbus/chat @plumbus/chat-ui   # example: chat surface
 pnpm add @plumbus/mcp                    # example: MCP agent tools
+pnpm add @plumbus/voice @plumbus/voice-livekit @plumbus/voice-soniox   # example: voice stack
 ```
+
+Voice cloud providers require install **and** explicit `*_REGISTRATION` — see [Upgrading Voice Provider Packages](../upgrading-voice-provider-packages.md).
 
 Peer ranges are version-locked — see [AGENTS.md](../../AGENTS.md) consumer dependency policy.
 

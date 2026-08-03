@@ -20,7 +20,7 @@ interface UiGeneratorModule {
   generateClientModule: (
     capabilities: import('../../types/capability.js').CapabilityContract[],
     flows: FlowTriggerInput[],
-    config?: { baseUrl?: string },
+    config?: { baseUrl?: string; authModuleImport?: string },
   ) => string;
   capabilityClientFnName: (cap: { name: string }) => string;
   flowTriggerFnName: (flow: FlowTriggerInput) => string;
@@ -262,9 +262,14 @@ export function registerBrowserExtensionCommand(program: Command): void {
           ? ui.capabilityClientFnName(sampleSel.capability)
           : undefined;
 
+      // The scaffold's tsconfig uses node16 resolution, which requires explicit
+      // file extensions on relative imports.
       const clientContent =
         CLIENT_HEADER +
-        ui.generateClientModule(resources.capabilities, flows, { baseUrl: apiBaseUrl });
+        ui.generateClientModule(resources.capabilities, flows, {
+          baseUrl: apiBaseUrl,
+          authModuleImport: './auth.js',
+        });
 
       const shellFiles = browserExtension.generateBrowserExtensionScaffold({
         config: {

@@ -130,7 +130,13 @@ export interface ServerConfig {
     defaultProvider?: string;
     promptOverrides?: Record<
       string,
-      { provider?: string; model?: string; temperature?: number; maxTokens?: number }
+      {
+        provider?: string;
+        model?: string;
+        temperature?: number;
+        maxTokens?: number;
+        reasoningEffort?: 'low' | 'medium' | 'high';
+      }
     >;
   }>;
   /**

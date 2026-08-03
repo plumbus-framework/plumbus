@@ -452,6 +452,7 @@ import {
   useCatalogTranslations,
   useFormatter,
 } from "@plumbus/ui/next-intl";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 import type { MessageArgsOf, MessageKeyOf, Namespace } from "./keys";
 import { brandTranslatedText } from "./translated-text";
@@ -516,28 +517,37 @@ export function useTranslations<N extends Namespace>(
 ): TranslationsFor<N> {
   const translator = useCatalogTranslations(namespace);
 
-  function t<K extends MessageKeyOf<N>>(
-    key: K,
-    ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
-  ): TranslatedText {
-    return brandTranslatedText(translator(key, ...args));
-  }
+  // Memoized on the underlying translator so the returned \`t\` keeps a STABLE
+  // identity across re-renders — safe to list in React dependency arrays.
+  // Without this, every render produced a fresh \`t\`; an effect that listed
+  // \`t\` in its deps inside a component re-rendering faster than its timer
+  // period (e.g. a 1s elapsed clock next to a 5s poll interval) was torn
+  // down and recreated on every render, so the interval callback never
+  // fired — a silently frozen UI with nothing in the console.
+  return useMemo(() => {
+    function t<K extends MessageKeyOf<N>>(
+      key: K,
+      ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
+    ): TranslatedText {
+      return brandTranslatedText(translator(key, ...args));
+    }
 
-  t.rich = <K extends MessageKeyOf<N>>(
-    key: K,
-    ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
-  ): ReactNode => translator.rich(key, ...args);
+    t.rich = <K extends MessageKeyOf<N>>(
+      key: K,
+      ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
+    ): ReactNode => translator.rich(key, ...args);
 
-  t.markup = <K extends MessageKeyOf<N>>(
-    key: K,
-    ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
-  ): TranslatedText => brandTranslatedText(translator.markup(key, ...args));
+    t.markup = <K extends MessageKeyOf<N>>(
+      key: K,
+      ...args: TranslateValuesArgs<MessageArgsOf<N, K>>
+    ): TranslatedText => brandTranslatedText(translator.markup(key, ...args));
 
-  t.raw = <K extends MessageKeyOf<N>>(key: K): unknown => translator.raw(key);
+    t.raw = <K extends MessageKeyOf<N>>(key: K): unknown => translator.raw(key);
 
-  t.has = <K extends MessageKeyOf<N>>(key: K): boolean => translator.has(key);
+    t.has = <K extends MessageKeyOf<N>>(key: K): boolean => translator.has(key);
 
-  return t;
+    return t;
+  }, [translator]);
 }
 `;
 }

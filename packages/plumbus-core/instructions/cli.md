@@ -14,6 +14,7 @@ plumbus create <project-name> --monorepo [--auth jwt|auth0|clerk] [--ai openai|a
 # Initialize AI agent wiring (all formats by default; use --agent to narrow)
 plumbus init
 plumbus init --agent copilot
+plumbus init --agent claude   # CLAUDE.md for Claude Code (same body as AGENTS.md)
 
 # Check project health
 plumbus doctor

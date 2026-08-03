@@ -5,11 +5,11 @@ export type VoiceEvent =
   | {
       type: 'session.hello';
       sessionId: string;
-      transport: 'livekit' | 'websocket';
+      transport: string;
       audioFormat: string;
       sttMode: 'client' | 'server';
     }
-  | { type: 'session.ready'; sessionId: string; transport: 'livekit' | 'websocket' }
+  | { type: 'session.ready'; sessionId: string; transport: string }
   | { type: 'stt.partial'; text: string; language?: string; confidence?: number }
   | { type: 'stt.final'; text: string; language?: string; confidence?: number }
   | { type: 'agent.state'; state: AgentState }

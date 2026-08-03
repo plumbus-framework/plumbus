@@ -581,32 +581,68 @@ export function createFlowEngine(config: FlowEngineConfig) {
           logger.debug('flow.heartbeat.tick', payload);
         }
       }
-      const extended = await extendLease(executionId);
-      if (extended) {
-        if (audit) {
-          await audit.record('flow.lease.extended', {
+      let extended: boolean;
+      try {
+        extended = await extendLease(executionId);
+      } catch (err) {
+        // Transient infrastructure failure (DB connection blip, pool
+        // contention under load): the row was not touched, so the lease is
+        // most likely still valid and the next tick simply retries. This
+        // must NOT take the lease-lost path (the step is still healthy) and
+        // must NOT escape the interval callback — an async setInterval
+        // callback has no awaiter, so a throw here surfaces as a
+        // process-level unhandled rejection.
+        if (logger) {
+          logger.warn('flow.heartbeat.extend_failed', {
             executionId,
-            flowName: row.flowName,
             workerId,
             step: currentStepName,
+            tick,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
-      } else {
-        leaseLost = true;
-        if (!stepAc.signal.aborted) {
-          stepAc.abort(
-            new LeaseLostError(
-              `Lease lost for flow execution "${executionId}" (worker: ${workerId})`,
-              { executionId, workerId, step: currentStepName },
-            ),
-          );
+        return;
+      }
+      try {
+        if (extended) {
+          if (audit) {
+            await audit.record('flow.lease.extended', {
+              executionId,
+              flowName: row.flowName,
+              workerId,
+              step: currentStepName,
+            });
+          }
+        } else {
+          leaseLost = true;
+          if (!stepAc.signal.aborted) {
+            stepAc.abort(
+              new LeaseLostError(
+                `Lease lost for flow execution "${executionId}" (worker: ${workerId})`,
+                { executionId, workerId, step: currentStepName },
+              ),
+            );
+          }
+          if (audit) {
+            await audit.record('flow.lease.lost', {
+              executionId,
+              flowName: row.flowName,
+              workerId,
+              step: currentStepName,
+            });
+          }
         }
-        if (audit) {
-          await audit.record('flow.lease.lost', {
+      } catch (err) {
+        // Audit sinks are best-effort; never let their failures escape the
+        // interval callback. The abort above has already happened when the
+        // lease was genuinely lost.
+        if (logger) {
+          logger.warn('flow.heartbeat.audit_failed', {
             executionId,
-            flowName: row.flowName,
             workerId,
             step: currentStepName,
+            tick,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
       }

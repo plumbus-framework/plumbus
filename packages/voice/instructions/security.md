@@ -14,6 +14,7 @@ Read this before exposing any voice routes.
 - **S8:** Never log raw transcripts or raw audio payloads.
 - **S9:** Guard catalog routes behind admin access.
 - **S10:** If a voice session is ephemeral/client-derived, document that any caps derived from the client are advisory.
+- **Clone HTTP:** ownership on every per-id route; `listOwnedClones` only for list; create-persist rollback; stricter `referenceAccess` for synthesize-reference. See [`voice-cloning.md`](./voice-cloning.md).
 
 ## Do's
 

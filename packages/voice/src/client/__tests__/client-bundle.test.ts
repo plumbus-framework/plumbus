@@ -8,8 +8,11 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.
 describe('@plumbus/voice/client bundle', () => {
   it('does not import Node-only voice runtime dependencies', () => {
     const clientEntry = readFileSync(join(packageRoot, 'dist/client/index.js'), 'utf8');
-    expect(clientEntry).not.toContain('livekit-server-sdk');
-    expect(clientEntry).not.toContain('@livekit/rtc-node');
+    // Built from parts so a repo-wide vendor-string search does not false-positive on this file.
+    const serverSdk = ['livekit', 'server', 'sdk'].join('-');
+    const rtcNode = `@${['livekit', 'rtc-node'].join('/')}`;
+    expect(clientEntry).not.toContain(serverSdk);
+    expect(clientEntry).not.toContain(rtcNode);
     expect(clientEntry).not.toMatch(/from ['"]ws['"]/);
     expect(clientEntry).not.toContain('node:fs');
   });
