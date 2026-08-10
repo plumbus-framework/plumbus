@@ -52,7 +52,7 @@ Plumbus already has typed capability contracts. This package projects them into 
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked `0.1.x`; requires `@plumbus/core` `0.5.x`). Implements manifest validation, route registration, OpenAPI/docs generation, compatibility diff, test intent, and idempotency. OAuth gateways, rate limiting, and durable idempotency stores are app-owned — see [Key gotchas](#key-gotchas).
+Optional peer of `@plumbus/core` (version-locked `0.1.x`; declared peer `@plumbus/core` `0.5.x || 0.6.x`). **Runtime floor:** 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (imports `buildAuthenticationRequest` for session auth on partner routes). Implements manifest validation, route registration, OpenAPI/docs generation, compatibility diff, test intent, and idempotency. OAuth gateways, rate limiting, and durable idempotency stores are app-owned — see [Key gotchas](#key-gotchas).
 
 ## Install
 
@@ -69,7 +69,7 @@ plumbus doctor                           # confirms wiring is current
 
 `@plumbus/core` works without `@plumbus/api` — default convention routes and `plumbus generate` still run. Install this package when you want a **published partner API** with manifest validation, OpenAPI export, and `registerApiRoutes()`. `plumbus api validate` prints an install hint when the package is missing.
 
-Peer: `@plumbus/core` `0.5.x`. The framework provides Zod and Vitest transitively — do not add them to your own `package.json` for API work.
+Peer: `@plumbus/core` `0.5.x || 0.6.x` (**runtime floor ≥ 0.6.9** as of `@plumbus/api` 0.1.4). The framework provides Zod and Vitest transitively — do not add them to your own `package.json` for API work.
 
 ## Quick start
 
@@ -149,7 +149,8 @@ Governance signals from `plumbus api validate` are advisory unless `--fail-on-go
 partner HTTP request
        │
        ▼
- authAdapter.authenticate(credentials)     ← same adapter as convention routes
+ requestAuthenticator (when set)           ← cookie session + optional Bearer
+   or authAdapter.authenticate(Bearer)     ← JWT-only legacy path
        │
        ▼
  scope check (api.auth.scopes)             ← missing scope → 403 missing_scope
@@ -164,6 +165,8 @@ partner HTTP request
        ▼
  { ok: true, data } | { ok: false, error }  ← partner envelope
 ```
+
+When `createServer({ authenticationRuntime })` wires `@plumbus/auth`, partner routes receive the same composite `requestAuthenticator` as convention routes: browser clients use the session cookie (and CSRF on mutations); machine clients use Bearer. Session-bound `tenantId` maps into `ctx.auth.tenantId` for `tenantScoped` capabilities.
 
 Convention routes (`/api/{domain}/{kebab-name}`) continue to exist unless you choose not to register them. Partner routes use manifest `basePath` + per-operation `path`.
 

@@ -42,6 +42,10 @@ describe('generateApiDocs', () => {
     expect(files.has('authentication.md')).toBe(true);
     expect(files.has('endpoints/getRefund.md')).toBe(true);
     expect(files.get('endpoints/getRefund.md')).toContain('Get refund');
+    const endpointDoc = files.get('endpoints/getRefund.md') ?? '';
+    expect(endpointDoc).toContain('`csrf_failed`');
+    expect(endpointDoc).toContain('`authentication_unavailable`');
+    expect(endpointDoc).toContain('`missing_scope`');
   });
 
   it('defaults idempotency header name in docs when omitted', () => {

@@ -103,6 +103,68 @@ describe('auth integration', () => {
     expect(logoutRes.json().loggedOut).toBe(true);
   });
 
+  it('authenticator captured before initialize() resolves live sessions after init', async () => {
+    const runtime = createAuthRuntime({
+      applicationId: 'app1',
+      externalBaseUrl,
+      applicationBaseUrl: 'http://127.0.0.1:5173',
+      defaultReturnPath: '/',
+      errorPath: '/login/error',
+      environment: 'development',
+      session: { ttl: '1h' },
+      providers: {
+        test: {
+          type: 'oidc',
+          issuer: fake.issuer,
+          clientId: 'test-client',
+          clientSecret: 'test-secret',
+          scopes: ['openid'],
+          discoverable: true,
+          display: { label: 'Test' },
+        },
+      },
+      sessionStore: createMemorySessionStore(),
+      transactionStore: createMemoryLoginTransactionStore(),
+      storageProtection: { activeKey: { id: 'k1', value: TEST_KEY } },
+      resolveIdentity: async () => ({ status: 'admitted', userId: 'user-1' }),
+      resolveAuthorization: async () => ({ status: 'authorized', roles: ['user'], scopes: [] }),
+      deployment: { assumeSameSite: true },
+    });
+
+    // Capture before initialize — mirrors createServer capturing routeConfig at bootstrap.
+    const captured = runtime.authenticator;
+
+    const early = await captured.authenticate({ cookies: {}, method: 'GET', path: '/x' });
+    expect(early.status).toBe('anonymous');
+
+    const preInitApp = Fastify();
+    await runtime.initialize();
+    runtime.registerRoutes(preInitApp);
+    await preInitApp.ready();
+
+    const loginRes = await preInitApp.inject({ method: 'GET', url: '/auth/login/test' });
+    const binding = loginRes.headers['set-cookie'] ?? '';
+    const providerRes = await fetch(loginRes.headers.location ?? '', { redirect: 'manual' });
+    const callbackLocation = new URL(providerRes.headers.get('location') ?? '');
+    const callbackRes = await preInitApp.inject({
+      method: 'GET',
+      url: `${callbackLocation.pathname}${callbackLocation.search}`,
+      headers: { cookie: binding },
+    });
+    const sessionCookie = String(callbackRes.headers['set-cookie'] ?? '').split(';')[0] ?? '';
+
+    const cookieHeader = sessionCookie.split('=');
+    const after = await captured.authenticate({
+      cookies: { [cookieHeader[0] ?? '']: cookieHeader[1] ?? '' },
+      method: 'GET',
+      path: '/x',
+    });
+    expect(after.status).toBe('authenticated');
+
+    await preInitApp.close();
+    await runtime.close?.();
+  });
+
   it('POST logout without CSRF returns 403 for live session', async () => {
     const loginRes = await app.inject({ method: 'GET', url: '/auth/login/test' });
     const binding = loginRes.headers['set-cookie'] ?? '';

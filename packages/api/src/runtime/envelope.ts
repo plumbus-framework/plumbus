@@ -4,6 +4,7 @@ export type ApiErrorCode =
   | 'validation_failed'
   | 'unauthenticated'
   | 'forbidden'
+  | 'csrf_failed'
   | 'missing_scope'
   | 'tenant_boundary_violation'
   | 'not_found'
@@ -13,6 +14,7 @@ export type ApiErrorCode =
   | 'test_intent_not_supported'
   | 'test_scenario_not_found'
   | 'business_rule_failed'
+  | 'authentication_unavailable'
   | 'internal_error';
 
 export interface ApiSuccessEnvelope<T = unknown> {
@@ -56,6 +58,7 @@ const statusMap: Record<ApiErrorCode, number> = {
   validation_failed: 400,
   unauthenticated: 401,
   forbidden: 403,
+  csrf_failed: 403,
   missing_scope: 403,
   tenant_boundary_violation: 403,
   not_found: 404,
@@ -65,6 +68,7 @@ const statusMap: Record<ApiErrorCode, number> = {
   test_intent_not_supported: 400,
   test_scenario_not_found: 400,
   business_rule_failed: 422,
+  authentication_unavailable: 503,
   internal_error: 500,
 };
 
@@ -121,6 +125,42 @@ export function mapUnauthenticated(
       error: {
         code: 'unauthenticated',
         message: 'Authentication required',
+        requestId,
+      },
+      meta: { apiVersion },
+    },
+  };
+}
+
+export function mapCsrfFailed(
+  requestId: string,
+  apiVersion: string,
+): { status: number; body: ApiErrorEnvelope } {
+  return {
+    status: statusMap.csrf_failed,
+    body: {
+      ok: false,
+      error: {
+        code: 'csrf_failed',
+        message: 'CSRF validation failed',
+        requestId,
+      },
+      meta: { apiVersion },
+    },
+  };
+}
+
+export function mapAuthenticationUnavailable(
+  requestId: string,
+  apiVersion: string,
+): { status: number; body: ApiErrorEnvelope } {
+  return {
+    status: statusMap.authentication_unavailable,
+    body: {
+      ok: false,
+      error: {
+        code: 'authentication_unavailable',
+        message: 'Authentication temporarily unavailable',
         requestId,
       },
       meta: { apiVersion },

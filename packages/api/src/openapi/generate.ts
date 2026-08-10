@@ -206,6 +206,7 @@ export function generateOpenApi(
         '404': errorResponseRef(),
         '409': errorResponseRef(),
         '500': errorResponseRef(),
+        '503': errorResponseRef(),
       },
     };
 

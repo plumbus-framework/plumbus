@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply } from 'fastify';
 
 export interface FakeOidcProviderOptions {
   wrongIssuer?: boolean;
@@ -22,6 +22,17 @@ export interface FakeOidcProvider {
   issueCodeFor(claims: Record<string, unknown>): string;
 }
 
+type CodeEntry = { sub: string; nonce: string };
+type AccessTokenEntry = { sub: string };
+
+function pickFakeSub(params: Record<string, unknown> | undefined, fallback: string): string {
+  const fromParams = params?.fake_sub;
+  if (typeof fromParams === 'string' && fromParams.length > 0) {
+    return fromParams;
+  }
+  return fallback;
+}
+
 export async function startFakeOidcProvider(
   opts: FakeOidcProviderOptions = {},
 ): Promise<FakeOidcProvider> {
@@ -32,7 +43,9 @@ export async function startFakeOidcProvider(
   jwk.alg = 'RS256';
 
   let lastAuthorizeParams: Record<string, string> | null = null;
-  const codes = new Map<string, { sub: string; nonce: string }>();
+  const codes = new Map<string, CodeEntry>();
+  const accessTokens = new Map<string, AccessTokenEntry>();
+  const defaultSub = opts.subOverride ?? 'test-subject';
   const issuerPath = opts.wrongIssuer ? '/wrong' : '';
   const app = Fastify({ logger: false });
   app.addContentTypeParser(
@@ -67,28 +80,42 @@ export async function startFakeOidcProvider(
 
   app.get('/jwks', async () => ({ keys: [jwk] }));
 
-  app.get('/authorize', async (req, reply) => {
+  async function completeAuthorize(
+    params: Record<string, string>,
+    reply: FastifyReply,
+  ): Promise<void> {
     if (opts.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, opts.delayMs));
     }
     if (opts.errorOnAuthorize) {
-      const redirectUri = String((req.query as { redirect_uri?: string }).redirect_uri ?? '');
+      const redirectUri = String(params.redirect_uri ?? '');
       const url = new URL(redirectUri);
       url.searchParams.set('error', opts.errorOnAuthorize);
-      url.searchParams.set('state', String((req.query as { state?: string }).state ?? ''));
-      return reply.redirect(url.toString());
+      url.searchParams.set('state', String(params.state ?? ''));
+      await reply.redirect(url.toString());
+      return;
     }
-    const query = req.query as Record<string, string>;
-    lastAuthorizeParams = { ...query };
+    lastAuthorizeParams = { ...params };
     const code = randomBytes(16).toString('hex');
     codes.set(code, {
-      sub: opts.subOverride ?? 'test-subject',
-      nonce: opts.nonceOverride ?? query.nonce ?? '',
+      sub: pickFakeSub(params, defaultSub),
+      nonce: opts.nonceOverride ?? params.nonce ?? '',
     });
-    const redirect = new URL(query.redirect_uri ?? '');
+    const redirect = new URL(params.redirect_uri ?? '');
     redirect.searchParams.set('code', code);
-    redirect.searchParams.set('state', query.state ?? '');
-    return reply.redirect(redirect.toString());
+    redirect.searchParams.set('state', params.state ?? '');
+    await reply.redirect(redirect.toString());
+  }
+
+  app.get('/authorize', async (req, reply) => {
+    const query = req.query as Record<string, string>;
+    await completeAuthorize(query, reply);
+  });
+
+  app.post('/authorize', async (req, reply) => {
+    const query = (req.query ?? {}) as Record<string, string>;
+    const body = (req.body ?? {}) as Record<string, string>;
+    await completeAuthorize({ ...query, ...body }, reply);
   });
 
   app.post('/token', async (req, reply) => {
@@ -127,16 +154,35 @@ export async function startFakeOidcProvider(
     const signature = sign('RSA-SHA256', Buffer.from(signingInput), signingKey).toString(
       'base64url',
     );
+    const accessToken = randomBytes(16).toString('hex');
+    accessTokens.set(accessToken, { sub: entry.sub });
     return {
-      access_token: randomBytes(16).toString('hex'),
+      access_token: accessToken,
       token_type: 'Bearer',
       id_token: `${signingInput}.${signature}`,
     };
   });
 
-  app.get('/userinfo', async () => {
+  app.get('/userinfo', async (req) => {
+    if (opts.userinfoSubOverride) {
+      return {
+        sub: opts.userinfoSubOverride,
+        email: 'user@example.com',
+      };
+    }
+
+    const authorization = req.headers.authorization;
+    let sub = defaultSub;
+    if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
+      const token = authorization.slice('Bearer '.length).trim();
+      const entry = accessTokens.get(token);
+      if (entry) {
+        sub = entry.sub;
+      }
+    }
+
     return {
-      sub: opts.userinfoSubOverride ?? opts.subOverride ?? 'test-subject',
+      sub,
       email: 'user@example.com',
     };
   });
@@ -155,7 +201,7 @@ export async function startFakeOidcProvider(
     issueCodeFor(claims) {
       const code = randomBytes(16).toString('hex');
       codes.set(code, {
-        sub: String(claims.sub ?? 'test-subject'),
+        sub: String(claims.sub ?? defaultSub),
         nonce: String(claims.nonce ?? ''),
       });
       return code;

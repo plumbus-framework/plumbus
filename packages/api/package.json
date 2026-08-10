@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/api",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Plumbus external API contract layer — partner-grade API exposure, OpenAPI, docs, and test intent",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.4 — 2026-08-10 — partner routes honor session auth
+
+**Runtime floor: `@plumbus/core` ≥ 0.6.9.** This release imports `buildAuthenticationRequest` from `@plumbus/core`, which first shipped in core **0.6.9**. On older cores the package fails to load. Declared peer stays `0.5.x || 0.6.x`; the floor applies at runtime.
+
+### Fixed
+
+- **`registerApiRoutes` honors `requestAuthenticator`** — partner `/api/v1/*` routes now use the same cookie-session / composite authenticator path as convention routes when `createServer({ authenticationRuntime })` (or an explicit `RouteGeneratorConfig.requestAuthenticator`) is configured. Browser clients no longer need a partner JWT solely to call API-exposed capabilities; Bearer `authAdapter` remains for machine callers. Session principals map into `ctx.auth` (including `tenantId` when present). New partner error codes: `csrf_failed` (403), `authentication_unavailable` (503).
+- **Per-request anonymous auth context** — anonymous partner requests no longer share one `AuthContext` object (and its `roles`/`scopes` arrays) across requests.
+
+### Docs
+
+- Document browser cookie session vs machine JWT on the partner surface (`docs/api/exposure-model.md`, overview lifecycle, README request flow).
+- Generated per-operation docs list `csrf_failed`, `missing_scope`, and `authentication_unavailable` in the Errors table.
+
 ## 0.1.3
 
 ### Added

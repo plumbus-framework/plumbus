@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2 — 2026-08-10 — fake OIDC per-request subjects
+
+### Fixed
+
+- **`authenticator` is now stable across `initialize()`.** `createAuthRuntime` previously returned a getter that resolved to the live session authenticator only after `initialize()`, but `createServer({ authenticationRuntime })` captures `routeConfig.requestAuthenticator` synchronously at bootstrap — before the auth plugin calls `initialize()`. Apps following the documented wiring therefore got the pre-init anonymous stub, and cookie sessions never authenticated partner (or convention) routes. The runtime now exposes a single delegating authenticator that resolves the live session authenticator at request time, so a `authenticator` reference captured before `initialize()` authenticates sessions correctly once initialized. Regression-tested in `src/__tests__/integration.test.ts`.
+
+### Added
+
+- **Fake OIDC `fake_sub`** — `startFakeOidcProvider` accepts a per-request subject via `fake_sub` on `GET`/`POST /authorize` (query or form body), falling back to startup `subOverride` / `test-subject`. Access tokens are bound to that subject so `/userinfo` returns the matching `sub` (unless `userinfoSubOverride` is set for mismatch tests).
+- **Partner API session smoke (example)** — [`examples/auth-partner-api-session-smoke`](../../examples/auth-partner-api-session-smoke/) covers cookie session → `@plumbus/api` partner routes with `tenantId` mapping and Bearer coexistence (outside the workspace graph). The example captures `runtime.authenticator` before `initialize()` to mirror the real `createServer` wiring.
+
 ## 0.1.1 — 2026-07-26 — login application context
 
 ### Added
