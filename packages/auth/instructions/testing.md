@@ -6,10 +6,14 @@
 import { startFakeOidcProvider } from "@plumbus/auth/testing";
 
 const fake = await startFakeOidcProvider();
-// fake.issuer, fake.clientId, fake.clientSecret
+// fake.issuer
+
+// Multi-user: append fake_sub before following the authorize redirect
+const authorizeUrl = new URL(loginLocation);
+authorizeUrl.searchParams.set("fake_sub", "user-b");
 ```
 
-Point provider registration at `fake.issuer`. Tear down in `afterAll`.
+Point provider registration at `fake.issuer`. Tear down in `afterAll`. Prefer `fake_sub` (query or POST body) over restarting the provider when a test needs a different subject.
 
 ## Memory stores + assumeSameSite
 

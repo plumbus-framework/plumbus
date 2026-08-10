@@ -1,4 +1,9 @@
-import type { AuthAdapter, AuditWriter, HttpAuthenticationRuntime } from '@plumbus/core';
+import type {
+  AuthAdapter,
+  AuditWriter,
+  HttpAuthenticationRuntime,
+  RequestAuthenticator,
+} from '@plumbus/core';
 import { createCompositeRequestAuthenticator } from '@plumbus/core';
 import type { FastifyInstance } from 'fastify';
 import { assertSameSiteDeployment } from '../config/same-site.js';
@@ -48,19 +53,26 @@ export function createAuthRuntime(
   let sessions: ReturnType<typeof createSessionManager> | undefined;
   let loginFlow: ReturnType<typeof createLoginFlow> | undefined;
 
-  let authenticator = createCompositeRequestAuthenticator({
-    bearer: opts?.bearer,
-    session: {
-      async authenticate() {
-        return { status: 'anonymous' };
-      },
+  // Delegate to the live session authenticator at request time. `createServer`
+  // captures `authenticator` synchronously, before `initialize()` runs, so the
+  // exposed authenticator must not be a snapshot of the pre-init stub.
+  const authenticator: RequestAuthenticator = {
+    authenticate(request) {
+      const session = sessions ? createSessionAuthenticator(sessions, clock) : undefined;
+      const delegate = createCompositeRequestAuthenticator({
+        bearer: opts?.bearer,
+        session: session ?? {
+          async authenticate() {
+            return { status: 'anonymous' };
+          },
+        },
+      });
+      return delegate.authenticate(request);
     },
-  });
+  };
 
   return {
-    get authenticator() {
-      return authenticator;
-    },
+    authenticator,
 
     async initialize() {
       protection = await createStorageProtection(normalized.storageProtection, {
@@ -130,11 +142,6 @@ export function createAuthRuntime(
         void normalized.transactionStore.deleteExpired(now);
       }, 60_000);
       sweepTimer.unref?.();
-
-      authenticator = createCompositeRequestAuthenticator({
-        bearer: opts?.bearer,
-        session: createSessionAuthenticator(sessions, clock),
-      });
     },
 
     registerRoutes(app: FastifyInstance) {

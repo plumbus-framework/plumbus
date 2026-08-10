@@ -1089,3 +1089,301 @@ describe('registerApiRoutes', () => {
     expect(callCount).toBe(1);
   });
 });
+
+describe('registerApiRoutes requestAuthenticator', () => {
+  let app: ReturnType<typeof Fastify>;
+
+  afterEach(async () => {
+    if (app) {
+      await app.close();
+    }
+  });
+
+  function buildSessionRouteConfig(
+    authenticator: NonNullable<RouteGeneratorConfig['requestAuthenticator']>,
+    authAdapter = {
+      authenticate: async () => {
+        throw new Error('authAdapter should not be called when requestAuthenticator is set');
+      },
+    },
+  ): RouteGeneratorConfig {
+    return {
+      db: {} as RouteGeneratorConfig['db'],
+      authAdapter,
+      requestAuthenticator: authenticator,
+      createDependencies: (auth) => ({
+        auth,
+        data: {} as never,
+        events: mockEvents(),
+        flows: mockFlows(),
+        ai: mockAI(),
+        audit: mockAudit(),
+        logger: mockLogger(),
+        config: {},
+      }),
+    };
+  }
+
+  async function mountGetRefund(routeConfig: RouteGeneratorConfig) {
+    const getRefund = defineCapability({
+      name: 'getRefund',
+      kind: 'query',
+      domain: 'billing',
+      input: z.object({ refundId: z.string() }),
+      output: z.object({
+        refundId: z.string(),
+        userId: z.string().optional(),
+        tenantId: z.string().optional(),
+      }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'], scopes: ['refunds:read'], tenantScoped: true },
+      exposeAs: ['api'],
+      api: {
+        operationId: 'getRefund',
+        method: 'GET',
+        path: '/refunds/{refundId}',
+      },
+      handler: async (ctx, input) => ({
+        refundId: input.refundId,
+        userId: ctx.auth.userId,
+        tenantId: ctx.auth.tenantId,
+      }),
+    });
+
+    app = Fastify();
+    registerApiRoutes(app, routeConfig, [getRefund], {
+      manifest: {
+        apiVersion: 'plumbus.dev/v1',
+        name: 'test-api',
+        basePath: '/api/v1',
+        expose: [
+          {
+            capability: 'billing.getRefund',
+            operationId: 'getRefund',
+            method: 'GET',
+            path: '/refunds/{refundId}',
+          },
+        ],
+      },
+    });
+    await app.ready();
+  }
+
+  it('authenticates cookie session via requestAuthenticator into ctx.auth', async () => {
+    await mountGetRefund(
+      buildSessionRouteConfig({
+        authenticate: async () => ({
+          status: 'authenticated',
+          auth: createTestAuth({
+            userId: 'session-user',
+            roles: ['admin'],
+            scopes: ['refunds:read'],
+            tenantId: 'tenant-42',
+            provider: 'oidc',
+          }),
+        }),
+      }),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { cookie: 'session=abc', 'x-csrf-token': 'csrf' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual({
+      refundId: 'r1',
+      userId: 'session-user',
+      tenantId: 'tenant-42',
+    });
+  });
+
+  it('returns 401 unauthenticated for anonymous session on protected partner route', async () => {
+    await mountGetRefund(
+      buildSessionRouteConfig({
+        authenticate: async () => ({ status: 'anonymous' }),
+      }),
+    );
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/refunds/r1' });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe('unauthenticated');
+  });
+
+  it('returns 403 csrf_failed from requestAuthenticator', async () => {
+    await mountGetRefund(
+      buildSessionRouteConfig({
+        authenticate: async () => ({ status: 'invalid', code: 'csrf_failed' }),
+      }),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { cookie: 'session=abc' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('csrf_failed');
+  });
+
+  it('returns 503 authentication_unavailable from requestAuthenticator', async () => {
+    await mountGetRefund(
+      buildSessionRouteConfig({
+        authenticate: async () => ({
+          status: 'unavailable',
+          code: 'authentication_unavailable',
+        }),
+      }),
+    );
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/refunds/r1' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('authentication_unavailable');
+  });
+
+  it('keeps JWT authAdapter path when requestAuthenticator is undefined', async () => {
+    await mountGetRefund(buildRouteConfig());
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { authorization: 'Bearer test' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+  });
+
+  it('does not share anonymous auth arrays across public requests', async () => {
+    const seen: Array<{ auth: { roles: string[] }; rolesAtEntry: string[] }> = [];
+    const publicCap = defineCapability({
+      name: 'ping',
+      kind: 'query',
+      domain: 'billing',
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { public: true },
+      exposeAs: ['api'],
+      api: { operationId: 'ping', method: 'GET', path: '/ping' },
+      handler: async (ctx) => {
+        seen.push({ auth: ctx.auth, rolesAtEntry: [...ctx.auth.roles] });
+        ctx.auth.roles.push('mutated');
+        return { ok: true };
+      },
+    });
+
+    app = Fastify();
+    registerApiRoutes(
+      app,
+      buildSessionRouteConfig({
+        authenticate: async () => ({ status: 'anonymous' }),
+      }),
+      [publicCap],
+      {
+        manifest: {
+          apiVersion: 'plumbus.dev/v1',
+          name: 'test-api',
+          basePath: '/api/v1',
+          expose: [
+            {
+              capability: 'billing.ping',
+              operationId: 'ping',
+              method: 'GET',
+              path: '/ping',
+            },
+          ],
+        },
+      },
+    );
+    await app.ready();
+
+    const first = await app.inject({ method: 'GET', url: '/api/v1/ping' });
+    const second = await app.inject({ method: 'GET', url: '/api/v1/ping' });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]?.auth).not.toBe(seen[1]?.auth);
+    expect(seen[0]?.rolesAtEntry).toEqual([]);
+    expect(seen[1]?.rolesAtEntry).toEqual([]);
+    expect(seen[0]?.auth.roles).toEqual(['mutated']);
+  });
+
+  it('returns 401 for invalid bearer under requestAuthenticator (Bearer fails closed)', async () => {
+    await mountGetRefund(
+      buildSessionRouteConfig({
+        authenticate: async () => ({ status: 'invalid', code: 'invalid_authorization' }),
+      }),
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { authorization: 'Bearer bad-token' },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe('unauthenticated');
+  });
+
+  it('sets Set-Cookie clear header on anonymous result that carries clearCookieHeader', async () => {
+    await mountGetRefund(
+      buildSessionRouteConfig({
+        authenticate: async () => ({
+          status: 'anonymous',
+          clearCookieHeader: 'plumbus_session=; HttpOnly; Path=/; Max-Age=0',
+        }),
+      }),
+    );
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/refunds/r1' });
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['set-cookie']).toBe('plumbus_session=; HttpOnly; Path=/; Max-Age=0');
+  });
+
+  it('public route with requestAuthenticator returning invalid credentials returns 401', async () => {
+    const publicCap = defineCapability({
+      name: 'ping',
+      kind: 'query',
+      domain: 'billing',
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { public: true },
+      exposeAs: ['api'],
+      api: { operationId: 'ping', method: 'GET', path: '/ping' },
+      handler: async () => ({ ok: true }),
+    });
+
+    app = Fastify();
+    registerApiRoutes(
+      app,
+      buildSessionRouteConfig({
+        authenticate: async () => ({ status: 'invalid', code: 'invalid_authorization' }),
+      }),
+      [publicCap],
+      {
+        manifest: {
+          apiVersion: 'plumbus.dev/v1',
+          name: 'test-api',
+          basePath: '/api/v1',
+          expose: [
+            {
+              capability: 'billing.ping',
+              operationId: 'ping',
+              method: 'GET',
+              path: '/ping',
+            },
+          ],
+        },
+      },
+    );
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/ping',
+      headers: { authorization: 'Bearer bad-token' },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe('unauthenticated');
+  });
+});

@@ -117,16 +117,33 @@ When `./api.yaml` is missing, `buildDefaultManifest()` synthesizes a manifest fr
 
 ## HTTP auth semantics
 
-Partner routes use the same `authAdapter` as convention routes. The runtime distinguishes three outcomes:
+Partner routes use the same `RouteGeneratorConfig` as convention routes. When `createServer({ authenticationRuntime })` is configured, `requestAuthenticator` is set and partner routes honor it — including `@plumbus/auth` cookie sessions. Without `requestAuthenticator`, the runtime falls back to JWT `authAdapter` only.
+
+> **Runtime floor:** session auth on partner routes requires `@plumbus/core` **≥ 0.6.9** (it imports `buildAuthenticationRequest`, added in core 0.6.9). `@plumbus/api` 0.1.4 fails to load on older cores.
+
+### Browser cookie session vs machine JWT
+
+| Client | How it authenticates | How `ctx.auth` is populated |
+|---|---|---|
+| First-party browser (SPA) | Session cookie from `@plumbus/auth` (`/auth/*`), plus `X-CSRF-Token` + matching `Origin` on mutating methods | Session principal → `userId`, roles, scopes, and `tenantId` when `resolveAuthorization` (or session binding) provides it |
+| Machine / BFF / partner | `Authorization: Bearer …` via `authAdapter` (or composite bearer when `createAuthRuntime(config, { bearer })` is used) | JWT / adapter claims → same `AuthContext` shape |
+
+Bearer wins over cookie when both are present (`createCompositeRequestAuthenticator`). Apps do **not** need to mint a partner JWT for first-party browser callers once `authenticationRuntime` is wired through `createServer` / `registerApiRoutes`.
+
+Session-bound `tenantId` becomes `ctx.auth.tenantId` for `tenantScoped` entities the same way JWT `tenant_id` claims do on the adapter path. Product-specific tenant selection stays in `@plumbus/auth` resolvers; partner routes only map the authenticated principal into `ctx.auth`.
+
+### Outcomes
 
 | Situation | HTTP status | Error code |
 |---|---|---|
-| Missing `Authorization` on a non-public endpoint | 401 | `unauthenticated` |
-| `Authorization` present but adapter returns `null` | 401 | `unauthenticated` |
+| Missing credentials on a non-public endpoint (no Bearer, no valid session) | 401 | `unauthenticated` |
+| `Authorization` present but adapter / bearer auth fails | 401 | `unauthenticated` |
+| Session present but CSRF / Origin check fails (mutating methods) | 403 | `csrf_failed` |
+| Authentication backend temporarily unavailable | 503 | `authentication_unavailable` |
 | Authenticated but `evaluateAccess` denies | 403 | `forbidden` |
 | Authenticated but missing required scope | 403 | `missing_scope` |
 
-Public capabilities (`access.public: true`) allow anonymous access when no auth header is sent. If a caller **does** send a header, it must still authenticate successfully.
+Public capabilities (`access.public: true`) allow anonymous access when no credentials are sent. If a caller **does** send `Authorization`, it must still authenticate successfully. Stale session cookies may be cleared via `Set-Cookie` when the authenticator returns `anonymous` with a clear header.
 
 ---
 

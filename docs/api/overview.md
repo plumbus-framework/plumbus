@@ -81,7 +81,7 @@ pnpm add @plumbus/api
 
 `@plumbus/core` works without `@plumbus/api`. Install this package when you want a published partner API. `plumbus api validate` prints an install hint when the package is missing.
 
-Peer dependency: `@plumbus/core` `0.5.x || 0.6.x` (version-locked `0.1.x` for `@plumbus/api`). Zod and Vitest are provided transitively by core — do not add them to your app's `package.json` for API work.
+Peer dependency: `@plumbus/core` `0.5.x || 0.6.x` (version-locked `0.1.x` for `@plumbus/api`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`). Zod and Vitest are provided transitively by core — do not add them to your app's `package.json` for API work.
 
 Current `plumbus init` wiring already references `@plumbus/api/instructions/*`; installing the package makes those paths resolvable. If your project's agent files predate the current template, refresh them after install:
 
@@ -173,15 +173,19 @@ Every partner HTTP request follows a fixed pipeline. Understanding the order hel
 
 ```mermaid
 sequenceDiagram
-  participant C as Partner client
+  participant C as Partner or browser client
   participant R as registerApiRoutes
-  participant A as authAdapter
+  participant A as requestAuthenticator / authAdapter
   participant E as executeCapability
 
-  C->>R: HTTP request
-  R->>A: authenticate(Authorization)
+  C->>R: HTTP request (cookie and/or Bearer)
+  R->>A: authenticate (session composite or JWT adapter)
   alt missing/invalid auth (non-public)
     R-->>C: 401 unauthenticated
+  else csrf failed
+    R-->>C: 403 csrf_failed
+  else auth unavailable
+    R-->>C: 503 authentication_unavailable
   end
   R->>R: tenant boundary guard (policy)
   alt forbidden tenant param in path/query/body
@@ -214,7 +218,7 @@ sequenceDiagram
 
 Key points:
 
-- **Auth first** — missing or invalid credentials on non-public endpoints return `401` before scopes or access are checked.
+- **Auth first** — missing or invalid credentials on non-public endpoints return `401` before scopes or access are checked. Cookie sessions from `@plumbus/auth` are accepted when `requestAuthenticator` is configured (via `createServer({ authenticationRuntime })`); machine callers continue to use Bearer JWT.
 - **Scopes before access** — OAuth-style scope checks run before `evaluateAccess` (roles, tenant).
 - **Test intent short-circuits** — when `X-Plumbus-Intent: test` is present and the endpoint supports it, the handler never runs.
 - **Idempotency wraps execution** — required idempotency demands an identifiable principal; anonymous callers get `401` before the store is consulted.

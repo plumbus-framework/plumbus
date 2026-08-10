@@ -1,8 +1,10 @@
 import {
+  buildAuthenticationRequest,
   createExecutionContext,
   evaluateAccess,
   executeCapability,
   isApiExposed,
+  type AuthContext,
   type CapabilityContract,
   type RouteGeneratorConfig,
 } from '@plumbus/core';
@@ -19,12 +21,15 @@ import { resolveExposure } from '../manifest/resolve.js';
 import type { ApiManifest, ApiManifestEntry } from '../manifest/types.js';
 import {
   buildSuccessEnvelope,
+  mapAuthenticationUnavailable,
   mapCoreError,
+  mapCsrfFailed,
   mapMissingScope,
   mapTenantBoundaryViolation,
   mapUnauthenticated,
   mapUnknownError,
   toPlumbusErrorLike,
+  type ApiErrorEnvelope,
 } from './envelope.js';
 import {
   buildIdempotencyStoreKey,
@@ -93,6 +98,76 @@ function registerMethod(
   }
 }
 
+function anonymousAuth(): AuthContext {
+  return {
+    userId: undefined,
+    roles: [],
+    scopes: [],
+    provider: 'anonymous',
+  };
+}
+
+async function resolvePartnerAuth(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  routeConfig: RouteGeneratorConfig,
+  isPublic: boolean,
+  requestId: string,
+  apiVersion: string,
+): Promise<
+  { ok: true; auth: AuthContext } | { ok: false; status: number; body: ApiErrorEnvelope }
+> {
+  if (!routeConfig.requestAuthenticator) {
+    const authHeader = request.headers.authorization;
+    const hasAuthHeader = typeof authHeader === 'string' && authHeader.length > 0;
+
+    let auth: Awaited<ReturnType<RouteGeneratorConfig['authAdapter']['authenticate']>>;
+    try {
+      auth = await routeConfig.authAdapter.authenticate(authHeader);
+    } catch {
+      return { ok: false, ...mapUnauthenticated(requestId, apiVersion) };
+    }
+
+    if (hasAuthHeader && auth === null) {
+      return { ok: false, ...mapUnauthenticated(requestId, apiVersion) };
+    }
+
+    if (!isPublic && !auth?.userId) {
+      return { ok: false, ...mapUnauthenticated(requestId, apiVersion) };
+    }
+
+    return { ok: true, auth: auth ?? anonymousAuth() };
+  }
+
+  const authResult = await routeConfig.requestAuthenticator.authenticate(
+    buildAuthenticationRequest(request),
+  );
+
+  if (authResult.status === 'authenticated') {
+    return { ok: true, auth: authResult.auth };
+  }
+
+  if (authResult.status === 'anonymous') {
+    if (authResult.clearCookieHeader) {
+      reply.header('set-cookie', authResult.clearCookieHeader);
+    }
+    if (!isPublic) {
+      return { ok: false, ...mapUnauthenticated(requestId, apiVersion) };
+    }
+    return { ok: true, auth: anonymousAuth() };
+  }
+
+  if (authResult.status === 'invalid' && authResult.code === 'csrf_failed') {
+    return { ok: false, ...mapCsrfFailed(requestId, apiVersion) };
+  }
+
+  if (authResult.status === 'unavailable') {
+    return { ok: false, ...mapAuthenticationUnavailable(requestId, apiVersion) };
+  }
+
+  return { ok: false, ...mapUnauthenticated(requestId, apiVersion) };
+}
+
 export function registerApiRoutes(
   app: FastifyInstance,
   routeConfig: RouteGeneratorConfig,
@@ -120,34 +195,20 @@ export function registerApiRoutes(
       try {
         const headers = request.headers as Record<string, string | string[] | undefined>;
         const query = (request.query ?? {}) as Record<string, unknown>;
-        const authHeader = request.headers.authorization;
         const isPublic = cap.access?.public === true;
-        const hasAuthHeader = typeof authHeader === 'string' && authHeader.length > 0;
 
-        let auth: Awaited<ReturnType<RouteGeneratorConfig['authAdapter']['authenticate']>>;
-        try {
-          auth = await routeConfig.authAdapter.authenticate(authHeader);
-        } catch {
-          const mapped = mapUnauthenticated(requestId, apiVersion);
-          return reply.status(mapped.status).send(mapped.body);
+        const authResolved = await resolvePartnerAuth(
+          request,
+          reply,
+          routeConfig,
+          isPublic,
+          requestId,
+          apiVersion,
+        );
+        if (!authResolved.ok) {
+          return reply.status(authResolved.status).send(authResolved.body);
         }
-
-        if (hasAuthHeader && auth === null) {
-          const mapped = mapUnauthenticated(requestId, apiVersion);
-          return reply.status(mapped.status).send(mapped.body);
-        }
-
-        if (!isPublic && !auth?.userId) {
-          const mapped = mapUnauthenticated(requestId, apiVersion);
-          return reply.status(mapped.status).send(mapped.body);
-        }
-
-        const authContext = auth ?? {
-          userId: undefined,
-          roles: [],
-          scopes: [],
-          provider: 'anonymous',
-        };
+        const authContext = authResolved.auth;
 
         const bypassTenantScope = cap.access?.tenantScoped === false;
         const deps = routeConfig.createDependencies(authContext, { bypassTenantScope });

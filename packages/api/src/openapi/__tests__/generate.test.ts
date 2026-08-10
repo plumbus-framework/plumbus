@@ -269,6 +269,16 @@ describe('generateOpenApi', () => {
     expect(schemas.ApiErrorEnvelope).toBeDefined();
   });
 
+  it('operation responses include 503 authentication_unavailable', () => {
+    const doc = generateOpenApi([apiCap()], manifest);
+    const getOp = doc.paths['/refunds/{refundId}']?.get as {
+      responses?: Record<string, unknown>;
+    };
+    expect(getOp.responses).toHaveProperty('503');
+    expect(getOp.responses).toHaveProperty('401');
+    expect(getOp.responses).toHaveProperty('403');
+  });
+
   it('uses server basePath with route-relative paths', () => {
     const doc = generateOpenApi([apiCap()], manifest);
     expect(doc.servers?.[0]?.url).toBe('/api/v1');

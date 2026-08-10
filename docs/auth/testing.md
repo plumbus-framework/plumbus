@@ -17,6 +17,18 @@ import { createAuthRuntime, createMemorySessionStore, createMemoryLoginTransacti
 
 The fake provider returns configurable claims on the ID token. Point `externalBaseUrl` at your Fastify test server and register the fake issuer URL in `providers.test.issuer`.
 
+### Per-request subjects (`fake_sub`)
+
+By default the fake IdP issues `subOverride` from startup options, or `test-subject`. For multi-user tests, pass a test-only `fake_sub` on the authorize request (query on `GET /authorize`, or form body on `POST /authorize`):
+
+```typescript
+const authorizeUrl = new URL(loginRes.headers.location!);
+authorizeUrl.searchParams.set("fake_sub", "user-b");
+await fetch(authorizeUrl, { redirect: "manual" });
+```
+
+The issued code / ID token / access token use that subject. `/userinfo` returns the subject bound to the access token (unless `userinfoSubOverride` is set for mismatch negatives). `issueCodeFor({ sub })` remains available when you craft callbacks without hitting `/authorize`.
+
 ---
 
 ## Test bootstrap pattern
@@ -67,10 +79,10 @@ Use **`deployment.assumeSameSite: true`** when external and application URLs dif
 2. Fake provider redirects to `/auth/callback/test?code=…&state=…`
 3. Assert **`Set-Cookie`** with session cookie
 4. `GET /auth/session` → `authenticated: true` + `csrfToken`
-5. Call a protected capability with cookie + CSRF → **200**
+5. Call a protected capability **or partner `/api/v1/*` route** with cookie (+ CSRF on mutations) → **200**, with `ctx.auth.tenantId` populated when authorization resolves a tenant
 6. `POST /auth/logout` with CSRF → session cleared
 
-See [`packages/auth/src/__tests__/integration.test.ts`](../../packages/auth/src/__tests__/integration.test.ts) for the canonical flow.
+Partner routes require `registerApiRoutes` with the same `requestAuthenticator` from `authenticationRuntime` (as `createServer` does). End-to-end cookie → partner API smoke: [`examples/auth-partner-api-session-smoke`](../../examples/auth-partner-api-session-smoke/). Canonical `/auth/*` flow: [`packages/auth/src/__tests__/integration.test.ts`](../../packages/auth/src/__tests__/integration.test.ts).
 
 ---
 
