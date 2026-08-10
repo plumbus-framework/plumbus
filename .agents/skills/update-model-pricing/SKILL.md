@@ -45,22 +45,29 @@ The script outputs JSON to stdout with this shape:
 }
 ```
 
-### Step 2: Review the diff
+### Step 2: Sanity-check the parse, then review the diff
+
+**First check the model counts on stderr.** Both providers should report dozens of models. `OpenAI models found: 0` — or a count far below the catalog size — means the pricing page layout changed and the parser is broken, not that pricing is current. An empty diff from a failed parse looks exactly like an empty diff from an up-to-date catalog. Fix the parser before trusting the result.
+
+Then review the diff:
 
 - **added**: Models on the pricing page not in `MODEL_PRICING` → add them
 - **changed**: Models with different prices → update the values
 - **removed**: Models in `MODEL_PRICING` not on the pricing page → flag for review (do NOT auto-delete; they may be intentional aliases)
+- **(upcoming)** stderr lines: a scheduled future price. Leave the catalog on today's rate and note the change date in the file header.
 
 ### Step 3: Update model-pricing.ts
 
 File: `packages/plumbus-core/src/ai/model-pricing.ts`
 
-1. Add new model entries to the `MODEL_PRICING` constant under the correct section comment (`OpenAI: Flagship`, `OpenAI: Reasoning`, `OpenAI: Legacy`, `Anthropic: Claude`)
+1. Add new model entries to the `MODEL_PRICING` constant under the correct section comment (`OpenAI: Flagship`, `OpenAI: Reasoning`, `OpenAI: Specialized`, `OpenAI: Embeddings`, `OpenAI: Moderation`, `OpenAI: Legacy`, `Anthropic: Claude`)
 2. Update any changed pricing values
 3. Check if `LONG_CONTEXT_PREMIUM_MODELS` needs updating (currently Claude Sonnet 4 and 4.5; Sonnet 4.6 and Opus models do NOT have long context premium)
 4. Update the `// Last updated:` comment at the top of the file to today's date
 
-See [current-structure.md](./references/current-structure.md) for the file's detailed layout.
+Keep the `CURRENT_PRICING` snapshot inside `scripts/fetch-pricing.ts` in sync with the same edits — it is what the next run diffs against. Re-running the script should then report 0 added and 0 changed.
+
+See [current-structure.md](./references/current-structure.md) for the file's detailed layout and the pricing-page structure the script depends on.
 
 ### Step 4: Update tests
 

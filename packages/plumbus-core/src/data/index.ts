@@ -14,6 +14,7 @@ export {
   type MigrationApplyResult,
   type MigrationConfig,
   type MigrationRecord,
+  type MigrationRollbackResult,
   type PendingMigration,
 } from './migration.js';
 export {

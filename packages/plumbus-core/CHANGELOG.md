@@ -1,5 +1,19 @@
 # @plumbus/core changelog
 
+## 0.6.15 — 2026-08-10 — migrate rollback hardening + model pricing sync
+
+### Fixed
+
+- **`plumbus migrate rollback` / `rollbackLastMigration`** — history-only rollback is now explicit and safer:
+  - Deletes the newest `__drizzle_migrations` row by **id** (not hash), so duplicate hashes cannot wipe unrelated history.
+  - Ensures the history table exists first, so an never-migrated database reports `no_migrations` instead of failing on a missing relation.
+  - Resolves the journal **tag** best-effort when the SQL file is still present; missing journal/files no longer fail the rollback.
+  - Return value is now `MigrationRollbackResult` (`rolledBack`, `hash`, `tag`, `status`). CLI `--json` also reports `"schemaReverted": false` — Drizzle has no down-migrations, so schema objects are not reverted.
+
+### Changed
+
+- **Model pricing catalog** refreshed (2026-08-06 sync): corrected `gpt-5.6-terra` / `gpt-5.6-luna` rates; added specialized OpenAI entries (`chat-latest`, `gpt-5.3-chat-latest`, `gpt-5.2-chat-latest`, `gpt-5.3-codex`, `gpt-5.5-cyber`, `gpt-5-search-api`) and `claude-opus-5`. Standard-tier / short-context rates only; `claude-sonnet-5` introductory pricing noted through 2026-08-31.
+
 ## 0.6.14 — 2026-08-03 — AI reasoning, text-mode outputs, Claude agent wiring
 
 ### Added

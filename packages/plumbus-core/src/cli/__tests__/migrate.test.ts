@@ -74,6 +74,8 @@ vi.mock('../../data/migration.js', () => ({
   rollbackLastMigration: vi.fn(async () => ({
     status: 'rolled_back',
     rolledBack: '0001_init',
+    tag: '0001_init',
+    hash: 'abc123',
   })),
 }));
 
@@ -442,6 +444,34 @@ describe('plumbus migrate', () => {
       const output = vi
         .mocked(console.log)
         .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"rolled_back"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.tag).toBe('0001_init');
+      // Machine-readable counterpart to the human warning below.
+      expect(parsed.schemaReverted).toBe(false);
+    });
+
+    it('warns that the schema was not reverted', async () => {
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'rollback']);
+      const warning = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('⚠'));
+      expect(warning?.[0]).toContain('the schema was not reverted');
+    });
+
+    it('reports nothing to roll back on an empty history', async () => {
+      vi.mocked(rollbackLastMigration).mockResolvedValueOnce({
+        status: 'no_migrations',
+        rolledBack: null,
+        tag: null,
+        hash: null,
+      });
+      const program = createTestProgram();
+      await program.parseAsync(['node', 'plumbus', 'migrate', 'rollback']);
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('No migrations'));
       expect(output).toBeDefined();
     });
   });

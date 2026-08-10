@@ -314,41 +314,73 @@ export interface MigrationRecord {
   sql: string;
 }
 
+export interface MigrationRollbackResult {
+  /** Journal tag when it resolves, otherwise the recorded hash. Null when nothing was rolled back. */
+  rolledBack: string | null;
+  /** sha256 of the migration SQL, as recorded in the history table. */
+  hash: string | null;
+  /** Journal tag for `hash`, or null when the migration file is no longer present. */
+  tag: string | null;
+  status: 'rolled_back' | 'no_migrations';
+}
+
 /**
- * Rollback the last applied migration.
+ * Best-effort lookup of the journal tag for an applied migration hash.
+ * Returns null when the journal or the SQL file is gone — history rows outlive
+ * the files that produced them, and that must not fail the rollback.
+ */
+function findJournalTagForHash(migrationsFolder: string, hash: string): string | null {
+  try {
+    return (
+      readJournalMigrations(migrationsFolder).find((entry) => entry.hash === hash)?.tag ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Roll back the last applied migration by deleting its row from the migration
+ * history table, so `applyMigrations` treats it as pending again.
  *
- * This reads the migration history from the __drizzle_migrations table,
- * finds the most recent migration, and executes a reverse operation.
+ * This does **not** execute reverse DDL: Drizzle generates no down-migrations,
+ * so tables, columns, and indexes the migration created stay in place. Drop or
+ * restore those manually when the schema itself has to change.
+ *
  * For safety, rollback is limited to one migration at a time.
  */
-export async function rollbackLastMigration(config: MigrationConfig): Promise<{
-  rolledBack: string | null;
-  status: 'rolled_back' | 'no_migrations';
-}> {
-  const db = config.db;
+export async function rollbackLastMigration(
+  config: MigrationConfig,
+): Promise<MigrationRollbackResult> {
+  const { db, migrationsFolder } = config;
 
-  // Check if migrations table exists and get the last applied migration
-  const rows = (await db.execute({
-    sql: `SELECT hash, created_at FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1`,
-    params: [],
-  } as any)) as unknown as Array<{ hash: string; created_at: number }>;
+  // Creates the history table when absent, so a database that has never been
+  // migrated reports `no_migrations` instead of erroring on a missing relation.
+  await ensureMigrationsTable(db);
 
-  if (!rows || (Array.isArray(rows) && rows.length === 0)) {
-    return { rolledBack: null, status: 'no_migrations' };
-  }
+  const rows = (await db.execute(
+    sql`SELECT id, hash FROM "drizzle"."__drizzle_migrations"
+        ORDER BY created_at DESC NULLS LAST, id DESC
+        LIMIT 1`,
+  )) as unknown as Array<{ id: number; hash: string }>;
 
-  const lastMigration = Array.isArray(rows) ? rows[0] : null;
+  const lastMigration = rows[0];
   if (!lastMigration) {
-    return { rolledBack: null, status: 'no_migrations' };
+    return { rolledBack: null, hash: null, tag: null, status: 'no_migrations' };
   }
 
-  const migrationHash = lastMigration.hash;
+  // Delete by id, not hash — a hash can legitimately repeat across rows and
+  // must not take unrelated history with it.
+  await db.execute(
+    sql`DELETE FROM "drizzle"."__drizzle_migrations" WHERE id = ${lastMigration.id}`,
+  );
 
-  // Delete the migration record to allow re-application
-  await db.execute({
-    sql: `DELETE FROM "drizzle"."__drizzle_migrations" WHERE hash = $1`,
-    params: [migrationHash],
-  } as any);
+  const tag = findJournalTagForHash(migrationsFolder, lastMigration.hash);
 
-  return { rolledBack: migrationHash, status: 'rolled_back' };
+  return {
+    rolledBack: tag ?? lastMigration.hash,
+    hash: lastMigration.hash,
+    tag,
+    status: 'rolled_back',
+  };
 }

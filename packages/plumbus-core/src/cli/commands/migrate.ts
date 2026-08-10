@@ -778,13 +778,16 @@ export function registerMigrateCommand(program: Command): void {
         const result = await rollbackLastMigration({ db: conn.db, migrationsFolder });
 
         if (opts.json) {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify({ ...result, schemaReverted: false }, null, 2));
+        } else if (result.status === 'no_migrations') {
+          info('No migrations to rollback.');
         } else {
-          if (result.status === 'no_migrations') {
-            info('No migrations to rollback.');
-          } else {
-            success(`Rolled back migration: ${result.rolledBack}`);
-          }
+          success(`Rolled back migration: ${result.rolledBack}`);
+          warn(
+            'History only — the schema was not reverted. The migration record was removed so ' +
+              '`plumbus migrate apply` will run it again; any tables, columns, or indexes it ' +
+              'created still exist. Drop or restore them manually if the schema must change.',
+          );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

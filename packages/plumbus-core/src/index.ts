@@ -160,7 +160,12 @@ export {
 export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
 // ── Config Loader ──
 export { loadConfig, parseDurationToMs, validateConfig } from './config/index.js';
-export type { MigrationConfig, MigrationRecord, RepositoryOptions } from './data/index.js';
+export type {
+  MigrationConfig,
+  MigrationRecord,
+  MigrationRollbackResult,
+  RepositoryOptions,
+} from './data/index.js';
 // ── Data Layer ──
 export {
   EntityRegistry,

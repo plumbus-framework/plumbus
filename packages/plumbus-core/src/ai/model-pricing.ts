@@ -3,9 +3,14 @@
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-07-19
+// Last updated: 2026-08-06
 //
 // Unknown models (Ollama, custom endpoints) return cost $0.
+//
+// Only standard-tier rates are tracked (not batch, flex, or fast mode), and for
+// models with split short/long context pricing the short-context (base) rate is
+// the one recorded. `claude-sonnet-5` carries introductory pricing through
+// 2026-08-31; it rises to $3/$15 per MTok on 2026-09-01.
 //
 // `kind` is derived from the pricing page's section structure, not from name
 // patterns — see `.agents/skills/update-model-pricing/scripts/fetch-pricing.ts`.
@@ -38,8 +43,8 @@ export interface ModelRate {
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
   'gpt-5.6-sol': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
-  'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
-  'gpt-5.6-luna': { kind: 'text', inputPerMTok: 1, outputPerMTok: 6 },
+  'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
+  'gpt-5.6-luna': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.2 },
   'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
   'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
   'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
@@ -71,6 +76,13 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'o3-deep-research': { kind: 'text', inputPerMTok: 10, outputPerMTok: 40 },
   'o4-mini-deep-research': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
   'computer-use-preview': { kind: 'text', inputPerMTok: 3, outputPerMTok: 12 },
+  // ── OpenAI: Specialized / ChatGPT, Codex, Cyber, Search ──
+  'chat-latest': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
+  'gpt-5.3-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+  'gpt-5.2-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+  'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+  'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
+  'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
   // ── OpenAI: Embeddings ──
   'text-embedding-3-small': { kind: 'embedding', inputPerMTok: 0.02, outputPerMTok: 0 },
   'text-embedding-3-large': { kind: 'embedding', inputPerMTok: 0.13, outputPerMTok: 0 },
@@ -101,6 +113,7 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── Anthropic: Claude (all text — no embedding API) ──
   'claude-fable-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
   'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'claude-opus-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-7': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-6': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
