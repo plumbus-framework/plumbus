@@ -6,7 +6,10 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 
 | Symbol | Kind | Description |
 |--------|------|-------------|
-| `ModelRate` | interface | `{ inputPerMTok: number; outputPerMTok: number }` — USD per 1M tokens |
+| `Kind` | type | `'text' \| 'embedding' \| 'moderation' \| 'image' \| 'audio'` |
+| `ModelRate` | interface | `{ inputPerMTok: number; outputPerMTok: number; kind?: Kind }` — USD per 1M tokens |
+| `findModelRate()` | function | Looks up a model's rate, with date-suffix fallback |
+| `allKnownModels()` | function | All `[id, rate]` pairs, for `listModels()` joins |
 | `calculateModelCost()` | function | Computes USD cost for a single AI request |
 
 ## Internal Constants
@@ -18,11 +21,17 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 ```
 // ── OpenAI: Flagship ──
 // ── OpenAI: Reasoning ──
-// ── OpenAI: Legacy ──
+// ── OpenAI: Specialized / Deep research / Computer use ──
+// ── OpenAI: Specialized / ChatGPT, Codex, Cyber, Search ──
+// ── OpenAI: Embeddings ──
+// ── OpenAI: Moderation (free) ──
+// ── OpenAI: Legacy (chat/completion) ──
 // ── Anthropic: Claude ──
 ```
 
-Add new entries under the matching section comment. Use the model's API identifier as the key (e.g. `'gpt-5.4'`, `'claude-opus-4-6'`).
+Add new entries under the matching section comment. Use the model's API identifier as the key (e.g. `'gpt-5.4'`, `'claude-opus-4-6'`). Every entry populates `kind`.
+
+**Only standard-tier rates are recorded.** For models the page prices by context length, use the *short* (base) context columns — the long-context columns are a separate rate the cost calculator does not model for OpenAI.
 
 ### `LONG_CONTEXT_PREMIUM_MODELS`
 
@@ -59,3 +68,13 @@ Tests cover: unknown models, standard cost, date-suffix resolution, cached token
 
 - OpenAI: `https://developers.openai.com/api/docs/pricing.md`
 - Anthropic: `https://platform.claude.com/docs/en/about-claude/pricing.md`
+
+## Page Structure (what the fetch script parses)
+
+Both pages are markdown tables. The script walks each linearly, tracking the section and tier in scope.
+
+**OpenAI** — bare section labels (`Flagship models`, `Specialized models`, `Tools`, …) and bare tier labels (`Standard`, `Batch`, `Flex`, `Fast mode`) precede `### … data` headings, each followed by a table. Only the standard tier is read. Kinds come from the section label, or from the row's `Category` cell in the Specialized table — never from model-name patterns. Flagship tables split pricing into `Short context input`/`Short context output` and `Long context …` columns; the short-context pair is what feeds the catalog.
+
+**Anthropic** — one 6-column table (`Model | Base Input | 5m Cache Write | 1h Cache Write | Cache Hits | Output`). Narrower Batch and Fast-mode tables further down must not be picked up. Model names carry qualifiers the script strips: `(limited availability)`, `(retired, except on …)`, `through August 31, 2026`. A row whose qualifier reads `starting <Month> <day>` is a scheduled future price — it is reported on stderr and excluded, so today's rate is what lands in the catalog.
+
+If a run reports `OpenAI models found: 0` (or an implausibly low Anthropic count), the page layout changed and the parser needs updating — **do not** treat the resulting empty diff as "pricing is current."

@@ -79,6 +79,37 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'claude-opus-4-7')).toBe(0.0175);
     // claude-sonnet-5: introductory input $2/MTok, output $10/MTok (through Aug 2026)
     expect(calculateModelCost(1000, 500, 'claude-sonnet-5')).toBe(0.007);
+    // claude-opus-5: input $5/MTok, output $25/MTok
+    expect(calculateModelCost(1000, 500, 'claude-opus-5')).toBe(0.0175);
+  });
+
+  it('prices the gpt-5.6 line at its reduced rates', () => {
+    // gpt-5.6-luna: input $0.20/MTok, output $1.20/MTok
+    // 1000 × 0.2 + 500 × 1.2 = 200 + 600 = 800 / 1M = 0.0008
+    expect(calculateModelCost(1000, 500, 'gpt-5.6-luna')).toBe(0.0008);
+    // gpt-5.6-terra: input $2/MTok, output $12/MTok
+    // 1000 × 2 + 500 × 12 = 2000 + 6000 = 8000 / 1M = 0.008
+    expect(calculateModelCost(1000, 500, 'gpt-5.6-terra')).toBe(0.008);
+    // luna is the cheapest of the three; sol is unchanged at $5/$30
+    expect(calculateModelCost(1000, 500, 'gpt-5.6-luna')).toBeLessThan(
+      calculateModelCost(1000, 500, 'gpt-5.6-terra'),
+    );
+    expect(calculateModelCost(1000, 500, 'gpt-5.6-terra')).toBeLessThan(
+      calculateModelCost(1000, 500, 'gpt-5.6-sol'),
+    );
+  });
+
+  it('returns non-zero cost for OpenAI specialized models', () => {
+    // gpt-5.3-codex: input $1.75/MTok, output $14/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-5.3-codex')).toBe(0.00875);
+    // gpt-5.5-cyber: input $12.50/MTok, output $75/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-5.5-cyber')).toBe(0.05);
+    // gpt-5-search-api: input $1.25/MTok, output $10/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-5-search-api')).toBe(0.00625);
+    for (const model of ['chat-latest', 'gpt-5.3-chat-latest', 'gpt-5.2-chat-latest']) {
+      expect(findModelRate(model)?.kind, model).toBe('text');
+      expect(calculateModelCost(1000, 500, model), model).toBeGreaterThan(0);
+    }
   });
 
   it('resolves date-suffixed model names', () => {

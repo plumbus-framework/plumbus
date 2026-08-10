@@ -3,13 +3,19 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getTableName } from 'drizzle-orm';
-import { pgTable, uuid } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect, pgTable, uuid } from 'drizzle-orm/pg-core';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { field } from '../../fields/index.js';
 import { generateDrizzleSchema } from '../schema-generator.js';
 import type { EntityDefinition } from '../../types/entity.js';
-import { collectSchemas, readPendingMigrations, reconcileMigrationHistory } from '../migration.js';
+import {
+  collectSchemas,
+  readPendingMigrations,
+  reconcileMigrationHistory,
+  rollbackLastMigration,
+} from '../migration.js';
 
 function makeEntity(name: string): EntityDefinition {
   return {
@@ -217,5 +223,134 @@ describe('migration history helpers', () => {
       adoptedTags: ['0002_slug'],
     });
     expect(tx.execute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('rollbackLastMigration', () => {
+  const dialect = new PgDialect();
+
+  /**
+   * `ensureMigrationsTable` issues three statements before any caller query:
+   * CREATE SCHEMA, CREATE TABLE, and the legacy-table existence probe.
+   */
+  function ensureMigrationsTableCalls() {
+    return [[], [], []] as const;
+  }
+
+  function buildQuery(query: unknown) {
+    // Mirrors what PgDatabase.execute does with its argument. A plain
+    // `{ sql, params }` object has no getSQL() and blows up here — that is the
+    // exact shape this function used to pass to the driver.
+    return dialect.sqlToQuery((query as SQL).getSQL());
+  }
+
+  it('deletes the newest history row and reports its journal tag', async () => {
+    const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-migrations-'));
+    tempDirs.push(migrationsDir);
+
+    const firstSql = 'CREATE TABLE "orders" ("id" uuid PRIMARY KEY);';
+    const secondSql = 'ALTER TABLE "orders" ADD COLUMN "slug" text;';
+    writeMigrationFixture(migrationsDir, [
+      { tag: '0001_init', sql: firstSql, when: 1000 },
+      { tag: '0002_slug', sql: secondSql, when: 2000 },
+    ]);
+
+    const execute = vi.fn();
+    for (const call of ensureMigrationsTableCalls()) {
+      execute.mockResolvedValueOnce(call);
+    }
+    execute
+      .mockResolvedValueOnce([{ id: 7, hash: sha256(secondSql) }]) // newest history row
+      .mockResolvedValueOnce([]); // DELETE
+
+    const result = await rollbackLastMigration({
+      db: { execute } as any,
+      migrationsFolder: migrationsDir,
+    });
+
+    expect(result).toEqual({
+      status: 'rolled_back',
+      rolledBack: '0002_slug',
+      tag: '0002_slug',
+      hash: sha256(secondSql),
+    });
+
+    const select = buildQuery(execute.mock.calls[3]?.[0]);
+    expect(select.sql).toContain('"drizzle"."__drizzle_migrations"');
+    expect(select.sql).toContain('ORDER BY created_at DESC NULLS LAST');
+
+    // Deleting by id keeps a duplicated hash from taking unrelated rows with it,
+    // and the value must travel as a bound parameter, not string interpolation.
+    const del = buildQuery(execute.mock.calls[4]?.[0]);
+    expect(del.sql).toContain('DELETE FROM "drizzle"."__drizzle_migrations" WHERE id =');
+    expect(del.params).toEqual([7]);
+  });
+
+  it('reports no_migrations on an empty history without issuing a delete', async () => {
+    const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-migrations-'));
+    tempDirs.push(migrationsDir);
+    writeMigrationFixture(migrationsDir, [
+      { tag: '0001_init', sql: 'CREATE TABLE "orders" ("id" uuid PRIMARY KEY);', when: 1000 },
+    ]);
+
+    const execute = vi.fn();
+    for (const call of ensureMigrationsTableCalls()) {
+      execute.mockResolvedValueOnce(call);
+    }
+    execute.mockResolvedValueOnce([]); // no history rows
+
+    const result = await rollbackLastMigration({
+      db: { execute } as any,
+      migrationsFolder: migrationsDir,
+    });
+
+    expect(result).toEqual({
+      status: 'no_migrations',
+      rolledBack: null,
+      tag: null,
+      hash: null,
+    });
+    expect(execute).toHaveBeenCalledTimes(4);
+  });
+
+  it('falls back to the hash when the journal no longer describes the migration', async () => {
+    const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-migrations-'));
+    tempDirs.push(migrationsDir);
+    // No journal written at all — history rows outlive the files that made them.
+
+    const orphanHash = sha256('CREATE TABLE "gone" ("id" uuid PRIMARY KEY);');
+    const execute = vi.fn();
+    for (const call of ensureMigrationsTableCalls()) {
+      execute.mockResolvedValueOnce(call);
+    }
+    execute.mockResolvedValueOnce([{ id: 3, hash: orphanHash }]).mockResolvedValueOnce([]);
+
+    const result = await rollbackLastMigration({
+      db: { execute } as any,
+      migrationsFolder: migrationsDir,
+    });
+
+    expect(result).toEqual({
+      status: 'rolled_back',
+      rolledBack: orphanHash,
+      tag: null,
+      hash: orphanHash,
+    });
+  });
+
+  it('creates the history table first so an unmigrated database does not error', async () => {
+    const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-migrations-'));
+    tempDirs.push(migrationsDir);
+
+    const execute = vi.fn().mockResolvedValue([]);
+
+    await rollbackLastMigration({ db: { execute } as any, migrationsFolder: migrationsDir });
+
+    const createSchema = buildQuery(execute.mock.calls[0]?.[0]);
+    const createTable = buildQuery(execute.mock.calls[1]?.[0]);
+    expect(createSchema.sql).toContain('CREATE SCHEMA IF NOT EXISTS "drizzle"');
+    expect(createTable.sql).toContain(
+      'CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"',
+    );
   });
 });

@@ -757,6 +757,10 @@ If you see a drift error, you have two options:
 
 When `migrate apply` fails during SQL execution, the error message includes the migration tag, statement index, and a SQL preview to pinpoint the exact failing statement.
 
+**Rollback is history-only:**
+
+`plumbus migrate rollback` removes the newest row from `drizzle.__drizzle_migrations`, which makes `plumbus migrate apply` run that migration again. It does **not** revert schema changes — Drizzle generates no down-migrations, so tables, columns, and indexes created by the migration stay in place. Drop or restore them manually when the schema itself must change. The command warns about this, and `--json` output includes `"schemaReverted": false` alongside the migration `tag` and `hash`.
+
 ---
 
 ### plumbus db

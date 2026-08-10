@@ -406,6 +406,10 @@ Rolls back the most recently applied migration:
 plumbus migrate rollback
 ```
 
+**Rollback is history-only.** It deletes the newest row from `drizzle.__drizzle_migrations` so `plumbus migrate apply` treats that migration as pending again. It does **not** execute reverse DDL — Drizzle generates no down-migrations, so tables, columns, and indexes the migration created remain in the database. Drop or restore them yourself when the schema itself has to change. The CLI prints a warning saying so, and `--json` output carries `"schemaReverted": false`.
+
+Running against a database with no migration history (or no history table yet) reports `no_migrations` rather than failing.
+
 ### Programmatic API
 
 ```typescript
@@ -414,7 +418,13 @@ import { applyMigrations, rollbackLastMigration } from "@plumbus/core";
 const result = await applyMigrations({ db, migrationsFolder: "./drizzle" });
 // result: { applied: number, tags: string[] }
 
-await rollbackLastMigration({ db, migrationsFolder: "./drizzle" });
+const rollback = await rollbackLastMigration({ db, migrationsFolder: "./drizzle" });
+// rollback: {
+//   status: 'rolled_back' | 'no_migrations',
+//   rolledBack: string | null,  // tag when resolvable, else hash
+//   tag: string | null,         // null when the migration file is gone
+//   hash: string | null,        // sha256 recorded in the history table
+// }
 ```
 
 ## collectSchemas

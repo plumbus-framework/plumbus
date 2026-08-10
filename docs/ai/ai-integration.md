@@ -521,6 +521,8 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 
 Cost is computed by `calculateModelCost()` which uses a built-in pricing table covering all major OpenAI and Anthropic models. Unknown models (e.g., local Ollama) return cost 0.
 
+The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. For models the provider prices by context length, the short-context (base) rate is used. Rates were last synced on 2026-08-06; run the `update-model-pricing` skill to refresh them.
+
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:

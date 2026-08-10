@@ -14,9 +14,13 @@ declare const process: {
  * Fetches the latest AI model pricing from OpenAI and Anthropic pricing pages,
  * parses the data, and compares against the current MODEL_PRICING table.
  *
- * Section-aware: each model row is tagged with a `kind` derived from the
- * surrounding pricing-page section (Flagship/Reasoning/Embeddings/...) or, for
- * grouped tables, the inner `model: "X"` label. No name-pattern matching.
+ * Both pages are markdown tables. Section-aware: each model row is tagged with
+ * a `kind` derived from the surrounding pricing-page section ("Flagship
+ * models", "Specialized models", ...) or, in the Specialized table, the row's
+ * own `Category` cell. No name-pattern matching.
+ *
+ * Only the standard tier is read — Batch, Flex, and Fast mode tables repeat the
+ * same models at different rates and are skipped.
  *
  * Usage: npx tsx .agents/skills/update-model-pricing/scripts/fetch-pricing.ts
  * Output: JSON to stdout
@@ -61,8 +65,8 @@ const CURRENT_PRICING: Record<string, { kind: Kind; inputPerMTok: number; output
   {
     // OpenAI: Flagship / Reasoning / Legacy (all text)
     'gpt-5.6-sol': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
-    'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
-    'gpt-5.6-luna': { kind: 'text', inputPerMTok: 1, outputPerMTok: 6 },
+    'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
+    'gpt-5.6-luna': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.2 },
     'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
     'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
     'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
@@ -93,6 +97,12 @@ const CURRENT_PRICING: Record<string, { kind: Kind; inputPerMTok: number; output
     'o3-deep-research': { kind: 'text', inputPerMTok: 10, outputPerMTok: 40 },
     'o4-mini-deep-research': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
     'computer-use-preview': { kind: 'text', inputPerMTok: 3, outputPerMTok: 12 },
+    'chat-latest': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
+    'gpt-5.3-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+    'gpt-5.2-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+    'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+    'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
+    'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
     // OpenAI: Embeddings
     'text-embedding-3-small': { kind: 'embedding', inputPerMTok: 0.02, outputPerMTok: 0 },
     'text-embedding-3-large': { kind: 'embedding', inputPerMTok: 0.13, outputPerMTok: 0 },
@@ -122,6 +132,7 @@ const CURRENT_PRICING: Record<string, { kind: Kind; inputPerMTok: number; output
     // Anthropic: Claude (all text)
     'claude-fable-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
     'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+    'claude-opus-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-7': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     'claude-opus-4-6': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
@@ -158,161 +169,241 @@ async function fetchPage(url: string): Promise<string> {
 // ── Section / group classification ──
 
 /**
- * Map a top-level section heading from the OpenAI pricing page to a Kind.
- * Returns `null` for sections that don't carry per-token pricing (image, video, audio).
- * "Specialized models" returns `null` because it uses grouped sub-tables —
- * those are classified by `groupLabelToKind` instead.
+ * Map a top-level section label from the OpenAI pricing page to a Kind.
+ *
+ * Returns `null` for sections that carry no per-token standard pricing we
+ * track: image, video, realtime/audio, transcription, tools, and finetuning
+ * (whose rows are training SKUs, not base model rates).
+ *
+ * "Specialized models" returns `null` because its table classifies per row via
+ * a `Category` column — see `groupLabelToKind`.
  */
-function sectionHeadingToKind(heading: string): Kind | null {
-  const h = heading.toLowerCase();
-  if (h.includes('embedding')) return 'embedding';
-  if (h.includes('moderation')) return 'moderation';
-  if (h.includes('image') || h.includes('video')) return null;
-  if (h.includes('audio') || h.includes('transcription') || h.includes('realtime') || h.includes('speech')) {
+function sectionLabelToKind(label: string): Kind | null {
+  const l = label.toLowerCase();
+  if (l.includes('embedding')) return 'embedding';
+  if (l.includes('moderation')) return 'moderation';
+  if (l.includes('image') || l.includes('video')) return null;
+  if (
+    l.includes('audio') ||
+    l.includes('transcription') ||
+    l.includes('realtime') ||
+    l.includes('speech')
+  ) {
     return null;
   }
-  if (h.includes('specialized')) return null;
-  // Default to text for flagship / reasoning / legacy / finetuning / multimodal-wrapper.
+  if (l.includes('specialized')) return null;
+  if (l.includes('finetuning') || l.includes('fine-tuning')) return null;
+  if (l.includes('tool')) return null;
+  // Flagship / reasoning / legacy models are all text.
   return 'text';
 }
 
 /**
- * Map an inner `model: "X"` label inside a grouped pricing table to a Kind.
- * Returns `null` for tool entries (Web search, File search, Containers, etc.)
- * whose rows aren't model identifiers.
+ * Map a `Category` cell inside the Specialized models table to a Kind.
+ * Returns `null` for categories whose rows aren't billable model identifiers.
  */
 function groupLabelToKind(label: string): Kind | null {
   const l = label.toLowerCase();
   if (l.includes('embedding')) return 'embedding';
   if (l.includes('moderation')) return 'moderation';
-  if (l.includes('deep research') || l.includes('computer use')) return 'text';
+  if (
+    l.includes('deep research') ||
+    l.includes('computer use') ||
+    l.includes('chatgpt') ||
+    l.includes('codex') ||
+    l.includes('cyber') ||
+    l.includes('search')
+  ) {
+    return 'text';
+  }
   return null; // Web search, File search, Containers, Agent Kit, etc.
 }
 
 // ── OpenAI parser ──
 
+/** Pricing tiers the page exposes. Only `standard` feeds the catalog. */
+const TIER_LABELS = new Set(['standard', 'batch', 'flex', 'fast mode', 'priority']);
+
+interface MarkdownTable {
+  header: string[];
+  rows: string[][];
+}
+
 /**
- * Parse the OpenAI pricing page section-by-section. Each section's heading (or
- * the `model: "X"` label of an inner grouped table) determines the `kind`.
- * No name-pattern matching: kinds come from the page structure.
+ * Parse the OpenAI pricing page.
+ *
+ * The page is a sequence of bare section labels ("Flagship models",
+ * "Specialized models", …), bare tier labels ("Standard", "Batch", "Flex",
+ * "Fast mode"), and `### … data` headings each followed by a markdown table.
+ * We walk it linearly, tracking the section and tier currently in scope, and
+ * only keep tables under the `standard` tier. Kinds come from the page
+ * structure — the section label, or the row's `Category` cell — never from
+ * model-name patterns.
  */
 function parseOpenAIPricing(markdown: string): ModelPrice[] {
   const prices: ModelPrice[] = [];
   const seen = new Set<string>();
+  const lines = markdown.split('\n');
 
-  // Find every section heading position. The pricing page uses
-  // `<div className="...pricing-section-heading...">…heading text…</div>`.
-  const headingPattern = /<div\s+className="[^"]*pricing-section-heading[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
-  const headings: Array<{ heading: string; start: number; end: number }> = [];
+  let section = '';
+  let tier = 'standard';
 
-  let hm: RegExpExecArray | null;
-  while ((hm = headingPattern.exec(markdown)) !== null) {
-    headings.push({
-      heading: extractHeadingText(hm[1]!),
-      start: hm.index,
-      end: hm.index + hm[0].length,
-    });
-  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (!line) continue;
 
-  if (headings.length === 0) return prices;
+    // A `### <Tier> pricing data` heading names its own tier; the generic
+    // `### Grouped Pricing Table data` / `### Pricing Table data` headings
+    // inherit the tier from the most recent bare tier label.
+    if (line.startsWith('###')) {
+      const heading = line.replace(/^#+\s*/, '').toLowerCase();
+      const named = heading.match(/^(standard|batch|flex|fast|priority)\s+pricing data$/);
+      if (named) {
+        tier = named[1] === 'fast' ? 'fast mode' : named[1]!;
+      }
 
-  // Build sections by pairing each heading with the slice up to the next heading.
-  for (let i = 0; i < headings.length; i++) {
-    const section = headings[i]!;
-    const next = headings[i + 1];
-    const sliceEnd = next ? next.start : markdown.length;
-    const sectionBody = markdown.slice(section.end, sliceEnd);
+      const table = readMarkdownTable(lines, i + 1);
+      if (!table) continue;
+      i = table.endIndex;
 
-    // Within the section body, find the standard-tier pane.
-    // (Skip batch/flex/priority panes — duplicate rows with different prices.)
-    const paneMatch = sectionBody.match(
-      /data-content-switcher-pane\s+data-value="standard"[^>]*>([\s\S]*?)(?=<div\s+data-content-switcher-pane\s+data-value="(?:batch|flex|priority)"|$)/,
-    );
-    const paneContent = paneMatch ? paneMatch[1]! : sectionBody;
-
-    // Detect grouped sub-table pattern: `{ model: "X", rows: [...] }`
-    const groupPattern = /\{\s*model:\s*"([^"]+)"\s*,\s*rows:\s*\[([\s\S]*?)\]\s*,?\s*\}/g;
-    const groups: Array<{ label: string; rowsContent: string }> = [];
-    let gm: RegExpExecArray | null;
-    while ((gm = groupPattern.exec(paneContent)) !== null) {
-      groups.push({ label: gm[1]!, rowsContent: gm[2]! });
+      if (tier !== 'standard') continue;
+      collectTableRows(table.table, section, prices, seen);
+      continue;
     }
 
-    if (groups.length > 0) {
-      // Grouped: classify by each group's `model:` label.
-      for (const grp of groups) {
-        const kind = groupLabelToKind(grp.label);
-        if (!kind) continue;
-        extractFlatRows(grp.rowsContent, kind, prices, seen);
-      }
-    } else {
-      // Flat: classify by section heading.
-      const kind = sectionHeadingToKind(section.heading);
-      if (!kind) continue;
-      extractFlatRows(paneContent, kind, prices, seen);
+    // Bare tier label (e.g. a line reading just "Batch").
+    if (TIER_LABELS.has(line.toLowerCase())) {
+      tier = line.toLowerCase();
+      continue;
+    }
+
+    // Bare section label. Anything that isn't a table row, blockquote, link, or
+    // prose sentence is treated as a section heading; a new section resets the
+    // tier because each section's first pane is its standard one.
+    if (isSectionLabel(line)) {
+      section = line;
+      tier = 'standard';
     }
   }
 
   return prices;
 }
 
-function extractHeadingText(rawHtml: string): string {
-  // Strip any nested elements (subheading, meta) and collapse whitespace.
-  return rawHtml
-    .replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+/**
+ * Section labels on this page are short bare lines like "Flagship models" or
+ * "Tools" — no markdown syntax, no sentence punctuation.
+ */
+function isSectionLabel(line: string): boolean {
+  if (line.startsWith('|') || line.startsWith('>') || line.startsWith('#')) return false;
+  if (line.startsWith('*') || line.startsWith('-') || line.startsWith('[')) return false;
+  if (/[.:;]$/.test(line)) return false;
+  if (line.includes('](')) return false;
+  return line.split(/\s+/).length <= 6;
+}
+
+/** Read the markdown table starting at or just after `start`. */
+function readMarkdownTable(
+  lines: string[],
+  start: number,
+): { table: MarkdownTable; endIndex: number } | null {
+  let i = start;
+  while (i < lines.length && !lines[i]!.trim().startsWith('|')) {
+    if (lines[i]!.trim().startsWith('#')) return null; // hit the next heading first
+    i++;
+  }
+  if (i >= lines.length) return null;
+
+  const header = splitRow(lines[i]!);
+  i++;
+  // Separator row (| --- | --- |)
+  if (i < lines.length && /^\|[\s:|-]+\|$/.test(lines[i]!.trim())) i++;
+
+  const rows: string[][] = [];
+  while (i < lines.length && lines[i]!.trim().startsWith('|')) {
+    rows.push(splitRow(lines[i]!));
+    i++;
+  }
+
+  return { table: { header, rows }, endIndex: i - 1 };
+}
+
+function splitRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+/** Find a column by exact header name, trying each candidate in order. */
+function columnIndex(header: string[], ...candidates: string[]): number {
+  for (const candidate of candidates) {
+    const index = header.findIndex((h) => h.toLowerCase() === candidate);
+    if (index !== -1) return index;
+  }
+  return -1;
 }
 
 /**
- * Extract pricing rows from a JSX rows-array body.
+ * Pull model rates out of one standard-tier table.
  *
- * OpenAI uses two shapes:
- * - 4 columns: `[name, input, cached, output]` (older models)
- * - 5 columns: `[name, input, cached, cache_writes, output]` (gpt-5.4+ flagship)
- *
- * Values may be number / null / "" / "-" / "Free"; "-"/""/"Free" → 0.
- * Strips trailing parenthetical context from names (e.g. "(<272K context)").
+ * Flagship tables price short and long context separately; we track the short
+ * (base) context rates. Specialized tables prefix each row with a `Category`
+ * cell that determines the kind.
  */
-function extractFlatRows(
-  rowsContent: string,
-  kind: Kind,
+function collectTableRows(
+  table: MarkdownTable,
+  section: string,
   out: ModelPrice[],
   seen: Set<string>,
 ): void {
-  // Optional 5th column is cache-write pricing; output is always the last column.
-  const rowPattern =
-    /\["([^"]+?)"\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)\s*,\s*([^,\]]+)(?:\s*,\s*([^,\]]+))?\s*\]/g;
-  let m: RegExpExecArray | null;
-  while ((m = rowPattern.exec(rowsContent)) !== null) {
-    const rawName = m[1]!.trim();
-    const model = rawName.replace(/\s*\([^)]*\)\s*$/, '').trim();
-    if (seen.has(model)) continue;
+  const { header, rows } = table;
+  const modelCol = columnIndex(header, 'model');
+  if (modelCol === -1) return;
 
-    const input = parseCellValue(m[2]!);
-    const outputCol = m[5] ?? m[4]!;
-    const output = parseCellValue(outputCol);
+  const inputCol = columnIndex(header, 'short context input', 'input');
+  const outputCol = columnIndex(header, 'short context output', 'output', 'output / cost');
+  if (inputCol === -1 || outputCol === -1) return;
+
+  const categoryCol = columnIndex(header, 'category');
+  const sectionKind = sectionLabelToKind(section);
+  // A table with no Category column and an unpriced section is not ours.
+  if (categoryCol === -1 && !sectionKind) return;
+
+  for (const row of rows) {
+    const kind = categoryCol === -1 ? sectionKind : groupLabelToKind(row[categoryCol] ?? '');
+    if (!kind) continue;
+
+    const rawName = row[modelCol] ?? '';
+    // Drop trailing qualifiers: "(<272K context length)", "(legacy)", "(data sharing)".
+    const model = rawName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (!model || seen.has(model)) continue;
+
+    const input = parseCellValue(row[inputCol] ?? '');
     if (input === null) continue;
+    const output = parseCellValue(row[outputCol] ?? '');
 
     seen.add(model);
-    out.push({
-      model,
-      kind,
-      inputPerMTok: input,
-      outputPerMTok: output ?? 0,
-    });
+    out.push({ model, kind, inputPerMTok: input, outputPerMTok: output ?? 0 });
   }
 }
 
+/**
+ * Parse a price cell.
+ *
+ * "Free" is an explicit zero rate (moderation). "-" and "" mean the column
+ * doesn't apply, and rates quoted per minute / character / call aren't
+ * per-token — both return null. Callers decide what a null means per column:
+ * a null *input* drops the row (`gpt-5.4-cyber` is listed with no price at
+ * all), while a null *output* is a genuine zero (embeddings, moderation).
+ */
 function parseCellValue(raw: string): number | null {
   const trimmed = raw.trim();
-  // Bare null
-  if (trimmed === 'null') return 0;
-  // Quoted special values
-  if (trimmed === '"-"' || trimmed === '""' || trimmed === '"Free"') return 0;
-  // Numeric literal
-  const n = parseFloat(trimmed);
+  if (trimmed.toLowerCase() === 'free') return 0;
+  if (trimmed === '-' || trimmed === '') return null;
+  if (trimmed.includes('/')) return null; // "$0.034 / minute", "$15.00 / 1M characters"
+  const n = parseFloat(trimmed.replace(/^\$/, ''));
   return Number.isNaN(n) ? null : n;
 }
 
@@ -324,18 +415,39 @@ function parseAnthropicPricing(markdown: string): ModelPrice[] {
   // Anthropic uses markdown tables:
   // | Claude Opus 4.6     | $5 / MTok  | ... | $25 / MTok |
   // Columns: Model | Base Input | 5m Cache Write | 1h Cache Write | Cache Hits | Output
+  // Every group excludes newlines so a row can never chain into the next one —
+  // the narrower Batch and Fast-mode tables would otherwise splice together and
+  // yield rates that appear on no single row.
   const tableRowPattern =
-    /\|\s*Claude\s+([^\|]+?)\s*\|\s*\$?([\d.]+)\s*\/\s*MTok\s*\|[^|]*\|[^|]*\|[^|]*\|\s*\$?([\d.]+)\s*\/\s*MTok\s*\|/gi;
+    /\|\s*Claude\s+([^|\n]+?)\s*\|\s*\$?([\d.]+)\s*\/\s*MTok\s*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|\s*\$?([\d.]+)\s*\/\s*MTok\s*\|/gi;
 
   let match: RegExpExecArray | null;
   const seen = new Set<string>();
 
   while ((match = tableRowPattern.exec(markdown)) !== null) {
     const rawName = match[1]!.trim();
-    const cleanName = rawName
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/\(deprecated\)/gi, '')
+    // Unwrap markdown links so the qualifier text they carry can be inspected:
+    // "Claude Sonnet 5 [through August 31, 2026](…)" → "Sonnet 5 through August 31, 2026".
+    const unlinked = rawName.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim();
+
+    // The table lists a model twice when a price change is scheduled. Keep the
+    // rate in effect today and report the future one separately, rather than
+    // letting row order decide which price lands in the catalog.
+    if (/\bstarting\s+[A-Z][a-z]+\s+\d/.test(unlinked)) {
+      process.stderr.write(
+        `  (upcoming) ${unlinked}: $${match[2]}/$${match[3]} per MTok — not applied\n`,
+      );
+      continue;
+    }
+
+    // Drop availability/deprecation qualifiers: "(limited availability)",
+    // "(retired, except on Bedrock and Google Cloud)", "through August 31, 2026".
+    const cleanName = unlinked
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\b(through|until)\s+[A-Z][a-z]+\s+\d.*$/, '')
+      .replace(/\s+/g, ' ')
       .trim();
+
     const input = parseFloat(match[2]!);
     const output = parseFloat(match[3]!);
 
@@ -407,7 +519,7 @@ function computeDiff(
     }
   }
 
-  const providerPrefix = provider === 'openai' ? /^(gpt-|o\d|text-embedding|omni-moderation|text-moderation|computer-use|davinci|babbage)/
+  const providerPrefix = provider === 'openai' ? /^(gpt-|o\d|chat-latest|text-embedding|omni-moderation|text-moderation|computer-use|davinci|babbage)/
     : /^claude-/;
   for (const model of Object.keys(CURRENT_PRICING)) {
     if (providerPrefix.test(model) && !fetchedMap.has(model)) {
