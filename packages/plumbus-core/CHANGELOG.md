@@ -1,5 +1,17 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+### Added
+
+- **Amazon Bedrock provider slot** — `createProviderAdapter('bedrock', …)` dynamically loads optional peer `@plumbus/ai-bedrock` (`0.1.x`). Env discovery: `AI_BEDROCK_REGION` (or `AI_BEDROCK_ENABLED` + `AWS_REGION`), `AI_BEDROCK_MODEL`, `AI_BEDROCK_EMBEDDING_MODEL`, `AI_BEDROCK_PRICING_FILE`, timeouts/limits.
+- **Provider-supplied AI cost** — optional `cost` on `ProviderResponse` and stream `done` / `usage` events. `createAIService` prefers adapter cost when set (Bedrock package-owned pricing); otherwise uses `calculateModelCost` against the OpenAI/Anthropic catalog.
+- **`AIProviderConfig`** — `apiKey` optional; added `region`, `pricingFilePath`, `embeddingModel`, `pricingCacheTtlMs` for Bedrock-style providers.
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 13.** `plumbus init` references `@plumbus/ai-bedrock/instructions/pricing.md` (AWS Price List URLs, curl, normalize, ConfigMap) alongside framework + README. Pointers are inert when the package is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+
 ## 0.6.15 — 2026-08-10 — migrate rollback hardening + model pricing sync
 
 ### Fixed

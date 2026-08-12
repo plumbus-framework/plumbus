@@ -25,13 +25,26 @@ export interface QueueConfig {
 // ── AI Provider Config ──
 export interface AIProviderConfig {
   provider: string;
-  apiKey: string;
+  /**
+   * API key for OpenAI / Anthropic. Optional for providers that use other
+   * auth (e.g. Bedrock IAM). Built-in OpenAI/Anthropic adapters still require
+   * a key at adapter creation time.
+   */
+  apiKey?: string;
   model?: string;
   baseUrl?: string;
   maxTokensPerRequest?: number;
   dailyCostLimit?: number;
   /** Request timeout in milliseconds for AI provider calls (default: 120_000) */
   requestTimeout?: number;
+  /** AWS region for Bedrock (and similar region-scoped providers). */
+  region?: string;
+  /** Path to a Bedrock normalized pricing JSON file (`AI_BEDROCK_PRICING_FILE`). */
+  pricingFilePath?: string;
+  /** Default embedding model id (Bedrock Titan, etc.). */
+  embeddingModel?: string;
+  /** In-memory TTL for auto-downloaded Bedrock Price List rates. */
+  pricingCacheTtlMs?: number;
 }
 
 // ── Auth Adapter Config ──

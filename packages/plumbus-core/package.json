@@ -89,12 +89,16 @@
   },
   "peerDependencies": {
     "@plumbus/api": "0.1.x",
+    "@plumbus/ai-bedrock": "0.1.x",
     "@plumbus/mcp": "0.5.x || 0.6.x",
     "cron-parser": "^4.9.0",
     "redis": "^4.7.0"
   },
   "peerDependenciesMeta": {
     "@plumbus/api": {
+      "optional": true
+    },
+    "@plumbus/ai-bedrock": {
       "optional": true
     },
     "@plumbus/mcp": {
@@ -110,6 +114,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@plumbus/api": "workspace:*",
+    "@plumbus/ai-bedrock": "workspace:*",
     "@plumbus/mcp": "workspace:*",
     "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",

@@ -149,6 +149,38 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
+    it('emits content_delta before done when finish_reason shares the content chunk (Mantle)', async () => {
+      // Bedrock Mantle often puts the last text delta on the same SSE object as finish_reason.
+      const sse = [
+        'data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0}]}',
+        '',
+        'data: {"choices":[{"delta":{"content":"stream-ok"},"finish_reason":"stop","index":0}]}',
+        '',
+        'data: [DONE]',
+        '',
+        '',
+      ].join('\n');
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(sse, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'qwen.qwen3-32b' });
+      const events: Array<{ type: string; delta?: string; finishReason?: string }> = [];
+      for await (const event of adapter.stream({ prompt: 'Stream hello' })) {
+        events.push(event);
+      }
+
+      expect(events.map((e) => e.type)).toEqual(['content_delta', 'done', 'done']);
+      expect(events[0]).toMatchObject({ type: 'content_delta', delta: 'stream-ok' });
+      expect(events[1]).toMatchObject({ type: 'done', finishReason: 'stop' });
+
+      vi.unstubAllGlobals();
+    });
+
     it('sends reasoning_effort only when explicitly set', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,

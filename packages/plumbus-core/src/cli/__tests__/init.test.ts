@@ -66,6 +66,9 @@ describe('plumbus init', () => {
       expect(content).toContain('node_modules/@plumbus/voice-openai/instructions/README.md');
       expect(content).toContain('node_modules/@plumbus/voice-openai/instructions/framework.md');
       expect(content).toContain('node_modules/@plumbus/mcp/instructions/framework.md');
+      expect(content).toContain('node_modules/@plumbus/ai-bedrock/instructions/framework.md');
+      expect(content).toContain('node_modules/@plumbus/ai-bedrock/instructions/pricing.md');
+      expect(content).toContain('node_modules/@plumbus/ai-bedrock/instructions/README.md');
       expect(content).toContain('node_modules/@plumbus/mcp/instructions/expose-a-capability.md');
       expect(content).toContain('node_modules/@plumbus/mcp/instructions/tasks.md');
       expect(content).toContain('node_modules/@plumbus/mcp/instructions/testing.md');
@@ -113,6 +116,7 @@ describe('plumbus init', () => {
       expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
+      expect(content).toContain('ai-bedrock');
       expect(content).toContain(
         'open `node_modules/@plumbus/<package>/instructions/README.md` first',
       );

@@ -87,6 +87,7 @@ Install only when you need the surface. All optional packages are explicit `pnpm
 | `@plumbus/ui` | Next.js/React UI, typed clients, scaffolds |
 | `@plumbus/mcp` | Serve capabilities to AI agents (`plumbus mcp serve`) |
 | `@plumbus/api` | Partner-facing HTTP API contracts (OpenAPI, manifest) |
+| `@plumbus/ai-bedrock` | Amazon Bedrock chat/embeddings via `ctx.ai` (AWS SDK + IAM; not bundled in core) |
 | `@plumbus/chat` | Conversational runtime (`defineChat`, policy guards) |
 | `@plumbus/chat-ui` | React hooks + `<ChatPanel />` for `@plumbus/chat` |
 | `@plumbus/voice` | Realtime speech I/O (`defineVoice`, routes, websocket transport) |
@@ -97,15 +98,18 @@ Install only when you need the surface. All optional packages are explicit `pnpm
 | `@plumbus/voice-minimax` | MiniMax TTS adapter (peer of voice) |
 | `@plumbus/knowledge-base` | Registry-backed knowledge providers for chat/RAG |
 | `@plumbus/browser-extension` | Dev-time browser extension scaffolder (with `@plumbus/ui`) |
-
+| `@plumbus/auth` | OIDC relying-party runtime (sessions, CSRF) |
+| `@plumbus/auth-cognito` | Cognito hosted UI helpers for `@plumbus/auth` |
 ```bash
 pnpm add @plumbus/chat @plumbus/chat-ui   # example: chat surface
 pnpm add @plumbus/mcp                    # example: MCP agent tools
+pnpm add @plumbus/ai-bedrock             # example: Amazon Bedrock (AWS SDK; IAM)
 pnpm add @plumbus/voice @plumbus/voice-livekit @plumbus/voice-soniox   # example: voice stack
 ```
 
-Voice cloud providers require install **and** explicit `*_REGISTRATION` — see [Upgrading Voice Provider Packages](../upgrading-voice-provider-packages.md).
+Bedrock setup (region, pricing file vs Price List auto-download, Runtime vs Mantle, why it is not in core): [Amazon Bedrock](../ai/bedrock.md).
 
+Voice cloud providers require install **and** explicit `*_REGISTRATION` — see [Upgrading Voice Provider Packages](../upgrading-voice-provider-packages.md).
 Peer ranges are version-locked — see [AGENTS.md](../../AGENTS.md) consumer dependency policy.
 
 ### Configure TypeScript

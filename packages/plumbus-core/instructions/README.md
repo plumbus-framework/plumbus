@@ -26,6 +26,8 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [peer-dependencies.md](./peer-dependencies.md) | **Before editing add-on `peerDependencies`** — copy literals exactly. |
 | [upgrading-0.5-capabilities.md](./upgrading-0.5-capabilities.md) | Canonical capability names, invoke policy, flow auth snapshot. |
 
+Optional AI provider: after `pnpm add @plumbus/ai-bedrock`, read `node_modules/@plumbus/ai-bedrock/instructions/README.md` (framework + pricing pull).
+
 Package quickstart: [../README.md](../README.md).
 
 ## Critical rules

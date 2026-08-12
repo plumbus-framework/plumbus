@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "region": "eu-north-1",
+  "generatedAt": "2026-08-12T00:00:00.000Z",
+  "models": {
+    "anthropic.claude-haiku-4-5": {
+      "inputPerMTok": 1.1,
+      "outputPerMTok": 5.5,
+      "kind": "text"
+    },
+    "anthropic.claude-sonnet-4-5": {
+      "inputPerMTok": 3,
+      "outputPerMTok": 15,
+      "kind": "text"
+    },
+    "amazon.nova-lite-v1": {
+      "inputPerMTok": 0.06,
+      "outputPerMTok": 0.24,
+      "kind": "text"
+    },
+    "amazon.titan-embed-text-v2": {
+      "inputPerMTok": 0.02,
+      "outputPerMTok": 0,
+      "kind": "embedding"
+    }
+  }
+}

@@ -56,6 +56,7 @@ plumbus init
 │ node_modules/@plumbus/voice-*/instructions/                 │
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
+│ node_modules/@plumbus/ai-bedrock/instructions/              │
 │ node_modules/@plumbus/auth/instructions/                    │
 │ node_modules/@plumbus/auth-cognito/instructions/            │
 │ node_modules/@plumbus/browser-extension/instructions/       │
@@ -80,6 +81,8 @@ plumbus init
 │                     chat wiring, testing (when installed)     │
 │  api/*.md           ← Partner API expose, manifest, CLI,    │
 │                     testing (when @plumbus/api installed)   │
+│  ai-bedrock/*.md    ← Bedrock Converse, pricing file /      │
+│                     Price List pull (when installed)        │
 │  auth/*.md          ← OIDC runtime, sessions, CSRF, Cognito │
 │                     (when @plumbus/auth installed)          │
 └───────────────────────────┬─────────────────────────────────┘
@@ -292,6 +295,9 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/mcp/instructions/expose-a-capability.md` | `exposeAs: ['mcp']` recipe + agent token config |
 | `node_modules/@plumbus/mcp/instructions/tasks.md` | `kind: 'job'` over MCP Tasks (`mcpTaskEntity`, progress, cancel) |
 | `node_modules/@plumbus/mcp/instructions/testing.md` | `@plumbus/mcp/testing` helpers |
+| `node_modules/@plumbus/ai-bedrock/instructions/README.md` | Amazon Bedrock AI provider instruction index |
+| `node_modules/@plumbus/ai-bedrock/instructions/framework.md` | Bedrock Converse/embeddings, pricing file vs auto-download, IAM |
+| `node_modules/@plumbus/ai-bedrock/instructions/pricing.md` | AWS Price List URLs, curl, normalize, ConfigMap, troubleshooting |
 | `node_modules/@plumbus/api/instructions/README.md` | Partner API instruction index (optional package) |
 | `node_modules/@plumbus/api/instructions/framework.md` | API package boundary, public exports, critical rules |
 | `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |

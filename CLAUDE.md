@@ -69,6 +69,18 @@ pnpm add @plumbus/api
 
 Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.yaml` manifest, and call `registerApiRoutes()` from app bootstrap. `plumbus api validate` prints an install hint when the package is missing.
 
+### Optional add-on: `@plumbus/ai-bedrock`
+
+`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.1.x`; peer `@plumbus/core` `0.6.x`). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
+
+```
+pnpm add @plumbus/ai-bedrock
+```
+
+Then set `AI_BEDROCK_REGION` (and optionally `AI_BEDROCK_PRICING_FILE` for containers) or call `createBedrockAdapter()` and register it under `createAIService({ providers: { bedrock } })`. `createProviderAdapter('bedrock')` prints an install hint when the package is missing.
+
+Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `AWS_BEARER_TOKEN_BEDROCK`). Cost USD comes from AWS Price List rates (auto-download or a mounted normalized JSON) — Bedrock responses return token usage only. Guide: `docs/ai/bedrock.md`. Price List URLs, curl, normalize, and ConfigMap: `packages/ai-bedrock/instructions/pricing.md` (in apps: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`).
+
 ### Optional add-on: `@plumbus/browser-extension`
 
 `@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.1.x`**; peer `@plumbus/core` at **`0.5.x || 0.6.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:

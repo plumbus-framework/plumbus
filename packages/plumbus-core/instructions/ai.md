@@ -186,7 +186,9 @@ All AI responses are validated against the prompt's output Zod schema. On failur
 
 Every AI invocation records: model used, input/output token counts, latency, and prompt name. Token counts come directly from provider responses.
 
-**Per-request cost** is computed automatically from a built-in pricing table (`calculateModelCost`) covering major OpenAI and Anthropic models. Unknown models (Ollama, custom endpoints) return cost `$0`. Cached-token and long-context adjustments are applied when providers return cache metadata.
+**Per-request cost** for OpenAI/Anthropic is computed from a built-in pricing table (`calculateModelCost`). Unknown models (Ollama, custom endpoints) return cost `$0`. Cached-token and long-context adjustments are applied when providers return cache metadata.
+
+**Provider-supplied cost:** when an adapter sets `cost` on `ProviderResponse` / stream `done` (Amazon Bedrock via `@plumbus/ai-bedrock`), `createAIService` **prefers that value** over `MODEL_PRICING`. Bedrock never returns USD — the add-on multiplies usage × AWS Price List rates (auto-download or `AI_BEDROCK_PRICING_FILE`). Do not alias Bedrock rates to Anthropic catalog rows.
 
 `generateWithUsage()` and `streamGenerate()` expose `cost` on each call. Budget limits (`BudgetConfig`) can gate requests by tokens or dollar amounts.
 
@@ -219,7 +221,7 @@ AI_MODEL=gpt-4o-mini
 
 ### Multi-Provider
 
-Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **only** `AI_OPENAI_*` and `AI_ANTHROPIC_*` slots — other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically via `createProviderAdapter` / `createAIService`.
+Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`** (region-based; no API key). Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically via `createProviderAdapter` / `createAIService`.
 
 ```bash
 AI_DEFAULT_PROVIDER=openai
@@ -231,6 +233,31 @@ AI_OPENAI_MODEL=gpt-4o-mini
 AI_ANTHROPIC_API_KEY=sk-ant-...
 AI_ANTHROPIC_BASE_URL=https://custom-anthropic.com  # optional
 AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
+```
+
+### Amazon Bedrock
+
+```bash
+pnpm add @plumbus/ai-bedrock
+```
+
+```bash
+AI_DEFAULT_PROVIDER=bedrock
+AI_BEDROCK_REGION=us-east-1
+AI_BEDROCK_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
+# containers (recommended) — mount normalized rates; no Price List CDN egress:
+# AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json
+```
+
+Auth is IAM / IRSA (no API key). Price List URLs, curl, normalize script, ConfigMap:
+
+- `node_modules/@plumbus/ai-bedrock/instructions/framework.md`
+- `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`
+
+Example rates URL (public, no IAM):
+
+```text
+https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json
 ```
 
 Each prompt's `model.provider` routes to the named provider; prompts without a provider field use `defaultProvider`.

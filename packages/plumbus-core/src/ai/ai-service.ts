@@ -429,6 +429,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
     let result: any;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    let providerCost: number | undefined;
     let validationAttempts = 1;
     let validationPassed = true;
     let finalFinishReason: 'stop' | 'length' | 'refusal' | 'other' = 'stop';
@@ -444,6 +445,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         const response = await activeProvider.complete(request);
         result = { content: response.content };
         totalUsage = response.usage;
+        providerCost = response.cost;
         toolCallsResult = response.toolCalls;
         toolFinishNormalized = normalizeFinishReason(response.finishReason);
       } else if (outputValidationNone) {
@@ -451,6 +453,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         const response = await activeProvider.complete(request);
         result = { content: response.content };
         totalUsage = response.usage;
+        providerCost = response.cost;
         const nf = normalizeFinishReason(response.finishReason);
         finalFinishReason = nf === 'tool_calls' ? 'other' : nf;
       } else if (promptDef) {
@@ -463,6 +466,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         });
         result = validated.data;
         totalUsage = validated.usage;
+        providerCost = validated.cost;
         validationAttempts = validated.attempts;
         validationPassed = validated.attempts === 1;
         finalFinishReason = 'stop';
@@ -471,6 +475,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         const response = await activeProvider.complete(request);
         result = response.content;
         totalUsage = response.usage;
+        providerCost = response.cost;
         const nf = normalizeFinishReason(response.finishReason);
         finalFinishReason = nf === 'tool_calls' ? 'other' : nf;
       }
@@ -550,15 +555,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       });
     }
 
-    const cost = calculateModelCost(
-      totalUsage.inputTokens,
-      totalUsage.outputTokens,
-      resolvedModel,
-      {
+    const cost =
+      providerCost ??
+      calculateModelCost(totalUsage.inputTokens, totalUsage.outputTokens, resolvedModel, {
         cachedInputTokens: totalUsage.cachedInputTokens,
         cacheWriteTokens: totalUsage.cacheWriteTokens,
-      },
-    );
+      });
 
     if (
       toolsEnabled &&
@@ -744,6 +746,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       let fullText = '';
       let streamUsage: import('../types/context.js').AITokenUsage | undefined;
       let providerFinishReason: string | undefined;
+      let streamProviderCost: number | undefined;
       try {
         for await (const event of activeProvider.stream(request)) {
           if (event.type === 'content_delta' && event.delta) {
@@ -757,6 +760,7 @@ export function createAIService(config: AIServiceConfig): AIService {
               cachedInputTokens: event.usage.cachedInputTokens,
               cacheWriteTokens: event.usage.cacheWriteTokens,
             };
+            if (event.cost != null) streamProviderCost = event.cost;
           } else if (event.type === 'done') {
             // Capture the provider's finish_reason so downstream callers can
             // distinguish natural completion ('stop') from truncation
@@ -764,6 +768,16 @@ export function createAIService(config: AIServiceConfig): AIService {
             // vs a hit max_tokens ceiling.
             if (event.finishReason) {
               providerFinishReason = event.finishReason;
+            }
+            if (event.cost != null) streamProviderCost = event.cost;
+            if (event.usage) {
+              streamUsage = {
+                inputTokens: event.usage.inputTokens,
+                outputTokens: event.usage.outputTokens,
+                totalTokens: event.usage.totalTokens,
+                cachedInputTokens: event.usage.cachedInputTokens,
+                cacheWriteTokens: event.usage.cacheWriteTokens,
+              };
             }
           } else if (event.type === 'error') {
             // Provider-reported mid-stream error — record whatever usage we
@@ -830,12 +844,14 @@ export function createAIService(config: AIServiceConfig): AIService {
       }
 
       // Compute cost and model info for the done event
-      const streamCost = streamUsage
-        ? calculateModelCost(streamUsage.inputTokens, streamUsage.outputTokens, resolvedModel, {
-            cachedInputTokens: streamUsage.cachedInputTokens,
-            cacheWriteTokens: streamUsage.cacheWriteTokens,
-          })
-        : 0;
+      const streamCost =
+        streamProviderCost ??
+        (streamUsage
+          ? calculateModelCost(streamUsage.inputTokens, streamUsage.outputTokens, resolvedModel, {
+              cachedInputTokens: streamUsage.cachedInputTokens,
+              cacheWriteTokens: streamUsage.cacheWriteTokens,
+            })
+          : 0);
 
       const doneBase = {
         usage: streamUsage,

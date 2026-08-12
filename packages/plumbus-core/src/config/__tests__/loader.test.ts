@@ -535,7 +535,7 @@ describe('Config Loader', () => {
       });
     });
 
-    it('ignores unsupported AI_*_API_KEY env vars (only openai and anthropic)', () => {
+    it('ignores unsupported AI_*_API_KEY env vars (openai, anthropic, bedrock are supported)', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const config = loadConfig({
         environment: 'development',
@@ -550,6 +550,26 @@ describe('Config Loader', () => {
       });
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('AI_OLLAMA_API_KEY'));
       warnSpy.mockRestore();
+    });
+
+    it('loads bedrock from AI_BEDROCK_REGION without an API key', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'bedrock',
+          AI_BEDROCK_REGION: 'us-east-1',
+          AI_BEDROCK_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+          AI_BEDROCK_PRICING_FILE: '/config/bedrock-pricing.json',
+        },
+      });
+      expect(config.aiProviders?.providers.bedrock).toEqual(
+        expect.objectContaining({
+          provider: 'bedrock',
+          region: 'us-east-1',
+          model: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+          pricingFilePath: '/config/bedrock-pricing.json',
+        }),
+      );
     });
 
     it('should include both defaultModel and promptOverrides together', () => {
