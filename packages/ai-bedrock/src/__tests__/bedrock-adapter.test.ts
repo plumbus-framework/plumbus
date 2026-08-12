@@ -401,15 +401,24 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     );
   });
 
-  it('9. missing pricingFilePath fails clearly on first call', async () => {
-    const adapter = createBedrockAdapter({
-      region: 'us-east-1',
-      pricingFilePath: `/tmp/plumbus-bedrock-missing-${Date.now()}.json`,
-      runtimeClient: { send: vi.fn() } as never,
-      warmPricingOnCreate: false,
-    });
+  it('9. missing pricingFilePath fails inference loudly but degrades listModels', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const adapter = createBedrockAdapter({
+        region: 'us-east-1',
+        pricingFilePath: `/tmp/plumbus-bedrock-missing-${Date.now()}.json`,
+        runtimeClient: { send: vi.fn() } as never,
+        warmPricingOnCreate: false,
+      });
 
-    await expect(adapter.listModels?.()).rejects.toThrow();
+      // A misconfigured mount must not be silent on the inference path.
+      await expect(adapter.complete({ prompt: 'hi' })).rejects.toThrow();
+      // …but listModels is contractually non-throwing: warn once, return [].
+      await expect(adapter.listModels?.()).resolves.toEqual([]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('10. named toolChoice forces a specific Bedrock tool', async () => {
@@ -456,6 +465,282 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     await adapter.complete({ prompt: 'hi', system: 'Be terse.' });
     const system = commandInput(send).system as Array<{ text?: string }>;
     expect(system?.[0]?.text).toBe('Be terse.');
+  });
+
+  it('13. parallel tool results collapse into ONE user turn with all toolResult blocks', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'done' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 3, outputTokens: 1, totalTokens: 4 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    // runToolLoop emits one `tool` message per call; Converse requires them in a
+    // single user turn (and alternating roles).
+    await adapter.complete({
+      prompt: '',
+      messages: [
+        { role: 'user', content: 'weather in two cities?' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'get_weather',
+              argumentsStatus: 'parsed',
+              arguments: { city: 'TLV' },
+            },
+            {
+              id: 'c2',
+              name: 'get_weather',
+              argumentsStatus: 'parsed',
+              arguments: { city: 'NYC' },
+            },
+          ],
+        },
+        { role: 'tool', content: '{"temp":22}', toolCallId: 'c1', name: 'get_weather' },
+        { role: 'tool', content: '{"temp":17}', toolCallId: 'c2', name: 'get_weather' },
+      ],
+    });
+
+    const messages = commandInput(send).messages as {
+      role: string;
+      content: { toolResult?: { toolUseId?: string } }[];
+    }[];
+    expect(messages.length).toBe(3);
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    const results = (messages[2]?.content ?? []).filter((c) => c.toolResult != null);
+    expect(results.length).toBe(2);
+    expect(results.map((c) => c.toolResult?.toolUseId)).toEqual(['c1', 'c2']);
+  });
+
+  it('14. omits toolChoice when auto so models without toolChoice support still work', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: 'hi',
+      tools: [{ name: 'lookup', description: 'd', parameters: { type: 'object' } }],
+      toolChoice: 'auto',
+    });
+
+    const toolConfig = commandInput(send).toolConfig as {
+      tools?: unknown[];
+      toolChoice?: unknown;
+    };
+    expect(toolConfig.tools?.length).toBe(1);
+    expect(toolConfig.toolChoice).toBeUndefined();
+  });
+
+  it('15. mid-stream service exception surfaces as an error event, not a clean done', async () => {
+    async function* events() {
+      yield { contentBlockDelta: { delta: { text: 'partial' } } };
+      yield { throttlingException: { message: 'Too many requests' } };
+    }
+    const send = vi.fn().mockResolvedValue({ stream: events() });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    const seen: string[] = [];
+    let errorMessage: string | undefined;
+    for await (const ev of adapter.stream({ prompt: 'x' })) {
+      seen.push(ev.type);
+      if (ev.type === 'error') errorMessage = ev.error;
+    }
+    expect(seen).not.toContain('done');
+    expect(errorMessage).toMatch(/ThrottlingException/);
+  });
+
+  it('16. omits cost entirely when no rate is known for the model', async () => {
+    const pricing = mockPricing();
+    pricing.calculateCost = vi.fn().mockReturnValue(undefined);
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: pricing,
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    const result = await adapter.complete({ prompt: 'hi' });
+    // `cost: 0` would beat core's `providerCost ?? calculateModelCost(...)` fallback.
+    expect('cost' in result).toBe(false);
+  });
+
+  it('17. totalTokens falls back to include cache tokens Bedrock reports separately', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      // Service omitted totalTokens.
+      usage: {
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadInputTokens: 40,
+        cacheWriteInputTokens: 20,
+      },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    const result = await adapter.complete({ prompt: 'hi' });
+    expect(result.usage.totalTokens).toBe(170);
+  });
+
+  it('18. maps guardrail / filter / context-window stop reasons to core vocabulary', async () => {
+    const cases: [string, string][] = [
+      ['content_filtered', 'refusal'],
+      ['guardrail_intervened', 'refusal'],
+      ['model_context_window_exceeded', 'length'],
+    ];
+    for (const [bedrockReason, expected] of cases) {
+      const send = vi.fn().mockResolvedValue({
+        output: { message: { role: 'assistant', content: [{ text: '' }] } },
+        stopReason: bedrockReason,
+        usage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 },
+      });
+      const adapter = createBedrockAdapter({
+        region: 'us-east-1',
+        pricingStore: mockPricing(),
+        runtimeClient: { send } as never,
+        warmPricingOnCreate: false,
+      });
+      const result = await adapter.complete({ prompt: 'hi' });
+      expect(result.finishReason).toBe(expected);
+    }
+  });
+
+  it('19. embeds with Cohere request/response shapes when the model is Cohere', async () => {
+    const send = vi.fn().mockResolvedValue({
+      body: new TextEncoder().encode(JSON.stringify({ embeddings: [[0.5, 0.6]] })),
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(0.1, 0),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    const result = await adapter.embed({ texts: ['hello'], model: 'cohere.embed-english-v3' });
+    expect(result.embeddings).toEqual([[0.5, 0.6]]);
+    const body = JSON.parse(new TextDecoder().decode(commandInput(send).body as Uint8Array));
+    expect(body).toEqual({ texts: ['hello'], input_type: 'search_document' });
+  });
+
+  it('20. embeds concurrently while preserving input order', async () => {
+    const order = ['a', 'b', 'c', 'd', 'e'];
+    const send = vi.fn().mockImplementation(async (cmd: { input: { body: Uint8Array } }) => {
+      const { inputText } = JSON.parse(new TextDecoder().decode(cmd.input.body));
+      const index = order.indexOf(inputText);
+      // Earlier texts resolve last, so a wrong implementation reorders output.
+      await new Promise((r) => setTimeout(r, (order.length - index) * 5));
+      return {
+        body: new TextEncoder().encode(
+          JSON.stringify({ embedding: [index], inputTextTokenCount: 1 }),
+        ),
+      };
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(0.02, 0),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+      embedConcurrency: 5,
+    });
+
+    const result = await adapter.embed({ texts: order });
+    expect(result.embeddings).toEqual([[0], [1], [2], [3], [4]]);
+    expect(result.usage.totalTokens).toBe(5);
+    expect(send).toHaveBeenCalledTimes(5);
+  });
+
+  it('21. sends outputConfig only when structuredOutputs is native', async () => {
+    const responseSchema = { type: 'object', properties: { a: { type: 'string' } } };
+    const reply = {
+      output: { message: { role: 'assistant', content: [{ text: '{}' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    };
+
+    const offSend = vi.fn().mockResolvedValue(reply);
+    const offAdapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send: offSend } as never,
+      warmPricingOnCreate: false,
+    });
+    await offAdapter.complete({ prompt: 'hi', responseFormat: 'json', responseSchema });
+    // Default must stay on core's validate-and-repair path.
+    expect(commandInput(offSend).outputConfig).toBeUndefined();
+
+    const nativeSend = vi.fn().mockResolvedValue(reply);
+    const nativeAdapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send: nativeSend } as never,
+      warmPricingOnCreate: false,
+      structuredOutputs: 'native',
+    });
+    await nativeAdapter.complete({ prompt: 'hi', responseFormat: 'json', responseSchema });
+
+    const outputConfig = commandInput(nativeSend).outputConfig as {
+      textFormat?: { type?: string; structure?: { jsonSchema?: { schema?: string } } };
+    };
+    expect(outputConfig.textFormat?.type).toBe('json_schema');
+    // Converse takes the schema as a JSON string, not an object.
+    const schema = outputConfig.textFormat?.structure?.jsonSchema?.schema;
+    expect(typeof schema).toBe('string');
+    expect(JSON.parse(schema ?? '{}')).toEqual(responseSchema);
+  });
+
+  it('22. native structured outputs defer to the tool transport when core picks it', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: '{}' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+      structuredOutputs: 'native',
+    });
+
+    await adapter.complete({
+      prompt: 'hi',
+      responseFormat: 'json',
+      responseSchema: { type: 'object' },
+      structuredOutputTransport: 'tool',
+    });
+    // Double-constraining the response would be wrong.
+    expect(commandInput(send).outputConfig).toBeUndefined();
   });
 
   it('12. stream marks invalid tool JSON as argumentsStatus invalid', async () => {

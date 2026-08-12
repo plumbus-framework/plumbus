@@ -2,7 +2,7 @@
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
 import { createRequire } from 'node:module';
-import type { AIProviderConfig } from '../types/config.js';
+import type { AIProviderSlotConfig } from '../types/config.js';
 import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
@@ -1528,10 +1528,16 @@ function parseAnthropicSSEChunk(eventType: string, data: string): ProviderStream
 
 // ── Provider Factory ──
 
-/** Create a provider adapter by name from a provider config entry */
+/**
+ * Create a provider adapter by name from a provider config entry.
+ *
+ * Takes {@link AIProviderSlotConfig} (optional `apiKey`) so keyless providers
+ * such as Bedrock can be constructed without a placeholder key. An
+ * `AIProviderConfig` is assignable to it, so existing callers are unaffected.
+ */
 export function createProviderAdapter(
   name: string,
-  providerConfig: AIProviderConfig,
+  providerConfig: AIProviderSlotConfig,
 ): AIProviderAdapter {
   switch (name) {
     case 'openai': {
@@ -1567,7 +1573,7 @@ export function createProviderAdapter(
   }
 }
 
-function createBedrockAdapterFromPeer(providerConfig: AIProviderConfig): AIProviderAdapter {
+function createBedrockAdapterFromPeer(providerConfig: AIProviderSlotConfig): AIProviderAdapter {
   const region = providerConfig.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
   if (region == null || region === '') {
     throw new Error('AI provider "bedrock" requires region (set AI_BEDROCK_REGION or AWS_REGION).');

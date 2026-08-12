@@ -16,7 +16,7 @@
 
 1. Install `@plumbus/ai-bedrock` explicitly — core will not bundle the AWS SDK.
 2. Use Bedrock **model ids** in prompts (`anthropic.claude-…-v1:0`, not Anthropic API short names alone).
-3. For Kubernetes / containers, set **`pricingFilePath` / `AI_BEDROCK_PRICING_FILE`** — do not rely on per-pod Price List downloads. Read [pricing.md](./pricing.md).
+3. For Kubernetes / containers / reliable cost, set **`pricingFilePath` / `AI_BEDROCK_PRICING_FILE`** with explicit family keys — do not rely on Price List auto-download completeness. Read [pricing.md](./pricing.md).
 4. Business logic stays in Plumbus primitives (`definePrompt`, `ctx.ai.*`); this package is only the Bedrock adapter.
 5. Cost USD comes from this package’s rates (file or auto-download), **not** from core’s OpenAI/Anthropic `MODEL_PRICING` table. Never alias Bedrock rates to Anthropic catalog rows.
 6. Bedrock Converse responses return **token usage only** — never dollar amounts. Pricing is always usage × rates from the Price List (or your mounted file).

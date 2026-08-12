@@ -6,7 +6,8 @@
 
 - **Amazon Bedrock provider slot** — `createProviderAdapter('bedrock', …)` dynamically loads optional peer `@plumbus/ai-bedrock` (`0.1.x`). Env discovery: `AI_BEDROCK_REGION` (or `AI_BEDROCK_ENABLED` + `AWS_REGION`), `AI_BEDROCK_MODEL`, `AI_BEDROCK_EMBEDDING_MODEL`, `AI_BEDROCK_PRICING_FILE`, timeouts/limits.
 - **Provider-supplied AI cost** — optional `cost` on `ProviderResponse` and stream `done` / `usage` events. `createAIService` prefers adapter cost when set (Bedrock package-owned pricing); otherwise uses `calculateModelCost` against the OpenAI/Anthropic catalog.
-- **`AIProviderConfig`** — `apiKey` optional; added `region`, `pricingFilePath`, `embeddingModel`, `pricingCacheTtlMs` for Bedrock-style providers.
+- **`AIProviderConfig`** — added `region`, `pricingFilePath`, `embeddingModel`, `pricingCacheTtlMs` for Bedrock-style providers. `apiKey` stays a required `string`, so `config.ai.apiKey` still assigns to `string` in existing app bootstrap.
+- **`AIProviderSlotConfig`** — new exported type accepted by `createProviderAdapter`: identical to `AIProviderConfig` but with optional `apiKey`, so keyless providers (Bedrock uses the AWS credential chain) need no placeholder key. An `AIProviderConfig` remains assignable to it, so existing calls are unaffected. Env discovery sets `apiKey: ''` on the Bedrock slot.
 
 ### Changed
 

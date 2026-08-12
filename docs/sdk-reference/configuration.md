@@ -156,7 +156,7 @@ pnpm add redis cron-parser
 ```typescript
 interface AIProviderConfig {
   provider: string;        // "openai" | "anthropic" | "bedrock" | …
-  apiKey?: string;         // required for openai/anthropic; omit for bedrock (IAM)
+  apiKey: string;          // openai/anthropic key; "" for bedrock (IAM auth)
   model?: string;
   baseUrl?: string;
   region?: string;         // bedrock
@@ -167,6 +167,16 @@ interface AIProviderConfig {
   dailyCostLimit?: number;
   requestTimeout?: number; // default 120_000 ms
 }
+
+// Accepted by createProviderAdapter — same shape with an optional apiKey, so
+// keyless providers need no placeholder. AIProviderConfig is assignable to it.
+type AIProviderSlotConfig = Omit<AIProviderConfig, 'apiKey'> & { apiKey?: string };
+```
+
+`apiKey` stays required on `AIProviderConfig` so app bootstrap can keep doing:
+
+```typescript
+if (config.ai) createOpenAIAdapter({ apiKey: config.ai.apiKey }); // still a `string`
 ```
 
 Environment variables:

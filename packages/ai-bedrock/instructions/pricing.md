@@ -7,10 +7,10 @@ Prescriptive recipe for operators and agents. Read this before wiring `AI_BEDROC
 ## 60-second answer
 
 1. Bedrock APIs return **tokens only** — never USD.
-2. Rates come from the **public** AWS Price List (no IAM):
+2. **Production:** mount `AI_BEDROCK_PRICING_FILE` with rates keyed by Bedrock family ids you use. Do not rely on auto-download completeness.
+3. Rates *can* be bootstrapped from the **public** AWS Price List (no IAM):
    `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/{AmazonBedrock|AmazonBedrockFoundationModels}/current/{region}/index.json`
-3. **Local / open network:** omit `AI_BEDROCK_PRICING_FILE` → adapter auto-downloads for `AI_BEDROCK_REGION`.
-4. **Kubernetes / locked NetworkPolicy:** curl those URLs in CI → `parseAwsOfferRates` → mount normalized JSON → set `AI_BEDROCK_PRICING_FILE`.
+4. Auto-download is **best-effort** (extract SDK ids from offer attrs / `usagetype` when present; limited generative display-name inference). Unkeyed rows produce **no cost at all** — the `cost` field is omitted rather than reported as `$0`, so unpriced spend is never recorded as free.
 
 ## Why this exists
 
@@ -18,10 +18,22 @@ Amazon Bedrock **does not return USD** on Converse / ConverseStream / InvokeMode
 
 | Mode | Source of rates | When to use |
 |------|-----------------|-------------|
-| **Pricing file (recommended in containers / k8s)** | You mount a normalized JSON file | Locked-down NetworkPolicy, identical rates across replicas, no thundering-herd CDN fetches |
-| **Auto-download** | Package fetches AWS Price List for `region` at warm/TTL | Local dev, single-node, clusters that allow egress to the Price List CDN |
+| **Pricing file (required for reliable production / k8s)** | You mount a normalized JSON keyed by **Bedrock model family ids** | Locked-down NetworkPolicy, identical rates across replicas, models AWS Price List cannot key cleanly |
+| **Auto-download (best-effort / local)** | Package fetches AWS Price List and tries to key rows to model ids | Dev convenience only — AWS does **not** publish a stable modelId↔price join |
 
 When `pricingFilePath` / `AI_BEDROCK_PRICING_FILE` is set, **auto-download is skipped** (file wins).
+
+### How auto-download keys rates (no forever model catalog)
+
+AWS offer JSON often uses marketing `servicename` strings, not Converse model ids. We do **not** maintain a hardcoded list of every Bedrock model. Resolution order:
+
+1. SDK-shaped id already present (`attributes.modelId` / `attributes.model` matching `provider.model…`, or the same shape embedded in `usagetype`) — **structural match, no vendor allowlist**. In real offer files this is mostly the `usagetype`-embedded form; `attributes.model` is usually a display name.
+2. Generative inference from a few stable **display-name shapes** (Claude tier+version, Titan embed, Nova tier) — not a growing catalog table. First-party rows put the name in `attributes.titanModel` / `attributes.model` (`servicename` is the literal `"Amazon Bedrock"`), so those are read too.
+3. Otherwise **skip** → that model has **no cost** until you add it to the pricing file
+
+Reality check against `us-east-1` today: this keys ~66 families, including Claude (regional marketplace rows), Nova, Titan embeddings, and anything with an id in `usagetype`. It does **not** key Llama, Mistral, Mixtral, or newer Nova generations whose display names it cannot parse. Put the models you actually call in the file.
+
+**Production rule:** put the models you call in `AI_BEDROCK_PRICING_FILE`. Do not depend on auto-download completeness.
 
 ## Where rates come from (AWS Price List — public, no IAM)
 
@@ -130,20 +142,27 @@ Auto-download and `parseAwsOfferRates()` keep **regional on-demand standard inpu
 
 **Kept (examples):**
 
-- FoundationModels: `…_InputTokenCount-Units` / `…_OutputTokenCount-Units` (regional)
-- AmazonBedrock: `feature: On-demand Inference` + `inferenceType: Input tokens` / `Output tokens`
+- Rows whose attrs/`usagetype` already contain an SDK-shaped id (`amazon.…`, `anthropic.…`, …)
+- FoundationModels marketplace rows that match generative Claude / Nova display shapes
+- First-party Titan embedding rows, whose model name lives in `attributes.titanModel` (`TitanEmbeddingsV2-Text-input`, `Titan Embeddings G1 Text`)
+- Units converted to **USD per 1M tokens** (first-party rows are per **1K tokens**, marketplace rows per **1M**)
 
 **Skipped:**
 
-- Global / cross-region inference SKUs (`…_Global-…`)
-- Batch
-- Latency-optimized
-- Reserved / provisioned TPM
-- Cache read/write SKUs as separate catalog rows (runtime still applies ~0.1× / 1.25× multipliers when Converse reports cache token fields)
+- Batch, latency-optimized, reserved / provisioned, priority, flex
+- Rows whose unit is not a token unit (`hour`, `image`, `Model/month`, `1M TPM Hour`, `Search Units`, …) — a non-token unit is never guessed at
+- The 1-hour cache-write tier (billed above the 5-minute write this package models)
 
-**Unit conversion:** Price List rows may be USD per **1K** or **1M** tokens. The parser normalizes everything to **USD per 1M tokens** (`inputPerMTok` / `outputPerMTok`).
+**Kept separately (not merged into the regional rate):**
 
-**Display name → family key:** Offer JSON often uses names like `Claude Haiku 4.5 (Amazon Bedrock Edition)`, not `anthropic.claude-haiku-4-5-…`. The package maps known display names to **family keys** (e.g. `anthropic.claude-haiku-4-5`). Lookup then normalizes runtime ids:
+- Global / cross-region SKUs (`…_Global-…`) → `globalInputPerMTok` / `globalOutputPerMTok`, used only for `global.`-prefixed model ids
+- Regional cache read/write SKUs → `cacheReadPerMTok` / `cacheWritePerMTok`
+
+When several standard-tier SKUs map to the same family, the **lowest** rate wins, so the result does not depend on JSON key order.
+- Cache tokens are billed **on top of** `inputTokens` (AWS excludes them from that field) using the published cache SKU when the parser found one, else ~0.1× read / ~1.25× write of the input rate
+- Marketing names that do not match extraction or generative shapes → **no rate** (use the pricing file)
+
+**Lookup at request time:** `normalizeBedrockModelId` strips geo prefixes (`us.`, `eu.`, …) and dated `-YYYYMMDD-vN:M` suffixes so versioned Converse ids hit family keys:
 
 | Runtime model id | Family key used for rates |
 |------------------|---------------------------|
@@ -151,7 +170,9 @@ Auto-download and `parseAwsOfferRates()` keep **regional on-demand standard inpu
 | `anthropic.claude-sonnet-4-5-20250929-v1:0` | `anthropic.claude-sonnet-4-5` |
 | `amazon.titan-embed-text-v2:0` | `amazon.titan-embed-text-v2` |
 
-Unknown models → cost **`$0`** (inference still works). Extend the normalized file manually for models not in the built-in display-name map (common example: **Amazon Nova** chat ids, or new Claude families before the map is updated).
+Version-less keys are matched too: `amazon.nova-lite-v1:0` normalizes to `amazon.nova-lite-v1` and falls back to `amazon.nova-lite`, so both key shapes in a pricing file resolve.
+
+Unknown / unkeyed models → **no `cost` field** on the response (inference still works). Add an explicit row to the pricing file.
 
 ## Normalized pricing file (v1)
 
@@ -189,7 +210,13 @@ This is what you mount at `pricingFilePath` / `AI_BEDROCK_PRICING_FILE`. Prefer 
 | `models.*.inputPerMTok` | yes | USD per 1M input tokens |
 | `models.*.outputPerMTok` | yes | USD per 1M output tokens (`0` for embeddings) |
 | `models.*.kind` | no | `text` \| `embedding` \| … (used by `listModels` filters) |
+| `models.*.cacheReadPerMTok` | no | USD per 1M cache-read tokens (else ~0.1× input) |
+| `models.*.cacheWritePerMTok` | no | USD per 1M cache-write tokens, 5-minute TTL (else ~1.25× input) |
+| `models.*.globalInputPerMTok` | no | USD per 1M input tokens via a `global.` inference profile (else regional) |
+| `models.*.globalOutputPerMTok` | no | USD per 1M output tokens via a `global.` inference profile |
 | `region` / `generatedAt` | no | Informational / audit |
+
+All the optional rate fields are additive — a file that only has `inputPerMTok` / `outputPerMTok` keeps working exactly as before, and `version` stays `1`.
 
 ### Generate the file with the package parser (recommended)
 
@@ -233,6 +260,8 @@ writeFileSync(
 ```
 
 Or hand-edit the JSON from the AWS Bedrock pricing page / offer attributes when you only need a few models.
+
+**Always review the generated file before mounting it.** The parser keys what it can recognize; models it cannot key are simply absent, and a missing row is silent (no cost recorded for that model). Check that every model id your app actually calls — chat *and* embedding — has a row, and add the rest by hand.
 
 ### Sanity-check a rate (Haiku 4.5)
 
@@ -290,7 +319,9 @@ Omit `pricingFilePath`. On warm (first AI call by default), the adapter fetches:
 
 Caches in memory (TTL default **24h**, override with `pricingCacheTtlMs` / `AI_BEDROCK_PRICING_TTL_MS`).
 
-**Requirements:** egress HTTPS to `pricing.us-east-1.amazonaws.com`. Failure → `console.warn`; costs stay `$0` until a successful refresh. Inference is **not** blocked.
+**Requirements:** egress HTTPS to `pricing.us-east-1.amazonaws.com`. Failure → `console.warn`; `cost` stays unknown (field omitted) until a successful refresh. Inference is **not** blocked.
+
+Failed downloads back off for **5 minutes** before retrying, so a blocked pricing CDN costs one fetch timeout per cooldown window rather than one per inference request. Once rates are loaded, TTL expiry refreshes them **in the background** — requests keep serving the previous rates instead of blocking on the fetch.
 
 ## Troubleshooting
 
@@ -307,4 +338,4 @@ Caches in memory (TTL default **24h**, override with `pricingCacheTtlMs` / `AI_B
 - Package boundary / wiring: [framework.md](./framework.md)
 - Concept guide (monorepo): `docs/ai/bedrock.md`
 - Broader AI docs: `docs/ai/ai-integration.md`
-- Types: `BedrockPricingFileV1`, helpers `parseAwsOfferRates`, `parsePricingFile`, `normalizeBedrockModelId`
+- Types: `BedrockPricingFileV1`, helpers `parseAwsOfferRates`, `parsePricingFile`, `normalizeBedrockModelId`, `extractModelIdFromOfferAttrs`, `inferFamilyFromDisplayName`

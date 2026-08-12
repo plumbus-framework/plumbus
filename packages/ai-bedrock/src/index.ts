@@ -14,6 +14,8 @@ export {
 } from './types.js';
 export {
   createPricingStore,
+  extractModelIdFromOfferAttrs,
+  inferFamilyFromDisplayName,
   normalizeBedrockModelId,
   parseAwsOfferRates,
   parsePricingFile,

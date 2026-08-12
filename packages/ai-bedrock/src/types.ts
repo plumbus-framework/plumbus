@@ -22,6 +22,28 @@ export interface BedrockAdapterConfig {
   defaultEmbeddingModel?: string;
   /** Request timeout in milliseconds (default: 120_000). */
   requestTimeout?: number;
+  /**
+   * Provider-side structured outputs via Converse `outputConfig.textFormat`.
+   *
+   * - `'off'` (default) — schemas are enforced by core's validate-and-repair
+   *   loop, exactly as before. Safe on every model.
+   * - `'native'` — forward `responseSchema` to Bedrock. Support is
+   *   model-dependent; a model that does not accept `outputConfig` rejects the
+   *   whole request, so enable it per deployment once you have verified your
+   *   model supports it.
+   */
+  structuredOutputs?: 'off' | 'native';
+  /**
+   * Max concurrent InvokeModel embedding calls (default: 4). Titan embeds one
+   * text per request, so this bounds the fan-out for a corpus ingest.
+   */
+  embedConcurrency?: number;
+  /**
+   * `input_type` sent to Cohere embedding models (default: `search_document`).
+   * Ignored by Titan. Use `search_query` for query-side embeddings if you keep
+   * a separate adapter for retrieval.
+   */
+  embeddingInputType?: string;
   /** Optional Bedrock Runtime endpoint override (VPC / GovCloud). */
   endpoint?: string;
   /**
@@ -76,4 +98,24 @@ export interface BedrockModelRate {
   /** USD per 1M output tokens (0 for embeddings). */
   outputPerMTok: number;
   kind?: 'text' | 'embedding' | 'moderation' | 'image' | 'audio';
+  /**
+   * USD per 1M cache-read input tokens. When absent, cost falls back to an
+   * approximate 0.1× of `inputPerMTok`.
+   */
+  cacheReadPerMTok?: number;
+  /**
+   * USD per 1M cache-write input tokens (default 5-minute TTL). When absent,
+   * cost falls back to an approximate 1.25× of `inputPerMTok`. Longer TTLs are
+   * billed higher by AWS and are not modelled — mount explicit rates if you
+   * rely on 1-hour caching.
+   */
+  cacheWritePerMTok?: number;
+  /**
+   * USD per 1M tokens when called through a **global** cross-region inference
+   * profile (`global.` prefix), which AWS bills below the regional rate. When
+   * absent, `global.` ids fall back to the regional rate.
+   */
+  globalInputPerMTok?: number;
+  /** USD per 1M output tokens for global inference profiles. */
+  globalOutputPerMTok?: number;
 }

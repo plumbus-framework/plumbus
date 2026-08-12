@@ -17,16 +17,17 @@ This page is the detailed integration guide. For the broader AI stack (prompts, 
 7. [Authentication](#authentication)
 8. [Models and IDs](#models-and-ids)
 9. [Chat: complete, stream, tools](#chat-complete-stream-tools)
-10. [Embeddings](#embeddings)
-11. [Pricing and cost ledger](#pricing-and-cost-ledger)
-12. [IAM permissions](#iam-permissions)
-13. [Kubernetes / containers](#kubernetes--containers)
-14. [Prompts, chat, RAG](#prompts-chat-rag)
-15. [Observability and errors](#observability-and-errors)
-16. [Testing](#testing)
-17. [Gaps and non-goals](#gaps-and-non-goals)
-18. [Gotchas (read this)](#gotchas-read-this)
-19. [Checklist before production](#checklist-before-production)
+10. [Structured outputs](#structured-outputs)
+11. [Embeddings](#embeddings)
+12. [Pricing and cost ledger](#pricing-and-cost-ledger)
+13. [IAM permissions](#iam-permissions)
+14. [Kubernetes / containers](#kubernetes--containers)
+15. [Prompts, chat, RAG](#prompts-chat-rag)
+16. [Observability and errors](#observability-and-errors)
+17. [Testing](#testing)
+18. [Gaps and non-goals](#gaps-and-non-goals)
+19. [Gotchas (read this)](#gotchas-read-this)
+20. [Checklist before production](#checklist-before-production)
 
 ---
 
@@ -78,11 +79,11 @@ Common production patterns (AWS docs, samples, and industry write-ups):
 | Cost / FinOps from Price List (API has no USD) | Yes — package-owned rates + `cost` on responses |
 | Guardrails on Converse (`guardrailConfig`) | **Not first-class** — app can wrap or extend later |
 | Multimodal image/document blocks | **Not first-class** — text/tool path today |
-| Structured outputs / `outputConfig` | **Not first-class** — use tools or prompt JSON |
+| Structured outputs / `outputConfig` | Opt-in — `structuredOutputs: 'native'`; default stays on core validate-and-repair |
 | Bedrock Agents / KB Retrieve | Out of scope — use RAG in core / knowledge-base |
 | Mantle OpenAI proxy | Use OpenAI adapter, not this package |
 
-**Verdict:** We match the mainstream Converse + tools + stream + Titan embed + cost path that most application backends need. Advanced Converse features (guardrails, multimodal, structured outputs) are documented gaps, not silent pretenses of support.
+**Verdict:** We match the mainstream Converse + tools + stream + embed + cost path that most application backends need. Remaining Converse features (guardrails, multimodal, cache checkpoints) are documented gaps, not silent pretenses of support.
 
 ---
 
@@ -161,6 +162,9 @@ That dynamically `require`s `@plumbus/ai-bedrock` and forwards those fields into
 | `pricingFilePath` | no | Normalized JSON; skips Price List download |
 | `pricingCacheTtlMs` | no | In-memory TTL for auto-download (default 24h) |
 | `pricingRefreshTimeoutMs` | no | Fetch timeout (default 15s) |
+| `structuredOutputs` | no | `'off'` (default) or `'native'` — see [Structured outputs](#structured-outputs) |
+| `embedConcurrency` | no | Max parallel InvokeModel embedding calls (default 4) |
+| `embeddingInputType` | no | Cohere `input_type` (default `search_document`); ignored by Titan |
 | `warmPricingOnCreate` | no | When true (default if no injected `pricingStore`), kick off a background `warm()` at factory time. Methods always `await warm()` before use either way. |
 | `runtimeClient` / `pricingStore` | no | Test injection |
 
@@ -215,7 +219,9 @@ Pricing lookup **normalizes** IDs to family keys (strips `us.` / `eu.` / … pre
 
 **Model access:** the AWS account must enable each model in the Bedrock console. Anthropic models often require a use-case form; until approved, Converse returns `AccessDeniedException`.
 
-**Cost for less-common models:** auto-download maps a fixed set of offer **display names** (Claude family, Titan embed, …) to family keys. Models like **Amazon Nova** (or anything not in that map) still **infer fine**, but `cost` stays `$0` until you add a row to the mounted pricing file (or extend the map in a fork). See [pricing.md — What the package keeps vs skips](../../packages/ai-bedrock/instructions/pricing.md#what-the-package-keeps-vs-skips).
+**Cost for less-common models:** auto-download is **best-effort** (extract SDK ids from offer attrs / `usagetype` when present; limited generative inference for Claude / Titan / Nova display shapes). It is **not** a hardcoded forever-catalog of AWS models. In practice most families arrive via ids embedded in `usagetype`, while the marketplace "Bedrock Edition" Claude rows and first-party Titan rows resolve by display name. Anything unkeyed returns **no cost** (field omitted) until you add a row to the mounted pricing file — Llama, Mistral, Qwen, and newer Nova generations are common examples. See [pricing.md](../../packages/ai-bedrock/instructions/pricing.md).
+
+Lookup is tolerant of the two family-key shapes this produces: a request for `amazon.nova-lite-v1:0` resolves against a `amazon.nova-lite-v1` key first and a version-less `amazon.nova-lite` key second.
 
 `listModels()` returns families present in the **pricing store** (file or Price List), filtered by `kind` — it is not a live Bedrock ListFoundationModels control-plane call.
 
@@ -253,21 +259,44 @@ Tool-use streaming: content-block start/delta/stop accumulate partial JSON tool 
 | Plumbus | Bedrock |
 |---------|---------|
 | `tools[].name/description/parameters` | `toolSpec` + `inputSchema.json` |
-| `toolChoice: 'auto'` | `{ auto: {} }` |
+| `toolChoice: 'auto'` (or unset) | field **omitted** — `toolChoice` support is model-dependent on Bedrock and omitting it means the same thing |
 | named function choice | `{ tool: { name } }` |
 | `toolChoice: 'none'` | **omit** `toolConfig` (Bedrock has no true none) |
 | assistant `toolCalls` in history | `toolUse` content blocks |
-| role `tool` messages | `toolResult` on a `user` turn |
+| role `tool` messages | `toolResult` blocks on a `user` turn — a run of consecutive `tool` messages (parallel calls) is coalesced into **one** user turn, as Converse requires |
 
 Capabilities advertised: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (no `parallelToolCallControl`).
 
 ---
 
+## Structured outputs
+
+By default (`structuredOutputs: 'off'`) a prompt's `output` schema is enforced by core's validate-and-repair loop — the adapter does not forward `responseSchema` to Bedrock. That works on every model.
+
+Set `structuredOutputs: 'native'` to forward the schema as Converse `outputConfig.textFormat` (`type: 'json_schema'`, schema serialized as a JSON string):
+
+```typescript
+createBedrockAdapter({ region: 'us-east-1', structuredOutputs: 'native' });
+```
+
+**Opt-in on purpose:** `outputConfig` support is model-dependent, and a model that does not accept it rejects the entire request. Verify against your model before enabling it in a deployment. When a prompt sets `structuredOutputTransport: 'tool'`, the adapter skips `outputConfig` so the response is not double-constrained.
+
+---
+
 ## Embeddings
 
-`adapter.embed({ texts, model? })` loops **InvokeModel** with Titan-style `{ inputText }` bodies (default model `amazon.titan-embed-text-v2:0`).
+`adapter.embed({ texts, model? })` calls **InvokeModel** per text (default model `amazon.titan-embed-text-v2:0`).
 
-Returns `embeddings`, `usage.totalTokens` (sum of `inputTextTokenCount`), and **`cost`**.
+| Model family | Request body | Response field |
+|---|---|---|
+| Titan (default) | `{ inputText }` | `embedding` |
+| Cohere (`cohere.*`) | `{ texts: [text], input_type }` | `embeddings[0]` |
+
+`input_type` defaults to `search_document`; override with `embeddingInputType` (use `search_query` for a query-side adapter). Titan ignores it.
+
+Titan accepts one text per call, so a corpus ingest is N round trips — up to `embedConcurrency` (default 4) run in parallel, and output order always matches `texts`.
+
+Returns `embeddings`, `usage.totalTokens` (sum of `inputTextTokenCount`), and **`cost`** when a rate is known.
 
 App code should not call the adapter directly for product features — wire the same adapter into `createRAGPipeline({ provider })` and use `ctx.ai.retrieve` / `plumbus rag ingest`. Mantle OpenAI mode typically cannot embed.
 
@@ -285,8 +314,10 @@ Bedrock Runtime never returns USD — only tokens. Cost recording:
 
 | Mode | Behavior |
 |------|----------|
-| `pricingFilePath` / `AI_BEDROCK_PRICING_FILE` | Load normalized v1 JSON; missing/invalid file **throws** on first warm |
-| Auto-download | HTTPS GET Price List indexes for `region`; failure **warns**, rates empty → `$0` until fixed |
+| `pricingFilePath` / `AI_BEDROCK_PRICING_FILE` | **Production path** — load normalized v1 JSON keyed by family ids; missing/invalid file **throws** on first warm |
+| Auto-download | **Best-effort** — HTTPS GET Price List indexes; key via extracted SDK ids + limited generative display inference; failure / unkeyed models → warn + `$0` |
+
+Prefer the pricing file. AWS Price List does not expose a stable Converse `modelId`↔USD join; this package will **not** maintain a forever-growing hardcoded model table.
 
 ### Price List URLs (public, no IAM)
 
@@ -301,19 +332,31 @@ Normalize with `parseAwsOfferRates` from this package. Full curl, Node script, C
 
 ### Cache tokens and Global SKUs
 
-When Converse reports `cacheReadInputTokens` / `cacheWriteInputTokens`, they map to Plumbus `cachedInputTokens` / `cacheWriteTokens`. Cost uses approximate Anthropic-style multipliers (**0.1×** read, **1.25×** write) against the Bedrock **regional** input rate. Tiny embedding costs use high decimal precision (`toFixed(10)`) so Titan micro-costs do not round to `$0`.
+When Converse reports `cacheReadInputTokens` / `cacheWriteInputTokens`, they map to Plumbus `cachedInputTokens` / `cacheWriteTokens`.
 
-Price List **Global / cross-region** SKUs are **skipped** by the parser (same “standard tier” policy as core OpenAI/Anthropic). If your bill is dominated by global inference profiles, adjust the mounted file manually.
+Bedrock reports cache tokens **outside** `inputTokens` — per AWS, `total input tokens = inputTokens + cacheReadInputTokens + cacheWriteInputTokens` — so cost adds them on top of `inputTokens` rather than carving them out of it.
+
+Cache rates come from the Price List when available (`cacheReadPerMTok` / `cacheWritePerMTok`), and fall back to approximate multipliers (**0.1×** read, **1.25×** write of the input rate) when a family has no published cache SKU. AWS bills the **1-hour** cache-write tier above the 5-minute one; only the default tier is modelled, so mount explicit rates if you rely on long-TTL caching.
+
+**Global inference profiles:** a `global.`-prefixed model id is priced from the Global SKU (`globalInputPerMTok` / `globalOutputPerMTok`) when present, which AWS bills below the regional rate; `us.` / `eu.` geo profiles keep the regional rate. Without a global row the regional rate is used.
+
+Tiny embedding costs use high decimal precision (`toFixed(10)`) so Titan micro-costs do not round to `$0`.
+
+**Unknown models return no `cost` at all** (the field is omitted, not `0`), so core falls back to `calculateModelCost` instead of recording real spend as free. Ledger rows with no cost mean "no rate for this family" — mount a pricing file.
+
+Price List **Global / cross-region** SKUs are parsed into the separate `globalInputPerMTok` / `globalOutputPerMTok` fields rather than replacing the regional rate, so a `global.`-prefixed call is priced from the Global SKU while regional traffic keeps the regional one. Batch, reserved/provisioned, latency-optimized, priority and flex tiers are still skipped (same “standard tier” policy as core OpenAI/Anthropic).
 
 ---
 
 ## IAM permissions
 
-Minimum actions this adapter actually calls (tighten resource ARNs / region as needed):
+Actions this adapter calls (tighten resource ARNs / region as needed):
 
-- `bedrock:Converse`
-- `bedrock:ConverseStream`
-- `bedrock:InvokeModel` (embeddings)
+- `bedrock:InvokeModel` — **required for chat, not just embeddings.** The AWS
+  Converse API reference states: *"This operation requires permission for the
+  `bedrock:InvokeModel` action."* Do **not** scope this to your embedding model
+  ARN only, or Converse returns `AccessDeniedException`.
+- `bedrock:Converse` / `bedrock:ConverseStream` — include alongside it.
 
 `bedrock:InvokeModelWithResponseStream` is **not** used by `@plumbus/ai-bedrock` today (chat streaming goes through ConverseStream). You may still include it if other app code invokes models that way.
 
@@ -477,9 +520,10 @@ const ai = createAIService({
 | `ValidationException` / `AccessDeniedException` | Thrown / streamed as `Bedrock request failed (<Name>): …` |
 | Other SDK errors | Re-thrown as Error |
 | Empty ConverseStream body | Stream `error` event |
+| Mid-stream service exception (throttling, internal, model-stream, validation, unavailable) | ConverseStream models these as **events**, not throws — the adapter emits a stream `error` event and stops; it never reports a truncated answer as a clean `done` |
 | Missing embedding vector | Throws |
 | Pricing file missing | Throws on warm |
-| Price List download fail | Console warn; cost `$0` |
+| Price List download fail | Console warn; `cost` omitted (unknown), retried after a 5-minute backoff rather than on every request |
 
 Prefer structured app logging around `ctx.ai` / ledger entries rather than parsing raw SDK exceptions in handlers.
 
@@ -503,8 +547,9 @@ Documented so deployers do not assume silent support:
 
 - **Guardrails** — no `guardrailConfig` plumbing yet
 - **Multimodal** Converse content blocks (image/document/video)
-- **Structured outputs** / `outputConfig.textFormat`
-- **Prompt caching** config fields beyond usage accounting when the model returns cache tokens
+- **Prompt caching** `cachePoint` blocks — the adapter never *creates* cache checkpoints, it only prices the cache tokens a model reports (Nova caches automatically; Claude needs checkpoints this adapter does not emit yet)
+- **1-hour cache-write tier** — priced at the default 5-minute write rate; AWS bills the longer TTL higher
+- **Batch / provisioned-throughput / priority / flex** pricing tiers
 - **Bedrock Agents**, Flows, Knowledge Bases Retrieve/RetrieveAndGenerate
 - **Image / video / audio** generation models
 - **First-class Mantle** productization (use OpenAI adapter)
@@ -520,12 +565,12 @@ Contributions that stay within the `AIProviderAdapter` contract are welcome; do 
 |--------|------------|
 | Console `OPENAI_API_KEY` + Mantle URL | That is **Mantle** → `createOpenAIAdapter`, not this package |
 | Anthropic `AccessDenied` | Enable model + submit Anthropic use-case form in the Bedrock console |
-| `cost` always `$0` | Rates missing for family (Nova / unmapped) or Price List download failed — mount a pricing file |
+| `cost` missing on ledger rows | No rate for that family (Llama / Mistral / newer Nova generations / anything the parser cannot key) or the Price List download failed — mount a pricing file |
 | Pricing file path wrong in k8s | File mode **throws** on first AI call (unlike auto-download which warns) |
 | `toolChoice: 'none'` | Omits tools entirely; do not expect OpenAI/Anthropic “none” wire shape |
 | Mixing OpenAI embed dims with Titan | RAG will return nonsense — one embedding model for ingest + query |
 | Expecting `plumbus rag ingest` to use Titan | CLI path is OpenAI/`ai.apiKey` today — ingest via `ragPipeline.ingest` with the Bedrock adapter |
-| Global inference profile on the bill | Parser skips Global SKUs; adjust mounted rates manually if needed |
+| Global inference profile on the bill | Call it with the `global.` prefix so the Global SKU is used; without a global row it falls back to the regional rate |
 | Peer `0.6.x` but core `< 0.6.16` | No provider slot / no adapter `cost` preference / no wiring v13 |
 | Agent never opens these recipes | `plumbus init --patch` then `plumbus doctor` |
 

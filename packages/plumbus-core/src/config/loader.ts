@@ -172,6 +172,10 @@ function readBedrockConfig(env: Record<string, string | undefined>): AIProviderC
 
   return {
     provider: 'bedrock',
+    // Bedrock authenticates through the AWS credential chain (IAM / IRSA /
+    // instance role), never an API key. The slot carries an empty string so
+    // that `AIProviderConfig.apiKey` stays a required `string` for readers.
+    apiKey: '',
     region,
     model: env.AI_BEDROCK_MODEL ?? undefined,
     embeddingModel: env.AI_BEDROCK_EMBEDDING_MODEL ?? undefined,

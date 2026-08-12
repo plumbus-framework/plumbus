@@ -5,6 +5,7 @@ import {
   InvokeModelCommand,
   type ContentBlock,
   type Message,
+  type OutputConfig,
   type SystemContentBlock,
   type Tool,
   type ToolConfiguration,
@@ -60,10 +61,14 @@ function mapUsage(
   if (!raw) return emptyUsage();
   const inputTokens = raw.inputTokens ?? 0;
   const outputTokens = raw.outputTokens ?? 0;
+  const cacheRead = raw.cacheReadInputTokens ?? 0;
+  const cacheWrite = raw.cacheWriteInputTokens ?? 0;
   const usage: TokenUsage = {
     inputTokens,
     outputTokens,
-    totalTokens: raw.totalTokens ?? inputTokens + outputTokens,
+    // Bedrock reports cache tokens OUTSIDE `inputTokens`, so the fallback total
+    // has to add them back in (AWS: total input = input + cacheRead + cacheWrite).
+    totalTokens: raw.totalTokens ?? inputTokens + outputTokens + cacheRead + cacheWrite,
   };
   if (raw.cacheReadInputTokens != null && raw.cacheReadInputTokens > 0) {
     usage.cachedInputTokens = raw.cacheReadInputTokens;
@@ -85,13 +90,18 @@ function mapBedrockError(err: unknown): Error {
   return new Error(String(err));
 }
 
+/**
+ * Map a Plumbus tool choice onto Converse. Returns `undefined` for `auto` /
+ * unset so the field is omitted: `toolChoice` support is model-dependent on
+ * Bedrock and sending an explicit `{ auto: {} }` makes models that only accept
+ * `tools` reject the request, while omitting it is the same semantics.
+ * `'none'` never reaches here — the caller omits `toolConfig` entirely.
+ */
 function toToolChoice(choice: AIToolChoice | undefined): ToolChoice | undefined {
-  if (choice == null || choice === 'auto') return { auto: {} };
-  if (choice === 'none') return { any: {} }; // Bedrock has no true "none"; omit tools instead at call site
-  if (typeof choice === 'object' && choice.type === 'function') {
+  if (typeof choice === 'object' && choice?.type === 'function') {
     return { tool: { name: choice.function.name } };
   }
-  return { auto: {} };
+  return undefined;
 }
 
 function toBedrockTools(tools: AITool[]): Tool[] {
@@ -111,10 +121,10 @@ function toBedrockTools(tools: AITool[]): Tool[] {
 function buildToolConfig(request: ProviderRequest): ToolConfiguration | undefined {
   if (!request.tools || request.tools.length === 0) return undefined;
   if (request.toolChoice === 'none') return undefined;
-  return {
-    tools: toBedrockTools(request.tools),
-    toolChoice: toToolChoice(request.toolChoice),
-  };
+  const config: ToolConfiguration = { tools: toBedrockTools(request.tools) };
+  const toolChoice = toToolChoice(request.toolChoice);
+  if (toolChoice) config.toolChoice = toolChoice;
+  return config;
 }
 
 function parseToolUse(block: ToolUseBlock): AIToolCall {
@@ -151,43 +161,147 @@ function assistantContentFromToolCalls(toolCalls: AIToolCall[]): ContentBlock[] 
   );
 }
 
-function toBedrockMessages(request: ProviderRequest): Message[] {
-  const messages: Message[] = [];
-  if (request.messages && request.messages.length > 0) {
-    for (const msg of request.messages) {
-      messages.push(chatMessageToBedrock(msg));
-    }
-    return messages;
-  }
-  messages.push({ role: 'user', content: [{ text: request.prompt }] });
-  return messages;
+/** Converse rejects empty text blocks; a turn must carry something. */
+const EMPTY_TEXT_PLACEHOLDER = '(no content)';
+
+function toolResultBlock(msg: Extract<ChatMessage, { role: 'tool' }>): ContentBlock {
+  const toolResult: ToolResultContentBlock = { text: msg.content || EMPTY_TEXT_PLACEHOLDER };
+  return {
+    toolResult: {
+      toolUseId: msg.toolCallId,
+      content: [toolResult],
+    },
+  } as ContentBlock;
 }
 
-function chatMessageToBedrock(msg: ChatMessage): Message {
-  if (msg.role === 'user') {
-    return { role: 'user', content: [{ text: msg.content }] };
+function toBedrockMessages(request: ProviderRequest): Message[] {
+  if (!request.messages || request.messages.length === 0) {
+    return [{ role: 'user', content: [{ text: request.prompt || EMPTY_TEXT_PLACEHOLDER }] }];
   }
-  if (msg.role === 'assistant') {
+
+  const messages: Message[] = [];
+  for (let i = 0; i < request.messages.length; i++) {
+    const msg = request.messages[i];
+    if (!msg) continue;
+
+    if (msg.role === 'tool') {
+      // Converse requires every toolResult for one assistant turn to arrive in a
+      // SINGLE following user message (and roles to alternate), while the core
+      // tool loop emits one `tool` message per call. Coalesce the whole run —
+      // otherwise parallel tool calls produce consecutive user turns with
+      // partial result sets, which Bedrock rejects.
+      const content: ContentBlock[] = [];
+      while (i < request.messages.length) {
+        const next = request.messages[i];
+        if (next?.role !== 'tool') break;
+        content.push(toolResultBlock(next));
+        i++;
+      }
+      i--; // step back onto the last consumed entry for the outer loop
+      messages.push({ role: 'user', content });
+      continue;
+    }
+
+    if (msg.role === 'user') {
+      messages.push({ role: 'user', content: [{ text: msg.content || EMPTY_TEXT_PLACEHOLDER }] });
+      continue;
+    }
+
     const content: ContentBlock[] = [];
     if (msg.content) content.push({ text: msg.content });
     if (msg.toolCalls && msg.toolCalls.length > 0) {
       content.push(...assistantContentFromToolCalls(msg.toolCalls));
     }
-    return { role: 'assistant', content: content.length > 0 ? content : [{ text: '' }] };
+    messages.push({
+      role: 'assistant',
+      content: content.length > 0 ? content : [{ text: EMPTY_TEXT_PLACEHOLDER }],
+    });
   }
-  // tool observation
-  const toolResult: ToolResultContentBlock = { text: msg.content };
+  return messages;
+}
+
+/**
+ * Modeled ConverseStream failures. They arrive as union members on the event
+ * stream (never thrown), so they must be inspected explicitly.
+ */
+function streamEventError(event: {
+  internalServerException?: { message?: string };
+  modelStreamErrorException?: { message?: string };
+  validationException?: { message?: string };
+  throttlingException?: { message?: string };
+  serviceUnavailableException?: { message?: string };
+}): string | null {
+  const modeled = [
+    ['InternalServerException', event.internalServerException],
+    ['ModelStreamErrorException', event.modelStreamErrorException],
+    ['ValidationException', event.validationException],
+    ['ThrottlingException', event.throttlingException],
+    ['ServiceUnavailableException', event.serviceUnavailableException],
+  ] as const;
+  for (const [name, ex] of modeled) {
+    if (ex) {
+      return `Bedrock request failed (${name}): ${ex.message ?? 'stream terminated by service'}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Converse `outputConfig.textFormat` for provider-side structured outputs.
+ *
+ * Opt-in (`structuredOutputs: 'native'`): support is model-dependent, and a
+ * model that does not accept `outputConfig` fails the whole request, so the
+ * default stays on core's validate-and-repair path. Returns undefined when the
+ * caller did not ask for a schema.
+ */
+function buildOutputConfig(
+  request: ProviderRequest,
+  mode: 'off' | 'native',
+): OutputConfig | undefined {
+  if (mode !== 'native') return undefined;
+  if (!request.responseSchema) return undefined;
+  // The tool transport routes the schema through toolConfig instead; forwarding
+  // both would double-constrain the response.
+  if (request.structuredOutputTransport === 'tool') return undefined;
   return {
-    role: 'user',
-    content: [
-      {
-        toolResult: {
-          toolUseId: msg.toolCallId,
-          content: [toolResult],
-        },
+    textFormat: {
+      type: 'json_schema',
+      structure: {
+        // Converse takes the schema as a JSON *string*, not an object.
+        jsonSchema: { name: 'response', schema: JSON.stringify(request.responseSchema) },
       },
-    ],
+    },
   };
+}
+
+/**
+ * InvokeModel embedding request body. Titan takes one text per call
+ * (`inputText`); Cohere takes a batch plus an `input_type` discriminator.
+ */
+function embeddingBody(modelId: string, text: string, inputType: string): Record<string, unknown> {
+  // Matches `cohere.…` and geo-prefixed `us.cohere.…`.
+  if (/(^|\.)cohere\./i.test(modelId)) {
+    return { texts: [text], input_type: inputType };
+  }
+  return { inputText: text };
+}
+
+/** Titan returns `embedding`; Cohere returns `embeddings` (one per input text). */
+function parseEmbeddingResponse(body: unknown): { embedding: number[]; tokens: number } {
+  const parsed = JSON.parse(new TextDecoder().decode(body as Uint8Array)) as {
+    embedding?: number[];
+    embeddings?: number[][] | { float?: number[][] };
+    inputTextTokenCount?: number;
+  };
+  if (parsed.embedding) {
+    return { embedding: parsed.embedding, tokens: parsed.inputTextTokenCount ?? 0 };
+  }
+  const cohere = Array.isArray(parsed.embeddings) ? parsed.embeddings : parsed.embeddings?.float;
+  const first = cohere?.[0];
+  if (first) {
+    return { embedding: first, tokens: parsed.inputTextTokenCount ?? 0 };
+  }
+  throw new Error('Bedrock embedding response missing embedding vector');
 }
 
 function extractTextAndTools(content: ContentBlock[] | undefined): {
@@ -208,7 +322,15 @@ function mapStopReason(reason: string | undefined): string {
     case 'tool_use':
       return 'tool_calls';
     case 'max_tokens':
+    // Ran out of room, same class as max_tokens for callers.
+    case 'model_context_window_exceeded':
       return 'length';
+    // Core normalizes 'content_filter'/'refusal' to 'refusal'; the Converse
+    // spellings would otherwise fall through to 'other' and look like an
+    // unknown state rather than a blocked response.
+    case 'content_filtered':
+    case 'guardrail_intervened':
+      return 'refusal';
     case 'end_turn':
     case 'stop_sequence':
       return 'stop';
@@ -247,6 +369,9 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
   const defaultModel = config.defaultModel ?? 'anthropic.claude-sonnet-4-5-20250929-v1:0';
   const defaultEmbeddingModel = config.defaultEmbeddingModel ?? BEDROCK_DEFAULT_EMBEDDING_MODEL;
   const defaultTimeout = config.requestTimeout ?? 120_000;
+  const embedConcurrency = Math.max(1, config.embedConcurrency ?? 4);
+  const inputType = config.embeddingInputType ?? 'search_document';
+  const structuredOutputs = config.structuredOutputs ?? 'off';
 
   const client =
     config.runtimeClient ??
@@ -322,6 +447,7 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
             system,
             inferenceConfig: Object.keys(inferenceConfig).length > 0 ? inferenceConfig : undefined,
             toolConfig,
+            outputConfig: buildOutputConfig(request, structuredOutputs),
           }),
           {
             abortSignal: combineAbort(
@@ -341,8 +467,10 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
           model: modelId,
           usage,
           finishReason,
-          cost,
         };
+        // Left unset when no rate is known so core falls back instead of
+        // recording unpriced spend as $0.
+        if (cost != null) response.cost = cost;
         if (toolCalls.length > 0) {
           response.toolCalls = toolCalls;
         }
@@ -378,6 +506,7 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
             system,
             inferenceConfig: Object.keys(inferenceConfig).length > 0 ? inferenceConfig : undefined,
             toolConfig,
+            outputConfig: buildOutputConfig(request, structuredOutputs),
           }),
           {
             abortSignal: combineAbort(
@@ -393,6 +522,14 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
         }
 
         for await (const event of out.stream) {
+          // ConverseStream models its failures as members of the event union
+          // rather than throwing, so an unhandled one would end the loop and be
+          // reported as a clean `done` with truncated content.
+          const streamError = streamEventError(event);
+          if (streamError) {
+            yield { type: 'error', error: streamError };
+            return;
+          }
           if (event.contentBlockDelta?.delta?.text) {
             yield { type: 'content_delta', delta: event.contentBlockDelta.delta.text };
           }
@@ -459,8 +596,8 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
           type: 'done',
           usage,
           finishReason,
-          cost,
         };
+        if (cost != null) done.cost = cost;
         if (toolCalls.length > 0) done.toolCalls = toolCalls;
         yield done;
       } catch (err) {
@@ -474,33 +611,40 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
     async embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
       await ensurePricing();
       const modelId = request.model ?? defaultEmbeddingModel;
-      const embeddings: number[][] = [];
+      const embeddings: number[][] = new Array<number[]>(request.texts.length);
       let totalTokens = 0;
 
+      async function embedOne(text: string, index: number): Promise<void> {
+        const out = await client.send(
+          new InvokeModelCommand({
+            modelId,
+            contentType: 'application/json',
+            accept: 'application/json',
+            body: new TextEncoder().encode(JSON.stringify(embeddingBody(modelId, text, inputType))),
+          }),
+          { abortSignal: AbortSignal.timeout(defaultTimeout) },
+        );
+        const parsed = parseEmbeddingResponse(out.body);
+        embeddings[index] = parsed.embedding;
+        totalTokens += parsed.tokens;
+      }
+
       try {
-        for (const text of request.texts) {
-          const body = {
-            inputText: text,
-          };
-          const out = await client.send(
-            new InvokeModelCommand({
-              modelId,
-              contentType: 'application/json',
-              accept: 'application/json',
-              body: new TextEncoder().encode(JSON.stringify(body)),
-            }),
-            { abortSignal: AbortSignal.timeout(defaultTimeout) },
-          );
-          const parsed = JSON.parse(new TextDecoder().decode(out.body)) as {
-            embedding?: number[];
-            inputTextTokenCount?: number;
-          };
-          if (!parsed.embedding) {
-            throw new Error('Bedrock embedding response missing embedding vector');
-          }
-          embeddings.push(parsed.embedding);
-          totalTokens += parsed.inputTextTokenCount ?? 0;
-        }
+        // Titan accepts one text per InvokeModel call, so a corpus ingest is N
+        // round trips — run a bounded number concurrently while keeping output
+        // order aligned with `request.texts`.
+        const queue = request.texts.map((text, index) => ({ text, index }));
+        let cursor = 0;
+        const workers = Math.min(embedConcurrency, queue.length);
+        await Promise.all(
+          Array.from({ length: workers }, async () => {
+            while (cursor < queue.length) {
+              const item = queue[cursor++];
+              if (!item) break;
+              await embedOne(item.text, item.index);
+            }
+          }),
+        );
       } catch (err) {
         throw mapBedrockError(err);
       }
@@ -510,16 +654,27 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
         outputTokens: 0,
       });
 
-      return {
+      const response: EmbeddingResponse = {
         embeddings,
         model: modelId,
         usage: { totalTokens },
-        cost,
       };
+      if (cost != null) response.cost = cost;
+      return response;
     },
 
     async listModels(filter?: ListModelsFilter): Promise<ProviderModel[]> {
-      await ensurePricing();
+      // Contract (AIProviderAdapter): never throw — warn once and return [].
+      // Inference still fails loudly on a bad pricing file; only discovery is
+      // degraded, since a missing rate is not a reason to break model listing.
+      try {
+        await ensurePricing();
+      } catch (err) {
+        console.warn(
+          `[plumbus/ai-bedrock] listModels could not load pricing: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return [];
+      }
       const entries = pricing.listRates().map(({ id, rate }) => ({
         id,
         rate: {

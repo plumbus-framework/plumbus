@@ -54,7 +54,7 @@ Core that loads this package must prefer adapter-supplied `cost` (**`@plumbus/co
 | `BEDROCK_DEFAULT_EMBEDDING_MODEL` | `amazon.titan-embed-text-v2:0` |
 | `BedrockAdapterConfig` | Config type (region, pricing file, TTL, credentials, …) |
 | `BedrockPricingFileV1` / `BedrockModelRate` | Normalized pricing file types |
-| `parseAwsOfferRates` / `parsePricingFile` / `normalizeBedrockModelId` | CI helpers to build / validate the pricing file |
+| `parseAwsOfferRates` / `parsePricingFile` / `normalizeBedrockModelId` / `extractModelIdFromOfferAttrs` | CI helpers to build / validate the pricing file (auto-download is best-effort) |
 | `createPricingStore` | Advanced / tests |
 
 ## Wiring
@@ -169,7 +169,11 @@ const { final, aggregatedCost } = await runToolLoop(ctx.ai, {
 // aggregatedCost — sum of adapter `cost` across Converse rounds
 ```
 
-**Gotchas:** `toolChoice: 'none'` omits `toolConfig` (Bedrock has no true none). Only execute `argumentsStatus === 'parsed'`. Full protocol: `node_modules/@plumbus/core/instructions/ai.md`.
+**Gotchas:** `toolChoice: 'none'` omits `toolConfig` (Bedrock has no true none); `'auto'` omits just the `toolChoice` field. Only execute `argumentsStatus === 'parsed'`. Full protocol: `node_modules/@plumbus/core/instructions/ai.md`.
+
+### Structured outputs
+
+Default is `structuredOutputs: 'off'` — prompt `output` schemas are enforced by core's validate-and-repair loop, which works on every model. Set `structuredOutputs: 'native'` on `createBedrockAdapter` to forward the schema as Converse `outputConfig.textFormat`. It is opt-in because model support varies and an unsupported model rejects the whole request.
 
 ### Embeddings (RAG)
 
@@ -190,7 +194,9 @@ const ragPipeline = createRAGPipeline({
 // (uses ai.apiKey); do not expect it to pick Titan automatically.
 ```
 
-**Gotchas:** Mantle has no embeddings. Titan must be enabled in-console. Unmapped chat models (e.g. Nova) still chat but may show `$0` cost until the pricing file has a row.
+**Gotchas:** Mantle has no embeddings. Titan must be enabled in-console. Unkeyed chat models still chat but carry **no `cost` field** until the pricing file has a row.
+
+Cohere embedding models (`cohere.*`) are supported too — the adapter sends `{ texts, input_type }` and reads `embeddings[0]`. `input_type` defaults to `search_document` (`embeddingInputType` to override). Titan takes one text per call, so ingests fan out up to `embedConcurrency` (default 4) with output order preserved.
 
 ## Auth (IAM)
 
@@ -198,7 +204,7 @@ Inference uses the **AWS default credential chain** (env keys, shared config, IR
 
 **Not this package:** Bedrock Mantle OpenAI-compatible URLs (`bedrock-mantle.*.api.aws` + console `OPENAI_API_KEY`) use core’s `createOpenAIAdapter` — see `docs/ai/bedrock.md`.
 
-Minimal IAM sketch for Runtime (tighten resource ARNs in production). This package calls **Converse**, **ConverseStream**, and **InvokeModel** (embeddings). `InvokeModelWithResponseStream` is unused by the adapter today:
+Minimal IAM sketch for Runtime (tighten resource ARNs in production). This package calls **Converse**, **ConverseStream**, and **InvokeModel**. Note that AWS documents Converse itself as requiring `bedrock:InvokeModel` — so when narrowing `Resource`, keep `InvokeModel` on the **chat** model ARNs too, not just the embedding model. `InvokeModelWithResponseStream` is unused by the adapter today:
 
 ```json
 {
@@ -231,8 +237,10 @@ Full pull URLs, curl, normalize script, and k8s ConfigMap recipe: **[pricing.md]
 
 | Mode | Behavior |
 |------|----------|
-| `pricingFilePath` / `AI_BEDROCK_PRICING_FILE` set | Load normalized JSON; **no** Price List fetch |
-| Else | Fetch `AmazonBedrock` + `AmazonBedrockFoundationModels` for `region`; memory TTL ~24h |
+| `pricingFilePath` / `AI_BEDROCK_PRICING_FILE` set | **Reliable path** — load normalized JSON keyed by family ids; **no** Price List fetch |
+| Else (auto-download) | **Best-effort** — fetch offers; key rows via extracted SDK ids + limited generative display inference; unknowns stay `$0` |
+
+**Do not hardcode / expect a forever-complete AWS model catalog in this package.** Put the models you call in the pricing file.
 
 Example Price List URL (us-east-1 FoundationModels):
 
@@ -260,7 +268,7 @@ Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Con
 |---------|------------|
 | Install / load error for `bedrock` | `pnpm add @plumbus/ai-bedrock`; core **≥ 0.6.16** |
 | AccessDenied / model not found | IAM + Bedrock console model access for region (Anthropic use-case form) |
-| `cost` always `0` | Missing rates for model family — see [pricing.md](./pricing.md); Nova / unmapped models need a manual pricing-file row |
+| `cost` missing from responses | No rate for that model family — see [pricing.md](./pricing.md). Unkeyed models (Llama, Mistral, newer Nova generations) need a manual pricing-file row. The field is omitted rather than set to `0`, so core falls back to its own catalog instead of recording spend as free |
 | Auto-download fails in cluster | Mount `AI_BEDROCK_PRICING_FILE` |
 | Mantle `OPENAI_API_KEY` does not work here | Correct — Mantle uses `createOpenAIAdapter`; this package is Runtime + IAM |
 | Tools never fire | Model must support Converse tools; check `finishReason === 'tool_calls'` / use `runToolLoop` |

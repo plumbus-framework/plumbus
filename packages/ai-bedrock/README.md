@@ -30,7 +30,8 @@ An opt-in peer keeps core lean while giving AWS shops a first-class `provider: '
 |---|---|
 | `createBedrockAdapter()` | `AIProviderAdapter` for `createAIService({ providers: { bedrock } })`. |
 | Converse / ConverseStream | Chat complete + stream with system, tools, named `toolChoice`, multi-turn tool results. |
-| InvokeModel embeddings | Default Titan Text Embeddings V2 (`amazon.titan-embed-text-v2:0`). |
+| InvokeModel embeddings | Titan (default `amazon.titan-embed-text-v2:0`) and Cohere bodies; bounded concurrency, order preserved. |
+| Structured outputs | Opt-in `structuredOutputs: 'native'` → Converse `outputConfig`; default uses core validate-and-repair. |
 | Package-owned pricing | Auto-download AWS Price List by region, or `pricingFilePath` / `AI_BEDROCK_PRICING_FILE`. |
 | `parseAwsOfferRates` / pricing helpers | Normalize offer JSON → mounted ConfigMap rates for k8s. |
 | Env discovery (via core) | After install: `AI_BEDROCK_REGION`, `AI_BEDROCK_MODEL`, `AI_BEDROCK_PRICING_FILE`, … |
@@ -115,10 +116,10 @@ Bedrock API responses include **token usage only**, not USD. This package loads 
 
 | Mode | When to use |
 |------|-------------|
-| **`pricingFilePath` / `AI_BEDROCK_PRICING_FILE`** | **Recommended for containers / k8s** — mount normalized JSON; no Price List CDN egress |
-| **Auto-download by `region`** | Dev / single-node / clusters that allow HTTPS to `pricing.us-east-1.amazonaws.com` |
+| **`pricingFilePath` / `AI_BEDROCK_PRICING_FILE`** | **Required for reliable production / k8s** — mount normalized JSON keyed by family ids |
+| **Auto-download by `region`** | Local / best-effort only — AWS Price List has no stable modelId join; unkeyed models report **no cost** (field omitted, never `$0`) |
 
-Do **not** alias Claude-on-Bedrock to core’s Anthropic `MODEL_PRICING` rows — regional Bedrock rates diverge.
+Do **not** alias Claude-on-Bedrock to core’s Anthropic `MODEL_PRICING` rows — regional Bedrock rates diverge. Do **not** expect this package to hardcode every future AWS model name.
 
 Full curl, normalize script, ConfigMap sketch: **[instructions/pricing.md](./instructions/pricing.md)**.
 
@@ -127,10 +128,11 @@ Full curl, normalize script, ConfigMap sketch: **[instructions/pricing.md](./ins
 - **Runtime ≠ Mantle** — console `OPENAI_API_KEY` + Mantle base URL is OpenAI-compatible HTTP, not this package.
 - **Model access** — Converse fails with `AccessDenied` until the account enables the model (and Anthropic use-case forms where required).
 - **Embeddings** — Converse does not embed; use InvokeModel (Titan) via `createRAGPipeline({ provider })` + `ctx.ai.retrieve` / `ragPipeline.ingest`. There is no `ctx.ai.embed`. `plumbus rag ingest` does not auto-select Bedrock. Mantle typically has no embeddings.
-- **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; do not call the Bedrock SDK. Stream accumulates partial tool JSON.
-- **`toolChoice: 'none'`** — Bedrock has no true none; Plumbus omits `toolConfig` entirely.
-- **Missing pricing file** — file mode throws on first call; auto-download failure warns and leaves cost `$0`.
-- **Unmapped models (e.g. Nova)** — inference works; `cost` stays `$0` until you add a pricing-file row (display-name map covers Claude + Titan embed primarily).
+- **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; do not call the Bedrock SDK. Stream accumulates partial tool JSON. Parallel tool results are coalesced into the single user turn Converse requires.
+- **`toolChoice: 'none'`** — Bedrock has no true none; Plumbus omits `toolConfig` entirely. `'auto'` omits just the `toolChoice` field (model-dependent support).
+- **Missing pricing file** — file mode throws on first call; auto-download failure warns, leaves cost unknown, and backs off 5 minutes before retrying.
+- **Unmapped / unkeyed models** — inference works; **no `cost` field** is set until the pricing file has an explicit family-key row (auto-download is best-effort, not a complete AWS catalog). Core then falls back to its own catalog rather than recording the call as free.
+- **IAM** — Converse itself requires `bedrock:InvokeModel`; do not scope that action to embedding models only.
 - **Wiring** — after install, `plumbus init --patch` (core ≥ 0.6.16 / wiring v13) so agents see `instructions/`.
 
 ## Documentation / Agent recipes
