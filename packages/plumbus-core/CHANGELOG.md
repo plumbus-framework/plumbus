@@ -1,6 +1,6 @@
 # @plumbus/core changelog
 
-## Unreleased
+## 0.6.16 — 2026-08-12 — Amazon Bedrock provider + agent wiring v13
 
 ### Added
 
@@ -11,6 +11,7 @@
 ### Changed
 
 - **`AGENT_WIRING_VERSION` bumped to 13.** `plumbus init` references `@plumbus/ai-bedrock/instructions/pricing.md` (AWS Price List URLs, curl, normalize, ConfigMap) alongside framework + README. Pointers are inert when the package is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+- **OpenAI SSE stream parser** — when a chunk carries both `content` and `finish_reason` (Bedrock Mantle / some OpenAI-compatible proxies), emit the content delta before `done` so streamed text is not dropped.
 
 ## 0.6.15 — 2026-08-10 — migrate rollback hardening + model pricing sync
 

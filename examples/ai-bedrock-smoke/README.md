@@ -56,9 +56,11 @@ Runtime mode asserts **cost > 0** via `lib/pricing.fixture.json`.
 Clear Mantle vars (or `BEDROCK_SMOKE_MODE=runtime`) and set:
 
 ```bash
-AI_BEDROCK_REGION=us-east-1
+AI_BEDROCK_REGION=eu-north-1   # or us-east-1, etc.
 AWS_ACCESS_KEY_ID=…
 AWS_SECRET_ACCESS_KEY=…
+# optional: AWS_SESSION_TOKEN=…
+# optional: AWS_BEARER_TOKEN_BEDROCK=…  # SDK may honor this instead of access keys
 ```
 
 ## Troubleshooting

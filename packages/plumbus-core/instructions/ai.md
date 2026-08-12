@@ -237,6 +237,8 @@ AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
 
 ### Amazon Bedrock
 
+Requires `@plumbus/core` **≥ 0.6.16** (provider slot, env discovery, adapter `cost`, wiring v13).
+
 ```bash
 pnpm add @plumbus/ai-bedrock
 ```
@@ -249,7 +251,7 @@ AI_BEDROCK_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
 # AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json
 ```
 
-Auth is IAM / IRSA (no API key). Price List URLs, curl, normalize script, ConfigMap:
+Auth is IAM / IRSA / default credential chain (SDK may honor `AWS_BEARER_TOKEN_BEDROCK`). Price List URLs, curl, normalize script, ConfigMap:
 
 - `node_modules/@plumbus/ai-bedrock/instructions/framework.md`
 - `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`

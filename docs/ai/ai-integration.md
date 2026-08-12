@@ -366,7 +366,7 @@ Optional ProviderResponse.cost ◄────── sets cost from usage × rat
 MODEL_PRICING (OpenAI/Anthropic only)
 ```
 
-Core’s optional peer: `"@plumbus/ai-bedrock": "0.1.x"`. The add-on’s required peer: `"@plumbus/core": "0.6.x"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`).
+Core’s optional peer: `"@plumbus/ai-bedrock": "0.1.x"`. The add-on’s required peer: `"@plumbus/core": "0.6.x"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** for the Bedrock provider slot, env discovery, adapter-supplied `cost`, and agent wiring v13.
 
 #### Install and wire
 

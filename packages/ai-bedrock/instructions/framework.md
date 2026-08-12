@@ -13,8 +13,8 @@ Pricing pull / k8s: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`
 
 | Use this package | Do not use |
 |------------------|------------|
-| App needs Bedrock Converse / embeddings via `ctx.ai` | OpenAI-only or Anthropic Messages API-only stacks |
-| AWS IAM / IRSA already available for inference | You only need core’s built-in OpenAI/Anthropic fetch adapters |
+| App needs Bedrock **Runtime** Converse via `ctx.ai` / Titan embed via RAG | OpenAI-only or Anthropic Messages API-only stacks |
+| AWS IAM / IRSA (or SDK bearer) for Bedrock Runtime | Bedrock **Mantle** OpenAI-compatible URL → use `createOpenAIAdapter` instead |
 | You want cost recording from **AWS Bedrock** rates | Expecting dollars inside the Converse response (Bedrock never returns USD) |
 | Regional Bedrock model ids (`anthropic.claude-…-v1:0`) | Anthropic API short names alone (`claude-sonnet-4-…`) without Bedrock ids |
 
@@ -35,9 +35,16 @@ Pricing pull / k8s: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`
 pnpm add @plumbus/ai-bedrock
 ```
 
+Requires `@plumbus/core` **≥ 0.6.16**. After install on an existing app, refresh agent wiring so coding agents discover these files:
+
+```bash
+plumbus init --patch --agent agents-md
+plumbus doctor
+```
+
 Missing package + `createProviderAdapter('bedrock')` → clear error: run `pnpm add @plumbus/ai-bedrock`.
 
-Core that loads this package must prefer adapter-supplied `cost` (core **0.6.x** with the Bedrock cost hook). Older cores ignore package rates and under-report spend.
+Core that loads this package must prefer adapter-supplied `cost` (**`@plumbus/core` ≥ 0.6.16**). Older cores ignore package rates and under-report spend; they also lack `createProviderAdapter('bedrock')` / `AI_BEDROCK_*` env discovery.
 
 ## Public exports
 
@@ -69,14 +76,16 @@ AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `AI_BEDROCK_REGION` | yes\* | Bedrock Runtime region + Price List path region |
-| `AI_BEDROCK_ENABLED` | alt | With `AWS_REGION`, enables discovery without `AI_BEDROCK_REGION` |
+| `AI_BEDROCK_ENABLED` | alt | With `AWS_REGION` / `AWS_DEFAULT_REGION`, enables discovery without `AI_BEDROCK_REGION` |
 | `AI_BEDROCK_MODEL` | no | Default chat model id |
 | `AI_BEDROCK_EMBEDDING_MODEL` | no | Default embed model (else Titan V2) |
 | `AI_BEDROCK_PRICING_FILE` | **yes in k8s** | Absolute path to normalized pricing JSON |
 | `AI_BEDROCK_PRICING_TTL_MS` | no | Auto-download cache TTL (default ~24h) |
 | `AI_BEDROCK_REQUEST_TIMEOUT` | no | Client timeout ms |
+| `AI_BEDROCK_MAX_TOKENS` | no | Core per-request max-tokens guard |
+| `AI_BEDROCK_DAILY_COST_LIMIT` | no | Core daily USD cost guard |
 
-\*Discovery enables Bedrock when `AI_BEDROCK_REGION` is set, or `AI_BEDROCK_ENABLED=1` + `AWS_REGION`. There is **no** `AI_BEDROCK_API_KEY` — inference uses the AWS default credential chain (env keys, shared config, IRSA, instance role).
+\*Discovery enables Bedrock when `AI_BEDROCK_REGION` is set, or `AI_BEDROCK_ENABLED=1`/`true` + `AWS_REGION` / `AWS_DEFAULT_REGION`. There is **no** `AI_BEDROCK_API_KEY` — inference uses the AWS default credential chain (env keys, shared config, IRSA, instance role). Optional `AWS_BEARER_TOKEN_BEDROCK` is honored by the AWS SDK when set. Optional `AI_BEDROCK_MAX_TOKENS` / `AI_BEDROCK_DAILY_COST_LIMIT` are core AI guards (same pattern as OpenAI/Anthropic), not Converse request fields by themselves.
 
 ### Programmatic
 
@@ -132,7 +141,56 @@ const { data, usage, provider, cost } = await ctx.ai.generateWithUsage({
 // cost === USD from pricing file or auto-downloaded regional rates
 ```
 
-Chat (`@plumbus/chat`) and RAG `embed` work the same way once the provider is `bedrock`.
+Chat (`@plumbus/chat`) and RAG `retrieve` work the same way once the provider is `bedrock` (RAG needs `ragPipeline` wired with this adapter — see below).
+
+### Tool calling
+
+Same core API as OpenAI/Anthropic. Prompt `model.provider` must be `'bedrock'` (or `defaultProvider: 'bedrock'`):
+
+```typescript
+import { runToolLoop, zodToProviderJsonSchema, type AITool } from '@plumbus/core';
+import { z } from '@plumbus/core/zod';
+
+const tools: AITool[] = [
+  {
+    name: 'lookupOrder',
+    description: 'Look up an order by id',
+    parameters: zodToProviderJsonSchema(z.object({ orderId: z.string() })).schema,
+  },
+];
+
+const { final, aggregatedCost } = await runToolLoop(ctx.ai, {
+  prompt: 'assistant.turn',
+  input: { userMessage },
+  tools,
+  execute: async (call) => lookupOrder(call.arguments as { orderId: string }),
+});
+// final.data — answer after tool rounds
+// aggregatedCost — sum of adapter `cost` across Converse rounds
+```
+
+**Gotchas:** `toolChoice: 'none'` omits `toolConfig` (Bedrock has no true none). Only execute `argumentsStatus === 'parsed'`. Full protocol: `node_modules/@plumbus/core/instructions/ai.md`.
+
+### Embeddings (RAG)
+
+There is **no** `ctx.ai.embed`. Pass this adapter into `createRAGPipeline({ provider })`:
+
+```typescript
+import { createRAGPipeline, createInMemoryVectorStore } from '@plumbus/core';
+import { createBedrockAdapter } from '@plumbus/ai-bedrock';
+
+const bedrock = createBedrockAdapter({ region: 'us-east-1' });
+const ragPipeline = createRAGPipeline({
+  provider: bedrock,
+  vectorStore: createInMemoryVectorStore(),
+  embeddingModel: 'amazon.titan-embed-text-v2:0', // keep ingest + query identical
+});
+// Pass ragPipeline into createAIService({ …, ragPipeline }) → ctx.ai.retrieve
+// Ingest with ragPipeline.ingest(…). `plumbus rag ingest` is OpenAI-oriented today
+// (uses ai.apiKey); do not expect it to pick Titan automatically.
+```
+
+**Gotchas:** Mantle has no embeddings. Titan must be enabled in-console. Unmapped chat models (e.g. Nova) still chat but may show `$0` cost until the pricing file has a row.
 
 ## Auth (IAM)
 
@@ -140,14 +198,13 @@ Inference uses the **AWS default credential chain** (env keys, shared config, IR
 
 **Not this package:** Bedrock Mantle OpenAI-compatible URLs (`bedrock-mantle.*.api.aws` + console `OPENAI_API_KEY`) use core’s `createOpenAIAdapter` — see `docs/ai/bedrock.md`.
 
-Minimal IAM sketch for Runtime (tighten resource ARNs in production):
+Minimal IAM sketch for Runtime (tighten resource ARNs in production). This package calls **Converse**, **ConverseStream**, and **InvokeModel** (embeddings). `InvokeModelWithResponseStream` is unused by the adapter today:
 
 ```json
 {
   "Effect": "Allow",
   "Action": [
     "bedrock:InvokeModel",
-    "bedrock:InvokeModelWithResponseStream",
     "bedrock:Converse",
     "bedrock:ConverseStream"
   ],
@@ -201,22 +258,28 @@ Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Con
 
 | Symptom | Likely fix |
 |---------|------------|
-| Install / load error for `bedrock` | `pnpm add @plumbus/ai-bedrock`; core ≥ cost-hook release |
-| AccessDenied / model not found | IAM + Bedrock console model access for region |
-| `cost` always `0` | Missing rates for model family — see [pricing.md](./pricing.md) |
+| Install / load error for `bedrock` | `pnpm add @plumbus/ai-bedrock`; core **≥ 0.6.16** |
+| AccessDenied / model not found | IAM + Bedrock console model access for region (Anthropic use-case form) |
+| `cost` always `0` | Missing rates for model family — see [pricing.md](./pricing.md); Nova / unmapped models need a manual pricing-file row |
 | Auto-download fails in cluster | Mount `AI_BEDROCK_PRICING_FILE` |
+| Mantle `OPENAI_API_KEY` does not work here | Correct — Mantle uses `createOpenAIAdapter`; this package is Runtime + IAM |
+| Tools never fire | Model must support Converse tools; check `finishReason === 'tool_calls'` / use `runToolLoop` |
+| RAG retrieve fails / dim mismatch | Wire `ragPipeline` with this adapter; same Titan model id for ingest + query |
 
 ## Critical rules
 
 1. **Framework-first** — business logic in `definePrompt` / capabilities / `ctx.ai`; never call Bedrock SDK from app code for product features.
 2. **Do not** copy Anthropic `MODEL_PRICING` rows for Bedrock — rates diverge (e.g. Haiku 4.5 regional Bedrock ≠ Anthropic API).
 3. **Containers:** prefer `AI_BEDROCK_PRICING_FILE` ([pricing.md](./pricing.md)).
-4. **Peer literal** is `"0.6.x"` — never `^0.6.0`.
+4. **Peer literal** is `"0.6.x"` — never `^0.6.0`. Runtime floor **≥ 0.6.16**.
 5. Install the package explicitly; core only `createRequire`s it when the provider name is `bedrock`.
+6. **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; never invent a Bedrock-only tool API. `toolChoice: 'none'` omits tools.
+7. **Embeddings** — via `createRAGPipeline({ provider: bedrockAdapter })` + `ctx.ai.retrieve` / rag ingest — not Converse, not Mantle.
 
 ## Where to look for more
 
 - [pricing.md](./pricing.md) — Price List URLs, generate normalized file, k8s
 - [README.md](../README.md) — quick start
-- Monorepo: `docs/ai/ai-integration.md`
+- Monorepo concept guide: `docs/ai/bedrock.md` (Runtime vs Mantle, tools/stream, checklist)
+- Broader AI stack: `docs/ai/ai-integration.md`
 - Core peer rules: `packages/plumbus-core/instructions/peer-dependencies.md`

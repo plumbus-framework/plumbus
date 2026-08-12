@@ -16,7 +16,7 @@ Read this file **before** editing `peerDependencies` in any `packages/*/package.
 | Most add-ons (chat, chat-ui, knowledge-base, mcp, api, browser-extension) | `"0.5.x \|\| 0.6.x"` | `packages/mcp/package.json` |
 | Voice only (requires core 0.6+ media/cost APIs) | `"0.6.x"` | `packages/voice/package.json` |
 | Auth only (requires core 0.6.8+ HttpAuthenticationRuntime) | `"0.6.x"` | `packages/auth/package.json` |
-| AI Bedrock (requires provider `cost` preference + optional peer load) | `"0.6.x"` | `packages/ai-bedrock/package.json` |
+| AI Bedrock (requires provider `cost` preference + optional peer load; **runtime ≥ 0.6.16**) | `"0.6.x"` | `packages/ai-bedrock/package.json` |
 
 When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x"` unless the package genuinely requires core 0.6+ only (then use the voice pattern).
 

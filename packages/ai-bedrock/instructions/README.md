@@ -20,7 +20,10 @@
 4. Business logic stays in Plumbus primitives (`definePrompt`, `ctx.ai.*`); this package is only the Bedrock adapter.
 5. Cost USD comes from this package’s rates (file or auto-download), **not** from core’s OpenAI/Anthropic `MODEL_PRICING` table. Never alias Bedrock rates to Anthropic catalog rows.
 6. Bedrock Converse responses return **token usage only** — never dollar amounts. Pricing is always usage × rates from the Price List (or your mounted file).
-7. Do not confuse **Bedrock Runtime** (this package) with **Bedrock Mantle** (OpenAI-compatible HTTP → `createOpenAIAdapter`). Concept docs: `docs/ai/bedrock.md`.
+7. Do not confuse **Bedrock Runtime** (this package) with **Bedrock Mantle** (OpenAI-compatible HTTP → `createOpenAIAdapter`). Full guide in the monorepo: `docs/ai/bedrock.md` (also linked from the package README).
+8. After install on an existing app, run `plumbus init --patch` (wiring version 13+) so agents see these instruction paths; `plumbus doctor` reports stale wiring.
+9. **Tools** — `runToolLoop` / `generateWithUsage({ tools })` (see [framework.md](./framework.md)); `toolChoice: 'none'` omits `toolConfig`.
+10. **Embeddings** — Titan via InvokeModel through `createRAGPipeline({ provider })` + `ctx.ai.retrieve` / `ragPipeline.ingest`; there is no `ctx.ai.embed`. `plumbus rag ingest` does not auto-pick Bedrock. Mantle usually cannot embed.
 
 ## Price List (bookmark)
 

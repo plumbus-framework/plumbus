@@ -45,7 +45,7 @@ An opt-in peer keeps core lean while giving AWS shops a first-class `provider: '
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked **`0.1.x`**; required peer `@plumbus/core` **`0.6.x`**). Core prefers adapter-supplied `cost` on provider / stream responses (Bedrock). Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
+Optional peer of `@plumbus/core` (version-locked **`0.1.x`**; required peer `@plumbus/core` **`0.6.x`**). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** (Bedrock provider slot, env discovery, adapter-supplied `cost`, agent wiring v13). Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
 
 ## Install
 
@@ -89,9 +89,23 @@ AI_BEDROCK_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
 AI_BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
 # containers (recommended):
 # AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json
+# optional: AI_BEDROCK_ENABLED=1 with AWS_REGION instead of AI_BEDROCK_REGION
+# optional: AI_BEDROCK_REQUEST_TIMEOUT / AI_BEDROCK_PRICING_TTL_MS
 ```
 
-Then use the normal Plumbus AI surface — `definePrompt({ model: { provider: 'bedrock', name: '<bedrock-model-id>' } })` and `ctx.ai.generateWithUsage` / chat / RAG.
+Then use the normal Plumbus AI surface:
+
+```typescript
+// Chat / structured generate (prompt model.provider: 'bedrock')
+await ctx.ai.generateWithUsage({ prompt: 'classifyTicket', input: { ticketText } });
+
+// Tools — same as OpenAI/Anthropic; Converse toolConfig under the hood
+import { runToolLoop } from '@plumbus/core';
+await runToolLoop(ctx.ai, { prompt: 'assistant.turn', input: { userMessage }, tools, execute });
+
+// Embeddings — wire adapter into createRAGPipeline({ provider: bedrock }), then:
+await ctx.ai.retrieve({ query: 'refund policy' });
+```
 
 **Auth (Runtime):** default AWS credential chain (env keys, shared config, IRSA, instance role). Optional `AWS_BEARER_TOKEN_BEDROCK` is honored by the AWS SDK when set. There is no separate “Bedrock API key” field on `createBedrockAdapter`.
 
@@ -112,10 +126,12 @@ Full curl, normalize script, ConfigMap sketch: **[instructions/pricing.md](./ins
 
 - **Runtime ≠ Mantle** — console `OPENAI_API_KEY` + Mantle base URL is OpenAI-compatible HTTP, not this package.
 - **Model access** — Converse fails with `AccessDenied` until the account enables the model (and Anthropic use-case forms where required).
-- **Embeddings** — Converse does not embed; this package uses InvokeModel (Titan by default). Mantle typically has no embeddings.
-- **Stream + tools** — ConverseStream receives `toolConfig`; partial tool JSON is accumulated across content-block deltas.
+- **Embeddings** — Converse does not embed; use InvokeModel (Titan) via `createRAGPipeline({ provider })` + `ctx.ai.retrieve` / `ragPipeline.ingest`. There is no `ctx.ai.embed`. `plumbus rag ingest` does not auto-select Bedrock. Mantle typically has no embeddings.
+- **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; do not call the Bedrock SDK. Stream accumulates partial tool JSON.
 - **`toolChoice: 'none'`** — Bedrock has no true none; Plumbus omits `toolConfig` entirely.
 - **Missing pricing file** — file mode throws on first call; auto-download failure warns and leaves cost `$0`.
+- **Unmapped models (e.g. Nova)** — inference works; `cost` stays `$0` until you add a pricing-file row (display-name map covers Claude + Titan embed primarily).
+- **Wiring** — after install, `plumbus init --patch` (core ≥ 0.6.16 / wiring v13) so agents see `instructions/`.
 
 ## Documentation / Agent recipes
 

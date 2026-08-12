@@ -71,7 +71,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/ai-bedrock`
 
-`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.1.x`; peer `@plumbus/core` `0.6.x`). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
+`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.1.x`; peer `@plumbus/core` `0.6.x`; **runtime floor ≥ 0.6.16**). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
 
 ```
 pnpm add @plumbus/ai-bedrock

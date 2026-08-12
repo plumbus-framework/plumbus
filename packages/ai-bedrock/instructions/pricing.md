@@ -151,7 +151,7 @@ Auto-download and `parseAwsOfferRates()` keep **regional on-demand standard inpu
 | `anthropic.claude-sonnet-4-5-20250929-v1:0` | `anthropic.claude-sonnet-4-5` |
 | `amazon.titan-embed-text-v2:0` | `amazon.titan-embed-text-v2` |
 
-Unknown models → cost **`$0`** (inference still works). Extend the normalized file manually for models not in the built-in display-name map.
+Unknown models → cost **`$0`** (inference still works). Extend the normalized file manually for models not in the built-in display-name map (common example: **Amazon Nova** chat ids, or new Claude families before the map is updated).
 
 ## Normalized pricing file (v1)
 
@@ -305,5 +305,6 @@ Caches in memory (TTL default **24h**, override with `pricingCacheTtlMs` / `AI_B
 ## Related
 
 - Package boundary / wiring: [framework.md](./framework.md)
-- Conceptual AI docs: `docs/ai/ai-integration.md` (monorepo)
+- Concept guide (monorepo): `docs/ai/bedrock.md`
+- Broader AI docs: `docs/ai/ai-integration.md`
 - Types: `BedrockPricingFileV1`, helpers `parseAwsOfferRates`, `parsePricingFile`, `normalizeBedrockModelId`
