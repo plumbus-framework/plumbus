@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { PlumbusConfig } from '../../types/config.js';
+import type { AIProviderSlotConfig, PlumbusConfig } from '../../types/config.js';
 import { loadConfig, loadPromptOverrides, validateConfig } from '../loader.js';
 
 // ── Tests ──
@@ -535,7 +535,7 @@ describe('Config Loader', () => {
       });
     });
 
-    it('ignores unsupported AI_*_API_KEY env vars (only openai and anthropic)', () => {
+    it('ignores unsupported AI_*_API_KEY env vars (openai, anthropic, bedrock are supported)', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const config = loadConfig({
         environment: 'development',
@@ -550,6 +550,59 @@ describe('Config Loader', () => {
       });
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('AI_OLLAMA_API_KEY'));
       warnSpy.mockRestore();
+    });
+
+    it('loads bedrock from AI_BEDROCK_REGION without an API key', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'bedrock',
+          AI_BEDROCK_REGION: 'us-east-1',
+          AI_BEDROCK_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+          AI_BEDROCK_PRICING_FILE: '/config/bedrock-pricing.json',
+        },
+      });
+      expect(config.aiProviders?.providers.bedrock).toEqual(
+        expect.objectContaining({
+          provider: 'bedrock',
+          region: 'us-east-1',
+          model: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+          pricingFilePath: '/config/bedrock-pricing.json',
+        }),
+      );
+      // Bedrock has no API key, but the slot still carries one so that
+      // `AIProviderConfig.apiKey` stays a required `string` for readers of
+      // `config.ai` / `config.aiProviders.providers[...]`.
+      expect(config.aiProviders?.providers.bedrock?.apiKey).toBe('');
+    });
+
+    it('keeps apiKey a required string on provider config (no consumer widening)', () => {
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_PROVIDER: 'openai',
+          AI_API_KEY: 'sk-test',
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_OPENAI_API_KEY: 'sk-test',
+        },
+      });
+
+      // Consumer bootstrap does `createOpenAIAdapter({ apiKey: config.ai.apiKey })`,
+      // which only compiles while apiKey is `string`. These assignments fail
+      // typecheck if the field is ever widened to `string | undefined`.
+      if (config.ai) {
+        const legacyKey: string = config.ai.apiKey;
+        expect(legacyKey).toBe('sk-test');
+      }
+      const slot = config.aiProviders?.providers.openai;
+      if (slot) {
+        const slotKey: string = slot.apiKey;
+        expect(slotKey).toBe('sk-test');
+      }
+
+      // …while a hand-built slot for a keyless provider needs no placeholder.
+      const bedrockSlot: AIProviderSlotConfig = { provider: 'bedrock', region: 'us-east-1' };
+      expect(bedrockSlot.apiKey).toBeUndefined();
     });
 
     it('should include both defaultModel and promptOverrides together', () => {

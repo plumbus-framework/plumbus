@@ -26,6 +26,7 @@ export type {
 export type {
   AIProviderConfig,
   AIProvidersConfig,
+  AIProviderSlotConfig,
   AuthAdapterConfig,
   DatabaseConfig,
   Environment,

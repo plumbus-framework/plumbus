@@ -122,7 +122,7 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
 
 // ── Multi-Provider AI Config ──
 
-const SUPPORTED_AI_PROVIDERS = ['openai', 'anthropic'] as const;
+const SUPPORTED_AI_PROVIDERS = ['openai', 'anthropic', 'bedrock'] as const;
 
 type SupportedAiProvider = (typeof SUPPORTED_AI_PROVIDERS)[number];
 
@@ -130,9 +130,9 @@ function isSupportedAiProvider(name: string): name is SupportedAiProvider {
   return (SUPPORTED_AI_PROVIDERS as readonly string[]).includes(name);
 }
 
-function readProviderConfig(
+function readOpenAiOrAnthropicConfig(
   env: Record<string, string | undefined>,
-  name: SupportedAiProvider,
+  name: 'openai' | 'anthropic',
 ): AIProviderConfig | undefined {
   const prefix = `AI_${name.toUpperCase()}_`;
   const apiKey = env[`${prefix}API_KEY`];
@@ -155,7 +155,47 @@ function readProviderConfig(
   };
 }
 
-/** Load openai + anthropic provider slots from env (H2). */
+function readBedrockConfig(env: Record<string, string | undefined>): AIProviderConfig | undefined {
+  const region =
+    env.AI_BEDROCK_REGION ??
+    (env.AI_BEDROCK_ENABLED === '1' || env.AI_BEDROCK_ENABLED === 'true'
+      ? (env.AWS_REGION ?? env.AWS_DEFAULT_REGION)
+      : undefined);
+  if (region == null || region === '') {
+    return undefined;
+  }
+
+  const maxTokensRaw = env.AI_BEDROCK_MAX_TOKENS;
+  const dailyCostRaw = env.AI_BEDROCK_DAILY_COST_LIMIT;
+  const timeoutRaw = env.AI_BEDROCK_REQUEST_TIMEOUT;
+  const ttlRaw = env.AI_BEDROCK_PRICING_TTL_MS;
+
+  return {
+    provider: 'bedrock',
+    // Bedrock authenticates through the AWS credential chain (IAM / IRSA /
+    // instance role), never an API key. The slot carries an empty string so
+    // that `AIProviderConfig.apiKey` stays a required `string` for readers.
+    apiKey: '',
+    region,
+    model: env.AI_BEDROCK_MODEL ?? undefined,
+    embeddingModel: env.AI_BEDROCK_EMBEDDING_MODEL ?? undefined,
+    pricingFilePath: env.AI_BEDROCK_PRICING_FILE ?? undefined,
+    maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
+    dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
+    requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
+    pricingCacheTtlMs: ttlRaw != null ? parseInt(ttlRaw, 10) : undefined,
+  };
+}
+
+function readProviderConfig(
+  env: Record<string, string | undefined>,
+  name: SupportedAiProvider,
+): AIProviderConfig | undefined {
+  if (name === 'bedrock') return readBedrockConfig(env);
+  return readOpenAiOrAnthropicConfig(env, name);
+}
+
+/** Load openai + anthropic + bedrock provider slots from env. */
 export function loadMultiProviderConfig(
   env: Record<string, string | undefined>,
 ): AIProvidersConfig | undefined {
@@ -170,7 +210,7 @@ export function loadMultiProviderConfig(
     }
   }
 
-  // Warn on deprecated dynamic provider env keys
+  // Warn on deprecated dynamic provider env keys (except known slots)
   for (const key of Object.keys(env)) {
     const match = /^AI_([A-Z][A-Z0-9_]*)_API_KEY$/.exec(key);
     if (match?.[1] != null) {

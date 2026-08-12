@@ -1,7 +1,8 @@
 // ── AI Provider Adapter Interface ──
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
-import type { AIProviderConfig } from '../types/config.js';
+import { createRequire } from 'node:module';
+import type { AIProviderSlotConfig } from '../types/config.js';
 import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
@@ -140,6 +141,12 @@ export interface ProviderResponse {
   finishReason: string;
   /** Parsed provider tool calls (present when finishReason is 'tool_calls'/'tool_use'). */
   toolCalls?: AIToolCall[];
+  /**
+   * Optional USD cost computed by the adapter (e.g. `@plumbus/ai-bedrock` from
+   * its Price List cache). When set, `createAIService` prefers this over
+   * `calculateModelCost` against the hardcoded OpenAI/Anthropic catalog.
+   */
+  cost?: number;
 }
 
 // ── Token Usage ──
@@ -166,6 +173,11 @@ export interface ProviderStreamEvent {
   toolCalls?: AIToolCall[];
   /** Error message (for error events) */
   error?: string;
+  /**
+   * Optional USD cost on `done` (and optionally `usage`) events. When set,
+   * `createAIService` prefers this over `calculateModelCost`.
+   */
+  cost?: number;
 }
 
 // ── Embedding Request ──
@@ -1354,7 +1366,10 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
 
 // ── Shared SSE Stream Parser ──
 
-type SSEChunkParser = (eventType: string, data: string) => ProviderStreamEvent | null;
+type SSEChunkParser = (
+  eventType: string,
+  data: string,
+) => ProviderStreamEvent | ProviderStreamEvent[] | null;
 
 async function* parseSSEStream(
   resp: Response,
@@ -1393,7 +1408,12 @@ async function* parseSSEStream(
           }
 
           const event = parseChunk(currentEvent, data);
-          if (event) yield event;
+          if (!event) continue;
+          if (Array.isArray(event)) {
+            for (const e of event) yield e;
+          } else {
+            yield event;
+          }
         }
       }
     }
@@ -1402,7 +1422,10 @@ async function* parseSSEStream(
   }
 }
 
-function parseOpenAISSEChunk(_eventType: string, data: string): ProviderStreamEvent | null {
+function parseOpenAISSEChunk(
+  _eventType: string,
+  data: string,
+): ProviderStreamEvent | ProviderStreamEvent[] | null {
   try {
     const parsed = JSON.parse(data) as {
       choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
@@ -1433,15 +1456,19 @@ function parseOpenAISSEChunk(_eventType: string, data: string): ProviderStreamEv
     const choice = parsed.choices?.[0];
     if (!choice) return null;
 
-    if (choice.finish_reason) {
-      return { type: 'done', finishReason: choice.finish_reason };
-    }
-
+    const events: ProviderStreamEvent[] = [];
+    // Bedrock Mantle (and some gateways) put the last text delta on the same
+    // chunk as finish_reason. Emit content first so callers still see deltas.
     if (choice.delta?.content) {
-      return { type: 'content_delta', delta: choice.delta.content };
+      events.push({ type: 'content_delta', delta: choice.delta.content });
+    }
+    if (choice.finish_reason) {
+      events.push({ type: 'done', finishReason: choice.finish_reason });
     }
 
-    return null;
+    if (events.length === 0) return null;
+    if (events.length === 1) return events[0] ?? null;
+    return events;
   } catch {
     return null;
   }
@@ -1501,26 +1528,85 @@ function parseAnthropicSSEChunk(eventType: string, data: string): ProviderStream
 
 // ── Provider Factory ──
 
-/** Create a provider adapter by name from a provider config entry */
+/**
+ * Create a provider adapter by name from a provider config entry.
+ *
+ * Takes {@link AIProviderSlotConfig} (optional `apiKey`) so keyless providers
+ * such as Bedrock can be constructed without a placeholder key. An
+ * `AIProviderConfig` is assignable to it, so existing callers are unaffected.
+ */
 export function createProviderAdapter(
   name: string,
-  providerConfig: AIProviderConfig,
+  providerConfig: AIProviderSlotConfig,
 ): AIProviderAdapter {
-  const cfg = {
-    apiKey: providerConfig.apiKey,
-    model: providerConfig.model,
-    baseUrl: providerConfig.baseUrl,
-    requestTimeout: providerConfig.requestTimeout,
-  };
-
   switch (name) {
-    case 'openai':
-      return createOpenAIAdapter(cfg);
-    case 'anthropic':
-      return createAnthropicAdapter(cfg);
+    case 'openai': {
+      if (providerConfig.apiKey == null || providerConfig.apiKey === '') {
+        throw new Error('AI provider "openai" requires apiKey');
+      }
+      return createOpenAIAdapter({
+        apiKey: providerConfig.apiKey,
+        model: providerConfig.model,
+        baseUrl: providerConfig.baseUrl,
+        requestTimeout: providerConfig.requestTimeout,
+        embeddingModel: providerConfig.embeddingModel,
+      });
+    }
+    case 'anthropic': {
+      if (providerConfig.apiKey == null || providerConfig.apiKey === '') {
+        throw new Error('AI provider "anthropic" requires apiKey');
+      }
+      return createAnthropicAdapter({
+        apiKey: providerConfig.apiKey,
+        model: providerConfig.model,
+        baseUrl: providerConfig.baseUrl,
+        requestTimeout: providerConfig.requestTimeout,
+      });
+    }
+    case 'bedrock': {
+      return createBedrockAdapterFromPeer(providerConfig);
+    }
     default:
       throw new Error(
-        `Unsupported AI provider "${name}". Only "openai" and "anthropic" are supported.`,
+        `Unsupported AI provider "${name}". Supported: "openai", "anthropic", "bedrock".`,
       );
   }
+}
+
+function createBedrockAdapterFromPeer(providerConfig: AIProviderSlotConfig): AIProviderAdapter {
+  const region = providerConfig.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
+  if (region == null || region === '') {
+    throw new Error('AI provider "bedrock" requires region (set AI_BEDROCK_REGION or AWS_REGION).');
+  }
+
+  let createBedrockAdapter: (config: {
+    region: string;
+    defaultModel?: string;
+    defaultEmbeddingModel?: string;
+    requestTimeout?: number;
+    pricingFilePath?: string;
+    pricingCacheTtlMs?: number;
+  }) => AIProviderAdapter;
+
+  try {
+    // Sync resolve — mirrors optional @plumbus/mcp peer loading.
+    const require = createRequire(import.meta.url);
+    const mod = require('@plumbus/ai-bedrock') as {
+      createBedrockAdapter: typeof createBedrockAdapter;
+    };
+    createBedrockAdapter = mod.createBedrockAdapter;
+  } catch {
+    throw new Error(
+      'AI provider "bedrock" requires @plumbus/ai-bedrock. Run: pnpm add @plumbus/ai-bedrock',
+    );
+  }
+
+  return createBedrockAdapter({
+    region,
+    defaultModel: providerConfig.model,
+    defaultEmbeddingModel: providerConfig.embeddingModel,
+    requestTimeout: providerConfig.requestTimeout,
+    pricingFilePath: providerConfig.pricingFilePath,
+    pricingCacheTtlMs: providerConfig.pricingCacheTtlMs,
+  });
 }

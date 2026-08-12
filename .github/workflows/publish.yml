@@ -46,6 +46,18 @@ jobs:
             pnpm publish --access public --no-git-checks
           fi
 
+      # Publish @plumbus/ai-bedrock BEFORE @plumbus/core (optional peer of core).
+      - name: Publish @plumbus/ai-bedrock
+        working-directory: packages/ai-bedrock
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
       - name: Publish @plumbus/core
         working-directory: packages/plumbus-core
         run: |

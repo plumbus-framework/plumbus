@@ -16,6 +16,7 @@ Read this file **before** editing `peerDependencies` in any `packages/*/package.
 | Most add-ons (chat, chat-ui, knowledge-base, mcp, api, browser-extension) | `"0.5.x \|\| 0.6.x"` | `packages/mcp/package.json` |
 | Voice only (requires core 0.6+ media/cost APIs) | `"0.6.x"` | `packages/voice/package.json` |
 | Auth only (requires core 0.6.8+ HttpAuthenticationRuntime) | `"0.6.x"` | `packages/auth/package.json` |
+| AI Bedrock (requires provider `cost` preference + optional peer load; **runtime ≥ 0.6.16**) | `"0.6.x"` | `packages/ai-bedrock/package.json` |
 
 When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x"` unless the package genuinely requires core 0.6+ only (then use the voice pattern).
 
@@ -34,6 +35,8 @@ When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x
 |---|---|---|---|---|
 | `@plumbus/core` | `@plumbus/mcp` | `"0.5.x \|\| 0.6.x"` | optional | `packages/plumbus-core/package.json` |
 | `@plumbus/core` | `@plumbus/api` | `"0.1.x"` | optional | `packages/plumbus-core/package.json` |
+| `@plumbus/core` | `@plumbus/ai-bedrock` | `"0.1.x"` | optional | `packages/plumbus-core/package.json` |
+| `@plumbus/ai-bedrock` | `@plumbus/core` | `"0.6.x"` | required | `packages/ai-bedrock/package.json` |
 | `@plumbus/chat` | `@plumbus/knowledge-base` | `"^0.1.0"` | optional | `packages/chat/package.json` |
 | `@plumbus/chat-ui` | `@plumbus/chat` | `"0.1.x"` | required | `packages/chat-ui/package.json` |
 | `@plumbus/chat-ui` | `@plumbus/core` | `"0.5.x \|\| 0.6.x"` | required | `packages/chat-ui/package.json` |
@@ -47,7 +50,7 @@ When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x
 | `@plumbus/voice` | `@plumbus/voice-minimax` | `"0.1.x"` | optional | `packages/voice/package.json` |
 | `@plumbus/voice` | `@plumbus/voice-livekit` | `"0.1.x"` | optional | `packages/voice/package.json` |
 
-**Peering direction:** add-ons declare `@plumbus/core` as a peer — consumer apps install both. `@plumbus/core` optionally peers `@plumbus/mcp` and `@plumbus/api` when those packages are present. `@plumbus/chat` optionally peers `@plumbus/knowledge-base` for registry-backed context sources — **not** the reverse. `@plumbus/knowledge-base` only peers `@plumbus/core`. `@plumbus/auth-cognito` peers `@plumbus/auth` only — not `@plumbus/core` directly. Voice provider packages peer `@plumbus/voice` `0.4.x` (and `@plumbus/core` `0.6.x`); `@plumbus/voice` does **not** peer the add-ons — apps install add-ons and pass `*_REGISTRATION` into `createProviderRegistry()` — **copy these literals; do not derive**.
+**Peering direction:** add-ons declare `@plumbus/core` as a peer — consumer apps install both. `@plumbus/core` optionally peers `@plumbus/mcp`, `@plumbus/api`, and `@plumbus/ai-bedrock` when those packages are present. `@plumbus/chat` optionally peers `@plumbus/knowledge-base` for registry-backed context sources — **not** the reverse. `@plumbus/knowledge-base` only peers `@plumbus/core`. `@plumbus/auth-cognito` peers `@plumbus/auth` only — not `@plumbus/core` directly. Voice provider packages peer `@plumbus/voice` `0.4.x` (and `@plumbus/core` `0.6.x`); `@plumbus/voice` does **not** peer the add-ons — apps install add-ons and pass `*_REGISTRATION` into `createProviderRegistry()` — **copy these literals; do not derive**.
 
 ## Forbidden patterns
 

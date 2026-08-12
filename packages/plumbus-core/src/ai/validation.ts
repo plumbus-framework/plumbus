@@ -19,6 +19,12 @@ export interface ValidatedResponse<T> {
   raw: string;
   attempts: number;
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  /**
+   * Sum of adapter-supplied `ProviderResponse.cost` across attempts, when every
+   * successful attempt provided a cost. Otherwise omitted so callers fall back
+   * to `calculateModelCost`.
+   */
+  cost?: number;
 }
 
 export class AIValidationError extends Error {
@@ -259,6 +265,7 @@ export async function generateWithValidation<T>(
   const textOutput = isStringOutputSchema(schema);
 
   let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  let totalProviderCost: number | undefined;
   let lastError: Error | null = null;
   let lastRawOutput: string | null = null;
   let currentPrompt = request.prompt;
@@ -302,16 +309,24 @@ export async function generateWithValidation<T>(
         (totalUsage.cachedInputTokens ?? 0) + (response.usage.cachedInputTokens ?? 0),
       cacheWriteTokens: (totalUsage.cacheWriteTokens ?? 0) + (response.usage.cacheWriteTokens ?? 0),
     };
+    if (response.cost != null) {
+      totalProviderCost = (totalProviderCost ?? 0) + response.cost;
+    } else {
+      // Mixed / missing adapter costs → force catalog fallback at the service layer.
+      totalProviderCost = undefined;
+    }
 
     try {
       const parsed = textOutput ? response.content : parseStructuredResponse(response.content);
       const result = schema.parse(parsed);
-      return {
+      const validated: ValidatedResponse<T> = {
         data: result,
         raw: response.content,
         attempts: attempt,
         usage: totalUsage,
       };
+      if (totalProviderCost != null) validated.cost = totalProviderCost;
+      return validated;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
 

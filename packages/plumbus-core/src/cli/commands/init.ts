@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 11;
+export const AGENT_WIRING_VERSION = 13;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -408,6 +408,21 @@ const MCP_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const AI_BEDROCK_INSTRUCTION_REFERENCES = [
+  {
+    area: 'Amazon Bedrock AI provider (@plumbus/ai-bedrock) — Converse, embeddings, pricing file vs auto-download',
+    path: 'node_modules/@plumbus/ai-bedrock/instructions/framework.md',
+  },
+  {
+    area: 'Bedrock AWS Price List URLs, curl, normalize script, ConfigMap pricing file, troubleshooting',
+    path: 'node_modules/@plumbus/ai-bedrock/instructions/pricing.md',
+  },
+  {
+    area: 'Bedrock instruction index and reading order',
+    path: 'node_modules/@plumbus/ai-bedrock/instructions/README.md',
+  },
+] as const;
+
 const API_INSTRUCTION_REFERENCES = [
   {
     area: 'partner API runtime overview, package boundary (core vs @plumbus/api), public exports, critical rules',
@@ -511,7 +526,7 @@ const UPGRADE_INSTRUCTION_REFERENCES = [
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, auth, auth-cognito, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, auth, auth-cognito, and browser-extension) for full SDK documentation.',
       'After installing any optional package, open `node_modules/@plumbus/<package>/instructions/README.md` first — that index lists the exact recipe files to read.',
     );
     return;
@@ -572,6 +587,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of MCP_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of AI_BEDROCK_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 

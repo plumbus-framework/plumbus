@@ -11,9 +11,9 @@ Plumbus provides a structured AI runtime with typed prompts, output validation, 
 │  ┌──────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │ Prompts  │  │ Providers    │  │ RAG Pipeline     │  │
 │  │          │  │              │  │                  │  │
-│  │ define   │  │ OpenAI       │  │ Ingest → Chunk   │  │
-│  │ Prompt() │  │ Anthropic    │  │ → Embed → Store  │  │
-│  │          │  │ Custom       │  │ → Retrieve       │  │
+│  │ define   │  │ OpenAI*      │  │ Ingest → Chunk   │  │
+│  │ Prompt() │  │ Anthropic*   │  │ → Embed → Store  │  │
+│  │          │  │ Bedrock†     │  │ → Retrieve       │  │
 │  └────┬─────┘  └──────┬───────┘  └────────┬─────────┘  │
 │       │               │                   │             │
 │  ┌────▼───────────────▼───────────────────▼──────────┐  │
@@ -28,6 +28,9 @@ Plumbus provides a structured AI runtime with typed prompts, output validation, 
 │  │ Scope check │  │ Tracking   │  │ Decision record │  │
 │  └─────────────┘  └────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────┘
+
+* Built into @plumbus/core (fetch-based OpenAI/Anthropic adapters).
+† Optional package @plumbus/ai-bedrock (AWS SDK) — install explicitly.
 ```
 
 ## Defining Prompts
@@ -269,14 +272,17 @@ is visible immediately. Anthropic and other adapters ignore the field. The same 
 supplied via `resolveAiOverrides` / `promptOverrides`.
 
 ```typescript
-import { createAIService, createProviderAdapter } from "@plumbus/core";
+import { createAIService, createProviderAdapter, createOpenAIAdapter } from "@plumbus/core";
+import { createBedrockAdapter } from "@plumbus/ai-bedrock";
 
 const service = createAIService({
   providers: {
     openai: createProviderAdapter("openai", { apiKey: "sk-..." }),
     anthropic: createProviderAdapter("anthropic", { apiKey: "ant-..." }),
-    ollama: createProviderAdapter("ollama", {
-      apiKey: "",
+    bedrock: createBedrockAdapter({ region: "us-east-1" }),
+    // OpenAI-compatible endpoints (Ollama, Azure, …): use createOpenAIAdapter with baseUrl
+    ollama: createOpenAIAdapter({
+      apiKey: "ollama",
       baseUrl: "http://localhost:11434/v1",
     }),
   },
@@ -313,16 +319,161 @@ The `extract()` and `classify()` convenience methods always use the default prov
 | Variable | Purpose |
 |----------|---------|
 | `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | Single-provider mode |
-| `AI_DEFAULT_PROVIDER` | Multi-provider default (`openai`, `anthropic` only via env) |
+| `AI_DEFAULT_PROVIDER` | Multi-provider default (`openai`, `anthropic`, `bedrock` via env) |
 | `AI_OPENAI_*` / `AI_ANTHROPIC_*` | Per-provider API keys, base URLs, and default models |
+| `AI_BEDROCK_REGION` / `AI_BEDROCK_MODEL` / `AI_BEDROCK_PRICING_FILE` | Bedrock (IAM auth; optional mounted pricing JSON — recommended in containers) |
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
 | `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
 
-Env discovery supports only `AI_OPENAI_*` and `AI_ANTHROPIC_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire Ollama and custom providers programmatically.
+Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire Ollama and custom providers programmatically. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
+
+When an adapter returns `cost` on `ProviderResponse` / stream `done` (Bedrock), `createAIService` uses that value instead of the hardcoded OpenAI/Anthropic `MODEL_PRICING` catalog.
 
 **Resolution order** for each call: `resolveAiOverrides` hook (from `app/server.ts`) → per-prompt env vars → prompt `model` fields → `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`.
 
 Hardcoding `model.provider` and `model.name` in `definePrompt()` is valid when you want the contract to pin a model; omit them when you prefer env-driven resolution.
+
+### Amazon Bedrock (`@plumbus/ai-bedrock`)
+
+> **Full guide:** [Amazon Bedrock (`docs/ai/bedrock.md`)](./bedrock.md) — Runtime vs Mantle, env, IAM, tools/streaming, pricing, k8s, production checklist.
+
+Bedrock is an **optional add-on package**, not part of `@plumbus/core`. Apps that never use Bedrock never install the AWS SDK.
+
+#### Why a separate package (not in core)
+
+| Provider | Lives in | HTTP / SDK | Auth | Cost USD source |
+|----------|----------|------------|------|-----------------|
+| OpenAI | `@plumbus/core` | `fetch` to OpenAI HTTP API | API key | Core `MODEL_PRICING` catalog |
+| Anthropic | `@plumbus/core` | `fetch` to Anthropic HTTP API | API key | Core `MODEL_PRICING` catalog |
+| **Bedrock** | **`@plumbus/ai-bedrock`** | **`@aws-sdk/client-bedrock-runtime`** | **IAM / IRSA** (default chain; SDK may also use `AWS_BEARER_TOKEN_BEDROCK`) | **Package-owned rates** (AWS Price List or mounted file) |
+
+OpenAI and Anthropic adapters are lightweight HTTP clients. Bedrock needs the AWS SDK (credential chain, SigV4, Converse / InvokeModel shapes). Pulling that into core would:
+
+- Force every Plumbus app to depend on AWS SDK packages even when they only use OpenAI/Anthropic
+- Couple core releases to AWS SDK churn
+- Blur the boundary between “framework runtime” and “cloud vendor adapter”
+
+So the split matches other optional peers (`@plumbus/mcp`, `@plumbus/api`, `@plumbus/auth`, voice providers): **install only when you need it**.
+
+```
+@plumbus/core                          @plumbus/ai-bedrock
+─────────────                          ───────────────────
+createAIService                        createBedrockAdapter
+createProviderAdapter('openai'|…)      BedrockRuntimeClient (AWS SDK)
+createProviderAdapter('bedrock') ──►   Converse / ConverseStream / InvokeModel
+  (dynamic createRequire)              Price List fetch OR pricing file
+Optional ProviderResponse.cost ◄────── sets cost from usage × rates
+MODEL_PRICING (OpenAI/Anthropic only)
+```
+
+Core’s optional peer: `"@plumbus/ai-bedrock": "0.1.x"`. The add-on’s required peer: `"@plumbus/core": "0.6.x"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** for the Bedrock provider slot, env discovery, adapter-supplied `cost`, and agent wiring v13.
+
+#### Install and wire
+
+```bash
+pnpm add @plumbus/ai-bedrock
+```
+
+```bash
+AI_DEFAULT_PROVIDER=bedrock
+AI_BEDROCK_REGION=us-east-1
+AI_BEDROCK_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
+# Recommended in Kubernetes — mount a normalized pricing JSON:
+# AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json
+```
+
+Or programmatically:
+
+```typescript
+import { createAIService } from "@plumbus/core";
+import { createBedrockAdapter } from "@plumbus/ai-bedrock";
+
+createAIService({
+  defaultProvider: "bedrock",
+  providers: {
+    bedrock: createBedrockAdapter({
+      region: "us-east-1",
+      pricingFilePath: process.env.AI_BEDROCK_PRICING_FILE,
+    }),
+  },
+});
+```
+
+`createProviderAdapter('bedrock', …)` in core dynamically loads `@plumbus/ai-bedrock` and prints `pnpm add @plumbus/ai-bedrock` if it is missing.
+
+**Inference:** Converse / ConverseStream (chat) and InvokeModel (default Titan Text Embeddings V2).  
+**Auth:** AWS default credential chain (env keys, shared config, IRSA, instance role) — there is no `AI_BEDROCK_API_KEY`.  
+**Prompts:** same `ctx.ai` / `definePrompt` surface; set `model.provider: 'bedrock'` and a **Bedrock model id** (e.g. `anthropic.claude-sonnet-4-5-20250929-v1:0`), not Anthropic Messages API short names alone.
+
+#### Pricing (Bedrock ≠ Anthropic catalog)
+
+Bedrock Runtime responses include **token usage only** — never USD. Cost recording therefore cannot reuse core’s OpenAI/Anthropic `MODEL_PRICING` table (and must not alias Claude-on-Bedrock to Anthropic API rows — regional rates diverge; e.g. Haiku 4.5 on Bedrock us-east-1 is typically **$1.10**/MTok input vs ~$1.00 on the Anthropic API).
+
+Flow:
+
+1. Adapter receives usage from Converse / stream `done`.
+2. `@plumbus/ai-bedrock` looks up rates for the model **family key** (strips `us.` / `eu.` prefixes and dated `-YYYYMMDD-vN:M` suffixes).
+3. Sets `cost` on `ProviderResponse` / stream `done`.
+4. `createAIService` **prefers** that `cost` over `calculateModelCost()`.
+
+| Mode | How rates load | When to use |
+|------|----------------|-------------|
+| **Pricing file** (`AI_BEDROCK_PRICING_FILE` / `pricingFilePath`) | Mount normalized JSON; **no** Price List fetch | Kubernetes / locked NetworkPolicy — **recommended** |
+| **Auto-download** (default when no file) | Fetch AWS Price List for `AI_BEDROCK_REGION`; memory TTL ~24h | Local dev / clusters with CDN egress |
+
+Price List is **public HTTPS** (no IAM). Host stays `pricing.us-east-1.amazonaws.com`; the path `{region}` is your Bedrock region:
+
+```text
+https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/{region}/index.json
+https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/{region}/index.json
+```
+
+Examples for `us-east-1`:
+
+```text
+https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrock/current/us-east-1/index.json
+https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/current/us-east-1/index.json
+```
+
+**Normalized file (v1)** — small enough for a ConfigMap; generate in CI with `parseAwsOfferRates` from the package (curl both indexes → parse → write JSON):
+
+```json
+{
+  "version": 1,
+  "region": "us-east-1",
+  "models": {
+    "anthropic.claude-haiku-4-5": {
+      "inputPerMTok": 1.1,
+      "outputPerMTok": 5.5,
+      "kind": "text"
+    },
+    "amazon.titan-embed-text-v2": {
+      "inputPerMTok": 0.02,
+      "outputPerMTok": 0,
+      "kind": "embedding"
+    }
+  }
+}
+```
+
+Parser keeps regional on-demand input/output only (skips Global, batch, latency-optimized, provisioned). Rates are normalized to **USD per 1M tokens**. Unknown models → `cost` `$0` (inference still works). Auto-download failure → `console.warn`, costs stay `$0` until refresh succeeds.
+
+Full curl, one-shot normalize script, ConfigMap sketch, and troubleshooting: [`packages/ai-bedrock/instructions/pricing.md`](../../packages/ai-bedrock/instructions/pricing.md) (in apps: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`). Package boundary and IAM: [`packages/ai-bedrock/instructions/framework.md`](../../packages/ai-bedrock/instructions/framework.md).
+
+#### What stays the same for app code
+
+Business logic still uses `definePrompt`, `ctx.ai.generateWithUsage`, chat, and RAG. You do **not** call the Bedrock SDK from app code — only register the adapter (env discovery or `createBedrockAdapter`).
+
+**Live smoke (monorepo):** [`examples/ai-bedrock-smoke`](../../examples/ai-bedrock-smoke) — real calls against temporary credentials you put in a local `.env` (never commit it).
+
+**Two AWS surfaces (do not confuse them):**
+
+| Surface | Auth | Plumbus entry | Smoke mode |
+|---------|------|---------------|------------|
+| Bedrock Runtime (Converse / InvokeModel) | IAM / IRSA | `@plumbus/ai-bedrock` → `createBedrockAdapter` | `runtime` |
+| Bedrock Mantle (OpenAI-compatible `bedrock-mantle.*.api.aws`) | Console `OPENAI_API_KEY` + `OPENAI_BASE_URL` | `@plumbus/core` → `createOpenAIAdapter` | `mantle` |
+
+A console export that sets `OPENAI_API_KEY=bedrock-api-key-…` and `OPENAI_BASE_URL=https://bedrock-mantle.<region>.api.aws/v1` is **Mantle**, not `@plumbus/ai-bedrock`.
 
 ### Transient Provider Failures
 
@@ -505,7 +656,13 @@ Return     Retry with error context
 
 ## Cost Tracking
 
-Every AI call is metered. The framework automatically calculates per-request cost using published pricing rates from OpenAI and Anthropic.
+Every AI call is metered. Cost resolution:
+
+1. If the adapter returns `cost` on the provider / stream response (**Bedrock** via `@plumbus/ai-bedrock`), that USD value wins.
+2. Otherwise `calculateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
+3. Unknown models (e.g. local Ollama) → `$0`.
+
+Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusaibedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
 
 ### Automatic Per-Request Cost
 
@@ -519,9 +676,7 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-Cost is computed by `calculateModelCost()` which uses a built-in pricing table covering all major OpenAI and Anthropic models. Unknown models (e.g., local Ollama) return cost 0.
-
-The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. For models the provider prices by context length, the short-context (base) rate is used. Rates were last synced on 2026-08-06; run the `update-model-pricing` skill to refresh them.
+For OpenAI/Anthropic, cost comes from `calculateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. For models the provider prices by context length, the short-context (base) rate is used. Rates were last synced on 2026-08-06; run the `update-model-pricing` skill to refresh them.
 
 ### Cached Token Pricing
 
@@ -534,7 +689,7 @@ When providers return cache information, the framework adjusts pricing automatic
 The framework parses cache data from provider responses:
 - **OpenAI**: `usage.prompt_tokens_details.cached_tokens`
 - **Anthropic**: `usage.cache_read_input_tokens` and `usage.cache_creation_input_tokens`
-
+- **Bedrock**: cache token fields on Converse usage (when present); `@plumbus/ai-bedrock` applies the same ~0.1× / 1.25× multipliers against Bedrock rates
 ### Long Context Premium
 
 For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:

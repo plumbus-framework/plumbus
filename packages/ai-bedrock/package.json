@@ -1,0 +1,62 @@
+{
+  "name": "@plumbus/ai-bedrock",
+  "version": "0.1.0",
+  "description": "Amazon Bedrock AI provider adapter for @plumbus/core (Converse chat + embeddings).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "lint": "biome lint ./src",
+    "format": "biome format --write ./src",
+    "format:check": "biome format ./src",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "plumbus",
+    "bedrock",
+    "aws",
+    "ai"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/ai-bedrock"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "0.6.x"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.848.0",
+    "@aws-sdk/types": "^3.840.0"
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "@biomejs/biome": "^2.4.6",
+    "@types/node": "^25.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.4"
+  }
+}

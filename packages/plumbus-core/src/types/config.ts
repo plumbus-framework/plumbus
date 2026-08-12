@@ -25,6 +25,14 @@ export interface QueueConfig {
 // ── AI Provider Config ──
 export interface AIProviderConfig {
   provider: string;
+  /**
+   * API key for OpenAI / Anthropic.
+   *
+   * Providers that authenticate some other way (Bedrock uses the AWS
+   * credential chain) carry an empty string here. Use
+   * {@link AIProviderSlotConfig} when constructing a provider slot by hand —
+   * it makes the field optional so keyless providers need no placeholder.
+   */
   apiKey: string;
   model?: string;
   baseUrl?: string;
@@ -32,7 +40,25 @@ export interface AIProviderConfig {
   dailyCostLimit?: number;
   /** Request timeout in milliseconds for AI provider calls (default: 120_000) */
   requestTimeout?: number;
+  /** AWS region for Bedrock (and similar region-scoped providers). */
+  region?: string;
+  /** Path to a Bedrock normalized pricing JSON file (`AI_BEDROCK_PRICING_FILE`). */
+  pricingFilePath?: string;
+  /** Default embedding model id (Bedrock Titan, etc.). */
+  embeddingModel?: string;
+  /** In-memory TTL for auto-downloaded Bedrock Price List rates. */
+  pricingCacheTtlMs?: number;
 }
+
+/**
+ * A provider slot as accepted by `createProviderAdapter`.
+ *
+ * Identical to {@link AIProviderConfig} except that `apiKey` is optional,
+ * because not every provider authenticates with one — Bedrock uses the AWS
+ * credential chain (IAM / IRSA / instance role). Kept separate so that reading
+ * `config.ai.apiKey` still yields a `string`; only the factory input is widened.
+ */
+export type AIProviderSlotConfig = Omit<AIProviderConfig, 'apiKey'> & { apiKey?: string };
 
 // ── Auth Adapter Config ──
 export interface AuthAdapterConfig {

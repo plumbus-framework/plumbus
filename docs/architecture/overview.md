@@ -98,6 +98,17 @@ Plumbus is a **layered, contract-driven application framework**. Application beh
 └─────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────┐
+│                @plumbus/ai-bedrock                  │
+│  Amazon Bedrock Converse + embeddings (AWS SDK)     │
+│  Package-owned Price List / pricing-file cost       │
+│  Optional peer — not bundled in core (keeps AWS     │
+│  SDK out of apps that only use OpenAI/Anthropic)    │
+│         ┌──────────────────────────────┐            │
+│         │      @plumbus/core            │            │
+│         └──────────────────────────────┘            │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
 │                   @plumbus/voice                    │
 │  Realtime speech I/O (+ optional @plumbus/voice-*   │
 │  provider packages: livekit, soniox, deepdub, …)    │

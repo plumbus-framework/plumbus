@@ -1,5 +1,19 @@
 # @plumbus/core changelog
 
+## 0.6.16 — 2026-08-12 — Amazon Bedrock provider + agent wiring v13
+
+### Added
+
+- **Amazon Bedrock provider slot** — `createProviderAdapter('bedrock', …)` dynamically loads optional peer `@plumbus/ai-bedrock` (`0.1.x`). Env discovery: `AI_BEDROCK_REGION` (or `AI_BEDROCK_ENABLED` + `AWS_REGION`), `AI_BEDROCK_MODEL`, `AI_BEDROCK_EMBEDDING_MODEL`, `AI_BEDROCK_PRICING_FILE`, timeouts/limits.
+- **Provider-supplied AI cost** — optional `cost` on `ProviderResponse` and stream `done` / `usage` events. `createAIService` prefers adapter cost when set (Bedrock package-owned pricing); otherwise uses `calculateModelCost` against the OpenAI/Anthropic catalog.
+- **`AIProviderConfig`** — added `region`, `pricingFilePath`, `embeddingModel`, `pricingCacheTtlMs` for Bedrock-style providers. `apiKey` stays a required `string`, so `config.ai.apiKey` still assigns to `string` in existing app bootstrap.
+- **`AIProviderSlotConfig`** — new exported type accepted by `createProviderAdapter`: identical to `AIProviderConfig` but with optional `apiKey`, so keyless providers (Bedrock uses the AWS credential chain) need no placeholder key. An `AIProviderConfig` remains assignable to it, so existing calls are unaffected. Env discovery sets `apiKey: ''` on the Bedrock slot.
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 13.** `plumbus init` references `@plumbus/ai-bedrock/instructions/pricing.md` (AWS Price List URLs, curl, normalize, ConfigMap) alongside framework + README. Pointers are inert when the package is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+- **OpenAI SSE stream parser** — when a chunk carries both `content` and `finish_reason` (Bedrock Mantle / some OpenAI-compatible proxies), emit the content delta before `done` so streamed text is not dropped.
+
 ## 0.6.15 — 2026-08-10 — migrate rollback hardening + model pricing sync
 
 ### Fixed

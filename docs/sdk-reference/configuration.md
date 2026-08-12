@@ -143,6 +143,7 @@ Install only when your deployment needs them:
 | `cron-parser` | Flow `schedule` trigger `nextRunAt` computation |
 | `@plumbus/mcp` | MCP server and MCP job completion sync in workers |
 | `@plumbus/api` | Partner API contract layer |
+| `@plumbus/ai-bedrock` | Amazon Bedrock adapter (AWS SDK; not bundled in core) |
 
 ```bash
 pnpm add redis cron-parser
@@ -154,14 +155,28 @@ pnpm add redis cron-parser
 
 ```typescript
 interface AIProviderConfig {
-  provider: string;        // "openai" | "anthropic"
-  apiKey: string;
+  provider: string;        // "openai" | "anthropic" | "bedrock" | …
+  apiKey: string;          // openai/anthropic key; "" for bedrock (IAM auth)
   model?: string;
   baseUrl?: string;
+  region?: string;         // bedrock
+  pricingFilePath?: string; // bedrock — mounted rates JSON
+  embeddingModel?: string;  // bedrock
+  pricingCacheTtlMs?: number;
   maxTokensPerRequest?: number;
   dailyCostLimit?: number;
   requestTimeout?: number; // default 120_000 ms
 }
+
+// Accepted by createProviderAdapter — same shape with an optional apiKey, so
+// keyless providers need no placeholder. AIProviderConfig is assignable to it.
+type AIProviderSlotConfig = Omit<AIProviderConfig, 'apiKey'> & { apiKey?: string };
+```
+
+`apiKey` stays required on `AIProviderConfig` so app bootstrap can keep doing:
+
+```typescript
+if (config.ai) createOpenAIAdapter({ apiKey: config.ai.apiKey }); // still a `string`
 ```
 
 Environment variables:
@@ -217,9 +232,18 @@ AI_ANTHROPIC_BASE_URL=           # optional — custom endpoint
 AI_ANTHROPIC_MAX_TOKENS=4096
 AI_ANTHROPIC_DAILY_COST_LIMIT=50
 AI_ANTHROPIC_REQUEST_TIMEOUT=120000
+
+# Amazon Bedrock (requires: pnpm add @plumbus/ai-bedrock)
+# Auth is IAM / IRSA — no API key. Cost from Price List or mounted file.
+AI_BEDROCK_REGION=us-east-1
+AI_BEDROCK_MODEL=anthropic.claude-sonnet-4-5-20250929-v1:0
+AI_BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
+# AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json   # recommended in k8s
+# AI_BEDROCK_PRICING_TTL_MS=86400000
+# AI_BEDROCK_REQUEST_TIMEOUT=120000
 ```
 
-Only `openai` and `anthropic` provider slots are read from environment variables. Other `AI_*_API_KEY` values are ignored with a deprecation warning. To target an OpenAI-compatible local endpoint, configure `AI_OPENAI_BASE_URL` instead.
+Env discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`**. Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire Ollama / custom providers programmatically via `createOpenAIAdapter` / `createAIService`. Bedrock lives in a separate package because it needs the AWS SDK — see [Amazon Bedrock](../ai/bedrock.md).
 
 ### Per-Prompt Overrides
 
