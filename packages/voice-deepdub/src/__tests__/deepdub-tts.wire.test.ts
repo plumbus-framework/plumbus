@@ -27,6 +27,7 @@ function makeFakeDeepdubFactory(captured: CapturedCall[], chunk = Buffer.from([1
 function createDeepdubProvider(
   deepdubClientFactory: unknown,
   voiceOptions: Record<string, unknown>,
+  credentialOptions: Record<string, unknown> = {},
 ) {
   const registry = createProviderRegistry({
     tts: { deepdub: DEEPDUB_TTS_REGISTRATION },
@@ -37,7 +38,9 @@ function createDeepdubProvider(
       providers: {
         deepdub: {
           apiKey: 'dd-key',
-          options: { deepdubClientFactory },
+          // Reconnect spacing is zeroed by default so the retry tests do not
+          // pay real seconds; the delay itself is asserted separately.
+          options: { deepdubClientFactory, reconnectDelayMs: 0, ...credentialOptions },
         },
       },
     },
@@ -139,6 +142,34 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
     expect(call?.params.targetGender).toBe('male');
   });
 
+  it('a tone-supplied voiceId overrides the static voice prompt (style-variant switching)', async () => {
+    const captured: CapturedCall[] = [];
+    const provider = createDeepdubProvider(makeFakeDeepdubFactory(captured), {});
+
+    const tone = provider.mapDeliveryTone({
+      profile: 'apologetic_repair',
+      pace: 'slow',
+      voiceId: 'style-variant-apologetic',
+    });
+    for await (const _chunk of provider.synthesizeStream('סליחה, לא קלטתי', tone)) {
+      // consume
+    }
+
+    expect(captured[0]?.params.voicePromptId).toBe('style-variant-apologetic');
+  });
+
+  it('without a tone voiceId the static voice prompt is used', async () => {
+    const captured: CapturedCall[] = [];
+    const provider = createDeepdubProvider(makeFakeDeepdubFactory(captured), {});
+
+    const tone = provider.mapDeliveryTone({ profile: 'warm_default', warmth: 'high' });
+    for await (const _chunk of provider.synthesizeStream('שלום', tone)) {
+      // consume
+    }
+
+    expect(captured[0]?.params.voicePromptId).toBe('voice-he');
+  });
+
   it('reconnects once when the Deepdub websocket drops before synthesis', async () => {
     const captured: CapturedCall[] = [];
     let connectCount = 0;
@@ -172,6 +203,181 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
     expect(connectCount).toBe(2);
     expect(generateCount).toBe(2);
     expect(captured).toHaveLength(1);
+    expect(chunks).toHaveLength(1);
+  });
+
+  it('keeps reconnecting up to three times and recovers on the last one', async () => {
+    let connectCount = 0;
+    let generateCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          connectCount += 1;
+          return {};
+        },
+        async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          generateCount += 1;
+          // Initial attempt plus the first two retries all find a dead socket.
+          if (generateCount <= 3) {
+            throw new Error('WebSocket is not connected. Call connect() first.');
+          }
+          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([9, 9]));
+          return Buffer.from([9, 9]);
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of provider.synthesizeStream('שלום', undefined)) {
+      chunks.push(chunk);
+    }
+
+    expect(generateCount).toBe(4);
+    expect(connectCount).toBe(4);
+    expect(chunks).toHaveLength(1);
+  });
+
+  it('gives up after three reconnects and surfaces the last error', async () => {
+    let generateCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          return {};
+        },
+        async generateToBuffer() {
+          generateCount += 1;
+          throw new Error('WebSocket is not connected. Call connect() first.');
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    await expect(async () => {
+      for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+        // drain
+      }
+    }).rejects.toThrow('WebSocket is not connected');
+    // One initial attempt + RECONNECT_ATTEMPTS retries.
+    expect(generateCount).toBe(4);
+  });
+
+  it('waits between reconnect attempts instead of hammering the socket', async () => {
+    let generateCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          return {};
+        },
+        async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          generateCount += 1;
+          if (generateCount === 1) {
+            throw new Error('WebSocket is not connected. Call connect() first.');
+          }
+          if (generateCount === 2) {
+            throw new Error('WebSocket is not connected. Call connect() first.');
+          }
+          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([1]));
+          return Buffer.from([1]);
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+      { reconnectDelayMs: 40 },
+    );
+
+    const startedAt = Date.now();
+    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+      // drain
+    }
+    // First retry is immediate; the second waits one delay.
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(35);
+    expect(generateCount).toBe(3);
+  });
+
+  it('does not re-synthesize once audio has already been published', async () => {
+    // Retrying after the listener has heard the opening would replay it.
+    let generateCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          return {};
+        },
+        async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          generateCount += 1;
+          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([7]));
+          throw new Error('WebSocket is not connected. Call connect() first.');
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    const chunks: Uint8Array[] = [];
+    await expect(async () => {
+      for await (const chunk of provider.synthesizeStream('שלום', undefined)) {
+        chunks.push(chunk);
+      }
+    }).rejects.toThrow('WebSocket is not connected');
+    expect(generateCount).toBe(1);
+    expect(chunks).toHaveLength(1);
+  });
+
+  it('stops reconnecting when the turn is aborted', async () => {
+    let generateCount = 0;
+    const controller = new AbortController();
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          return {};
+        },
+        async generateToBuffer() {
+          generateCount += 1;
+          controller.abort();
+          throw new Error('WebSocket is not connected. Call connect() first.');
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    for await (const _chunk of provider.synthesizeStream('שלום', undefined, controller.signal)) {
+      // drain
+    }
+    // An aborted turn stops consuming immediately, so the retry — if it ran at
+    // all — would run detached. Give it a window to prove it does not.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(generateCount).toBe(1);
+  });
+
+  it('retries a refused initial connection before failing the turn', async () => {
+    let connectCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          connectCount += 1;
+          if (connectCount < 3) {
+            throw new Error('connect ECONNREFUSED');
+          }
+          return {};
+        },
+        async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([5]));
+          return Buffer.from([5]);
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of provider.synthesizeStream('שלום', undefined)) {
+      chunks.push(chunk);
+    }
+
+    expect(connectCount).toBe(3);
     expect(chunks).toHaveLength(1);
   });
 });

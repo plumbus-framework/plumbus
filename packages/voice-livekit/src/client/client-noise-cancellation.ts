@@ -68,10 +68,15 @@ export function micConstraintsForNoiseCancellation(config: ResolvedNoiseCancella
   echoCancellation: boolean;
   noiseSuppression: boolean;
   autoGainControl: boolean;
+  voiceIsolation: boolean;
 } {
   return {
     echoCancellation: true,
     noiseSuppression: !config.active,
     autoGainControl: true,
+    // livekit-client defaults voiceIsolation to true, silently stacking an
+    // extra isolation stage in front of whatever NC (if any) is configured.
+    // STT input should see at most one enhancement stage — never a hidden one.
+    voiceIsolation: false,
   };
 }

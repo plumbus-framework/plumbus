@@ -690,11 +690,19 @@ async function forwardRemoteAudio(
   });
 }
 
-function parsePcmFormat(audioFormat: string | undefined): {
+export function parsePcmFormat(audioFormat: string | undefined): {
   sampleRate: number;
   channels: number;
 } {
-  const normalized = audioFormat ?? 'pcm16;rate=16000;channels=1';
+  const normalized = (audioFormat ?? 'pcm16;rate=16000;channels=1').toLowerCase();
+  // Short-form specs like `pcm16-16k` / `pcm16-24k` / `pcm16-48k` — the same
+  // shapes `parseAudioFormatSpec` in @plumbus/voice normalizes. The previous
+  // regex-only parser silently fell back to 16 kHz for these, which happened
+  // to be correct only for `pcm16-16k`.
+  const shortForm = normalized.match(/^pcm16-(\d+)k$/);
+  if (shortForm?.[1]) {
+    return { sampleRate: Number(shortForm[1]) * 1000, channels: 1 };
+  }
   const rateMatch = normalized.match(/rate=(\d+)/);
   const channelsMatch = normalized.match(/channels=(\d+)/);
   return {

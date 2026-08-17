@@ -112,6 +112,15 @@ transport: {
   single-language project defaults to that language's recognition.
 - Optional `stt.options.contextTerms` supplies domain vocabulary to providers
   that support a context/terms bias.
+- Soniox sessions send `language_hints_strict` automatically when exactly one
+  language is hinted (the vendor's top documented accuracy lever — combined
+  with the worker's per-session language narrowing, single-language sessions
+  run fully restricted). Override with `stt.options.languageHintsStrict`.
+- STT-input guidance: feed the recognizer raw microphone audio. Client-side
+  noise cancellation (especially Krisp BVC) measurably degrades STT accuracy
+  (Krisp's own benchmarks: ~2x WER on BVC-processed input); if noise
+  cancellation is needed, place it off the STT path. The client mic disables
+  Opus DTX and browser `voiceIsolation` for the same reason.
 - `VoiceSessionController` auto-runs turns on STT endpoint/final events
 - Soniox signals end-of-speech via its in-stream `<end>` control token (and the
   SDK's derived `endpoint` event); the provider forwards this as `onEndpoint`.
@@ -128,18 +137,25 @@ transport: {
   trigger a half-finished utterance. The grace timer is cleared on new transcript
   audio, barge-in, turn start, and session teardown. If speech resumes during the
   grace window, the controller prepends the deferred utterance (captured at endpoint
-  time) onto the resumed STT fragment so the full answer reaches the brain.
-- Optional `stt.options.backchannelEnabled` (default `false`) emits short
-  audio-only continuers ("mm-hm", "כן") during reflective pauses mid-utterance
-  without starting a brain turn or polluting the chat transcript. Tuned via
-  `backchannelPauseMs` (default `900`), `backchannelMinTranscriptChars`
-  (default `40`),   `backchannelCooldownMs` (default `6000`), and `backchannelPhrases` (flat
-  `string[]` or language-keyed map such as `{ he: [...], en: [...] }`). The
-  controller picks the pool from Soniox-detected `#pendingLanguage`, falling back
-  to session language. Backchannels are suppressed while endpoint
-  grace is active, a turn is in flight, or the user resumes speaking (which
-  aborts an in-flight continuer). `speakDirectUtterance` supports
-  `emitAssistantText: false` and `announcePlaying: false` for this mode.
+  time) onto the resumed STT fragment so the full answer reaches the brain. The
+  deferred fragment stays prefixed across every cumulative partial of the resumed
+  utterance until a turn actually starts, and the emitted `stt.partial`/`stt.final`
+  events carry the stitched text so client transcript mirrors show the full
+  pending speech live.
+- Speech that completes while a reply or hearing-repair prompt is still being
+  spoken is **not** dropped: the controller keeps it pending (further utterances
+  stitch onto it), and once the in-flight turn settles it replays the endpoint
+  through the normal grace window, so an answer given over the assistant's reply
+  becomes the next turn instead of silently vanishing. The replay never fires
+  while a cumulative utterance is still open — the utterance's own endpoint
+  delivers the stitched transcript — and never after the session is disposed or
+  the transport is lost. Barge-in during a reply still discards the pending
+  turn — an explicit interrupt means the user is restarting (barge-in is a
+  no-op while a repair prompt plays).
+- The sentence chunker merges micro-fragments (< 8 chars by default) into the
+  following sentence's synthesis call, so a reply opening with a written
+  hesitation ("המממ...") is synthesized with its sentence context instead of
+  as an isolated fragment read as disconnected syllables.
 - Call `bargeIn()` (or send `{ type: 'barge.in' }` over LiveKit data) to
   interrupt playback
 - Send `{ type: 'tts.speak', text: '<utterance>' }` over LiveKit data (or

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.4
+
+### Removed
+
+- **Backchannel continuers removed entirely** (the `backchannelEnabled` / `backchannelPauseMs` / `backchannelMinTranscriptChars` / `backchannelCooldownMs` / `backchannelPhrases` stt options and the briefly-added turn-start variant). Speaking canned phrases from a closed pool is a design dead end: TTS of an isolated nonword particle ("מממ") without sentence context is mangled by providers (the same call shape as the chunker micro-fragment bug), and a fixed phrase list is repetitive by construction. The options are now inert if present; `voice.backchannel` cost rows no longer occur (historical ledger rows remain valid).
+
+### Added
+
+- **`DeliveryTone.voiceId`** — optional per-turn voice override carried through tone profiles and `resolveTone` results to the TTS adapter's `mapDeliveryTone`. Enables emotional style-variant switching on providers whose voices ship as per-register style prompts of the same speaker (see `@plumbus/voice-deepdub` 0.1.3). Providers without per-call voice selection ignore it.
+- **Sentence-chunker micro-fragment merging** — chunks shorter than `minChunkChars` (default 8; 0 disables) merge into the following sentence instead of being synthesized as an isolated, contextless call. A leading hesitation like "המממ..." synthesized alone is read as disconnected syllables; merged into its sentence it reads naturally. This unblocks generation-time written hesitations in voice replies.
+
+### Fixed
+
+- **The live transcript mirror shows stitched speech** — when resumed speech is stitched onto a deferred pre-pause fragment (grace window or in-flight queue), the emitted `stt.partial`/`stt.final` events now carry the full stitched text instead of the bare resumed fragment. Previously the client's transcript mirror silently dropped the pre-pause speech until the turn committed, making long answers appear to vanish.
+- **In-flight speech is re-queued, not dropped** (server-STT continuous mode; the web-speech client mode is unchanged) — an utterance whose endpoint fires while a brain turn or hearing-repair prompt is still in flight is kept pending and its endpoint is replayed through the normal grace window once the in-flight work settles. Multiple utterances queued during one turn are stitched in order. Previously the `turnInFlight` guard silently swallowed the turn trigger and the next utterance overwrote the pending transcript (crossed-thread / lost-answer behavior in continuous sessions). The replay never fires while a cumulative utterance is still open (its own endpoint delivers the stitched transcript — replaying mid-utterance would duplicate the overlap) and never after `dispose()`/transport loss (no post-teardown ghost turns). Barge-in discards speech queued before the interrupt; speech arriving after it still becomes the next turn.
+- **Session lifecycle hardening** — `dispose()` now gates late STT callbacks (a suspended endpoint chain settling after teardown no longer starts a ghost turn) and clears the pending transcript; `notifyTransportLost()` uses the same `#disposed` gate (and clears pending) so a late endpoint, a newly armed silence timer, or a repair/turn `finally` that already captured the queued flag cannot start a ghost turn into a dead transport, and also disarms any already-armed grace/failsafe timers; barge-in now also cancels a turn waiting in the endpoint grace window (previously a no-op unless a turn was already in flight); grace/failsafe timer rejections are contained instead of becoming unhandled rejections; an empty `stt.final` control frame no longer clobbers a pending transcript; the silence-failsafe queue no longer snapshots a still-open cumulative utterance (word duplication); and the speech-energy gate now reads post-gain audio, so `enableInputNormalization` speakers get hearing repair instead of being silently below the threshold.
+- **The JS linear resampler warns when it engages** — it has no anti-alias filter, so a live-path resample is silent quality loss; it now logs loudly (once per rate pair) with guidance to align the transport audio format with the STT format instead.
+- **Endpoint-grace stitching survives cumulative partials** — the deferred pre-pause fragment is re-prefixed on every server STT partial instead of being consumed by the first one, so resumed speech that produces more than one partial event (all real server providers) no longer clobbers the words spoken before the pause.
+
 ## 0.4.3
 
 ### Added

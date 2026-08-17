@@ -623,6 +623,23 @@ describe('Config Loader', () => {
       });
     });
 
+    it('skips provider slots whose API key is an empty placeholder line', () => {
+      // A dotenv line like `AI_ANTHROPIC_API_KEY=` (present but empty, often
+      // alongside a leftover model var) must not produce a provider slot —
+      // createProviderAdapter validates keys at boot and would crash the
+      // worker on a slot that was never really configured.
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'openai',
+          AI_OPENAI_API_KEY: 'sk-test',
+          AI_ANTHROPIC_API_KEY: '',
+          AI_ANTHROPIC_MODEL: 'claude-sonnet-4-20250514',
+        },
+      });
+      expect(Object.keys(config.aiProviders?.providers ?? {})).toEqual(['openai']);
+    });
+
     it('loads AI security config from env vars', () => {
       const config = loadConfig({
         environment: 'development',

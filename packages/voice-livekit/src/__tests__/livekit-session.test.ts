@@ -298,11 +298,16 @@ describe('createLiveKitVoiceSession', () => {
 
     await session.connect();
 
-    expect(mockLocalParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true, {
-      echoCancellation: true,
-      noiseSuppression: false,
-      autoGainControl: true,
-    });
+    expect(mockLocalParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(
+      true,
+      {
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: true,
+        voiceIsolation: false,
+      },
+      { dtx: false, red: true },
+    );
     expect(KrispNoiseFilter).toHaveBeenCalledWith({ useBVC: true, quality: 'medium' });
     const publication = mockLocalParticipant.getTrackPublication.mock.results[0]?.value as {
       track: { setProcessor: ReturnType<typeof vi.fn> };

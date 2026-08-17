@@ -144,7 +144,7 @@ describe('recordDirectUtteranceCost', () => {
       text: 'מהמ',
       projectId: 'proj-9',
       sessionId: 'session-9',
-      operationName: 'voice.backchannel',
+      operationName: 'voice.hearing_repair',
       tts: { provider: 'openai', model: 'tts-1', voiceId: 'v1' },
       provider: 'openai',
     });
@@ -158,7 +158,7 @@ describe('recordDirectUtteranceCost', () => {
       {
         projectId: 'proj-9',
         serviceArea: 'voice',
-        operationName: 'voice.backchannel',
+        operationName: 'voice.hearing_repair',
         relatedEntityType: 'InterviewSession',
         relatedEntityId: 'session-9',
       },

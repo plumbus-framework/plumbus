@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { normalizeAudioFrame, resamplePcm16 } from '../audio-resampler.js';
 
 describe('audio resampler', () => {
@@ -31,5 +31,25 @@ describe('audio resampler', () => {
     expect(frame.sampleRate).toBe(24_000);
     expect(frame.channels).toBe(1);
     expect(frame.data.byteLength).toBeGreaterThan(4);
+  });
+
+  it('warns loudly (once per rate pair) when the anti-alias-free resampler engages', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const frame = {
+        data: Uint8Array.from([0, 0, 255, 127]),
+        sampleRate: 44_100,
+        channels: 1,
+      };
+      normalizeAudioFrame(frame, { sampleRate: 16_000, channels: 1 });
+      normalizeAudioFrame(frame, { sampleRate: 16_000, channels: 1 });
+
+      const resampleWarnings = warn.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('linear resampler engaged'),
+      );
+      expect(resampleWarnings).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

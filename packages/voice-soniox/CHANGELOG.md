@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+### Added
+
+- **`language_hints_strict`** — sent to Soniox automatically when exactly one language is hinted (the vendor's top documented accuracy recommendation: single-language restriction beats hints alone). Apps can override either way with `stt.options.languageHintsStrict`. Combined with the per-session language narrowing in the LiveKit worker, single-language sessions now run fully restricted.
+
+
 ## 0.1.2
 
 ### Added

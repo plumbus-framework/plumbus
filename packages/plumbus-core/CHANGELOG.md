@@ -1,5 +1,15 @@
 # @plumbus/core changelog
 
+## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening
+
+### Fixed
+
+- **Empty provider API-key placeholders no longer crash worker boot.** A dotenv line like `AI_ANTHROPIC_API_KEY=` (present but empty, often left alongside a model var) used to produce a provider slot that 0.6.16's boot-time key validation then rejected — `AI provider "anthropic" requires apiKey` before the worker could start. Env discovery now treats an empty key as "slot not configured" and skips it, matching ≤0.6.15's effective behavior. Keyless Bedrock slots are unaffected (separate region-keyed reader).
+
+- **`plumbus e2e` can no longer orphan the frontend dev server on interruption.** The auto-started `next dev` runs as a detached process group, and cleanup previously lived only in a `finally` block — Ctrl-C/SIGTERM on the CLI (the detached group never receives the terminal's signal) or a SIGKILL/crash left an immortal dev server compiling and watching until reboot (reproduced 2026-08-16). Now: SIGINT/SIGTERM/SIGHUP handlers kill the server group before exiting; a tiny detached watchdog reaps the group if the CLI vanishes without cleanup (SIGTERM, then SIGKILL after a 5 s grace; it self-exits when the group is gone); and vitest runs via async `spawn` instead of `execFileSync` so a blocked event loop can't defer the handlers. Normal shutdown is unchanged and verified sufficient: the whole server tree stays in the spawn group and exits within ~3 s of the group SIGTERM.
+- **Port preflight** — the command fails fast with cleanup guidance when the target port is already in use (orphaned previous run or a concurrent checkout), instead of silently running the suite against a foreign server and reporting a bogus green (reproduced 2026-08-16 with two checkouts sharing one port).
+- **Dev-server heap cap** — the server spawns with `NODE_OPTIONS=--max-old-space-size=4096` (skipped when the caller already sets a cap) plus `NEXT_TELEMETRY_DISABLED=1`. A runaway compile now fails the run loudly instead of pushing the machine into memory-pressure thrash.
+
 ## 0.6.16 — 2026-08-12 — Amazon Bedrock provider + agent wiring v13
 
 ### Added

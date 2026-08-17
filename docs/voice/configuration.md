@@ -123,32 +123,6 @@ The Soniox adapter maps this to `context.terms` in the realtime websocket config
 For raw PCM streams, it also sends `audio_format`, `sample_rate`, and `num_channels`
 so Soniox can decode the forwarded LiveKit audio frames.
 
-### Backchannel continuers (reflective pause)
-
-For interview-style voices where users pause mid-thought, enable short audio-only
-continuers that hold the floor without starting a brain turn:
-
-```ts
-stt: {
-  options: {
-    backchannelEnabled: true,
-    backchannelPauseMs: 900,
-    backchannelMinTranscriptChars: 40,
-    backchannelCooldownMs: 6000,
-    backchannelPhrases: ['mm-hm', 'I see'],
-    // Or language-keyed pools (selected from detected/session language):
-    // backchannelPhrases: { he: ['מהמ', 'כן'], en: ['mm-hm', 'I see'] },
-  },
-},
-```
-
-`VoiceSessionController` detects reflective pauses from per-chunk speech energy
-and speaks a random phrase from the pool via TTS. Continuers do not emit
-`assistant.delta` or flip agent state to `Playing` when
-`speakDirectUtterance({ emitAssistantText: false, announcePlaying: false })` is
-used internally. Backchannels are suppressed during endpoint grace and abort when
-the user resumes speaking.
-
 ## Route options
 
 `registerVoiceRoutes()` also accepts:

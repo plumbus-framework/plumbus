@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3
+
+### Changed
+
+- **Mic capture tuned for STT input.** `micConstraintsForNoiseCancellation` now explicitly sets `voiceIsolation: false` (livekit-client defaults it to true — a hidden extra enhancement stage in front of STT input); the mic publish disables Opus DTX (silence suppression can swallow quiet speakers' soft speech onsets) and enables RED for loss resilience.
+
+### Fixed
+
+- **`parsePcmFormat` understands short-form audio formats** (`pcm16-16k` / `pcm16-24k` / `pcm16-48k`) in the agent worker instead of silently defaulting to 16 kHz — which was correct only by coincidence for `pcm16-16k`.
+
+
 ## 0.1.2
 
 ### Fixed

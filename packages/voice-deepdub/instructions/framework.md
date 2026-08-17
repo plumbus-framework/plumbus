@@ -83,6 +83,8 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 
 Sample preset for smoke (Storyteller M, en-US): `bd1b00bb-be1c-4679-8eaa-0fcbfd4ff773`. More presets: https://docs.deepdub.app/voice-presets
 
+**The websocket does not survive an idle conversational gap.** Deepdub closes it from their side, and the SDK then throws `WebSocket is not connected. Call connect() first.` on the next `generateToBuffer` — which surfaces as a fatal `voice.runtime_error` and reads to the user as the voice dying mid-session. The provider reconnects on its own: up to **3 attempts, 1 s apart** (first retry immediate), covering both a refused initial connect and a mid-turn drop. Two deliberate limits — retries stop when the turn's `AbortSignal` fires (a barged-into turn must not wait out the backoff), and no retry happens once any audio chunk has been published, because re-synthesizing would replay the opening of the reply. Tests override the spacing with the credentials option `reconnectDelayMs`; do not set it in production.
+
 Deepdub publishes a **rate-limited free trial key** in their skill docs (IP-limited). Prefer a real project key for production. Live smoke:
 
 ```bash
