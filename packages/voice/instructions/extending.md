@@ -5,7 +5,7 @@ Use this when the built-ins are not enough.
 ## Supported extension points
 
 - `createProviderRegistry(...)` for custom STT/TTS/transport registrations
-- `toneProfiles` + `resolveTone(...)` for delivery-style selection
+- `toneProfiles` + `resolveTone(...)` for delivery-style selection (`DeliveryTone.voiceId` / `targetGender` are per-turn overrides; adapters map them)
 - `preprocessForTts(...)` for last-mile TTS text shaping
 - `runVoiceTurn(...)` for composing a custom transport or worker wrapper
 

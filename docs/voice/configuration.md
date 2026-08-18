@@ -115,18 +115,23 @@ stt: {
     contextTerms: ['AcmeApp', 'ProductName'],
     enableEndpointDetection: true,
     maxEndpointDelayMs: 3000,
+    // default: true when `languages` has exactly one entry
+    // languageHintsStrict: false,
   },
 },
 ```
 
 The Soniox adapter maps this to `context.terms` in the realtime websocket config.
+A single hinted language also sends `language_hints_strict` (vendor accuracy
+default). Override with `stt.options.languageHintsStrict`. Multi-language
+sessions stay unrestricted unless that option is set `true`.
 For raw PCM streams, it also sends `audio_format`, `sample_rate`, and `num_channels`
 so Soniox can decode the forwarded LiveKit audio frames.
 
-### Backchannel continuers (reflective pause)
+### Backchannel continuers
 
-For interview-style voices where users pause mid-thought, enable short audio-only
-continuers that hold the floor without starting a brain turn:
+Opt-in audio-only acknowledgements during a reflective pause, without a brain
+turn. Default is **off**.
 
 ```ts
 stt: {
@@ -144,10 +149,10 @@ stt: {
 
 `VoiceSessionController` detects reflective pauses from per-chunk speech energy
 and speaks a random phrase from the pool via TTS. Continuers do not emit
-`assistant.delta` or flip agent state to `Playing` when
-`speakDirectUtterance({ emitAssistantText: false, announcePlaying: false })` is
-used internally. Backchannels are suppressed during endpoint grace and abort when
-the user resumes speaking.
+`assistant.delta` or flip agent state to `Playing`. They are suppressed during
+endpoint grace, an in-flight turn or repair, and after `dispose()` / transport
+loss; resume speech aborts an in-flight continuer. Isolated one-syllable
+particles can be mangled by TTS providers — prefer multi-character phrases.
 
 ## Route options
 

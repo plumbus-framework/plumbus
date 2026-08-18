@@ -184,6 +184,21 @@ describe('VoiceSessionController server STT endpoint wiring', () => {
     expect(h.brainTranscripts).toEqual(['מה more']);
   });
 
+  it('emits the stitched transcript to the client, not the bare resumed fragment', async () => {
+    const h = await makeServerSttHarness(0, { endpointDetection: true, endpointGraceMs: 50 });
+
+    await h.emit({ text: 'part one', final: true });
+    await h.endpoint();
+    // Resume within the grace window — the emitted final must carry the full
+    // stitched text so the UI transcript mirror never hides pre-pause speech.
+    await h.emit({ text: 'part two', final: true });
+    expect(h.sttFinals).toEqual(['part one', 'part one part two']);
+
+    await h.endpoint();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(h.brainTranscripts).toEqual(['part one part two']);
+  });
+
   it('stitches resumed speech onto the deferred utterance across the grace window', async () => {
     const h = await makeServerSttHarness(0, { endpointDetection: true, endpointGraceMs: 50 });
 

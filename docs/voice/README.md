@@ -21,7 +21,7 @@ These docs are split in three:
 | [local-providers.md](./local-providers.md) | You want a self-hosted Whisper sidecar or browser-native TTS. |
 | [cost-tracking.md](./cost-tracking.md) | You need STT/TTS/transport spend to land in the shared AI ledger. |
 | [testing.md](./testing.md) | You're writing smoke, route, websocket, or e2e tests. |
-| [livekit-continuous-voice.md](./livekit-continuous-voice.md) | You're wiring a continuous (always-listening) LiveKit voice stack. |
+| [livekit-continuous-voice.md](./livekit-continuous-voice.md) | Continuous LiveKit + server-STT (talk-over re-queue, stitch, chunker). Agents: `packages/voice/instructions/continuous-sessions.md`. |
 | [security.md](./security.md) | You're exposing voice routes on a real app and need the S1-S10 threat model. |
 | [voice-cloning.md](./voice-cloning.md) | Persisted voice clones, ownership-aware HTTP routes, Deepdub preview vs long-form TTS. |
 | [design/providers.md](./design/providers.md) | You need the capability model, tone mapping rules, or ElevenLabs dual-model behavior. |

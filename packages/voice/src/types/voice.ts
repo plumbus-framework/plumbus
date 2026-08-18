@@ -10,6 +10,13 @@ export interface DeliveryTone {
   energy?: 'low' | 'medium' | 'high';
   emotion?: string;
   /**
+   * Per-turn voice override for this delivery (e.g. a Deepdub `voicePromptId`
+   * selecting an emotional style variant of the same speaker). Providers that
+   * support per-call voice selection prefer this over the static
+   * `tts.voiceId`; providers that don't simply ignore it.
+   */
+  voiceId?: string;
+  /**
    * Preferred speaker gender for this turn's synthesis. Lets a per-turn
    * `resolveTone` hook drive the voice gender dynamically (e.g. from a detected
    * subject gender). Providers that support a gender control (Deepdub) prefer

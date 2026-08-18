@@ -223,6 +223,8 @@ AI_MODEL=gpt-4o-mini
 
 Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`** (region-based; no API key). Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically via `createProviderAdapter` / `createAIService`.
 
+A present-but-empty `AI_OPENAI_API_KEY=` or `AI_ANTHROPIC_API_KEY=` (core **≥ 0.6.17**) is treated as unset — the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key. Do not invent a placeholder key to “satisfy” validation.
+
 ```bash
 AI_DEFAULT_PROVIDER=openai
 

@@ -52,6 +52,7 @@ function createSonioxProvider(
   session: FakeSonioxSession,
   captured: { config?: Record<string, unknown> },
   extraOptions: Record<string, unknown> = {},
+  languages: string[] = ['he', 'en'],
 ) {
   const registry = createProviderRegistry({
     stt: { soniox: SONIOX_STT_REGISTRATION },
@@ -69,7 +70,7 @@ function createSonioxProvider(
     voiceSlice: {
       provider: 'soniox',
       model: 'stt-rt-v5',
-      languages: ['he', 'en'],
+      languages,
       options: {
         enableEndpointDetection: true,
         maxEndpointDelayMs: 3000,
@@ -104,6 +105,61 @@ describe('Soniox STT via @soniox/node SDK', () => {
       max_endpoint_delay_ms: 3000,
       context: { terms: ['AcmeApp'] },
     });
+  });
+
+  it('sends language_hints_strict when a single language is hinted (vendor accuracy default)', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured, {}, ['he']);
+
+    await provider.connect?.({ sessionId: 'soniox-strict' });
+    await provider.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+
+    expect(captured.config?.language_hints).toEqual(['he']);
+    expect(captured.config?.language_hints_strict).toBe(true);
+  });
+
+  it('omits language_hints_strict for multi-language hints unless explicitly enabled', async () => {
+    const session = new FakeSonioxSession();
+    const capturedDefault: { config?: Record<string, unknown> } = {};
+    const multi = createSonioxProvider(session, capturedDefault);
+    await multi.connect?.({ sessionId: 'soniox-multi' });
+    await multi.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+    expect(capturedDefault.config?.language_hints_strict).toBeUndefined();
+
+    const sessionStrict = new FakeSonioxSession();
+    const capturedStrict: { config?: Record<string, unknown> } = {};
+    const forced = createSonioxProvider(sessionStrict, capturedStrict, {
+      languageHintsStrict: true,
+    });
+    await forced.connect?.({ sessionId: 'soniox-multi-strict' });
+    await forced.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+    expect(capturedStrict.config?.language_hints_strict).toBe(true);
+  });
+
+  it('an explicit languageHintsStrict: false overrides the single-language default', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured, { languageHintsStrict: false }, [
+      'he',
+    ]);
+
+    await provider.connect?.({ sessionId: 'soniox-strict-off' });
+    await provider.sendAudio?.({
+      chunk: Uint8Array.from([1, 2, 3, 4]),
+      contentType: 'pcm16;rate=16000;channels=1',
+    });
+
+    expect(captured.config?.language_hints_strict).toBeUndefined();
   });
 
   it('maps endpointSensitivity to endpoint_sensitivity in the Soniox config', async () => {

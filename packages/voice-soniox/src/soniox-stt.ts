@@ -171,6 +171,19 @@ class SonioxSTTProvider implements STTProvider {
         this.voiceSlice.options,
         'endpointSensitivity',
       );
+      // Soniox documents single-language restriction as its top accuracy
+      // recommendation ("higher accuracy than using language_hints alone").
+      // Default strict when exactly one language is hinted; apps can override
+      // either way with stt.options.languageHintsStrict.
+      const languageHintsStrictOption = readOption<boolean>(
+        this.voiceSlice.options,
+        'languageHintsStrict',
+      );
+      const languageCount = this.voiceSlice.languages?.length ?? 0;
+      const languageHintsStrict =
+        typeof languageHintsStrictOption === 'boolean'
+          ? languageHintsStrictOption
+          : languageCount === 1;
       const config: Record<string, unknown> = {
         model: this.#model,
         audio_format: 'pcm_s16le',
@@ -179,6 +192,9 @@ class SonioxSTTProvider implements STTProvider {
         language_hints: this.voiceSlice.languages,
         enable_endpoint_detection: this.#enableEndpointDetection,
       };
+      if (languageHintsStrict && languageCount > 0) {
+        config.language_hints_strict = true;
+      }
       if (typeof maxEndpointDelayMs === 'number') {
         config.max_endpoint_delay_ms = maxEndpointDelayMs;
       }

@@ -23,20 +23,90 @@ import {
 import { DEEPDUB_TTS_DESCRIPTOR, DEEPDUB_TTS_MODELS } from './descriptor.js';
 import { DEEPDUB_VOICE_PRICING } from './pricing.js';
 
+/**
+ * Deepdub keeps one long-lived websocket per provider instance, and an idle
+ * conversational gap is enough for the far end to close it — the next reply
+ * then fails with "WebSocket is not connected", which reads to the user as the
+ * voice dying mid-session. Reconnect attempts after a drop, spaced so a
+ * momentary refusal is not mistaken for a dead service.
+ */
+const RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY_MS = 1000;
+/**
+ * Reconnect before synthesizing when the socket has been quiet this long. The
+ * far end (`wss://wsapi.deepdub.ai/open`) closes idle connections and the SDK
+ * has no keepalive for this socket — it ships `asyncStreamPing` only for its
+ * separate streaming endpoint, and API Gateway ignores websocket ping frames
+ * anyway, so a heartbeat would have to be an application message on a route
+ * this API does not document. Reconnecting on demand needs no such guess: a
+ * handshake costs milliseconds next to synthesis, and only after a real pause.
+ */
+const IDLE_RECONNECT_MS = 120_000;
+
 class DeepdubTTSProvider implements TTSProvider {
   readonly capabilities = DEEPDUB_TTS_DESCRIPTOR;
   #characters = 0;
   #client: DeepdubSdkClient | undefined;
   #connectPromise: Promise<DeepdubSdkClient> | undefined;
+  #lastUsedAt = 0;
+  readonly #reconnectDelayMs: number;
+  readonly #idleReconnectMs: number;
 
   constructor(
     private readonly credentials: VoiceProviderCredentials,
     private readonly voiceSlice: VoiceTtsConfig,
-  ) {}
+  ) {
+    this.#reconnectDelayMs = resolveReconnectDelayMs(credentials);
+    this.#idleReconnectMs = resolveIdleReconnectMs(credentials);
+  }
+
+  /** Drop a socket that has been idle long enough for the far end to close it. */
+  #discardIfStale(): void {
+    if (!this.#client || this.#lastUsedAt === 0) {
+      return;
+    }
+    if (Date.now() - this.#lastUsedAt < this.#idleReconnectMs) {
+      return;
+    }
+    console.info('[voice-tts] deepdub socket idle — reconnecting before synthesis', {
+      idleMs: Date.now() - this.#lastUsedAt,
+    });
+    this.#resetClient();
+  }
+
+  /**
+   * Opens the websocket, retrying a refused connection on the same schedule as
+   * a dropped one. Surfaces the last error when every attempt fails.
+   */
+  async #connectWithRetry(signal?: AbortSignal): Promise<DeepdubSdkClient> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= RECONNECT_ATTEMPTS; attempt += 1) {
+      if (attempt > 1) {
+        await sleep(this.#reconnectDelayMs, signal);
+        if (signal?.aborted) {
+          break;
+        }
+      }
+      try {
+        return await this.#getClient();
+      } catch (error: unknown) {
+        lastError = error;
+        this.#resetClient();
+        console.warn('[voice-tts] deepdub connect failed', {
+          attempt,
+          of: RECONNECT_ATTEMPTS,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
 
   mapDeliveryTone(tone: DeliveryTone) {
     return {
-      voiceId: this.voiceSlice.voiceId,
+      // Per-turn style-variant switching: a tone-supplied voiceId (a
+      // voicePromptId of the same speaker family) overrides the static voice.
+      voiceId: tone.voiceId ?? this.voiceSlice.voiceId,
       model: this.voiceSlice.model ?? DEEPDUB_TTS_MODELS[0]?.id,
       tempo: mapPace(tone.pace),
       variance: mapWarmth(tone.warmth),
@@ -64,7 +134,6 @@ class DeepdubTTSProvider implements TTSProvider {
       return;
     }
 
-    const client = await this.#getClient();
     const options = this.#buildGenerationParams(params);
 
     const queue: Uint8Array[] = [];
@@ -79,14 +148,7 @@ class DeepdubTTSProvider implements TTSProvider {
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    console.info('[voice-tts] deepdub synthesis requested', {
-      characters: text.length,
-      model: options.model,
-      locale: options.locale,
-      via: 'sdk',
-    });
-
-    const generation = this.#startGeneration(client, text, options, (chunk) => {
+    const pushChunk = (chunk: Uint8Array) => {
       if (!chunk || chunk.length === 0) return;
       if (!firstChunkLogged) {
         firstChunkLogged = true;
@@ -96,42 +158,69 @@ class DeepdubTTSProvider implements TTSProvider {
       }
       queue.push(chunk);
       wake?.();
-    })
+    };
+
+    this.#discardIfStale();
+    const client = await this.#connectWithRetry(signal);
+
+    console.info('[voice-tts] deepdub synthesis requested', {
+      characters: text.length,
+      model: options.model,
+      locale: options.locale,
+      via: 'sdk',
+    });
+
+    const generation = this.#startGeneration(client, text, options, pushChunk)
       .then(() => {
         finished = true;
         wake?.();
       })
       .catch(async (error: unknown) => {
-        if (!isDeepdubDisconnectedError(error)) {
-          failure = error instanceof Error ? error : new Error(String(error));
+        const settle = (result?: Error) => {
+          failure = result;
           finished = true;
           wake?.();
+        };
+        if (!isDeepdubDisconnectedError(error)) {
+          settle(error instanceof Error ? error : new Error(String(error)));
           return;
         }
-        console.warn('[voice-tts] deepdub websocket dropped — reconnecting once', {
-          message: error instanceof Error ? error.message : String(error),
-        });
-        this.#resetClient();
-        try {
-          const retryClient = await this.#getClient();
-          await this.#startGeneration(retryClient, text, options, (chunk) => {
-            if (!chunk || chunk.length === 0) return;
-            if (!firstChunkLogged) {
-              firstChunkLogged = true;
-              console.info('[voice-tts] first deepdub audio chunk received', {
-                bytes: chunk.byteLength,
-              });
-            }
-            queue.push(chunk);
-            wake?.();
-          });
-          finished = true;
-          wake?.();
-        } catch (retryError: unknown) {
-          failure = retryError instanceof Error ? retryError : new Error(String(retryError));
-          finished = true;
-          wake?.();
+        // Retrying re-synthesizes the whole utterance, so it is only safe
+        // before any audio has been published — otherwise the listener would
+        // hear the opening of the reply twice.
+        if (firstChunkLogged) {
+          settle(error instanceof Error ? error : new Error(String(error)));
+          return;
         }
+        let lastError = error instanceof Error ? error : new Error(String(error));
+        for (let attempt = 1; attempt <= RECONNECT_ATTEMPTS; attempt += 1) {
+          if (attempt > 1) {
+            await sleep(this.#reconnectDelayMs, signal);
+          }
+          if (signal?.aborted) {
+            settle();
+            return;
+          }
+          console.warn('[voice-tts] deepdub websocket dropped — reconnecting', {
+            attempt,
+            of: RECONNECT_ATTEMPTS,
+            message: lastError.message,
+          });
+          this.#resetClient();
+          try {
+            const retryClient = await this.#getClient();
+            await this.#startGeneration(retryClient, text, options, pushChunk);
+            settle();
+            return;
+          } catch (retryError: unknown) {
+            lastError = retryError instanceof Error ? retryError : new Error(String(retryError));
+          }
+        }
+        console.error('[voice-tts] deepdub reconnect gave up', {
+          attempts: RECONNECT_ATTEMPTS,
+          message: lastError.message,
+        });
+        settle(lastError);
       });
 
     try {
@@ -181,17 +270,27 @@ class DeepdubTTSProvider implements TTSProvider {
     }
   }
 
-  #startGeneration(
+  /**
+   * `async` is load-bearing. `generateToBuffer` → `generateTo` are plain
+   * functions in @deepdub/node, and the readyState check throws
+   * *synchronously*: `#startGeneration(...).catch(retry)` never attaches its
+   * handler, so the throw escapes `synthesizeStream` and no reconnect runs —
+   * which is why a dropped socket killed the session even with retries in
+   * place. An async wrapper turns that throw into a rejection.
+   */
+  async #startGeneration(
     client: DeepdubSdkClient,
     text: string,
     options: TtsParams,
     onChunk: (chunk: Uint8Array) => void,
   ): Promise<unknown> {
-    return client.generateToBuffer(text, {
+    const result = await client.generateToBuffer(text, {
       ...options,
       headerless: true,
       onChunk,
     });
+    this.#lastUsedAt = Date.now();
+    return result;
   }
 
   usage() {
@@ -392,6 +491,39 @@ function resolveVoiceReference(
     return Buffer.from(raw, 'base64');
   }
   return undefined;
+}
+
+/**
+ * Reconnect spacing. Overridable through the provider credentials options —
+ * the same seam `deepdubClientFactory` uses — so tests do not pay real seconds.
+ */
+function resolveReconnectDelayMs(credentials: VoiceProviderCredentials): number {
+  const configured = (credentials.options as Record<string, unknown> | undefined)?.reconnectDelayMs;
+  return typeof configured === 'number' && configured >= 0 ? configured : RECONNECT_DELAY_MS;
+}
+
+/** Idle window before a socket is replaced rather than trusted. Test seam. */
+function resolveIdleReconnectMs(credentials: VoiceProviderCredentials): number {
+  const configured = (credentials.options as Record<string, unknown> | undefined)?.idleReconnectMs;
+  return typeof configured === 'number' && configured >= 0 ? configured : IDLE_RECONNECT_MS;
+}
+
+/** Abort-aware sleep: a barged-into turn must not wait out the backoff. */
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function isDeepdubDisconnectedError(error: unknown): boolean {

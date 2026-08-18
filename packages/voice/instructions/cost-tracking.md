@@ -16,7 +16,7 @@ Voice spend belongs in the same AI ledger as text prompts.
 - `cost`
 - `latencyMs`
 - `costContext` with app-specific rollup metadata — **must include `projectId`** or `onAICostRecorded` skips the ledger row
-- stable `operationName` values such as `voice.transcribe`, `voice.synthesize`, `voice.transport`
+- stable `operationName` values such as `voice.transcribe`, `voice.synthesize`, `voice.transport`, `voice.backchannel`, `voice.hearing_repair`, `voice.replay`
 
 ## Helper
 

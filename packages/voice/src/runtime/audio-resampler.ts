@@ -11,6 +11,11 @@ export interface AudioFormatSpec {
   format?: 'pcm16';
 }
 
+/** Rate pairs we already warned about — the JS linear resampler has no
+ * anti-alias filter, so any live-path resample deserves a loud, once-per-pair
+ * flag rather than silent quality loss. */
+const warnedResamplePairs = new Set<string>();
+
 export function normalizeAudioFrame(frame: AudioFrame, target: AudioFormatSpec): AudioFrame {
   if (
     frame.sampleRate === target.sampleRate &&
@@ -18,6 +23,17 @@ export function normalizeAudioFrame(frame: AudioFrame, target: AudioFormatSpec):
     (frame.format ?? 'pcm16') === (target.format ?? 'pcm16')
   ) {
     return frame;
+  }
+
+  if (frame.sampleRate !== target.sampleRate) {
+    const pairKey = `${frame.sampleRate}->${target.sampleRate}`;
+    if (!warnedResamplePairs.has(pairKey)) {
+      warnedResamplePairs.add(pairKey);
+      console.warn(
+        '[voice-audio] JS linear resampler engaged (no anti-alias filter) — audio quality on this path is degraded; align the transport audio format with the STT format instead',
+        { from: frame.sampleRate, to: target.sampleRate },
+      );
+    }
   }
 
   const resampled = resamplePcm16(frame.data, frame, target);

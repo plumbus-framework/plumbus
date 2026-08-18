@@ -853,6 +853,13 @@ plumbus e2e [options]
 
 Config discovery (first match wins): `frontend/e2e/vitest.config.e2e.ts`, `e2e/vitest.config.e2e.ts`, `vitest.config.e2e.ts`. When the server is started automatically, the runner waits up to 60s and sets `E2E_BASE_URL`.
 
+**Server lifecycle safety (0.6.17+).** The auto-started dev server is resource-bounded and orphan-proof:
+
+- **Port preflight** — if something already listens on the port (usually an orphaned server from a previous interrupted run, or another checkout's run), the command fails fast with cleanup guidance instead of silently testing against the wrong server.
+- **Heap cap** — the server is spawned with `NODE_OPTIONS=--max-old-space-size=4096` (not applied when the caller already sets a `--max-old-space-size`). A runaway dev-server compile crashes the run loudly instead of exhausting machine memory.
+- **Signal cleanup** — Ctrl-C / SIGTERM / SIGHUP on the CLI kills the detached server process group before exiting (previously the detached group never received the terminal's signal and survived as an immortal orphan).
+- **Orphan watchdog** — a tiny detached watchdog reaps the server group if the CLI process disappears without cleanup (SIGKILL, crash, killed session): SIGTERM first, SIGKILL after a 5 s grace. It exits by itself once the server group is gone and never interferes with a normal shutdown.
+
 ---
 
 ### plumbus seed

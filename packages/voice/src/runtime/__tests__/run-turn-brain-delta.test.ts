@@ -24,9 +24,11 @@ describe('runVoiceTurn brain delta deduplication', () => {
       tts: { provider: 'mock-tts' },
       brain: {
         async run(_ctx, args) {
-          args.onAssistantDelta?.('Alpha. ');
-          args.onAssistantDelta?.('Beta.');
-          return { text: 'Alpha. Beta.' };
+          // Sentences above the chunker's micro-fragment merge threshold, so
+          // each streams as its own chunk and the full-text dedup stays provable.
+          args.onAssistantDelta?.('Alpha alpha alpha. ');
+          args.onAssistantDelta?.('Beta beta beta.');
+          return { text: 'Alpha alpha alpha. Beta beta beta.' };
         },
       },
     });
@@ -49,7 +51,9 @@ describe('runVoiceTurn brain delta deduplication', () => {
       // consume stream
     }
 
-    expect(synthesizedTexts.filter((text) => text === 'Alpha. Beta.')).toHaveLength(0);
+    expect(
+      synthesizedTexts.filter((text) => text === 'Alpha alpha alpha. Beta beta beta.'),
+    ).toHaveLength(0);
     expect(synthesizedTexts.length).toBeGreaterThan(0);
   });
 });

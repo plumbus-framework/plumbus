@@ -136,7 +136,9 @@ function readOpenAiOrAnthropicConfig(
 ): AIProviderConfig | undefined {
   const prefix = `AI_${name.toUpperCase()}_`;
   const apiKey = env[`${prefix}API_KEY`];
-  if (apiKey == null) {
+  // An empty key is a placeholder line, not a configured provider — building a
+  // slot from it would fail createProviderAdapter's boot-time key validation.
+  if (apiKey == null || apiKey.trim() === '') {
     return undefined;
   }
 

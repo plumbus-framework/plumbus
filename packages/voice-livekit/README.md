@@ -128,6 +128,7 @@ import { createLiveKitVoiceSession } from '@plumbus/voice-livekit/client';
   - `node_modules/@plumbus/voice-livekit/instructions/client-session.md` — browser session
   - `node_modules/@plumbus/voice-livekit/instructions/agent-worker.md` — worker / CLI
   - `node_modules/@plumbus/voice-livekit/instructions/noise-cancellation.md` — NC matrix
+  - `node_modules/@plumbus/voice/instructions/continuous-sessions.md` — talk-over re-queue, stitched transcripts, sentence chunker
 
 ## The Plumbus ecosystem
 

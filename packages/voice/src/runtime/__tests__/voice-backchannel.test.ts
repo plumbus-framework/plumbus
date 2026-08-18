@@ -308,4 +308,137 @@ describe('voice session backchannel', () => {
 
     await controller.dispose();
   });
+
+  it('does not emit when backchannelEnabled is unset', async () => {
+    vi.useFakeTimers();
+    const ttsTexts: string[] = [];
+
+    let transcriptHandler:
+      | ((event: { text: string; final?: boolean }) => void | Promise<void>)
+      | undefined;
+
+    const voice = createBackchannelVoice({ backchannelEnabled: undefined });
+
+    const baseProvider = createMockSTTProvider({
+      connect(args) {
+        transcriptHandler = args.onTranscript;
+      },
+    });
+    const sttProvider = {
+      ...baseProvider,
+      capabilities: { ...baseProvider.capabilities, endpointDetection: true },
+    };
+
+    const controller = new VoiceSessionController({
+      voice,
+      sessionId: 'backchannel-off',
+      ctx: createTestContext(),
+      brainInput: { language: 'he' },
+      sttProvider,
+      ttsProvider: createMockTTSProvider({
+        async *synthesizeStream(text) {
+          ttsTexts.push(text);
+          yield new Uint8Array([1, 2]);
+        },
+      }),
+      transportProvider: createMockTransportProvider(),
+      onEvent: async () => {},
+    });
+
+    await controller.hello();
+    await transcriptHandler?.({
+      text: 'אני נולדתי בירושלים וגדלתי שם',
+      final: false,
+    });
+    await controller.handleAudioChunk(speechChunk);
+    await vi.advanceTimersByTimeAsync(30);
+    await flushMicrotasks();
+
+    expect(ttsTexts).toEqual([]);
+
+    await controller.dispose();
+  });
+
+  it('does not emit a backchannel after dispose or transport loss', async () => {
+    vi.useFakeTimers();
+    const ttsTexts: string[] = [];
+
+    let transcriptHandler:
+      | ((event: { text: string; final?: boolean }) => void | Promise<void>)
+      | undefined;
+
+    const voice = createBackchannelVoice();
+
+    const baseProvider = createMockSTTProvider({
+      connect(args) {
+        transcriptHandler = args.onTranscript;
+      },
+    });
+    const sttProvider = {
+      ...baseProvider,
+      capabilities: { ...baseProvider.capabilities, endpointDetection: true },
+    };
+
+    const controller = new VoiceSessionController({
+      voice,
+      sessionId: 'backchannel-dispose',
+      ctx: createTestContext(),
+      brainInput: { language: 'he' },
+      sttProvider,
+      ttsProvider: createMockTTSProvider({
+        async *synthesizeStream(text) {
+          ttsTexts.push(text);
+          yield new Uint8Array([1, 2]);
+        },
+      }),
+      transportProvider: createMockTransportProvider(),
+      onEvent: async () => {},
+    });
+
+    await controller.hello();
+    await transcriptHandler?.({
+      text: 'אני נולדתי בירושלים וגדלתי שם',
+      final: false,
+    });
+    await controller.handleAudioChunk(speechChunk);
+    await controller.dispose();
+    await vi.advanceTimersByTimeAsync(30);
+    await flushMicrotasks();
+    expect(ttsTexts).toEqual([]);
+
+    const lost = new VoiceSessionController({
+      voice,
+      sessionId: 'backchannel-lost',
+      ctx: createTestContext(),
+      brainInput: { language: 'he' },
+      sttProvider: {
+        ...createMockSTTProvider({
+          connect(args) {
+            transcriptHandler = args.onTranscript;
+          },
+        }),
+        capabilities: { ...baseProvider.capabilities, endpointDetection: true },
+      },
+      ttsProvider: createMockTTSProvider({
+        async *synthesizeStream(text) {
+          ttsTexts.push(text);
+          yield new Uint8Array([1, 2]);
+        },
+      }),
+      transportProvider: createMockTransportProvider(),
+      onEvent: async () => {},
+    });
+
+    await lost.hello();
+    await transcriptHandler?.({
+      text: 'אני נולדתי בירושלים וגדלתי שם',
+      final: false,
+    });
+    await lost.handleAudioChunk(speechChunk);
+    await lost.notifyTransportLost();
+    await vi.advanceTimersByTimeAsync(30);
+    await flushMicrotasks();
+    expect(ttsTexts).toEqual([]);
+    await lost.dispose();
+  });
 });

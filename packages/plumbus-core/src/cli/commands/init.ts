@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 13;
+export const AGENT_WIRING_VERSION = 14;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -276,6 +276,10 @@ const VOICE_INSTRUCTION_REFERENCES = [
   {
     area: 'adding a new voice with defineVoice and registerVoiceRoutes',
     path: 'node_modules/@plumbus/voice/instructions/defining-voices.md',
+  },
+  {
+    area: 'continuous / always-listening server-STT sessions — talk-over re-queue, stitched transcripts, sentence chunker, opt-in backchannel',
+    path: 'node_modules/@plumbus/voice/instructions/continuous-sessions.md',
   },
   {
     area: 'picking STT, TTS, and transport providers for a voice surface',

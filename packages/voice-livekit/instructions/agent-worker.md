@@ -30,6 +30,12 @@ import { startVoiceAgentWorker, createVoiceAgentEntry } from '@plumbus/voice-liv
 
 Use `createVoiceAgentEntry` for the LiveKit Agents entrypoint; `startVoiceAgentWorker` for the process bootstrap used by the CLI.
 
+The worker narrows STT `language_hints` from participant metadata (`language: '<code>'`). Pair that with Soniox’s single-language `language_hints_strict` default (`stt.options.languageHintsStrict` to override).
+
+Agent-worker `parsePcmFormat` understands short-form `pcm16-16k` / `pcm16-24k` / `pcm16-48k`. Use the form that matches the STT sample rate — a mismatch falls through the JS linear resampler (quality loss; the runtime logs once per rate pair).
+
+Continuous session behavior (talk-over re-queue, stitched transcripts, sentence chunker): `node_modules/@plumbus/voice/instructions/continuous-sessions.md`.
+
 ## App registry (required)
 
 ```ts
@@ -52,5 +58,6 @@ export const voiceProviderRegistry = createProviderRegistry({
 | Browser session | [`client-session.md`](./client-session.md) |
 | Agent NC | [`noise-cancellation.md`](./noise-cancellation.md) |
 | Parent voice defining/routes | `node_modules/@plumbus/voice/instructions/defining-voices.md` |
+| Continuous session behavior | `node_modules/@plumbus/voice/instructions/continuous-sessions.md` |
 
 Concept docs (monorepo): `docs/voice/livekit-continuous-voice.md`.

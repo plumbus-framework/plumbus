@@ -34,6 +34,12 @@ import { applyClientNoiseCancellation } from '@plumbus/voice-livekit/client';
 
 Prefer letting `createLiveKitVoiceSession` apply NC from the token response.
 
+## Mic capture (do not override)
+
+`createLiveKitVoiceSession` publishes the mic with `voiceIsolation: false`, Opus `dtx: false`, and `red: true`. livekit-client would otherwise default `voiceIsolation` on (a hidden enhancement stage in front of STT). DTX can swallow quiet onsets. Do **not** re-enable browser voice isolation or DTX “for quality,” and do **not** put client Krisp BVC on the STT path — see [`noise-cancellation.md`](./noise-cancellation.md).
+
+Continuous talk-over / transcript / chunker behavior lives on the parent package: `node_modules/@plumbus/voice/instructions/continuous-sessions.md`.
+
 ## Related recipes
 
 | Task | Read |

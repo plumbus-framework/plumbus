@@ -103,6 +103,10 @@ export class VoiceSessionController {
   #serverTurnTimer?: ReturnType<typeof setTimeout>;
   #endpointGraceTimer?: ReturnType<typeof setTimeout>;
   #deferredEndpointTranscript?: string;
+  #turnQueuedWhileInFlight = false;
+  /** A cumulative server-STT utterance is in progress (no endpoint yet). */
+  #utteranceOpen = false;
+  #disposed = false;
   #listening = false;
   #sttConnected = false;
   #firstAudioLogged = false;
@@ -159,12 +163,19 @@ export class VoiceSessionController {
   }
 
   async #handleEndpoint(): Promise<void> {
+    // A provider callback chain suspended at an await can resume after the
+    // session was torn down; without this gate it would start a full turn
+    // against disconnected providers.
+    if (this.#disposed) {
+      return;
+    }
+    this.#clearBackchannelTimer();
+    this.#abortBackchannelInFlight();
     // After the STT provider signals end-of-speech we wait a short grace window
     // before starting the turn. If the user resumes speaking during that window
     // (a new transcript arrives, see #handleServerStreamingTranscript) the
     // pending turn is cancelled so we do not answer a half-finished sentence.
-    this.#clearBackchannelTimer();
-    this.#abortBackchannelInFlight();
+    this.#utteranceOpen = false;
     const graceMs = this.#endpointGraceMs();
     if (graceMs <= 0) {
       await this.#triggerServerTurn('endpoint');
@@ -174,7 +185,15 @@ export class VoiceSessionController {
     this.#deferredEndpointTranscript = this.#pendingTranscript;
     const timer = setTimeout(() => {
       this.#endpointGraceTimer = undefined;
-      void this.#triggerServerTurn('endpoint');
+      // A rejection here (e.g. a failing hearing-repair TTS) has no awaiting
+      // caller — without the catch it becomes an unhandled rejection that can
+      // take down the whole worker process.
+      this.#triggerServerTurn('endpoint').catch((error) => {
+        console.error('[voice-session] deferred turn failed', {
+          sessionId: this.session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }, graceMs);
     timer.unref?.();
     this.#endpointGraceTimer = timer;
@@ -270,6 +289,7 @@ export class VoiceSessionController {
     if (text.length > 0) {
       // The user is speaking again after an endpoint: cancel the deferred turn
       // and keep listening so the full utterance is captured.
+      this.#utteranceOpen = true;
       this.#clearEndpointGraceTimer();
       this.#abortBackchannelInFlight();
       this.#clearBackchannelTimer();
@@ -282,16 +302,19 @@ export class VoiceSessionController {
         });
         return;
       }
+      // Server partials are cumulative per utterance, so the deferred fragment
+      // must be re-prefixed on every event — consuming it on the first partial
+      // would let the next cumulative partial clobber the pre-pause speech. It
+      // stays set until a turn actually starts (or barge-in/dispose clears it).
       const deferred = this.#deferredEndpointTranscript?.trim();
-      if (deferred) {
-        this.#pendingTranscript = `${deferred} ${text}`;
-        this.#deferredEndpointTranscript = undefined;
-      } else {
-        this.#pendingTranscript = text;
-      }
+      this.#pendingTranscript = deferred ? `${deferred} ${text}` : text;
+      // Emit the STITCHED text, not the bare fragment: the client transcript
+      // mirror shows these events live, and showing only the resumed fragment
+      // makes the user's pre-pause speech silently vanish from the UI until
+      // the turn commits (the model still receives the full pending text).
       await this.options.onEvent({
         type: event.final ? 'stt.final' : 'stt.partial',
-        text,
+        text: this.#pendingTranscript,
         language: event.language,
         confidence: event.confidence,
       });
@@ -427,6 +450,9 @@ export class VoiceSessionController {
   }
 
   #canConsiderBackchannel(): boolean {
+    if (this.#disposed) {
+      return false;
+    }
     if (!this.#backchannelEnabled()) {
       return false;
     }
@@ -466,13 +492,21 @@ export class VoiceSessionController {
     const pauseMs = this.#backchannelPauseMs();
     const timer = setTimeout(() => {
       this.#backchannelTimer = undefined;
-      void this.#tryEmitBackchannel();
+      this.#tryEmitBackchannel().catch((error) => {
+        console.error('[voice-session] backchannel failed', {
+          sessionId: this.session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }, pauseMs);
     timer.unref?.();
     this.#backchannelTimer = timer;
   }
 
   async #tryEmitBackchannel(): Promise<void> {
+    if (this.#disposed) {
+      return;
+    }
     const lastSpeechAt = this.#lastSpeechEnergyAt;
     if (lastSpeechAt === undefined) {
       return;
@@ -514,7 +548,7 @@ export class VoiceSessionController {
         emitAssistantText: false,
         announcePlaying: false,
       });
-      if (!abortSignal.aborted) {
+      if (!abortSignal.aborted && !this.#disposed) {
         this.#lastBackchannelAt = Date.now();
         await this.#recordAuxiliaryTtsCost(phrase, 'voice.backchannel');
       }
@@ -538,19 +572,59 @@ export class VoiceSessionController {
     }
     const timer = setTimeout(() => {
       this.#serverTurnTimer = undefined;
-      void this.#triggerServerTurn('silence');
+      // Same as the grace timer: no awaiting caller, so a rejection must be
+      // contained here instead of crashing the worker.
+      this.#triggerServerTurn('silence').catch((error) => {
+        console.error('[voice-session] failsafe turn failed', {
+          sessionId: this.session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }, this.#serverSilenceMs());
     timer.unref?.();
     this.#serverTurnTimer = timer;
   }
 
   async #triggerServerTurn(source: 'endpoint' | 'silence'): Promise<void> {
-    this.#clearServerTurnTimer();
-    this.#clearDeferredEndpointTranscript();
-    this.#clearBackchannelState();
-    if (!this.continuousMode || this.#turnInFlight || this.#repairInFlight) {
+    if (this.#disposed) {
       return;
     }
+    this.#clearServerTurnTimer();
+    if (!this.continuousMode) {
+      this.#clearDeferredEndpointTranscript();
+      return;
+    }
+    if (this.#turnInFlight || this.#repairInFlight) {
+      // Speech that completes while a reply or repair is being spoken must not
+      // be dropped — losing it silently crosses conversation threads. Keep it
+      // pending (and deferred, so any further speech stitches onto it) and
+      // replay the endpoint once the in-flight work settles (see runTurn /
+      // #runHearingRepair finally blocks).
+      const queuedText = (this.#pendingTranscript ?? '').trim();
+      if (queuedText.length > 0) {
+        this.#turnQueuedWhileInFlight = true;
+        if (source === 'endpoint') {
+          // The provider closed the utterance, so snapshotting it as the
+          // deferred prefix is safe — later speech starts a fresh cumulative
+          // utterance and stitches onto it.
+          this.#deferredEndpointTranscript = this.#pendingTranscript;
+        } else {
+          // Silence-failsafe: no provider endpoint fired, so the cumulative
+          // utterance may still grow — a deferred snapshot would duplicate its
+          // overlap on the next partial. Keep only pending (later partials
+          // replace it wholesale) and treat the timer as the boundary so the
+          // replay gate sees the utterance as closed.
+          this.#utteranceOpen = false;
+        }
+        console.info('[voice-session] queueing speech during in-flight turn', {
+          sessionId: this.session.id,
+          source,
+          chars: queuedText.length,
+        });
+      }
+      return;
+    }
+    this.#clearDeferredEndpointTranscript();
 
     const utterance = (this.#pendingTranscript ?? '').trim();
     if (!utterance) {
@@ -625,8 +699,18 @@ export class VoiceSessionController {
 
     const gainOptions = resolvePcm16InputGainOptions(this.options.voice.stt.options);
     const inputLevels = analyzePcm16Levels(normalized.data);
+
+    const gained =
+      gainOptions.enableInputNormalization || (gainOptions.inputGainDb ?? 0) > 0
+        ? applyPcm16InputGain(normalized.data, gainOptions)
+        : { data: normalized.data, stats: inputLevels, appliedGainDb: 0 };
+
+    // Gate speech energy on POST-gain levels (what STT actually hears). The
+    // quiet/far-mic speakers input normalization exists for would otherwise
+    // never cross the threshold — silently disabling the empty-endpoint
+    // hearing repair for exactly the users who need it.
     const hasSpeechEnergy =
-      Number.isFinite(inputLevels.peakDb) && inputLevels.peakDb > SPEECH_ENERGY_PEAK_DB;
+      Number.isFinite(gained.stats.peakDb) && gained.stats.peakDb > SPEECH_ENERGY_PEAK_DB;
     if (hasSpeechEnergy) {
       this.#hadSpeechEnergyInWindow = true;
       this.#abortBackchannelInFlight();
@@ -636,8 +720,10 @@ export class VoiceSessionController {
         this.#firstSpeechLevelLogged = true;
         console.info('[voice-session] first speech-energy audio level', {
           sessionId: this.session.id,
-          peakDb: roundDb(inputLevels.peakDb),
-          rmsDb: roundDb(inputLevels.rmsDb),
+          peakDb: roundDb(gained.stats.peakDb),
+          rmsDb: roundDb(gained.stats.rmsDb),
+          inputPeakDb: roundDb(inputLevels.peakDb),
+          appliedGainDb: roundDb(gained.appliedGainDb),
         });
       }
     } else if (!this.#lowLevelWarningLogged && Number.isFinite(inputLevels.peakDb)) {
@@ -648,11 +734,6 @@ export class VoiceSessionController {
         rmsDb: roundDb(inputLevels.rmsDb),
       });
     }
-
-    const gained =
-      gainOptions.enableInputNormalization || (gainOptions.inputGainDb ?? 0) > 0
-        ? applyPcm16InputGain(normalized.data, gainOptions)
-        : { data: normalized.data, stats: inputLevels, appliedGainDb: 0 };
 
     const sttChunk = gained.data;
 
@@ -747,10 +828,20 @@ export class VoiceSessionController {
       await this.#recordAuxiliaryTtsCost(prompt, 'voice.hearing_repair');
     } finally {
       this.#repairInFlight = false;
+      const queued = this.#turnQueuedWhileInFlight;
+      this.#turnQueuedWhileInFlight = false;
       if (this.continuousMode) {
         setVoiceSessionState(this.session, 'Listening');
         this.#listening = true;
         await this.options.onEvent(createAgentStateEvent('Listening'));
+      }
+      if (
+        queued &&
+        !this.#disposed &&
+        !this.#utteranceOpen &&
+        (this.#pendingTranscript ?? '').trim().length > 0
+      ) {
+        await this.#handleEndpoint();
       }
     }
   }
@@ -812,6 +903,11 @@ export class VoiceSessionController {
 
     if (type === 'stt.final') {
       const text = typeof payload.text === 'string' ? payload.text : '';
+      if (text.trim().length === 0) {
+        // An empty final frame must not clobber a pending (possibly queued)
+        // transcript — dropping real speech for an empty control frame.
+        return;
+      }
       this.#pendingTranscript = text;
       this.#pendingLanguage = typeof payload.language === 'string' ? payload.language : undefined;
       this.#pendingConfidence =
@@ -859,14 +955,22 @@ export class VoiceSessionController {
   }
 
   async bargeIn(reason = 'User interrupted assistant playback'): Promise<void> {
+    // An explicit interrupt always cancels pending turn state — including a
+    // turn waiting in the endpoint grace window (no turn in flight yet) and
+    // any speech queued before the interrupt. Speech arriving AFTER the
+    // barge-in queues fresh and is still replayed once the aborted turn
+    // unwinds (see runTurn's finally).
+    this.#turnQueuedWhileInFlight = false;
+    this.#clearEndpointGraceTimer();
+    this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
+
     if (!this.#turnInFlight) {
+      this.#pendingTranscript = undefined;
       return;
     }
 
     this.#turnAbort?.abort();
-    this.#clearEndpointGraceTimer();
-    this.#clearDeferredEndpointTranscript();
-    this.#clearBackchannelState();
     await this.options.ttsProvider.abortAll?.();
     await this.options.onEvent({
       type: 'turn.interrupted',
@@ -939,11 +1043,29 @@ export class VoiceSessionController {
       const aborted = abortSignal.aborted;
       this.#turnInFlight = false;
       this.#turnAbort = undefined;
+      const queued = this.#turnQueuedWhileInFlight;
+      this.#turnQueuedWhileInFlight = false;
       if (!aborted) {
         setVoiceSessionState(this.session, this.continuousMode ? 'Listening' : 'Idle');
         await this.options.onEvent(
           createAgentStateEvent(this.continuousMode ? 'Listening' : 'Idle'),
         );
+      }
+      // The replay runs even for an aborted (barged-in) turn: bargeIn() clears
+      // the queued flag, so a flag still set here means the speech arrived
+      // AFTER the interrupt — the user's fresh words, not the discarded turn.
+      if (
+        queued &&
+        !this.#disposed &&
+        !this.#utteranceOpen &&
+        (this.#pendingTranscript ?? '').trim().length > 0
+      ) {
+        // Replay the queued endpoint through the normal grace window. Never
+        // replay while a cumulative utterance is still open: deferring a
+        // snapshot of an open utterance would duplicate its overlap on the
+        // next partial, and the utterance's own endpoint will deliver the
+        // stitched pending transcript anyway.
+        await this.#handleEndpoint();
       }
     }
   }
@@ -953,6 +1075,12 @@ export class VoiceSessionController {
   }
 
   async dispose(): Promise<void> {
+    // A disposed session must never replay queued speech or accept a late
+    // endpoint — a callback settling after teardown would otherwise start a
+    // full brain+TTS turn against disconnected providers.
+    this.#disposed = true;
+    this.#turnQueuedWhileInFlight = false;
+    this.#pendingTranscript = undefined;
     this.#clearServerTurnTimer();
     this.#clearEndpointGraceTimer();
     this.#clearDeferredEndpointTranscript();
@@ -964,6 +1092,17 @@ export class VoiceSessionController {
   }
 
   async notifyTransportLost(reason = 'Transport connection closed'): Promise<void> {
+    // Same dead-session gate as dispose(): a late endpoint, a newly armed
+    // silence timer, or a repair/turn finally that already captured `queued`
+    // must not start a brain+TTS turn against a dead transport. Provider
+    // teardown still belongs to dispose() (http.ts / LiveKit call both).
+    this.#disposed = true;
+    this.#turnQueuedWhileInFlight = false;
+    this.#pendingTranscript = undefined;
+    this.#clearEndpointGraceTimer();
+    this.#clearServerTurnTimer();
+    this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     this.#turnAbort?.abort();
     setVoiceSessionState(this.session, 'Idle');
     await this.options.onEvent({

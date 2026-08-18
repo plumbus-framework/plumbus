@@ -227,7 +227,13 @@ export async function createLiveKitVoiceSession(
       removeAllAgentAudioSinks();
       await room.connect(body.url, body.token);
       const micConstraints = micConstraintsForNoiseCancellation(noiseCancellation);
-      await room.localParticipant.setMicrophoneEnabled(true, micConstraints);
+      await room.localParticipant.setMicrophoneEnabled(true, micConstraints, {
+        // Opus DTX suppresses packets during "silence" — which can swallow the
+        // soft speech onsets of quiet speakers. One mic stream's bandwidth is
+        // trivial; RED adds loss resilience for the audio STT depends on.
+        dtx: false,
+        red: true,
+      });
 
       const micPublication = room.localParticipant.getTrackPublication(
         livekit.Track.Source.Microphone,

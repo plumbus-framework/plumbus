@@ -66,11 +66,19 @@ Two hooks shape delivery without leaking provider-specific knobs into app code:
 The runtime resolves the tone once, then each TTS adapter maps it through `mapDeliveryTone(...)`.
 
 `DeliveryTone` carries the delivery axes (`pace`, `warmth`, `energy`, `emotion`) plus an
-optional `targetGender`. Returning a `targetGender` from `resolveTone` lets an app drive the
-synthesized voice gender per turn — e.g. reading an already-detected subject gender from
-`ctx` and returning `{ profile, targetGender }`. Adapters that support a gender control
-(Deepdub) prefer this per-turn value over their statically configured voice option and fall
-back to the static option when it is absent; adapters without a gender control ignore it.
+optional `targetGender` and an optional `voiceId`. Returning a `targetGender` from
+`resolveTone` lets an app drive the synthesized voice gender per turn — e.g. reading an
+already-detected subject gender from `ctx` and returning `{ profile, targetGender }`.
+Adapters that support a gender control (Deepdub) prefer this per-turn value over their
+statically configured voice option and fall back to the static option when it is absent;
+adapters without a gender control ignore it.
+
+`voiceId` selects a per-turn voice for this delivery — the mechanism for emotional
+**style-variant switching** on providers whose voices ship as families of style prompts of
+the same speaker (Deepdub: one `voicePromptId` per emotional register, switched per call).
+Declare it on a tone profile or return it from `resolveTone`; the Deepdub adapter prefers
+it over the static `tts.voiceId` and falls back when absent. Providers without per-call
+voice selection ignore it.
 
 ## `preprocessForTts`
 
@@ -81,6 +89,16 @@ Use `preprocessForTts(text, ctx)` for last-mile normalization before synthesis, 
 - localizing abbreviations
 
 Do **not** move business logic here. Keep it in `brain.run`.
+
+Streaming TTS always merges sentence chunks shorter than 8 characters into the
+next sentence. That is not configurable from `defineVoice`. Do not add
+`minChunkChars`.
+
+Optional mid-utterance continuers are opt-in: `stt.options.backchannelEnabled`.
+See [configuration.md](./configuration.md) and
+[livekit-continuous-voice.md](./livekit-continuous-voice.md). Continuous
+server-STT session behavior (talk-over re-queue, stitched `stt.partial` /
+`stt.final`) is documented there too.
 
 ## Worker/bootstrap notes
 
