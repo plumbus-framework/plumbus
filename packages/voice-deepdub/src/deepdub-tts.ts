@@ -32,19 +32,46 @@ import { DEEPDUB_VOICE_PRICING } from './pricing.js';
  */
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 1000;
+/**
+ * Reconnect before synthesizing when the socket has been quiet this long. The
+ * far end (`wss://wsapi.deepdub.ai/open`) closes idle connections and the SDK
+ * has no keepalive for this socket — it ships `asyncStreamPing` only for its
+ * separate streaming endpoint, and API Gateway ignores websocket ping frames
+ * anyway, so a heartbeat would have to be an application message on a route
+ * this API does not document. Reconnecting on demand needs no such guess: a
+ * handshake costs milliseconds next to synthesis, and only after a real pause.
+ */
+const IDLE_RECONNECT_MS = 120_000;
 
 class DeepdubTTSProvider implements TTSProvider {
   readonly capabilities = DEEPDUB_TTS_DESCRIPTOR;
   #characters = 0;
   #client: DeepdubSdkClient | undefined;
   #connectPromise: Promise<DeepdubSdkClient> | undefined;
+  #lastUsedAt = 0;
   readonly #reconnectDelayMs: number;
+  readonly #idleReconnectMs: number;
 
   constructor(
     private readonly credentials: VoiceProviderCredentials,
     private readonly voiceSlice: VoiceTtsConfig,
   ) {
     this.#reconnectDelayMs = resolveReconnectDelayMs(credentials);
+    this.#idleReconnectMs = resolveIdleReconnectMs(credentials);
+  }
+
+  /** Drop a socket that has been idle long enough for the far end to close it. */
+  #discardIfStale(): void {
+    if (!this.#client || this.#lastUsedAt === 0) {
+      return;
+    }
+    if (Date.now() - this.#lastUsedAt < this.#idleReconnectMs) {
+      return;
+    }
+    console.info('[voice-tts] deepdub socket idle — reconnecting before synthesis', {
+      idleMs: Date.now() - this.#lastUsedAt,
+    });
+    this.#resetClient();
   }
 
   /**
@@ -133,6 +160,7 @@ class DeepdubTTSProvider implements TTSProvider {
       wake?.();
     };
 
+    this.#discardIfStale();
     const client = await this.#connectWithRetry(signal);
 
     console.info('[voice-tts] deepdub synthesis requested', {
@@ -242,17 +270,27 @@ class DeepdubTTSProvider implements TTSProvider {
     }
   }
 
-  #startGeneration(
+  /**
+   * `async` is load-bearing. `generateToBuffer` → `generateTo` are plain
+   * functions in @deepdub/node, and the readyState check throws
+   * *synchronously*: `#startGeneration(...).catch(retry)` never attaches its
+   * handler, so the throw escapes `synthesizeStream` and no reconnect runs —
+   * which is why a dropped socket killed the session even with retries in
+   * place. An async wrapper turns that throw into a rejection.
+   */
+  async #startGeneration(
     client: DeepdubSdkClient,
     text: string,
     options: TtsParams,
     onChunk: (chunk: Uint8Array) => void,
   ): Promise<unknown> {
-    return client.generateToBuffer(text, {
+    const result = await client.generateToBuffer(text, {
       ...options,
       headerless: true,
       onChunk,
     });
+    this.#lastUsedAt = Date.now();
+    return result;
   }
 
   usage() {
@@ -462,6 +500,12 @@ function resolveVoiceReference(
 function resolveReconnectDelayMs(credentials: VoiceProviderCredentials): number {
   const configured = (credentials.options as Record<string, unknown> | undefined)?.reconnectDelayMs;
   return typeof configured === 'number' && configured >= 0 ? configured : RECONNECT_DELAY_MS;
+}
+
+/** Idle window before a socket is replaced rather than trusted. Test seam. */
+function resolveIdleReconnectMs(credentials: VoiceProviderCredentials): number {
+  const configured = (credentials.options as Record<string, unknown> | undefined)?.idleReconnectMs;
+  return typeof configured === 'number' && configured >= 0 ? configured : IDLE_RECONNECT_MS;
 }
 
 /** Abort-aware sleep: a barged-into turn must not wait out the backoff. */

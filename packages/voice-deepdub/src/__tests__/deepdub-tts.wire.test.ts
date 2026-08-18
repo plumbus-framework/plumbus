@@ -352,6 +352,83 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
     expect(generateCount).toBe(1);
   });
 
+  it('recovers when the SDK throws the disconnect SYNCHRONOUSLY, as it really does', async () => {
+    // @deepdub/node's generateToBuffer → generateTo are plain functions, and the
+    // readyState check throws before any promise exists. With a non-async
+    // #startGeneration the throw escaped past `.catch(retry)` and killed the
+    // session — every fake in this file used `async generateToBuffer`, which
+    // returns a rejection, so the retry looked healthy while production died.
+    let connectCount = 0;
+    let generateCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          connectCount += 1;
+          return {};
+        },
+        // Deliberately NOT async — mirrors the SDK.
+        generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          generateCount += 1;
+          if (generateCount === 1) {
+            throw new Error('WebSocket is not connected. Call connect() first.');
+          }
+          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([3, 4]));
+          return Promise.resolve(Buffer.from([3, 4]));
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of provider.synthesizeStream('שלום', undefined)) {
+      chunks.push(chunk);
+    }
+
+    expect(generateCount).toBe(2);
+    expect(connectCount).toBe(2);
+    expect(chunks).toHaveLength(1);
+  });
+
+  it('replaces a socket that has gone quiet instead of discovering it dead', async () => {
+    // The far end closes idle connections and the SDK has no keepalive for this
+    // socket, so a conversational pause is enough to lose it.
+    let connectCount = 0;
+    const provider = createDeepdubProvider(
+      () => ({
+        async connect() {
+          connectCount += 1;
+          return {};
+        },
+        async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([1]));
+          return Buffer.from([1]);
+        },
+        disconnect() {},
+      }),
+      { targetGender: 'female' },
+      { idleReconnectMs: 20 },
+    );
+
+    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+      // drain
+    }
+    expect(connectCount).toBe(1);
+
+    // A back-to-back turn reuses the socket...
+    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+      // drain
+    }
+    expect(connectCount).toBe(1);
+
+    // ...but one after a pause gets a fresh one.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+      // drain
+    }
+    expect(connectCount).toBe(2);
+  });
+
   it('retries a refused initial connection before failing the turn', async () => {
     let connectCount = 0;
     const provider = createDeepdubProvider(
