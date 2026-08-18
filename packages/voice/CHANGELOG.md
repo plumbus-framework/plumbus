@@ -4,12 +4,12 @@
 
 ### Removed
 
-- **Backchannel continuers removed entirely** (the `backchannelEnabled` / `backchannelPauseMs` / `backchannelMinTranscriptChars` / `backchannelCooldownMs` / `backchannelPhrases` stt options and the briefly-added turn-start variant). Speaking canned phrases from a closed pool is a design dead end: TTS of an isolated nonword particle ("מממ") without sentence context is mangled by providers (the same call shape as the chunker micro-fragment bug), and a fixed phrase list is repetitive by construction. The options are now inert if present; `voice.backchannel` cost rows no longer occur (historical ledger rows remain valid).
+- **Backchannel continuers removed entirely** (the `backchannelEnabled` / `backchannelPauseMs` / `backchannelMinTranscriptChars` / `backchannelCooldownMs` / `backchannelPhrases` stt options and the briefly-added turn-start variant). The feature never shipped to a consumer app. Speaking canned phrases from a closed pool is a design dead end: TTS of an isolated nonword particle ("מממ") without sentence context is mangled by providers (the same call shape as the chunker micro-fragment bug), and a fixed phrase list is repetitive by construction. Leftover option names are inert if present; `voice.backchannel` cost rows no longer occur (historical ledger rows remain valid). Do not re-add a phrase-pool continuer.
 
 ### Added
 
 - **`DeliveryTone.voiceId`** — optional per-turn voice override carried through tone profiles and `resolveTone` results to the TTS adapter's `mapDeliveryTone`. Enables emotional style-variant switching on providers whose voices ship as per-register style prompts of the same speaker (see `@plumbus/voice-deepdub` 0.1.3). Providers without per-call voice selection ignore it.
-- **Sentence-chunker micro-fragment merging** — chunks shorter than `minChunkChars` (default 8; 0 disables) merge into the following sentence instead of being synthesized as an isolated, contextless call. A leading hesitation like "המממ..." synthesized alone is read as disconnected syllables; merged into its sentence it reads naturally. This unblocks generation-time written hesitations in voice replies.
+- **Sentence-chunker micro-fragment merging** — the streaming turn pipeline always merges chunks shorter than 8 characters into the following sentence instead of synthesizing them as an isolated, contextless call. A leading hesitation like "המממ..." synthesized alone is read as disconnected syllables; merged into its sentence it reads naturally. This unblocks generation-time written hesitations in voice replies. There is no `defineVoice` / `tts.options` knob (`minChunkChars` exists only on the internal `createSentenceChunker()` helper used by tests). Short first sentences (`כן.`, `Yes.`) wait for the next sentence; that delay is intended.
 
 ### Fixed
 

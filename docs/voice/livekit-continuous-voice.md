@@ -1,7 +1,11 @@
 # LiveKit continuous voice integration
 
 This guide documents how to wire a continuous (always-listening) LiveKit voice
-stack onto `@plumbus/voice`. Install the transport add-on first:
+stack onto `@plumbus/voice`. Coding agents in a consumer app should open
+`node_modules/@plumbus/voice/instructions/continuous-sessions.md` first (what
+the runtime already does, knobs that exist, knobs that do not).
+
+Install the transport add-on first:
 
 ```bash
 pnpm add @plumbus/voice @plumbus/voice-livekit
@@ -152,10 +156,13 @@ transport: {
   the transport is lost. Barge-in during a reply still discards the pending
   turn — an explicit interrupt means the user is restarting (barge-in is a
   no-op while a repair prompt plays).
-- The sentence chunker merges micro-fragments (< 8 chars by default) into the
-  following sentence's synthesis call, so a reply opening with a written
-  hesitation ("המממ...") is synthesized with its sentence context instead of
-  as an isolated fragment read as disconnected syllables.
+- The sentence chunker always merges micro-fragments shorter than 8 characters
+  into the following sentence's synthesis call, so a reply opening with a
+  written hesitation ("המממ...") is synthesized with its sentence context
+  instead of as an isolated fragment read as disconnected syllables. This is
+  a runtime default, not a `defineVoice` / `tts.options` setting — do not add
+  `minChunkChars`. Short first sentences (`כן.`, `Yes.`) wait for the next
+  sentence; that delay is intended.
 - Call `bargeIn()` (or send `{ type: 'barge.in' }` over LiveKit data) to
   interrupt playback
 - Send `{ type: 'tts.speak', text: '<utterance>' }` over LiveKit data (or

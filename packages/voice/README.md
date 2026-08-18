@@ -235,6 +235,7 @@ There is no `createRegistryForVoices`, no `VOICE_ADDON_PACKAGES` soft-load, and 
   - `node_modules/@plumbus/voice/instructions/local-providers.md`
   - `node_modules/@plumbus/voice/instructions/security.md`
   - `node_modules/@plumbus/voice/instructions/defining-voices.md`
+  - `node_modules/@plumbus/voice/instructions/continuous-sessions.md`
   - `node_modules/@plumbus/voice/instructions/providers.md`
   - `node_modules/@plumbus/voice/instructions/cost-tracking.md`
   - `node_modules/@plumbus/voice/instructions/testing.md`

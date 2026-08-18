@@ -2,6 +2,10 @@
 
 ## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening
 
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 14.** `plumbus init` references `@plumbus/voice/instructions/continuous-sessions.md` (talk-over re-queue, stitched transcripts, sentence chunker, no backchannel). Pointers are inert when `@plumbus/voice` is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+
 ### Fixed
 
 - **Empty provider API-key placeholders no longer crash worker boot.** A dotenv line like `AI_ANTHROPIC_API_KEY=` (present but empty, often left alongside a model var) used to produce a provider slot that 0.6.16's boot-time key validation then rejected — `AI provider "anthropic" requires apiKey` before the worker could start. Env discovery now treats an empty key as "slot not configured" and skips it, matching ≤0.6.15's effective behavior. Keyless Bedrock slots are unaffected (separate region-keyed reader).

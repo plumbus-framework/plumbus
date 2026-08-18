@@ -80,6 +80,7 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 | Auth | Header `x-api-key` on REST; WS connects with the same key |
 | Default model | `dd-etts-3.2` (catalog also lists `dd-etts-3.0`) |
 | Cost ledger key | `deepdub-phantom-x` — **not** a `tts.model` value |
+| Per-turn voice | `DeliveryTone.voiceId` from `toneProfiles` / `resolveTone` overrides static `tts.voiceId` on every synthesis call (style-variant `voicePromptId` of the same speaker). Requires `@plumbus/voice` ≥ 0.4.4. Absent → static voice. |
 
 Sample preset for smoke (Storyteller M, en-US): `bd1b00bb-be1c-4679-8eaa-0fcbfd4ff773`. More presets: https://docs.deepdub.app/voice-presets
 

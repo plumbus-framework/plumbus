@@ -40,6 +40,7 @@ describe('plumbus init', () => {
       expect(content).toContain('node_modules/@plumbus/voice/instructions/client-stt.md');
       expect(content).toContain('node_modules/@plumbus/voice/instructions/local-providers.md');
       expect(content).toContain('node_modules/@plumbus/voice/instructions/defining-voices.md');
+      expect(content).toContain('node_modules/@plumbus/voice/instructions/continuous-sessions.md');
       expect(content).toContain('node_modules/@plumbus/voice/instructions/providers.md');
       expect(content).toContain('node_modules/@plumbus/voice/instructions/cost-tracking.md');
       expect(content).toContain('node_modules/@plumbus/voice/instructions/testing.md');

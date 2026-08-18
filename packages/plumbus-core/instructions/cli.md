@@ -108,6 +108,8 @@ plumbus test --all          # unit tests, then e2e
 plumbus e2e                 # Playwright browser suites
 ```
 
+`plumbus e2e` (core **≥ 0.6.17**) fails fast if the target port is already in use instead of running against a foreign server. Kill the orphan or pass `--port` / `--skip-server` / `--base-url`. Full lifecycle notes: `docs/cli/commands.md`.
+
 Full command reference: `docs/cli/commands.md` in the framework repo (or browse the published docs).
 
 ## Database Management

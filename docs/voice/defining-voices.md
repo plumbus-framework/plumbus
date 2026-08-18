@@ -90,6 +90,13 @@ Use `preprocessForTts(text, ctx)` for last-mile normalization before synthesis, 
 
 Do **not** move business logic here. Keep it in `brain.run`.
 
+Streaming TTS always merges sentence chunks shorter than 8 characters into the
+next sentence. That is not configurable from `defineVoice`. Do not add
+`minChunkChars` or a backchannel continuer (`backchannelEnabled` and related
+`stt.options` are inert). Continuous server-STT session behavior (talk-over
+re-queue, stitched `stt.partial` / `stt.final`) is documented in
+[livekit-continuous-voice.md](./livekit-continuous-voice.md).
+
 ## Worker/bootstrap notes
 
 Voice routes do not invent a separate application model. They reuse the same dependency factory as the rest of the app (`routeConfig.createDependencies(auth)`), so:

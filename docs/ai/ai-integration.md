@@ -327,6 +327,8 @@ The `extract()` and `classify()` convenience methods always use the default prov
 
 Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire Ollama and custom providers programmatically. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
 
+A present-but-empty `AI_OPENAI_API_KEY=` or `AI_ANTHROPIC_API_KEY=` (core **≥ 0.6.17**) is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
+
 When an adapter returns `cost` on `ProviderResponse` / stream `done` (Bedrock), `createAIService` uses that value instead of the hardcoded OpenAI/Anthropic `MODEL_PRICING` catalog.
 
 **Resolution order** for each call: `resolveAiOverrides` hook (from `app/server.ts`) → per-prompt env vars → prompt `model` fields → `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`.

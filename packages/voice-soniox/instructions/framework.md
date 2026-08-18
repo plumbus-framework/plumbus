@@ -66,6 +66,7 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 ## Wire notes
 
 - **STT:** realtime SDK session (`client.realtime.stt`) with endpoint detection.
+- **Language restriction:** when `stt.languages` (or session hints) has **exactly one** language, the adapter sends `language_hints_strict: true` (vendor accuracy default). Code-switching / an English aside on a Hebrew-only session can get worse. Override with `stt.options.languageHintsStrict` (`true` / `false`). Multi-language hint lists stay unrestricted unless that option is `true`.
 - **TTS:** REST streaming via `client.tts.generateStream()`; defaults to `pcm_s16le` @ **16 kHz** (aligned with transport `pcm16-16k`). Override with `tts.options.format` / `sampleRate` / `bitrate`. Forwards `AbortSignal` as SDK `signal`.
 - **Clone:** `client.tts.voices.*` on `SONIOX_TTS_REGISTRATION.clone` (`@soniox/node` ^2.2.0). UUID `voice` = clone id in `generateStream`. Catalog `listVoices` stays built-ins; user clones via clone provider + app DB.
 - **Locale:** `he-IL` → Soniox language `he` (prefix before `-`).

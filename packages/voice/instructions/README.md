@@ -30,6 +30,7 @@ Read these files in order when you need to add, modify, or extend a voice surfac
 | [`local-providers.md`](./local-providers.md) | When the user asks for local, offline, self-hosted, or browser-native voice. |
 | [`security.md`](./security.md) | Before exposing voice session or catalog routes. Covers short-lived tokens, origin checks, secrets, and transcript trust. |
 | [`defining-voices.md`](./defining-voices.md) | When adding a new `defineVoice` config or mounting `registerVoiceRoutes()`. |
+| [`continuous-sessions.md`](./continuous-sessions.md) | Continuous / always-listening server-STT: talk-over re-queue, stitched transcripts, sentence chunker, no backchannel. |
 | [`providers.md`](./providers.md) | When choosing STT/TTS/transport combinations or adding custom provider registration. |
 | [`cost-tracking.md`](./cost-tracking.md) | When tagging STT/TTS/transport spend into the shared AI ledger. |
 | [`testing.md`](./testing.md) | When writing smoke, route, websocket, or e2e coverage. |

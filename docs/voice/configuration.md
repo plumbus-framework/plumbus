@@ -115,11 +115,16 @@ stt: {
     contextTerms: ['AcmeApp', 'ProductName'],
     enableEndpointDetection: true,
     maxEndpointDelayMs: 3000,
+    // default: true when `languages` has exactly one entry
+    // languageHintsStrict: false,
   },
 },
 ```
 
 The Soniox adapter maps this to `context.terms` in the realtime websocket config.
+A single hinted language also sends `language_hints_strict` (vendor accuracy
+default). Override with `stt.options.languageHintsStrict`. Multi-language
+sessions stay unrestricted unless that option is set `true`.
 For raw PCM streams, it also sends `audio_format`, `sample_rate`, and `num_channels`
 so Soniox can decode the forwarded LiveKit audio frames.
 

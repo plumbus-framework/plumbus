@@ -95,6 +95,7 @@ The command lives in `@plumbus/core` and dynamically imports this package for `s
 | Browser session | [`client-session.md`](./client-session.md) |
 | Agent worker / CLI | [`agent-worker.md`](./agent-worker.md) |
 | Noise cancellation | [`noise-cancellation.md`](./noise-cancellation.md) |
+| Continuous talk-over / transcript / chunker | `node_modules/@plumbus/voice/instructions/continuous-sessions.md` |
 
 ## Docs
 
