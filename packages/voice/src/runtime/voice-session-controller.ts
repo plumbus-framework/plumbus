@@ -48,6 +48,18 @@ const SPEECH_ENERGY_PEAK_DB = -45;
  */
 const DEFAULT_SERVER_SILENCE_MS = 4000;
 
+/** Default reflective-pause duration before a backchannel continuer (ms). */
+const DEFAULT_BACKCHANNEL_PAUSE_MS = 900;
+
+/** Minimum pending transcript length before a backchannel may fire. */
+const DEFAULT_BACKCHANNEL_MIN_TRANSCRIPT_CHARS = 40;
+
+/** Minimum gap between backchannel continuers (ms). */
+const DEFAULT_BACKCHANNEL_COOLDOWN_MS = 6000;
+
+/** Fallback continuer when no phrase pool is configured. */
+const DEFAULT_BACKCHANNEL_PHRASES = ['mm-hm'] as const;
+
 /** Strip leaked in-stream control markers from transcript text (defensive). */
 function stripEndpointMarkers(text: string): string {
   return text.replace(/<end>|<fin>/gi, '');
@@ -102,6 +114,11 @@ export class VoiceSessionController {
   #lowLevelWarningLogged = false;
   #hadSpeechEnergyInWindow = false;
   #turnAbort?: AbortController;
+  #lastSpeechEnergyAt?: number;
+  #lastBackchannelAt?: number;
+  #backchannelInFlight = false;
+  #backchannelAbort?: AbortController;
+  #backchannelTimer?: ReturnType<typeof setTimeout>;
 
   constructor(private readonly options: VoiceSessionControllerOptions) {
     this.session = createVoiceRuntimeSession({
@@ -152,6 +169,8 @@ export class VoiceSessionController {
     if (this.#disposed) {
       return;
     }
+    this.#clearBackchannelTimer();
+    this.#abortBackchannelInFlight();
     // After the STT provider signals end-of-speech we wait a short grace window
     // before starting the turn. If the user resumes speaking during that window
     // (a new transcript arrives, see #handleServerStreamingTranscript) the
@@ -272,6 +291,8 @@ export class VoiceSessionController {
       // and keep listening so the full utterance is captured.
       this.#utteranceOpen = true;
       this.#clearEndpointGraceTimer();
+      this.#abortBackchannelInFlight();
+      this.#clearBackchannelTimer();
       const charCheck = this.options.budget?.check({ sttCharacters: text.length });
       if (charCheck && !charCheck.allowed) {
         await this.options.onEvent({
@@ -342,6 +363,201 @@ export class VoiceSessionController {
 
   #clearDeferredEndpointTranscript(): void {
     this.#deferredEndpointTranscript = undefined;
+  }
+
+  #backchannelEnabled(): boolean {
+    return this.options.voice.stt.options?.backchannelEnabled === true;
+  }
+
+  #backchannelPauseMs(): number {
+    const configured = this.options.voice.stt.options?.backchannelPauseMs;
+    return typeof configured === 'number' && configured > 0
+      ? configured
+      : DEFAULT_BACKCHANNEL_PAUSE_MS;
+  }
+
+  #backchannelMinTranscriptChars(): number {
+    const configured = this.options.voice.stt.options?.backchannelMinTranscriptChars;
+    return typeof configured === 'number' && configured >= 0
+      ? configured
+      : DEFAULT_BACKCHANNEL_MIN_TRANSCRIPT_CHARS;
+  }
+
+  #backchannelCooldownMs(): number {
+    const configured = this.options.voice.stt.options?.backchannelCooldownMs;
+    return typeof configured === 'number' && configured >= 0
+      ? configured
+      : DEFAULT_BACKCHANNEL_COOLDOWN_MS;
+  }
+
+  #backchannelPhrasesForLanguage(language?: string): string[] {
+    const configured = this.options.voice.stt.options?.backchannelPhrases;
+    if (Array.isArray(configured)) {
+      const phrases = configured.filter((value): value is string => typeof value === 'string');
+      const trimmed = phrases.map((phrase) => phrase.trim()).filter((phrase) => phrase.length > 0);
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+      return [...DEFAULT_BACKCHANNEL_PHRASES];
+    }
+
+    if (configured && typeof configured === 'object' && !Array.isArray(configured)) {
+      const map = configured as Record<string, unknown>;
+      const prefix = language?.trim().toLowerCase().slice(0, 2);
+      const candidates: unknown[] = [];
+      if (prefix) {
+        candidates.push(map[prefix]);
+      }
+      candidates.push(map.default);
+      for (const value of Object.values(map)) {
+        candidates.push(value);
+      }
+      for (const candidate of candidates) {
+        if (!Array.isArray(candidate)) {
+          continue;
+        }
+        const phrases = candidate.filter((value): value is string => typeof value === 'string');
+        const trimmed = phrases
+          .map((phrase) => phrase.trim())
+          .filter((phrase) => phrase.length > 0);
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+    }
+
+    return [...DEFAULT_BACKCHANNEL_PHRASES];
+  }
+
+  #clearBackchannelTimer(): void {
+    if (this.#backchannelTimer) {
+      clearTimeout(this.#backchannelTimer);
+      this.#backchannelTimer = undefined;
+    }
+  }
+
+  #abortBackchannelInFlight(): void {
+    if (this.#backchannelAbort) {
+      this.#backchannelAbort.abort();
+      this.#backchannelAbort = undefined;
+    }
+    this.#backchannelInFlight = false;
+  }
+
+  #clearBackchannelState(): void {
+    this.#clearBackchannelTimer();
+    this.#abortBackchannelInFlight();
+  }
+
+  #canConsiderBackchannel(): boolean {
+    if (this.#disposed) {
+      return false;
+    }
+    if (!this.#backchannelEnabled()) {
+      return false;
+    }
+    if (!this.continuousMode || !this.#listening) {
+      return false;
+    }
+    if (
+      this.#turnInFlight ||
+      this.#repairInFlight ||
+      this.#directSpeakInFlight ||
+      this.#backchannelInFlight
+    ) {
+      return false;
+    }
+    if (this.#endpointGraceTimer) {
+      return false;
+    }
+    const transcript = (this.#pendingTranscript ?? '').trim();
+    if (transcript.length < this.#backchannelMinTranscriptChars()) {
+      return false;
+    }
+    const cooldownMs = this.#backchannelCooldownMs();
+    if (
+      this.#lastBackchannelAt !== undefined &&
+      Date.now() - this.#lastBackchannelAt < cooldownMs
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  #scheduleBackchannelTimer(): void {
+    this.#clearBackchannelTimer();
+    if (!this.#canConsiderBackchannel()) {
+      return;
+    }
+    const pauseMs = this.#backchannelPauseMs();
+    const timer = setTimeout(() => {
+      this.#backchannelTimer = undefined;
+      this.#tryEmitBackchannel().catch((error) => {
+        console.error('[voice-session] backchannel failed', {
+          sessionId: this.session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, pauseMs);
+    timer.unref?.();
+    this.#backchannelTimer = timer;
+  }
+
+  async #tryEmitBackchannel(): Promise<void> {
+    if (this.#disposed) {
+      return;
+    }
+    const lastSpeechAt = this.#lastSpeechEnergyAt;
+    if (lastSpeechAt === undefined) {
+      return;
+    }
+    const silenceMs = Date.now() - lastSpeechAt;
+    if (silenceMs < this.#backchannelPauseMs()) {
+      return;
+    }
+    if (!this.#canConsiderBackchannel()) {
+      return;
+    }
+
+    const language = this.#pendingLanguage ?? this.#getSessionLanguage();
+    const phrases = this.#backchannelPhrasesForLanguage(language);
+    const phrase = phrases[Math.floor(Math.random() * phrases.length)] ?? phrases[0];
+    if (!phrase) {
+      return;
+    }
+
+    this.#backchannelInFlight = true;
+    this.#backchannelAbort = new AbortController();
+    const abortSignal = this.#backchannelAbort.signal;
+
+    console.info('[voice-session] backchannel', {
+      sessionId: this.session.id,
+      phrase,
+      silenceMs,
+      language,
+    });
+
+    try {
+      await speakDirectUtterance({
+        text: phrase,
+        ttsProvider: this.options.ttsProvider,
+        transportProvider: this.options.transportProvider,
+        onEvent: this.options.onEvent,
+        onAudioChunk: this.options.onAudioChunk,
+        abortSignal,
+        emitAssistantText: false,
+        announcePlaying: false,
+      });
+      if (!abortSignal.aborted && !this.#disposed) {
+        this.#lastBackchannelAt = Date.now();
+        await this.#recordAuxiliaryTtsCost(phrase, 'voice.backchannel');
+      }
+    } finally {
+      if (this.#backchannelAbort?.signal === abortSignal) {
+        this.#backchannelAbort = undefined;
+      }
+      this.#backchannelInFlight = false;
+    }
   }
 
   #scheduleServerTurn(): void {
@@ -497,6 +713,9 @@ export class VoiceSessionController {
       Number.isFinite(gained.stats.peakDb) && gained.stats.peakDb > SPEECH_ENERGY_PEAK_DB;
     if (hasSpeechEnergy) {
       this.#hadSpeechEnergyInWindow = true;
+      this.#abortBackchannelInFlight();
+      this.#lastSpeechEnergyAt = Date.now();
+      this.#scheduleBackchannelTimer();
       if (!this.#firstSpeechLevelLogged) {
         this.#firstSpeechLevelLogged = true;
         console.info('[voice-session] first speech-energy audio level', {
@@ -570,7 +789,7 @@ export class VoiceSessionController {
 
   async #recordAuxiliaryTtsCost(
     text: string,
-    operationName: 'voice.hearing_repair' | 'voice.replay',
+    operationName: 'voice.backchannel' | 'voice.hearing_repair' | 'voice.replay',
   ): Promise<void> {
     await recordDirectUtteranceCost(this.options.ctx, {
       text,
@@ -744,6 +963,7 @@ export class VoiceSessionController {
     this.#turnQueuedWhileInFlight = false;
     this.#clearEndpointGraceTimer();
     this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
 
     if (!this.#turnInFlight) {
       this.#pendingTranscript = undefined;
@@ -769,6 +989,7 @@ export class VoiceSessionController {
     this.#turnInFlight = true;
     this.#clearEndpointGraceTimer();
     this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     this.#listening = false;
     const turnId = randomUUID();
     this.#turnCount += 1;
@@ -863,6 +1084,7 @@ export class VoiceSessionController {
     this.#clearServerTurnTimer();
     this.#clearEndpointGraceTimer();
     this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     this.#turnAbort?.abort();
     await this.options.sttProvider.disconnect?.();
     await this.options.ttsProvider.flush?.();
@@ -880,6 +1102,7 @@ export class VoiceSessionController {
     this.#clearEndpointGraceTimer();
     this.#clearServerTurnTimer();
     this.#clearDeferredEndpointTranscript();
+    this.#clearBackchannelState();
     this.#turnAbort?.abort();
     setVoiceSessionState(this.session, 'Idle');
     await this.options.onEvent({

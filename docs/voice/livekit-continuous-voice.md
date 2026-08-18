@@ -156,6 +156,17 @@ transport: {
   the transport is lost. Barge-in during a reply still discards the pending
   turn — an explicit interrupt means the user is restarting (barge-in is a
   no-op while a repair prompt plays).
+- Optional `stt.options.backchannelEnabled` (default `false`) emits short
+  audio-only continuers during reflective pauses mid-utterance without starting
+  a brain turn or writing `assistant.delta`. Tuned via `backchannelPauseMs`
+  (default `900`), `backchannelMinTranscriptChars` (default `40`),
+  `backchannelCooldownMs` (default `6000`), and `backchannelPhrases` (flat
+  `string[]` or `{ he, en, default }` map). The controller picks the pool from
+  the detected `#pendingLanguage`, falling back to session language.
+  Backchannels are suppressed while endpoint grace is active, a turn or repair
+  is in flight, or the session is disposed / the transport is lost. Resume
+  speech aborts an in-flight continuer. Isolated one-syllable particles can be
+  mangled by TTS — prefer multi-character phrases in the pool.
 - The sentence chunker always merges micro-fragments shorter than 8 characters
   into the following sentence's synthesis call, so a reply opening with a
   written hesitation ("המממ...") is synthesized with its sentence context

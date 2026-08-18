@@ -8,7 +8,7 @@ Ledger rows are written only when `costContext.projectId` is present. Thread it 
 
 - **`recordProviderUsage()`** (runtime-internal) — per-turn STT and TTS after `runVoiceTurn()`
 - **`recordLiveKitTransportCost()`** (exported by `@plumbus/voice-livekit`) — on LiveKit agent shutdown; computes USD via add-on pricing and passes it into `recordVoiceCost`
-- **`recordDirectUtteranceCost()`** (runtime-internal) — auxiliary TTS (hearing repair, `tts.speak` replay)
+- **`recordDirectUtteranceCost()`** (runtime-internal) — auxiliary TTS (backchannels, hearing repair, `tts.speak` replay)
 
 The runtime calls the internal helpers automatically when `projectId` is present on the turn/session context. App code should thread `projectId` on brain input and use exported helpers (`recordLiveKitTransportCost` from `@plumbus/voice-livekit`, `recordVoiceCost` from `@plumbus/voice`, `ctx.ai.recordProviderCost`) for adjunct costs.
 
@@ -23,6 +23,7 @@ Use stable `costContext.operationName` values (not turn UUIDs):
 | `voice.transcribe` | STT usage after a turn |
 | `voice.synthesize` | Main reply TTS after a turn |
 | `voice.transport` | LiveKit session on agent shutdown |
+| `voice.backchannel` | Continuer TTS during a pause |
 | `voice.hearing_repair` | Repair-prompt TTS |
 | `voice.replay` | Client `tts.speak` replay |
 

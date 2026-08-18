@@ -278,7 +278,7 @@ const VOICE_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/voice/instructions/defining-voices.md',
   },
   {
-    area: 'continuous / always-listening server-STT sessions — talk-over re-queue, stitched transcripts, sentence chunker, no backchannel',
+    area: 'continuous / always-listening server-STT sessions — talk-over re-queue, stitched transcripts, sentence chunker, opt-in backchannel',
     path: 'node_modules/@plumbus/voice/instructions/continuous-sessions.md',
   },
   {

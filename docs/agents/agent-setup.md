@@ -319,7 +319,7 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/voice/instructions/client-stt.md` | Client-side STT (`web-speech`) trust boundaries |
 | `node_modules/@plumbus/voice/instructions/local-providers.md` | Local / offline / browser-native providers |
 | `node_modules/@plumbus/voice/instructions/defining-voices.md` | `defineVoice` and route registration |
-| `node_modules/@plumbus/voice/instructions/continuous-sessions.md` | Continuous server-STT: talk-over re-queue, stitched transcripts, sentence chunker, no backchannel |
+| `node_modules/@plumbus/voice/instructions/continuous-sessions.md` | Continuous server-STT: talk-over re-queue, stitched transcripts, sentence chunker, opt-in backchannel |
 | `node_modules/@plumbus/voice/instructions/providers.md` | STT, TTS, transport picker + add-on path table |
 | `node_modules/@plumbus/voice/instructions/cost-tracking.md` | Voice cost tagging |
 | `node_modules/@plumbus/voice/instructions/security.md` | Session tokens, secrets, transcript trust |

@@ -47,7 +47,7 @@ registerVoiceRoutes(app, routeConfig, [supportVoice], {
 
 Use the hooks for delivery behavior, not for app business logic.
 
-Continuous / always-listening server-STT behavior (talk-over re-queue, stitched `stt.*` events, sentence chunker, no backchannel) is in [`continuous-sessions.md`](./continuous-sessions.md). Read that before adding timers, phrase pools, or transcript-stitch helpers.
+Continuous / always-listening server-STT behavior (talk-over re-queue, stitched `stt.*` events, sentence chunker, opt-in backchannel) is in [`continuous-sessions.md`](./continuous-sessions.md). Read that before adding timers, phrase pools, or transcript-stitch helpers.
 
 ## Don'ts
 
@@ -55,7 +55,8 @@ Continuous / always-listening server-STT behavior (talk-over re-queue, stitched 
 - **Don't** put business logic in transport/provider code when it belongs in `brain.run`.
 - **Don't** omit `access`.
 - **Don't** reimplement a provider when a session fails with `voice.provider_package_missing` — install the add-on named in `installPackage`.
-- **Don't** add `minChunkChars` or `backchannelEnabled` — those are not app settings (see [`continuous-sessions.md`](./continuous-sessions.md)).
+- **Don't** add `minChunkChars` — that is not a `defineVoice` setting (see [`continuous-sessions.md`](./continuous-sessions.md)).
+- **Don't** invent a local “mm-hmm” TTS path — set `stt.options.backchannelEnabled` and `backchannelPhrases`.
 
 ## Deeper reference
 

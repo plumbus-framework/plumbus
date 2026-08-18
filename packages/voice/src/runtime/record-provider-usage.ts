@@ -10,7 +10,10 @@ import type { VoiceCostOperation, VoiceMediaUsage } from '../types/cost.js';
 import type { VoiceModelOption } from '../types/provider.js';
 import type { VoiceSttConfig, VoiceTtsConfig } from '../types/voice.js';
 
-export type DirectUtteranceCostOperation = 'voice.hearing_repair' | 'voice.replay';
+export type DirectUtteranceCostOperation =
+  | 'voice.backchannel'
+  | 'voice.hearing_repair'
+  | 'voice.replay';
 
 export async function recordProviderUsage(
   ctx: ExecutionContext,

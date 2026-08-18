@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **`AGENT_WIRING_VERSION` bumped to 14.** `plumbus init` references `@plumbus/voice/instructions/continuous-sessions.md` (talk-over re-queue, stitched transcripts, sentence chunker, no backchannel). Pointers are inert when `@plumbus/voice` is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+- **`AGENT_WIRING_VERSION` bumped to 14.** `plumbus init` references `@plumbus/voice/instructions/continuous-sessions.md` (talk-over re-queue, stitched transcripts, sentence chunker, opt-in backchannel). Pointers are inert when `@plumbus/voice` is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
 
 ### Fixed
 

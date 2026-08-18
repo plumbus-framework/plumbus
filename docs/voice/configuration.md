@@ -128,6 +128,32 @@ sessions stay unrestricted unless that option is set `true`.
 For raw PCM streams, it also sends `audio_format`, `sample_rate`, and `num_channels`
 so Soniox can decode the forwarded LiveKit audio frames.
 
+### Backchannel continuers
+
+Opt-in audio-only acknowledgements during a reflective pause, without a brain
+turn. Default is **off**.
+
+```ts
+stt: {
+  options: {
+    backchannelEnabled: true,
+    backchannelPauseMs: 900,
+    backchannelMinTranscriptChars: 40,
+    backchannelCooldownMs: 6000,
+    backchannelPhrases: ['mm-hm', 'I see'],
+    // Or language-keyed pools (selected from detected/session language):
+    // backchannelPhrases: { he: ['מהמ', 'כן'], en: ['mm-hm', 'I see'] },
+  },
+},
+```
+
+`VoiceSessionController` detects reflective pauses from per-chunk speech energy
+and speaks a random phrase from the pool via TTS. Continuers do not emit
+`assistant.delta` or flip agent state to `Playing`. They are suppressed during
+endpoint grace, an in-flight turn or repair, and after `dispose()` / transport
+loss; resume speech aborts an in-flight continuer. Isolated one-syllable
+particles can be mangled by TTS providers — prefer multi-character phrases.
+
 ## Route options
 
 `registerVoiceRoutes()` also accepts:
