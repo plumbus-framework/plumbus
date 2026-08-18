@@ -1,5 +1,5 @@
 import { createProviderRegistry, createTTSProvider } from '@plumbus/voice';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEEPDUB_TTS_REGISTRATION } from '../deepdub-tts.js';
 
 interface CapturedCall {
@@ -392,41 +392,48 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
 
   it('replaces a socket that has gone quiet instead of discovering it dead', async () => {
     // The far end closes idle connections and the SDK has no keepalive for this
-    // socket, so a conversational pause is enough to lose it.
-    let connectCount = 0;
-    const provider = createDeepdubProvider(
-      () => ({
-        async connect() {
-          connectCount += 1;
-          return {};
-        },
-        async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
-          (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([1]));
-          return Buffer.from([1]);
-        },
-        disconnect() {},
-      }),
-      { targetGender: 'female' },
-      { idleReconnectMs: 20 },
-    );
+    // socket, so a conversational pause is enough to lose it. Fake timers keep
+    // the back-to-back leg deterministic — wall-clock CI can exceed a tiny
+    // idleReconnectMs between two sequential awaits even with no sleep.
+    vi.useFakeTimers();
+    try {
+      let connectCount = 0;
+      const provider = createDeepdubProvider(
+        () => ({
+          async connect() {
+            connectCount += 1;
+            return {};
+          },
+          async generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+            (params.onChunk as ((c: Uint8Array) => void) | undefined)?.(Buffer.from([1]));
+            return Buffer.from([1]);
+          },
+          disconnect() {},
+        }),
+        { targetGender: 'female' },
+        { idleReconnectMs: 20 },
+      );
 
-    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
-      // drain
-    }
-    expect(connectCount).toBe(1);
+      for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+        // drain
+      }
+      expect(connectCount).toBe(1);
 
-    // A back-to-back turn reuses the socket...
-    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
-      // drain
-    }
-    expect(connectCount).toBe(1);
+      // A back-to-back turn reuses the socket (no timer advance).
+      for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+        // drain
+      }
+      expect(connectCount).toBe(1);
 
-    // ...but one after a pause gets a fresh one.
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
-      // drain
+      // ...but one after a pause gets a fresh one.
+      await vi.advanceTimersByTimeAsync(40);
+      for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+        // drain
+      }
+      expect(connectCount).toBe(2);
+    } finally {
+      vi.useRealTimers();
     }
-    expect(connectCount).toBe(2);
   });
 
   it('retries a refused initial connection before failing the turn', async () => {
