@@ -4,11 +4,11 @@ import { createTestContext } from '@plumbus/core/testing';
 import {
   CapabilityRegistry,
   buildCapabilityRuntimeDeps,
-  createExecutionContext,
   defineCapability,
   executeCapability,
 } from '@plumbus/core';
 import type { ExecutionContext } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { capabilityActionHashV2 } from '../../policy/action-schema-hash.js';
 import { actionGuard } from '../../policy/action-guard.js';
 import { chatConfirmAction } from '../../capabilities/chat-confirm-action.js';

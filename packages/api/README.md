@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@plumbus/api.svg)](https://www.npmjs.com/package/@plumbus/api)
 [![license](https://img.shields.io/npm/l/@plumbus/api.svg)](./LICENSE)
 [![peer: @plumbus/core 0.5.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![OpenAPI 3.0.3](https://img.shields.io/badge/OpenAPI-3.0.3-6BA539)](https://www.openapis.org)
+[![OpenAPI 3.0.3 | 3.1.0](https://img.shields.io/badge/OpenAPI-3.0.3%20%7C%203.1.0-6BA539)](https://www.openapis.org)
 
 ## What is this?
 
@@ -33,9 +33,9 @@ Plumbus already has typed capability contracts. This package projects them into 
 | **`exposeAs: ['api']` + `api` metadata** | Opt-in projection per capability — `operationId`, `method`, `path`, `stability`, `auth.scopes`. |
 | **`api.yaml` manifest** | Named API products (`basePath`, version, route overrides, test-intent config). Inline metadata is the default when no manifest exists. |
 | **`registerApiRoutes()`** | Mount partner routes on Fastify. Full pipeline: Zod validation → scope check → access policy → handler → audit → envelope. |
-| **OpenAPI 3.0.3** | `generateOpenApi` / `plumbus api generate openapi` from Zod schemas + manifest. Canonical partner spec (distinct from the thin `plumbus generate` convention spec). |
+| **OpenAPI 3.0.3 / 3.1.0** | `generateOpenApi` / `plumbus api generate openapi` from Zod schemas + manifest. Canonical partner spec (distinct from the thin `plumbus generate` convention spec). 3.0.3 by default; `--openapi-version 3.1.0` opts into the JSON Schema 2020-12 dialect. |
 | **Markdown docs** | `generateApiDocs` / `plumbus api generate docs` — per-operation reference pages. |
-| **Compatibility diff** | `diffOpenApi` / `plumbus api diff --against` — breaking vs non-breaking change report for CI. |
+| **Compatibility diff** | `diffOpenApi` / `plumbus api diff --against` — breaking vs non-breaking change report for CI. Compares across document versions: a 3.0 baseline vs a 3.1 current spec reports the dialect change without mistaking it for a schema change. |
 | **Test intent** | `?intent=test` / header-driven fixture replay for partner integration tests (validated by `plumbus api test-fixtures validate`). |
 | **Idempotency** | `Idempotency-Key` support with pluggable store; in-memory default for dev/tests. |
 | **Policy validation** | Structure policy, path-param mapping, fixture schema checks — surfaced in `plumbus api validate`. |
@@ -136,6 +136,7 @@ onRoutesRegistered(async (app, routeConfig) => {
 plumbus api validate
 plumbus api validate --fail-on-governance   # optional CI gate on advisory apiRules
 plumbus api generate openapi --out ./dist/openapi.json
+plumbus api generate openapi --out ./dist/openapi-3.1.json --openapi-version 3.1.0   # opt-in
 plumbus api generate docs --out ./dist/api-docs
 plumbus api diff --against ./published/openapi-v1.json
 plumbus api test-fixtures validate
@@ -156,7 +157,7 @@ partner HTTP request
  scope check (api.auth.scopes)             ← missing scope → 403 missing_scope
        │
        ▼
- createExecutionContext + evaluateAccess
+ createExecutionContext + evaluateAccess     ← factory from @plumbus/core/runtime
        │
        ▼
  executeCapability(cap, ctx, args)         ← full Plumbus pipeline:
@@ -177,7 +178,7 @@ Convention routes (`/api/{domain}/{kebab-name}`) continue to exist unless you ch
 | `registerApiRoutes(app, routeConfig, capabilities, opts?)` | Mount partner API routes on Fastify. Opts: `manifest`, `allowQueryIntent`, `appRoot`, `idempotencyStore`. |
 | `parseManifest`, `validateManifest`, `resolveExposure`, `buildDefaultManifest` | Manifest load, validation, and exposure resolution. |
 | `validatePathParams` | Path-template ↔ input-field mapping checks. |
-| `generateOpenApi`, `serializeOpenApiDocument`, `parseOpenApiDocument`, `zodToOpenApiSchema` | OpenAPI 3.0.3 generation and serialization. |
+| `generateOpenApi`, `serializeOpenApiDocument`, `parseOpenApiDocument`, `zodToOpenApiSchema` | OpenAPI generation (3.0.3 default, 3.1.0 opt-in) and serialization. |
 | `diffOpenApi` | Breaking / non-breaking diff between two OpenAPI documents. |
 | `generateApiDocs` | Markdown documentation per operation. |
 | `validateApiContract` | Combined manifest, policy, path-param, and fixture validation. |
@@ -193,9 +194,9 @@ Commands ship in `@plumbus/core` and dynamically import this package:
 | Command | Purpose |
 |---|---|
 | `plumbus api validate` | Manifest, policy, path params, fixtures, and advisory governance. |
-| `plumbus api generate openapi --out <file>` | Write OpenAPI JSON or YAML (`--format yaml`). |
+| `plumbus api generate openapi --out <file>` | Write OpenAPI JSON or YAML (`--format yaml`), at `--openapi-version 3.0.3` (default) or `3.1.0`. |
 | `plumbus api generate docs --out <dir>` | Write Markdown API reference. |
-| `plumbus api diff --against <file>` | Compare current spec to a published baseline; exits non-zero on breaking changes. |
+| `plumbus api diff --against <file>` | Compare current spec to a published baseline; exits non-zero on breaking changes. Takes `--openapi-version` to generate the current spec in the baseline's dialect. |
 | `plumbus api test-fixtures validate` | Validate test-intent fixture files against capability schemas. |
 
 All commands accept `--manifest <path>` (default `./api.yaml`) and `--json` where applicable.
@@ -207,6 +208,7 @@ All commands accept `--manifest <path>` (default `./api.yaml`) and `--json` wher
 - **Path parameters must map to input fields.** `{refundId}` in the route must exist on the capability `input` schema. Duplicates in the same path are rejected.
 - **Default idempotency store is in-memory.** Fine for dev and single-instance tests; production multi-instance deployments need a durable `idempotencyStore` with TTL.
 - **`plumbus generate` OpenAPI ≠ partner OpenAPI.** The thin convention spec from `plumbus generate` is for app-internal use; `plumbus api generate openapi` is the canonical partner contract.
+- **The OpenAPI document version stays 3.0.3 unless you ask for 3.1.0.** Upgrading `@plumbus/api` never moves a published baseline's dialect. Moving to `--openapi-version 3.1.0` changes the document, not the wire contract: `plumbus api diff` reports it as a non-breaking `changed-openapi-version` and still exits `0`. Consumers that generate clients from the spec need 3.1-capable tooling — see [`docs/api/compatibility.md`](../../docs/api/compatibility.md#cross-version-diff).
 - **Public capabilities + test intent is forbidden.** `plumbus api validate` flags `policy.public-test-forbidden` when `access.public: true` enables test fixtures.
 
 ## Documentation

@@ -1,4 +1,5 @@
-import { createExecutionContext, type ContextDependencies } from '@plumbus/core';
+import type { ContextDependencies } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { markStatus } from './task-store.js';
 
 /** Sync MCP task rows when shared job_executions complete in a worker process. */

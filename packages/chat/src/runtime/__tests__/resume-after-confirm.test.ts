@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from '@plumbus/core/zod';
-import {
-  CapabilityRegistry,
-  buildCapabilityRuntimeDeps,
-  createExecutionContext,
-  defineCapability,
-} from '@plumbus/core';
+import { CapabilityRegistry, buildCapabilityRuntimeDeps, defineCapability } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { createTestContext, mockAI } from '@plumbus/core/testing';
 import { defineChat } from '../../define/defineChat.js';
 import type {

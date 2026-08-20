@@ -310,3 +310,53 @@ describe('onMcpToolCall hook', () => {
     }
   });
 });
+
+describe('inline tools/call cancellation', () => {
+  const waitsForAbort = defineCapability({
+    name: 'waits-for-abort',
+    kind: 'query',
+    domain: 'test',
+    description: 'Reports what it saw on ctx.signal',
+    input: z.object({}),
+    output: z.object({ hadSignal: z.boolean(), aborted: z.boolean() }),
+    access: { public: true },
+    effects: { data: [], events: [], external: [], ai: false },
+    exposeAs: ['mcp'],
+    mcp: { description: 'Signal probe' },
+    async handler(ctx) {
+      const hadSignal = ctx.signal !== undefined;
+      for (let i = 0; i < 60 && !ctx.signal?.aborted; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      return { hadSignal, aborted: ctx.signal?.aborted === true };
+    },
+  });
+
+  const mcpTestAuth: AuthAdapter = {
+    async authenticate() {
+      return { userId: 'test-user', roles: [], scopes: [], provider: 'mcp' };
+    },
+  };
+
+  it('hands the handler a ctx.signal that fires when requestTimeoutMs elapses', async () => {
+    const { client, close } = await createTestMcpServer({
+      capabilities: [waitsForAbort],
+      authAdapter: mcpTestAuth,
+      requestTimeoutMs: 20,
+    });
+    try {
+      const result = (await client.callTool({
+        name: 'test.waits-for-abort',
+        arguments: {},
+      })) as { content: Array<{ text: string }> };
+      const payload = JSON.parse(result.content[0]?.text ?? '{}') as {
+        hadSignal?: boolean;
+        aborted?: boolean;
+      };
+      expect(payload.hadSignal).toBe(true);
+      expect(payload.aborted).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+});

@@ -683,5 +683,10 @@ export function createTestContext(options?: TestContextOptions): ExecutionContex
     ...capRuntime,
   };
 
-  return createExecutionContext(deps);
+  // Test fixtures legitimately configure a context after construction (ctx.time, ctx.events,
+  // ctx.request, ctx.auth). The production factory seals the container to stop in-process code
+  // fabricating an actor; that property lives on the real path. Here we return a writable
+  // container over the same sealed `auth`, so authority still cannot be mutated in place while
+  // fixtures stay configurable.
+  return { ...createExecutionContext(deps) };
 }

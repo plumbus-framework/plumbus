@@ -564,8 +564,12 @@ Pass `ctx.signal` to cancelable AI/HTTP calls so cancellation propagates without
 
 ### Production
 
+Capability handlers, entity hooks, and flow steps *receive* a context — they never build one. The factory that mints it is therefore not on the `@plumbus/core` root barrel: it establishes the actor, so anything able to call it could fabricate or elevate one. It ships from the framework-internal seam `@plumbus/core/runtime`, for the code that hosts the runtime — the transport packages (`@plumbus/api`, `@plumbus/mcp`, `@plumbus/voice`, `@plumbus/chat`) and an application's own server bootstrap that registers hand-written routes or workers.
+
+That seam carries no compatibility guarantee for application code: names on it may change in a minor release. Everything you are meant to build against stays on `@plumbus/core`.
+
 ```typescript
-import { createExecutionContext } from "@plumbus/core";
+import { createExecutionContext } from "@plumbus/core/runtime";
 
 const ctx = createExecutionContext({
   auth: authContext,

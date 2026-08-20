@@ -3,13 +3,15 @@ import { apiVersionFromManifest } from '../manifest/api-version.js';
 import { resolveExposure } from '../manifest/resolve.js';
 import { requiredApiScopes } from '../manifest/scopes.js';
 import type { ApiManifest, ApiManifestEntry, SecurityScheme } from '../manifest/types.js';
+import { toOpenApi31Document } from './openapi-3-1.js';
 import {
   buildGetQueryParameters,
   buildPathParameters,
   buildRequestBodySchema,
 } from './schema-params.js';
-import { zodToOpenApiSchema } from './zod-to-openapi-schema.js';
 import type { OpenApiDocument } from './types.js';
+import { type GenerateOpenApiOptions, resolveOpenApiVersion } from './version.js';
+import { zodToOpenApiSchema } from './zod-to-openapi-schema.js';
 
 function methodToOpenApi(method: string): string {
   return method.toLowerCase();
@@ -148,10 +150,20 @@ function resolveOperationSecurity(
   };
 }
 
+/**
+ * Build the OpenAPI document for the API-exposed capabilities in `caps`.
+ *
+ * The document is assembled in the OpenAPI 3.0 shape, which is what
+ * `zodToOpenApiSchema` produces. Requesting `version: '3.1.0'` converts that
+ * assembly into 3.1 / JSON Schema 2020-12 (see `openapi-3-1.ts`); omitting the
+ * option leaves the 3.0.3 output exactly as it has always been.
+ */
 export function generateOpenApi(
   caps: CapabilityContract[],
   manifest: ApiManifest,
+  options: GenerateOpenApiOptions = {},
 ): OpenApiDocument {
+  const version = resolveOpenApiVersion(options.version);
   const paths: Record<string, Record<string, unknown>> = {};
   const apiVersion = apiVersionFromManifest(manifest);
   const registeredMethodPaths = new Set<string>();
@@ -253,7 +265,7 @@ export function generateOpenApi(
 
   const securitySchemes = buildSecuritySchemes(manifest);
 
-  return {
+  const doc: OpenApiDocument = {
     openapi: '3.0.3',
     info: {
       title: manifest.name,
@@ -315,4 +327,6 @@ export function generateOpenApi(
       securitySchemes,
     },
   };
+
+  return version === '3.1.0' ? toOpenApi31Document(doc) : doc;
 }

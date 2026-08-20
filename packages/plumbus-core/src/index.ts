@@ -247,10 +247,15 @@ export type {
   ExecutionResult,
 } from './execution/index.js';
 // ── Execution Engine ──
+//
+// `createExecutionContext` is deliberately absent from this barrel: it mints
+// the platform-established actor, so it lives on the framework-internal seam
+// `@plumbus/core/runtime` (see `src/runtime-entry.ts`). Code that hosts a
+// transport or bootstraps a server imports it from there; capability bodies
+// receive a context and never build one; tests use `@plumbus/core/testing`.
 export {
   buildCapabilityRuntimeDeps,
   CapabilityRegistry,
-  createExecutionContext,
   evaluateAccess,
   executeCapability,
   getCanonicalCapabilityName,
@@ -549,3 +554,50 @@ export {
   securityRules,
   workerRules,
 } from './governance/index.js';
+
+// ── Tenancy ──
+export {
+  DEFAULT_CORE_SCHEMA,
+  DEFAULT_DATA_PLANE_CACHE_SIZE,
+  DEFAULT_DATA_PLANE_POOL_SIZE,
+  DEFAULT_PACKAGE_SCHEMA_PREFIX,
+  DataPlaneConnectionError,
+  DataPlaneGuardError,
+  DataPlaneNameError,
+  DataPlaneProvisioningError,
+  MAX_DATA_PLANE_POOL_SIZE,
+  UnknownTenantError,
+  assertSafeIdentifier,
+  createPooledDataPlaneResolver,
+  createSingleDataPlaneResolver,
+  dropDataPlane,
+  openDataPlaneConnection,
+  provisionDataPlane,
+  quoteIdentifier,
+} from './tenancy/index.js';
+export type {
+  DataPlaneAdminConnection,
+  DataPlaneConnectRequest,
+  DataPlaneConnection,
+  DataPlaneConnectionFields,
+  DataPlaneConnectionTarget,
+  DataPlaneConnectionUrl,
+  DataPlaneDescriptor,
+  DataPlaneDropResult,
+  DataPlaneEndpoint,
+  DataPlaneHandle,
+  DataPlaneProvisionResult,
+  DataPlaneResolver,
+  DataPlaneRoleSpec,
+  DataPlaneStep,
+  DataPlaneStepName,
+  DataPlaneStepOutcome,
+  DataPlaneTablePrivilege,
+  DropDataPlaneOptions,
+  OpenDataPlaneConnectionOptions,
+  OpenedDataPlaneConnection,
+  PooledDataPlaneResolver,
+  PooledDataPlaneResolverOptions,
+  ProvisionDataPlaneOptions,
+  SingleDataPlaneResolverOptions,
+} from './tenancy/index.js';

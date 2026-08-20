@@ -247,6 +247,55 @@ Multi-tenancy is enforced at multiple layers:
 └────────────────────────────────────────────────┘
 ```
 
+### Database-Per-Tenant Data Planes
+
+Row-level scoping (Layer 2) keeps one database honest. Deployments that need a **database per tenant** get a fifth layer: the tenant's work runs against its own database, opened as a least-privilege role, so a routing mistake fails to connect rather than reading another tenant's rows.
+
+Three framework mechanisms cover it, and an application supplies only its own routing table:
+
+| Step | Mechanism |
+|------|-----------|
+| Create the tenant's database, owner role and runtime role | `provisionDataPlane()` (idempotent; identifiers validated and quoted) |
+| Look up where a tenant lives, and cache the open handles | `createPooledDataPlaneResolver({ describe, connect })` |
+| Open one database as one role | `openDataPlaneConnection({ target })` |
+
+```typescript
+import {
+  createPooledDataPlaneResolver,
+  openDataPlaneConnection,
+} from "@plumbus/core";
+
+const resolver = createPooledDataPlaneResolver<Placement>({
+  // The application owns routing: where does this tenant live?
+  describe: async (tenantRef) => placements.get(tenantRef),
+  // The framework owns the connection.
+  connect: ({ descriptor }) =>
+    openDataPlaneConnection({
+      target: {
+        host: descriptor.connectionInfo.host,
+        port: descriptor.connectionInfo.port,
+        database: descriptor.connectionInfo.database,
+        user: descriptor.connectionInfo.runtimeRole,
+        password: descriptor.connectionInfo.runtimePassword,
+      },
+      maxConnections: 4,
+      applicationName: "my-app",
+    }),
+});
+
+const { db, coreSchema } = await resolver.resolve(tenantRef);
+```
+
+`describe` returning `undefined` throws `UnknownTenantError` — the resolver never falls back to another database.
+
+`openDataPlaneConnection` returns the `{ db, close }` pair the resolver requires, and is deliberately narrow about three things:
+
+- **Bounded.** `maxConnections` defaults to `DEFAULT_DATA_PLANE_POOL_SIZE` (5) and may not exceed `MAX_DATA_PLANE_POOL_SIZE` (64). Since a resolver keeps many data planes open at once, the per-tenant ceiling is what keeps the total number of server backends finite.
+- **Quiet.** Passwords and connection strings never reach a message, an error's metadata, or the driver's notice stream. Failures raise `DataPlaneConnectionError` carrying `host`, `port`, `database`, `user` and `sqlState` only, with the driver's own text scrubbed of any credential it echoed back.
+- **Per-tenant.** Every call builds its own pool with no shared state, and the returned `close` is idempotent — the resolver calls it on eviction, invalidation and `close()`.
+
+The connection is verified with one round trip before it is returned (`verify: false` opts out), so a wrong credential or an unreachable placement fails at resolve time instead of inside the first capability that queries. A target may also be given as `{ connectionString }` for hosts whose placement records carry a URL; the string is treated as a secret throughout.
+
 ### Cross-Tenant Admin Access (bypassTenantScope)
 
 Capabilities with `access.tenantScoped: false` automatically bypass data-layer tenant filtering. This allows admin/back-office capabilities to query across all tenants without being restricted to the caller's `tenantId`.

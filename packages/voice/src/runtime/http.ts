@@ -1,11 +1,11 @@
 import {
-  createExecutionContext,
   evaluateAccess,
   ErrorCode,
   PlumbusError,
   type ExecutionContext,
   type RouteGeneratorConfig,
 } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { z } from '@plumbus/core/zod';
 import websocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyRequest } from 'fastify';

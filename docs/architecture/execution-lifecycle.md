@@ -278,7 +278,7 @@ MCP task dispatch with `jobQueue` configured follows the same enqueue path. See 
 
 ## Context Assembly
 
-When a capability is about to execute, the framework assembles the execution context:
+When a capability is about to execute, the framework assembles the execution context. The factory lives on the framework-internal seam `@plumbus/core/runtime`, not on the `@plumbus/core` root barrel — it establishes the actor, so only runtime hosts (the transport packages and an application's own server bootstrap) construct contexts; capability code receives one, and tests use `createTestContext` from `@plumbus/core/testing`.
 
 ```
 ┌──────────────────────────────────────────────────┐

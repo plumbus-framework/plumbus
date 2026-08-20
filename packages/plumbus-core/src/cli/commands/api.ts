@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import type { Command } from 'commander';
 import { apiRules } from '../../governance/rules/api.js';
 import { createGovernanceRuleEngine } from '../../governance/rule-engine.js';
+import type { CapabilityContract } from '../../types/capability.js';
 import { ApiManifestLoadError, resolveApiManifest } from './api-manifest.js';
 import { discoverResources } from '../discover.js';
 import { info, resolvePath, success, warn, writeFile } from '../utils.js';
@@ -23,6 +24,40 @@ interface ApiDiffEntry {
 interface GovernanceSignal {
   rule: string;
   description: string;
+}
+
+/**
+ * OpenAPI document versions `plumbus api generate openapi` can emit.
+ *
+ * Mirrors `OPENAPI_VERSIONS` in `@plumbus/api`, which the CLI cannot import: the package is an
+ * optional peer loaded through a dynamic import, and the flag has to be validated before the
+ * runtime is resolved so a typo fails with a usage error instead of an install hint.
+ */
+export const OPENAPI_DOCUMENT_VERSIONS = ['3.0.3', '3.1.0'] as const;
+
+export type OpenApiDocumentVersion = (typeof OPENAPI_DOCUMENT_VERSIONS)[number];
+
+/** Default document version. 3.0.3 stays the default so published baselines do not move on
+ *  upgrade; 3.1.0 is opt-in via `--openapi-version`. */
+export const DEFAULT_OPENAPI_DOCUMENT_VERSION: OpenApiDocumentVersion = '3.0.3';
+
+/**
+ * Validate the `--openapi-version` flag value (testable without process.exit).
+ * Returns the accepted version, or a message naming the accepted values.
+ */
+export function resolveOpenApiDocumentVersion(
+  raw: string | undefined,
+): { version: OpenApiDocumentVersion } | { error: string } {
+  if (raw === undefined) {
+    return { version: DEFAULT_OPENAPI_DOCUMENT_VERSION };
+  }
+  const match = OPENAPI_DOCUMENT_VERSIONS.find((v) => v === raw);
+  if (!match) {
+    return {
+      error: `Unsupported OpenAPI version "${raw}". Supported: ${OPENAPI_DOCUMENT_VERSIONS.join(', ')}.`,
+    };
+  }
+  return { version: match };
 }
 
 /** Pure exit-code policy for `plumbus api validate` (testable without process.exit). */
@@ -55,6 +90,7 @@ interface ApiRuntimeModule {
   generateOpenApi: (
     capabilities: import('../../types/capability.js').CapabilityContract[],
     manifest: unknown,
+    options?: { version?: OpenApiDocumentVersion },
   ) => unknown;
   serializeOpenApiDocument: (doc: unknown, format: 'json' | 'yaml') => string;
   parseOpenApiDocument: (source: string, filePath?: string) => unknown;
@@ -74,6 +110,32 @@ interface ApiRuntimeModule {
     appRoot: string,
     manifest?: unknown,
   ) => Promise<ApiFinding[]>;
+}
+
+/**
+ * Generate the partner OpenAPI document at the requested document version.
+ *
+ * The generator owns the `openapi` field; the CLI never rewrites it, because a version string
+ * without the matching schema dialect would be a mislabelled document. An `@plumbus/api` older
+ * than 3.1 support ignores the option and returns 3.0.3 — that mismatch is reported instead of
+ * writing a file whose contents contradict what was asked for.
+ */
+export function generateOpenApiAtVersion(
+  api: Pick<ApiRuntimeModule, 'generateOpenApi'>,
+  capabilities: CapabilityContract[],
+  manifest: unknown,
+  version: OpenApiDocumentVersion,
+): { doc: unknown } | { error: string } {
+  const doc = api.generateOpenApi(capabilities, manifest, { version });
+  const emitted = (doc as { openapi?: unknown } | null | undefined)?.openapi;
+  if (typeof emitted === 'string' && emitted !== version) {
+    return {
+      error:
+        `Requested OpenAPI ${version}, but the installed @plumbus/api emitted ${emitted}. ` +
+        `Upgrade @plumbus/api to a release that supports OpenAPI ${version} emission.`,
+    };
+  }
+  return { doc };
 }
 
 async function loadApiRuntime(): Promise<ApiRuntimeModule> {
@@ -182,16 +244,48 @@ export function registerApiCommand(program: Command): void {
     .description('Generate OpenAPI specification')
     .requiredOption('--out <file>', 'Output file path')
     .option('--format <format>', 'json or yaml', 'json')
+    .option(
+      '--openapi-version <version>',
+      `OpenAPI document version to emit (${OPENAPI_DOCUMENT_VERSIONS.join(' or ')})`,
+      DEFAULT_OPENAPI_DOCUMENT_VERSION,
+    )
     .option('--manifest <path>', 'Path to API manifest')
-    .action(async (opts: { out: string; format?: string; manifest?: string }) => {
-      const { api, manifest, capabilities } = await loadManifestAndCaps(opts.manifest);
-      const doc = api.generateOpenApi(capabilities, manifest);
-      const outPath = resolvePath(opts.out);
-      const format = opts.format === 'yaml' ? 'yaml' : 'json';
-      const content = api.serializeOpenApiDocument(doc, format);
-      writeFile(outPath, content);
-      success(`Wrote OpenAPI spec to ${outPath}`);
-    });
+    .action(
+      async (opts: {
+        out: string;
+        format?: string;
+        openapiVersion?: string;
+        manifest?: string;
+      }) => {
+        const resolvedVersion = resolveOpenApiDocumentVersion(opts.openapiVersion);
+        if ('error' in resolvedVersion) {
+          console.error('');
+          console.error(resolvedVersion.error);
+          console.error('');
+          process.exit(1);
+        }
+
+        const { api, manifest, capabilities } = await loadManifestAndCaps(opts.manifest);
+        const generated = generateOpenApiAtVersion(
+          api,
+          capabilities,
+          manifest,
+          resolvedVersion.version,
+        );
+        if ('error' in generated) {
+          console.error('');
+          console.error(generated.error);
+          console.error('');
+          process.exit(1);
+        }
+
+        const outPath = resolvePath(opts.out);
+        const format = opts.format === 'yaml' ? 'yaml' : 'json';
+        const content = api.serializeOpenApiDocument(generated.doc, format);
+        writeFile(outPath, content);
+        success(`Wrote OpenAPI ${resolvedVersion.version} spec to ${outPath}`);
+      },
+    );
 
   generate
     .command('docs')
@@ -212,32 +306,64 @@ export function registerApiCommand(program: Command): void {
     .command('diff')
     .description('Compare current OpenAPI against a published spec')
     .requiredOption('--against <file>', 'Previously published OpenAPI file')
+    .option(
+      '--openapi-version <version>',
+      `OpenAPI document version to generate the current spec at (${OPENAPI_DOCUMENT_VERSIONS.join(' or ')})`,
+      DEFAULT_OPENAPI_DOCUMENT_VERSION,
+    )
     .option('--manifest <path>', 'Path to API manifest')
     .option('--json', 'Output as JSON')
-    .action(async (opts: { against: string; manifest?: string; json?: boolean }) => {
-      const { api, manifest, capabilities } = await loadManifestAndCaps(opts.manifest);
-      const current = api.generateOpenApi(capabilities, manifest);
-      const againstPath = resolvePath(opts.against);
-      const prevRaw = await readFile(againstPath, 'utf8');
-      const prev = api.parseOpenApiDocument(prevRaw, againstPath);
-      const diff = api.diffOpenApi(prev, current);
-
-      if (opts.json) {
-        console.log(JSON.stringify(diff, null, 2));
-      } else {
-        for (const b of diff.breaking) {
-          warn(`[BREAKING] ${b.message}`);
+    .action(
+      async (opts: {
+        against: string;
+        openapiVersion?: string;
+        manifest?: string;
+        json?: boolean;
+      }) => {
+        const resolvedVersion = resolveOpenApiDocumentVersion(opts.openapiVersion);
+        if ('error' in resolvedVersion) {
+          console.error('');
+          console.error(resolvedVersion.error);
+          console.error('');
+          process.exit(1);
         }
-        for (const nb of diff.nonBreaking) {
-          info(`[non-breaking] ${nb.message}`);
-        }
-      }
 
-      if (diff.breaking.length > 0) {
-        process.exit(1);
-      }
-      success('No breaking API changes detected');
-    });
+        const { api, manifest, capabilities } = await loadManifestAndCaps(opts.manifest);
+        const generated = generateOpenApiAtVersion(
+          api,
+          capabilities,
+          manifest,
+          resolvedVersion.version,
+        );
+        if ('error' in generated) {
+          console.error('');
+          console.error(generated.error);
+          console.error('');
+          process.exit(1);
+        }
+        const current = generated.doc;
+        const againstPath = resolvePath(opts.against);
+        const prevRaw = await readFile(againstPath, 'utf8');
+        const prev = api.parseOpenApiDocument(prevRaw, againstPath);
+        const diff = api.diffOpenApi(prev, current);
+
+        if (opts.json) {
+          console.log(JSON.stringify(diff, null, 2));
+        } else {
+          for (const b of diff.breaking) {
+            warn(`[BREAKING] ${b.message}`);
+          }
+          for (const nb of diff.nonBreaking) {
+            info(`[non-breaking] ${nb.message}`);
+          }
+        }
+
+        if (diff.breaking.length > 0) {
+          process.exit(1);
+        }
+        success('No breaking API changes detected');
+      },
+    );
 
   const testFixtures = apiCmd
     .command('test-fixtures')

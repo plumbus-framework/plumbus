@@ -1,5 +1,5 @@
 import type { ExecutionContext, RouteGeneratorConfig } from '@plumbus/core';
-import { createExecutionContext, type ContextDependencies } from '@plumbus/core';
+import { createExecutionContext, type ContextDependencies } from '@plumbus/core/runtime';
 
 export interface CreateVoiceExecutionContextArgs {
   userId?: string;

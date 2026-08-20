@@ -594,6 +594,18 @@ export interface ContextDependencies {
   config?: ConfigService;
   translations?: TranslationService;
   request?: RequestMeta;
+  /**
+   * Cancellation signal for the whole invocation — surfaced to handlers as
+   * `ctx.signal`. Hosts that already know how a call can be cancelled (an MCP
+   * request abort, a per-request timeout, a background task's controller) pass
+   * it here so the finished context carries it; the context is sealed at
+   * construction, so a signal attached afterwards would be rejected.
+   */
+  signal?: AbortSignal;
+  /**
+   * Progress reporter surfaced to handlers as `ctx.progress`. Same rule as
+   * `signal`: supply it at construction rather than assigning onto the context.
+   */
   progress?: ProgressService;
   invokeCapability?: ExecutionRuntimeMetadata['invokeCapability'];
   resolveCapability?: ExecutionRuntimeMetadata['resolveCapability'];

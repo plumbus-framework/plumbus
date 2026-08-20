@@ -13,10 +13,13 @@ import { createCostTracker } from '../ai/cost-tracker.js';
 import type { AICostContext } from '../types/context.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
-import type { RouteGeneratorConfig } from '../api/route-generator.js';
+import type { DependencyOptions, RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
 import { logHookError } from '../errors/hook-log.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
+import { ErrorCode } from '../types/enums.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import type { HttpAuthenticationRuntime } from './authentication-runtime.js';
@@ -57,10 +60,31 @@ const denyAllAuthAdapter: AuthAdapter = {
   authenticate: async () => null,
 };
 
+/**
+ * What a request whose auth context carries no tenant resolves to, once a
+ * `dataPlaneResolver` is configured.
+ *
+ * `'refuse'` is the default and the fail-closed choice: with more than one data
+ * plane in play there is no safe guess about which database an untenanted
+ * request meant, so the request is rejected rather than served from whichever
+ * database happens to be at hand. `'control-plane'` opts a deployment into
+ * serving those requests from the boot-time `db` — appropriate when untenanted
+ * traffic is genuinely control-plane work (sign-up, tenant directory lookups,
+ * cluster health) and nothing tenant-scoped lives in that database.
+ */
+export type UntenantedDataPlanePolicy = 'refuse' | 'control-plane';
+
 export interface ServerConfig {
   /** Plumbus framework config */
   config: PlumbusConfig;
-  /** Database connection (caller provides; server does not own connection lifecycle) */
+  /**
+   * Database connection (caller provides; server does not own connection lifecycle).
+   *
+   * With no `dataPlaneResolver` this is the database every request uses. With
+   * one, it is the control plane: readiness probes, the job-status route, AI
+   * override/cost hooks and the process-error hook keep addressing it, and
+   * requests reach it only under `untenantedDataPlane: 'control-plane'`.
+   */
   db: PostgresJsDatabase;
   /** Pre-populated registries */
   capabilities: CapabilityRegistry;
@@ -155,6 +179,28 @@ export interface ServerConfig {
   ) => void | Promise<void>;
   /** Enable provider-side constrained decoding for registered prompt output schemas. */
   enableStrictStructuredOutputs?: boolean;
+  /**
+   * Resolve each request's database from its tenant instead of using `db` for
+   * all of them.
+   *
+   * Omitted (the default) the server behaves exactly as it always has: one
+   * boot-time connection, dependencies built synchronously, nothing extra
+   * awaited per request. Supplied, every request's auth context is mapped to a
+   * tenant reference (`resolveTenantRef`, `auth.tenantId` by default), that
+   * reference is resolved to a data plane, and the request's repositories,
+   * events, audit, transactions and job dispatch are all wired against the
+   * resolved handle's database. A reference the resolver does not recognise
+   * fails the request — no path substitutes another tenant's database.
+   */
+  dataPlaneResolver?: DataPlaneResolver;
+  /** Policy for requests carrying no tenant reference. Default: `'refuse'`. */
+  untenantedDataPlane?: UntenantedDataPlanePolicy;
+  /**
+   * Map an auth context to the reference `dataPlaneResolver` is keyed by.
+   * Defaults to `auth.tenantId`. Override when the resolver is keyed by
+   * something the host derives instead (a region-qualified reference, a slug).
+   */
+  resolveTenantRef?: (auth: AuthContext) => string | undefined;
 }
 
 // ── Server Instance ──
@@ -332,21 +378,122 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   }
 
   // Route generator config
+  // Flow steps are executed by the worker process, never by the HTTP server;
+  // the engine here exists so capabilities can start and inspect flows.
+  const httpFlowStepDeps = {
+    async executeCapability() {
+      return {
+        success: false,
+        error: 'Flow execution is worker-owned in HTTP server bootstrap',
+      };
+    },
+    evaluateCondition() {
+      return false;
+    },
+  };
   const requestFlowEngine = createFlowEngine({
     db,
     registry: flows,
-    stepDeps: {
-      async executeCapability() {
-        return {
-          success: false,
-          error: 'Flow execution is worker-owned in HTTP server bootstrap',
-        };
-      },
-      evaluateCondition() {
-        return false;
-      },
-    },
+    stepDeps: httpFlowStepDeps,
   });
+
+  /**
+   * One flow engine per data plane. A flow started by a capability belongs in
+   * the same database as the rows that capability wrote, so an engine bound to
+   * the boot connection cannot be reused for a resolved tenant. Keyed weakly so
+   * an engine is collected with the connection it wraps.
+   */
+  const flowEnginesByDataPlane = new WeakMap<
+    PostgresJsDatabase,
+    ReturnType<typeof createFlowEngine>
+  >();
+  flowEnginesByDataPlane.set(db, requestFlowEngine);
+
+  function flowEngineFor(dataPlaneDb: PostgresJsDatabase): ReturnType<typeof createFlowEngine> {
+    const existing = flowEnginesByDataPlane.get(dataPlaneDb);
+    if (existing) return existing;
+    const engine = createFlowEngine({
+      db: dataPlaneDb,
+      registry: flows,
+      stepDeps: httpFlowStepDeps,
+    });
+    flowEnginesByDataPlane.set(dataPlaneDb, engine);
+    return engine;
+  }
+
+  function buildRequestDependencies(
+    requestDb: PostgresJsDatabase,
+    auth: AuthContext,
+    options?: DependencyOptions,
+  ): ContextDependencies {
+    const invocationEmitScope = createInvocationEmitScope();
+    const locale = options?.locale ?? defaultLocale;
+    const baseLogger =
+      serverConfig.logger ??
+      createStructuredLogger({
+        component: 'capability',
+        tenantId: auth.tenantId,
+        actorId: auth.userId,
+        maskKeys,
+      });
+    const requestLogger = withLogMasking(baseLogger, maskKeys);
+    const capRuntime = buildCapabilityRuntimeDeps(capabilities);
+    return wireContextDependencies(
+      {
+        db: requestDb,
+        auth,
+        entities,
+        events,
+        bypassTenantScope: options?.bypassTenantScope,
+        getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
+        encryptionKey,
+      },
+      {
+        flows: createFlowService(flowEngineFor(requestDb), auth, flows),
+        ...(serverConfig.jobQueue
+          ? {
+              jobs: createJobDispatchService({
+                db: requestDb,
+                jobQueue: serverConfig.jobQueue,
+                resolveCapability: (name) => capabilities.get(name),
+                auth,
+                getCorrelationId: () => resolveInvocationCausationId(invocationEmitScope),
+                source: JobExecutionSource.Http,
+              }),
+            }
+          : {}),
+        ai: aiService,
+        logger: requestLogger,
+        config: config as unknown as Record<string, unknown>,
+        translations: createTranslationService(translationRegistry, locale),
+        invocationEmitScope,
+        ...capRuntime,
+      },
+    );
+  }
+
+  const dataPlaneResolver = serverConfig.dataPlaneResolver;
+  const untenantedDataPlane = serverConfig.untenantedDataPlane ?? 'refuse';
+  const resolveTenantRef = serverConfig.resolveTenantRef ?? ((auth: AuthContext) => auth.tenantId);
+
+  async function resolveRequestDb(
+    resolver: DataPlaneResolver,
+    auth: AuthContext,
+  ): Promise<PostgresJsDatabase> {
+    const tenantRef = resolveTenantRef(auth);
+    if (!tenantRef) {
+      // Fail closed. With several data planes in play there is no safe guess
+      // about which one an untenanted request meant.
+      if (untenantedDataPlane === 'control-plane') return db;
+      throw new PlumbusError(
+        ErrorCode.Forbidden,
+        'This deployment resolves a database per tenant and the request carries no tenant reference',
+        { reason: 'untenanted-request' },
+      );
+    }
+    const handle = await resolver.resolve(tenantRef);
+    return handle.db;
+  }
 
   const routeConfig: RouteGeneratorConfig = {
     db,
@@ -354,52 +501,19 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     requestAuthenticator: serverConfig.authenticationRuntime?.authenticator,
     defaultLocale,
     supportedLocales: resolvedSupportedLocales,
-    createDependencies: (auth: AuthContext, options?): ContextDependencies => {
-      const invocationEmitScope = createInvocationEmitScope();
-      const locale = options?.locale ?? defaultLocale;
-      const baseLogger =
-        serverConfig.logger ??
-        createStructuredLogger({
-          component: 'capability',
-          tenantId: auth.tenantId,
-          actorId: auth.userId,
-          maskKeys,
-        });
-      const requestLogger = withLogMasking(baseLogger, maskKeys);
-      const capRuntime = buildCapabilityRuntimeDeps(capabilities);
-      return wireContextDependencies(
-        {
-          db,
-          auth,
-          entities,
-          events,
-          bypassTenantScope: options?.bypassTenantScope,
-          getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
-          encryptionKey,
-        },
-        {
-          flows: createFlowService(requestFlowEngine, auth, flows),
-          ...(serverConfig.jobQueue
-            ? {
-                jobs: createJobDispatchService({
-                  db,
-                  jobQueue: serverConfig.jobQueue,
-                  resolveCapability: (name) => capabilities.get(name),
-                  auth,
-                  getCorrelationId: () => resolveInvocationCausationId(invocationEmitScope),
-                  source: JobExecutionSource.Http,
-                }),
-              }
-            : {}),
-          ai: aiService,
-          logger: requestLogger,
-          config: config as unknown as Record<string, unknown>,
-          translations: createTranslationService(translationRegistry, locale),
-          invocationEmitScope,
-          ...capRuntime,
-        },
-      );
-    },
+    createDependencies: (auth: AuthContext, options?): ContextDependencies =>
+      buildRequestDependencies(db, auth, options),
+    ...(dataPlaneResolver
+      ? {
+          resolveDependencies: async (auth: AuthContext, options?) => {
+            const requestDb = await resolveRequestDb(dataPlaneResolver, auth);
+            return {
+              dependencies: buildRequestDependencies(requestDb, auth, options),
+              db: requestDb,
+            };
+          },
+        }
+      : {}),
     onCapabilityError: serverConfig.onCapabilityError,
     jobQueue: serverConfig.jobQueue,
   };
@@ -468,6 +582,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   }
 
   logger.info(`Registered ${capabilities.getAll().length} capability routes`);
+
+  if (dataPlaneResolver) {
+    logger.info(
+      `Per-request data-plane resolution enabled (untenanted requests: ${untenantedDataPlane})`,
+    );
+  }
 
   // Log registration status for other registries.
   // Event consumers, flow triggers, and entity repositories are

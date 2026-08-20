@@ -1,6 +1,6 @@
 # OpenAPI Export
 
-`plumbus api generate openapi` produces a rich OpenAPI 3.0.3 specification from capability Zod schemas and the resolved API manifest. The generated spec is the **canonical partner contract** — distinct from the thin convention spec emitted by `plumbus generate`.
+`plumbus api generate openapi` produces a rich OpenAPI specification from capability Zod schemas and the resolved API manifest — **3.0.3 by default, 3.1.0 on request**. The generated spec is the **canonical partner contract** — distinct from the thin convention spec emitted by `plumbus generate`.
 
 Because schemas come directly from Zod, the spec cannot drift from runtime validation.
 
@@ -29,11 +29,44 @@ plumbus api generate openapi --out ./dist/openapi.json
 # YAML
 plumbus api generate openapi --out ./dist/openapi.yaml --format yaml
 
+# OpenAPI 3.1.0 instead of the 3.0.3 default
+plumbus api generate openapi --out ./dist/openapi.json --openapi-version 3.1.0
+
 # Custom manifest path
 plumbus api generate openapi --manifest ./contracts/partner.yaml --out ./dist/openapi.json
 ```
 
 Most `plumbus api` commands accept `--manifest <path>` (default `./api.yaml`). `plumbus api test-fixtures validate` always uses the default manifest loader (`./api.yaml`) and does not accept `--manifest`.
+
+---
+
+## Document version
+
+| Flag | Emits | When to use |
+|---|---|---|
+| *(omitted)* | OpenAPI **3.0.3** | Default. Widest tooling support; published baselines do not move when you upgrade `@plumbus/api`. |
+| `--openapi-version 3.0.3` | OpenAPI 3.0.3 | Explicit form of the default — pin it in CI so an upgrade cannot change the dialect silently. |
+| `--openapi-version 3.1.0` | OpenAPI **3.1.0** | Your portal or client generator wants the JSON Schema 2020-12 dialect — where nullability is a `null` member of a `type` array rather than the 3.0-only `nullable` keyword. |
+
+Any other value is rejected before generation runs:
+
+```
+Unsupported OpenAPI version "3.2.0". Supported: 3.0.3, 3.1.0.
+```
+
+The document version is a **choice about the document, not about the API**. Both versions describe the same routes, methods, status codes, security requirements and JSON payloads; the same handler serves both. Switching does not change what partners send or receive — see [compatibility.md](./compatibility.md#cross-version-diff) for how the diff classifies the switch.
+
+`--openapi-version` is available on `plumbus api diff` as well, so CI can generate the current spec in the same dialect as its published baseline:
+
+```bash
+plumbus api diff --against ./published/openapi-v1.json --openapi-version 3.1.0
+```
+
+Generation never patches the `openapi` field on its own. If the installed `@plumbus/api` is older than 3.1 support it emits 3.0.3, and the CLI fails rather than writing a document labelled 3.1.0 with 3.0-shaped schemas:
+
+```
+Requested OpenAPI 3.1.0, but the installed @plumbus/api emitted 3.0.3. Upgrade @plumbus/api to a release that supports OpenAPI 3.1.0 emission.
+```
 
 ---
 
@@ -50,6 +83,9 @@ const manifest = parsedManifest ?? buildDefaultManifest(capabilities);
 const doc = generateOpenApi(capabilities, manifest);
 const json = serializeOpenApiDocument(doc, 'json');
 const yaml = serializeOpenApiDocument(doc, 'yaml');
+
+// Opt into the 3.1.0 document dialect — what `--openapi-version 3.1.0` passes.
+const doc31 = generateOpenApi(capabilities, manifest, { version: '3.1.0' });
 ```
 
 ---

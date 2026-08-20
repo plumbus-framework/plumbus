@@ -16,9 +16,14 @@ const chatDir = path.join(repoRoot, 'packages/chat');
 
 const coreDist = path.join(coreDir, 'dist/index.js');
 const coreZodDist = path.join(coreDir, 'dist/zod/index.js');
+// The framework-internal seam published as `@plumbus/core/runtime`. This app
+// hosts its own turn loop, so it builds an ExecutionContext itself — that is
+// exactly the runtime-host role the seam exists for, and the reason the factory
+// is not on the `@plumbus/core` root barrel.
+const coreRuntimeDist = path.join(coreDir, 'dist/runtime-entry.js');
 const chatDist = path.join(chatDir, 'dist/index.js');
 
-for (const dist of [coreDist, coreZodDist, chatDist]) {
+for (const dist of [coreDist, coreZodDist, coreRuntimeDist, chatDist]) {
   if (!existsSync(dist)) {
     console.error(
       `[deps] Missing build output: ${dist}\n` +
@@ -34,6 +39,7 @@ const fileUrl = (p) => pathToFileURL(p).href;
 
 const core = await import(fileUrl(coreDist));
 const coreZod = await import(fileUrl(coreZodDist));
+const coreRuntime = await import(fileUrl(coreRuntimeDist));
 const chat = await import(fileUrl(chatDist));
 
 export const {
@@ -42,8 +48,8 @@ export const {
   singleProviderConfig,
   PromptRegistry,
   defineCapability,
-  createExecutionContext,
 } = core;
+export const { createExecutionContext } = coreRuntime;
 export const { z } = coreZod;
 export const {
   defineChat,

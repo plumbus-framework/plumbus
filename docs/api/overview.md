@@ -159,11 +159,13 @@ export function onRoutesRegistered(app, routeConfig) {
 
 ```bash
 plumbus api validate
-plumbus api generate openapi --out ./dist/openapi.json
+plumbus api generate openapi --out ./dist/openapi.json    # OpenAPI 3.0.3 by default
 plumbus api generate docs --out ./dist/api-docs
 plumbus api diff --against ./published/openapi-v1.json   # before release
 plumbus api test-fixtures validate                        # if using test intent
 ```
+
+Add `--openapi-version 3.1.0` to `generate openapi` (and to `diff`, to match a 3.1 baseline) when your portal or client generator wants the JSON Schema 2020-12 dialect — see [openapi.md](./openapi.md#document-version).
 
 ---
 

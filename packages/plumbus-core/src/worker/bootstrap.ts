@@ -7,6 +7,9 @@ import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import { createAuditService } from '../audit/service.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
+import { ErrorCode } from '../types/enums.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { DispatcherConfig } from '../events/dispatcher.js';
 import { createOutboxDispatcher } from '../events/dispatcher.js';
@@ -87,6 +90,19 @@ function describeError(err: unknown): Record<string, unknown> {
   return out;
 }
 
+/**
+ * The tenant a claimed flow execution belongs to.
+ *
+ * Claimed rows come back from a raw `RETURNING *`, so they carry the database's
+ * own column names rather than the camel-cased ones the typed `select()` path
+ * produces. Both spellings are read so the tenant is found either way.
+ */
+function claimedTenantRef(row: { tenantId?: string | null }): string | undefined {
+  const columns = row as unknown as Record<string, unknown>;
+  const value = columns.tenantId ?? columns.tenant_id;
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
 // ── Lease-column preflight ──
 //
 // 0.3.0 added `lease_owner` and `lease_expires_at` columns to flow_executions
@@ -119,10 +135,26 @@ export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<vo
 
 // ── Worker Pool Config ──
 
+/**
+ * What a claimed unit of work carrying no tenant reference resolves to, once a
+ * `dataPlaneResolver` is configured. `'refuse'` is the default and the
+ * fail-closed choice: the unit fails rather than run against whichever database
+ * happens to be at hand. `'control-plane'` runs it against the pool's own `db`.
+ */
+export type UntenantedDataPlanePolicy = 'refuse' | 'control-plane';
+
 export interface WorkerPoolConfig {
   /** Plumbus framework config */
   config: PlumbusConfig;
-  /** Database connection */
+  /**
+   * Database connection.
+   *
+   * This is the pool's own database: the outbox it dispatches, the events it
+   * delivers, the idempotency keys it records, the schedules it syncs and the
+   * `flow_executions` rows it claims all live here. With no
+   * `dataPlaneResolver` it is also the database every claimed unit of work
+   * runs against.
+   */
   db: PostgresJsDatabase;
   /** Events queue (outbox dispatcher + domain event delivery) */
   queue: EventQueue;
@@ -193,6 +225,40 @@ export interface WorkerPoolConfig {
   flowHeartbeatIntervalMs?: number;
   /** Max executions to claim per poll cycle. Default: 50. */
   flowClaimBatchSize?: number;
+  /**
+   * Resolve the database a claimed unit of work runs against, per unit rather
+   * than per boot.
+   *
+   * Omitted (the default) the pool behaves exactly as it always has: every
+   * claimed flow execution runs against `db`. Supplied, each claimed execution
+   * is mapped to a tenant reference (`resolveTenantRef` over the row's stored
+   * tenant, `tenantId` by default), that reference is resolved to a data plane,
+   * and the execution's repositories, events, audit and transactions are wired
+   * against the resolved handle's database. A reference the resolver does not
+   * recognise fails that execution — no path substitutes another tenant's
+   * database.
+   *
+   * What stays on the pool's own `db` in this mode, by design: claiming and
+   * advancing `flow_executions`, the outbox dispatcher, the event delivery
+   * worker, idempotency and the flow scheduler. A deployment whose tenants each
+   * hold their own outbox runs one pool per data plane for those components —
+   * `db` per pool — and uses this resolver for the flow runner that spans them.
+   *
+   * Two consequences worth naming: the queue-driven flow step consumer is not
+   * started in this mode (it builds its context synchronously and so cannot
+   * resolve a data plane; the polling runner covers the same work), and
+   * `createDataService` may not be combined with a resolver — the framework
+   * wires repositories from the entity registry against the resolved plane
+   * instead.
+   */
+  dataPlaneResolver?: DataPlaneResolver;
+  /** Policy for claimed work carrying no tenant reference. Default: `'refuse'`. */
+  untenantedDataPlane?: UntenantedDataPlanePolicy;
+  /**
+   * Map an auth context to the reference `dataPlaneResolver` is keyed by.
+   * Defaults to `auth.tenantId`.
+   */
+  resolveTenantRef?: (auth: AuthContext) => string | undefined;
 }
 
 // ── Worker Pool Instance ──
@@ -235,6 +301,76 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const logger = poolConfig.logger ?? createWorkerLogger();
   const metrics = poolConfig.metrics;
   const eventRegistry = poolConfig.eventRegistry;
+
+  // ── Per-unit data-plane resolution (opt-in) ──
+
+  const dataPlaneResolver = poolConfig.dataPlaneResolver;
+  const untenantedDataPlane = poolConfig.untenantedDataPlane ?? 'refuse';
+  const resolveTenantRef = poolConfig.resolveTenantRef ?? ((auth: AuthContext) => auth.tenantId);
+
+  if (dataPlaneResolver && poolConfig.createDataService) {
+    throw new Error(
+      'dataPlaneResolver and createDataService cannot both be configured: a caller-built data ' +
+        'service is bound to a database the resolver does not control, so tenant work would run ' +
+        'against it instead of the resolved data plane. Supply `entities` and let the framework ' +
+        'wire repositories against the resolved plane.',
+    );
+  }
+
+  if (dataPlaneResolver) {
+    logger.info(`Per-unit data-plane resolution enabled (untenanted work: ${untenantedDataPlane})`);
+  }
+
+  /**
+   * Data planes resolved so far, keyed by tenant reference. Written by the
+   * async resolution that precedes a unit of work and read by the engine's
+   * per-auth service factories, which are synchronous and so cannot resolve.
+   * A miss throws rather than falling back to the pool's own database.
+   */
+  const resolvedDataPlanes = new Map<string, PostgresJsDatabase>();
+
+  function untenantedWorkError(): PlumbusError {
+    return new PlumbusError(
+      ErrorCode.Forbidden,
+      'This worker resolves a database per unit of work and the claimed work carries no tenant reference',
+      { reason: 'untenanted-unit-of-work' },
+    );
+  }
+
+  /** Resolve (and remember) the data plane a unit of work runs against. */
+  async function resolveUnitDataPlane(tenantRef: string | undefined): Promise<PostgresJsDatabase> {
+    if (!dataPlaneResolver) return db;
+    if (!tenantRef) {
+      if (untenantedDataPlane === 'control-plane') return db;
+      throw untenantedWorkError();
+    }
+    const handle = await dataPlaneResolver.resolve(tenantRef);
+    resolvedDataPlanes.set(tenantRef, handle.db);
+    return handle.db;
+  }
+
+  /**
+   * The data plane already resolved for an auth context. Used by the engine's
+   * synchronous per-auth factories, which run inside a unit of work whose plane
+   * was resolved just before it started.
+   */
+  function dataPlaneForAuth(auth: AuthContext): PostgresJsDatabase {
+    if (!dataPlaneResolver) return db;
+    const tenantRef = resolveTenantRef(auth);
+    if (!tenantRef) {
+      if (untenantedDataPlane === 'control-plane') return db;
+      throw untenantedWorkError();
+    }
+    const resolved = resolvedDataPlanes.get(tenantRef);
+    if (!resolved) {
+      throw new PlumbusError(
+        ErrorCode.Internal,
+        `No data plane has been resolved for tenant reference "${tenantRef}" in this worker`,
+        { tenantRef },
+      );
+    }
+    return resolved;
+  }
 
   // Idempotency service for event worker
   const idempotency = createIdempotencyService(db);
@@ -309,13 +445,16 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         : undefined,
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
     createEventService: eventRegistry
-      ? (auth) =>
-          createEventEmitter({
-            db,
+      ? (auth) => {
+          // Without a resolver this is the pool's own `db`, unchanged.
+          const authDb = dataPlaneForAuth(auth);
+          return createEventEmitter({
+            db: authDb,
             auth,
             registry: eventRegistry,
-            audit: audit ?? createAuditService({ db, auth }),
-          })
+            audit: audit ?? createAuditService({ db: authDb, auth }),
+          });
+        }
       : undefined,
   };
   const flowEngine = createFlowEngine(flowEngineConfig);
@@ -377,10 +516,23 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         provider: 'worker',
       };
 
-      const baseCtx = buildFlowRunnerContext(systemAuth);
+      // One context for the whole batch when every unit runs against the same
+      // database — the resolver path builds one per claimed row instead.
+      const baseCtx = dataPlaneResolver ? undefined : buildFlowRunnerContext(systemAuth);
 
       for (const row of claimed) {
         try {
+          // Resolving inside the per-row try means an unknown or absent tenant
+          // fails this execution the same way a failing step does, instead of
+          // aborting the cycle for every other tenant in the batch.
+          const ctx =
+            baseCtx ??
+            buildFlowRunnerContext(
+              systemAuth,
+              await resolveUnitDataPlane(
+                resolveTenantRef({ ...systemAuth, tenantId: claimedTenantRef(row) }),
+              ),
+            );
           // Drain consecutive in-flow steps in a single tick.
           //
           // Why: claimNext() acquires a lease (status='running',
@@ -407,7 +559,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           const maxStepsPerCycle = 1000;
           let stepsRun = 0;
           while (stepsRun < maxStepsPerCycle) {
-            const result = await flowEngine.runNext(row.id, baseCtx);
+            const result = await flowEngine.runNext(row.id, ctx);
             stepsRun += 1;
             if (result.status !== FlowStatus.Running) {
               break;
@@ -448,6 +600,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
   }
 
+  /**
+   * Build the base context a claimed unit of work runs with.
+   *
+   * `contextDb` defaults to the pool's own database, which is what every caller
+   * passes unless a `dataPlaneResolver` resolved a different plane for this
+   * particular unit of work.
+   */
   function buildFlowRunnerContext(
     systemAuth: AuthContext = {
       userId: 'system-flow-runner',
@@ -455,12 +614,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       scopes: [],
       provider: 'worker',
     },
+    contextDb: PostgresJsDatabase = db,
   ): import('../types/context.js').ExecutionContext {
     if (poolConfig.entities && eventRegistry) {
       return createExecutionContext(
         wireContextDependencies(
           {
-            db,
+            db: contextDb,
             auth: systemAuth,
             entities: poolConfig.entities,
             events: eventRegistry,
@@ -477,13 +637,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       );
     }
 
-    const systemAudit = audit ?? createAuditService({ db, auth: systemAuth });
+    const systemAudit = audit ?? createAuditService({ db: contextDb, auth: systemAuth });
     const dataService = poolConfig.createDataService
       ? poolConfig.createDataService(systemAuth)
       : ({} as DataService);
     const eventService = eventRegistry
       ? createEventEmitter({
-          db,
+          db: contextDb,
           auth: systemAuth,
           registry: eventRegistry,
           audit: systemAudit,
@@ -502,8 +662,16 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     });
   }
 
+  if (dataPlaneResolver && enableFlowRunner && flowsQueue) {
+    logger.warn(
+      'Flow step queue consumer not started: it builds its context synchronously and cannot ' +
+        'resolve a data plane per unit of work. The polling flow runner covers the same work; ' +
+        'lower flowPollIntervalMs if the added latency matters.',
+    );
+  }
+
   const flowStepConsumer =
-    enableFlowRunner && flowsQueue
+    enableFlowRunner && flowsQueue && !dataPlaneResolver
       ? createFlowStepConsumer({
           flowsQueue,
           engine: flowEngine,

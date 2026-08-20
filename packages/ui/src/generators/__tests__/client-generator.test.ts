@@ -81,13 +81,13 @@ describe('generateCapabilityTypes', () => {
     const cap = makeCap({
       input: z
         .object({
-          courseIntakeId: z.string().uuid(),
+          orderIntakeId: z.string().uuid(),
           sortBy: z.literal('name').default('name'),
         })
         .superRefine(() => undefined),
     });
     const code = generateCapabilityTypes(cap);
-    expect(code).toContain('courseIntakeId: string');
+    expect(code).toContain('orderIntakeId: string');
     expect(code).not.toContain('GetInvoiceInput = unknown');
   });
 

@@ -1254,7 +1254,12 @@ describe('registerApiRoutes requestAuthenticator', () => {
   });
 
   it('does not share anonymous auth arrays across public requests', async () => {
-    const seen: Array<{ auth: { roles: string[] }; rolesAtEntry: string[] }> = [];
+    const seen: Array<{
+      auth: { roles: string[] };
+      roles: string[];
+      rolesAtEntry: string[];
+      mutationRejected: boolean;
+    }> = [];
     const publicCap = defineCapability({
       name: 'ping',
       kind: 'query',
@@ -1266,8 +1271,22 @@ describe('registerApiRoutes requestAuthenticator', () => {
       exposeAs: ['api'],
       api: { operationId: 'ping', method: 'GET', path: '/ping' },
       handler: async (ctx) => {
-        seen.push({ auth: ctx.auth, rolesAtEntry: [...ctx.auth.roles] });
-        ctx.auth.roles.push('mutated');
+        // Each request must get its own auth object *and* its own roles array —
+        // a shared array would leak one caller's roles into the next request.
+        // The sealed context also rejects the write outright, so the attempt is
+        // recorded rather than allowed to fail the request.
+        let mutationRejected = false;
+        try {
+          ctx.auth.roles.push('mutated');
+        } catch (err) {
+          mutationRejected = err instanceof TypeError;
+        }
+        seen.push({
+          auth: ctx.auth,
+          roles: ctx.auth.roles,
+          rolesAtEntry: [...ctx.auth.roles],
+          mutationRejected,
+        });
         return { ok: true };
       },
     });
@@ -1303,9 +1322,16 @@ describe('registerApiRoutes requestAuthenticator', () => {
     expect(second.statusCode).toBe(200);
     expect(seen).toHaveLength(2);
     expect(seen[0]?.auth).not.toBe(seen[1]?.auth);
+    // The property under test: the roles arrays are distinct objects, so
+    // nothing one request does to its own array can reach the next one.
+    expect(seen[0]?.roles).not.toBe(seen[1]?.roles);
     expect(seen[0]?.rolesAtEntry).toEqual([]);
     expect(seen[1]?.rolesAtEntry).toEqual([]);
-    expect(seen[0]?.auth.roles).toEqual(['mutated']);
+    // Sealed context: the elevation attempt threw and left both arrays empty.
+    expect(seen[0]?.mutationRejected).toBe(true);
+    expect(seen[1]?.mutationRejected).toBe(true);
+    expect(seen[0]?.auth.roles).toEqual([]);
+    expect(seen[1]?.auth.roles).toEqual([]);
   });
 
   it('returns 401 for invalid bearer under requestAuthenticator (Bearer fails closed)', async () => {

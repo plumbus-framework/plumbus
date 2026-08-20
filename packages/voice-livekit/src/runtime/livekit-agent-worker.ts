@@ -18,7 +18,8 @@ import {
   TrackKind,
   TrackPublishOptions,
 } from '@livekit/rtc-node';
-import { createExecutionContext, ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import {
   createSTTProvider,
   createTTSProvider,

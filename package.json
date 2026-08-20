@@ -10,7 +10,9 @@
     "lint": "turbo run lint",
     "format": "turbo run format",
     "format:check": "turbo run format:check",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "check:no-app-vocabulary": "node scripts/check-no-app-vocabulary.mjs",
+    "check:no-app-vocabulary:test": "node --test scripts/check-no-app-vocabulary.test.mjs"
   },
   "keywords": [],
   "author": "",

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTestContext } from '@plumbus/core/testing';
-import {
-  CapabilityRegistry,
-  buildCapabilityRuntimeDeps,
-  createExecutionContext,
-} from '@plumbus/core';
+import { CapabilityRegistry, buildCapabilityRuntimeDeps } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { rejectPending } from '../pending-actions.js';
 import { chatPendingActionRepo } from '../../internal/chat-repos.js';
 import { createSession } from '../../session/service.js';

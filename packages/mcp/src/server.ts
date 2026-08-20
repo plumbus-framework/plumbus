@@ -14,14 +14,15 @@ import {
 import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import {
   JobExecutionSource,
-  createExecutionContext,
   dispatchQueuedJob,
   executeCapability,
   getCanonicalCapabilityName,
   type AuthContext,
   type CapabilityContract,
+  type ContextDependencies,
   type ExecutionContext,
 } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { buildMcpManifest, isMcpExposed } from '@plumbus/core/mcp';
 import {
   createTask,
@@ -94,11 +95,17 @@ type McpExtra = {
   requestInfo?: McpRequestInfo;
 };
 
-async function resolveCtx(
+/**
+ * Authenticate the request and assemble the context dependencies for it, without
+ * yet building the context. Callers that know about per-invocation attachments —
+ * a cancellation signal, a progress reporter — add them to `deps` and build the
+ * context once, since a finished context is sealed.
+ */
+async function resolveDeps(
   config: McpServerConfig,
   extra: McpExtra,
   options: { bypassTenantScope?: boolean } = {},
-): Promise<{ ctx: ExecutionContext; authContext: AuthContext }> {
+): Promise<{ deps: ContextDependencies; authContext: AuthContext }> {
   const headerValue = getHeaderValue(extra.requestInfo?.headers, 'authorization');
   const rawToken = extra.authInfo?.token ?? headerValue;
   const authHeader = rawToken && !rawToken.startsWith('Bearer ') ? `Bearer ${rawToken}` : rawToken;
@@ -112,8 +119,16 @@ async function resolveCtx(
   const deps = config.createDependencies(authContext, options);
   const userAgent = getHeaderValue(extra.requestInfo?.headers, 'user-agent');
   if (userAgent !== undefined) deps.request = { userAgent };
-  const ctx = createExecutionContext(deps);
-  return { ctx, authContext };
+  return { deps, authContext };
+}
+
+async function resolveCtx(
+  config: McpServerConfig,
+  extra: McpExtra,
+  options: { bypassTenantScope?: boolean } = {},
+): Promise<{ ctx: ExecutionContext; authContext: AuthContext }> {
+  const { deps, authContext } = await resolveDeps(config, extra, options);
+  return { ctx: createExecutionContext(deps), authContext };
 }
 
 function taskRowToWire(task: McpTaskRow): {
@@ -184,7 +199,9 @@ export function createMcpServer(
     }
 
     const bypassTenantScope = cap.access?.tenantScoped === false;
-    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { bypassTenantScope });
+    const { deps, authContext } = await resolveDeps(config, extra as McpExtra, {
+      bypassTenantScope,
+    });
 
     const meta = request.params._meta as
       | { taskMetadata?: unknown; progressToken?: string | number }
@@ -212,7 +229,8 @@ export function createMcpServer(
       const abortController = new AbortController();
       taskAbortRegistry.set(taskId, abortController);
 
-      const task = await createTask(ctx, {
+      const taskCtx = createExecutionContext(deps);
+      const task = await createTask(taskCtx, {
         id: taskId,
         userId: authContext.userId,
         capabilityName: getCanonicalCapabilityName(cap),
@@ -236,7 +254,7 @@ export function createMcpServer(
             content: [{ type: 'text', text: JSON.stringify(taskRowToWire(task)) }],
           };
         } catch (err) {
-          await markStatus(ctx, taskId, 'failed', {
+          await markStatus(taskCtx, taskId, 'failed', {
             errorJson: {
               code: 'dispatch_failed',
               message: err instanceof Error ? err.message : String(err),
@@ -258,11 +276,15 @@ export function createMcpServer(
       }
 
       const bgDeps = config.createDependencies(authContext, { bypassTenantScope });
-      const bgCtx = createExecutionContext(bgDeps);
-      bgCtx.signal = abortController.signal;
-      bgCtx.progress = {
+      // The reporter persists progress through the very context it hangs on, so
+      // it reads that context out of a holder filled in immediately below. A
+      // handler can only report once it is running, which is strictly after
+      // construction returns.
+      const bgCtxHolder: { ctx?: ExecutionContext } = {};
+      const bgProgress: NonNullable<ContextDependencies['progress']> = {
         report: (opts) => {
-          void recordProgress(bgCtx, taskId, opts).catch(() => {});
+          const reportCtx = bgCtxHolder.ctx;
+          if (reportCtx) void recordProgress(reportCtx, taskId, opts).catch(() => {});
           if (progressToken !== undefined) {
             void server
               .notification({
@@ -278,6 +300,12 @@ export function createMcpServer(
           }
         },
       };
+      const bgCtx = createExecutionContext({
+        ...bgDeps,
+        signal: abortController.signal,
+        progress: bgProgress,
+      });
+      bgCtxHolder.ctx = bgCtx;
 
       const taskStart = Date.now();
       void (async () => {
@@ -368,11 +396,16 @@ export function createMcpServer(
       timeoutId = setTimeout(() => timeoutController.abort(), config.requestTimeoutMs);
       signals.push(timeoutController.signal);
     }
-    if (signals.length === 1) {
-      ctx.signal = signals[0];
-    } else if (signals.length > 1) {
-      ctx.signal = AbortSignal.any(signals);
-    }
+    const signal =
+      signals.length === 0
+        ? undefined
+        : signals.length === 1
+          ? signals[0]
+          : AbortSignal.any(signals);
+    // Built here, not before the branch: the timeout is armed only for inline
+    // calls and only once authentication has finished, and the context carries
+    // the resulting signal from birth.
+    const ctx = createExecutionContext(signal === undefined ? deps : { ...deps, signal });
 
     const start = Date.now();
     try {

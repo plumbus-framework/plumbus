@@ -1,6 +1,5 @@
 import {
   buildAuthenticationRequest,
-  createExecutionContext,
   evaluateAccess,
   executeCapability,
   isApiExposed,
@@ -8,6 +7,7 @@ import {
   type CapabilityContract,
   type RouteGeneratorConfig,
 } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { apiVersionFromManifest, joinApiPath } from '../manifest/api-version.js';
 import { requiredApiScopes } from '../manifest/scopes.js';

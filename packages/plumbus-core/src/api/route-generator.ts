@@ -7,8 +7,10 @@ import { authenticationFailureToHttp, buildAuthenticationRequest } from './authe
 import {
   errorToHttpResponse,
   errorToSsePayload,
+  GENERIC_INTERNAL_MESSAGE,
   unknownErrorToSsePayload,
 } from '../errors/http.js';
+import { isPlumbusError } from '../errors/index.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
 import { JobExecutionSource } from '../jobs/schema.js';
@@ -28,8 +30,30 @@ export interface DependencyOptions {
   locale?: string;
 }
 
+/**
+ * A request's dependencies together with the database they were wired against.
+ *
+ * The generator needs the database as well as the dependencies because two
+ * things happen outside the execution context — queue dispatch for `kind: 'job'`
+ * capabilities and the `onCapabilityError` hook — and both must address the same
+ * database the capability itself read and wrote. Returning them together makes
+ * that impossible to get wrong.
+ */
+export interface ResolvedRequestDependencies {
+  /** Dependencies for this request. */
+  dependencies: ContextDependencies;
+  /** The database `dependencies` were wired against. */
+  db: PostgresJsDatabase;
+}
+
 export interface RouteGeneratorConfig {
-  /** Live Drizzle database connection used by the server. */
+  /**
+   * Live Drizzle database connection used by the server.
+   *
+   * This is the database every request uses unless `resolveDependencies` is
+   * supplied, in which case it is only the fallback for requests that never
+   * reach dependency resolution.
+   */
   db: PostgresJsDatabase;
   /** Auth adapter for extracting identity from requests */
   authAdapter: AuthAdapter;
@@ -40,6 +64,24 @@ export interface RouteGeneratorConfig {
     auth: NonNullable<Awaited<ReturnType<AuthAdapter['authenticate']>>>,
     options?: DependencyOptions,
   ) => ContextDependencies;
+  /**
+   * Optional async alternative to `createDependencies`, used for every request
+   * when present and ignored when absent.
+   *
+   * It exists for deployments that choose the request's database per request
+   * rather than per boot — a tenant's data plane resolved from its auth context.
+   * Leaving it unset keeps the synchronous `createDependencies` path exactly as
+   * it was, with no additional `await` between authentication and execution.
+   *
+   * Throwing rejects the request: the thrown value is mapped through the normal
+   * error-to-HTTP rules (a `PlumbusError` keeps its code and status, anything
+   * else becomes a generic 500), so a resolver that refuses an unknown or absent
+   * tenant fails closed instead of falling through to another tenant's data.
+   */
+  resolveDependencies?: (
+    auth: NonNullable<Awaited<ReturnType<AuthAdapter['authenticate']>>>,
+    options?: DependencyOptions,
+  ) => Promise<ResolvedRequestDependencies>;
   /** Optional queue for dispatching async job capabilities */
   jobQueue?: EventQueue;
   /** Default locale when request headers do not resolve one */
@@ -140,7 +182,26 @@ export function registerCapabilityRoute(
       defaultLocale: config.defaultLocale ?? 'en',
       supportedLocales: config.supportedLocales ?? [config.defaultLocale ?? 'en'],
     });
-    const deps = config.createDependencies(authContext, { bypassTenantScope, locale });
+    // The synchronous factory stays the only path when no resolver is supplied:
+    // nothing extra is awaited between authentication and execution.
+    let deps: ContextDependencies;
+    let requestDb = config.db;
+    if (config.resolveDependencies) {
+      try {
+        const resolved = await config.resolveDependencies(authContext, {
+          bypassTenantScope,
+          locale,
+        });
+        deps = resolved.dependencies;
+        requestDb = resolved.db;
+      } catch (err) {
+        const failure = dependencyResolutionToHttp(err, requestId);
+        reply.status(failure.statusCode).send(failure.body);
+        return;
+      }
+    } else {
+      deps = config.createDependencies(authContext, { bypassTenantScope, locale });
+    }
     deps.correlationId = resolveRequestCorrelationId(request.headers);
     deps.request = {
       sourceIp: request.ip,
@@ -170,7 +231,7 @@ export function registerCapabilityRoute(
         return reply.status(statusCode).send(body);
       }
       const jobId = await dispatchQueuedJob({
-        db: config.db,
+        db: requestDb,
         jobQueue: config.jobQueue,
         capability,
         input: parsed.data as Record<string, unknown>,
@@ -203,7 +264,7 @@ export function registerCapabilityRoute(
             tenantId: ctx.auth.tenantId,
             sourceIp: request.ip,
             userAgent: request.headers['user-agent'],
-            db: config.db,
+            db: requestDb,
           }))().catch((hookErr) => {
           logHookError('onCapabilityError', hookErr);
         });
@@ -312,7 +373,22 @@ export function registerStreamingRoute(
       defaultLocale: config.defaultLocale ?? 'en',
       supportedLocales: config.supportedLocales ?? [config.defaultLocale ?? 'en'],
     });
-    const deps = config.createDependencies(authContext, { bypassTenantScope, locale });
+    let deps: ContextDependencies;
+    if (config.resolveDependencies) {
+      try {
+        const resolved = await config.resolveDependencies(authContext, {
+          bypassTenantScope,
+          locale,
+        });
+        deps = resolved.dependencies;
+      } catch (err) {
+        const failure = dependencyResolutionToHttp(err, requestId);
+        reply.status(failure.statusCode).send(failure.body);
+        return;
+      }
+    } else {
+      deps = config.createDependencies(authContext, { bypassTenantScope, locale });
+    }
     deps.correlationId = resolveRequestCorrelationId(request.headers);
     deps.request = {
       sourceIp: request.ip,
@@ -369,6 +445,35 @@ export function registerStreamingRoute(
 
     reply.raw.end();
   });
+}
+
+/**
+ * Shape a failure from `resolveDependencies` into an HTTP response.
+ *
+ * A `PlumbusError` keeps its own code and status — a resolver that refuses an
+ * unknown tenant with `notFound`, or an untenanted request with `forbidden`,
+ * reaches the client as that. Anything else becomes a generic 500 so an
+ * infrastructure failure (a connection string, a routing table) is never echoed
+ * back to the caller. Streaming routes call this before any SSE header is
+ * written, so the refusal is a plain HTTP status there too.
+ */
+function dependencyResolutionToHttp(
+  err: unknown,
+  requestId: string | undefined,
+): {
+  statusCode: number;
+  body: { error: { code: string; message: string; metadata?: Record<string, unknown> } };
+} {
+  const mapped = isPlumbusError(err)
+    ? errorToHttpResponse(err)
+    : {
+        statusCode: 500,
+        body: { error: { code: 'internal', message: GENERIC_INTERNAL_MESSAGE } },
+      };
+  return {
+    statusCode: mapped.statusCode,
+    body: { error: { ...mapped.body.error, ...(requestId ? { requestId } : {}) } },
+  };
 }
 
 function resolveRequestCorrelationId(

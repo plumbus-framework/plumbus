@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from '@plumbus/core/zod';
-import {
-  CapabilityRegistry,
-  buildCapabilityRuntimeDeps,
-  createExecutionContext,
-  defineCapability,
-} from '@plumbus/core';
+import { CapabilityRegistry, buildCapabilityRuntimeDeps, defineCapability } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { createTestContext } from '@plumbus/core/testing';
 import { buildNormalizedPending } from '../pending-action-factory.js';
 import {

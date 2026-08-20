@@ -35,6 +35,9 @@ plumbus api diff --against ./published/openapi-v1.json --json
 
 # Custom manifest
 plumbus api diff --manifest ./api.yaml --against ./published/openapi-v1.json
+
+# Generate the current spec in the same document dialect as the baseline
+plumbus api diff --against ./published/openapi-v1.json --openapi-version 3.1.0
 ```
 
 Exit codes:
@@ -48,7 +51,7 @@ Exit codes:
 
 ## What gets compared
 
-`diffOpenApi(baseline, current)` walks operations by `operationId` and compares:
+`diffOpenApi(baseline, current)` compares the two documents' `openapi` version, then walks operations by `operationId` and compares:
 
 - HTTP method and path
 - Request schema (body + query parameters)
@@ -58,6 +61,8 @@ Exit codes:
 - `x-plumbus-test` vendor extension (removing test behavior is breaking)
 
 Operations are keyed by `operationId` from the OpenAPI document. Renaming an operation ID appears as remove + add.
+
+Only operation keys (`get`, `put`, `post`, `delete`, `options`, `head`, `patch`, `trace`) are read from a path item — path-level `summary`, `description`, `servers`, and shared `parameters` are metadata, not operations, so moving a shared parameter into the operation is not reported as a removal.
 
 ---
 
@@ -114,6 +119,7 @@ Safe without a major version bump (still worth documenting in release notes):
 | `response-field-became-required` | Field was already always present; now marked required in schema |
 | `removed-request-field` | Removed optional input field partners may not have used |
 | `deprecated-operation` | `deprecated: true` added — operation still callable |
+| `changed-openapi-version` | Document re-emitted as OpenAPI `3.1.0` instead of `3.0.3` |
 
 ### Example: non-breaking response change
 
@@ -128,6 +134,50 @@ Safe without a major version bump (still worth documenting in release notes):
 ```
 NON-BREAKING: response field "currency" added to getRefund
 ```
+
+---
+
+## Cross-version diff
+
+A baseline published as OpenAPI 3.0.3 can be compared against a current spec generated as 3.1.0, in either direction. Two things happen.
+
+### 1. The version change is reported, and it is not breaking
+
+```
+NON-BREAKING: OpenAPI document version changed 3.0.3 → 3.1.0 (document dialect only —
+the wire contract is unchanged; regenerate clients with tooling that reads 3.1.0)
+```
+
+The reasoning, because it is a judgement call worth stating:
+
+- **The wire contract is unchanged.** The `openapi` field names the *document dialect*, not the contract the server serves. Re-emitting the same capabilities at 3.1.0 leaves every path, method, status code, security requirement, and JSON payload identical — the same handler serves both documents. No partner request that worked against the 3.0 document stops working. That is what "breaking" means here, so the change is not breaking, and `plumbus api diff` still exits `0`.
+- **The document dialect is not unchanged.** OpenAPI 3.1 is JSON Schema 2020-12: nullability moves from the `nullable` keyword to a `null` member of a `type` array, a single permitted value may be `const` rather than a one-member `enum`, and a client generator or API portal pinned to 3.0 may refuse the document outright. That is a real cost — borne by consumers of the *spec*, not callers of the *API* — so it is reported rather than dropped, and belongs in release notes alongside the other non-breaking entries.
+
+If you would rather gate on it, read the `--json` output and fail your pipeline on `kind: "changed-openapi-version"`. The diff will not make that decision for you.
+
+### 2. Dialect differences are not mistaken for schema changes
+
+The diff normalizes the two spellings before comparing, so a pure re-emission produces the version entry and nothing else:
+
+| OpenAPI 3.0 | OpenAPI 3.1 | Treated as |
+|---|---|---|
+| `{ type: 'string', nullable: true }` | `{ type: ['string', 'null'] }` | the same schema |
+| `{ type: 'object', nullable: true, properties: … }` | `{ anyOf: [{ type: 'object', properties: … }, { type: 'null' }] }` | the same schema |
+| `{ type: 'boolean', enum: [true] }` | `{ type: 'boolean', const: true }` | the same permitted value |
+
+Without that normalization every nullable field would surface as a breaking `changed-response-type` on the day you switch dialects — a false alarm that trains teams to ignore the gate.
+
+A genuine change made in the same release is still caught: dropping a response field while bumping the document version reports both `removed-response-field` (breaking) and `changed-openapi-version` (non-breaking).
+
+### Keeping CI quiet
+
+Give `plumbus api diff` the same dialect as the baseline it compares against, and the version entry disappears:
+
+```bash
+plumbus api diff --against ./published/openapi-v1.json --openapi-version 3.1.0
+```
+
+Switch the baseline and the flag together in one release, and note the dialect change for partners who generate clients from the document.
 
 ---
 
@@ -201,6 +251,10 @@ On breaking changes, bump `basePath` (e.g. `/api/v2`), update `published/openapi
 The diff compares OpenAPI schema structure — not handler behavior. A change that preserves schemas but alters business logic is invisible to diff. Keep Vitest coverage on capability handlers.
 
 Removing an optional request field is classified non-breaking even if partners relied on it — use deprecation metadata and communication for behavioral sunsets.
+
+Nullability itself is not classified. Because 3.0 and 3.1 spell it differently, both spellings normalize to the same schema, and a field that gains or loses `null` is not reported in either direction. Treat a field turning nullable as a documented behavioral change.
+
+Only `paths` is walked. OpenAPI 3.1 documents may omit `paths` entirely and describe `webhooks` or `components` alone; such a document diffs cleanly rather than throwing, but its webhooks are not compared.
 
 ---
 

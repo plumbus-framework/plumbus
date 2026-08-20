@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from '@plumbus/core/zod';
-import {
-  CapabilityRegistry,
-  buildCapabilityRuntimeDeps,
-  createExecutionContext,
-  defineCapability,
-} from '@plumbus/core';
+import { CapabilityRegistry, buildCapabilityRuntimeDeps, defineCapability } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { createTestContext } from '@plumbus/core/testing';
 import { actionGuard } from '../action-guard.js';
 import { createSession } from '../../session/service.js';

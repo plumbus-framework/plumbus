@@ -7,11 +7,69 @@ interface ObjectSchemaView {
   required: Set<string>;
 }
 
+const NULL_TYPE = 'null';
+
+/**
+ * Collapse dialect differences in how nullability is spelled.
+ *
+ * OpenAPI 3.0 uses the `nullable: true` keyword alongside a single `type`. OpenAPI 3.1 uses
+ * JSON Schema 2020-12, which spells the same thing as a `null` member of a `type` array
+ * (`{ type: ['string', 'null'] }`) or as a `null` branch of an `anyOf` / `oneOf` union.
+ * All three describe the identical wire value, so the diff normalizes them to one shape before
+ * comparing — otherwise re-emitting an unchanged contract as 3.1 would report a type change on
+ * every nullable field.
+ */
+function unwrapNullable(schema: JsonSchema): { schema: JsonSchema; nullable: boolean } {
+  const nullableKeyword = schema.nullable === true;
+
+  const union = Array.isArray(schema.anyOf)
+    ? (schema.anyOf as unknown[])
+    : Array.isArray(schema.oneOf)
+      ? (schema.oneOf as unknown[])
+      : undefined;
+  if (union) {
+    const branches = union.filter((b): b is JsonSchema => typeof b === 'object' && b !== null);
+    const valueBranches = branches.filter((b) => b.type !== NULL_TYPE);
+    const soleValueBranch = valueBranches.length === 1 ? valueBranches[0] : undefined;
+    const hasNullBranch = branches.length !== valueBranches.length;
+    if (hasNullBranch && soleValueBranch) {
+      return { schema: unwrapNullable(soleValueBranch).schema, nullable: true };
+    }
+  }
+
+  if (Array.isArray(schema.type)) {
+    const types = (schema.type as unknown[]).filter((t): t is string => typeof t === 'string');
+    const valueTypes = types.filter((t) => t !== NULL_TYPE);
+    const nullable = nullableKeyword || valueTypes.length !== types.length;
+    const soleType = valueTypes.length === 1 ? valueTypes[0] : undefined;
+    if (soleType !== undefined) {
+      return { schema: { ...schema, type: soleType }, nullable };
+    }
+    return { schema: { ...schema, type: [...valueTypes].sort() }, nullable };
+  }
+
+  return { schema, nullable: nullableKeyword };
+}
+
+/**
+ * Enumerated values, however the dialect spells them. JSON Schema 2020-12 (and therefore
+ * OpenAPI 3.1) prefers `const: value` where OpenAPI 3.0 emits a single-member `enum`.
+ */
+function enumValues(schema: JsonSchema): unknown[] | undefined {
+  if (Array.isArray(schema.enum)) {
+    return schema.enum as unknown[];
+  }
+  if (schema.const !== undefined) {
+    return [schema.const];
+  }
+  return undefined;
+}
+
 function asObjectSchema(schema: unknown): ObjectSchemaView | undefined {
   if (!schema || typeof schema !== 'object') {
     return undefined;
   }
-  const s = schema as JsonSchema;
+  const s = unwrapNullable(schema as JsonSchema).schema;
   if (s.type === 'object' && s.properties && typeof s.properties === 'object') {
     const required = new Set(
       Array.isArray(s.required)
@@ -96,12 +154,14 @@ function extractResponseDataSchema(op: Record<string, unknown>): ObjectSchemaVie
 }
 
 function schemaTypeKey(schema: JsonSchema): string {
-  if (schema.enum) {
-    return `enum:${JSON.stringify(schema.enum)}`;
+  const s = unwrapNullable(schema).schema;
+  const values = enumValues(s);
+  if (values) {
+    return `enum:${JSON.stringify(values)}`;
   }
-  const type = schema.type ?? 'unknown';
-  const format = schema.format ? `:${schema.format}` : '';
-  return `${String(type)}${format}`;
+  const type = s.type ?? 'unknown';
+  const format = s.format ? `:${s.format}` : '';
+  return `${Array.isArray(type) ? type.join('|') : String(type)}${format}`;
 }
 
 function compareObjectSchemas(
@@ -139,8 +199,8 @@ function compareObjectSchemas(
       });
     }
 
-    const prevEnum = Array.isArray(prevField.enum) ? (prevField.enum as unknown[]) : undefined;
-    const nextEnum = Array.isArray(nextField.enum) ? (nextField.enum as unknown[]) : undefined;
+    const prevEnum = enumValues(unwrapNullable(prevField).schema);
+    const nextEnum = enumValues(unwrapNullable(nextField).schema);
     if (prevEnum && nextEnum) {
       const removed = prevEnum.filter((v) => !nextEnum.includes(v));
       if (removed.length > 0) {

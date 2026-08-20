@@ -19,8 +19,13 @@ export {
   parseOpenApiDocument,
   serializeOpenApiDocument,
   zodToOpenApiSchema,
+  DEFAULT_OPENAPI_VERSION,
+  JSON_SCHEMA_2020_12_DIALECT,
+  OPENAPI_VERSIONS,
   type DiffEntry,
+  type GenerateOpenApiOptions,
   type OpenApiDocument,
+  type OpenApiVersion,
 } from './openapi/index.js';
 export { validateApiContract, type ApiValidateResult } from './validate.js';
 export type { ApiPolicyFinding } from './policy/index.js';

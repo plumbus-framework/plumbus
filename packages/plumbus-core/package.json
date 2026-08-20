@@ -17,6 +17,10 @@
       "types": "./dist/errors-entry.d.ts",
       "import": "./dist/errors-entry.js"
     },
+    "./runtime": {
+      "types": "./dist/runtime-entry.d.ts",
+      "import": "./dist/runtime-entry.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"

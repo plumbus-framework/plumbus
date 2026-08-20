@@ -3,10 +3,10 @@ import { z } from '@plumbus/core/zod';
 import {
   CapabilityRegistry,
   buildCapabilityRuntimeDeps,
-  createExecutionContext,
   defineCapability,
   executeCapability,
 } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { createTestContext, mockEvents } from '@plumbus/core/testing';
 import { chatConfirmAction } from '../chat-confirm-action.js';
 import type {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createExecutionContext } from '@plumbus/core';
 import type { TranslationDefinition } from '@plumbus/core';
+import { createExecutionContext } from '@plumbus/core/runtime';
 import { createTestAuth, createTestContext, createTestData } from '@plumbus/core/testing';
 import { translationCatalog } from '../translation-catalog.js';
 

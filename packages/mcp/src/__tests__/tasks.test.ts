@@ -68,6 +68,60 @@ describe('MCP tasks for kind:job', () => {
     }
   });
 
+  it('persists reported progress onto the task row through the background context', async () => {
+    const observed: unknown[] = [];
+    const reportsProgress = defineCapability({
+      name: 'reportsProgress',
+      kind: 'job',
+      domain: 'reports',
+      description: 'Reports progress and reads it back off its own task row',
+      input: z.object({}),
+      output: z.object({ done: z.boolean() }),
+      access: { roles: ['user'] },
+      effects: { data: [], events: [], external: [], ai: false },
+      exposeAs: ['mcp'],
+      mcp: { description: 'Progress probe' },
+      async handler(ctx) {
+        ctx.progress?.report({ progress: 1, total: 2, message: 'halfway' });
+        // recordProgress is fire-and-forget; let the write settle before reading.
+        await new Promise((r) => setTimeout(r, 20));
+        const rows = (await ctx.data.McpTask?.findMany()) as
+          | Array<{ lastProgressJson?: unknown }>
+          | undefined;
+        observed.push(...(rows ?? []).map((row) => row.lastProgressJson));
+        return { done: true };
+      },
+    });
+
+    const { client, close } = await createTestMcpServer({
+      capabilities: [reportsProgress],
+      entities: [mcpTaskEntity],
+      auth: { userId: 'u1', roles: ['user'], scopes: [], provider: 'mcp' },
+    });
+    try {
+      const created = (await client.callTool({
+        name: 'reports.reportsProgress',
+        arguments: {},
+        _meta: { taskMetadata: {} },
+      } as any)) as any;
+      const taskId: string = created.task.taskId;
+
+      let status: string = 'working';
+      for (let i = 0; i < 30 && status === 'working'; i++) {
+        const got = await client.request(
+          { method: 'tasks/get', params: { taskId } },
+          GetTaskResultSchema,
+        );
+        status = got.status;
+        if (status === 'working') await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(status).toBe('completed');
+      expect(observed).toEqual([{ progress: 1, total: 2, message: 'halfway' }]);
+    } finally {
+      await close();
+    }
+  });
+
   it('cancels a running task and marks it cancelled', async () => {
     const longJob = defineCapability({
       name: 'longJob',
