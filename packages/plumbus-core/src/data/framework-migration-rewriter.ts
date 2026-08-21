@@ -210,7 +210,7 @@ export function rewriteFrameworkDriftMigration(
 export const STATEMENT_BREAKPOINT_MARKER = STATEMENT_BREAKPOINT;
 
 const CREATE_TABLE_HEAD_RE =
-  /^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_]\w*))/i;
+  /^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"[^"]+"|[a-zA-Z_]\w*)\.)?(?:"([^"]+)"|([a-zA-Z_]\w*))/i;
 
 function matchCreateTableName(stmt: string): string | null {
   const m = stmt.match(CREATE_TABLE_HEAD_RE);

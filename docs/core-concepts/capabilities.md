@@ -22,6 +22,7 @@ export const approveRefund = defineCapability({
     status: z.literal("approved"),
     approvedAt: z.string(),
   }),
+  riskTier: "consequential",
   access: {
     roles: ["billing_manager"],
     scopes: ["refunds:approve"],
@@ -174,7 +175,7 @@ Capabilities may **not** import and call another capability's handler directly. 
 
 - **Canonical names:** use `<domain>.<capabilityName>` everywhere — e.g. `billing.approveRefund`. The local `name` field in `defineCapability` stays short (`approveRefund`); the framework derives the canonical name from `domain` + `name`.
 - **Declared dependencies:** the target must appear in `effects.capabilities`. Undeclared calls, cycles, missing targets, and job targets produce `dependencyViolation` errors at runtime.
-- **Full pipeline:** nested calls run through `executeCapability` (validation, access, audit, output validation). The callee inherits the caller's auth, transaction scope, and correlation context.
+- **Full pipeline:** nested calls run through `executeCapability` (validation, access, approval gate, audit, output validation). The callee inherits the caller's auth, transaction scope, and correlation context.
 - **Handler surface:** capability handlers receive `ctx.capabilities.invoke` only. Internal registry invokers are not exposed on `ctx.__runtime` — bypassing the policy layer is not supported. The single exception is framework-internal and not extensible: `stripHandlerRuntime` preserves the full runtime (`invokeCapability`, `resolveCapability`, `invocationEmitScope`) for the built-in `chat.chatConfirmAction`, which must re-enter the pipeline to execute a user-confirmed action. The carve-out is keyed on that exact canonical name, so an application capability can never receive it.
 - **Nested events:** when a callee emits via `ctx.events.emit()`, the outbox envelope's `causationId` is set to the caller's canonical capability name (or the executing capability when not nested).
 - **Nested audit:** success audit rows for nested `ctx.capabilities.invoke` calls include a `caller` field with the invoking capability's canonical name.
@@ -191,6 +192,16 @@ handler: async (ctx, input) => {
 ```
 
 See [upgrading-capability-names](../upgrading-capability-names.md) when migrating existing apps to canonical names.
+
+## Action-risk tiers and the approval gate
+
+`defineCapability` accepts optional `riskTier` from the F-09 vocabulary (`read-only`, `limited-reversible`, `consequential`). Omit it and existing capabilities keep working — the gate is a no-op.
+
+Only `consequential` requires a bound, unexpired approval before the handler runs. The approval binds the canonical capability name, definition version (`version` or `"1"`), and an input digest. A material input or version change invalidates the prior request. After an `approval_pending` wait, execution revalidates authorization through an `AuthorizationProvider` (harness stub; the host supplies the real gate later).
+
+Wire `createApprovalService` / `createMemoryApprovalStore` onto the execution context (`approvals`, optional `authorizationProvider`). A human task is never completable by a service principal (`system` / `internal`, `worker` / `scheduler` provider) or an unauthenticated callback.
+
+See [approvals](./approvals.md).
 
 ## Transactional outbox
 

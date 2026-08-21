@@ -189,6 +189,13 @@ export {
   sql,
   ENCRYPTION_PREFIX,
 } from './data/index.js';
+// ── Approvals / human tasks (Plan 02 Stage 4) ──
+export {
+  createApprovalService,
+  createMemoryApprovalStore,
+  createSqlApprovalStore,
+} from './approvals/index.js';
+export type { ApprovalService, AuthorizationProvider } from './approvals/index.js';
 // ── Define Functions ──
 export { defineCapability } from './define/defineCapability.js';
 export { defineEntity } from './define/defineEntity.js';
@@ -202,6 +209,7 @@ export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export {
   AIBudgetExceededError,
   AISecurityBlockedError,
+  BudgetExhaustedError,
   DataForbiddenError,
   DataInternalError,
   DataValidationError,
@@ -232,6 +240,7 @@ export {
   createEventEmitter,
   createEventWorker,
   createIdempotencyService,
+  evaluateEventSubscriptionDelivery,
   createInMemoryQueue,
   createOutboxDispatcher,
   createRedisQueue,
@@ -289,25 +298,39 @@ export type {
 } from './flows/index.js';
 // ── Flows ──
 export {
+  COMPILED_FLOW_CONTRACT_VERSION,
+  CompiledFlowRegistry,
+  DEFINITION_STRATEGY_NOT_SUPPORTED,
+  DefinitionInFlightStrategy,
+  DefinitionStrategyNotSupportedError,
   FlowRegistry,
   FlowStatus,
   StepStatus,
+  assertSupportedDefinitionStrategy,
   assertTransition,
   buildHistoryEntry,
+  compileFlowDefinition,
+  DEFAULT_SCHEDULE_CATCH_UP_MAX,
   computeNextRun,
   computeRetryDelay,
   createFlowEngine,
   createFlowScheduler,
   createFlowService,
   createFlowTriggerHandler,
+  createExecutionBudgetLedger,
+  chargeExecutionBudget,
   deadLetterFlow,
   executeStep,
   flowDeadLetterTable,
+  flowDefinitionId,
   flowExecutionsTable,
   flowSchedulesTable,
   generateWorkerId,
+  hydrateCompiledFlow,
   isTerminal,
+  planMissedSchedule,
   isValidTransition,
+  retryDeadLetteredFlow,
   sweepFailedFlows,
 } from './flows/index.js';
 export type {

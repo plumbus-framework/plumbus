@@ -3,7 +3,14 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { parseDurationToMs } from '../config/duration.js';
-import { FlowCancelledError, LeaseLostError } from '../errors/index.js';
+import { FlowCancelledError, LeaseLostError, PlumbusError } from '../errors/index.js';
+import {
+  BUDGET_EXHAUSTED,
+  consumeExecutionBudget,
+  createExecutionBudgetLedger,
+  writeExecutionBudget,
+} from './budget.js';
+import type { ApprovalService } from '../approvals/types.js';
 import type { EventQueue } from '../events/queue.js';
 import type { AuditService } from '../types/audit.js';
 import type {
@@ -14,9 +21,28 @@ import type {
   FlowExecution,
   LoggerService,
 } from '../types/context.js';
-import { BackoffStrategy } from '../types/enums.js';
-import type { FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
+import { AuthRole, BackoffStrategy, ErrorCode, FlowStepType } from '../types/enums.js';
+import type { CapabilityStep, FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
+import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
+import {
+  ackSpineDispatch,
+  casAdvanceExecution,
+  claimSpineDispatch,
+  insertDispatchOutbox,
+  loadExecutionState,
+  persistAcceptanceOnDb,
+  publishOutboxToSpine,
+} from '../durable/index.js';
+import type { OpaqueDispatchRecord } from '../durable/types.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
+import { flowDefinitionId, hydrateCompiledFlow } from './compile-flow.js';
+import type { CompiledFlowRegistry } from './compiled-registry.js';
+import {
+  assertSupportedDefinitionStrategy,
+  DefinitionInFlightStrategy,
+  type DefinitionInFlightStrategy as DefinitionInFlightStrategyName,
+} from './definition-strategy.js';
 import type { FlowRegistry } from './registry.js';
 import { flowExecutionsTable } from './schema.js';
 import {
@@ -100,6 +126,28 @@ export interface FlowEngineConfig {
    * land in the same `[plumbus:worker]` stream as everything else.
    */
   logger?: LoggerService;
+  /**
+   * Protocol A: claim wake-ups from a spine database, then load tenant-local
+   * flow_executions / execution_state via the resolver. Omitted, the engine
+   * keeps today's single-database claim loop on `flow_executions`.
+   */
+  spineDispatch?: FlowSpineDispatchConfig;
+  /**
+   * Optional compiled-definition registry (Plan 02 Stage 5). When set,
+   * the engine consumes compiled JSON (not live TypeScript steps):
+   * `start` requires a published version and pins it on `flow_executions`.
+   * Omitted: existing live-TS `FlowRegistry` path is unchanged.
+   */
+  compiledRegistry?: CompiledFlowRegistry;
+  /** Stage 4 approval service — required for `approval-outcome` steps. */
+  approvals?: ApprovalService;
+}
+
+export interface FlowSpineDispatchConfig {
+  db: PostgresJsDatabase;
+  resolver: DataPlaneResolver;
+  /** Schema holding tenant durable tables. Default `core_plumbus`. */
+  coreSchema?: string;
 }
 
 interface FlowExecutionRow {
@@ -125,6 +173,8 @@ interface FlowExecutionRow {
   completedAt: Date | null;
   leaseOwner: string | null;
   leaseExpiresAt: Date | null;
+  definitionVersion: string | null;
+  definitionDigest: string | null;
 }
 
 /** Type-safe partial update payload for flow executions. */
@@ -175,13 +225,89 @@ export function generateWorkerId(): string {
  * across multiple workers sharing the same database.
  */
 export function createFlowEngine(config: FlowEngineConfig) {
-  const { db, registry, stepDeps, audit, onFlowError, createEventService } = config;
+  const { db, registry, audit, onFlowError, createEventService } = config;
+  const compiledRegistry = config.compiledRegistry;
+  const approvals = config.approvals;
+  const stepDeps: StepExecutorDeps = {
+    ...config.stepDeps,
+    findApprovalForExecution:
+      config.stepDeps.findApprovalForExecution ??
+      (approvals ? (executionId) => approvals.findByExecutionId(executionId) : undefined),
+  };
   const workerId = config.workerId ?? generateWorkerId();
   const leaseDurationMs = config.flowLeaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;
   const heartbeatIntervalMs = config.flowHeartbeatIntervalMs ?? Math.floor(leaseDurationMs / 3);
   const claimBatchSize = config.flowClaimBatchSize ?? DEFAULT_CLAIM_BATCH_SIZE;
   const logger = config.logger;
   const onFlowStepEnqueue = config.onFlowStepEnqueue;
+  const spineDispatch = config.spineDispatch;
+  const durableSchema = spineDispatch?.coreSchema ?? FRAMEWORK_SCHEMA;
+  const executionStores = new Map<string, PostgresJsDatabase>();
+  const claimedHints = new Map<string, OpaqueDispatchRecord>();
+  const executionPins = new Map<
+    string,
+    { flowDefinitionId: string; definitionVersion: string; definitionDigest?: string }
+  >();
+
+  function restorePinFromRow(row: FlowExecutionRow): void {
+    if (executionPins.has(row.id)) return;
+    if (!row.definitionVersion) return;
+    executionPins.set(row.id, {
+      flowDefinitionId: flowDefinitionId({ domain: row.domain, name: row.flowName }),
+      definitionVersion: row.definitionVersion,
+      definitionDigest: row.definitionDigest ?? undefined,
+    });
+  }
+
+  function resolveCompiledForStart(flow: FlowDefinition) {
+    if (!compiledRegistry) return undefined;
+    const id = flowDefinitionId(flow);
+    const compiled = compiledRegistry.getLatest(id);
+    if (!compiled) {
+      throw new PlumbusError(
+        ErrorCode.NotFound,
+        `compiled definition required for "${id}"`,
+        { reason: 'compiled-definition-required' },
+      );
+    }
+    return compiled;
+  }
+
+  function resolveExecutionFlow(executionId: string, flowName: string): FlowDefinition {
+    const authoring = registry.get(flowName);
+    if (!authoring) {
+      throw new Error(`Flow "${flowName}" is not registered`);
+    }
+    if (!compiledRegistry) return authoring;
+    const pin = executionPins.get(executionId);
+    if (!pin) {
+      throw new PlumbusError(
+        ErrorCode.NotFound,
+        `Flow "${flowName}" has no pinned compiled definition`,
+        { reason: 'compiled-definition-missing', executionId },
+      );
+    }
+    const compiled = compiledRegistry.get(pin.flowDefinitionId, pin.definitionVersion);
+    if (!compiled) {
+      throw new PlumbusError(
+        ErrorCode.NotFound,
+        `compiled definition "${pin.flowDefinitionId}@${pin.definitionVersion}" is not in the registry`,
+        { reason: 'compiled-definition-missing' },
+      );
+    }
+    if (pin.definitionDigest && compiled.definitionDigest !== pin.definitionDigest) {
+      throw new PlumbusError(
+        ErrorCode.Conflict,
+        `compiled definition digest mismatch for "${pin.flowDefinitionId}@${pin.definitionVersion}"`,
+        { reason: 'compiled-definition-digest-mismatch' },
+      );
+    }
+    return hydrateCompiledFlow(compiled, authoring);
+  }
+
+  function storeFor(executionId: string): PostgresJsDatabase {
+    return executionStores.get(executionId) ?? db;
+  }
   const onFlowDelayedSchedule = config.onFlowDelayedSchedule;
 
   async function maybeEnqueueFlowStep(
@@ -223,27 +349,65 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     const executionId = opts?.executionId ?? randomUUID();
-    const initialState = flow.state
+    const compiled = resolveCompiledForStart(flow);
+    const executionFlow = compiled ? hydrateCompiledFlow(compiled, flow) : flow;
+    const definitionVersion = compiled?.definitionVersion ?? '0.0.0';
+    if (compiled) {
+      executionPins.set(executionId, {
+        flowDefinitionId: compiled.flowDefinitionId,
+        definitionVersion: compiled.definitionVersion,
+        definitionDigest: compiled.definitionDigest,
+      });
+    }
+    let initialState: unknown = flow.state
       ? (() => {
           const parsed = flow.state.safeParse({});
           return parsed.success ? parsed.data : {};
         })()
       : null;
+    if (flow.budget) {
+      initialState = writeExecutionBudget(
+        initialState,
+        createExecutionBudgetLedger({
+          executionId,
+          profileId: flow.budget.profileId,
+          allocated: flow.budget.allocated,
+          unitId: flow.budget.unitId,
+          dimensionId: flow.budget.dimensionId,
+        }),
+      );
+    }
 
-    await db.insert(flowExecutionsTable).values({
+    let writeDb = db;
+    if (spineDispatch) {
+      if (!auth.tenantId) {
+        throw new PlumbusError(
+          ErrorCode.Forbidden,
+          'spine dispatch requires a tenant reference on flow start',
+          { reason: 'untenanted-flow-start' },
+        );
+      }
+      const handle = await spineDispatch.resolver.resolve(auth.tenantId);
+      writeDb = handle.db;
+      executionStores.set(executionId, writeDb);
+    }
+
+    await writeDb.insert(flowExecutionsTable).values({
       id: executionId,
       flowName,
       domain: flow.domain,
       status: FlowStatus.Created,
       input: parseResult.data as Record<string, unknown>,
       state: initialState as Record<string, unknown> | null,
-      currentStep: flow.steps[0]?.name ?? null,
+      currentStep: executionFlow.steps[0]?.name ?? null,
       stepHistory: [],
       actor: auth.userId ?? 'system',
       tenantId: auth.tenantId ?? null,
       authSnapshotJson: auth,
       correlationId: opts?.correlationId ?? null,
       triggerEventId: opts?.triggerEventId ?? null,
+      definitionVersion: compiled?.definitionVersion ?? null,
+      definitionDigest: compiled?.definitionDigest ?? null,
     } satisfies typeof flowExecutionsTable.$inferInsert);
 
     if (audit) {
@@ -258,6 +422,32 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     await maybeEnqueueFlowStep(executionId, opts?.correlationId);
 
+    if (spineDispatch && auth.tenantId) {
+      const nowIso = new Date().toISOString();
+      const firstStepId = executionFlow.steps[0]?.name ?? 'terminal';
+      const accepted = await persistAcceptanceOnDb(
+        writeDb,
+        {
+          executionId,
+          tenantRef: auth.tenantId,
+          definitionId: flowName,
+          definitionVersion,
+          firstStepId,
+          correlationId: opts?.correlationId ?? executionId,
+          nowIso,
+        },
+        durableSchema,
+      );
+      await publishOutboxToSpine(
+        writeDb,
+        spineDispatch.db,
+        accepted.outbox,
+        `disp:${executionId}:1`,
+        nowIso,
+        durableSchema,
+      );
+    }
+
     return {
       id: executionId,
       flowName,
@@ -270,7 +460,68 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Uses FOR UPDATE SKIP LOCKED so concurrent workers each get different rows.
    * Also reclaims rows whose lease has expired (crash recovery).
    */
+  async function claimNextFromSpine(batchSize?: number): Promise<FlowExecutionRow[]> {
+    if (!spineDispatch) return [];
+    const hints = await claimSpineDispatch(spineDispatch.db, {
+      workerId,
+      leaseDurationMs,
+      limit: batchSize ?? claimBatchSize,
+    });
+    const rows: FlowExecutionRow[] = [];
+    for (const hint of hints) {
+      try {
+        const handle = await spineDispatch.resolver.resolve(hint.tenantRouteId);
+        const tenantState = await loadExecutionState(handle.db, hint.executionId, durableSchema);
+        if (
+          !tenantState ||
+          tenantState.terminal ||
+          tenantState.revision !== hint.expectedRevision ||
+          tenantState.tenantEpoch !== hint.tenantEpoch
+        ) {
+          await ackSpineDispatch(spineDispatch.db, hint.dispatchId);
+          continue;
+        }
+        const execRows = await handle.db
+          .select()
+          .from(flowExecutionsTable)
+          .where(eq(flowExecutionsTable.id, hint.executionId))
+          .limit(1);
+        const row = execRows[0] as FlowExecutionRow | undefined;
+        if (!row) {
+          await ackSpineDispatch(spineDispatch.db, hint.dispatchId);
+          continue;
+        }
+        executionStores.set(hint.executionId, handle.db);
+        claimedHints.set(hint.executionId, hint);
+        await handle.db
+          .update(flowExecutionsTable)
+          .set({
+            status: FlowStatus.Running,
+            leaseOwner: workerId,
+            leaseExpiresAt: new Date(Date.now() + leaseDurationMs),
+            updatedAt: new Date(),
+          })
+          .where(eq(flowExecutionsTable.id, hint.executionId));
+        rows.push({
+          ...row,
+          status: FlowStatus.Running,
+          leaseOwner: workerId,
+        });
+      } catch (error) {
+        logger?.error('spine claim failed closed for one dispatch', {
+          dispatchId: hint.dispatchId,
+          executionId: hint.executionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return rows;
+  }
+
   async function claimNext(batchSize?: number): Promise<FlowExecutionRow[]> {
+    if (spineDispatch) {
+      return claimNextFromSpine(batchSize);
+    }
     const limit = batchSize ?? claimBatchSize;
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
 
@@ -367,7 +618,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    */
   async function extendLease(executionId: string): Promise<boolean> {
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
-    const result = await db
+    const result = await storeFor(executionId)
       .update(flowExecutionsTable)
       .set({
         leaseExpiresAt: sql`now() + ${leaseDurationInterval}::interval`,
@@ -389,7 +640,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       // tell at a glance which dimension diverged. Best-effort: a failure
       // here must not break the heartbeat.
       try {
-        const rows = await db
+        const rows = await storeFor(executionId)
           .select({
             status: flowExecutionsTable.status,
             leaseOwner: flowExecutionsTable.leaseOwner,
@@ -432,7 +683,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * The execution must have been claimed by this worker (via claimNext) first.
    */
   async function runNext(executionId: string, ctx: ExecutionContext): Promise<FlowExecution> {
-    const rows = await db
+    const result = await runNextUnsynced(executionId, ctx);
+    await syncSpineAfterRun(executionId, result);
+    return result;
+  }
+
+  async function runNextUnsynced(executionId: string, ctx: ExecutionContext): Promise<FlowExecution> {
+    const rows = await storeFor(executionId)
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -447,10 +704,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       return { id: row.id, flowName: row.flowName, status: row.status };
     }
 
-    const flow = registry.get(row.flowName);
-    if (!flow) {
-      throw new Error(`Flow "${row.flowName}" is not registered`);
-    }
+    restorePinFromRow(row);
+    const flow = resolveExecutionFlow(executionId, row.flowName);
 
     // Do not auto-run event waits, and do not run delayed waits until due.
     if (row.status === FlowStatus.Waiting && row.waitingForEvent) {
@@ -489,6 +744,20 @@ export function createFlowEngine(config: FlowEngineConfig) {
         row,
       );
       return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
+    }
+
+    if (step.type === FlowStepType.Capability) {
+      const charged = consumeExecutionBudget(row.state, 1);
+      if (charged) {
+        row.state = charged.state;
+        if (charged.exhausted) {
+          const history = Array.isArray(row.stepHistory)
+            ? ([...row.stepHistory] as StepHistoryEntry[])
+            : [];
+          return handleStepFailure(executionId, row, flow, history, BUDGET_EXHAUSTED);
+        }
+        await guardedUpdate(executionId, { state: charged.state });
+      }
     }
 
     // Build flow-scoped context from stored auth snapshot (not worker systemAuth roles)
@@ -838,7 +1107,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Resume a waiting flow (e.g., after an event arrives or approval granted).
    */
   async function resume(executionId: string, signal?: unknown): Promise<void> {
-    const rows = await db
+    const rows = await storeFor(executionId)
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -851,8 +1120,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       throw new Error(`Cannot resume flow "${executionId}" — current status is "${row.status}"`);
     }
 
-    const flow = registry.get(row.flowName);
-    if (!flow) throw new Error(`Flow "${row.flowName}" not registered`);
+    restorePinFromRow(row);
+    const flow = resolveExecutionFlow(executionId, row.flowName);
 
     // Advance past the wait/delay step — set to created so claimNext picks it up
     const nextStep = getNextStepName(flow.steps, row.currentStep ?? '');
@@ -934,10 +1203,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
   }
 
   /**
-   * Cancel a running or waiting flow.
+   * Cancel a running or waiting flow. Completed steps with `compensate`
+   * run their compensation capability first (recovery CompensationState v1).
    */
-  async function cancel(executionId: string): Promise<void> {
-    const rows = await db
+  async function cancel(
+    executionId: string,
+    opts?: { actor?: string; skipCompensation?: boolean },
+  ): Promise<void> {
+    const rows = await storeFor(executionId)
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -952,25 +1225,123 @@ export function createFlowEngine(config: FlowEngineConfig) {
       );
     }
 
-    assertTransition(row.status as FlowStatus, FlowStatus.Cancelled);
-    await updateExecution(executionId, {
-      status: FlowStatus.Cancelled,
-      completedAt: new Date(),
-    });
+    restorePinFromRow(row);
+    const flow = resolveExecutionFlow(executionId, row.flowName);
+    const history = Array.isArray(row.stepHistory)
+      ? ([...row.stepHistory] as StepHistoryEntry[])
+      : [];
 
-    // Synchronously abort the step's AbortController if it is running in THIS
-    // engine instance. Cross-process cancellations still converge via the next
-    // heartbeat (which fails because status is no longer 'running').
+    // Abort the in-flight step before compensation so it cannot commit.
     const activeAc = activeStepAborts.get(executionId);
     if (activeAc && !activeAc.signal.aborted) {
       activeAc.abort(new FlowCancelledError(executionId));
     }
 
+    if (!opts?.skipCompensation) {
+      await runCompensations(executionId, row, flow, history);
+    }
+
+    assertTransition(row.status as FlowStatus, FlowStatus.Cancelled);
+    await updateExecution(executionId, {
+      status: FlowStatus.Cancelled,
+      stepHistory: history,
+      completedAt: new Date(),
+    });
+
     if (audit) {
       await audit.record(`flow.cancelled.${row.flowName}`, {
         executionId,
         flowName: row.flowName,
+        actor: opts?.actor ?? row.actor,
+        compensated: history.some((entry) => entry.step.startsWith('compensate:')),
       });
+    }
+  }
+
+  async function terminate(executionId: string, opts?: { actor?: string }): Promise<void> {
+    return cancel(executionId, { actor: opts?.actor, skipCompensation: true });
+  }
+
+  async function runCompensations(
+    executionId: string,
+    row: FlowExecutionRow,
+    flow: FlowDefinition,
+    history: StepHistoryEntry[],
+  ): Promise<void> {
+    const completed = new Set(
+      history.filter((entry) => entry.status === StepStatus.Completed).map((entry) => entry.step),
+    );
+    const compensable = [...flow.steps]
+      .reverse()
+      .filter((step): step is CapabilityStep => {
+        return (
+          step.type === FlowStepType.Capability &&
+          typeof step.compensate === 'string' &&
+          step.compensate.length > 0 &&
+          completed.has(step.name)
+        );
+      });
+    if (compensable.length === 0) return;
+
+    const flowAuth = resolveFlowStepAuth(row, {
+      userId: row.actor,
+      roles: [AuthRole.System],
+      scopes: [],
+      provider: 'flow-compensation',
+      tenantId: row.tenantId ?? undefined,
+    });
+    const ctx = {
+      auth: flowAuth,
+      data: config.createDataService ? config.createDataService(flowAuth) : {},
+      events: createEventService
+        ? createEventService(flowAuth)
+        : { emit: async () => undefined, emitMany: async () => undefined },
+      flows: {
+        start: async () => ({ id: executionId, flowName: row.flowName, status: FlowStatus.Cancelled }),
+        resume: async () => undefined,
+        cancel: async () => undefined,
+        status: async () => ({ id: executionId, flowName: row.flowName, status: row.status }),
+      },
+      ai: {},
+      audit: audit ?? { record: async () => undefined },
+      errors: {},
+      logger: logger ?? { debug() {}, info() {}, warn() {}, error() {} },
+      time: { now: () => new Date() },
+      config: {},
+      security: {},
+      translations: { locale: 'en', t: (key: string) => key },
+      state: row.state,
+      flowId: executionId,
+    } as unknown as ExecutionContext;
+
+    for (const step of compensable) {
+      const startedAt = new Date();
+      const result = await stepDeps.executeCapability(step.compensate!, ctx, row.input);
+      const completedAt = new Date();
+      history.push(
+        buildHistoryEntry(
+          `compensate:${step.name}`,
+          {
+            status: result.success ? StepStatus.Completed : StepStatus.Failed,
+            error: result.success
+              ? undefined
+              : typeof result.error === 'object' && result.error !== null
+                ? JSON.stringify(result.error)
+                : String(result.error),
+          },
+          startedAt,
+          completedAt,
+        ),
+      );
+      if (audit) {
+        await audit.record(`flow.compensated.${step.name}`, {
+          executionId,
+          flowName: row.flowName,
+          sourceStep: step.name,
+          compensation: step.compensate,
+          outcome: result.success ? 'succeeded' : 'failed',
+        });
+      }
     }
   }
 
@@ -978,7 +1349,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Get the current status of a flow execution.
    */
   async function status(executionId: string): Promise<FlowExecution> {
-    const rows = await db
+    const rows = await storeFor(executionId)
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -1061,7 +1432,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           error: error ?? 'Unknown error',
           tenantId: row?.tenantId,
           actor: row?.actor,
-          db,
+          db: storeFor(executionId),
         });
       } catch {
         // Swallow — error logging must never break flow processing
@@ -1070,7 +1441,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   }
 
   async function updateExecution(id: string, updates: FlowExecutionUpdate): Promise<void> {
-    await db
+    await storeFor(id)
       .update(flowExecutionsTable)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(flowExecutionsTable.id, id));
@@ -1096,7 +1467,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   async function markFailedFromRunner(executionId: string, error: unknown): Promise<boolean> {
     const message =
       error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error';
-    const result = await db
+    const result = await storeFor(executionId)
       .update(flowExecutionsTable)
       .set({
         status: FlowStatus.Failed,
@@ -1133,12 +1504,93 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * false if the lease was lost (0 rows affected).
    */
   async function guardedUpdate(id: string, updates: FlowExecutionUpdate): Promise<boolean> {
-    const result = await db
+    const result = await storeFor(id)
       .update(flowExecutionsTable)
       .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(flowExecutionsTable.id, id), eq(flowExecutionsTable.leaseOwner, workerId)));
     const rowsAffected = getRowsAffected(result);
     return rowsAffected > 0;
+  }
+
+  async function syncSpineAfterRun(executionId: string, result: FlowExecution): Promise<void> {
+    if (!spineDispatch) return;
+    const hint = claimedHints.get(executionId);
+    const tenantDb = executionStores.get(executionId);
+    if (!hint || !tenantDb) return;
+    const nowIso = new Date().toISOString();
+    const flowRow = (
+      await tenantDb
+        .select({ currentStep: flowExecutionsTable.currentStep })
+        .from(flowExecutionsTable)
+        .where(eq(flowExecutionsTable.id, executionId))
+        .limit(1)
+    )[0];
+    const nextStepId = flowRow?.currentStep ?? hint.stepId;
+    const terminal =
+      result.status === FlowStatus.Completed ||
+      result.status === FlowStatus.Failed ||
+      result.status === FlowStatus.Cancelled;
+    const cas = await casAdvanceExecution(
+      tenantDb,
+      {
+        executionId,
+        expectedRevision: hint.expectedRevision,
+        nextStatus: terminal
+          ? result.status === FlowStatus.Completed
+            ? 'succeeded'
+            : result.status === FlowStatus.Cancelled
+              ? 'cancelled'
+              : 'failed'
+          : 'running',
+        nextStepId,
+        terminal,
+        nowIso,
+        sideEffectKey: `${executionId}:${hint.stepId}:${hint.expectedRevision}`,
+        sideEffectLabel: `${executionId}:${hint.stepId}`,
+      },
+      durableSchema,
+    );
+    await ackSpineDispatch(spineDispatch.db, hint.dispatchId);
+    claimedHints.delete(executionId);
+    if (cas !== 'ok' || terminal) return;
+    const advanced = await loadExecutionState(tenantDb, executionId, durableSchema);
+    if (!advanced || advanced.terminal || !flowRow?.currentStep) return;
+    const nextStep = flowRow.currentStep;
+    const outbox = await insertDispatchOutbox(tenantDb, advanced, nextStep, nowIso, durableSchema);
+    await publishOutboxToSpine(
+      tenantDb,
+      spineDispatch.db,
+      outbox,
+      `disp:${executionId}:${advanced.revision}`,
+      nowIso,
+      durableSchema,
+    );
+  }
+
+  async function applyDefinitionStrategy(
+    executionId: string,
+    strategy: string,
+  ): Promise<{ strategy: DefinitionInFlightStrategyName; applied: true }> {
+    assertSupportedDefinitionStrategy(strategy);
+
+    const rows = await storeFor(executionId)
+      .select()
+      .from(flowExecutionsTable)
+      .where(eq(flowExecutionsTable.id, executionId))
+      .limit(1);
+    const row = rows[0] as FlowExecutionRow | undefined;
+    if (!row) throw new Error(`Flow execution "${executionId}" not found`);
+
+    if (strategy === DefinitionInFlightStrategy.CompleteOnOriginal) {
+      restorePinFromRow(row);
+      return { strategy, applied: true };
+    }
+
+    if (!isTerminal(row.status as FlowStatus)) {
+      await cancel(executionId);
+    }
+    await updateExecution(executionId, { lastError: DefinitionInFlightStrategy.StopAndRecover });
+    return { strategy: DefinitionInFlightStrategy.StopAndRecover, applied: true };
   }
 
   return {
@@ -1150,8 +1602,10 @@ export function createFlowEngine(config: FlowEngineConfig) {
     claimNext,
     claimExecution,
     cancel,
+    terminate,
     status,
     markFailedFromRunner,
+    applyDefinitionStrategy,
     get workerId() {
       return workerId;
     },

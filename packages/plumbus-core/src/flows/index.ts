@@ -8,6 +8,23 @@
 // ── Flow Registry ──
 export { FlowRegistry } from './registry.js';
 
+// ── Compiled definitions (Plan 02 Stage 5) ──
+export { CompiledFlowRegistry } from './compiled-registry.js';
+export {
+  COMPILED_FLOW_CONTRACT_VERSION,
+  compileFlowDefinition,
+  flowDefinitionId,
+  hydrateCompiledFlow,
+} from './compile-flow.js';
+export type { CompileFlowOptions } from './compile-flow.js';
+export {
+  DEFINITION_STRATEGY_NOT_SUPPORTED,
+  DefinitionInFlightStrategy,
+  DefinitionStrategyNotSupportedError,
+  assertSupportedDefinitionStrategy,
+} from './definition-strategy.js';
+export type { DefinitionInFlightStrategy as DefinitionInFlightStrategyName } from './definition-strategy.js';
+
 // ── Flow State Machine ──
 export {
   FlowStatus,
@@ -39,17 +56,35 @@ export type { StepExecutorDeps, StepResult } from './step-executor.js';
 
 // ── Flow Engine ──
 export { computeRetryDelay, createFlowEngine, generateWorkerId } from './engine.js';
-export type { FlowEngineConfig } from './engine.js';
+export type { FlowEngineConfig, FlowSpineDispatchConfig } from './engine.js';
 
 // ── Flow Triggers ──
 export { createFlowTriggerHandler } from './triggers.js';
 
 // ── Flow Scheduler ──
-export { computeNextRun, createFlowScheduler } from './scheduler.js';
-export type { SchedulerConfig } from './scheduler.js';
+export {
+  DEFAULT_SCHEDULE_CATCH_UP_MAX,
+  computeNextRun,
+  createFlowScheduler,
+  planMissedSchedule,
+} from './scheduler.js';
+export type { MissedSchedulePlan, SchedulerConfig } from './scheduler.js';
 
 // ── ctx.flow Service ──
 export { createFlowService } from './flow-service.js';
 
 // ── Dead Letter ──
-export { deadLetterFlow, sweepFailedFlows } from './dead-letter.js';
+export { deadLetterFlow, retryDeadLetteredFlow, sweepFailedFlows } from './dead-letter.js';
+export type { OperatorRetryOptions, OperatorRetryResult } from './dead-letter.js';
+
+export {
+  BUDGET_EXHAUSTED,
+  BUDGET_STATE_KEY,
+  BudgetExhaustedError,
+  chargeExecutionBudget,
+  consumeExecutionBudget,
+  createExecutionBudgetLedger,
+  readExecutionBudget,
+  writeExecutionBudget,
+} from './budget.js';
+export type { ExecutionBudgetAmount, ExecutionBudgetLedger } from './budget.js';

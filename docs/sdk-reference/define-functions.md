@@ -42,6 +42,7 @@ const getUser = defineCapability({
     enabled: true,
     summary: "Fetches user profile by ID",
   },
+  riskTier: "read-only",
   handler: async (ctx, input) => {
     const user = await ctx.data.User.findById(input.userId);
     if (!user) throw ctx.errors.notFound("User not found");
@@ -72,6 +73,7 @@ const getUser = defineCapability({
 | `explanation` | `ExplanationConfig` | No | Explainability settings |
 | `trigger` | `EventHandlerTrigger` | No | **Only `kind: "eventHandler"`** — `{ event: string, versionConstraint?: string }` for auto-registration at worker startup (0.5+) |
 | `transactional` | `boolean` | No | When `false`, opts this capability out of the transactional outbox (default: `true` for `action` / `eventHandler`, auto-excluded for `job`, `effects.ai: true`, and non-empty `effects.external`) |
+| `riskTier` | `"read-only" \| "limited-reversible" \| "consequential"` | No | F-09 action-risk tier. Only `consequential` requires a bound, unexpired approval before the handler runs. Omitted: no gate. See [approvals](../core-concepts/approvals.md). |
 | `handler` | `(ctx, input) => Promise<output>` | Yes | Business logic implementation |
 
 `trigger` on non-`eventHandler` kinds throws at define time. Omit `trigger` to keep manual `ConsumerRegistry` wiring only.
@@ -232,12 +234,14 @@ const onboarding = defineFlow({
 | `trigger` | `FlowTrigger` | No | What initiates the flow |
 | `schedule` | `FlowSchedule` | No | Cron schedule config |
 | `retry` | `FlowRetryPolicy` | No | Retry policy |
+| `version` | `string` | No | Authoring version used by `compileFlowDefinition` (default `"1"`) |
 
 ### FlowSchedule
 
 ```typescript
 interface FlowSchedule {
   cron: string; // 5-field cron or interval: "every:60m" | "every:24h" | "every:1d"
+  catchUpPolicy?: "skip" | "run-once" | "catch-up"; // default skip — no unbounded backlog
 }
 ```
 
@@ -275,6 +279,9 @@ const nightlyCleanup = defineFlow({
 
 // Event emit step
 { name: string; type: "eventEmit"; event: string }
+
+// Approval-outcome step (D-02-3; Stage 4 ApprovalService)
+{ name: string; type: "approval-outcome"; outcomes: { approved?: string; rejected?: string; "changes-requested"?: string } }
 ```
 
 `eventEmit` steps send a payload composed from the original flow input merged with the current flow state. If the same key exists in both places, the state value overrides the input value.

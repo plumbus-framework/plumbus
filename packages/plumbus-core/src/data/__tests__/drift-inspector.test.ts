@@ -7,8 +7,8 @@ import {
 } from '../drift-inspector.js';
 
 describe('FRAMEWORK_TABLE_NAMES', () => {
-  it('contains all 10 framework table names', () => {
-    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(10);
+  it('contains all 19 framework table names', () => {
+    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(19);
   });
 
   it('includes expected table names', () => {
@@ -22,6 +22,15 @@ describe('FRAMEWORK_TABLE_NAMES', () => {
     expect(FRAMEWORK_TABLE_NAMES).toContain('flow_schedules');
     expect(FRAMEWORK_TABLE_NAMES).toContain('documents');
     expect(FRAMEWORK_TABLE_NAMES).toContain('document_chunks');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('execution_state');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('step_execution');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('wait_state');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('terminal_state');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('dispatch_outbox');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('side_effect_log');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('human_task');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('approval_request');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('approval_decision');
   });
 });
 
@@ -29,6 +38,11 @@ describe('extractCreateTableNames', () => {
   it('extracts quoted table names', () => {
     const sql = 'CREATE TABLE "event_outbox" ("id" uuid PRIMARY KEY);';
     expect(extractCreateTableNames(sql)).toEqual(['event_outbox']);
+  });
+
+  it('extracts schema-qualified table names', () => {
+    const sql = 'CREATE TABLE "core_plumbus"."execution_state" ("execution_id" text PRIMARY KEY);';
+    expect(extractCreateTableNames(sql)).toEqual(['execution_state']);
   });
 
   it('extracts unquoted table names', () => {

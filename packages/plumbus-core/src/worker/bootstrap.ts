@@ -6,6 +6,7 @@
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
+import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import { createAuditService } from '../audit/service.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import { ErrorCode } from '../types/enums.js';
@@ -19,6 +20,8 @@ import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
+import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -238,11 +241,12 @@ export interface WorkerPoolConfig {
    * recognise fails that execution — no path substitutes another tenant's
    * database.
    *
-   * What stays on the pool's own `db` in this mode, by design: claiming and
-   * advancing `flow_executions`, the outbox dispatcher, the event delivery
-   * worker, idempotency and the flow scheduler. A deployment whose tenants each
-   * hold their own outbox runs one pool per data plane for those components —
-   * `db` per pool — and uses this resolver for the flow runner that spans them.
+   * When a resolver is set the engine is also given `spineDispatch` (pool `db`
+   * is the spine). Claim moves to `opaque_dispatch` SKIP LOCKED; tenant-local
+   * `flow_executions` / `execution_state` are loaded through the resolver.
+   * The outbox dispatcher, event worker (idempotency + dead-letter), and
+   * scheduler use `listTenantRefs` + this resolver so each tenant's tables
+   * are read on that tenant's data plane. Pool `db` is the spine.
    *
    * Two consequences worth naming: the queue-driven flow step consumer is not
    * started in this mode (it builds its context synchronously and so cannot
@@ -252,6 +256,11 @@ export interface WorkerPoolConfig {
    * instead.
    */
   dataPlaneResolver?: DataPlaneResolver;
+  /**
+   * Tenant references the outbox dispatcher pumps when `dataPlaneResolver`
+   * is set. Combined with tenants already resolved for claimed work.
+   */
+  listTenantRefs?: () => Iterable<string> | Promise<Iterable<string>>;
   /** Policy for claimed work carrying no tenant reference. Default: `'refuse'`. */
   untenantedDataPlane?: UntenantedDataPlanePolicy;
   /**
@@ -259,6 +268,16 @@ export interface WorkerPoolConfig {
    * Defaults to `auth.tenantId`.
    */
   resolveTenantRef?: (auth: AuthContext) => string | undefined;
+  /**
+   * Optional approval service for the capability-pipeline gate.
+   * Omitted: existing hosts boot unchanged.
+   */
+  approvals?: ApprovalService;
+  /**
+   * Host authorization revalidation after an approval wait.
+   * Harness stub only unless the host supplies one.
+   */
+  authorizationProvider?: AuthorizationProvider;
 }
 
 // ── Worker Pool Instance ──
@@ -328,6 +347,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
    * A miss throws rather than falling back to the pool's own database.
    */
   const resolvedDataPlanes = new Map<string, PostgresJsDatabase>();
+  const resolvedCoreSchemas = new Map<string, string>();
 
   function untenantedWorkError(): PlumbusError {
     return new PlumbusError(
@@ -346,6 +366,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
     const handle = await dataPlaneResolver.resolve(tenantRef);
     resolvedDataPlanes.set(tenantRef, handle.db);
+    resolvedCoreSchemas.set(tenantRef, handle.coreSchema);
     return handle.db;
   }
 
@@ -372,7 +393,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     return resolved;
   }
 
-  // Idempotency service for event worker
+  async function listedTenantRefs(): Promise<string[]> {
+    const listed = poolConfig.listTenantRefs ? [...(await poolConfig.listTenantRefs())] : [];
+    return [...new Set([...listed, ...resolvedDataPlanes.keys()])];
+  }
+
+  // Idempotency service for event worker (pool fallback; tenanted delivery
+  // builds a per-plane service inside createEventWorker when resolver is set).
   const idempotency = createIdempotencyService(db);
 
   const systemWorkerAuth: AuthContext = {
@@ -391,6 +418,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     audit: workerAudit,
     pollIntervalMs: outboxPollIntervalMs,
     metrics,
+    ...(dataPlaneResolver
+      ? {
+          resolver: dataPlaneResolver,
+          spineDb: db,
+          listTenantRefs: listedTenantRefs,
+        }
+      : {}),
   };
   const dispatcher = enableDispatcher ? createOutboxDispatcher(dispatcherConfig) : null;
 
@@ -402,6 +436,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     idempotency,
     audit: workerAudit,
     metrics,
+    resolver: dataPlaneResolver,
   };
   const eventWorker = enableEventWorker ? createEventWorker(eventWorkerConfig) : null;
 
@@ -414,6 +449,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           idempotency,
           audit: workerAudit,
           metrics,
+          resolver: dataPlaneResolver,
         })
       : null;
 
@@ -443,6 +479,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             });
           }
         : undefined,
+    spineDispatch: dataPlaneResolver
+      ? { db, resolver: dataPlaneResolver }
+      : undefined,
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
     createEventService: eventRegistry
       ? (auth) => {
@@ -472,6 +511,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       logger,
       metrics,
       onMcpJobComplete: poolConfig.onMcpJobComplete,
+      approvals: poolConfig.approvals,
+      authorizationProvider: poolConfig.authorizationProvider,
     });
   }
 
@@ -499,6 +540,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     registry: flows,
     engine: flowEngine,
     pollIntervalMs: schedulerPollIntervalMs,
+    ...(dataPlaneResolver
+      ? { resolver: dataPlaneResolver, listTenantRefs: listedTenantRefs }
+      : {}),
   };
   const scheduler = enableScheduler ? createFlowScheduler(schedulerConfig) : null;
   let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;
@@ -617,6 +661,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     contextDb: PostgresJsDatabase = db,
   ): import('../types/context.js').ExecutionContext {
     if (poolConfig.entities && eventRegistry) {
+      const tenantRef = resolveTenantRef(systemAuth);
+      const durableSchema =
+        (tenantRef ? resolvedCoreSchemas.get(tenantRef) : undefined) ?? FRAMEWORK_SCHEMA;
       return createExecutionContext(
         wireContextDependencies(
           {
@@ -625,6 +672,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             entities: poolConfig.entities,
             events: eventRegistry,
             encryptionKey: resolveEncryptionKey(),
+            durableDispatch: dataPlaneResolver ? { schemaName: durableSchema } : undefined,
           },
           {
             flows: createFlowService(flowEngine, systemAuth, flows),
@@ -632,6 +680,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             logger,
             config: poolConfig.config as unknown as Record<string, unknown>,
             ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
+            ...hostApprovalRuntimeExtras(poolConfig),
           },
         ),
       );
@@ -659,6 +708,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       logger,
       config: poolConfig.config as unknown as Record<string, unknown>,
       ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
+      ...hostApprovalRuntimeExtras(poolConfig),
     });
   }
 

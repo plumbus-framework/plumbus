@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
 import type {
   AITool,
@@ -179,11 +180,47 @@ export interface Repository<
 export type DataService = RegisteredEntities;
 
 // ── Transaction scope (tx-scoped data + events inside withTransaction) ──
+export interface DurableDispatchEnqueueInput {
+  executionId: string;
+  tenantRef: string;
+  definitionId: string;
+  definitionVersion: string;
+  stepId: string;
+  correlationId: string;
+  revision: number;
+  tenantEpoch: number;
+  stateRefId: string;
+  nowIso?: string;
+}
+
+export interface DurableAcceptanceInput {
+  executionId: string;
+  tenantRef: string;
+  definitionId: string;
+  definitionVersion: string;
+  firstStepId: string;
+  correlationId: string;
+  nowIso?: string;
+}
+
 export interface TransactionScope {
   data: DataService;
   events: EventService;
   /** Side effects queued during the transaction; run only after commit succeeds */
   deferred?: Array<() => Promise<void>>;
+  /**
+   * Persist-before-ack: write `execution_state` + `dispatch_outbox` in this
+   * transaction. Present only when `createTransactionRunner` is given
+   * `durableDispatch`.
+   */
+  persistAcceptance?: (
+    input: DurableAcceptanceInput,
+  ) => Promise<{ executionId: string; outboxId: string }>;
+  /**
+   * Append a `dispatch_outbox` row in this transaction (same commit as
+   * domain writes). Present only when `durableDispatch` is configured.
+   */
+  enqueueDispatch?: (input: DurableDispatchEnqueueInput) => Promise<{ outboxId: string }>;
 }
 
 export type WithTransactionFn = <T>(fn: (scope: TransactionScope) => Promise<T>) => Promise<T>;
@@ -562,6 +599,10 @@ export interface ExecutionRuntimeMetadata {
   deferredPostCommit?: Array<() => Promise<void>>;
   /** @internal Drizzle transaction runner wired by server/worker bootstrap. */
   withTransaction?: WithTransactionFn;
+  /** Approval / human-task service used by the capability-pipeline gate. */
+  approvals?: ApprovalService;
+  /** Optional host gate. Revalidates after an approval wait. */
+  authorizationProvider?: AuthorizationProvider;
 }
 
 // ── Security Service ──
@@ -614,6 +655,8 @@ export interface ContextDependencies {
   invocationEmitScope?: ExecutionRuntimeMetadata['invocationEmitScope'];
   /** Drizzle transaction runner — tx-scoped data + events; audit stays on outer db. */
   withTransaction?: WithTransactionFn;
+  approvals?: ExecutionRuntimeMetadata['approvals'];
+  authorizationProvider?: ExecutionRuntimeMetadata['authorizationProvider'];
 }
 
 // ── Request Metadata ──

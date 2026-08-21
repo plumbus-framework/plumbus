@@ -46,6 +46,23 @@ describe('defineCapability', () => {
     expect(cap.audit?.event).toBe('user.fetched');
   });
 
+  it('accepts F-09 risk tiers', () => {
+    const cap = defineCapability({
+      ...validConfig(),
+      riskTier: 'consequential',
+    });
+    expect(cap.riskTier).toBe('consequential');
+  });
+
+  it('rejects retired action-risk values', () => {
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        riskTier: 'sensitive-write' as 'consequential',
+      }),
+    ).toThrow('riskTier must be one of');
+  });
+
   it('throws if name is missing', () => {
     expect(() => defineCapability({ ...validConfig(), name: '' })).toThrow('name is required');
   });

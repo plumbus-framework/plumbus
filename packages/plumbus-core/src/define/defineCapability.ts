@@ -13,6 +13,8 @@ import type { CapabilityKind } from '../types/enums.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { isMcpExposed } from '../mcp/exposure.js';
 import type { AccessPolicy } from '../types/security.js';
+import { isActionRiskTier } from '../approvals/action-risk.js';
+import type { ActionRiskTier } from '../approvals/action-risk.js';
 import { throwDefineValidationError } from './validation-error.js';
 
 /** Duck-type check for Zod schemas (works across different Zod instances) */
@@ -63,6 +65,8 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   trigger?: { event: string; versionConstraint?: string };
   /** When `false`, opts out of transactional outbox for this capability. */
   transactional?: boolean;
+  /** F-09 action-risk tier. Only `consequential` requires the approval gate. */
+  riskTier?: ActionRiskTier;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
@@ -264,6 +268,13 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   validateCapabilityDependencies(
     config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>,
   );
+
+  if (config.riskTier !== undefined && !isActionRiskTier(config.riskTier)) {
+    throwDefineValidationError(
+      `Capability "${config.name}": riskTier must be one of read-only, limited-reversible, consequential`,
+      { field: 'riskTier' },
+    );
+  }
 
   return deepFreeze({ ...config });
 }

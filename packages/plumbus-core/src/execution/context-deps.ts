@@ -6,7 +6,10 @@ import type { EventRegistry } from '../events/registry.js';
 import type { AuditService } from '../types/audit.js';
 import type { ContextDependencies } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
-import { createTransactionRunner } from './transactional-outbox.js';
+import {
+  createTransactionRunner,
+  type DurableDispatchRunnerConfig,
+} from './transactional-outbox.js';
 
 export interface WireContextDependenciesOptions {
   db: PostgresJsDatabase;
@@ -18,6 +21,7 @@ export interface WireContextDependenciesOptions {
   correlationId?: string;
   getCausationId?: () => string | undefined;
   encryptionKey?: Buffer;
+  durableDispatch?: DurableDispatchRunnerConfig;
 }
 
 /**
@@ -54,6 +58,7 @@ export function wireContextDependencies(
     correlationId: options.correlationId,
     bypassTenantScope: options.bypassTenantScope,
     encryptionKey: options.encryptionKey,
+    durableDispatch: options.durableDispatch,
   });
 
   return {

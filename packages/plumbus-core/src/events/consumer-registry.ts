@@ -12,6 +12,12 @@ export interface EventConsumer {
   eventTypes: string[];
   /** Optional version constraint (e.g. "1", ">=2") */
   versionConstraint?: string;
+  /** Capability version this consumer is bound to (subscription pin). */
+  capabilityVersion?: string;
+  /** Inactive subscriptions skip delivery. Default true. */
+  active?: boolean;
+  /** Policy check on delivery; false skips without dead-letter. */
+  checkDeliveryPolicy?: (envelope: EventEnvelope) => boolean | Promise<boolean>;
   /** The handler function */
   handler: EventConsumerHandler;
   /** Max retry attempts before dead-lettering (default: 3) */

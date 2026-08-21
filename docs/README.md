@@ -15,6 +15,7 @@ docs/
 │   ├── overview.md
 │   ├── workers-and-queues.md
 │   ├── execution-lifecycle.md
+│   ├── dispatch-state-protocol.md  Protocol A (Plan 02 durable dispatch)
 │   └── diagrams.md
 ├── upgrading-workers.md       0.5.0 workers/queues migration guide
 ├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
@@ -23,6 +24,7 @@ docs/
 │   (0.6.0 AI cost ledger: see ai/ai-integration.md → Upgrading to @plumbus/core 0.6.0)
 ├── core-concepts/             Deep dives into each primitive
 │   ├── capabilities.md
+│   ├── approvals.md           Human tasks, approval gate, F-09 risk tiers
 │   ├── entities.md
 │   ├── flows.md
 │   ├── events.md
@@ -127,6 +129,8 @@ docs/
 | Install Plumbus and create my first app | [Getting Started → Installation](getting-started/installation.md) |
 | Understand the development workflow | [Getting Started → Development Workflow](getting-started/development-workflow.md) |
 | Understand how the system works | [Architecture → Overview](architecture/overview.md) |
+| Read the vNext dispatch/state protocol | [Architecture → Dispatch/state protocol](architecture/dispatch-state-protocol.md) |
+| Track Plan 02 durable-core progress | [Plan 02 progress](plan02-progress.md) |
 | Configure workers and queues | [Architecture → Workers and Queues](architecture/workers-and-queues.md) |
 | Migrate to 0.5.0 workers model | [Upgrading Workers](upgrading-workers.md) |
 | Migrate to canonical capability names | [Upgrading Capability Names](upgrading-capability-names.md) |
@@ -134,6 +138,7 @@ docs/
 | Review runtime contract-alignment changes | [Upgrading for Contract Alignment](upgrading-contract-alignment.md) |
 | Migrate AI cost ledgers to 0.6.0 voice/media operations | [AI → Upgrading to 0.6.0](ai/ai-integration.md#upgrading-to-plumbuscore-060) |
 | Learn about capabilities | [Core Concepts → Capabilities](core-concepts/capabilities.md) |
+| Learn about approvals and risk tiers | [Core Concepts → Approvals](core-concepts/approvals.md) |
 | See all CLI commands | [CLI → Commands](cli/commands.md) |
 | Set up AI coding agents | [Agents → Setup](agents/agent-setup.md) |
 | Review framework-first and git-safety rules for agents | [Agents → Guardrails](agents/guardrails.md) |

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { AIBudgetExceededError } from '../../errors/data-errors.js';
 import type { ExecutionContext } from '../../types/context.js';
 import { FlowStepType } from '../../types/enums.js';
 import type {
+  ApprovalOutcomeStep,
   CapabilityStep,
   ConditionalStep,
   DelayStep,
@@ -42,6 +44,19 @@ describe('StepExecutor', () => {
     const result = await executeStep(step, mockCtx, {}, {}, deps);
     expect(result.status).toBe(StepStatus.Failed);
     expect(result.error).toContain('oops');
+  });
+
+  it('maps AIBudgetExceededError to a budget-exhausted step failure', async () => {
+    const step: CapabilityStep = { name: 'aiCap', type: FlowStepType.Capability };
+    const deps: StepExecutorDeps = {
+      ...defaultDeps,
+      executeCapability: vi
+        .fn()
+        .mockRejectedValue(new AIBudgetExceededError('daily cost limit reached')),
+    };
+    const result = await executeStep(step, mockCtx, {}, {}, deps);
+    expect(result.status).toBe(StepStatus.Failed);
+    expect(result.error).toMatch(/^budget-exhausted:/);
   });
 
   it('returns failed status when capability throws', async () => {
@@ -279,6 +294,23 @@ describe('StepExecutor', () => {
     const result = await executeStep(step, ctx, {}, {}, defaultDeps);
     expect(result.status).toBe(StepStatus.Failed);
     expect(result.error).toBe('emit failed');
+  });
+
+  it('routes an approval-outcome step from the Stage 4 request state', async () => {
+    const step: ApprovalOutcomeStep = {
+      name: 'route',
+      type: FlowStepType.ApprovalOutcome,
+      outcomes: { approved: 'pay', rejected: 'deny' },
+    };
+    const result = await executeStep(step, { ...mockCtx, flowId: 'exec-1' }, {}, {}, {
+      ...defaultDeps,
+      findApprovalForExecution: async () =>
+        ({ state: 'approved' }) as Awaited<
+          ReturnType<NonNullable<StepExecutorDeps['findApprovalForExecution']>>
+        >,
+    });
+    expect(result.status).toBe(StepStatus.Completed);
+    expect(result.nextStep).toBe('pay');
   });
 });
 

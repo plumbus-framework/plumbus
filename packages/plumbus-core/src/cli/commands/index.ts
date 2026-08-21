@@ -14,6 +14,7 @@
 //   entity     — Scaffold a new entity
 //   event      — Scaffold a new event
 //   flow       — Scaffold a new flow
+//   compile-flows — Compile defineFlow modules into signed FlowDefinition JSON
 //   generate   — Generate API clients, hooks, OpenAPI specs
 //   init       — Generate AI agent wiring files
 //   db         — Database lifecycle management (create, reset)
@@ -33,6 +34,7 @@ export { registerApiCommand } from './api.js';
 export { registerBrowserExtensionCommand } from './browser-extension.js';
 export { registerCapabilityCommand } from './capability.js';
 export { registerCertifyCommand } from './certify.js';
+export { registerCompileFlowsCommand } from './compile-flows.js';
 export { registerCreateCommand } from './create.js';
 export { registerDevCommand } from './dev.js';
 export { registerDoctorCommand } from './doctor.js';

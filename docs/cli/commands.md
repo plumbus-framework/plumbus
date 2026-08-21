@@ -18,6 +18,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types, type registry |
 | `plumbus capability new` | Scaffold a new capability |
 | `plumbus flow new` | Scaffold a new flow |
+| `plumbus compile-flows` | Compile `defineFlow` modules into signed FlowDefinition JSON |
 | `plumbus entity new` | Scaffold a new entity |
 | `plumbus event new` | Scaffold a new event |
 | `plumbus prompt new` | Scaffold a new prompt |
@@ -322,6 +323,19 @@ Re-dispatch an outbox event to the queue.
 | `--consumer <id>` | `string` | — | Clear idempotency for this consumer before replay (single event or bulk `--from`) |
 
 ---
+
+### plumbus compile-flows
+
+Compile `app/flows` `defineFlow` modules into signed FlowDefinition JSON (Plan 02 Stage 5 / D-02-2). Condition expressions and step IO mappings are hoisted into digested bindings. Recompiling an identical flow yields the same `definitionDigest`.
+
+```bash
+plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-o, --out <dir>` | `string` | `.plumbus/compiled-flows` | Output directory (project-relative) |
+| `--json` | `boolean` | `false` | Machine-readable list of id, version, digest, path |
 
 ### plumbus flow
 

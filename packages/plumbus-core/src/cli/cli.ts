@@ -9,6 +9,7 @@ import {
   registerBrowserExtensionCommand,
   registerCapabilityCommand,
   registerCertifyCommand,
+  registerCompileFlowsCommand,
   registerCreateCommand,
   registerDbCommand,
   registerDevCommand,
@@ -70,6 +71,7 @@ export function createCli(): Command {
   registerInitCommand(program);
   registerCapabilityCommand(program);
   registerFlowCommand(program);
+  registerCompileFlowsCommand(program);
   registerEntityCommand(program);
   registerEventCommand(program);
   registerPromptCommand(program);

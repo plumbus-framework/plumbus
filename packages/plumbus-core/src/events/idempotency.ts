@@ -10,8 +10,9 @@ export interface IdempotencyService {
 }
 
 /**
- * Creates an idempotency service backed by the event_idempotency table.
- * Used by the delivery worker to prevent duplicate event processing.
+ * Creates an idempotency service backed by the event_idempotency table
+ * on the given database. Tenanted delivery binds this to the resolved
+ * tenant plane (`createIdempotencyService(handle.db)`), not a second store.
  */
 export function createIdempotencyService(db: PostgresJsDatabase): IdempotencyService {
   return {

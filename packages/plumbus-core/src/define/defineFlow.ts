@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type {
+  FlowBudget,
   FlowDefinition,
   FlowRetryPolicy,
   FlowSchedule,
@@ -32,6 +33,8 @@ interface DefineFlowInput<TInput extends z.ZodTypeAny, TState extends z.ZodTypeA
   trigger?: FlowTrigger;
   schedule?: FlowSchedule;
   retry?: FlowRetryPolicy;
+  version?: string;
+  budget?: FlowBudget;
 }
 
 export function defineFlow<TInput extends z.ZodTypeAny, TState extends z.ZodTypeAny = z.ZodTypeAny>(

@@ -74,6 +74,38 @@ function mockOutboxDb(outboxRow: Record<string, unknown> | null) {
   return stub as never;
 }
 
+describe('registerCapabilityConsumers subscription binding', () => {
+  it('pins the consumer to the capability version and activation flag', () => {
+    const versioned = defineCapability({
+      name: 'onOrderPlacedV2',
+      domain: 'orders',
+      kind: 'eventHandler',
+      version: '2.1.0',
+      description: 'Handle order placed',
+      trigger: { event: 'order.placed', active: true },
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      access: { public: true },
+      effects: { data: [], events: [], external: [] },
+      handler: async () => ({ ok: true }),
+    });
+    const capabilities = new CapabilityRegistry();
+    capabilities.register(versioned);
+    const consumers = new ConsumerRegistry();
+    registerCapabilityConsumers({
+      capabilities,
+      consumers,
+      events: new EventRegistry(),
+      entities: new EntityRegistry(),
+      db: mockOutboxDb({ id: 'evt-1', eventType: 'order.placed', tenantId: 't1' }),
+      config: { environment: 'test' } as never,
+    });
+    const consumer = consumers.getById('onOrderPlacedV2');
+    expect(consumer?.capabilityVersion).toBe('2.1.0');
+    expect(consumer?.active).toBe(true);
+  });
+});
+
 describe('registerCapabilityConsumers eventHandler tenant binding', () => {
   it('rejects delivery when outbox row is missing (fail closed)', async () => {
     const capabilities = new CapabilityRegistry();

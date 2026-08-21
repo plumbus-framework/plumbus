@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { desc } from 'drizzle-orm';
 import { loadConfig } from '../../config/loader.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/connection.js';
+import { retryDeadLetteredFlow } from '../../flows/dead-letter.js';
 import { flowDeadLetterTable } from '../../flows/schema.js';
 import { enqueueFlowStep } from '../../flows/flow-queue.js';
 import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
@@ -73,15 +74,25 @@ export function registerFlowCommand(program: Command): void {
 
   dlq
     .command('retry <executionId>')
-    .description('Re-enqueue a flow step after operator fix')
-    .action(async (executionId: string) => {
+    .description('Reset a dead-lettered flow and re-enqueue after operator fix')
+    .option('--actor <id>', 'Operator identity for attribution')
+    .action(async (executionId: string, opts: { actor?: string }) => {
       const config = loadConfig();
+      const actor = opts.actor ?? process.env.USER ?? 'operator';
+      const connection = await resolveDatabaseConnection(config.database, {});
       const queues = await resolveRuntimeQueues(config);
       try {
+        const result = await retryDeadLetteredFlow(connection.db, executionId, {
+          actor,
+          reason: 'operator-retry',
+        });
         await enqueueFlowStep(queues.flows, executionId);
-        success(`Re-enqueued flow step for execution ${executionId}`);
+        success(
+          `Retried flow ${result.executionId} by ${result.retriedBy}; re-enqueued step`,
+        );
       } finally {
         await queues.close();
+        await closeDatabaseConnection(connection);
       }
     });
 

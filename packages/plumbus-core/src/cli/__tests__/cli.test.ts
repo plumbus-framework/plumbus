@@ -47,6 +47,7 @@ describe('CLI', () => {
     expect(commandNames).toContain('init');
     expect(commandNames).toContain('capability');
     expect(commandNames).toContain('flow');
+    expect(commandNames).toContain('compile-flows');
     expect(commandNames).toContain('entity');
     expect(commandNames).toContain('event');
     expect(commandNames).toContain('prompt');

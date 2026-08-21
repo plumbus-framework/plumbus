@@ -36,7 +36,20 @@ export const orderFulfillment = defineFlow({
     { name: "updateDashboard", type: "capability", capability: "orders.updateOrderDashboard" },
   ],
   retry: { attempts: 3, backoff: "exponential" },
+  version: "1",
 });
+```
+
+## Compiled definitions (Plan 02 Stage 5)
+
+Authoring stays TypeScript. `plumbus compile-flows` (and `compileFlowDefinition`) extracts steps, hoists condition expressions and step `input` mappings into individually digested bindings, and emits signed JSON with `flowDefinitionId` (`{domain}.{name}`), `definitionVersion`, and `definitionDigest`. Inline expressions are prohibited in the signed artifact.
+
+`CompiledFlowRegistry` retains every published `(flowDefinitionId, definitionVersion)` immutably. When `createFlowEngine({ compiledRegistry })` is set, the engine **consumes compiled JSON** (not live TypeScript steps): `start` requires a published version and writes `definition_version` + `definition_digest` on `flow_executions`. Later `runNext` / `resume` restore that pin from the row (complete-on-original), including across process restarts. Omit `compiledRegistry` and the engine keeps today's live `FlowRegistry` objects.
+
+`approval-outcome` steps route on a Stage 4 approval decision (`approved` / `rejected` / `changes-requested`) via `createApprovalService`. In-flight strategies: `complete-on-original` (default), `stop-and-recover` (cancel + record), `migrate` throws `definition-strategy-not-supported` — never a silent no-op.
+
+```bash
+plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
 ```
 
 ## Step Types
@@ -147,9 +160,11 @@ Pauses until a specific event is received:
 {
   name: "waitForApproval",
   type: "wait",
-  event: "refund.approved",
+  event: "approval_pending",
 }
 ```
+
+`approval_pending` (`APPROVAL_PENDING_WAIT`) is the Stage 4 wait event for an in-flight approval. It uses this Wait step — not a second engine. See [approvals](./approvals.md).
 
 ### Delay Step
 
@@ -270,7 +285,7 @@ flow work a single turn may trigger. See
 
 ### Scheduled flow example
 
-Use `schedule.cron` when work should run on a timer (nightly cleanup, hourly sync, etc.). The flow scheduler lives in the **worker pool** and writes run state to the `flow_schedules` table.
+Use `schedule.cron` when work should run on a timer (nightly cleanup, hourly sync, etc.). The flow scheduler lives in the **worker pool** and writes run state to the `flow_schedules` table. `nextRunAt` is the wake time. Missed ticks honor `schedule.catchUpPolicy`: default `skip` (one start, jump to the next future slot); `catch-up` starts once per missed slot up to a bound of 3. This is the existing scheduler — not a second timer engine.
 
 ```typescript
 import { defineFlow } from "@plumbus/core";

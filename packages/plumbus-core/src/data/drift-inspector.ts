@@ -6,6 +6,7 @@
 
 import { getTableColumns, sql } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { EntityDefinition } from '../types/entity.js';
 import { collectSchemas } from './migration.js';
@@ -22,6 +23,15 @@ export const FRAMEWORK_TABLE_NAMES = [
   'job_executions',
   'documents',
   'document_chunks',
+  'execution_state',
+  'step_execution',
+  'wait_state',
+  'terminal_state',
+  'dispatch_outbox',
+  'side_effect_log',
+  'human_task',
+  'approval_request',
+  'approval_decision',
 ] as const;
 
 export type FrameworkTableName = (typeof FRAMEWORK_TABLE_NAMES)[number];
@@ -177,9 +187,26 @@ function compareTable(
 /**
  * Check which framework-managed tables currently exist in the live database.
  */
+function drizzleTableSchema(table: PgTableWithColumns<any>): string {
+  return getTableConfig(table).schema ?? 'public';
+}
+
 export async function getExistingFrameworkTables(db: PostgresJsDatabase): Promise<string[]> {
-  const liveTables = await getLiveTables(db);
-  return FRAMEWORK_TABLE_NAMES.filter((name) => liveTables.has(name));
+  const schemas = collectSchemas([]);
+  const liveBySchema = new Map<string, Set<string>>();
+  const found: string[] = [];
+  for (const name of FRAMEWORK_TABLE_NAMES) {
+    const drizzleTable = schemas[`__${name}`];
+    if (!drizzleTable) continue;
+    const schema = drizzleTableSchema(drizzleTable);
+    let live = liveBySchema.get(schema);
+    if (!live) {
+      live = await getLiveTables(db, schema);
+      liveBySchema.set(schema, live);
+    }
+    if (live.has(name)) found.push(name);
+  }
+  return found;
 }
 
 /**
@@ -191,7 +218,7 @@ export async function inspectFrameworkDrift(
   entities: EntityDefinition[],
 ): Promise<DriftReport> {
   const schemas = collectSchemas(entities);
-  const liveTables = await getLiveTables(db);
+  const liveBySchema = new Map<string, Set<string>>();
 
   const existingFrameworkTables: string[] = [];
   const missingFrameworkTables: string[] = [];
@@ -202,10 +229,17 @@ export async function inspectFrameworkDrift(
     const drizzleTable = schemas[schemaKey];
     if (!drizzleTable) continue;
 
+    const schema = drizzleTableSchema(drizzleTable);
+    let liveTables = liveBySchema.get(schema);
+    if (!liveTables) {
+      liveTables = await getLiveTables(db, schema);
+      liveBySchema.set(schema, liveTables);
+    }
+
     if (liveTables.has(name)) {
       existingFrameworkTables.push(name);
       const expected = getExpectedColumns(drizzleTable);
-      const live = await getLiveColumns(db, name);
+      const live = await getLiveColumns(db, name, schema);
       tables.push(compareTable(name, expected, live));
     } else {
       missingFrameworkTables.push(name);
@@ -228,7 +262,8 @@ export async function inspectFrameworkDrift(
  * Handles `CREATE TABLE "name"` and `CREATE TABLE name` syntax.
  */
 export function extractCreateTableNames(migrationSql: string): string[] {
-  const regex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_]\w*))/gi;
+  const regex =
+    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"[^"]+"|[a-zA-Z_]\w*)\.)?(?:"([^"]+)"|([a-zA-Z_]\w*))/gi;
   const names: string[] = [];
   for (const match of migrationSql.matchAll(regex)) {
     const name = match[1] ?? match[2];

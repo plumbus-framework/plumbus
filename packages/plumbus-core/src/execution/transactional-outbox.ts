@@ -7,6 +7,11 @@ import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext, TransactionScope, WithTransactionFn } from '../types/context.js';
 import { CapabilityKind } from '../types/enums.js';
 
+export interface DurableDispatchRunnerConfig {
+  /** Schema for Protocol A tables. Default `core_plumbus`. */
+  schemaName?: string;
+}
+
 export interface TransactionRunnerConfig {
   db: PostgresJsDatabase;
   entities: EntityRegistry;
@@ -17,6 +22,12 @@ export interface TransactionRunnerConfig {
   correlationId?: string;
   bypassTenantScope?: boolean;
   encryptionKey?: Buffer;
+  /**
+   * When set, the transaction scope can write `dispatch_outbox` (and
+   * persist-before-ack acceptance) in the same tenant transaction. Omitted,
+   * the runner is unchanged: handler + `event_outbox` only.
+   */
+  durableDispatch?: DurableDispatchRunnerConfig;
 }
 
 /**
@@ -34,6 +45,7 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
     correlationId,
     bypassTenantScope,
     encryptionKey,
+    durableDispatch,
   } = config;
 
   function createScope(tx: PostgresJsDatabase): TransactionScope {
@@ -54,7 +66,56 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
       correlationId,
       getCausationId,
     });
-    return { data, events };
+    const scope: TransactionScope = { data, events };
+    if (durableDispatch) {
+      const schemaName = durableDispatch.schemaName;
+      scope.persistAcceptance = async (input) => {
+        const { persistAcceptanceOnDb } = await import('../durable/postgres-persist.js');
+        const result = await persistAcceptanceOnDb(
+          tx,
+          {
+            executionId: input.executionId,
+            tenantRef: input.tenantRef,
+            definitionId: input.definitionId,
+            definitionVersion: input.definitionVersion,
+            firstStepId: input.firstStepId,
+            correlationId: input.correlationId,
+            nowIso: input.nowIso ?? new Date().toISOString(),
+          },
+          schemaName,
+        );
+        return { executionId: result.execution.executionId, outboxId: result.outbox.outboxId };
+      };
+      scope.enqueueDispatch = async (input) => {
+        const { insertDispatchOutbox } = await import('../durable/postgres-persist.js');
+        const nowIso = input.nowIso ?? new Date().toISOString();
+        const outbox = await insertDispatchOutbox(
+          tx,
+          {
+            executionId: input.executionId,
+            stateRefId: input.stateRefId,
+            tenantRef: input.tenantRef,
+            revision: input.revision,
+            tenantEpoch: input.tenantEpoch,
+            status: 'running',
+            definitionId: input.definitionId,
+            definitionVersion: input.definitionVersion,
+            currentStepId: input.stepId,
+            stepIndex: 0,
+            attempt: 0,
+            correlationId: input.correlationId,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            terminal: false,
+          },
+          input.stepId,
+          nowIso,
+          schemaName,
+        );
+        return { outboxId: outbox.outboxId };
+      };
+    }
+    return scope;
   }
 
   return async <T>(fn: (scope: TransactionScope) => Promise<T>): Promise<T> => {

@@ -14,6 +14,7 @@ import {
   stripHandlerRuntime,
   type CapabilityInvocationRuntime,
 } from './capability-invocation.js';
+import { evaluateApprovalGate } from '../approvals/gate.js';
 import {
   CapabilityOutputValidationError,
   shouldUseTransactionalOutbox,
@@ -154,9 +155,10 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
  * Execute a capability through the full pipeline:
  * 1. Validate input
  * 2. Evaluate access policy
- * 3. Execute handler (with scoped ctx.capabilities)
- * 4. Validate output
- * 5. Record audit
+ * 3. Approval gate (consequential risk tier)
+ * 4. Execute handler (with scoped ctx.capabilities)
+ * 5. Validate output
+ * 6. Record audit
  */
 export async function executeCapability<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
   capability: CapabilityContract<TInput, TOutput>,
@@ -183,6 +185,17 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   if (!authResult.allowed) {
     const error = ctx.errors.forbidden(authResult.reason ?? 'Access denied', {
       capability: canonicalName,
+    });
+    await recordAudit(ctx, capability, canonicalName, 'denied', { error });
+    return { success: false, error };
+  }
+
+  const approvalGate = await evaluateApprovalGate({ capability, ctx, input });
+  if (approvalGate.blocked) {
+    const error = ctx.errors.forbidden(approvalGate.reason, {
+      capability: canonicalName,
+      approvalGate: approvalGate.code,
+      ...approvalGate.metadata,
     });
     await recordAudit(ctx, capability, canonicalName, 'denied', { error });
     return { success: false, error };

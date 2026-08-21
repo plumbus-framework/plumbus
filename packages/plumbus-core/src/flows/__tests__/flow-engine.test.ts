@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { defineFlow } from '../../define/defineFlow.js';
 import { LeaseLostError } from '../../errors/index.js';
 import { FlowStepType } from '../../types/enums.js';
+import { compileFlowDefinition } from '../compile-flow.js';
+import { CompiledFlowRegistry } from '../compiled-registry.js';
 import { createFlowEngine } from '../engine.js';
 import { FlowRegistry } from '../registry.js';
 import { FlowStatus } from '../state-machine.js';
@@ -233,6 +235,100 @@ describe('FlowEngine', () => {
     const engine = createFlowEngine({ db, registry, stepDeps: makeStepDeps() });
 
     await expect(engine.cancel('x')).rejects.toThrow('terminal state');
+  });
+
+  it('cancel() runs compensation for a committed compensable step', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'reserve-then-hold',
+        domain: 'inventory',
+        input: z.object({ sku: z.string() }),
+        steps: [
+          {
+            name: 'reserve',
+            type: FlowStepType.Capability,
+            capability: 'inventory.reserve',
+            compensate: 'inventory.release',
+          },
+          { name: 'hold', type: FlowStepType.Capability, capability: 'inventory.hold' },
+        ],
+      }),
+    );
+    const db = mockDb();
+    const ran: string[] = [];
+    const stepDeps = {
+      executeCapability: vi.fn().mockImplementation(async (name: string) => {
+        ran.push(name);
+        return { success: true, data: {} };
+      }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+    const engine = createFlowEngine({ db, registry, stepDeps });
+    const exec = await engine.start('reserve-then-hold', { sku: 'sku-1' }, makeAuth());
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engine.runNext(exec.id, makeCtx());
+    expect(ran).toEqual(['inventory.reserve']);
+    expect(row.currentStep).toBe('hold');
+
+    await engine.cancel(exec.id, { actor: 'ops-ada' });
+    expect(ran).toEqual(['inventory.reserve', 'inventory.release']);
+    expect(db._updates.some((u: { status?: string }) => u.status === FlowStatus.Cancelled)).toBe(
+      true,
+    );
+    expect(row.stepHistory.some((h: { step: string }) => h.step === 'compensate:reserve')).toBe(
+      true,
+    );
+  });
+
+  it('fails a capability step when the execution budget is exhausted', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'budgeted',
+        domain: 'ops',
+        input: z.object({ id: z.string() }),
+        budget: { profileId: 'plumbus.budget.default', allocated: 1 },
+        steps: [
+          { name: 'first', type: FlowStepType.Capability, capability: 'ops.first' },
+          { name: 'second', type: FlowStepType.Capability, capability: 'ops.second' },
+        ],
+      }),
+    );
+    const db = mockDb();
+    const ran: string[] = [];
+    const stepDeps = {
+      executeCapability: vi.fn().mockImplementation(async (name: string) => {
+        ran.push(name);
+        return { success: true, data: {} };
+      }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+    const engine = createFlowEngine({ db, registry, stepDeps });
+    const exec = await engine.start('budgeted', { id: '1' }, makeAuth());
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    expect((await engine.runNext(exec.id, makeCtx())).status).toBe(FlowStatus.Running);
+    expect(ran).toEqual(['ops.first']);
+    const second = await engine.runNext(exec.id, makeCtx());
+    expect(second.status).toBe(FlowStatus.Failed);
+    expect(ran).toEqual(['ops.first']);
+    expect(row.lastError).toBe('budget-exhausted');
   });
 
   it('records audit events when audit service provided', async () => {
@@ -1093,3 +1189,181 @@ describe('FlowEngine — flow-step ctx.flows.start propagates flowAuth', () => {
     });
   });
 });
+
+describe('FlowEngine — compiled definition pin (complete-on-original)', () => {
+  it('in-flight execution keeps the start-time version after a new version is published', async () => {
+    const v1 = defineFlow({
+      name: 'migrate-me',
+      domain: 'ops',
+      input: z.object({ id: z.string() }),
+      steps: [
+        { name: 'first', type: FlowStepType.Capability, capability: 'ops.first' },
+        { name: 'original-step', type: FlowStepType.Capability, capability: 'ops.original' },
+      ],
+    });
+    const v2 = defineFlow({
+      name: 'migrate-me',
+      domain: 'ops',
+      input: z.object({ id: z.string() }),
+      steps: [
+        { name: 'first', type: FlowStepType.Capability, capability: 'ops.first' },
+        { name: 'replacement-step', type: FlowStepType.Capability, capability: 'ops.replacement' },
+      ],
+    });
+
+    const registry = new FlowRegistry();
+    registry.register(v1);
+    const compiledRegistry = new CompiledFlowRegistry();
+    compiledRegistry.publish(compileFlowDefinition(v1, { definitionVersion: '1' }));
+
+    const db = mockDb();
+    const stepDeps = {
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+    const engine = createFlowEngine({ db, registry, stepDeps, compiledRegistry });
+
+    const exec = await engine.start('migrate-me', { id: '1' }, makeAuth());
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engine.runNext(exec.id, makeCtx());
+    expect(stepDeps.executeCapability.mock.calls[0][0]).toBe('ops.first');
+    expect(row.currentStep).toBe('original-step');
+
+    compiledRegistry.publish(compileFlowDefinition(v2, { definitionVersion: '2' }));
+    expect(compiledRegistry.getLatest('ops.migrate-me')?.definitionVersion).toBe('2');
+
+    await engine.runNext(exec.id, makeCtx());
+    const capabilities = stepDeps.executeCapability.mock.calls.map((c: unknown[]) => c[0]);
+    expect(capabilities).toEqual(['ops.first', 'ops.original']);
+    expect(capabilities).not.toContain('ops.replacement');
+  });
+
+  it('refuses start when compiledRegistry is set but no version is published', async () => {
+    const registry = new FlowRegistry();
+    registry.register(v1Flow());
+    const engine = createFlowEngine({
+      db: mockDb(),
+      registry,
+      stepDeps: makeStepDeps(),
+      compiledRegistry: new CompiledFlowRegistry(),
+    });
+    await expect(engine.start('migrate-me', { id: '1' }, makeAuth())).rejects.toMatchObject({
+      metadata: { reason: 'compiled-definition-required' },
+    });
+  });
+
+  it('refuses migrate and applies stop-and-recover without a silent no-op', async () => {
+    const flow = v1Flow();
+    const registry = new FlowRegistry();
+    registry.register(flow);
+    const compiledRegistry = new CompiledFlowRegistry();
+    compiledRegistry.publish(compileFlowDefinition(flow, { definitionVersion: '1' }));
+    const db = mockDb();
+    const engine = createFlowEngine({ db, registry, stepDeps: makeStepDeps(), compiledRegistry });
+    const exec = await engine.start('migrate-me', { id: '1' }, makeAuth());
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await expect(engine.applyDefinitionStrategy(exec.id, 'migrate')).rejects.toMatchObject({
+      name: 'DefinitionStrategyNotSupportedError',
+      metadata: { reason: 'definition-strategy-not-supported', strategy: 'migrate' },
+    });
+    expect(row.status).toBe(FlowStatus.Created);
+
+    await engine.applyDefinitionStrategy(exec.id, 'stop-and-recover');
+    expect(row.status).toBe(FlowStatus.Cancelled);
+    expect(row.lastError).toBe('stop-and-recover');
+  });
+});
+
+function v1Flow() {
+  return defineFlow({
+    name: 'migrate-me',
+    domain: 'ops',
+    input: z.object({ id: z.string() }),
+    steps: [
+      { name: 'first', type: FlowStepType.Capability, capability: 'ops.first' },
+      { name: 'original-step', type: FlowStepType.Capability, capability: 'ops.original' },
+    ],
+  });
+}
+
+describe('FlowEngine — approval-outcome (D-02-3)', () => {
+  it('routes the next step from the Stage 4 approval decision', async () => {
+    const flow = defineFlow({
+      name: 'refund',
+      domain: 'billing',
+      input: z.object({ amount: z.number() }),
+      steps: [
+        {
+          name: 'route',
+          type: FlowStepType.ApprovalOutcome,
+          outcomes: { approved: 'pay', rejected: 'deny' },
+        },
+        { name: 'pay', type: FlowStepType.Capability, capability: 'billing.pay' },
+        { name: 'deny', type: FlowStepType.Capability, capability: 'billing.deny' },
+      ],
+    });
+    const registry = new FlowRegistry();
+    registry.register(flow);
+    const compiledRegistry = new CompiledFlowRegistry();
+    compiledRegistry.publish(compileFlowDefinition(flow));
+    const { createApprovalService } = await import('../../approvals/service.js');
+    const { createMemoryApprovalStore } = await import('../../approvals/memory-store.js');
+    const { ActionRiskTier } = await import('../../approvals/action-risk.js');
+    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+
+    const db = mockDb();
+    const stepDeps = {
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+    const engine = createFlowEngine({ db, registry, stepDeps, compiledRegistry, approvals });
+    const exec = await engine.start('refund', { amount: 10 }, makeAuth());
+    await approvals.requestApproval({
+      capabilityId: 'billing.refund',
+      definitionVersion: '1',
+      input: { amount: 10 },
+      riskClass: ActionRiskTier.Consequential,
+      expiresAt: new Date(Date.now() + 60_000),
+      executionId: exec.id,
+    });
+    const pending = await approvals.findByExecutionId(exec.id);
+    await approvals.decide({
+      requestId: pending!.approvalRequestId,
+      outcome: 'approved',
+      auth: makeAuth(),
+    });
+
+    const row = db._rows.get(exec.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([row]),
+        }),
+      }),
+    });
+
+    await engine.runNext(exec.id, makeCtx());
+    expect(row.currentStep).toBe('pay');
+    await engine.runNext(exec.id, makeCtx());
+    expect(stepDeps.executeCapability.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      'billing.pay',
+    ]);
+  });
+});
+

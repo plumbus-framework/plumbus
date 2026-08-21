@@ -34,6 +34,17 @@ export class LeaseLostError extends PlumbusError {
  * HTTP/AI calls (the DOM `fetch` maps abort to a `DOMException('AbortError')`
  * — the reason is available via `signal.reason`).
  */
+export class BudgetExhaustedError extends PlumbusError {
+  constructor(executionId: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.Forbidden, `Execution budget exhausted for "${executionId}"`, {
+      executionId,
+      reason: 'budget-exhausted',
+      ...metadata,
+    });
+    this.name = 'BudgetExhaustedError';
+  }
+}
+
 export class FlowCancelledError extends PlumbusError {
   constructor(executionId: string, metadata?: Record<string, unknown>) {
     super(ErrorCode.Cancelled, `Flow execution "${executionId}" was cancelled`, {

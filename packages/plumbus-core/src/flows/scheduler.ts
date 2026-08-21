@@ -1,11 +1,58 @@
 import { createRequire } from 'node:module';
 import { eq, lte } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
+import { ScheduleCatchUpPolicy } from '../types/flow.js';
 import type { createFlowEngine } from './engine.js';
 import type { FlowRegistry } from './registry.js';
 import { flowSchedulesTable } from './schema.js';
+
+/** Bound on catch-up starts per poll so a missed window cannot flood the engine. */
+export const DEFAULT_SCHEDULE_CATCH_UP_MAX = 3;
+
+export interface MissedSchedulePlan {
+  starts: number;
+  nextRunAt: Date;
+}
+
+function toDate(value: Date | string | null | undefined, fallback: Date): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return fallback;
+}
+
+/**
+ * Decide how many times to start a due schedule and where to park `nextRunAt`.
+ * `wakeAt` is `nextRunAt` on the existing `flow_schedules` row.
+ */
+export function planMissedSchedule(input: {
+  cron: string;
+  nextRunAt: Date;
+  now: Date;
+  policy?: string;
+  maxCatchUp?: number;
+}): MissedSchedulePlan {
+  const maxCatchUp = Math.max(1, input.maxCatchUp ?? DEFAULT_SCHEDULE_CATCH_UP_MAX);
+  const policy = input.policy ?? ScheduleCatchUpPolicy.Skip;
+  const take =
+    policy === ScheduleCatchUpPolicy.CatchUp ? maxCatchUp : 1;
+
+  let cursor = input.nextRunAt;
+  let starts = 0;
+  while (cursor.getTime() <= input.now.getTime() && starts < take) {
+    starts += 1;
+    cursor = computeNextRun(input.cron, cursor);
+  }
+  while (cursor.getTime() <= input.now.getTime()) {
+    cursor = computeNextRun(input.cron, cursor);
+  }
+  return { starts: Math.max(starts, 0), nextRunAt: cursor };
+}
 
 export interface SchedulerConfig {
   db: PostgresJsDatabase;
@@ -15,6 +62,14 @@ export interface SchedulerConfig {
   logger?: LoggerService;
   /** Poll interval in milliseconds (default: 60000 = 1 min) */
   pollIntervalMs?: number;
+  /**
+   * When set with `listTenantRefs`, sync and poll run against each tenant's
+   * `flow_schedules` (not the pool `db`). Started flows carry that tenant on auth.
+   */
+  resolver?: DataPlaneResolver;
+  listTenantRefs?: () => Iterable<string> | Promise<Iterable<string>>;
+  /** Max starts per due row when `catchUpPolicy` is `catch-up`. Default 3. */
+  maxCatchUp?: number;
 }
 
 /**
@@ -25,7 +80,16 @@ export interface SchedulerConfig {
  * a proper cron parser library (e.g., cron-parser) for nextRunAt computation.
  */
 export function createFlowScheduler(config: SchedulerConfig) {
-  const { db, registry, engine, logger, pollIntervalMs = 60_000 } = config;
+  const {
+    db,
+    registry,
+    engine,
+    logger,
+    pollIntervalMs = 60_000,
+    resolver,
+    listTenantRefs,
+  } = config;
+  const maxCatchUp = config.maxCatchUp ?? DEFAULT_SCHEDULE_CATCH_UP_MAX;
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
 
@@ -36,6 +100,19 @@ export function createFlowScheduler(config: SchedulerConfig) {
     provider: 'scheduler',
   };
 
+  async function tenantPlanes(): Promise<Array<{ db: PostgresJsDatabase; tenantRef?: string }>> {
+    if (!resolver || !listTenantRefs) {
+      return [{ db }];
+    }
+    const refs = [...(await listTenantRefs())];
+    const planes: Array<{ db: PostgresJsDatabase; tenantRef?: string }> = [];
+    for (const tenantRef of refs) {
+      const handle = await resolver.resolve(tenantRef);
+      planes.push({ db: handle.db, tenantRef: handle.tenantRef });
+    }
+    return planes;
+  }
+
   /**
    * Sync registered flows with schedules into the database.
    * Call once at startup to ensure all scheduled flows have a row.
@@ -43,23 +120,26 @@ export function createFlowScheduler(config: SchedulerConfig) {
   async function syncSchedules(): Promise<number> {
     const scheduled = registry.getScheduled();
     let synced = 0;
+    const planes = await tenantPlanes();
 
-    for (const flow of scheduled) {
-      if (!flow.schedule?.cron) continue;
+    for (const plane of planes) {
+      for (const flow of scheduled) {
+        if (!flow.schedule?.cron) continue;
 
-      const existing = await db
-        .select()
-        .from(flowSchedulesTable)
-        .where(eq(flowSchedulesTable.flowName, flow.name))
-        .limit(1);
+        const existing = await plane.db
+          .select()
+          .from(flowSchedulesTable)
+          .where(eq(flowSchedulesTable.flowName, flow.name))
+          .limit(1);
 
-      if (existing.length === 0) {
-        await db.insert(flowSchedulesTable).values({
-          flowName: flow.name,
-          cron: flow.schedule.cron,
-          nextRunAt: new Date(), // first run immediately
-        });
-        synced++;
+        if (existing.length === 0) {
+          await plane.db.insert(flowSchedulesTable).values({
+            flowName: flow.name,
+            cron: flow.schedule.cron,
+            nextRunAt: new Date(), // first run immediately
+          });
+          synced++;
+        }
       }
     }
 
@@ -71,33 +151,51 @@ export function createFlowScheduler(config: SchedulerConfig) {
    */
   async function poll(): Promise<number> {
     const now = new Date();
-    const dueSchedules = await db
-      .select()
-      .from(flowSchedulesTable)
-      .where(lte(flowSchedulesTable.nextRunAt, now));
-
     let triggered = 0;
-    for (const schedule of dueSchedules) {
-      if (!schedule.enabled) continue;
+    const planes = await tenantPlanes();
 
-      try {
-        await engine.start(schedule.flowName, {}, systemAuth);
-        // Update last/next run times
-        await db
-          .update(flowSchedulesTable)
-          .set({
-            lastRunAt: now,
-            nextRunAt: computeNextRun(schedule.cron, now),
-          })
-          .where(eq(flowSchedulesTable.id, schedule.id));
-        triggered++;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger?.error(`Scheduler failed to start flow "${schedule.flowName}"`, {
-          flowName: schedule.flowName,
-          scheduleId: schedule.id,
-          error: message,
-        });
+    for (const plane of planes) {
+      const dueSchedules = await plane.db
+        .select()
+        .from(flowSchedulesTable)
+        .where(lte(flowSchedulesTable.nextRunAt, now));
+
+      for (const schedule of dueSchedules) {
+        if (!schedule.enabled) continue;
+
+        try {
+          const auth: AuthContext = plane.tenantRef
+            ? { ...systemAuth, tenantId: plane.tenantRef }
+            : systemAuth;
+          const flow = registry.get(schedule.flowName);
+          const dueAt = toDate(schedule.nextRunAt, now);
+          const plan = planMissedSchedule({
+            cron: schedule.cron,
+            nextRunAt: dueAt,
+            now,
+            policy: flow?.schedule?.catchUpPolicy,
+            maxCatchUp,
+          });
+          for (let i = 0; i < plan.starts; i++) {
+            await engine.start(schedule.flowName, {}, auth);
+            triggered++;
+          }
+          await plane.db
+            .update(flowSchedulesTable)
+            .set({
+              lastRunAt: now,
+              nextRunAt: plan.nextRunAt,
+            })
+            .where(eq(flowSchedulesTable.id, schedule.id));
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger?.error(`Scheduler failed to start flow "${schedule.flowName}"`, {
+            flowName: schedule.flowName,
+            scheduleId: schedule.id,
+            tenantRef: plane.tenantRef,
+            error: message,
+          });
+        }
       }
     }
 

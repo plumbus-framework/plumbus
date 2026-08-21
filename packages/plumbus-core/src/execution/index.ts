@@ -46,4 +46,7 @@ export {
   createTransactionRunner,
   shouldUseTransactionalOutbox,
 } from './transactional-outbox.js';
-export type { TransactionRunnerConfig } from './transactional-outbox.js';
+export type {
+  DurableDispatchRunnerConfig,
+  TransactionRunnerConfig,
+} from './transactional-outbox.js';

@@ -27,6 +27,8 @@ export const FlowStepType = {
   Delay: 'delay',
   Parallel: 'parallel',
   EventEmit: 'eventEmit',
+  /** D-02-3: route on a Stage 4 approval decision outcome. */
+  ApprovalOutcome: 'approval-outcome',
 } as const;
 
 export type FlowStepType = (typeof FlowStepType)[keyof typeof FlowStepType];

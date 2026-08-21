@@ -38,7 +38,8 @@ export const refundApproval = defineFlow({
 | `wait` | Pause until event or timeout | `event` |
 | `delay` | Pause for a fixed duration | `duration` (e.g., `"24h"`, `"5m"`) |
 | `parallel` | Run multiple steps concurrently | `branches` (step names) |
-| `eventEmit` | Emit a framework event | `event` (event type) |
+| `eventEmit` | Emit a framework event | `event` |
+| `approval-outcome` | Route on Stage 4 approval decision | `outcomes` |
 ### Conditional Syntax
 
 The `if` field accepts a JavaScript-like expression string. You can reference the flow `input` and `state` directly:
@@ -112,6 +113,12 @@ retry: {
 ```
 
 Steps that fail with transient errors are retried. Permanent failures stop the flow and move it to the dead-letter queue.
+
+## Compiled definitions
+
+Scheduled flows use `createFlowScheduler` and `flow_schedules`. Set `schedule.catchUpPolicy` to `catch-up` for bounded missed-tick catch-up; default is `skip`. Do not add a second scheduler.
+
+`plumbus compile-flows` emits signed JSON from `defineFlow` modules. Pass `compiledRegistry` to `createFlowEngine` so production runs consume compiled JSON (not live TypeScript steps) and pin version+digest on `flow_executions`. `approval-outcome` steps use Stage 4 `ApprovalService`. `applyDefinitionStrategy(..., 'migrate')` is not supported. Do not write a second workflow engine.
 
 ## Flow Lifecycle
 

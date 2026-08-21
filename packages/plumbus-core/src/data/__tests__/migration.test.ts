@@ -110,10 +110,24 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__document_chunks'))).toBe('document_chunks');
   });
 
-  it('includes all 10 framework tables with zero entities', () => {
+  it('includes Protocol A durable framework tables', () => {
+    const schemas = collectSchemas([]);
+    expect(getTableName(getSchema(schemas, '__execution_state'))).toBe('execution_state');
+    expect(getTableName(getSchema(schemas, '__dispatch_outbox'))).toBe('dispatch_outbox');
+    expect(getTableName(getSchema(schemas, '__side_effect_log'))).toBe('side_effect_log');
+  });
+
+  it('includes Protocol A approval framework tables', () => {
+    const schemas = collectSchemas([]);
+    expect(getTableName(getSchema(schemas, '__human_task'))).toBe('human_task');
+    expect(getTableName(getSchema(schemas, '__approval_request'))).toBe('approval_request');
+    expect(getTableName(getSchema(schemas, '__approval_decision'))).toBe('approval_decision');
+  });
+
+  it('includes all 19 framework tables with zero entities', () => {
     const schemas = collectSchemas([]);
     const frameworkKeys = Object.keys(schemas).filter((k) => k.startsWith('__'));
-    expect(frameworkKeys).toHaveLength(10);
+    expect(frameworkKeys).toHaveLength(19);
   });
 
   it('throws when an extra schema collides with an entity table name', () => {

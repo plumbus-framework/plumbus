@@ -34,3 +34,10 @@ export type { DispatcherConfig } from './dispatcher.js';
 // ── Worker ──
 export { createEventWorker } from './worker.js';
 export type { WorkerConfig } from './worker.js';
+
+export { evaluateEventSubscriptionDelivery } from './subscription.js';
+export type {
+  EventSubscriptionBinding,
+  EventSubscriptionDecision,
+  EventSubscriptionSkipReason,
+} from './subscription.js';

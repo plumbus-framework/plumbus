@@ -1,3 +1,4 @@
+import type { ActionRiskTier } from '../approvals/action-risk.js';
 import type { z } from 'zod';
 import type { ExecutionContext } from './context.js';
 import type { CapabilityKind } from './enums.js';
@@ -106,6 +107,8 @@ export interface ApiExposureConfig {
 export interface EventHandlerTrigger {
   event: string;
   versionConstraint?: string;
+  /** Inactive subscriptions skip delivery. Default true. */
+  active?: boolean;
 }
 
 // ── Capability Contract ──
@@ -141,6 +144,11 @@ export interface CapabilityContract<
    * Default: transactional for `action` / `eventHandler` (auto-excluded for `job` and `effects.ai: true`).
    */
   transactional?: boolean;
+  /**
+   * F-09 action-risk tier. Omitted: no approval gate (existing capabilities keep working).
+   * Only `consequential` requires a bound, unexpired approval before the handler runs.
+   */
+  riskTier?: ActionRiskTier;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

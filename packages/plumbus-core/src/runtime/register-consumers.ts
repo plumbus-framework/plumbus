@@ -9,6 +9,8 @@ import type { EventRegistry } from '../events/registry.js';
 import { outboxTable } from '../events/outbox.js';
 import { TrustedReplayActor, type EventEnvelope } from '../types/event.js';
 import { CapabilityKind } from '../types/enums.js';
+import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import { executeCapability } from '../execution/capability-executor.js';
@@ -39,6 +41,8 @@ export interface RegisterCapabilityConsumersOptions {
   aiService?: AIService;
   logger?: LoggerService;
   metrics?: PlumbusMetrics;
+  approvals?: ApprovalService;
+  authorizationProvider?: AuthorizationProvider;
   /** Called when MCP task rows need status sync (optional @plumbus/mcp integration). */
   onMcpJobComplete?: (
     jobId: string,
@@ -152,6 +156,7 @@ function buildConsumerContext(
       config: opts.config as unknown as Record<string, unknown>,
       correlationId: eventMeta?.correlationId,
       ...capRuntime,
+      ...hostApprovalRuntimeExtras(opts),
     },
   );
 
@@ -178,6 +183,8 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
         id: cap.name,
         eventTypes: [cap.trigger.event],
         versionConstraint: cap.trigger.versionConstraint,
+        capabilityVersion: cap.version ?? '1',
+        active: cap.trigger.active !== false,
         handler: async (envelope) => {
           const tenantId = await resolveEventHandlerTenantId(opts.db, envelope, opts.logger);
           const auth = eventWorkerAuth(cap, envelope, tenantId);

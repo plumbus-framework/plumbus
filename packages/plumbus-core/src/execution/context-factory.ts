@@ -235,6 +235,8 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     correlationId: deps.correlationId,
     invocationEmitScope: deps.invocationEmitScope,
     withTransaction: deps.withTransaction,
+    approvals: deps.approvals,
+    authorizationProvider: deps.authorizationProvider,
   };
 
   const ctx: ExecutionContext = {

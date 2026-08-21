@@ -33,6 +33,13 @@ function mockDb() {
   const deadLetterRows: any[] = [];
   return {
     _deadLetterRows: deadLetterRows,
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    }),
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockImplementation((row: any) => {
         deadLetterRows.push(row);
@@ -178,6 +185,97 @@ describe('EventWorker', () => {
 
     worker.stop();
     expect(worker.isRunning).toBe(false);
+  });
+
+  it('writes idempotency and dead-letter on the resolved tenant db', async () => {
+    const consumers = new ConsumerRegistry();
+    consumers.register({
+      id: 'c1',
+      eventTypes: ['order.created'],
+      maxRetries: 1,
+      handler: async () => {
+        throw new Error('tenant fail');
+      },
+    });
+
+    const pool = mockDb();
+    const tenant = mockDb();
+    const poolIdemp = mockIdempotency();
+    const worker = createEventWorker({
+      db: pool,
+      queue: createInMemoryQueue(),
+      consumers,
+      idempotency: poolIdemp,
+      resolver: {
+        resolve: async (tenantRef: string) => {
+          if (tenantRef !== 'tenant-a') throw new Error(tenantRef);
+          return {
+            db: tenant,
+            coreSchema: 'core_plumbus',
+            packageSchemaPrefix: 'pkg_',
+            tenantRef,
+          };
+        },
+      },
+    });
+
+    await worker.deliver(makeEnvelope({ tenantId: 'tenant-a' }));
+    expect(tenant._deadLetterRows).toHaveLength(1);
+    expect(pool._deadLetterRows).toHaveLength(0);
+    expect(poolIdemp.markProcessed).not.toHaveBeenCalled();
+    expect(poolIdemp.isProcessed).not.toHaveBeenCalled();
+  });
+
+  it('skips inactive subscriptions without invoking the handler or dead-lettering', async () => {
+    const consumers = new ConsumerRegistry();
+    const handled: string[] = [];
+    consumers.register({
+      id: 'c1',
+      eventTypes: ['order.created'],
+      capabilityVersion: '2.0.0',
+      active: false,
+      handler: async (env) => {
+        handled.push(env.id);
+      },
+    });
+
+    const db = mockDb();
+    const worker = createEventWorker({
+      db,
+      queue: createInMemoryQueue(),
+      consumers,
+      idempotency: mockIdempotency(),
+    });
+
+    await worker.deliver(makeEnvelope());
+    expect(handled).toEqual([]);
+    expect(db._deadLetterRows).toEqual([]);
+  });
+
+  it('skips delivery when the subscription policy denies', async () => {
+    const consumers = new ConsumerRegistry();
+    const handled: string[] = [];
+    consumers.register({
+      id: 'c1',
+      eventTypes: ['order.created'],
+      capabilityVersion: '1.0.0',
+      checkDeliveryPolicy: async () => false,
+      handler: async (env) => {
+        handled.push(env.id);
+      },
+    });
+
+    const db = mockDb();
+    const worker = createEventWorker({
+      db,
+      queue: createInMemoryQueue(),
+      consumers,
+      idempotency: mockIdempotency(),
+    });
+
+    await worker.deliver(makeEnvelope());
+    expect(handled).toEqual([]);
+    expect(db._deadLetterRows).toEqual([]);
   });
 
   it('ignores events with no matching consumers', async () => {

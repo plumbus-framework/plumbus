@@ -8,11 +8,13 @@ import { PgTable } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
 import { auditRecords } from '../audit/schema.js';
+import { createTenantApprovalTables } from '../approvals/schema.js';
+import { createTenantDurableTables } from '../durable/schema.js';
 import { deadLetterTable, idempotencyTable, outboxTable } from '../events/outbox.js';
 import { flowDeadLetterTable, flowExecutionsTable, flowSchedulesTable } from '../flows/schema.js';
 import { jobExecutionsTable } from '../jobs/schema.js';
 import type { EntityDefinition } from '../types/entity.js';
-import { generateDrizzleSchema } from './schema-generator.js';
+import { FRAMEWORK_SCHEMA, generateDrizzleSchema } from './schema-generator.js';
 
 export interface MigrationConfig {
   db: PostgresJsDatabase;
@@ -279,6 +281,28 @@ export function collectSchemas(
   tableNames.add(getTableName(flowSchedulesTable));
   schemas.__job_executions = jobExecutionsTable as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(jobExecutionsTable));
+  // Protocol A tenant durable tables (core_plumbus)
+  const durable = createTenantDurableTables(FRAMEWORK_SCHEMA);
+  schemas.__execution_state = durable.executionState as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(durable.executionState));
+  schemas.__step_execution = durable.stepExecution as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(durable.stepExecution));
+  schemas.__wait_state = durable.waitState as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(durable.waitState));
+  schemas.__terminal_state = durable.terminalState as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(durable.terminalState));
+  schemas.__dispatch_outbox = durable.dispatchOutbox as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(durable.dispatchOutbox));
+  schemas.__side_effect_log = durable.sideEffectLog as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(durable.sideEffectLog));
+  // Human-task / approval tables (core_plumbus)
+  const approvals = createTenantApprovalTables(FRAMEWORK_SCHEMA);
+  schemas.__human_task = approvals.humanTask as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(approvals.humanTask));
+  schemas.__approval_request = approvals.approvalRequest as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(approvals.approvalRequest));
+  schemas.__approval_decision = approvals.approvalDecision as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(approvals.approvalDecision));
   // RAG tables
   schemas.__documents = documentsTable as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(documentsTable));

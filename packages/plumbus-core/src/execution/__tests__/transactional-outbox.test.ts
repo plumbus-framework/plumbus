@@ -188,4 +188,51 @@ describe('createTransactionRunner', () => {
     expect(result).toBe('ok');
     expect(second).toHaveBeenCalledOnce();
   });
+
+  it('omits persist-before-ack helpers when durableDispatch is unset', async () => {
+    const db = {
+      transaction: vi.fn(async (fn: (tx: never) => Promise<unknown>) => fn({} as never)),
+    } as never;
+
+    const runner = createTransactionRunner({
+      db,
+      entities: { createDataService: vi.fn(() => ({})) } as never,
+      events: { get: vi.fn() } as never,
+      getAuth: () => ({
+        userId: 'u1',
+        roles: [],
+        scopes: [],
+        provider: 'test',
+      }),
+      getAudit: () => ({ record: vi.fn() }) as never,
+    });
+
+    const scope = await runner(async (s) => s);
+    expect(scope.persistAcceptance).toBeUndefined();
+    expect(scope.enqueueDispatch).toBeUndefined();
+  });
+
+  it('exposes persistAcceptance and enqueueDispatch when durableDispatch is set', async () => {
+    const db = {
+      transaction: vi.fn(async (fn: (tx: never) => Promise<unknown>) => fn({} as never)),
+    } as never;
+
+    const runner = createTransactionRunner({
+      db,
+      entities: { createDataService: vi.fn(() => ({})) } as never,
+      events: { get: vi.fn() } as never,
+      getAuth: () => ({
+        userId: 'u1',
+        roles: [],
+        scopes: [],
+        provider: 'test',
+      }),
+      getAudit: () => ({ record: vi.fn() }) as never,
+      durableDispatch: { schemaName: 'core_plumbus' },
+    });
+
+    const scope = await runner(async (s) => s);
+    expect(scope.persistAcceptance).toEqual(expect.any(Function));
+    expect(scope.enqueueDispatch).toEqual(expect.any(Function));
+  });
 });

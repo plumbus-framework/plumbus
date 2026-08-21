@@ -1,7 +1,10 @@
+import { AIBudgetExceededError } from '../errors/data-errors.js';
 import type { ExecutionContext } from '../types/context.js';
 import { FlowStepType } from '../types/enums.js';
 import { FlowConditionError } from './evaluate-condition.js';
+import type { ApprovalRequestRecord } from '../approvals/types.js';
 import type {
+  ApprovalOutcomeStep,
   CapabilityStep,
   ConditionalStep,
   DelayStep,
@@ -37,6 +40,8 @@ export interface StepExecutorDeps {
   ) => Promise<{ success: boolean; data?: unknown; error?: unknown }>;
   /** Evaluate a condition expression against the flow state */
   evaluateCondition: (expression: string, state: unknown) => boolean;
+  /** Stage 4 approval lookup for D-02-3 approval-outcome steps. */
+  findApprovalForExecution?: (executionId: string) => Promise<ApprovalRequestRecord | undefined>;
 }
 
 /**
@@ -66,6 +71,8 @@ export async function executeStep(
       return executeParallelStep(step);
     case FlowStepType.EventEmit:
       return executeEventEmitStep(step, ctx, flowInput, state);
+    case FlowStepType.ApprovalOutcome:
+      return executeApprovalOutcomeStep(step, ctx, deps);
     default:
       return {
         status: StepStatus.Failed,
@@ -135,6 +142,12 @@ async function executeCapabilityStep(
           : String(result.error),
     };
   } catch (err) {
+    if (err instanceof AIBudgetExceededError) {
+      return {
+        status: StepStatus.Failed,
+        error: `budget-exhausted: ${err.message}`,
+      };
+    }
     return {
       status: StepStatus.Failed,
       error: err instanceof Error ? err.message : String(err),
@@ -191,6 +204,36 @@ function executeParallelStep(step: ParallelStep): Promise<StepResult> {
     status: StepStatus.Completed,
     parallelBranches: step.branches,
   });
+}
+
+async function executeApprovalOutcomeStep(
+  step: ApprovalOutcomeStep,
+  ctx: ExecutionContext,
+  deps: StepExecutorDeps,
+): Promise<StepResult> {
+  if (!deps.findApprovalForExecution) {
+    return {
+      status: StepStatus.Failed,
+      error: 'approval-outcome requires ApprovalService',
+    };
+  }
+  const executionId = ctx.flowId;
+  if (!executionId) {
+    return { status: StepStatus.Failed, error: 'approval-outcome requires a flow execution id' };
+  }
+  const request = await deps.findApprovalForExecution(executionId);
+  const outcome = request?.state;
+  const nextStep =
+    outcome === 'approved' || outcome === 'rejected' || outcome === 'changes-requested'
+      ? step.outcomes[outcome]
+      : undefined;
+  if (!nextStep) {
+    return {
+      status: StepStatus.Failed,
+      error: `no approval-outcome route for "${outcome ?? 'missing'}"`,
+    };
+  }
+  return { status: StepStatus.Completed, nextStep };
 }
 
 async function executeEventEmitStep(

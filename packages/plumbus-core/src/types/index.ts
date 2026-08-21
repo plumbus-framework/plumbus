@@ -5,6 +5,14 @@
 
 // ── Audit ──
 export type { AuditRecord, AuditService } from './audit.js';
+// ── Action risk (F-09 placeholder; single import) ──
+export {
+  ActionRiskTier,
+  ReviewMandateReason,
+  isActionRiskTier,
+  requiresApprovalForRiskTier,
+} from '../approvals/action-risk.js';
+export { APPROVAL_PENDING_WAIT } from '../approvals/wait.js';
 // ── Capability ──
 export type {
   ApiDeprecationConfig,
@@ -20,6 +28,7 @@ export type {
   CapabilityEffects,
   CapabilityExplanationConfig,
   CapabilityExposeAs,
+  EventHandlerTrigger,
   McpExposureConfig,
 } from './capability.js';
 // ── Config ──
@@ -99,10 +108,17 @@ export type {
 } from './fields.js';
 // ── Flow ──
 export type {
+  ApprovalOutcomeRoutes,
+  ApprovalOutcomeStep,
   CapabilityStep,
+  CompiledBinding,
+  CompiledBindingKind,
+  CompiledFlowDefinition,
+  CompiledFlowStep,
   ConditionalStep,
   DelayStep,
   EventEmitStep,
+  FlowBudget,
   FlowDefinition,
   FlowRetryPolicy,
   FlowSchedule,
@@ -111,6 +127,7 @@ export type {
   ParallelStep,
   WaitStep,
 } from './flow.js';
+export { ScheduleCatchUpPolicy } from './flow.js';
 // ── Governance ──
 export type {
   GovernanceOverride,

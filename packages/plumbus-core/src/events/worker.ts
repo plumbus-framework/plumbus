@@ -1,19 +1,30 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type { EventEnvelope } from '../types/event.js';
 import { createJobService } from '../jobs/service.js';
 import type { JobQueuePayload } from '../jobs/types.js';
 import type { ConsumerRegistry } from './consumer-registry.js';
-import type { IdempotencyService } from './idempotency.js';
+import { createIdempotencyService, type IdempotencyService } from './idempotency.js';
 import { deadLetterTable } from './outbox.js';
 import type { EventQueue } from './queue.js';
+import {
+  evaluateEventSubscriptionDelivery,
+  resolveConsumerDeliveryPolicy,
+} from './subscription.js';
 
 export interface WorkerConfig {
   db: PostgresJsDatabase;
   queue: EventQueue;
   consumers: ConsumerRegistry;
   idempotency: IdempotencyService;
+  /**
+   * When set, delivery (idempotency + dead-letter + job rows) runs against
+   * the tenant data plane resolved from `envelope.tenantId`. The pool `db`
+   * and boot-time `idempotency` stay the fallback for untenanted envelopes.
+   */
+  resolver?: DataPlaneResolver;
   audit?: AuditService;
   metrics?: PlumbusMetrics;
   /** Default max retries per consumer (default: 3) */
@@ -42,9 +53,21 @@ export function createEventWorker(config: WorkerConfig) {
     audit,
     retryBackoffBaseMs = 100,
     retryBackoffMaxMs = 5000,
+    resolver,
   } = config;
 
   let unsubscribe: (() => void) | null = null;
+
+  async function planeFor(envelope: EventEnvelope): Promise<{
+    db: PostgresJsDatabase;
+    idempotency: IdempotencyService;
+  }> {
+    if (!resolver || !envelope.tenantId) {
+      return { db, idempotency };
+    }
+    const handle = await resolver.resolve(envelope.tenantId);
+    return { db: handle.db, idempotency: createIdempotencyService(handle.db) };
+  }
 
   /** Compute exponential backoff with jitter */
   function computeRetryDelay(attempt: number): number {
@@ -60,12 +83,31 @@ export function createEventWorker(config: WorkerConfig) {
   async function deliver(envelope: EventEnvelope): Promise<void> {
     const matched = consumers.getConsumers(envelope.eventType, envelope.version);
     const deliveryStarted = Date.now();
+    const plane = await planeFor(envelope);
 
     for (const consumer of matched) {
+      const policyAllowed = await resolveConsumerDeliveryPolicy(consumer, envelope);
+      const subscription = evaluateEventSubscriptionDelivery({
+        active: consumer.active,
+        policyAllowed,
+      });
+      if (!subscription.deliver) {
+        await audit?.record('event.consumer.skipped', {
+          eventId: envelope.id,
+          eventType: envelope.eventType,
+          consumerId: consumer.id,
+          capabilityVersion: consumer.capabilityVersion,
+          tenantId: envelope.tenantId,
+          reason: subscription.reason,
+          outcome: 'skipped',
+        });
+        continue;
+      }
+
       const maxRetries = consumer.maxRetries ?? defaultMaxRetries;
 
       // Idempotency guard
-      const alreadyProcessed = await idempotency.isProcessed(envelope.id, consumer.id);
+      const alreadyProcessed = await plane.idempotency.isProcessed(envelope.id, consumer.id);
       if (alreadyProcessed) continue;
 
       let lastError: string | undefined;
@@ -94,7 +136,7 @@ export function createEventWorker(config: WorkerConfig) {
       }
 
       if (succeeded) {
-        await idempotency.markProcessed(envelope.id, consumer.id);
+        await plane.idempotency.markProcessed(envelope.id, consumer.id);
         metrics?.eventDelivered.inc({ consumer: consumer.id });
         metrics?.eventDeliveryDuration.observe(Date.now() - deliveryStarted, {
           consumer: consumer.id,
@@ -123,7 +165,7 @@ export function createEventWorker(config: WorkerConfig) {
           outcome: 'dead_lettered',
         });
         // Dead-letter
-        await db.insert(deadLetterTable).values({
+        await plane.db.insert(deadLetterTable).values({
           eventId: envelope.id,
           eventType: envelope.eventType,
           payload: envelope.payload as any,
@@ -141,7 +183,7 @@ export function createEventWorker(config: WorkerConfig) {
         if (consumer.id.startsWith('job:')) {
           const payload = envelope.payload as JobQueuePayload;
           if (payload.jobExecutionId) {
-            const jobs = createJobService(db);
+            const jobs = createJobService(plane.db);
             await jobs.markDeadLettered(payload.jobExecutionId, {
               code: 'delivery_exhausted',
               message: lastError ?? 'Job delivery exhausted retries',

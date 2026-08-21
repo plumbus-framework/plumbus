@@ -31,6 +31,8 @@ import { registerJobStatusRoute } from '../jobs/routes.js';
 import { createJobDispatchService } from '../jobs/job-dispatch-service.js';
 import { JobExecutionSource } from '../jobs/schema.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import {
@@ -201,6 +203,18 @@ export interface ServerConfig {
    * something the host derives instead (a region-qualified reference, a slug).
    */
   resolveTenantRef?: (auth: AuthContext) => string | undefined;
+  /**
+   * Optional approval service for the capability-pipeline gate.
+   * Omitted: existing hosts boot unchanged (consequential caps fail closed
+   * only when they declare `riskTier: 'consequential'`).
+   */
+  approvals?: ApprovalService;
+  /**
+   * Host authorization revalidation after an approval wait.
+   * Do not invent a production provider here — the host application supplies it.
+   * Harness tests may pass `createAllowAllAuthorizationProvider`.
+   */
+  authorizationProvider?: AuthorizationProvider;
 }
 
 // ── Server Instance ──
@@ -468,6 +482,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         translations: createTranslationService(translationRegistry, locale),
         invocationEmitScope,
         ...capRuntime,
+        ...hostApprovalRuntimeExtras(serverConfig),
       },
     );
   }

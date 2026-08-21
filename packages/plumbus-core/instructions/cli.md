@@ -69,6 +69,10 @@ plumbus event new <EventName>
 plumbus flow new <FlowName>
 # → app/flows/default/<flow-name>/flow.ts
 
+# Compile defineFlow modules into signed FlowDefinition JSON
+plumbus compile-flows
+# → .plumbus/compiled-flows/{domain.name}@{version}.json
+
 # Create a prompt
 plumbus prompt new <PromptName>
 # → app/prompts/<prompt-name>.prompt.ts

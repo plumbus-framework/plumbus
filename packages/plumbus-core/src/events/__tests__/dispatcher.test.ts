@@ -183,4 +183,36 @@ describe('OutboxDispatcher', () => {
     const count = await dispatcher.poll();
     expect(count).toBe(0);
   });
+
+  it('polls each resolved tenant database and not the pool db', async () => {
+    const pool = mockDb([makeRow('pool-should-not-run')]);
+    const tenantA = mockDb([makeRow('e-a')]);
+    const tenantB = mockDb([makeRow('e-b')]);
+    const queue = createInMemoryQueue();
+    const published: string[] = [];
+    queue.subscribe(async (e) => {
+      published.push(e.id);
+    });
+
+    const dispatcher = createOutboxDispatcher({
+      db: pool,
+      queue,
+      resolver: {
+        resolve: async (tenantRef: string) => ({
+          db: tenantRef === 'a' ? tenantA : tenantB,
+          coreSchema: 'core_plumbus',
+          packageSchemaPrefix: 'pkg_',
+          tenantRef,
+        }),
+      },
+      listTenantRefs: async () => ['a', 'b'],
+    });
+
+    const count = await dispatcher.poll();
+    expect(count).toBe(2);
+    expect(published.sort()).toEqual(['e-a', 'e-b']);
+    expect(pool.select).not.toHaveBeenCalled();
+    expect(tenantA.select).toHaveBeenCalled();
+    expect(tenantB.select).toHaveBeenCalled();
+  });
 });

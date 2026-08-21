@@ -75,7 +75,10 @@ vi.mock('../../execution/context-factory.js', () => ({
 
 import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
+import { createOutboxDispatcher } from '../../events/dispatcher.js';
+import { createEventWorker } from '../../events/worker.js';
 import { EventRegistry } from '../../events/registry.js';
+import { createFlowScheduler } from '../../flows/scheduler.js';
 import { FlowRegistry } from '../../flows/registry.js';
 import type { WorkerPoolConfig } from '../bootstrap.js';
 import { createWorkerPool } from '../bootstrap.js';
@@ -259,6 +262,45 @@ describe('worker per-unit data-plane routing', () => {
 
     expect(runNextDatabases()).toEqual({ 'exec-untenanted': poolDb });
     expect(markFailedFromRunner).not.toHaveBeenCalled();
+  });
+
+  it('points the outbox dispatcher at the resolver and spine db', () => {
+    const resolver = makeResolver();
+    createWorkerPool(
+      makePoolConfig({
+        dataPlaneResolver: resolver,
+        listTenantRefs: async () => ['tenant-a'],
+        enableDispatcher: true,
+      }),
+    );
+    expect(createOutboxDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolver,
+        spineDb: poolDb,
+        listTenantRefs: expect.any(Function),
+      }),
+    );
+  });
+
+  it('points the event worker and scheduler at the resolver', () => {
+    const resolver = makeResolver();
+    createWorkerPool(
+      makePoolConfig({
+        dataPlaneResolver: resolver,
+        listTenantRefs: async () => ['tenant-a'],
+        enableEventWorker: true,
+        enableScheduler: true,
+      }),
+    );
+    expect(createEventWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ resolver }),
+    );
+    expect(createFlowScheduler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resolver,
+        listTenantRefs: expect.any(Function),
+      }),
+    );
   });
 
   it('does not start the queue-driven step consumer when a resolver is configured', () => {
