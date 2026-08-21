@@ -261,6 +261,8 @@ app/capabilities/{domain}/{kebab-name}/
     └── fixtures/
 ```
 
+Hosts that should not assemble the pipeline per call use `createPlumbusRuntime({ capabilities, auth }).invokeCapability("billing.getInvoice", input)`. The facade builds `ctx` internally. See [Execution lifecycle — Host runtime facade](../architecture/execution-lifecycle.md#host-runtime-facade).
+
 ## Generated Types
 
 Running `plumbus generate` produces typed artifacts from capability contracts:
@@ -268,6 +270,7 @@ Running `plumbus generate` produces typed artifacts from capability contracts:
 - **`capability-types.ts`** — `Input`/`Output` types inferred from Zod schemas, plus a `CapabilityName` union type
 - **`clients/api.ts`** — typed fetch functions that import from `capability-types.ts`
 - **`clients/hooks.ts`** — React hooks that import from `capability-types.ts`
+- **`openapi.json`** — OpenAPI 3.0 operations whose query parameters, request bodies, and 200 responses come from the same Zod schemas
 
 Example generated types for `approveRefund`:
 

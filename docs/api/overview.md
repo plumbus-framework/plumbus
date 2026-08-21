@@ -239,7 +239,7 @@ Full details: [exposure-model](./exposure-model.md) (auth, idempotency), [test-i
 | MCP | `@plumbus/mcp` | MCP tools/tasks | AI agents |
 | UI clients | `@plumbus/ui` | Generated from convention routes | Human users in browser |
 
-`plumbus generate` still emits a thin `openapi.json` for the convention surface. When `@plumbus/api` is installed, **`plumbus api generate openapi`** is the canonical external contract.
+`plumbus generate` emits `openapi.json` for the convention surface with Zod-derived parameters, bodies, and responses. When `@plumbus/api` is installed, **`plumbus api generate openapi`** is the canonical external contract (envelopes, security, manifest).
 
 ---
 

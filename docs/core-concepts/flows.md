@@ -52,6 +52,8 @@ Authoring stays TypeScript. `plumbus compile-flows` (and `compileFlowDefinition`
 plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
 ```
 
+Hosts that should not assemble the engine per call use `createPlumbusRuntime({ flows: engine, auth }).startFlow(...)` and `inspectExecution(id)`. The same facade wraps the existing scheduler as `syncTimers` / `pollTimers` when you pass `timers: scheduler`. See [Execution lifecycle — Host runtime facade](../architecture/execution-lifecycle.md#host-runtime-facade).
+
 ## Step Types
 
 ### Capability Step
@@ -307,7 +309,7 @@ export const nightlyCleanup = defineFlow({
 });
 ```
 
-Register the flow in your app registry (same as event-triggered flows). On worker startup, the scheduler syncs registered schedules into `flow_schedules` and polls for due runs.
+Register the flow in your app registry (same as event-triggered flows). On worker startup, the scheduler syncs registered schedules into `flow_schedules` and polls for due runs. Hosts can call that same pair through `createPlumbusRuntime({ timers: scheduler }).syncTimers()` and `pollTimers()`.
 
 **Cron formats**
 

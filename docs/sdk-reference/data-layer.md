@@ -394,7 +394,10 @@ Applies all pending migrations in order:
 
 ```bash
 plumbus migrate apply
+plumbus migrate apply --database tenant_alpha   # named tenant database
 ```
+
+`--database` opens that Postgres database through `openDataPlaneConnection` (same factory as request-time data planes). Host, port, and user still come from config — use the **owner** role from `provisionDataPlane`, not the runtime role. See [Tenant data planes](./tenant-data-planes.md).
 
 Before executing, a preflight check detects if any pending migration would `CREATE TABLE` for a framework-managed table that already exists in the database. If drift is detected, the command fails with a structured error listing the conflicting tables and recovery steps. On execution failure, error messages include the migration tag, statement index, and SQL preview.
 
@@ -413,10 +416,27 @@ Running against a database with no migration history (or no history table yet) r
 ### Programmatic API
 
 ```typescript
-import { applyMigrations, rollbackLastMigration } from "@plumbus/core";
+import {
+  applyDataPlaneMigrations,
+  applyMigrations,
+  rollbackLastMigration,
+} from "@plumbus/core";
 
 const result = await applyMigrations({ db, migrationsFolder: "./drizzle" });
 // result: { applied: number, tags: string[] }
+
+// Host path: open a named tenant database as the owner, apply, always close.
+const tenantResult = await applyDataPlaneMigrations({
+  target: {
+    host,
+    port,
+    database: "tenant_alpha",
+    user: "tenant_alpha_owner",
+    password: ownerPassword,
+  },
+  migrationsFolder: "./drizzle",
+});
+// tenantResult: { applied, tags, database?: string }
 
 const rollback = await rollbackLastMigration({ db, migrationsFolder: "./drizzle" });
 // rollback: {

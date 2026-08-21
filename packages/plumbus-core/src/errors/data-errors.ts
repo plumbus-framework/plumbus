@@ -53,3 +53,25 @@ export class AIBudgetExceededError extends PlumbusError {
     this.name = 'AIBudgetExceededError';
   }
 }
+
+export type GovernedAiBlockedCode =
+  | 'unpinned-prompt'
+  | 'unpinned-policy'
+  | 'artifact-kind-mismatch'
+  | 'unregistered-model'
+  | 'model-pin-mismatch'
+  | 'missing-review'
+  | 'expired-review'
+  | 'budget-unknown'
+  | 'budget-exceeded';
+
+/** Fail-closed stop before a governed model call. The model is not invoked. */
+export class GovernedAiBlockedError extends PlumbusError {
+  readonly blockedCode: GovernedAiBlockedCode;
+
+  constructor(code: GovernedAiBlockedCode, message: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.Forbidden, message, { code, ...metadata });
+    this.name = 'GovernedAiBlockedError';
+    this.blockedCode = code;
+  }
+}

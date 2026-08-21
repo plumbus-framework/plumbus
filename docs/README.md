@@ -35,6 +35,8 @@ docs/
 │   ├── define-functions.md
 │   ├── execution-context.md
 │   ├── data-layer.md
+│   ├── tenant-data-planes.md  Provision, migrate as owner, resolve as runtime
+│   ├── credential-catalog.md  Host-declared credential types, opaque refs
 │   ├── configuration.md
 │   └── observability.md
 ├── cli/                       All commands and options
@@ -53,7 +55,7 @@ docs/
 │   ├── migration.md
 │   └── deployment.md
 ├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
-│   ├── ai-integration.md
+│   ├── ai-integration.md      Prompts, RAG, cost tracking, governed model calls
 │   └── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md
@@ -155,6 +157,8 @@ docs/
 | Publish a partner-facing API with OpenAPI | [API → README](api/README.md) (start here) · [Overview](api/overview.md) · [packages/api/README.md](../packages/api/README.md) |
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
+| Apply schema to a per-tenant database | [SDK → Tenant data planes](sdk-reference/tenant-data-planes.md) |
+| Declare named credential types without logging secrets | [SDK → Credential catalog](sdk-reference/credential-catalog.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |

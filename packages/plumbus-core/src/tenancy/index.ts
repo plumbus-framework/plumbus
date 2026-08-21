@@ -6,7 +6,8 @@
 //
 // Key exports: createSingleDataPlaneResolver (back-compat single database),
 // createPooledDataPlaneResolver (host-routed, cached), openDataPlaneConnection
-// (the connect step it routes through), UnknownTenantError.
+// (the connect step it routes through), applyDataPlaneMigrations (owner-role
+// apply of generated migrations to a named tenant database), UnknownTenantError.
 
 export {
   createPooledDataPlaneResolver,
@@ -44,6 +45,17 @@ export type {
   OpenDataPlaneConnectionOptions,
   OpenedDataPlaneConnection,
 } from './data-plane-connection.js';
+
+// Apply generated migrations to one named tenant database through the same
+// connection factory the resolver uses. Connect as the owner role.
+export {
+  applyDataPlaneMigrations,
+  DATA_PLANE_MIGRATE_APPLICATION_NAME,
+} from './data-plane-migrate.js';
+export type {
+  ApplyDataPlaneMigrationsOptions,
+  DataPlaneMigrationApplyResult,
+} from './data-plane-migrate.js';
 
 // Data-plane provisioning: creating a tenant's database and its owner/runtime role pair.
 // Idempotent and resumable; identifiers are validated and quoted, never interpolated.

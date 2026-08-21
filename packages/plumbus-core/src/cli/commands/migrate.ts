@@ -7,6 +7,8 @@ import * as path from 'node:path';
 import type { Command } from 'commander';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { loadConfig } from '../../config/loader.js';
+import { openDataPlaneConnection } from '../../tenancy/data-plane-connection.js';
+import { DATA_PLANE_MIGRATE_APPLICATION_NAME } from '../../tenancy/data-plane-migrate.js';
 import {
   extractCreateTableNames,
   FRAMEWORK_TABLE_NAMES,
@@ -31,6 +33,24 @@ import { info, error as logError, resolvePath, success, warn } from '../utils.js
 
 export interface MigrateOptions {
   json?: boolean;
+  database?: string;
+}
+
+/** Same identifier rule as `--create-db` / `ensureDatabase`. */
+const CLI_DATABASE_NAME_PATTERN = /^[a-zA-Z0-9_]+$/;
+
+function resolveCliDatabaseName(override: string | undefined, configName: string): string {
+  if (override === undefined) {
+    return configName;
+  }
+  if (!CLI_DATABASE_NAME_PATTERN.test(override)) {
+    throw new Error(`Invalid database name: ${override}`);
+  }
+  return override;
+}
+
+function formatConnectError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function formatReconcileRecoveryMessage(): string {
@@ -42,24 +62,34 @@ function formatReconcileRecoveryMessage(): string {
 }
 
 /**
- * Create a database connection from the loaded config.
- * Returns null if connection cannot be established (e.g., no postgres module).
+ * Open one database through the data-plane connection factory.
+ * Pass the named tenant database (or the config default) as `database`.
  */
 async function connectDb(
-  dbOverride?: string,
-): Promise<{ db: PostgresJsDatabase; close: () => Promise<void> } | null> {
-  try {
-    const config = loadConfig({});
-    const { drizzle } = await import('drizzle-orm/postgres-js');
-    const postgres = (await import('postgres')).default;
-    const sql = postgres({
+  database: string,
+): Promise<{ db: PostgresJsDatabase; close: () => Promise<void> }> {
+  const config = loadConfig({});
+  const password = config.database.password;
+  return openDataPlaneConnection({
+    target: {
       host: config.database.host,
       port: config.database.port,
-      database: dbOverride ?? config.database.database,
-      username: config.database.user,
-      password: config.database.password,
-    });
-    return { db: drizzle(sql), close: () => sql.end() };
+      database,
+      user: config.database.user,
+      ...(password ? { password } : {}),
+      ...(config.database.ssl === undefined ? {} : { ssl: config.database.ssl }),
+    },
+    maxConnections: 1,
+    applicationName: DATA_PLANE_MIGRATE_APPLICATION_NAME,
+  });
+}
+
+/** Optional connect for generate's drift rewrite — missing driver is not fatal. */
+async function tryConnectDb(
+  database: string,
+): Promise<{ db: PostgresJsDatabase; close: () => Promise<void> } | null> {
+  try {
+    return await connectDb(database);
   } catch {
     return null;
   }
@@ -205,7 +235,7 @@ export function registerMigrateCommand(program: Command): void {
         // If we can also reach the DB, augment with framework-drift detection
         // so CREATE TABLE for existing framework tables is rewritten, not
         // just blocked at apply-time.
-        const conn = await connectDb();
+        const conn = await tryConnectDb(loadConfig({}).database.database);
         let driftReportForRewrite: Awaited<ReturnType<typeof inspectFrameworkDrift>> | null = null;
         if (conn) {
           try {
@@ -303,24 +333,46 @@ export function registerMigrateCommand(program: Command): void {
     .description('Backfill migration history when the live database is already in sync')
     .option('--json', 'Output as JSON')
     .option('--dry-run', 'Preview the migrations that would be marked as applied')
+    .option(
+      '--database <name>',
+      'Named database to reconcile (defaults to config.database.database)',
+    )
     .action(async (opts: MigrateOptions & { dryRun?: boolean }) => {
       info('Reconciling migration history against the live schema...');
 
-      const conn = await connectDb();
-      if (!conn) {
+      const config = loadConfig({});
+      let dbName: string;
+      try {
+        dbName = resolveCliDatabaseName(opts.database, config.database.database);
+      } catch (err) {
+        const msg = formatConnectError(err);
+        if (opts.json) {
+          console.log(JSON.stringify({ status: 'error', error: msg }, null, 2));
+        } else {
+          logError(msg);
+        }
+        return;
+      }
+
+      let conn: Awaited<ReturnType<typeof connectDb>>;
+      try {
+        conn = await connectDb(dbName);
+      } catch (err) {
+        const msg = formatConnectError(err);
         if (opts.json) {
           console.log(
             JSON.stringify(
               {
                 status: 'no_db_connection',
-                error: 'Could not connect to database',
+                error: msg,
+                database: dbName,
               },
               null,
               2,
             ),
           );
         } else {
-          logError('Could not connect to database. Check your config and database status.');
+          logError(msg);
         }
         return;
       }
@@ -449,9 +501,21 @@ export function registerMigrateCommand(program: Command): void {
     .description('Apply pending migrations to the database')
     .option('--json', 'Output as JSON')
     .option('--create-db', 'Create the database if it does not exist')
+    .option('--database <name>', 'Named database to apply to (defaults to config.database.database)')
     .action(async (opts: MigrateOptions & { createDb?: boolean }) => {
       const config = loadConfig({});
-      const dbName = config.database.database;
+      let dbName: string;
+      try {
+        dbName = resolveCliDatabaseName(opts.database, config.database.database);
+      } catch (err) {
+        const msg = formatConnectError(err);
+        if (opts.json) {
+          console.log(JSON.stringify({ status: 'error', error: msg }, null, 2));
+        } else {
+          logError(msg);
+        }
+        return;
+      }
 
       if (opts.createDb) {
         info(`Ensuring database "${dbName}" exists...`);
@@ -475,18 +539,26 @@ export function registerMigrateCommand(program: Command): void {
 
       info('Applying pending migrations...');
 
-      const conn = await connectDb();
-      if (!conn) {
+      let conn: Awaited<ReturnType<typeof connectDb>>;
+      try {
+        conn = await connectDb(dbName);
+      } catch (err) {
+        const msg = formatConnectError(err);
         if (opts.json) {
           console.log(
             JSON.stringify(
-              { applied: 0, status: 'no_db_connection', error: 'Could not connect to database' },
+              {
+                applied: 0,
+                status: 'no_db_connection',
+                error: msg,
+                database: dbName,
+              },
               null,
               2,
             ),
           );
         } else {
-          logError('Could not connect to database. Check your config and database status.');
+          logError(msg);
           info('Hint: Use --create-db to auto-create the database.');
         }
         return;
@@ -535,7 +607,7 @@ export function registerMigrateCommand(program: Command): void {
               if (opts.json) {
                 console.log(
                   JSON.stringify(
-                    { status: 'drift', conflictingTables: unique, error: msg },
+                    { status: 'drift', conflictingTables: unique, error: msg, database: dbName },
                     null,
                     2,
                   ),
@@ -553,7 +625,12 @@ export function registerMigrateCommand(program: Command): void {
         if (opts.json) {
           console.log(
             JSON.stringify(
-              { status: 'applied', applied: result.applied, migrations: result.tags },
+              {
+                status: 'applied',
+                applied: result.applied,
+                migrations: result.tags,
+                database: dbName,
+              },
               null,
               2,
             ),
@@ -585,9 +662,21 @@ export function registerMigrateCommand(program: Command): void {
     .description('Push entity schemas directly to the database (no migration files, ideal for dev)')
     .option('--json', 'Output as JSON')
     .option('--create-db', 'Create the database if it does not exist')
+    .option('--database <name>', 'Named database to push to (defaults to config.database.database)')
     .action(async (opts: MigrateOptions & { createDb?: boolean }) => {
       const config = loadConfig({});
-      const dbName = config.database.database;
+      let dbName: string;
+      try {
+        dbName = resolveCliDatabaseName(opts.database, config.database.database);
+      } catch (err) {
+        const msg = formatConnectError(err);
+        if (opts.json) {
+          console.log(JSON.stringify({ status: 'error', error: msg }, null, 2));
+        } else {
+          logError(msg);
+        }
+        return;
+      }
 
       if (opts.createDb) {
         info(`Ensuring database "${dbName}" exists...`);
@@ -627,14 +716,17 @@ export function registerMigrateCommand(program: Command): void {
 
         info(`Found ${schemaCount} entity schema(s). Pushing to database...`);
 
-        const conn = await connectDb();
-        if (!conn) {
+        let conn: Awaited<ReturnType<typeof connectDb>>;
+        try {
+          conn = await connectDb(dbName);
+        } catch (err) {
+          const msg = formatConnectError(err);
           if (opts.json) {
             console.log(
-              JSON.stringify({ status: 'error', error: 'Could not connect to database' }, null, 2),
+              JSON.stringify({ status: 'error', error: msg, database: dbName }, null, 2),
             );
           } else {
-            logError('Could not connect to database.');
+            logError(msg);
           }
           return;
         }
@@ -653,6 +745,7 @@ export function registerMigrateCommand(program: Command): void {
                     existingFrameworkTables: driftReport.existingFrameworkTables,
                     tables: driftReport.tables.filter((t) => t.exists && t.columnDrifts.length > 0),
                     error: msg,
+                    database: dbName,
                   },
                   null,
                   2,
@@ -754,21 +847,42 @@ export function registerMigrateCommand(program: Command): void {
     .command('rollback')
     .description('Rollback the last applied migration')
     .option('--json', 'Output as JSON')
+    .option(
+      '--database <name>',
+      'Named database to roll back (defaults to config.database.database)',
+    )
     .action(async (opts: MigrateOptions) => {
       info('Rolling back last migration...');
 
-      const conn = await connectDb();
-      if (!conn) {
+      const config = loadConfig({});
+      let dbName: string;
+      try {
+        dbName = resolveCliDatabaseName(opts.database, config.database.database);
+      } catch (err) {
+        const msg = formatConnectError(err);
+        if (opts.json) {
+          console.log(JSON.stringify({ status: 'error', error: msg }, null, 2));
+        } else {
+          logError(msg);
+        }
+        return;
+      }
+
+      let conn: Awaited<ReturnType<typeof connectDb>>;
+      try {
+        conn = await connectDb(dbName);
+      } catch (err) {
+        const msg = formatConnectError(err);
         if (opts.json) {
           console.log(
             JSON.stringify(
-              { status: 'no_db_connection', error: 'Could not connect to database' },
+              { status: 'no_db_connection', error: msg, database: dbName },
               null,
               2,
             ),
           );
         } else {
-          logError('Could not connect to database. Check your config and database status.');
+          logError(msg);
         }
         return;
       }

@@ -14,6 +14,8 @@ export type { PolicyProfileDefinition, PolicyProfileRule } from './policies.js';
 export { formatPolicyReport, generateAllPolicyReports, generatePolicyReport } from './reports.js';
 export type { ReportOptions } from './reports.js';
 
+export { scanCapabilityDirectImports } from './capability-source-scan.js';
+export { scanForbiddenPaths } from './forbidden-path-scan.js';
 export { createGovernanceRuleEngine } from './rule-engine.js';
 export type {
   GovernanceResult,

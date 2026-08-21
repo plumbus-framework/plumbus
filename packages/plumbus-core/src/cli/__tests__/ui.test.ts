@@ -8,6 +8,8 @@ import {
   generateE2EVitestConfig,
   generateNextjsAppFiles,
   generateUiModuleFiles,
+  resolveE2eBaseUrl,
+  resolveUiApiBaseUrl,
   type UiGeneratorModule,
 } from '../commands/ui.js';
 
@@ -79,7 +81,7 @@ describe('plumbus ui helpers', () => {
       [mockCapability()],
       [mockFlow()],
       mockUiGenerators(),
-      { apiBaseUrl: 'http://localhost:3000' },
+      { apiBaseUrl: 'https://api.example.com' },
     );
 
     const paths = files.map((file) => file.path);
@@ -97,7 +99,7 @@ describe('plumbus ui helpers', () => {
       [mockCapability()],
       [mockFlow()],
       mockUiGenerators(),
-      { apiBaseUrl: 'http://localhost:3000' },
+      { apiBaseUrl: 'https://api.example.com' },
     );
 
     // Template files (from generateNextjsTemplate)
@@ -112,7 +114,7 @@ describe('plumbus ui helpers', () => {
   });
 
   it('generates an E2E Vitest config without external imports', () => {
-    const config = generateE2EVitestConfig('http://localhost:3001');
+    const config = generateE2EVitestConfig('https://app.example.com');
 
     expect(config).toContain('export default {');
     expect(config).not.toContain('vitest/config');
@@ -168,6 +170,77 @@ describe('plumbus ui helpers', () => {
 
     expect(authConfig?.transport).toBe('session');
     expect(clientConfig?.authTransport).toBe('session');
+  });
+});
+
+describe('resolveUiApiBaseUrl', () => {
+  it('uses the explicit flag', () => {
+    expect(resolveUiApiBaseUrl('https://api.example.com', {})).toBe('https://api.example.com');
+  });
+
+  it('strips trailing slashes', () => {
+    expect(resolveUiApiBaseUrl('https://api.example.com/', {})).toBe('https://api.example.com');
+  });
+
+  it('falls back to NEXT_PUBLIC_API_BASE_URL', () => {
+    expect(
+      resolveUiApiBaseUrl(undefined, { NEXT_PUBLIC_API_BASE_URL: 'https://from-next.example.com' }),
+    ).toBe('https://from-next.example.com');
+  });
+
+  it('falls back to API_BASE_URL', () => {
+    expect(resolveUiApiBaseUrl(undefined, { API_BASE_URL: 'https://from-api.example.com' })).toBe(
+      'https://from-api.example.com',
+    );
+  });
+
+  it('prefers the flag over env', () => {
+    expect(
+      resolveUiApiBaseUrl('https://flag.example.com', { API_BASE_URL: 'https://env.example.com' }),
+    ).toBe('https://flag.example.com');
+  });
+
+  it('prefers NEXT_PUBLIC_API_BASE_URL over API_BASE_URL', () => {
+    expect(
+      resolveUiApiBaseUrl(undefined, {
+        NEXT_PUBLIC_API_BASE_URL: 'https://next.example.com',
+        API_BASE_URL: 'https://api.example.com',
+      }),
+    ).toBe('https://next.example.com');
+  });
+
+  it('rejects missing values', () => {
+    expect(() => resolveUiApiBaseUrl(undefined, {})).toThrow(/--api-base-url is required/);
+  });
+
+  it('rejects empty flag and empty env', () => {
+    expect(() => resolveUiApiBaseUrl('  ', { API_BASE_URL: '' })).toThrow(
+      /--api-base-url is required/,
+    );
+  });
+
+  it('rejects non-http URLs', () => {
+    expect(() => resolveUiApiBaseUrl('ftp://api.example.com', {})).toThrow(/http/);
+  });
+
+  it('rejects relative URLs', () => {
+    expect(() => resolveUiApiBaseUrl('/api', {})).toThrow(/absolute/);
+  });
+});
+
+describe('resolveE2eBaseUrl', () => {
+  it('uses the explicit flag', () => {
+    expect(resolveE2eBaseUrl('https://app.example.com', {})).toBe('https://app.example.com');
+  });
+
+  it('falls back to E2E_BASE_URL', () => {
+    expect(resolveE2eBaseUrl(undefined, { E2E_BASE_URL: 'https://e2e.example.com' })).toBe(
+      'https://e2e.example.com',
+    );
+  });
+
+  it('rejects missing values', () => {
+    expect(() => resolveE2eBaseUrl(undefined, {})).toThrow(/--base-url is required/);
   });
 });
 

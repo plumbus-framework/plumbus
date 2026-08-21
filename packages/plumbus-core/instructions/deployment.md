@@ -81,7 +81,7 @@ These rules are critical. Violating any one causes build failures or bloated ima
 
 ### Rule 9: Never run migrations in the entrypoint
 
-- **DO**: Run `npx plumbus migrate apply` as a separate CI/CD step or one-off job.
+- **DO**: Run `npx plumbus migrate apply` as a separate CI/CD step or one-off job. Database-per-tenant hosts apply once per named database (`--database` or `applyDataPlaneMigrations`) as the owner role.
 - **DO NOT**: Put migration commands in `entrypoint.sh` or Docker init containers.
 - **Why**: In multi-replica deployments, concurrent migrations corrupt data.
 
@@ -173,6 +173,8 @@ Migrations run separately:
 ```sh
 # Run BEFORE deploying new containers (CI/CD step or one-off job):
 npx plumbus migrate apply
+# Per tenant data plane (owner credentials in env):
+# npx plumbus migrate apply --database tenant_alpha
 ```
 
 ### Health Endpoints

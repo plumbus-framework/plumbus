@@ -39,7 +39,19 @@ shipment.dispatched
 
 ## Emitting Events
 
-Events are emitted inside capability handlers via `ctx.events.emit()`:
+Events are emitted inside capability handlers via `ctx.events.emit()`. Hosts that should not assemble the emitter per call use `createPlumbusRuntime({ events: emitter }).publishEvent(...)`. Subscriptions and the outbox pump wrap the existing consumer registry and dispatcher — not a second bus. See [Execution lifecycle — Host runtime facade](../architecture/execution-lifecycle.md#host-runtime-facade).
+
+```typescript
+await runtime.publishEvent("example.accepted", { orderId });
+runtime.subscribe({
+  id: "example.record",
+  eventTypes: ["example.accepted"],
+  handler: async (envelope) => { /* ... */ },
+});
+await runtime.pumpEvents();
+```
+
+Capability handlers still use `ctx.events.emit()`:
 
 ```typescript
 handler: async (ctx, input) => {

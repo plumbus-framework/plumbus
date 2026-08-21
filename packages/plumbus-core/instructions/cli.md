@@ -141,6 +141,7 @@ plumbus migrate generate
 # Apply pending migration files to the database
 plumbus migrate apply
 plumbus migrate apply --create-db   # Create DB if it doesn't exist, then apply
+plumbus migrate apply --database tenant_alpha   # Named tenant database (owner role in config)
 
 # Push schema directly to DB (no migration files — ideal for rapid dev iteration)
 plumbus migrate push
@@ -159,7 +160,7 @@ All migration commands accept `--json` for machine-readable output.
 **Workflow:**
 1. Define entities in `app/entities/` using `defineEntity()`
 2. Run `plumbus migrate generate` to produce SQL migration files in `drizzle/`
-3. Run `plumbus migrate apply` to execute pending migrations
+3. Run `plumbus migrate apply` to execute pending migrations. Database-per-tenant hosts apply the same `drizzle/` folder to each named database (`--database <name>` or `applyDataPlaneMigrations`) as the owner role — see `docs/sdk-reference/tenant-data-planes.md`.
 4. If schema already exists but history is missing: `plumbus migrate reconcile` (use `--dry-run` to preview)
 5. For rapid development, use `plumbus migrate push` to sync schema directly (no migration files)
 

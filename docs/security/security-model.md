@@ -256,8 +256,11 @@ Three framework mechanisms cover it, and an application supplies only its own ro
 | Step | Mechanism |
 |------|-----------|
 | Create the tenant's database, owner role and runtime role | `provisionDataPlane()` (idempotent; identifiers validated and quoted) |
+| Apply generated schema to that named database | `applyDataPlaneMigrations({ target, migrationsFolder })` or `plumbus migrate apply --database <name>` — connect as the **owner** role |
 | Look up where a tenant lives, and cache the open handles | `createPooledDataPlaneResolver({ describe, connect })` |
 | Open one database as one role | `openDataPlaneConnection({ target })` |
+
+The migrate step uses the same connection factory as runtime (`openDataPlaneConnection`). Full host sequence: [Tenant data planes](../sdk-reference/tenant-data-planes.md).
 
 ```typescript
 import {
@@ -295,6 +298,14 @@ const { db, coreSchema } = await resolver.resolve(tenantRef);
 - **Per-tenant.** Every call builds its own pool with no shared state, and the returned `close` is idempotent — the resolver calls it on eviction, invalidation and `close()`.
 
 The connection is verified with one round trip before it is returned (`verify: false` opts out), so a wrong credential or an unreachable placement fails at resolve time instead of inside the first capability that queries. A target may also be given as `{ connectionString }` for hosts whose placement records carry a URL; the string is treated as a secret throughout.
+
+Store those passwords as opaque refs in a [credential catalog](../sdk-reference/credential-catalog.md) if the host wants a typed, log-quiet handle rather than putting the secret next to the placement record.
+
+### Credential catalog
+
+`createMemoryCredentialCatalog` holds **types the host declares** and **opaque bindings** (name + ref + public labels). It does not ship built-in types and does not store secret values. The host resolver supplies field values at `reveal`; secret fields are read with `secret("password")` and never appear in `JSON.stringify`, `util.inspect`, or catalog errors. Resolver failures are replaced with `CredentialCatalogError` carrying name, type, and ref only.
+
+See [Credential catalog](../sdk-reference/credential-catalog.md).
 
 ### Cross-Tenant Admin Access (bypassTenantScope)
 

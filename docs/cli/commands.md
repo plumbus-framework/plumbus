@@ -443,7 +443,7 @@ Generates:
 - `.plumbus/generated/capability-types.ts` — `Input`/`Output` types for each capability + `CapabilityName` union
 - `.plumbus/generated/clients/api.ts` — typed fetch functions (imports types from `capability-types.ts`)
 - `.plumbus/generated/clients/hooks.ts` — React hooks (imports types from `capability-types.ts`)
-- `.plumbus/generated/openapi.json`
+- `.plumbus/generated/openapi.json` — OpenAPI 3.0.3 for convention routes; GET query parameters, POST bodies, and 200 responses come from each capability's Zod schemas
 - `.plumbus/generated/manifest.json`
 - `.plumbus/generated/entity-types.ts` — typed interfaces for all entities and a `DataServiceMap` for `ctx.data`
 - `.plumbus/generated/plumbus.d.ts` — module augmentation that populates `PlumbusRegistry` with strict types for capability names, event names, flow names, and entity mappings
@@ -734,14 +734,15 @@ plumbus migrate rollback [options]   # Rollback last migration
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--json` | `boolean` | `false` | Output in JSON format |
-| `--create-db` | `boolean` | `false` | Create database if it doesn't exist (apply/push only) |
+| `--create-db` | `boolean` | `false` | Create database if it doesn't exist (apply/push only). Does **not** create owner/runtime roles — that is `provisionDataPlane`. |
+| `--database <name>` | `string` | config `database.database` | Named Postgres database to open (apply / push / rollback / reconcile). Uses `openDataPlaneConnection`. Connect as the tenant **owner** role. |
 | `--dry-run` | `boolean` | `false` | Preview migrations that reconcile would mark applied (`reconcile` only) |
 
 **Workflow:**
 
 1. Define entities in `app/entities/` using `defineEntity()`
 2. `plumbus migrate generate` — compares entity schemas against previous snapshot, writes SQL to `drizzle/`
-3. `plumbus migrate apply` — executes pending migration files
+3. `plumbus migrate apply` — executes pending migration files. For a database-per-tenant host, apply the same `drizzle/` folder to each tenant database: `plumbus migrate apply --database <name>` (config user must be the owner). Programmatic: `applyDataPlaneMigrations`. See [Tenant data planes](../sdk-reference/tenant-data-planes.md).
 4. If schema already exists but migration history is missing: `plumbus migrate reconcile` — verifies the live DB already matches the current Plumbus schema, then backfills `__drizzle_migrations` without executing DDL
 
    On `migrate apply` / `migrate reconcile`, Plumbus automatically copies any rows from legacy `public.__drizzle_migrations` into `drizzle.__drizzle_migrations` when that legacy table exists (idempotent by hash). If the legacy table is absent — typical for fresh installs that never tracked migrations in `public` — adoption is skipped. Use the copy step after moving migration tracking from `public` into the `drizzle` schema.

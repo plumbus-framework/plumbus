@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GovernanceSeverity } from '../types/enums.js';
 import type { GovernanceSignal } from '../types/governance.js';
+import { listApplicationSourceFiles } from './source-walk.js';
 
 const CAPABILITY_IMPORT = /import\s+.*\s+from\s+['"](?:\.\.?\/)*.*capabilities\/[^'"]+['"]/;
 const HANDLER_ACCESS = /\b\w+\.handler\b/;
@@ -20,7 +21,7 @@ export function scanCapabilityDirectImports(appRoot: string = process.cwd()): Go
   }
 
   const signals: GovernanceSignal[] = [];
-  const files = listCapabilitySourceFiles(capDir);
+  const files = listApplicationSourceFiles(capDir);
 
   for (const filePath of files) {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -63,30 +64,3 @@ export function scanCapabilityDirectImports(appRoot: string = process.cwd()): Go
   return signals;
 }
 
-function listCapabilitySourceFiles(dir: string): string[] {
-  const results: string[] = [];
-  walkCapabilityDir(dir, results);
-  return results;
-}
-
-function walkCapabilityDir(dir: string, results: string[]): void {
-  if (!fs.existsSync(dir)) return;
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path.join(dir, ent.name);
-    if (ent.isDirectory()) {
-      if (ent.name === '__tests__') continue;
-      walkCapabilityDir(fullPath, results);
-      continue;
-    }
-    if (!ent.isFile()) continue;
-    if (!ent.name.endsWith('.ts') && !ent.name.endsWith('.js')) continue;
-    if (
-      ent.name.endsWith('.test.ts') ||
-      ent.name.endsWith('.test.js') ||
-      ent.name.endsWith('.d.ts')
-    ) {
-      continue;
-    }
-    results.push(fullPath);
-  }
-}

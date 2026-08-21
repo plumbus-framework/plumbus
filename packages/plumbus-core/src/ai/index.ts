@@ -127,3 +127,42 @@ export {
   type ValidatedResponse,
   type ValidationRetryConfig,
 } from './validation.js';
+// Governed AI (host-provided model, review, fail-closed budget)
+export { checkGovernedBudget } from './governed-budget.js';
+export type { GovernedBudgetInput } from './governed-budget.js';
+export {
+  createFilesystemGovernedArtifactStore,
+  createMemoryGovernedArtifactStore,
+  digestGovernedArtifact,
+  GovernedArtifactConflictError,
+} from './governed-artifacts.js';
+export type {
+  GovernedArtifact,
+  GovernedArtifactKind,
+  GovernedArtifactStore,
+  PublishedGovernedArtifact,
+} from './governed-artifacts.js';
+export type {
+  GovernedAiHost,
+  GovernedBudgetCheckInput,
+  GovernedBudgetCheckResult,
+  GovernedModel,
+  GovernedModelPin,
+  GovernedModelRequest,
+  GovernedModelResult,
+  GovernedModelUsage,
+} from './governed-host.js';
+export { governedReviewSubject, invokeGovernedAi } from './governed-invoke.js';
+export type { GovernedInvokeDeps, GovernedInvokeInput, GovernedInvokeSuccess } from './governed-invoke.js';
+export { createPlumbusRuntime } from './governed-runtime.js';
+export type {
+  PlumbusRuntime,
+  PlumbusRuntimeCallOptions,
+  PlumbusRuntimeConfig,
+  PlumbusRuntimeContextDeps,
+  PlumbusRuntimeEventPump,
+  PlumbusRuntimeEvents,
+  PlumbusRuntimeFlows,
+  PlumbusRuntimeSubscriptions,
+  PlumbusRuntimeTimers,
+} from './governed-runtime.js';

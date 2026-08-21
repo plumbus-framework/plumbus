@@ -16,7 +16,7 @@ Generate and publish partner OpenAPI when:
 - CI runs compatibility diff against a published baseline (see [compatibility](./compatibility.md)).
 - API portals or documentation sites ingest OpenAPI.
 
-Use `plumbus generate` OpenAPI only for app-internal convention routes — it is a thin projection without manifest metadata, envelopes, or partner extensions.
+`plumbus generate` writes `.plumbus/generated/openapi.json` for convention `/api/<domain>/<kebab-name>` routes. That document now carries **query parameters, request bodies, and 200-response schemas from each capability's Zod input and output**. It still omits partner-API envelopes, security schemes, and manifest metadata — use `plumbus api generate openapi` for the published partner contract.
 
 ---
 

@@ -737,6 +737,85 @@ ctx.ai.checkProviderCostBudget({
 });
 ```
 
+### Governed model calls
+
+`ctx.ai.generate` is the existing convenience path. When a host needs review-before-call and fail-closed spend, wire **once** with `createPlumbusRuntime` and call `runtime.invokeGovernedAi`:
+
+1. **Publish** prompt and policy artifacts. The store is digest-addressed and immutable — same bytes republish as the same digest; a later body change for the same id is refused.
+2. The **host** supplies the model (`resolveModel`). Credentials stay in the host. An unregistered or substituted pin fails; there is no fallback model.
+3. A **human review** must already match the call input **and** the exact pin (provider, model, prompt digest, policy digest). Request that review with `governedReviewSubject(input, pin)`.
+4. The **budget** must be known and allowed. `checkGovernedBudget` refuses missing limits, missing estimates, and "cost data unavailable".
+
+```typescript
+import {
+  checkGovernedBudget,
+  createApprovalService,
+  createCostTracker,
+  createMemoryApprovalStore,
+  createMemoryGovernedArtifactStore,
+  createPlumbusRuntime,
+  governedReviewSubject,
+} from "@plumbus/core";
+
+const artifacts = createMemoryGovernedArtifactStore();
+const prompt = artifacts.publish({
+  kind: "prompt",
+  id: "example.summarize",
+  body: "Summarize clearly.",
+});
+const policy = artifacts.publish({
+  kind: "policy",
+  id: "example.summarize.policy",
+  body: "Do not invent facts.",
+});
+const pin = {
+  providerId: "host-provider",
+  modelId: "host-model-a",
+  promptDigest: prompt.digest,
+  policyDigest: policy.digest,
+};
+
+const runtime = createPlumbusRuntime({
+  artifacts,
+  approvals: createApprovalService({ store: createMemoryApprovalStore() }),
+  host: {
+    resolveModel: async (requested) => hostModels.get(`${requested.providerId}/${requested.modelId}`),
+    checkBudget: async (input) =>
+      checkGovernedBudget({
+        tracker: createCostTracker({ dailyCostLimit: 25 }),
+        budget: { dailyCostLimit: 25 },
+        tenantId: input.tenantId,
+        estimatedCostUsd: input.estimatedCostUsd,
+      }),
+  },
+});
+
+const result = await runtime.invokeGovernedAi({
+  capabilityId: "example.summarize",
+  definitionVersion: "1",
+  input,
+  pin,
+  prompt: "Summarize this document.",
+  estimatedCostUsd: 0.04,
+});
+```
+
+Approve first with the same subject the hook will hash:
+
+```typescript
+await runtime.approvals.requestApproval({
+  capabilityId: "example.summarize",
+  definitionVersion: "1",
+  input: governedReviewSubject(input, pin),
+  riskClass: "consequential",
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+});
+```
+
+The published prompt body is sent as the model `system` text. A blocked call throws `GovernedAiBlockedError` and does **not** invoke `model.complete`.
+
+The same runtime also exposes `invokeCapability`, `startFlow`, `inspectExecution`, `publishEvent`, and `syncTimers` when you pass the existing registry, engine, emitter, and scheduler. See [Execution lifecycle — Host runtime facade](../architecture/execution-lifecycle.md#host-runtime-facade).
+
 Cost records (`AICostRecord`) include:
 - `promptName`, `provider`, `model`, `operation` (`"generate" | "extract" | "classify" | "embed" | "transcribe" | "synthesize" | "transport"`)
 - `usage` — input/output token counts including `cachedInputTokens` / `cacheWriteTokens`

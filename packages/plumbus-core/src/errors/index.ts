@@ -6,6 +6,8 @@ export { PlumbusError } from './plumbus-error.js';
 export {
   AISecurityBlockedError,
   AIBudgetExceededError,
+  GovernedAiBlockedError,
+  type GovernedAiBlockedCode,
   DataForbiddenError,
   DataInternalError,
   DataValidationError,

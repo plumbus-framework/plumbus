@@ -120,6 +120,7 @@ export const classifyTicket = definePrompt({
 | `@plumbus/core/testing` | Test utilities — `runCapability`, `simulateFlow`, `mockAI`, `createTestContext` |
 | `@plumbus/core/zod` | Re-exported Zod (consumers should not install Zod separately) |
 | `@plumbus/core/vitest` | Vitest config helpers |
+| `@plumbus/core/credentials` | Host-declared credential catalog (`createMemoryCredentialCatalog`) |
 
 ## CLI
 
@@ -131,7 +132,7 @@ plumbus generate              # Regenerate artifacts from contracts
 plumbus verify                # Run governance rules
 plumbus certify <profile>     # Run compliance assessment (GDPR, PCI-DSS, etc.)
 plumbus migrate generate      # Generate database migration
-plumbus migrate apply         # Apply pending migrations
+plumbus migrate apply         # Apply pending migrations (`--database` for a named tenant DB)
 plumbus init --agent all      # Generate AI agent wiring files
 ```
 

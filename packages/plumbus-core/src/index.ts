@@ -72,6 +72,31 @@ export type {
   ValidatedResponse,
   ValidationRetryConfig,
   VectorStore,
+  GovernedAiHost,
+  GovernedBudgetCheckInput,
+  GovernedBudgetCheckResult,
+  GovernedBudgetInput,
+  GovernedInvokeDeps,
+  GovernedInvokeInput,
+  GovernedInvokeSuccess,
+  GovernedModel,
+  GovernedModelPin,
+  GovernedModelRequest,
+  GovernedModelResult,
+  GovernedModelUsage,
+  GovernedArtifact,
+  GovernedArtifactKind,
+  GovernedArtifactStore,
+  PublishedGovernedArtifact,
+  PlumbusRuntime,
+  PlumbusRuntimeCallOptions,
+  PlumbusRuntimeConfig,
+  PlumbusRuntimeContextDeps,
+  PlumbusRuntimeEventPump,
+  PlumbusRuntimeEvents,
+  PlumbusRuntimeFlows,
+  PlumbusRuntimeSubscriptions,
+  PlumbusRuntimeTimers,
 } from './ai/index.js';
 // ── AI Runtime ──
 export {
@@ -79,7 +104,12 @@ export {
   UsageAPIError,
   allKnownModels,
   calculateModelCost,
+  checkGovernedBudget,
   checkPromptSecurity,
+  createFilesystemGovernedArtifactStore,
+  createMemoryGovernedArtifactStore,
+  createPlumbusRuntime,
+  digestGovernedArtifact,
   buildAISecurityConfig,
   chunkDocument,
   createAIService,
@@ -96,6 +126,8 @@ export {
   documentsTable,
   findModelRate,
   generateWithValidation,
+  governedReviewSubject,
+  invokeGovernedAi,
   joinAndFilterModels,
   runToolLoop,
   safeJsonStringify,
@@ -106,6 +138,7 @@ export {
   AIIncompleteOutputError,
   AIInvalidRequestError,
   AIRefusalError,
+  GovernedArtifactConflictError,
 } from './ai/index.js';
 export type { RouteGeneratorConfig } from './api/index.js';
 // ── API (HTTP route generation) ──
@@ -161,6 +194,7 @@ export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.j
 // ── Config Loader ──
 export { loadConfig, parseDurationToMs, validateConfig } from './config/index.js';
 export type {
+  MigrationApplyResult,
   MigrationConfig,
   MigrationRecord,
   MigrationRollbackResult,
@@ -209,6 +243,7 @@ export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export {
   AIBudgetExceededError,
   AISecurityBlockedError,
+  GovernedAiBlockedError,
   BudgetExhaustedError,
   DataForbiddenError,
   DataInternalError,
@@ -222,6 +257,7 @@ export {
   createErrorService,
   isPlumbusError,
 } from './errors/index.js';
+export type { GovernedAiBlockedCode } from './errors/data-errors.js';
 export type {
   DispatcherConfig,
   EventConsumer,
@@ -549,6 +585,7 @@ export {
   builtInProfiles,
   createGovernanceRuleEngine,
   createOverrideStore,
+  scanForbiddenPaths,
   evaluatePolicyProfile,
   formatPolicyReport,
   generateAllPolicyReports,
@@ -590,6 +627,7 @@ export {
   DataPlaneProvisioningError,
   MAX_DATA_PLANE_POOL_SIZE,
   UnknownTenantError,
+  applyDataPlaneMigrations,
   assertSafeIdentifier,
   createPooledDataPlaneResolver,
   createSingleDataPlaneResolver,
@@ -597,8 +635,27 @@ export {
   openDataPlaneConnection,
   provisionDataPlane,
   quoteIdentifier,
+  DATA_PLANE_MIGRATE_APPLICATION_NAME,
 } from './tenancy/index.js';
+// ── Credential catalog (host-declared types, opaque refs; host supplies secrets) ──
+export {
+  CREDENTIAL_REDACTED,
+  CredentialCatalogError,
+  createMemoryCredentialCatalog,
+} from './credentials/index.js';
 export type {
+  CredentialBinding,
+  CredentialCatalog,
+  CredentialFieldSpec,
+  CredentialMaterial,
+  CredentialRecord,
+  CredentialResolver,
+  CredentialTypeDeclaration,
+  CredentialTypeRecord,
+  MemoryCredentialCatalogOptions,
+} from './credentials/index.js';
+export type {
+  ApplyDataPlaneMigrationsOptions,
   DataPlaneAdminConnection,
   DataPlaneConnectRequest,
   DataPlaneConnection,
@@ -608,6 +665,7 @@ export type {
   DataPlaneDescriptor,
   DataPlaneDropResult,
   DataPlaneEndpoint,
+  DataPlaneMigrationApplyResult,
   DataPlaneHandle,
   DataPlaneProvisionResult,
   DataPlaneResolver,

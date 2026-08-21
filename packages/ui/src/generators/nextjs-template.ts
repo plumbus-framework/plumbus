@@ -13,7 +13,7 @@ export interface NextjsTemplateConfig {
   auth?: boolean;
   /** Auth credential transport */
   authTransport?: AuthTransport;
-  /** Base URL for API calls */
+  /** Base URL for API calls. Required for `.env.local` — no localhost port default. */
   apiBaseUrl?: string;
 }
 
@@ -326,7 +326,12 @@ export function generatePlaceholderFiles(): GeneratedFile[] {
 
 /** Generate .env.local template with Plumbus-specific variables */
 export function generateEnvLocal(config: NextjsTemplateConfig): GeneratedFile {
-  const baseUrl = config.apiBaseUrl ?? 'http://localhost:3000';
+  const baseUrl = config.apiBaseUrl?.trim();
+  if (!baseUrl) {
+    throw new Error(
+      'apiBaseUrl is required to generate .env.local. Pass --api-base-url or set NEXT_PUBLIC_API_BASE_URL / API_BASE_URL.',
+    );
+  }
   const authLines =
     config.authTransport === 'session'
       ? `# Session auth uses HttpOnly cookies — no client-side secret required

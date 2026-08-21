@@ -118,6 +118,7 @@ const result = engine.evaluate(inventory);
 | **Security** | `ruleCapabilityMissingAccessPolicy`, `ruleOverlyPermissiveRoles`, `ruleCrossTenantDataAccess`, `ruleEntityTenantIsolation` |
 | **Privacy** | `ruleMissingFieldClassification`, `rulePersonalDataInLogs`, `ruleExcessiveDataRetention`, `ruleSensitiveFieldUnencrypted` |
 | **Architecture** | `ruleExcessiveEffects`, `ruleExcessiveFlowSteps`, `ruleExcessiveFlowBranching`, `ruleEntityMissingDescription`, `ruleMissingAuditConfig` |
+| **Forbidden paths** | Source scan of `app/`: raw `pg` / `postgres` / `drizzle-orm` imports, `createExecutionContext(`, parallel queue imports (`bull` / `bullmq` / `bee-queue`), raw provider API key names. High severity — `plumbus verify` exits 1. Call `scanForbiddenPaths(appRoot)` from a conformance suite. |
 | **AI** | `ruleAIWithoutExplanation`, `ruleExcessiveAIUsage`, `rulePromptMissingModelConfig`, `rulePromptMissingOutputSchema` |
 | **API** | `ruleApiDeprecatedWithoutReplacement`, `ruleApiMetadataWithoutExposure`, `ruleApiMissingAuth`, `ruleApiMissingOperationId`, `ruleApiPublicMutationWithoutIdempotency` |
 | **Capability dependency** | `ruleCircularCapabilityDependency`, `ruleDeepCapabilityChain`, `ruleJobCapabilityDependency`, `ruleMissingCapabilityDependency`, `ruleNonCanonicalCapabilityReference` |

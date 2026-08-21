@@ -88,6 +88,7 @@ plumbus db create
 ```bash
 plumbus migrate generate    # Generates SQL migration from your entity definitions
 plumbus migrate apply       # Applies pending migrations from drizzle/ to the database
+# plumbus migrate apply --database tenant_alpha   # same SQL, named tenant database (owner role)
 ```
 
 Run `plumbus migrate generate` every time you change entity fields. The migration system tracks what's already been applied, so it only generates diffs.
@@ -201,7 +202,7 @@ Generated artifacts go to `.plumbus/generated/`:
 ├── clients/
 │   ├── api.ts               # Typed API client functions
 │   └── hooks.ts             # React hooks (useCreateUser, etc.)
-├── openapi.json             # OpenAPI 3.0 spec from capability routes
+├── openapi.json             # OpenAPI 3.0 spec: Zod parameters, bodies, and responses
 ├── manifest.json            # Resource manifest
 ├── consumers-manifest.json  # Consumer wiring manifest
 ├── capability-graph.md      # Capability dependency graph (Markdown)

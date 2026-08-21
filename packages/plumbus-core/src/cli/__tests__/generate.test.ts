@@ -235,6 +235,62 @@ describe('plumbus generate', () => {
       const path = generateOpenApiPath(mockCapability());
       expect(path).toHaveProperty('/api/billing/get-invoice');
     });
+
+    it('emits GET query parameters from the Zod input', () => {
+      const path = generateOpenApiPath(mockCapability());
+      const operation = (path['/api/billing/get-invoice'] as Record<string, Record<string, unknown>>)
+        .get;
+      expect(operation?.parameters).toEqual([
+        {
+          in: 'query',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+        },
+      ]);
+    });
+
+    it('emits a typed POST body and 200 response from Zod', () => {
+      const path = generateOpenApiPath(
+        mockCapability({
+          name: 'createInvoice',
+          kind: 'action',
+          input: z.object({
+            customerId: z.string(),
+            amount: z.number(),
+            memo: z.string().optional(),
+          }),
+          output: z.object({ invoiceId: z.string(), total: z.number() }),
+        }),
+      );
+      const operation = (
+        path['/api/billing/create-invoice'] as Record<string, Record<string, unknown>>
+      ).post;
+      const bodySchema = (
+        (operation?.requestBody as { content: { 'application/json': { schema: Record<string, unknown> } } })
+          .content['application/json'].schema
+      );
+      expect(bodySchema.type).toBe('object');
+      expect(bodySchema.properties).toMatchObject({
+        customerId: { type: 'string' },
+        amount: { type: 'number' },
+        memo: { type: 'string' },
+      });
+      expect(bodySchema.required).toEqual(expect.arrayContaining(['customerId', 'amount']));
+      expect(bodySchema.required).not.toContain('memo');
+
+      const responseSchema = (
+        (
+          operation?.responses as {
+            '200': { content: { 'application/json': { schema: Record<string, unknown> } } };
+          }
+        )['200'].content['application/json'].schema
+      );
+      expect(responseSchema.properties).toMatchObject({
+        invoiceId: { type: 'string' },
+        total: { type: 'number' },
+      });
+    });
   });
 
   describe('generateManifestEntry', () => {
@@ -258,6 +314,28 @@ describe('plumbus generate', () => {
       expect(generated).toContain('manifest.json');
       expect(generated).toContain('capability-graph.md');
       expect(generated).toContain('entity-types.ts');
+    });
+
+    it('writes Zod field names into openapi.json', () => {
+      const tmpDir = `/tmp/plumbus-test-gen-oa-${Date.now()}`;
+      generateAll(
+        [
+          mockCapability(),
+          mockCapability({
+            name: 'createInvoice',
+            kind: 'action',
+            input: z.object({ customerId: z.string() }),
+            output: z.object({ invoiceId: z.string() }),
+          }),
+        ],
+        tmpDir,
+      );
+      const spec = JSON.parse(fs.readFileSync(path.join(tmpDir, 'openapi.json'), 'utf8')) as {
+        paths: Record<string, Record<string, { parameters?: { name: string }[]; requestBody?: unknown }>>;
+      };
+      const getOp = spec.paths['/api/billing/get-invoice']?.get;
+      expect(getOp?.parameters?.map((p) => p.name)).toEqual(['id']);
+      expect(spec.paths['/api/billing/create-invoice']?.post?.requestBody).toBeDefined();
     });
   });
 });

@@ -132,6 +132,7 @@ vi.mock('postgres', () => ({
 
 import { Command } from 'commander';
 import { generateDrizzleJson, generateMigration, pushSchema } from 'drizzle-kit/api';
+import postgres from 'postgres';
 import {
   extractCreateTableNames,
   getExistingFrameworkTables,
@@ -223,6 +224,63 @@ describe('plumbus migrate', () => {
       const program = createTestProgram();
       await program.parseAsync(['node', 'plumbus', 'migrate', 'apply']);
       expect(applyMigrations).toHaveBeenCalled();
+      expect(postgres).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: 'test_db',
+          max: 1,
+          connection: { application_name: 'plumbus-migrate' },
+        }),
+      );
+    });
+
+    it('applies to a named database through the connection factory', async () => {
+      mockExistsSync.mockReturnValue(true);
+      const program = createTestProgram();
+      await program.parseAsync([
+        'node',
+        'plumbus',
+        'migrate',
+        'apply',
+        '--database',
+        'tenant_alpha',
+        '--json',
+      ]);
+      expect(applyMigrations).toHaveBeenCalled();
+      expect(postgres).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: 'tenant_alpha',
+          host: 'localhost',
+          username: 'postgres',
+          max: 1,
+        }),
+      );
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"applied"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.database).toBe('tenant_alpha');
+    });
+
+    it('refuses an unsafe --database name before connecting', async () => {
+      const program = createTestProgram();
+      await program.parseAsync([
+        'node',
+        'plumbus',
+        'migrate',
+        'apply',
+        '--database',
+        'tenant-alpha',
+        '--json',
+      ]);
+      expect(applyMigrations).not.toHaveBeenCalled();
+      expect(postgres).not.toHaveBeenCalled();
+      const output = vi
+        .mocked(console.log)
+        .mock.calls.find((c) => typeof c[0] === 'string' && c[0].includes('"error"'));
+      expect(output).toBeDefined();
+      const parsed = JSON.parse(output?.[0] as string);
+      expect(parsed.error).toContain('Invalid database name');
     });
 
     it('warns when no drizzle/ folder exists', async () => {

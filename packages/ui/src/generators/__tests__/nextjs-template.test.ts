@@ -22,7 +22,7 @@ import {
 // ── Fixtures ──
 
 function makeConfig(overrides: Partial<NextjsTemplateConfig> = {}): NextjsTemplateConfig {
-  return { appName: 'MyApp', auth: true, ...overrides };
+  return { appName: 'MyApp', auth: true, apiBaseUrl: 'https://api.example.com', ...overrides };
 }
 
 function makeQueryCap(): CapabilityContract {
@@ -292,6 +292,18 @@ describe('generateNextjsTemplate', () => {
     const file = generateEnvLocal(makeConfig({ authTransport: 'session' }));
     expect(file.content).not.toContain('AUTH_SECRET=');
     expect(file.content).toContain('HttpOnly cookies');
+  });
+
+  it('writes the provided API base URL into .env.local', () => {
+    const file = generateEnvLocal(makeConfig({ apiBaseUrl: 'https://api.example.com' }));
+    expect(file.path).toBe('.env.local');
+    expect(file.content).toContain('NEXT_PUBLIC_API_BASE_URL=https://api.example.com');
+    expect(file.content).not.toContain('localhost:3000');
+    expect(file.content).not.toContain('localhost:3001');
+  });
+
+  it('refuses to invent a localhost API port', () => {
+    expect(() => generateEnvLocal({ appName: 'MyApp' })).toThrow(/apiBaseUrl is required/);
   });
 });
 

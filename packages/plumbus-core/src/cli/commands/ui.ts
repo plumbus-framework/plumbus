@@ -39,6 +39,59 @@ export function resolveAuthTransport(value: string | undefined): 'session' | 'be
   throw new Error(`Invalid --auth-transport "${value}"; expected "session" or "bearer"`);
 }
 
+const UI_API_BASE_ENV_KEYS = ['NEXT_PUBLIC_API_BASE_URL', 'API_BASE_URL'] as const;
+
+function normalizeHttpUrl(url: string, source: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid ${source} "${url}". Must be an absolute http(s) URL.`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`${source} must use http: or https: (got ${parsed.protocol}).`);
+  }
+  return url.replace(/\/+$/, '');
+}
+
+/** Resolve the UI API base from `--api-base-url` or env. No localhost port default. */
+export function resolveUiApiBaseUrl(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const fromFlag = explicit?.trim();
+  if (fromFlag) {
+    return normalizeHttpUrl(fromFlag, '--api-base-url');
+  }
+  for (const key of UI_API_BASE_ENV_KEYS) {
+    const value = env[key]?.trim();
+    if (value) {
+      return normalizeHttpUrl(value, key);
+    }
+  }
+  throw new Error(
+    '--api-base-url is required (or set NEXT_PUBLIC_API_BASE_URL / API_BASE_URL). No default API port is assumed.',
+  );
+}
+
+/** Resolve the E2E frontend base from `--base-url` or `E2E_BASE_URL`. No localhost port default. */
+export function resolveE2eBaseUrl(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const fromFlag = explicit?.trim();
+  if (fromFlag) {
+    return normalizeHttpUrl(fromFlag, '--base-url');
+  }
+  const fromEnv = env.E2E_BASE_URL?.trim();
+  if (fromEnv) {
+    return normalizeHttpUrl(fromEnv, 'E2E_BASE_URL');
+  }
+  throw new Error(
+    '--base-url is required (or set E2E_BASE_URL). No default frontend port is assumed.',
+  );
+}
+
 // ── Types for dynamically loaded @plumbus/ui ──
 
 interface FlowTriggerInput {
@@ -481,7 +534,10 @@ export function registerUiCommand(program: Command): void {
   ui.command('nextjs [output-dir]')
     .description('Scaffold a Next.js frontend wired to generated Plumbus UI modules')
     .option('--app-name <name>', 'Application name used in the generated Next.js app')
-    .option('--api-base-url <url>', 'Upstream Plumbus API base URL', 'http://localhost:3000')
+    .option(
+      '--api-base-url <url>',
+      'Absolute API base URL (required unless NEXT_PUBLIC_API_BASE_URL or API_BASE_URL is set)',
+    )
     .option('--base-url <url>', 'Client base URL used by generated frontend modules')
     .option('--auth-provider <provider>', 'Auth provider for generated auth helpers', 'jwt')
     .option(
@@ -499,6 +555,14 @@ export function registerUiCommand(program: Command): void {
     )
     .option('--json', 'Output generated file list as JSON')
     .action(async (outputDir: string | undefined, opts: UiNextjsOptions) => {
+      let apiBaseUrl: string;
+      try {
+        apiBaseUrl = resolveUiApiBaseUrl(opts.apiBaseUrl);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+
       info('Loading @plumbus/ui generators...');
       const generators = await loadUiGenerators();
       const authTransport = resolveAuthTransport(opts.authTransport);
@@ -519,7 +583,7 @@ export function registerUiCommand(program: Command): void {
           appName,
           auth: opts.auth,
           authTransport,
-          apiBaseUrl: opts.apiBaseUrl,
+          apiBaseUrl,
         },
         resources.capabilities,
       );
@@ -567,9 +631,17 @@ export function registerUiCommand(program: Command): void {
   ui.command('e2e [output-dir]')
     .description('Scaffold vitest + Playwright E2E test files by scanning the frontend pages')
     .option('--frontend-dir <dir>', 'Frontend directory to scan for pages', 'frontend')
-    .option('--base-url <url>', 'Base URL for E2E tests', 'http://localhost:3001')
+    .option('--base-url <url>', 'Frontend base URL (required unless E2E_BASE_URL is set)')
     .action(
-      async (outputDir: string | undefined, opts: { frontendDir: string; baseUrl: string }) => {
+      async (outputDir: string | undefined, opts: { frontendDir: string; baseUrl?: string }) => {
+        let baseUrl: string;
+        try {
+          baseUrl = resolveE2eBaseUrl(opts.baseUrl);
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exit(1);
+        }
+
         const frontendDir = resolvePath(opts.frontendDir);
         const outRoot = resolvePath(outputDir ?? path.join(opts.frontendDir, 'e2e'));
 
@@ -582,7 +654,7 @@ export function registerUiCommand(program: Command): void {
         }
 
         // Generate vitest e2e config
-        const configContent = generateE2EVitestConfig(opts.baseUrl);
+        const configContent = generateE2EVitestConfig(baseUrl);
         writeFile(path.join(outRoot, 'vitest.config.e2e.ts'), configContent);
         success(`Generated vitest.config.e2e.ts`);
 

@@ -1,5 +1,18 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+### Added
+
+- **`createMemoryCredentialCatalog`** — host-declared named credential types and opaque bindings. The catalog stores type shapes, names, refs, and public labels; the host resolver supplies field values at `reveal`. Secret fields are read with `secret(name)` and never appear in JSON, `util.inspect`, or catalog errors. No built-in types. Optional on `createPlumbusRuntime({ credentials })`. Published at `@plumbus/core` and `@plumbus/core/credentials` (`dist/credentials/index.js`). Docs: [Credential catalog](../../docs/sdk-reference/credential-catalog.md).
+- **`applyDataPlaneMigrations({ target, migrationsFolder })`** — host helper that opens one named tenant database through `openDataPlaneConnection` (owner role), runs existing `applyMigrations`, and always closes the pool. Result includes `database` when the target named one.
+- **`plumbus migrate apply --database <name>`** — same path from the CLI (config host/user, named database). Also on `push` / `rollback` / `reconcile`. `--create-db` now creates that named database when `--database` is set. JSON apply output includes `"database"`.
+- **Docs:** [Tenant data planes](../../docs/sdk-reference/tenant-data-planes.md) — provision, migrate as owner, resolve as runtime. [Credential catalog](../../docs/sdk-reference/credential-catalog.md) — host-declared types, opaque refs, no secrets in logs.
+
+### Changed
+
+- **`plumbus migrate` connections** go through `openDataPlaneConnection` (bounded pool of 1, `application_name: plumbus-migrate`, empty passwords omitted). Connection failures surface the factory's redacted message.
+
 ## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening
 
 ### Changed

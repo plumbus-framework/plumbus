@@ -12,6 +12,7 @@ export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export {
   AIBudgetExceededError,
   AISecurityBlockedError,
+  GovernedAiBlockedError,
   BudgetExhaustedError,
   createErrorService,
   DataForbiddenError,

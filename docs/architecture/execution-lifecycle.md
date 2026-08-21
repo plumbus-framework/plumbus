@@ -305,6 +305,35 @@ When a capability is about to execute, the framework assembles the execution con
 └──────────────────────────────────────────────────┘
 ```
 
+## Host runtime facade
+
+`createPlumbusRuntime` is the host-facing surface. Wire the capability registry, flow engine, event pieces, scheduler, and (optionally) governed AI once. Callers then:
+
+- `invokeCapability(name, input, { auth })` — runs the existing capability pipeline. The facade mints `ctx` internally; application code does not call `createExecutionContext`.
+- `startFlow(name, input, { auth })` / `inspectExecution(id)` — delegate to the wired flow engine (`start` / `status`).
+- `publishEvent` / `subscribe` / `pumpEvents` — wrap the existing emitter, consumer registry, and outbox dispatcher. Not a second bus.
+- `syncTimers` / `pollTimers` — wrap the existing flow scheduler (`syncSchedules` / `poll`).
+- `invokeGovernedAi(...)` — review-gated model call when host, approvals, and artifacts were wired.
+
+```typescript
+const runtime = createPlumbusRuntime({
+  capabilities,
+  flows: engine,
+  events: emitter,
+  eventPump: dispatcher,
+  subscriptions: consumers,
+  timers: scheduler,
+  auth,
+  contextDeps: { data },
+});
+
+const result = await runtime.invokeCapability("billing.getInvoice", { invoiceId });
+const exec = await runtime.startFlow("example.flow-a", { orderId });
+const snapshot = await runtime.inspectExecution(exec.id);
+await runtime.publishEvent("example.accepted", { orderId });
+await runtime.syncTimers();
+```
+
 ## vNext durable dispatch (Protocol A)
 
 The live flow engine still stores execution rows and leases in one database (`flow_executions`). Plan 02 evolves that engine toward **tenant-DB-authoritative state** with reconstructible spine hints — not a second workflow engine.

@@ -17,6 +17,7 @@ import type { FieldDescriptor } from '../../types/fields.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import { discoverResources } from '../discover.js';
 import { jobEventType } from '../../jobs/types.js';
+import { generateOpenApiPath } from './generate-openapi-from-zod.js';
 import {
   detectMonorepoLayout,
   exists,
@@ -29,6 +30,8 @@ import {
   warn,
   writeFile,
 } from '../utils.js';
+
+export { generateOpenApiPath } from './generate-openapi-from-zod.js';
 
 export interface GenerateOptions {
   json?: boolean;
@@ -284,35 +287,6 @@ export function generateReactHook(cap: CapabilityContract): string {
 }`;
 }
 
-/** Generate an OpenAPI path entry for a capability */
-export function generateOpenApiPath(cap: CapabilityContract): Record<string, unknown> {
-  const kind = cap.kind as CapabilityKind;
-  const method = kind === 'query' ? 'get' : 'post';
-  const urlPath = `/api/${cap.domain}/${toKebabCase(cap.name)}`;
-
-  return {
-    [urlPath]: {
-      [method]: {
-        operationId: cap.name,
-        summary: cap.description ?? cap.name,
-        tags: [cap.domain],
-        requestBody:
-          method === 'post'
-            ? {
-                required: true,
-                content: { 'application/json': { schema: { type: 'object' } } },
-              }
-            : undefined,
-        responses: {
-          '200': {
-            description: 'Successful response',
-            content: { 'application/json': { schema: { type: 'object' } } },
-          },
-        },
-      },
-    },
-  };
-}
 
 /** Generate a manifest entry for a capability */
 export function generateManifestEntry(cap: CapabilityContract): Record<string, unknown> {

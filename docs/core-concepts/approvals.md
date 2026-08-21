@@ -50,3 +50,7 @@ createApprovalService({ store: createMemoryApprovalStore() }) // unit tests
 Host opt-in on `createServer({ approvals })` and `createWorkerPool({ approvals })`. Omitted: existing hosts boot unchanged. Tests may also pass `approvals` into `createExecutionContext`.
 
 `authorizationProvider` is optional and host-supplied. The harness stub (`createAllowAllAuthorizationProvider`) is not installed by default. The consuming application supplies the real gate.
+
+## Governed model calls
+
+`createPlumbusRuntime` exposes the same approval store. Review binds capability identity, definition version, and a digest of `governedReviewSubject(input, pin)` so a model or artifact-digest change needs a new review. See [AI integration — governed model calls](../ai/ai-integration.md#governed-model-calls).

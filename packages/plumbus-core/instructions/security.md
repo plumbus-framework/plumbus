@@ -57,6 +57,10 @@ If flow steps return **403** after upgrading to 0.5.x, audit `access.roles` on s
 
 Events carry `tenantId` and are only delivered to matching consumers.
 
+**Database-per-tenant:** `provisionDataPlane` creates the database plus owner/runtime roles. Apply generated `drizzle/` SQL as the **owner** (`applyDataPlaneMigrations` or `plumbus migrate apply --database <name>`). Request traffic opens the same database as the **runtime** role through `openDataPlaneConnection`. See `docs/sdk-reference/tenant-data-planes.md`.
+
+**Credential catalog:** `createMemoryCredentialCatalog` is the host-declared type list plus opaque name/ref bindings. The host supplies secret values at `reveal`; they never enter logs, JSON, or catalog errors. There are no built-in types. See `docs/sdk-reference/credential-catalog.md`.
+
 ## Field Classification & Edit Zones
 
 Entity fields with `classification: "sensitive"` or `"highly_sensitive"`:

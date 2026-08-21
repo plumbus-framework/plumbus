@@ -9,6 +9,7 @@ import type { FlowDefinition } from '../../types/flow.js';
 import { FieldClassification, GovernanceSeverity } from '../../types/enums.js';
 import type { GovernanceSignal } from '../../types/governance.js';
 import { scanCapabilityDirectImports } from '../../governance/capability-source-scan.js';
+import { scanForbiddenPaths } from '../../governance/forbidden-path-scan.js';
 import { architectureRules } from '../../governance/rules/architecture.js';
 import { apiRules } from '../../governance/rules/api.js';
 import { workerRules } from '../../governance/rules/worker.js';
@@ -162,6 +163,7 @@ export function runGovernanceRules(
     ...ruleEntityTenantIsolation(entities),
     ...runPackagedGovernanceRules(capabilities, entities, flows, events),
     ...scanCapabilityDirectImports(appRoot),
+    ...scanForbiddenPaths(appRoot),
   ];
 }
 
