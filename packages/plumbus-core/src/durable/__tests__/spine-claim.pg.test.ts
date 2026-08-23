@@ -36,7 +36,10 @@ describe('spine SKIP LOCKED claim on real Postgres', () => {
 
   it('gives each concurrent worker a different row and skips an unexpired lease', async () => {
     harness = await createPlan02Harness();
-    await upsertSpineDispatch(harness.spineDb, hint({ dispatchId: 'disp-a', executionId: 'exec-a', expectedRevision: 1 }));
+    await upsertSpineDispatch(
+      harness.spineDb,
+      hint({ dispatchId: 'disp-a', executionId: 'exec-a', expectedRevision: 1 }),
+    );
     await upsertSpineDispatch(
       harness.spineDb,
       hint({
@@ -50,7 +53,11 @@ describe('spine SKIP LOCKED claim on real Postgres', () => {
     const second = await extraHarnessConnection(harness.admin, harness.spineName);
     try {
       const [a, b] = await Promise.all([
-        claimSpineDispatch(harness.spineDb, { workerId: 'worker-a', leaseDurationMs: 60_000, limit: 1 }),
+        claimSpineDispatch(harness.spineDb, {
+          workerId: 'worker-a',
+          leaseDurationMs: 60_000,
+          limit: 1,
+        }),
         claimSpineDispatch(second.db, { workerId: 'worker-b', leaseDurationMs: 60_000, limit: 1 }),
       ]);
       const claimed = [...a, ...b].map((row) => row.executionId).sort();

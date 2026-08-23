@@ -292,9 +292,7 @@ describe('worker per-unit data-plane routing', () => {
         enableScheduler: true,
       }),
     );
-    expect(createEventWorker).toHaveBeenCalledWith(
-      expect.objectContaining({ resolver }),
-    );
+    expect(createEventWorker).toHaveBeenCalledWith(expect.objectContaining({ resolver }));
     expect(createFlowScheduler).toHaveBeenCalledWith(
       expect.objectContaining({
         resolver,

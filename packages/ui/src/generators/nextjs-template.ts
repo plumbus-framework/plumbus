@@ -348,7 +348,7 @@ NEXT_PUBLIC_API_BASE_URL=${baseUrl}
 NEXT_PUBLIC_AUTH_ENABLED=${config.auth !== false ? 'true' : 'false'}
 ${authLines}
 # Database (if using Next.js API routes with direct DB access)
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plumbus
+# DATABASE_URL=  # from the host environment — do not invent a port here
 `,
   };
 }

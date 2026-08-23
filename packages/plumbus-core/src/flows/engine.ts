@@ -264,11 +264,9 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const id = flowDefinitionId(flow);
     const compiled = compiledRegistry.getLatest(id);
     if (!compiled) {
-      throw new PlumbusError(
-        ErrorCode.NotFound,
-        `compiled definition required for "${id}"`,
-        { reason: 'compiled-definition-required' },
-      );
+      throw new PlumbusError(ErrorCode.NotFound, `compiled definition required for "${id}"`, {
+        reason: 'compiled-definition-required',
+      });
     }
     return compiled;
   }
@@ -688,7 +686,10 @@ export function createFlowEngine(config: FlowEngineConfig) {
     return result;
   }
 
-  async function runNextUnsynced(executionId: string, ctx: ExecutionContext): Promise<FlowExecution> {
+  async function runNextUnsynced(
+    executionId: string,
+    ctx: ExecutionContext,
+  ): Promise<FlowExecution> {
     const rows = await storeFor(executionId)
       .select()
       .from(flowExecutionsTable)
@@ -1271,16 +1272,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const completed = new Set(
       history.filter((entry) => entry.status === StepStatus.Completed).map((entry) => entry.step),
     );
-    const compensable = [...flow.steps]
-      .reverse()
-      .filter((step): step is CapabilityStep => {
-        return (
-          step.type === FlowStepType.Capability &&
-          typeof step.compensate === 'string' &&
-          step.compensate.length > 0 &&
-          completed.has(step.name)
-        );
-      });
+    const compensable = [...flow.steps].reverse().filter((step): step is CapabilityStep => {
+      return (
+        step.type === FlowStepType.Capability &&
+        typeof step.compensate === 'string' &&
+        step.compensate.length > 0 &&
+        completed.has(step.name)
+      );
+    });
     if (compensable.length === 0) return;
 
     const flowAuth = resolveFlowStepAuth(row, {
@@ -1297,7 +1296,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
         ? createEventService(flowAuth)
         : { emit: async () => undefined, emitMany: async () => undefined },
       flows: {
-        start: async () => ({ id: executionId, flowName: row.flowName, status: FlowStatus.Cancelled }),
+        start: async () => ({
+          id: executionId,
+          flowName: row.flowName,
+          status: FlowStatus.Cancelled,
+        }),
         resume: async () => undefined,
         cancel: async () => undefined,
         status: async () => ({ id: executionId, flowName: row.flowName, status: row.status }),

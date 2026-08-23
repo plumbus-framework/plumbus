@@ -14,10 +14,7 @@ import { createFlowScheduler } from '../../flows/scheduler.js';
 import { createMemoryGovernedArtifactStore } from '../governed-artifacts.js';
 import type { GovernedAiHost } from '../governed-host.js';
 import { governedReviewSubject } from '../governed-invoke.js';
-import {
-  createPlumbusRuntime,
-  type PlumbusRuntimeConfig,
-} from '../governed-runtime.js';
+import { createPlumbusRuntime, type PlumbusRuntimeConfig } from '../governed-runtime.js';
 
 function humanAuth(): AuthContext {
   return {
@@ -143,12 +140,9 @@ describe('createPlumbusRuntime', () => {
 
     const started = await runtime.startFlow('example.flow-a', { orderId: 'ord-1' });
     expect(started.id).toBe('exec-1');
-    expect(start).toHaveBeenCalledWith(
-      'example.flow-a',
-      { orderId: 'ord-1' },
-      humanAuth(),
-      { executionId: undefined },
-    );
+    expect(start).toHaveBeenCalledWith('example.flow-a', { orderId: 'ord-1' }, humanAuth(), {
+      executionId: undefined,
+    });
 
     const inspected = await runtime.inspectExecution('exec-1');
     expect(inspected.status).toBe('completed');

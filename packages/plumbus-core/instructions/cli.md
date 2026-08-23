@@ -72,6 +72,7 @@ plumbus flow new <FlowName>
 # Compile defineFlow modules into signed FlowDefinition JSON
 plumbus compile-flows
 # → .plumbus/compiled-flows/{domain.name}@{version}.json
+# createServer / createWorkerPool reload that directory on boot (digest-checked)
 
 # Create a prompt
 plumbus prompt new <PromptName>
@@ -83,7 +84,7 @@ Names are PascalCase on the command line and converted to kebab-case for file pa
 ## Code Generation & Verification
 
 ```bash
-# Generate client code, routes, and types from your contracts
+# Generate types, OpenAPI, and manifests from your contracts
 plumbus generate
 
 # Run governance checks (advisory signals, not hard blocks)
@@ -169,8 +170,8 @@ All migration commands accept `--json` for machine-readable output.
 ## Development
 
 ```bash
-# Start development server with hot reload
-plumbus dev
+# Start development server with hot reload (--port or PLUMBUS_DEV_PORT required)
+plumbus dev --port $PLUMBUS_DEV_PORT
 ```
 
 ## Production server
@@ -178,16 +179,16 @@ plumbus dev
 `plumbus start` is the production-mode counterpart to `plumbus dev`. It forces `environment: "production"`, runs `validateConfig` (which **fails fast** if `AUTH_SECRET` is missing or weak), and exposes `GET /health` + `GET /ready`.
 
 ```bash
-plumbus start                      # defaults: port 3000, host 0.0.0.0
+plumbus start --port $PLUMBUS_START_PORT
 plumbus start --port 8080 --host 127.0.0.1
 ```
 
-Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`) are loaded automatically.
+Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`) are loaded automatically.
 
 ## Background work
 
 ```bash
-plumbus worker start              # split deployments
+plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT   # split deployments
 plumbus events status             # outbox / queue health
 plumbus flow dead-letter list     # failed flow executions
 plumbus seed                      # populate initial data
@@ -217,7 +218,7 @@ plumbus mcp generate
 
 # Run an MCP server — requires `pnpm add @plumbus/mcp` (optional peer dep)
 plumbus mcp serve --stdio                        # Claude Desktop, Cursor, local agents
-plumbus mcp serve --http --port 3001             # remote agents over Streamable HTTP
+plumbus mcp serve --http --port $PLUMBUS_MCP_PORT   # remote agents over Streamable HTTP
 
 # Human-readable manifest dump for debugging
 plumbus mcp list-tools

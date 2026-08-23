@@ -232,9 +232,7 @@ export class EpochMismatchError extends Error {
     readonly spineEpoch: number,
     readonly tenantEpoch: number,
   ) {
-    super(
-      `execution ${executionId}: spine tenantEpoch ${spineEpoch} !== tenant ${tenantEpoch}`,
-    );
+    super(`execution ${executionId}: spine tenantEpoch ${spineEpoch} !== tenant ${tenantEpoch}`);
     this.name = 'EpochMismatchError';
   }
 }

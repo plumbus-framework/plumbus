@@ -79,10 +79,10 @@ Job routes insert into `job_executions` before enqueueing — deploy migrations 
 ```bash
 # API deployment
 PLUMBUS_RUNTIME_ROLE=api
-npx plumbus start --port 3000
+npx plumbus start --port $PLUMBUS_START_PORT
 
 # Worker deployment
-npx plumbus worker start --health-port 3001
+npx plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT
 ```
 
 Configure Redis (`QUEUE_URL` or `REDIS_URL`) on both deployments.
@@ -109,7 +109,7 @@ Worker containers expose a lightweight HTTP server (not the main API):
 | `GET /ready` | Readiness (database connected) |
 | `GET /metrics` | Prometheus-format metrics |
 
-Default port: `3001` (`--health-port`).
+Listen port comes from `--health-port` or `PLUMBUS_WORKER_HEALTH_PORT`. No default is assumed.
 
 ## Environment Variables (New)
 

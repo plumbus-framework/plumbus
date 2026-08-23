@@ -283,10 +283,10 @@ pnpm test
 plumbus verify
 
 # Start dev server
-plumbus dev
+plumbus dev --port $PLUMBUS_DEV_PORT
 
 # Test the API
-curl -X POST http://localhost:3000/api/support/create-ticket \
+curl -X POST "$API_BASE_URL/api/support/create-ticket" \
   -H "Content-Type: application/json" \
   -d '{"subject": "Cannot login", "body": "I keep getting errors...", "customerEmail": "alice@test.com"}'
 ```

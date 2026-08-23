@@ -109,7 +109,9 @@ describe('FlowScheduler', () => {
 
   it('polls each resolved tenant database and starts with that tenant on auth', async () => {
     const engine = mockEngine();
-    const pool = mockDb([{ id: 'pool', flowName: 'should-not-run', cron: 'every:1h', enabled: true }]);
+    const pool = mockDb([
+      { id: 'pool', flowName: 'should-not-run', cron: 'every:1h', enabled: true },
+    ]);
     const tenantA = mockDb([{ id: 'a1', flowName: 'daily-a', cron: 'every:24h', enabled: true }]);
     const tenantB = mockDb([{ id: 'b1', flowName: 'daily-b', cron: 'every:24h', enabled: true }]);
 

@@ -115,6 +115,7 @@ import type { TranslationDefinition } from '../../types/translation.js';
 import type { ServerConfig } from '../bootstrap.js';
 import { createServer } from '../bootstrap.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../../errors/http.js';
+import { createMemoryCredentialCatalog } from '../../credentials/catalog.js';
 
 // ── Helpers ──
 
@@ -178,6 +179,45 @@ describe('Server Bootstrap', () => {
       expect(typeof server.stop).toBe('function');
     });
 
+    it('keeps an optional credentials catalog on the server and does not log secrets', () => {
+      const password = 'smtp-boot-pass-not-for-logs';
+      const logger: LoggerService = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      };
+      const credentials = createMemoryCredentialCatalog({
+        types: [
+          {
+            id: 'smtp',
+            fields: [
+              { name: 'host', secret: false },
+              { name: 'password', secret: true },
+            ],
+          },
+        ],
+        resolve: () => ({ host: 'mail.test', password }),
+      });
+      credentials.bind({
+        name: 'outbound-mail',
+        typeId: 'smtp',
+        ref: 'secret:smtp/outbound-mail#r1',
+      });
+
+      const server = createServer(makeServerConfig({ credentials, logger }));
+      expect(server.credentials).toBe(credentials);
+      expect(createServer(makeServerConfig()).credentials).toBeUndefined();
+
+      const logged = JSON.stringify([
+        logger.debug.mock.calls,
+        logger.info.mock.calls,
+        logger.warn.mock.calls,
+        logger.error.mock.calls,
+      ]);
+      expect(logged).not.toContain(password);
+    });
+
     it('registers /health endpoint', () => {
       const server = createServer(makeServerConfig());
       expect(server.app.get).toHaveBeenCalledWith('/health', expect.any(Function));
@@ -207,10 +247,9 @@ describe('Server Bootstrap', () => {
       expect(address).toBe('http://127.0.0.1:4000');
     });
 
-    it('defaults to port 3000 and host 0.0.0.0', async () => {
+    it('refuses to listen without an explicit port', async () => {
       const server = createServer(makeServerConfig());
-      const address = await server.start();
-      expect(address).toBe('http://0.0.0.0:3000');
+      await expect(server.start()).rejects.toThrow(/createServer\(\{ port \}\) is required/);
     });
 
     it('calls app.close on stop', async () => {

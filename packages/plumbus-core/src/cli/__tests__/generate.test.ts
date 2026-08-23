@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -23,6 +24,7 @@ import {
   generateOpenApiPath,
   generatePlumbusDeclaration,
   generateReactHook,
+  JSON_SCHEMA_2020_12_DIALECT,
   zodTypeToString,
 } from '../commands/generate.js';
 
@@ -232,14 +234,28 @@ describe('plumbus generate', () => {
 
   describe('generateOpenApiPath', () => {
     it('generates correct OpenAPI path entry', () => {
-      const path = generateOpenApiPath(mockCapability());
+      const path = generateOpenApiPath(mockCapability({ exposeAs: ['api'] }));
       expect(path).toHaveProperty('/api/billing/get-invoice');
     });
 
+    it('omits capabilities that are not exposeAs api', () => {
+      expect(generateOpenApiPath(mockCapability())).toEqual({});
+      expect(generateOpenApiPath(mockCapability({ exposeAs: ['mcp'] }))).toEqual({});
+    });
+
+    it('omits eventHandler capabilities even when exposeAs includes api', () => {
+      expect(
+        generateOpenApiPath(
+          mockCapability({ kind: 'eventHandler', exposeAs: ['api'] }),
+        ),
+      ).toEqual({});
+    });
+
     it('emits GET query parameters from the Zod input', () => {
-      const path = generateOpenApiPath(mockCapability());
-      const operation = (path['/api/billing/get-invoice'] as Record<string, Record<string, unknown>>)
-        .get;
+      const path = generateOpenApiPath(mockCapability({ exposeAs: ['api'] }));
+      const operation = (
+        path['/api/billing/get-invoice'] as Record<string, Record<string, unknown>>
+      ).get;
       expect(operation?.parameters).toEqual([
         {
           in: 'query',
@@ -250,11 +266,12 @@ describe('plumbus generate', () => {
       ]);
     });
 
-    it('emits a typed POST body and 200 response from Zod', () => {
+    it('emits a typed POST body and 200 success envelope from Zod', () => {
       const path = generateOpenApiPath(
         mockCapability({
           name: 'createInvoice',
           kind: 'action',
+          exposeAs: ['api'],
           input: z.object({
             customerId: z.string(),
             amount: z.number(),
@@ -267,9 +284,10 @@ describe('plumbus generate', () => {
         path['/api/billing/create-invoice'] as Record<string, Record<string, unknown>>
       ).post;
       const bodySchema = (
-        (operation?.requestBody as { content: { 'application/json': { schema: Record<string, unknown> } } })
-          .content['application/json'].schema
-      );
+        operation?.requestBody as {
+          content: { 'application/json': { schema: Record<string, unknown> } };
+        }
+      ).content['application/json'].schema;
       expect(bodySchema.type).toBe('object');
       expect(bodySchema.properties).toMatchObject({
         customerId: { type: 'string' },
@@ -280,15 +298,25 @@ describe('plumbus generate', () => {
       expect(bodySchema.required).not.toContain('memo');
 
       const responseSchema = (
-        (
-          operation?.responses as {
-            '200': { content: { 'application/json': { schema: Record<string, unknown> } } };
-          }
-        )['200'].content['application/json'].schema
-      );
-      expect(responseSchema.properties).toMatchObject({
-        invoiceId: { type: 'string' },
-        total: { type: 'number' },
+        operation?.responses as {
+          '200': { content: { 'application/json': { schema: Record<string, unknown> } } };
+        }
+      )['200'].content['application/json'].schema;
+      expect(responseSchema).toMatchObject({
+        allOf: [
+          { $ref: '#/components/schemas/ApiSuccessEnvelope' },
+          {
+            type: 'object',
+            properties: {
+              data: {
+                properties: {
+                  invoiceId: { type: 'string' },
+                  total: { type: 'number' },
+                },
+              },
+            },
+          },
+        ],
       });
     });
   });
@@ -308,22 +336,40 @@ describe('plumbus generate', () => {
       const tmpDir = `/tmp/plumbus-test-gen-${Date.now()}`;
       const generated = generateAll([], tmpDir);
       expect(generated).toContain('capability-types.ts');
-      expect(generated).toContain('clients/api.ts');
-      expect(generated).toContain('clients/hooks.ts');
+      expect(generated).not.toContain('clients/api.ts');
+      expect(generated).not.toContain('clients/hooks.ts');
       expect(generated).toContain('openapi.json');
       expect(generated).toContain('manifest.json');
       expect(generated).toContain('capability-graph.md');
       expect(generated).toContain('entity-types.ts');
     });
 
+    it('wipes leftover clients/ from older generate runs', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-gen-clients-'));
+      try {
+        const clientsDir = path.join(tmpDir, 'clients');
+        fs.mkdirSync(clientsDir, { recursive: true });
+        fs.writeFileSync(path.join(clientsDir, 'api.ts'), '// leftover');
+        fs.writeFileSync(path.join(clientsDir, 'hooks.ts'), '// leftover');
+
+        const generated = generateAll([], tmpDir);
+        expect(generated).not.toContain('clients/api.ts');
+        expect(generated).not.toContain('clients/hooks.ts');
+        expect(fs.existsSync(clientsDir)).toBe(false);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     it('writes Zod field names into openapi.json', () => {
       const tmpDir = `/tmp/plumbus-test-gen-oa-${Date.now()}`;
       generateAll(
         [
-          mockCapability(),
+          mockCapability({ exposeAs: ['api'] }),
           mockCapability({
             name: 'createInvoice',
             kind: 'action',
+            exposeAs: ['api'],
             input: z.object({ customerId: z.string() }),
             output: z.object({ invoiceId: z.string() }),
           }),
@@ -331,11 +377,122 @@ describe('plumbus generate', () => {
         tmpDir,
       );
       const spec = JSON.parse(fs.readFileSync(path.join(tmpDir, 'openapi.json'), 'utf8')) as {
-        paths: Record<string, Record<string, { parameters?: { name: string }[]; requestBody?: unknown }>>;
+        paths: Record<
+          string,
+          Record<string, { parameters?: { name: string }[]; requestBody?: unknown }>
+        >;
+        components?: { schemas?: Record<string, unknown> };
+        servers?: unknown;
       };
       const getOp = spec.paths['/api/billing/get-invoice']?.get;
       expect(getOp?.parameters?.map((p) => p.name)).toEqual(['id']);
       expect(spec.paths['/api/billing/create-invoice']?.post?.requestBody).toBeDefined();
+      expect(spec.components?.schemas?.ApiSuccessEnvelope).toBeDefined();
+      expect(spec.servers).toBeUndefined();
+    });
+
+    it('writes OpenAPI 3.1 type-array nullables into openapi.json', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-gen-oa-31-'));
+      try {
+        generateAll(
+          [
+            mockCapability({
+              exposeAs: ['api'],
+              input: z.object({
+                id: z.string(),
+                note: z.string().nullable(),
+              }),
+              output: z.object({
+                total: z.number().nullable(),
+              }),
+            }),
+            mockCapability({
+              name: 'createInvoice',
+              kind: 'action',
+              exposeAs: ['api'],
+              input: z.object({
+                customerId: z.string(),
+                memo: z.string().nullable(),
+              }),
+              output: z.object({ invoiceId: z.string() }),
+            }),
+          ],
+          tmpDir,
+        );
+        const spec = JSON.parse(fs.readFileSync(path.join(tmpDir, 'openapi.json'), 'utf8')) as {
+          openapi: string;
+          jsonSchemaDialect?: string;
+          paths: Record<
+            string,
+            Record<
+              string,
+              {
+                parameters?: { name: string; schema?: unknown }[];
+                requestBody?: {
+                  content: {
+                    'application/json': { schema: { properties?: Record<string, unknown> } };
+                  };
+                };
+                responses: {
+                  '200': {
+                    content: {
+                      'application/json': {
+                        schema: {
+                          allOf?: {
+                            properties?: { data?: { properties?: Record<string, unknown> } };
+                          }[];
+                        };
+                      };
+                    };
+                  };
+                };
+              }
+            >
+          >;
+        };
+
+        expect(spec.openapi).toBe('3.1.0');
+        expect(spec.jsonSchemaDialect).toBe(JSON_SCHEMA_2020_12_DIALECT);
+        expect(JSON.stringify(spec).includes('"nullable"')).toBe(false);
+
+        const note = spec.paths['/api/billing/get-invoice']?.get?.parameters?.find(
+          (parameter) => parameter.name === 'note',
+        );
+        expect(note?.schema).toEqual({ type: ['string', 'null'] });
+
+        const memo =
+          spec.paths['/api/billing/create-invoice']?.post?.requestBody?.content['application/json']
+            .schema.properties?.memo;
+        expect(memo).toEqual({ type: ['string', 'null'] });
+
+        const dataProperties = spec.paths['/api/billing/get-invoice']?.get?.responses['200'].content[
+          'application/json'
+        ].schema.allOf?.find((branch) => branch.properties?.data)?.properties?.data?.properties;
+        expect(dataProperties?.total).toEqual({ type: ['number', 'null'] });
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('omits capabilities the HTTP table does not serve from openapi.json', () => {
+      const tmpDir = `/tmp/plumbus-test-gen-oa-filter-${Date.now()}`;
+      generateAll(
+        [
+          mockCapability({ name: 'internalOnly' }),
+          mockCapability({ name: 'mcpOnly', exposeAs: ['mcp'] }),
+          mockCapability({
+            name: 'onInvoicePaid',
+            kind: 'eventHandler',
+            exposeAs: ['api'],
+          }),
+          mockCapability({ name: 'getInvoice', exposeAs: ['api'] }),
+        ],
+        tmpDir,
+      );
+      const spec = JSON.parse(fs.readFileSync(path.join(tmpDir, 'openapi.json'), 'utf8')) as {
+        paths: Record<string, unknown>;
+      };
+      expect(Object.keys(spec.paths)).toEqual(['/api/billing/get-invoice']);
     });
   });
 });

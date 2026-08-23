@@ -152,7 +152,9 @@ describe('createMemoryCredentialCatalog', () => {
   });
 
   it('refuses duplicate type ids, names, and refs', () => {
-    expect(() => createMemoryCredentialCatalog({ types: [SMTP, SMTP] })).toThrow(/already declared/);
+    expect(() => createMemoryCredentialCatalog({ types: [SMTP, SMTP] })).toThrow(
+      /already declared/,
+    );
 
     const catalog = catalogWithSmtp();
     catalog.bind({

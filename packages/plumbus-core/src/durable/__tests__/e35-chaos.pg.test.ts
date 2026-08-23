@@ -233,7 +233,11 @@ describe('E3.5 Protocol A chaos on two databases', () => {
     });
     for (const row of late.filter((item) => item.executionId === 'exec-delay')) {
       const tenant = await loadExecutionState(harness.tenantDb, 'exec-delay', schema);
-      if (!tenant || tenant.revision !== row.expectedRevision || tenant.tenantEpoch !== row.tenantEpoch) {
+      if (
+        !tenant ||
+        tenant.revision !== row.expectedRevision ||
+        tenant.tenantEpoch !== row.tenantEpoch
+      ) {
         await ackSpineDispatch(harness.spineDb, row.dispatchId);
       }
     }
@@ -276,7 +280,11 @@ describe('E3.5 Protocol A chaos on two databases', () => {
     });
     for (const row of afterRestore.filter((item) => item.executionId === 'exec-restore')) {
       const tenant = await loadExecutionState(harness.tenantDb, 'exec-restore', schema);
-      if (!tenant || tenant.tenantEpoch !== row.tenantEpoch || tenant.revision !== row.expectedRevision) {
+      if (
+        !tenant ||
+        tenant.tenantEpoch !== row.tenantEpoch ||
+        tenant.revision !== row.expectedRevision
+      ) {
         await ackSpineDispatch(harness.spineDb, row.dispatchId);
       }
     }

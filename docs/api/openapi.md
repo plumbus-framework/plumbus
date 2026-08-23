@@ -16,7 +16,7 @@ Generate and publish partner OpenAPI when:
 - CI runs compatibility diff against a published baseline (see [compatibility](./compatibility.md)).
 - API portals or documentation sites ingest OpenAPI.
 
-`plumbus generate` writes `.plumbus/generated/openapi.json` for convention `/api/<domain>/<kebab-name>` routes. That document now carries **query parameters, request bodies, and 200-response schemas from each capability's Zod input and output**. It still omits partner-API envelopes, security schemes, and manifest metadata — use `plumbus api generate openapi` for the published partner contract.
+`plumbus generate` writes `.plumbus/generated/openapi.json` as **OpenAPI 3.1.0** for convention `/api/<domain>/<kebab-name>` routes of capabilities with `exposeAs: ['api']` (event handlers are omitted — they have no HTTP route). Query parameters and request bodies come from each capability's Zod input. 200 responses wrap the Zod output in the same `ApiSuccessEnvelope` (`{ data: ... }`) `@plumbus/api` uses. Nullability uses JSON Schema 2020-12 type arrays (`type: ["string", "null"]`), matching `@plumbus/api` when that generator is asked for 3.1.0. The document still omits partner security schemes and manifest metadata — use `plumbus api generate openapi` for the published partner contract. The partner command stays **3.0.3 by default**; `--openapi-version 3.1.0` is still opt-in there.
 
 ---
 

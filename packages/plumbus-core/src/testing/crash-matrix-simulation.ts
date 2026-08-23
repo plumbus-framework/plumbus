@@ -85,7 +85,11 @@ export interface WorldSnapshot {
 }
 
 export interface ProtocolAWorld {
-  accept(input: Omit<AcceptInput, 'definitionId' | 'definitionVersion' | 'firstStepId'> & { firstStepId?: string }): AcceptAck;
+  accept(
+    input: Omit<AcceptInput, 'definitionId' | 'definitionVersion' | 'firstStepId'> & {
+      firstStepId?: string;
+    },
+  ): AcceptAck;
   pump(): void;
   workerTick(workerId?: string): boolean;
   recover(): void;
@@ -214,11 +218,13 @@ export function createProtocolAWorld(options: ProtocolAOptions = {}): ProtocolAW
       if (stale) {
         spine.ack(claimed.dispatchId, nowIso());
         const originating = execution
-          ? tenant.listOutbox().find(
-              (row) =>
-                row.executionId === claimed.executionId &&
-                row.expectedRevision === claimed.expectedRevision,
-            )
+          ? tenant
+              .listOutbox()
+              .find(
+                (row) =>
+                  row.executionId === claimed.executionId &&
+                  row.expectedRevision === claimed.expectedRevision,
+              )
           : undefined;
         if (originating) {
           tenant.runInTransaction((tx) => {
@@ -311,26 +317,36 @@ export function createProtocolAWorld(options: ProtocolAOptions = {}): ProtocolAW
     },
     recover() {
       for (let i = 0; i < 40; i += 1) {
-        runTenantSweep(tenant, spine, { nowIso, outboxAgeMs: 0, spineAgeMs: 0 }, {
-          publish: (row) => {
-            publish(row);
-            const published = spine
-              .list()
-              .find(
-                (item) =>
-                  item.executionId === row.executionId &&
-                  item.expectedRevision === row.expectedRevision,
-              );
-            if (!published) {
-              throw new Error('tenant sweep published no spine row');
-            }
-            return published;
+        runTenantSweep(
+          tenant,
+          spine,
+          { nowIso, outboxAgeMs: 0, spineAgeMs: 0 },
+          {
+            publish: (row) => {
+              publish(row);
+              const published = spine
+                .list()
+                .find(
+                  (item) =>
+                    item.executionId === row.executionId &&
+                    item.expectedRevision === row.expectedRevision,
+                );
+              if (!published) {
+                throw new Error('tenant sweep published no spine row');
+              }
+              return published;
+            },
+            afterTenantRepublish: () => crash('during-tenant-sweep-after-republish'),
           },
-          afterTenantRepublish: () => crash('during-tenant-sweep-after-republish'),
-        });
-        runSpineSweep(tenant, spine, { nowIso, outboxAgeMs: 0, spineAgeMs: 0 }, {
-          afterSpineAck: () => crash('during-spine-sweep-after-ack'),
-        });
+        );
+        runSpineSweep(
+          tenant,
+          spine,
+          { nowIso, outboxAgeMs: 0, spineAgeMs: 0 },
+          {
+            afterSpineAck: () => crash('during-spine-sweep-after-ack'),
+          },
+        );
         pump();
         const did = world.workerTick(`recover-${i}`);
         if (!hasPendingWork(tenant, spine, nowIso()) && !did) break;
@@ -340,12 +356,14 @@ export function createProtocolAWorld(options: ProtocolAOptions = {}): ProtocolAW
             nowMs = futureWake;
             continue;
           }
-          const leased = spine.list().some(
-            (row) =>
-              row.deliveryState === SpineDeliveryState.Leased &&
-              row.leaseExpiresAt &&
-              Date.parse(row.leaseExpiresAt) > Date.parse(nowIso()),
-          );
+          const leased = spine
+            .list()
+            .some(
+              (row) =>
+                row.deliveryState === SpineDeliveryState.Leased &&
+                row.leaseExpiresAt &&
+                Date.parse(row.leaseExpiresAt) > Date.parse(nowIso()),
+            );
           if (leased) {
             nowMs += leaseMs + 1;
           }
@@ -420,13 +438,19 @@ function nextWakeMs(
   return Math.min(...candidates);
 }
 
-function hasPendingWork(tenant: MemoryTenantStore, spine: MemorySpineStore, _nowIso: string): boolean {
+function hasPendingWork(
+  tenant: MemoryTenantStore,
+  spine: MemorySpineStore,
+  _nowIso: string,
+): boolean {
   const live = tenant.listExecutions().filter((row) => !row.terminal);
-  const danglingSpine = spine.list().some(
-    (row) =>
-      row.deliveryState !== SpineDeliveryState.Acknowledged &&
-      row.deliveryState !== SpineDeliveryState.DeadLettered,
-  );
+  const danglingSpine = spine
+    .list()
+    .some(
+      (row) =>
+        row.deliveryState !== SpineDeliveryState.Acknowledged &&
+        row.deliveryState !== SpineDeliveryState.DeadLettered,
+    );
   if (live.length === 0) return danglingSpine;
   const unpublished = tenant
     .listOutbox()

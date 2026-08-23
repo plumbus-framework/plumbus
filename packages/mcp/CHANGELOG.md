@@ -1,5 +1,11 @@
 # @plumbus/mcp changelog
 
+## Unreleased
+
+### Changed
+
+- **`startHttpServer({ port })` is required.** `plumbus mcp serve --http` takes `--port` or `PLUMBUS_MCP_PORT`. No default listen port is assumed.
+
 ## 0.5.1
 
 ### Changed

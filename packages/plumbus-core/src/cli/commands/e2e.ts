@@ -106,6 +106,30 @@ interface E2EOptions {
 }
 
 /**
+ * Resolve the frontend listen port from `--port` or `PLUMBUS_E2E_PORT`.
+ * No default port is assumed.
+ */
+export function resolveE2EPort(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const fromFlag = explicit?.trim();
+  const raw = fromFlag || env.PLUMBUS_E2E_PORT?.trim();
+  if (!raw) {
+    throw new Error(
+      '--port is required (or set PLUMBUS_E2E_PORT). No default listen port is assumed.',
+    );
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid port "${raw}". Expected an integer in 1-65535 from --port or PLUMBUS_E2E_PORT.`,
+    );
+  }
+  return port;
+}
+
+/**
  * Resolve the vitest binary and its parent node_modules from within the framework.
  */
 function resolveVitest(): { bin: string; nodeModulesDir: string } {
@@ -158,15 +182,30 @@ export function registerE2ECommand(program: Command): void {
     .command('e2e')
     .description('Run end-to-end browser tests (auto-starts frontend server)')
     .option('--frontend-dir <dir>', 'Frontend directory with package.json', 'frontend')
-    .option('--port <port>', 'Port for the frontend dev server', '3001')
+    .option('--port <port>', 'Port for the frontend dev server (or set PLUMBUS_E2E_PORT)')
     .option('--base-url <url>', 'Base URL for the frontend server')
     .option('--config <path>', 'Vitest e2e config file path')
     .option('--skip-server', 'Skip starting the frontend server (assume already running)')
     .allowUnknownOption()
     .action(async (options: E2EOptions, cmd) => {
       const cwd = process.cwd();
-      const port = options.port ?? '3001';
-      const baseUrl = options.baseUrl ?? `http://localhost:${port}`;
+      let port: string | undefined;
+      let baseUrl: string;
+      try {
+        if (!options.skipServer) {
+          port = String(resolveE2EPort(options.port));
+          baseUrl = options.baseUrl?.trim() || `http://localhost:${port}`;
+        } else if (options.baseUrl?.trim()) {
+          baseUrl = options.baseUrl.trim();
+        } else {
+          port = String(resolveE2EPort(options.port));
+          baseUrl = `http://localhost:${port}`;
+        }
+      } catch (err) {
+        logError(err instanceof Error ? err.message : String(err));
+        process.exitCode = 1;
+        return;
+      }
       const frontendDir = resolve(cwd, options.frontendDir ?? 'frontend');
       const configPath = options.config ?? findE2EConfig(cwd);
 
@@ -213,6 +252,11 @@ export function registerE2ECommand(program: Command): void {
       try {
         // ── Start frontend server ──
         if (!options.skipServer) {
+          if (!port) {
+            logError('--port is required (or set PLUMBUS_E2E_PORT) when starting the frontend server.');
+            process.exitCode = 1;
+            return;
+          }
           await assertPortFree(Number(port));
 
           info(`Starting frontend dev server on port ${port}...`);

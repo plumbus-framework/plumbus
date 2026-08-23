@@ -46,6 +46,10 @@ export {
   generateManifestEntry,
   generateOpenApiPath,
   generateReactHook,
+  JSON_SCHEMA_2020_12_DIALECT,
+  toJsonSchema2020,
+  toOpenApi31Document,
+  buildGenerateOpenApiDocument,
   zodTypeToString,
 } from './commands/generate.js';
 export {

@@ -501,7 +501,10 @@ export function registerMigrateCommand(program: Command): void {
     .description('Apply pending migrations to the database')
     .option('--json', 'Output as JSON')
     .option('--create-db', 'Create the database if it does not exist')
-    .option('--database <name>', 'Named database to apply to (defaults to config.database.database)')
+    .option(
+      '--database <name>',
+      'Named database to apply to (defaults to config.database.database)',
+    )
     .action(async (opts: MigrateOptions & { createDb?: boolean }) => {
       const config = loadConfig({});
       let dbName: string;
@@ -722,9 +725,7 @@ export function registerMigrateCommand(program: Command): void {
         } catch (err) {
           const msg = formatConnectError(err);
           if (opts.json) {
-            console.log(
-              JSON.stringify({ status: 'error', error: msg, database: dbName }, null, 2),
-            );
+            console.log(JSON.stringify({ status: 'error', error: msg, database: dbName }, null, 2));
           } else {
             logError(msg);
           }
@@ -875,11 +876,7 @@ export function registerMigrateCommand(program: Command): void {
         const msg = formatConnectError(err);
         if (opts.json) {
           console.log(
-            JSON.stringify(
-              { status: 'no_db_connection', error: msg, database: dbName },
-              null,
-              2,
-            ),
+            JSON.stringify({ status: 'no_db_connection', error: msg, database: dbName }, null, 2),
           );
         } else {
           logError(msg);

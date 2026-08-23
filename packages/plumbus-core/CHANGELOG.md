@@ -4,13 +4,21 @@
 
 ### Added
 
-- **`createMemoryCredentialCatalog`** — host-declared named credential types and opaque bindings. The catalog stores type shapes, names, refs, and public labels; the host resolver supplies field values at `reveal`. Secret fields are read with `secret(name)` and never appear in JSON, `util.inspect`, or catalog errors. No built-in types. Optional on `createPlumbusRuntime({ credentials })`. Published at `@plumbus/core` and `@plumbus/core/credentials` (`dist/credentials/index.js`). Docs: [Credential catalog](../../docs/sdk-reference/credential-catalog.md).
+- **`createMemoryCredentialCatalog`** — host-declared named credential types and opaque bindings. The catalog stores type shapes, names, refs, and public labels; the host resolver supplies field values at `reveal`. Secret fields are read with `secret(name)` and never appear in JSON, `util.inspect`, or catalog errors. No built-in types. Optional on `createPlumbusRuntime({ credentials })` and on `createServer({ credentials })`. HTTP boot loads `export const credentials` from `app/server.ts` through `loadServerExtensions`. The catalog is retained on `PlumbusServer.credentials` and is never logged. Published at `@plumbus/core` and `@plumbus/core/credentials` (`dist/credentials/index.js`). Docs: [Credential catalog](../../docs/sdk-reference/credential-catalog.md).
+- **Compiled-flow disk reload** — `loadCompiledFlowRegistryFromDirectory` / `tryLoadCompiledFlowRegistryFromDirectory` read `plumbus compile-flows` JSON, recompute `definitionDigest`, and refuse a mismatch. `createServer` and `createWorkerPool` load `{cwd}/.plumbus/compiled-flows` when that tree has JSON, or an explicit `compiledRegistry` / `compiledFlowsDirectory`. Docs: [Flows — compiled definitions](../../docs/core-concepts/flows.md).
 - **`applyDataPlaneMigrations({ target, migrationsFolder })`** — host helper that opens one named tenant database through `openDataPlaneConnection` (owner role), runs existing `applyMigrations`, and always closes the pool. Result includes `database` when the target named one.
 - **`plumbus migrate apply --database <name>`** — same path from the CLI (config host/user, named database). Also on `push` / `rollback` / `reconcile`. `--create-db` now creates that named database when `--database` is set. JSON apply output includes `"database"`.
 - **Docs:** [Tenant data planes](../../docs/sdk-reference/tenant-data-planes.md) — provision, migrate as owner, resolve as runtime. [Credential catalog](../../docs/sdk-reference/credential-catalog.md) — host-declared types, opaque refs, no secrets in logs.
 
+### Fixed
+
+- **Prompt `{{key}}` fill is literal and single-pass.** `buildPromptText` no longer uses `String.replaceAll` with a string replacement (which interprets `$`, `$'`, `` $` ``, `$&`, `$1`) and no longer re-scans substituted values for later `{{key}}` tokens. Values that contain those characters or placeholder-shaped text stay inert. Shared helper: `fillPromptTemplate`. Docs: [AI integration](../../docs/ai/ai-integration.md).
+
 ### Changed
 
+- **`plumbus generate` writes OpenAPI 3.1.0** for `.plumbus/generated/openapi.json`, with JSON Schema 2020-12 type-array nullables (`type: ["string", "null"]`) instead of OpenAPI 3.0 `nullable: true`. Conversion is the same pass `@plumbus/api` uses for `--openapi-version 3.1.0` (now owned by core so generate does not load the partner package). Partner `plumbus api generate openapi` remains 3.0.3 unless that flag is set.
+- **`plumbus generate` no longer writes leftover `clients/` fetch/hook files.** Re-running generate deletes `.plumbus/generated/clients/` if that tree is still present. Typed fetch clients and React hooks come from `plumbus ui generate`.
+- **`plumbus e2e --port`**, **`plumbus worker --health-port`**, and **`plumbus mcp serve --http --port`** require an explicit port (or `PLUMBUS_E2E_PORT` / `PLUMBUS_WORKER_HEALTH_PORT` / `PLUMBUS_MCP_PORT`). `createServer({ port })` is required to listen. No default 3000/3001 is assumed.
 - **`plumbus migrate` connections** go through `openDataPlaneConnection` (bounded pool of 1, `application_name: plumbus-migrate`, empty passwords omitted). Connection failures surface the factory's redacted message.
 
 ## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening

@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { z } from 'zod';
 import type { EventQueue } from '../../events/queue.js';
 import type { StepExecutorDeps } from '../../flows/step-executor.js';
 import type { AuditService } from '../../types/audit.js';
@@ -50,7 +54,12 @@ vi.mock('../../events/idempotency.js', () => ({
 }));
 
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
+import { defineFlow } from '../../define/defineFlow.js';
+import { compileFlowDefinition } from '../../flows/compile-flow.js';
+import { createFlowEngine } from '../../flows/engine.js';
+import { CompiledFlowRegistry } from '../../flows/compiled-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
+import { FlowStepType } from '../../types/enums.js';
 import type { WorkerPoolConfig } from '../bootstrap.js';
 import { assertFlowLeaseColumns, createWorkerPool } from '../bootstrap.js';
 
@@ -125,6 +134,44 @@ describe('Worker Bootstrap', () => {
     it('isRunning is false initially', () => {
       const pool = createWorkerPool(makePoolConfig());
       expect(pool.isRunning).toBe(false);
+    });
+
+    it('passes a host compiledRegistry to the flow engine', () => {
+      const compiledRegistry = new CompiledFlowRegistry();
+      createWorkerPool(makePoolConfig({ compiledRegistry }));
+      expect(vi.mocked(createFlowEngine).mock.calls[0]?.[0]?.compiledRegistry).toBe(
+        compiledRegistry,
+      );
+    });
+
+    it('loads compiledFlowsDirectory into the flow engine', () => {
+      const compiled = compileFlowDefinition(
+        defineFlow({
+          name: 'ping',
+          domain: 'ops',
+          input: z.object({}),
+          steps: [{ name: 'noop', type: FlowStepType.Capability }],
+        }),
+      );
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-worker-compiled-'));
+      try {
+        fs.writeFileSync(
+          path.join(directory, `${compiled.flowDefinitionId}@${compiled.definitionVersion}.json`),
+          `${JSON.stringify(compiled)}\n`,
+        );
+        createWorkerPool(makePoolConfig({ compiledFlowsDirectory: directory }));
+        const registry = vi.mocked(createFlowEngine).mock.calls[0]?.[0]?.compiledRegistry;
+        expect(registry?.get('ops.ping', compiled.definitionVersion)?.definitionDigest).toBe(
+          compiled.definitionDigest,
+        );
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
+    it('omits compiledRegistry when no compiled-flows tree is present', () => {
+      createWorkerPool(makePoolConfig());
+      expect(vi.mocked(createFlowEngine).mock.calls[0]?.[0]?.compiledRegistry).toBeUndefined();
     });
   });
 

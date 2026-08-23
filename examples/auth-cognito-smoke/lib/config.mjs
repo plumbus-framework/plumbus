@@ -20,7 +20,7 @@ const DEFAULTS = {
   COGNITOX_URL: 'http://localhost:9229',
   // Pool is auto-resolved when COGNITO_USER_POOL_ID is unset: find/create by name.
   COGNITO_POOL_NAME: 'plumbus-auth-cognito-smoke',
-  PORT: '3000',
+  // PORT has no default — set it in .env or the shell.
   // Local nonce-injecting proxy port (adds the OIDC nonce cognitox omits).
   NONCE_PROXY_PORT: '9301',
   // '1' inserts a simulated one-time-code challenge into the hosted login
@@ -52,7 +52,11 @@ export async function loadConfig() {
   // Optional: when unset the pool is found/created by name during provisioning.
   const poolId = process.env.COGNITO_USER_POOL_ID || undefined;
   const poolName = env('COGNITO_POOL_NAME');
-  const port = Number(env('PORT'));
+  const rawPort = process.env.PORT;
+  if (!rawPort) {
+    throw new Error('PORT must be set. No default listen port is assumed.');
+  }
+  const port = Number(rawPort);
   const externalBaseUrl = (process.env.EXTERNAL_BASE_URL ?? `http://localhost:${port}`).replace(
     /\/$/,
     '',

@@ -92,7 +92,10 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
   ): Promise<void> {
     for (const existing of await store.listRequests()) {
       if (existing.capabilityId !== capabilityId) continue;
-      if (existing.inputDigest === inputDigest && existing.definitionVersion === definitionVersion) {
+      if (
+        existing.inputDigest === inputDigest &&
+        existing.definitionVersion === definitionVersion
+      ) {
         continue;
       }
       const sameCapability =
@@ -119,7 +122,12 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
     async requestApproval(input: RequestApprovalInput): Promise<ApprovalRequestRecord> {
       const now = nowFn();
       const inputDigest = digestApprovalInput(input.input);
-      await invalidateMaterialChanges(input.capabilityId, input.definitionVersion, inputDigest, now);
+      await invalidateMaterialChanges(
+        input.capabilityId,
+        input.definitionVersion,
+        inputDigest,
+        now,
+      );
       const createdAt = now.toISOString();
       const row: ApprovalRequestRecord = {
         contractVersion: HUMAN_TASK_CONTRACT_VERSION,

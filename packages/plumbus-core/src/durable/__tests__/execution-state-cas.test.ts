@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryTenantStore } from '../memory-store.js';
-import {
-  persistAcceptance,
-  persistStepCompletion,
-} from '../persist-before-ack.js';
+import { persistAcceptance, persistStepCompletion } from '../persist-before-ack.js';
 import { DurableExecutionStatus, RevisionConflictError } from '../types.js';
 
 function now(): string {

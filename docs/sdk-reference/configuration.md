@@ -431,6 +431,7 @@ interface ServerConfig {
   resolveAiOverrides?: (db) => Promise<{ defaultModel?; defaultProvider?; promptOverrides? }>;
   onAICostRecorded?: (record, costContext, db) => void | Promise<void>;
   enableStrictStructuredOutputs?: boolean;
+  credentials?: CredentialCatalog;
 }
 ```
 
@@ -471,7 +472,7 @@ const server = createServer({
   consumers: consumerRegistry,
   flows: flowRegistry,
   promptRegistry,
-  port: 3000,
+  port: Number(process.env.PLUMBUS_START_PORT),
 });
 
 await server.start();

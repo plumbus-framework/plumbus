@@ -1,6 +1,6 @@
 // Interactive smoke server for @plumbus/auth-cognito against a running cognitox.
 //
-//   node serve.mjs      # then open http://localhost:3000
+//   PORT=... node serve.mjs      # then open the printed URL
 //
 // Boots a single-origin Fastify app that hosts a landing page plus the real
 // @plumbus/auth /auth/* routes wired to cognitox via the cognito() integration.

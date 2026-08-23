@@ -22,9 +22,13 @@ export function spineRecordFromUnknown(value: unknown): OpaqueDispatchRecord {
 
   for (const key of Object.keys(record)) {
     if ((OPAQUE_DISPATCH_FORBIDDEN_KEYS as readonly string[]).includes(key)) {
-      throw new PlumbusError(ErrorCode.Forbidden, `opaque dispatch forbids private field "${key}"`, {
-        key,
-      });
+      throw new PlumbusError(
+        ErrorCode.Forbidden,
+        `opaque dispatch forbids private field "${key}"`,
+        {
+          key,
+        },
+      );
     }
     if (!OPAQUE_DISPATCH_ALLOWED_KEYS.has(key)) {
       throw new PlumbusError(
@@ -37,9 +41,13 @@ export function spineRecordFromUnknown(value: unknown): OpaqueDispatchRecord {
 
   for (const key of OPAQUE_DISPATCH_REQUIRED_KEYS) {
     if (record[key] === undefined) {
-      throw new PlumbusError(ErrorCode.Validation, `opaque dispatch missing required field "${key}"`, {
-        key,
-      });
+      throw new PlumbusError(
+        ErrorCode.Validation,
+        `opaque dispatch missing required field "${key}"`,
+        {
+          key,
+        },
+      );
     }
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   generateCapabilityTest,
+  generateE2ETest,
   generateFlowTest,
   generateGovernanceTest,
   generateSecurityTest,
@@ -79,5 +80,19 @@ describe('generateGovernanceTest', () => {
     expect(output).toContain('passes security rules');
     expect(output).toContain('passes privacy rules');
     expect(output).toContain('complies with internal security baseline');
+  });
+});
+
+describe('generateE2ETest', () => {
+  it('requires E2E_BASE_URL instead of inventing a frontend port', () => {
+    const output = generateE2ETest({
+      route: '/project',
+      pageName: 'Project',
+      actions: [],
+    });
+    expect(output).toContain('process.env.E2E_BASE_URL');
+    expect(output).toContain('E2E_BASE_URL is required');
+    expect(output).not.toContain('localhost:3000');
+    expect(output).not.toContain('localhost:3001');
   });
 });

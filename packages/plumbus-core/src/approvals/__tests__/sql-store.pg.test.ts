@@ -80,9 +80,9 @@ describe('SQL approval store', () => {
     const persisted = await reloaded.getRequest(request.approvalRequestId);
     expect(persisted?.state).toBe('approved');
     expect(persisted?.inputDigest).toBe(digestApprovalInput({ amount: 25 }));
-    expect((await reloaded.listDecisions(request.approvalRequestId)).map((row) => row.decision)).toEqual([
-      'approved',
-    ]);
+    expect(
+      (await reloaded.listDecisions(request.approvalRequestId)).map((row) => row.decision),
+    ).toEqual(['approved']);
     expect((await reloaded.getTask(task.humanTaskId))?.state).toBe('completed');
 
     const match = await service.findMatchingApproval({

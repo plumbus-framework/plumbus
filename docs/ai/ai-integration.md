@@ -67,6 +67,13 @@ export const classifyTicket = definePrompt({
 safety, output policy, or language policy. `description` remains the user/data
 message. Both fields support simple top-level `{{key}}` substitution from the
 prompt input, and prompts without `system` keep the old single-message behavior.
+
+Substitution is a **single pass over the original template**. Inserted values are
+literal: `$` sequences (`$'`, `` $` ``, `$&`, `$1`, `$$`) are not JavaScript
+replacement patterns, and `{{otherKey}}` inside a value is not expanded as a
+later placeholder. The same fill is exported as `fillPromptTemplate` from
+`@plumbus/core`.
+
 If a prompt renders a complete user message into one placeholder, set
 `appendUnsubstitutedInput: false` to prevent remaining input keys from being
 appended as `Input: {...}`.

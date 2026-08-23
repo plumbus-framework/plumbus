@@ -2,11 +2,7 @@ import { digestApprovalInput } from '../approvals/digest.js';
 import { ApprovalRequestState, type ApprovalService } from '../approvals/types.js';
 import { GovernedAiBlockedError, type GovernedAiBlockedCode } from '../errors/data-errors.js';
 import type { GovernedArtifactStore, PublishedGovernedArtifact } from './governed-artifacts.js';
-import type {
-  GovernedAiHost,
-  GovernedModelPin,
-  GovernedModelResult,
-} from './governed-host.js';
+import type { GovernedAiHost, GovernedModelPin, GovernedModelResult } from './governed-host.js';
 
 export interface GovernedInvokeInput {
   capabilityId: string;
@@ -46,7 +42,11 @@ export function governedReviewSubject(input: unknown, pin: GovernedModelPin): un
   return { input, pin };
 }
 
-function requirePinned(value: string | undefined, field: string, code: GovernedAiBlockedCode): string {
+function requirePinned(
+  value: string | undefined,
+  field: string,
+  code: GovernedAiBlockedCode,
+): string {
   const trimmed = value?.trim() ?? '';
   if (!trimmed) {
     throw new GovernedAiBlockedError(code, `Governed AI requires a pinned ${field}`, { field });
@@ -96,8 +96,18 @@ export async function invokeGovernedAi(
   input: GovernedInvokeInput,
 ): Promise<GovernedInvokeSuccess> {
   const pin = normalizePin(input.pin);
-  const promptArtifact = requireArtifact(deps.artifacts, pin.promptDigest, 'prompt', 'unpinned-prompt');
-  const policyArtifact = requireArtifact(deps.artifacts, pin.policyDigest, 'policy', 'unpinned-policy');
+  const promptArtifact = requireArtifact(
+    deps.artifacts,
+    pin.promptDigest,
+    'prompt',
+    'unpinned-prompt',
+  );
+  const policyArtifact = requireArtifact(
+    deps.artifacts,
+    pin.policyDigest,
+    'policy',
+    'unpinned-policy',
+  );
 
   const model = await deps.host.resolveModel(pin);
   if (!model) {

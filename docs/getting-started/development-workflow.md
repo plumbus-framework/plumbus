@@ -199,10 +199,7 @@ Generated artifacts go to `.plumbus/generated/`:
 ├── capability-types.ts      # Input/Output types + CapabilityName union
 ├── entity-types.ts          # Typed entity interfaces + DataServiceMap
 ├── plumbus.d.ts             # Registry augmentation (events, flows, entities)
-├── clients/
-│   ├── api.ts               # Typed API client functions
-│   └── hooks.ts             # React hooks (useCreateUser, etc.)
-├── openapi.json             # OpenAPI 3.0 spec: Zod parameters, bodies, and responses
+├── openapi.json             # OpenAPI 3.1: exposeAs api ops, Zod params/bodies, { data } 200 envelope, type-array nullables
 ├── manifest.json            # Resource manifest
 ├── consumers-manifest.json  # Consumer wiring manifest
 ├── capability-graph.md      # Capability dependency graph (Markdown)
@@ -212,8 +209,9 @@ Generated artifacts go to `.plumbus/generated/`:
 ```
 
 - **`capability-types.ts`** — TypeScript types inferred from each capability's Zod input/output schemas (e.g. `CreateUserInput`, `CreateUserOutput`), plus a `CapabilityName` union type for type-safe capability references
-- **`clients/api.ts`** / **`hooks.ts`** — import and use the types from `capability-types.ts` so generated client code is fully typed
 - **`entity-types.ts`** — TypeScript interfaces for each entity (e.g. `UserRecord`) and a `DataServiceMap` that maps entity names to typed `Repository<T>` instances, giving you full type safety on `ctx.data`
+
+Typed fetch clients and React hooks come from `plumbus ui generate`, not from `plumbus generate`. Re-running `plumbus generate` deletes leftover `.plumbus/generated/clients/` files from older releases.
 
 Re-run `plumbus generate` any time you add or change capabilities or entities.
 

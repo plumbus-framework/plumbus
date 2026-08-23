@@ -25,7 +25,9 @@ export function createMemoryApprovalStore(): ApprovalStore {
       decisions.push({ ...row });
     },
     async listDecisions(requestId) {
-      return decisions.filter((row) => row.approvalRequestId === requestId).map((row) => ({ ...row }));
+      return decisions
+        .filter((row) => row.approvalRequestId === requestId)
+        .map((row) => ({ ...row }));
     },
     async putTask(row) {
       tasks.set(row.humanTaskId, { ...row });

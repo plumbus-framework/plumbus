@@ -40,6 +40,30 @@ export interface StartOptions {
 }
 
 /**
+ * Resolve the listen port from `--port` or `PLUMBUS_START_PORT`.
+ * No default port is assumed.
+ */
+export function resolveStartPort(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const fromFlag = explicit?.trim();
+  const raw = fromFlag || env.PLUMBUS_START_PORT?.trim();
+  if (!raw) {
+    throw new Error(
+      '--port is required (or set PLUMBUS_START_PORT). No default listen port is assumed.',
+    );
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid port "${raw}". Expected an integer in 1-65535 from --port or PLUMBUS_START_PORT.`,
+    );
+  }
+  return port;
+}
+
+/**
  * Start the production server.
  * Discovers resources from app/, populates registries, connects to DB,
  * and starts the Fastify server with production defaults.
@@ -60,7 +84,7 @@ export async function startProductionServer(
     throw new Error(`Config validation failed: ${validation.errors.join(', ')}`);
   }
 
-  const port = parseInt(options.port ?? '3000', 10);
+  const port = resolveStartPort(options.port);
   const host = options.host ?? '0.0.0.0';
   const serverUrl = `http://${host}:${port}`;
   const runtimeRole = resolveRuntimeRole('start');
@@ -136,6 +160,7 @@ export async function startProductionServer(
       onProcessError: extensions.onProcessError,
       onAICostRecorded: extensions.onAICostRecorded,
       enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
+      credentials: extensions.credentials,
       jobQueue: jobQueueNeeded ? queues.jobs : undefined,
       metrics,
       ...(process.env.TRUST_PROXY && {
@@ -248,7 +273,7 @@ export function registerStartCommand(program: Command): void {
   program
     .command('start')
     .description('Start production server')
-    .option('-p, --port <port>', 'Server port', '3000')
+    .option('-p, --port <port>', 'Server port (or set PLUMBUS_START_PORT)')
     .option('-H, --host <host>', 'Server host', '0.0.0.0')
     .action(async (opts: StartOptions) => {
       try {

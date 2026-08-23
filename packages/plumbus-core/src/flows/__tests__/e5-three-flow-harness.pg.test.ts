@@ -90,7 +90,11 @@ function flowCV1() {
     input: z.object({ orderId: z.string() }),
     steps: [
       { name: 'assemble', type: FlowStepType.Capability, capability: 'example.assemble' },
-      { name: 'publish-original', type: FlowStepType.Capability, capability: 'example.publish-original' },
+      {
+        name: 'publish-original',
+        type: FlowStepType.Capability,
+        capability: 'example.publish-original',
+      },
     ],
   });
 }
@@ -102,7 +106,11 @@ function flowCV2() {
     input: z.object({ orderId: z.string() }),
     steps: [
       { name: 'assemble', type: FlowStepType.Capability, capability: 'example.assemble' },
-      { name: 'publish-replacement', type: FlowStepType.Capability, capability: 'example.publish-replacement' },
+      {
+        name: 'publish-replacement',
+        type: FlowStepType.Capability,
+        capability: 'example.publish-replacement',
+      },
     ],
   });
 }
@@ -122,123 +130,119 @@ describe('E5 three-flow compiled harness', () => {
     await harness?.close();
   });
 
-  it(
-    'runs three compiled example flows on the two-DB harness; pin, approval-outcome, migrate refuse',
-    async () => {
-      harness = await createPlan02Harness();
-      expect(harness.spineName).toMatch(PLAN02_DB_NAME_PATTERN);
-      expect(harness.tenantName).toMatch(PLAN02_DB_NAME_PATTERN);
-      expect(harness.spineName).not.toMatch(/tenant_qv/);
-      expect(harness.tenantName).not.toMatch(/tenant_qv/);
+  it('runs three compiled example flows on the two-DB harness; pin, approval-outcome, migrate refuse', async () => {
+    harness = await createPlan02Harness();
+    expect(harness.spineName).toMatch(PLAN02_DB_NAME_PATTERN);
+    expect(harness.tenantName).toMatch(PLAN02_DB_NAME_PATTERN);
+    expect(harness.spineName).not.toMatch(/tenant_qv/);
+    expect(harness.tenantName).not.toMatch(/tenant_qv/);
 
-      const a = flowA();
-      const b = flowB();
-      const c = flowCV1();
-      const compiledA = compileStable(a);
-      const compiledB = compileStable(b);
-      const compiledC = compileStable(c);
-      expect(compiledA.flowDefinitionId).toBe('example.flow-a');
-      expect(compiledB.flowDefinitionId).toBe('example.flow-b');
-      expect(compiledC.flowDefinitionId).toBe('example.flow-c');
+    const a = flowA();
+    const b = flowB();
+    const c = flowCV1();
+    const compiledA = compileStable(a);
+    const compiledB = compileStable(b);
+    const compiledC = compileStable(c);
+    expect(compiledA.flowDefinitionId).toBe('example.flow-a');
+    expect(compiledB.flowDefinitionId).toBe('example.flow-b');
+    expect(compiledC.flowDefinitionId).toBe('example.flow-c');
 
-      const registry = new FlowRegistry();
-      registry.registerAll([a, b, c]);
-      const compiledRegistry = new CompiledFlowRegistry();
-      compiledRegistry.publish(compiledA);
-      compiledRegistry.publish(compiledB);
-      compiledRegistry.publish(compiledC);
+    const registry = new FlowRegistry();
+    registry.registerAll([a, b, c]);
+    const compiledRegistry = new CompiledFlowRegistry();
+    compiledRegistry.publish(compiledA);
+    compiledRegistry.publish(compiledB);
+    compiledRegistry.publish(compiledC);
 
-      const ran: string[] = [];
-      const approvals = createApprovalService({ store: createMemoryApprovalStore() });
-      const engine = createFlowEngine({
+    const ran: string[] = [];
+    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const engine = createFlowEngine({
+      db: harness.spineDb,
+      registry,
+      compiledRegistry,
+      approvals,
+      stepDeps: {
+        executeCapability: async (name: string) => {
+          ran.push(name);
+          return { success: true, data: {} };
+        },
+        evaluateCondition: () => true,
+      },
+      spineDispatch: {
         db: harness.spineDb,
-        registry,
-        compiledRegistry,
-        approvals,
-        stepDeps: {
-          executeCapability: async (name: string) => {
-            ran.push(name);
-            return { success: true, data: {} };
-          },
-          evaluateCondition: () => true,
-        },
-        spineDispatch: {
-          db: harness.spineDb,
-          resolver: createSingleDataPlaneResolver(harness.tenantDb, {
-            coreSchema: harness.coreSchema,
-          }),
+        resolver: createSingleDataPlaneResolver(harness.tenantDb, {
           coreSchema: harness.coreSchema,
-        },
-        flowLeaseDurationMs: 15_000,
-      });
+        }),
+        coreSchema: harness.coreSchema,
+      },
+      flowLeaseDurationMs: 15_000,
+    });
 
-      const ctx = workerCtx();
-      const startAuth = humanAuth();
+    const ctx = workerCtx();
+    const startAuth = humanAuth();
 
-      async function claimThis(executionId: string): Promise<void> {
-        for (let attempt = 0; attempt < 8; attempt++) {
-          const rows = await engine.claimNext(5);
-          if (rows.some((row) => row.id === executionId)) return;
-        }
-        throw new Error(`did not claim ${executionId}`);
+    async function claimThis(executionId: string): Promise<void> {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const rows = await engine.claimNext(5);
+        if (rows.some((row) => row.id === executionId)) return;
       }
+      throw new Error(`did not claim ${executionId}`);
+    }
 
-      const first = await engine.start('flow-a', { orderId: 'ord-1' }, startAuth);
-      await claimThis(first.id);
-      expect((await engine.runNext(first.id, ctx)).status).toBe(FlowStatus.Running);
-      expect((await engine.runNext(first.id, ctx)).status).toBe(FlowStatus.Completed);
+    const first = await engine.start('flow-a', { orderId: 'ord-1' }, startAuth);
+    await claimThis(first.id);
+    expect((await engine.runNext(first.id, ctx)).status).toBe(FlowStatus.Running);
+    expect((await engine.runNext(first.id, ctx)).status).toBe(FlowStatus.Completed);
 
-      const second = await engine.start('flow-b', { orderId: 'ord-1' }, startAuth);
-      await approvals.requestApproval({
-        capabilityId: 'example.review',
-        definitionVersion: '1',
-        input: { orderId: 'ord-1' },
-        riskClass: ActionRiskTier.Consequential,
-        expiresAt: new Date(Date.now() + 30_000),
-        executionId: second.id,
-      });
-      const pending = await approvals.findByExecutionId(second.id);
-      await approvals.decide({
-        requestId: pending!.approvalRequestId,
-        outcome: 'approved',
-        auth: humanAuth(),
-      });
-      await claimThis(second.id);
-      await engine.runNext(second.id, ctx);
-      expect((await engine.runNext(second.id, ctx)).status).toBe(FlowStatus.Completed);
+    const second = await engine.start('flow-b', { orderId: 'ord-1' }, startAuth);
+    await approvals.requestApproval({
+      capabilityId: 'example.review',
+      definitionVersion: '1',
+      input: { orderId: 'ord-1' },
+      riskClass: ActionRiskTier.Consequential,
+      expiresAt: new Date(Date.now() + 30_000),
+      executionId: second.id,
+    });
+    const pending = await approvals.findByExecutionId(second.id);
+    await approvals.decide({
+      requestId: pending!.approvalRequestId,
+      outcome: 'approved',
+      auth: humanAuth(),
+    });
+    await claimThis(second.id);
+    await engine.runNext(second.id, ctx);
+    expect((await engine.runNext(second.id, ctx)).status).toBe(FlowStatus.Completed);
 
-      const third = await engine.start('flow-c', { orderId: 'ord-1' }, startAuth);
-      const [pin] = await harness.tenantDb
-        .select({
-          definitionVersion: flowExecutionsTable.definitionVersion,
-          definitionDigest: flowExecutionsTable.definitionDigest,
-        })
-        .from(flowExecutionsTable)
-        .where(eq(flowExecutionsTable.id, third.id))
-        .limit(1);
-      expect(pin.definitionVersion).toBe(compiledC.definitionVersion);
-      expect(pin.definitionDigest).toBe(compiledC.definitionDigest);
+    const third = await engine.start('flow-c', { orderId: 'ord-1' }, startAuth);
+    const [pin] = await harness.tenantDb
+      .select({
+        definitionVersion: flowExecutionsTable.definitionVersion,
+        definitionDigest: flowExecutionsTable.definitionDigest,
+      })
+      .from(flowExecutionsTable)
+      .where(eq(flowExecutionsTable.id, third.id))
+      .limit(1);
+    expect(pin.definitionVersion).toBe(compiledC.definitionVersion);
+    expect(pin.definitionDigest).toBe(compiledC.definitionDigest);
 
-      await claimThis(third.id);
-      await engine.runNext(third.id, ctx);
+    await claimThis(third.id);
+    await engine.runNext(third.id, ctx);
 
-      compiledRegistry.publish(compileFlowDefinition(flowCV2(), { definitionVersion: '2' }));
-      expect(compiledRegistry.getLatest('example.flow-c')?.definitionVersion).toBe('2');
+    compiledRegistry.publish(compileFlowDefinition(flowCV2(), { definitionVersion: '2' }));
+    expect(compiledRegistry.getLatest('example.flow-c')?.definitionVersion).toBe('2');
 
-      await expect(engine.applyDefinitionStrategy(third.id, 'migrate')).rejects.toMatchObject({
-        metadata: { reason: DEFINITION_STRATEGY_NOT_SUPPORTED, strategy: 'migrate' },
-      });
+    await expect(engine.applyDefinitionStrategy(third.id, 'migrate')).rejects.toMatchObject({
+      metadata: { reason: DEFINITION_STRATEGY_NOT_SUPPORTED, strategy: 'migrate' },
+    });
 
-      expect((await engine.runNext(third.id, ctx)).status).toBe(FlowStatus.Completed);
-      expect(ran).toEqual([
-        'example.accept',
-        'example.queue',
-        'example.record',
-        'example.assemble',
-        'example.publish-original',
-      ]);
-      expect(ran).not.toContain('example.publish-replacement');
-    },
-    15_000,
-  );
+    expect((await engine.runNext(third.id, ctx)).status).toBe(FlowStatus.Completed);
+    expect(ran).toEqual([
+      'example.accept',
+      'example.queue',
+      'example.record',
+      'example.assemble',
+      'example.publish-original',
+    ]);
+    expect(ran).not.toContain('example.publish-replacement');
+  }, 15_000);
 });

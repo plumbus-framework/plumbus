@@ -187,7 +187,12 @@ export function createMemoryTenantStore(opts?: { epoch?: number }): MemoryTenant
       }
       for (const [id, row] of next.outbox) {
         if (!row.spineAckedAt) {
-          next.outbox.set(id, { ...row, tenantEpoch: nextEpoch, publishedAt: undefined, spineRowId: undefined });
+          next.outbox.set(id, {
+            ...row,
+            tenantEpoch: nextEpoch,
+            publishedAt: undefined,
+            spineRowId: undefined,
+          });
         }
       }
       data = next;
@@ -229,7 +234,9 @@ export function createMemoryTenantStore(opts?: { epoch?: number }): MemoryTenant
   };
 }
 
-export function spineDispatchKey(record: Pick<OpaqueDispatchRecord, 'tenantRouteId' | 'executionId' | 'expectedRevision'>): string {
+export function spineDispatchKey(
+  record: Pick<OpaqueDispatchRecord, 'tenantRouteId' | 'executionId' | 'expectedRevision'>,
+): string {
   return `${record.tenantRouteId}:${record.executionId}:${record.expectedRevision}`;
 }
 
@@ -286,7 +293,10 @@ export function createMemorySpineStore(): MemorySpineStore {
           }
           return true;
         })
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.dispatchId.localeCompare(b.dispatchId));
+        .sort(
+          (a, b) =>
+            a.createdAt.localeCompare(b.createdAt) || a.dispatchId.localeCompare(b.dispatchId),
+        );
 
       const next = candidates[0];
       if (!next) return undefined;

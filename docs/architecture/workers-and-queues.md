@@ -96,10 +96,10 @@ For horizontal scaling, run API and worker processes separately:
 
 ```bash
 # Terminal 1 — API only (no worker pool)
-PLUMBUS_RUNTIME_ROLE=api npx plumbus start --port 3000
+PLUMBUS_RUNTIME_ROLE=api npx plumbus start --port $PLUMBUS_START_PORT
 
 # Terminal 2 — workers only (no HTTP API)
-npx plumbus worker start --health-port 3001
+npx plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT
 ```
 
 **Redis is required** when multiple API or worker replicas share work. Without Redis, each process has its own in-memory queue and jobs/events will not drain correctly across replicas.
@@ -278,7 +278,7 @@ See [CLI → Commands](../cli/commands.md) for full option reference.
 
 ## Observability
 
-Worker processes expose Prometheus-style metrics at `GET /metrics` (health port, default `3001`). Colocated `plumbus dev` / `plumbus start` (`role=all`) also expose `GET /metrics` on the API port when the worker pool runs. Gauges and histograms cover outbox pending depth, per-queue depth (Redis), event delivery duration, consumer failures, capability execution duration, and flow step duration. Event dispatch and consumer attempts are recorded in the audit log (`event.dispatch.*`, `event.consumer.*` with terminal `delivered` / `dead_lettered`). Wire metrics into your monitoring stack alongside `/health` and `/ready` (worker `/ready` pings Redis when durable).
+Worker processes expose Prometheus-style metrics at `GET /metrics` on the health port (`--health-port` / `PLUMBUS_WORKER_HEALTH_PORT`). Colocated `plumbus dev` / `plumbus start` (`role=all`) also expose `GET /metrics` on the API port when the worker pool runs. Gauges and histograms cover outbox pending depth, per-queue depth (Redis), event delivery duration, consumer failures, capability execution duration, and flow step duration. Event dispatch and consumer attempts are recorded in the audit log (`event.dispatch.*`, `event.consumer.*` with terminal `delivered` / `dead_lettered`). Wire metrics into your monitoring stack alongside `/health` and `/ready` (worker `/ready` pings Redis when durable).
 
 ## MCP Job Queue Unification
 

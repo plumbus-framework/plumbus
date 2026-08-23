@@ -53,6 +53,17 @@ credentials.bind({
 const runtime = createPlumbusRuntime({ credentials });
 ```
 
+HTTP boot (`plumbus dev` / `plumbus start`) does not use `createPlumbusRuntime`.
+Export the catalog from `app/server.ts`. `loadServerExtensions` passes it to
+`createServer({ credentials })`. The returned `PlumbusServer` keeps the same
+object on `server.credentials`. Omitted: existing hosts boot unchanged. Do not
+log the catalog as if it held secret values; it does not.
+
+```typescript
+// app/server.ts
+export const credentials = catalog;
+```
+
 There is no default type list. An empty `types` array is a valid empty catalog.
 
 ## Reveal without logging secrets

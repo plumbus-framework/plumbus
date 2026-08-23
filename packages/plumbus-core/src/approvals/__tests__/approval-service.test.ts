@@ -27,7 +27,10 @@ describe('createApprovalService', () => {
     });
 
     await expect(
-      service.completeHumanTask({ taskId: task.humanTaskId, auth: humanAuth({ userId: undefined }) }),
+      service.completeHumanTask({
+        taskId: task.humanTaskId,
+        auth: humanAuth({ userId: undefined }),
+      }),
     ).rejects.toThrow(/authenticated human actor/);
     await expect(
       service.completeHumanTask({
@@ -63,7 +66,11 @@ describe('createApprovalService', () => {
     });
 
     await expect(
-      service.decide({ requestId: request.approvalRequestId, outcome: 'approved', auth: humanAuth() }),
+      service.decide({
+        requestId: request.approvalRequestId,
+        outcome: 'approved',
+        auth: humanAuth(),
+      }),
     ).rejects.toThrow('stale grant');
     expect(
       await service.findMatchingApproval({

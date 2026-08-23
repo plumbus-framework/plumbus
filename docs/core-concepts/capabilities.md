@@ -268,9 +268,9 @@ Hosts that should not assemble the pipeline per call use `createPlumbusRuntime({
 Running `plumbus generate` produces typed artifacts from capability contracts:
 
 - **`capability-types.ts`** — `Input`/`Output` types inferred from Zod schemas, plus a `CapabilityName` union type
-- **`clients/api.ts`** — typed fetch functions that import from `capability-types.ts`
-- **`clients/hooks.ts`** — React hooks that import from `capability-types.ts`
-- **`openapi.json`** — OpenAPI 3.0 operations whose query parameters, request bodies, and 200 responses come from the same Zod schemas
+- **`openapi.json`** — OpenAPI 3.1 operations for `exposeAs: ['api']` capabilities whose query parameters, request bodies, and `{ data }`-wrapped 200 responses come from the same Zod schemas. Nullable Zod fields are emitted as `type: ["string", "null"]` (not OpenAPI 3.0 `nullable: true`)
+
+Typed fetch clients and React hooks are not written here. Use `plumbus ui generate`. Re-running `plumbus generate` removes leftover `.plumbus/generated/clients/` files from older releases.
 
 Example generated types for `approveRefund`:
 

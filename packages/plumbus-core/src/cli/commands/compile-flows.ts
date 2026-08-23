@@ -4,6 +4,7 @@
 import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { DEFAULT_COMPILED_FLOWS_DIRECTORY } from '../../flows/compiled-registry.js';
 import { compileFlowDefinition } from '../../flows/compile-flow.js';
 import type { CompiledFlowDefinition } from '../../types/flow.js';
 import { discoverResources } from '../discover.js';
@@ -33,7 +34,7 @@ export function registerCompileFlowsCommand(program: Command): void {
   program
     .command('compile-flows')
     .description('Compile defineFlow modules into signed FlowDefinition JSON')
-    .option('-o, --out <dir>', 'Output directory', '.plumbus/compiled-flows')
+    .option('-o, --out <dir>', 'Output directory', DEFAULT_COMPILED_FLOWS_DIRECTORY)
     .option('--json', 'JSON output')
     .action(async (opts: CompileFlowsOptions) => {
       const root = findPlumbusProjectRoot() ?? process.cwd();
@@ -45,7 +46,7 @@ export function registerCompileFlowsCommand(program: Command): void {
       }
 
       const compiled = resources.flows.map((flow) => compileFlowDefinition(flow));
-      const outDir = path.resolve(root, opts.out ?? '.plumbus/compiled-flows');
+      const outDir = path.resolve(root, opts.out ?? DEFAULT_COMPILED_FLOWS_DIRECTORY);
       const written = writeCompiledFlowArtifacts(compiled, outDir);
 
       if (opts.json) {

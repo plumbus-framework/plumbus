@@ -67,10 +67,21 @@ describe('flow engine spine dispatch on two databases', () => {
     expect(claimed[0]?.id).toBe(started.id);
 
     const ctx = {
-      auth: { userId: 'system', roles: ['system'], scopes: [], provider: 'worker', tenantId: 'tenant-a' },
+      auth: {
+        userId: 'system',
+        roles: ['system'],
+        scopes: [],
+        provider: 'worker',
+        tenantId: 'tenant-a',
+      },
       data: {},
       events: { emit: async () => undefined, emitMany: async () => undefined },
-      flows: { start: async () => ({}), resume: async () => undefined, cancel: async () => undefined, status: async () => ({}) },
+      flows: {
+        start: async () => ({}),
+        resume: async () => undefined,
+        cancel: async () => undefined,
+        status: async () => ({}),
+      },
       ai: {},
       audit: { record: async () => undefined },
       errors: {},

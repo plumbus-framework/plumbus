@@ -40,7 +40,9 @@ export {
   getMaskedFields,
 } from './mask-fields.js';
 export {
+  decryptBytes,
   decryptFieldValue,
+  encryptBytes,
   encryptFieldValue,
   getEncryptedFields,
   isEncryptedValue,

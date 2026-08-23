@@ -87,9 +87,11 @@ import { generateNextjsTemplate } from "@plumbus/ui";
 const files = generateNextjsTemplate({
   appName: "My App",
   auth: true,
-  apiBaseUrl: "http://localhost:3000",
+  apiBaseUrl: "https://api.example.com",
 });
 ```
+
+`apiBaseUrl` is required (CLI: `--api-base-url`, or `NEXT_PUBLIC_API_BASE_URL` / `API_BASE_URL`). No default API port is assumed.
 
 This creates a starter app shell. It does not install dependencies and does not generate capability pages as part of the template.
 

@@ -44,14 +44,40 @@ export function isEncryptedValue(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(ENCRYPTION_PREFIX);
 }
 
-/** Encrypt a string field value. Returns ciphertext prefixed with `plumbus:enc:v1:`. */
-export function encryptFieldValue(plaintext: string, key: Buffer): string {
+/**
+ * AES-256-GCM over raw bytes. Packed layout is `iv (12) || authTag (16) || ciphertext`.
+ * Field encryption and export envelope wrapping both use this; do not reimplement it in apps.
+ */
+export function encryptBytes(plain: Buffer, key: Buffer): Buffer {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  const payload = Buffer.concat([iv, authTag, ciphertext]).toString('base64url');
-  return `${ENCRYPTION_PREFIX}${payload}`;
+  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]);
+}
+
+/** Inverse of {@link encryptBytes}. Throws {@link EncryptionPayloadError} on truncation or tamper. */
+export function decryptBytes(packed: Buffer, key: Buffer): Buffer {
+  if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH) {
+    throw new EncryptionPayloadError('Invalid encrypted payload');
+  }
+
+  const iv = packed.subarray(0, IV_LENGTH);
+  const authTag = packed.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
+  const ciphertext = packed.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
+
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag);
+  try {
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  } catch {
+    throw new EncryptionPayloadError('Failed to decrypt payload');
+  }
+}
+
+/** Encrypt a string field value. Returns ciphertext prefixed with `plumbus:enc:v1:`. */
+export function encryptFieldValue(plaintext: string, key: Buffer): string {
+  const payload = encryptBytes(Buffer.from(plaintext, 'utf8'), key);
+  return `${ENCRYPTION_PREFIX}${payload.toString('base64url')}`;
 }
 
 /**
@@ -63,20 +89,13 @@ export function decryptFieldValue(value: string, key: Buffer): string {
   }
 
   const payload = Buffer.from(value.slice(ENCRYPTION_PREFIX.length), 'base64url');
-  if (payload.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-    throw new EncryptionPayloadError('Invalid encrypted field payload');
-  }
-
-  const iv = payload.subarray(0, IV_LENGTH);
-  const authTag = payload.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
-  const ciphertext = payload.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
-
-  const decipher = createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(authTag);
   try {
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-  } catch {
-    throw new EncryptionPayloadError('Failed to decrypt encrypted field value');
+    return decryptBytes(payload, key).toString('utf8');
+  } catch (err) {
+    if (err instanceof EncryptionPayloadError) {
+      throw new EncryptionPayloadError('Failed to decrypt encrypted field value');
+    }
+    throw err;
   }
 }
 

@@ -109,7 +109,7 @@ Then `plumbus migrate generate && plumbus migrate apply`.
 
 ```bash
 plumbus mcp serve --stdio                # Claude Desktop, Cursor, local agents
-plumbus mcp serve --http --port 3001     # remote agents via Streamable HTTP
+plumbus mcp serve --http --port $PLUMBUS_MCP_PORT   # remote agents via Streamable HTTP
 plumbus mcp list-tools                   # debug: list exposed tools
 ```
 

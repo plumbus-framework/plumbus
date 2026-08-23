@@ -300,6 +300,7 @@ describe('generateNextjsTemplate', () => {
     expect(file.content).toContain('NEXT_PUBLIC_API_BASE_URL=https://api.example.com');
     expect(file.content).not.toContain('localhost:3000');
     expect(file.content).not.toContain('localhost:3001');
+    expect(file.content).not.toContain('localhost:5432');
   });
 
   it('refuses to invent a localhost API port', () => {

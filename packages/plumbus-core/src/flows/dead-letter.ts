@@ -110,7 +110,9 @@ export async function retryDeadLetteredFlow(
       ? (dlq.metadata as Record<string, unknown>)
       : {};
   if (existingMeta.retriedAt) {
-    throw new Error(`Execution "${executionId}" was already retried by ${String(existingMeta.retriedBy)}`);
+    throw new Error(
+      `Execution "${executionId}" was already retried by ${String(existingMeta.retriedBy)}`,
+    );
   }
 
   const execRows = await db

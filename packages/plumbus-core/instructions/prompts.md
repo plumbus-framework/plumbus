@@ -12,6 +12,9 @@ The actual instructions sent to the provider live in two optional string fields:
 | `description` | User/data prompt content (the main task text) |
 
 Both support simple top-level `{{key}}` substitution from the prompt `input` object.
+Fill is a single pass over the original template. Values are inserted literally:
+`$` sequences and `{{otherKey}}` inside a value are not interpreted. The helper is
+`fillPromptTemplate` from `@plumbus/core`.
 
 ```ts
 import { definePrompt } from "@plumbus/core";

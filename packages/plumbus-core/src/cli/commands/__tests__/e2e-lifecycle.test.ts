@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { assertPortFree, mergeNodeOptions, spawnOrphanWatchdog } from '../e2e.js';
+import { assertPortFree, mergeNodeOptions, resolveE2EPort, spawnOrphanWatchdog } from '../e2e.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,6 +41,29 @@ describe('plumbus e2e lifecycle helpers', () => {
 
     it('respects a caller-provided heap cap', () => {
       expect(mergeNodeOptions('--max-old-space-size=8192', 4096)).toBe('--max-old-space-size=8192');
+    });
+  });
+
+  describe('resolveE2EPort', () => {
+    it('uses the explicit --port flag', () => {
+      expect(resolveE2EPort('8080', {})).toBe(8080);
+    });
+
+    it('falls back to PLUMBUS_E2E_PORT', () => {
+      expect(resolveE2EPort(undefined, { PLUMBUS_E2E_PORT: '9090' })).toBe(9090);
+    });
+
+    it('prefers the flag over env', () => {
+      expect(resolveE2EPort('4000', { PLUMBUS_E2E_PORT: '9090' })).toBe(4000);
+    });
+
+    it('rejects missing values', () => {
+      expect(() => resolveE2EPort(undefined, {})).toThrow(/--port is required/);
+    });
+
+    it('rejects out-of-range ports', () => {
+      expect(() => resolveE2EPort('0', {})).toThrow(/Invalid port/);
+      expect(() => resolveE2EPort('70000', {})).toThrow(/Invalid port/);
     });
   });
 

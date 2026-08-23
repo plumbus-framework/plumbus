@@ -4,11 +4,7 @@ import type { EventConsumer } from '../events/consumer-registry.js';
 import { CapabilityRegistry } from '../execution/capability-registry.js';
 import { executeCapability, type CapabilityResult } from '../execution/capability-executor.js';
 import { createExecutionContext } from '../execution/context-factory.js';
-import type {
-  ContextDependencies,
-  ExecutionContext,
-  FlowExecution,
-} from '../types/context.js';
+import type { ContextDependencies, ExecutionContext, FlowExecution } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { GovernedArtifactStore } from './governed-artifacts.js';
 import type { GovernedAiHost } from './governed-host.js';

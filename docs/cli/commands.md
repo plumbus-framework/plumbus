@@ -15,7 +15,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus flow dead-letter` | List and retry failed flow executions |
 | `plumbus flow schedule list` | List scheduled flows with cron and next/last run times |
 | `plumbus doctor` | Check environment readiness |
-| `plumbus generate` | Generate API clients, hooks, OpenAPI specs, entity types, type registry |
+| `plumbus generate` | Generate types, OpenAPI specs, manifests, and the type registry |
 | `plumbus capability new` | Scaffold a new capability |
 | `plumbus flow new` | Scaffold a new flow |
 | `plumbus compile-flows` | Compile `defineFlow` modules into signed FlowDefinition JSON |
@@ -206,7 +206,7 @@ plumbus dev [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `-p, --port <number>` | `number` | `3000` | Server port |
+| `-p, --port <number>` | `number` | — | **Required** unless `PLUMBUS_DEV_PORT` is set. Server port. No default listen port is assumed. |
 | `-H, --host <string>` | `string` | `localhost` | Server host |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
@@ -224,14 +224,14 @@ plumbus start [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `-p, --port <port>` | `string` | `3000` | Server port |
+| `-p, --port <port>` | `string` | — | **Required** unless `PLUMBUS_START_PORT` is set. Server port. No default listen port is assumed. |
 | `-H, --host <host>` | `string` | `0.0.0.0` | Server host |
 
 Behavior:
 
 - Loads `plumbus.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
 - Exposes `GET /health` and `GET /ready`.
@@ -256,7 +256,7 @@ plumbus worker status [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--health-port <port>` | `string` | `3001` | Health and metrics HTTP port |
+| `--health-port <port>` | `string` | — | **Required** unless `PLUMBUS_WORKER_HEALTH_PORT` is set. Health and metrics HTTP port. No default listen port is assumed. |
 | `-H, --host <host>` | `string` | `0.0.0.0` | Health server bind host |
 
 Exposes:
@@ -327,6 +327,8 @@ Re-dispatch an outbox event to the queue.
 ### plumbus compile-flows
 
 Compile `app/flows` `defineFlow` modules into signed FlowDefinition JSON (Plan 02 Stage 5 / D-02-2). Condition expressions and step IO mappings are hoisted into digested bindings. Recompiling an identical flow yields the same `definitionDigest`.
+
+`createServer` and `createWorkerPool` reload that directory on boot (or `compiledFlowsDirectory` / an explicit `compiledRegistry`). A tampered file whose stored digest no longer matches is refused. An empty or missing default directory leaves live TypeScript flows on.
 
 ```bash
 plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
@@ -441,9 +443,7 @@ plumbus generate [options]
 
 Generates:
 - `.plumbus/generated/capability-types.ts` — `Input`/`Output` types for each capability + `CapabilityName` union
-- `.plumbus/generated/clients/api.ts` — typed fetch functions (imports types from `capability-types.ts`)
-- `.plumbus/generated/clients/hooks.ts` — React hooks (imports types from `capability-types.ts`)
-- `.plumbus/generated/openapi.json` — OpenAPI 3.0.3 for convention routes; GET query parameters, POST bodies, and 200 responses come from each capability's Zod schemas
+- `.plumbus/generated/openapi.json` — OpenAPI 3.1.0 for convention routes of `exposeAs: ['api']` capabilities (event handlers omitted); GET query parameters, POST bodies, and `{ data }`-wrapped 200 responses come from each capability's Zod schemas. Nullable fields use JSON Schema 2020-12 type arrays (`type: ["string", "null"]`), matching `@plumbus/api` `--openapi-version 3.1.0`
 - `.plumbus/generated/manifest.json`
 - `.plumbus/generated/entity-types.ts` — typed interfaces for all entities and a `DataServiceMap` for `ctx.data`
 - `.plumbus/generated/plumbus.d.ts` — module augmentation that populates `PlumbusRegistry` with strict types for capability names, event names, flow names, and entity mappings
@@ -462,6 +462,8 @@ The command automatically adds `.plumbus/generated` to your `tsconfig.json`'s `i
 
 In **monorepo mode** (detected via `pnpm-workspace.yaml`), shared type definitions (`entity-types.ts`, `capability-types.ts`, `plumbus.d.ts`) are additionally written to `libs/shared/types/` so both backend and frontend packages can reference them.
 
+Re-running `plumbus generate` deletes leftover `.plumbus/generated/clients/` files from older releases. Typed fetch clients and React hooks come from `plumbus ui generate`.
+
 For frontend-ready modules and scaffolds, use `plumbus ui`.
 
 ---
@@ -475,6 +477,8 @@ plumbus mcp serve [--stdio] [--http] [--port <port>] [--host <host>]
 plumbus mcp generate
 plumbus mcp list-tools
 ```
+
+`--http` requires `--port` or `PLUMBUS_MCP_PORT`. No default listen port is assumed.
 
 | Subcommand | Description |
 |------------|-------------|
@@ -548,7 +552,7 @@ plumbus ui nextjs [output-dir] [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--app-name <name>` | `string` | current directory name | App display name |
-| `--api-base-url <url>` | `string` | `http://localhost:3000` | Upstream Plumbus API base URL |
+| `--api-base-url <url>` | `string` | — | **Required** unless `NEXT_PUBLIC_API_BASE_URL` or `API_BASE_URL` is set. Absolute `http:` or `https:` API base URL. No default port is assumed. |
 | `--base-url <url>` | `string` | `""` | Base URL used by generated client module |
 | `--auth-provider <provider>` | `string` | `jwt` | Auth provider used by generated auth helpers |
 | `--token-key <key>` | `string` | — | Storage key for generated auth helpers |
@@ -585,7 +589,7 @@ plumbus ui e2e [output-dir] [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--frontend-dir <dir>` | `string` | `frontend` | Frontend directory to scan |
-| `--base-url <url>` | `string` | `http://localhost:3001` | Base URL written into generated config |
+| `--base-url <url>` | `string` | — | **Required** unless `E2E_BASE_URL` is set. Frontend base URL written into generated config. No default frontend port is assumed. |
 
 Default output directory: `<frontend-dir>/e2e`. Run the generated suite with `plumbus e2e --config <frontend-dir>/e2e/vitest.config.e2e.ts`.
 
@@ -861,7 +865,7 @@ plumbus e2e [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--frontend-dir <dir>` | `string` | `frontend` | Frontend package directory |
-| `--port <port>` | `string` | `3001` | Port for the auto-started dev server |
+| `--port <port>` | `string` | — | **Required** unless `PLUMBUS_E2E_PORT` is set (or `--skip-server` with `--base-url`). Port for the auto-started dev server. No default listen port is assumed. |
 | `--base-url <url>` | `string` | — | Base URL (skips auto server when set) |
 | `--config <path>` | `string` | auto-detected | Vitest E2E config path |
 | `--skip-server` | `boolean` | `false` | Do not start the frontend dev server |

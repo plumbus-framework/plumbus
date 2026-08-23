@@ -177,6 +177,51 @@ describe('AI Service (ctx.ai)', () => {
       );
     });
 
+    it('inserts prompt values literally so $-patterns do not reshape the template', async () => {
+      const { service, promptRegistry, provider } = setupService({ promptRegistry: true });
+      promptRegistry?.register(
+        definePrompt({
+          name: 'dollar-slots',
+          description: '## Head\n{{slot}}\n## Tail\n{{later}}',
+          input: z.object({ slot: z.string(), later: z.string() }),
+          output: z.object({ result: z.string(), language: z.string().optional() }),
+          appendUnsubstitutedInput: false,
+        }),
+      );
+
+      await service.generate({
+        prompt: 'dollar-slots',
+        input: { slot: "Appendix $'", later: 'ONCE' },
+      });
+
+      const prompt = String(vi.mocked(provider.complete).mock.calls[0]?.[0]?.prompt ?? '');
+      expect(prompt).toContain("## Head\nAppendix $'\n## Tail\nONCE");
+      expect(prompt.split('## Head').length - 1).toBe(1);
+      expect(prompt.split('ONCE').length - 1).toBe(1);
+    });
+
+    it('does not expand {{otherKey}} that appears inside a substituted value', async () => {
+      const { service, promptRegistry, provider } = setupService({ promptRegistry: true });
+      promptRegistry?.register(
+        definePrompt({
+          name: 'nested-slots',
+          description: 'Outline: {{outline}}\nBody: {{body}}',
+          input: z.object({ outline: z.string(), body: z.string() }),
+          output: z.object({ result: z.string(), language: z.string().optional() }),
+          appendUnsubstitutedInput: false,
+        }),
+      );
+
+      await service.generate({
+        prompt: 'nested-slots',
+        input: { outline: 'Verified {{body}}', body: 'BODY_ONCE' },
+      });
+
+      const prompt = String(vi.mocked(provider.complete).mock.calls[0]?.[0]?.prompt ?? '');
+      expect(prompt).toContain('Outline: Verified {{body}}\nBody: BODY_ONCE');
+      expect(prompt.split('BODY_ONCE').length - 1).toBe(1);
+    });
+
     it('passes a strict provider schema for registered JSON prompts when enabled', async () => {
       const { service, promptRegistry, provider } = setupService({
         promptRegistry: true,

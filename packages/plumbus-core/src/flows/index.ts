@@ -9,7 +9,12 @@
 export { FlowRegistry } from './registry.js';
 
 // ── Compiled definitions (Plan 02 Stage 5) ──
-export { CompiledFlowRegistry } from './compiled-registry.js';
+export {
+  CompiledFlowRegistry,
+  DEFAULT_COMPILED_FLOWS_DIRECTORY,
+  loadCompiledFlowRegistryFromDirectory,
+  tryLoadCompiledFlowRegistryFromDirectory,
+} from './compiled-registry.js';
 export {
   COMPILED_FLOW_CONTRACT_VERSION,
   compileFlowDefinition,

@@ -37,6 +37,30 @@ export interface WorkerStartOptions {
 }
 
 /**
+ * Resolve the worker health listen port from `--health-port` or `PLUMBUS_WORKER_HEALTH_PORT`.
+ * No default port is assumed.
+ */
+export function resolveWorkerHealthPort(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const fromFlag = explicit?.trim();
+  const raw = fromFlag || env.PLUMBUS_WORKER_HEALTH_PORT?.trim();
+  if (!raw) {
+    throw new Error(
+      '--health-port is required (or set PLUMBUS_WORKER_HEALTH_PORT). No default listen port is assumed.',
+    );
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid port "${raw}". Expected an integer in 1-65535 from --health-port or PLUMBUS_WORKER_HEALTH_PORT.`,
+    );
+  }
+  return port;
+}
+
+/**
  * Start a worker-only process (no HTTP API).
  * Used with PLUMBUS_RUNTIME_ROLE=worker or `plumbus worker`.
  */
@@ -85,7 +109,7 @@ export async function startWorkerProcess(
 
   const metrics = createPlumbusMetrics();
 
-  const healthPort = parseInt(options.healthPort ?? '3001', 10);
+  const healthPort = resolveWorkerHealthPort(options.healthPort);
   const healthHost = options.host ?? '0.0.0.0';
 
   const workerPool: WorkerPool = await startWorkerPool({
@@ -181,7 +205,7 @@ export function registerWorkerCommand(program: Command): void {
   worker
     .command('start', { isDefault: true })
     .description('Start the worker pool (default)')
-    .option('--health-port <port>', 'Health/metrics HTTP port', '3001')
+    .option('--health-port <port>', 'Health/metrics HTTP port (or set PLUMBUS_WORKER_HEALTH_PORT)')
     .option('-H, --host <host>', 'Health server host', '0.0.0.0')
     .action(async (opts: WorkerStartOptions & { healthPort?: string }) => {
       try {

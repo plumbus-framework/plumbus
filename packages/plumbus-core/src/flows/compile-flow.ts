@@ -63,11 +63,7 @@ function hoistBinding(
   return compiled.bindingId;
 }
 
-function compileStep(
-  step: FlowStep,
-  id: string,
-  bindings: CompiledBinding[],
-): CompiledFlowStep {
+function compileStep(step: FlowStep, id: string, bindings: CompiledBinding[]): CompiledFlowStep {
   const compiled: CompiledFlowStep = { name: step.name, type: step.type };
 
   if (step.type === FlowStepType.Capability) {

@@ -13,6 +13,7 @@ export {
   type AIServiceConfig,
   type OnAICostRecorded,
 } from './ai-service.js';
+export { fillPromptTemplate } from './fill-prompt-template.js';
 // Cost tracking
 export {
   createCostTracker,
@@ -153,7 +154,11 @@ export type {
   GovernedModelUsage,
 } from './governed-host.js';
 export { governedReviewSubject, invokeGovernedAi } from './governed-invoke.js';
-export type { GovernedInvokeDeps, GovernedInvokeInput, GovernedInvokeSuccess } from './governed-invoke.js';
+export type {
+  GovernedInvokeDeps,
+  GovernedInvokeInput,
+  GovernedInvokeSuccess,
+} from './governed-invoke.js';
 export { createPlumbusRuntime } from './governed-runtime.js';
 export type {
   PlumbusRuntime,

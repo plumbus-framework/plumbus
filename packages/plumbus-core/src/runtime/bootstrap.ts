@@ -213,6 +213,7 @@ export type ServerExtensions = Pick<
   | 'onProcessError'
   | 'onAICostRecorded'
   | 'enableStrictStructuredOutputs'
+  | 'credentials'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
 };

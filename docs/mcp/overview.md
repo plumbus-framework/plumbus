@@ -63,7 +63,7 @@ The Plumbus-core surface (the `exposeAs` field and `plumbus mcp *` CLI) is also 
 2. `plumbus generate` → `.plumbus/generated/mcp-manifest.json` and `skills/<domain>/<name>.md`. (No `@plumbus/mcp` needed for generation.)
 3. `pnpm add @plumbus/mcp` once per app — required to start an MCP server.
 4. Configure `mcp.agents` in `plumbus.config.ts` (see [agent-authentication.md](./agent-authentication.md)).
-5. `plumbus mcp serve --stdio` or `plumbus mcp serve --http --port 3001`.
+5. `plumbus mcp serve --stdio` or `plumbus mcp serve --http --port $PLUMBUS_MCP_PORT`.
 
 `tools/list` returns all MCP-exposed tools with **canonical** names (`<domain>.<capabilityName>`); **access is enforced on `tools/call`** (scope-filtered listing is deferred). See [expose-a-capability](./expose-a-capability.md#tool-identity) and [upgrading capability names](../upgrading-capability-names.md).
 

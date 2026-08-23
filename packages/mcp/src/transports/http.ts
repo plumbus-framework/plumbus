@@ -75,7 +75,7 @@ export async function registerMcpOnFastify(
 
 export interface StartHttpServerOptions {
   config: McpServerConfig;
-  port?: number;
+  port: number;
   host?: string;
   mcpPath?: string;
 }
@@ -85,12 +85,17 @@ export async function startHttpServer(options: StartHttpServerOptions): Promise<
   app: FastifyInstance;
   close: () => Promise<void>;
 }> {
+  if (options.port == null) {
+    throw new Error(
+      'startHttpServer({ port }) is required. No default listen port is assumed.',
+    );
+  }
   const Fastify = (await import('fastify')).default;
   const app = Fastify({ logger: false });
   await registerMcpOnFastify(app, options.config, { path: options.mcpPath });
 
   const host = options.host ?? '0.0.0.0';
-  const port = options.port ?? 3001;
+  const port = options.port;
   await app.listen({ host, port });
 
   return {

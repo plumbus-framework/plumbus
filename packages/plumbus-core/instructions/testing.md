@@ -195,7 +195,7 @@ Plumbus provides vitest + Playwright end-to-end testing for generated Next.js fr
 plumbus ui e2e
 
 # Custom output directory and base URL
-plumbus ui e2e e2e-tests --frontend-dir frontend --base-url http://localhost:3001
+plumbus ui e2e e2e-tests --frontend-dir frontend --base-url "$E2E_BASE_URL"
 ```
 
 This scans `frontend/app/**/page.tsx` for ActionPanel usage and generates:
@@ -245,7 +245,7 @@ describe("Project page", () => {
   beforeAll(async () => {
     browser = await chromium.launch();
     page = await browser.newPage();
-    await page.goto("http://localhost:3001/project");
+    await page.goto(`${process.env.E2E_BASE_URL}/project`);
     await page.waitForLoadState("networkidle");
   }, 30_000);
 

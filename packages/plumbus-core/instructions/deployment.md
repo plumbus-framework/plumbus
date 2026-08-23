@@ -8,15 +8,15 @@ Plumbus applications deploy as up to four services — a **backend** (Fastify AP
 +-----------+     +-----------+     +-----------+
 | frontend  |     |   admin   |     |  backend  |
 | Next.js   |     | Next.js   |     | Fastify   |
-| :3001     |---->| :3002     |---->| :3000     |
+| $FRONTEND |---->| $ADMIN    |---->| $API_PORT |
 +-----------+     +-----------+     +-----+-----+
                                           |
               +---------------------------+---------------------------+
               |                           |                           |
         +-----v-----+               +-----v-----+               +-----v-----+
         |  worker   |               |    PG     |               |   Redis   |
-        | (optional)|               |  :5432    |               |  :6379    |
-        |  :3001    |               +-----------+               +-----------+
+        | (optional)|               |           |               |           |
+        | $HEALTH   |               +-----------+               +-----------+
         +-----------+
 ```
 
@@ -143,7 +143,7 @@ Use `plumbus start` for production:
 | Cookies | `secure: false` | `secure: true` |
 
 ```bash
-npx plumbus start --port 3000
+npx plumbus start --port $PLUMBUS_START_PORT
 ```
 
 ### Runtime File Requirements
@@ -165,7 +165,7 @@ These directories **must be present** in the production image:
 # entrypoint.sh — only starts the server. No migrations here.
 #!/bin/sh
 set -e
-exec npx plumbus start --port 3000
+exec npx plumbus start --port $PLUMBUS_START_PORT
 ```
 
 Migrations run separately:
@@ -192,10 +192,10 @@ For production deployments that scale API and background work independently:
 
 ```bash
 # API container — no worker pool
-PLUMBUS_RUNTIME_ROLE=api npx plumbus start --port 3000
+PLUMBUS_RUNTIME_ROLE=api npx plumbus start --port $PLUMBUS_START_PORT
 
 # Worker container — no public API routes
-npx plumbus worker start --health-port 3001
+npx plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT
 ```
 
 **Redis is required** when API and worker run as separate replicas. Set `QUEUE_URL` or `REDIS_URL` on both containers.
@@ -223,8 +223,8 @@ Full monorepo checklists: `docs/upgrading-workers.md` and `docs/upgrading-capabi
 
 | Container | Command | Probes | Notes |
 |-----------|---------|--------|-------|
-| API | `plumbus start` | `GET /health`, `GET /ready` on port 3000 | Set `PLUMBUS_RUNTIME_ROLE=api` |
-| Worker | `plumbus worker start` | `GET /health`, `GET /ready` on `--health-port` (default 3001) | Exposes `/metrics` for Prometheus |
+| API | `plumbus start --port $PLUMBUS_START_PORT` | `GET /health`, `GET /ready` on that port | Set `PLUMBUS_RUNTIME_ROLE=api` |
+| Worker | `plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT` | `GET /health`, `GET /ready` on `--health-port` | Exposes `/metrics` for Prometheus |
 
 Install optional peers in both images when needed:
 
@@ -240,16 +240,16 @@ Worker entrypoint example:
 ```sh
 #!/bin/sh
 set -e
-exec npx plumbus worker start --health-port 3001
+exec npx plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT
 ```
 
 Worker health probes (Kubernetes):
 
 ```yaml
 livenessProbe:
-  httpGet: { path: /health, port: 3001 }
+  httpGet: { path: /health, port: health }
 readinessProbe:
-  httpGet: { path: /ready, port: 3001 }
+  httpGet: { path: /ready, port: health }
 ```
 
 Colocated mode (single `plumbus start` process, no separate worker container) remains the default and requires no `PLUMBUS_RUNTIME_ROLE` override. See `docs/architecture/workers-and-queues.md` for runtime mode details.
@@ -276,7 +276,7 @@ const nextConfig = {
 npx next build
 
 # Run standalone server
-PORT=3001 HOSTNAME=0.0.0.0 node .next/standalone/frontend/server.js
+PORT=$FRONTEND_PORT HOSTNAME=0.0.0.0 node .next/standalone/frontend/server.js
 ```
 
 ### Static Assets
@@ -291,7 +291,7 @@ After a standalone build, copy static files alongside the server:
 ### Environment Variables
 
 - `NEXT_PUBLIC_*` — inlined at **build time**. Set before `next build`, not at runtime.
-- `API_BASE_URL` — set at **runtime**. Internal Docker network address (e.g., `http://backend:3000`).
+- **`API_BASE_URL`** — set at **runtime**. Internal Docker network address (the backend service name plus `PLUMBUS_START_PORT`).
 - `AUTH_SECRET` — required for cookie signing.
 
 ---
@@ -326,7 +326,7 @@ After a standalone build, copy static files alongside the server:
 | Variable | Build/Runtime | Description |
 |----------|---------------|-------------|
 | `NEXT_PUBLIC_API_BASE_URL` | Build | Public API URL (empty string if using server-side proxy) |
-| `API_BASE_URL` | Runtime | Backend URL for server-side proxy (e.g., `http://backend:3000`) |
+| `API_BASE_URL` | Runtime | Backend URL for server-side proxy (Docker service name plus the API listen port from env) |
 | `AUTH_SECRET` | Runtime | Cookie signing secret |
 | `AUTH_COOKIE_SECURE` | Runtime | Set to `"true"` for TLS, `"false"` for HTTP-only deployments |
 
@@ -417,14 +417,15 @@ COPY app/ ./app/
 COPY config/ ./config/
 COPY drizzle/ ./drizzle/
 USER plumbus
-EXPOSE 3000
-HEALTHCHECK CMD wget -q -O /dev/null http://localhost:3000/ready || exit 1
+# Do not EXPOSE a literal port — EXPOSE cannot read env. Publish the mapping in compose/k8s.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "const p=process.env.PLUMBUS_START_PORT||process.env.PORT;if(!p){process.exit(1)}fetch('http://127.0.0.1:'+p+'/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 ENTRYPOINT ["./entrypoint.sh"]
 ```
 
 ### Frontend Dockerfile
 
-For the **admin dashboard**, replace `{./frontend}` with `{./frontend-admin}`, change port 3001 to 3002, and adjust the package filter accordingly.
+For the **admin dashboard**, replace `{./frontend}` with `{./frontend-admin}` and bind the dashboard to `FRONTEND_ADMIN_PORT` from the host environment.
 
 ```dockerfile
 # ==============================================================
@@ -465,7 +466,6 @@ RUN addgroup --system --gid 1001 nextjs && \
 COPY --from=build /app/deployed/.next/standalone ./
 COPY --from=build /app/deployed/.next/static ./deployed/.next/static
 USER nextjs
-EXPOSE 3001
 CMD ["node", "deployed/server.js"]
 ```
 
@@ -485,7 +485,7 @@ services:
     volumes: [uploads_data:/app/uploads]
   worker:
     build: { dockerfile: Dockerfile.backend }
-    command: ['npx', 'plumbus', 'worker', 'start', '--health-port', '3001']
+    command: ['npx', 'plumbus', 'worker', 'start', '--health-port', '${PLUMBUS_WORKER_HEALTH_PORT}']
     depends_on: [postgres, redis]
   frontend:
     build: { dockerfile: Dockerfile.frontend }
@@ -596,10 +596,10 @@ spec:
 
 ```yaml
 livenessProbe:
-  httpGet: { path: /health, port: 3000 }
+  httpGet: { path: /health, port: http }
   periodSeconds: 30
 readinessProbe:
-  httpGet: { path: /ready, port: 3000 }
+  httpGet: { path: /ready, port: http }
   periodSeconds: 10
 ```
 
@@ -651,6 +651,6 @@ readinessProbe:
 ### Volumes and Networking
 
 - [ ] Persistent volumes for PostgreSQL data and uploads
-- [ ] `API_BASE_URL` set to Docker service name (e.g., `http://backend:3000`)
+- [ ] `API_BASE_URL` set to the Docker service name and the API listen port from env
 - [ ] `NEXT_PUBLIC_API_BASE_URL` set to empty string `""` (for server-side proxy)
 - [ ] `AUTH_COOKIE_SECURE` set to `"true"` (or `"false"` only for HTTP-only — security trade-off)

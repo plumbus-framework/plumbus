@@ -82,7 +82,12 @@ export interface StepCompletionInput {
 }
 
 export type PersistStepResult =
-  | { kind: 'committed'; execution: TenantExecutionState; outbox?: DispatchOutboxRow; sideEffectApplied: boolean }
+  | {
+      kind: 'committed';
+      execution: TenantExecutionState;
+      outbox?: DispatchOutboxRow;
+      sideEffectApplied: boolean;
+    }
   | { kind: 'stale'; execution?: TenantExecutionState }
   | { kind: 'missing' }
   | { kind: 'epoch-mismatch' };
@@ -196,7 +201,11 @@ export function persistRetrySchedule(
   return { kind: 'committed', execution: next, outbox, sideEffectApplied: false };
 }
 
-export function assertCasCommitted(result: PersistStepResult, executionId: string, expectedRevision: number): void {
+export function assertCasCommitted(
+  result: PersistStepResult,
+  executionId: string,
+  expectedRevision: number,
+): void {
   if (result.kind === 'stale') {
     throw new RevisionConflictError(executionId, expectedRevision, result.execution?.revision);
   }

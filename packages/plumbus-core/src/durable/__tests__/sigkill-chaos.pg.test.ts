@@ -19,7 +19,9 @@ describe('SIGKILL chaos on two local Postgres DBs', () => {
   it('rolls back an uncommitted persist-before-ack when the writer is SIGKILL-ed', async () => {
     harness = await createPlan02Harness();
     if (!RUN_SIGKILL) {
-      expect(await loadExecutionState(harness.tenantDb, 'exec-sigkill', harness.coreSchema)).toBeUndefined();
+      expect(
+        await loadExecutionState(harness.tenantDb, 'exec-sigkill', harness.coreSchema),
+      ).toBeUndefined();
       return;
     }
 
@@ -69,7 +71,9 @@ describe('SIGKILL chaos on two local Postgres DBs', () => {
     }
 
     expect(ready).toBe(true);
-    expect(await loadExecutionState(harness.tenantDb, 'exec-sigkill', harness.coreSchema)).toBeUndefined();
+    expect(
+      await loadExecutionState(harness.tenantDb, 'exec-sigkill', harness.coreSchema),
+    ).toBeUndefined();
     expect(await listUnpublishedOutbox(harness.tenantDb, harness.coreSchema)).toEqual([]);
   }, 15_000);
 });

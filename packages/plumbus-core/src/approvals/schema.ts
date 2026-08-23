@@ -53,11 +53,7 @@ export function createTenantApprovalTables(schemaName?: string) {
     },
     (t) => [
       index('approval_request_capability_idx').on(t.capabilityId),
-      index('approval_request_binding_idx').on(
-        t.capabilityId,
-        t.definitionVersion,
-        t.inputDigest,
-      ),
+      index('approval_request_binding_idx').on(t.capabilityId, t.definitionVersion, t.inputDigest),
     ],
   );
 

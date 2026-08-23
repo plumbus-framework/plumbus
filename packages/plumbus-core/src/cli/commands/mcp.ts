@@ -16,6 +16,30 @@ export interface McpServeOptions {
   host?: string;
 }
 
+/**
+ * Resolve the MCP HTTP listen port from `--port` or `PLUMBUS_MCP_PORT`.
+ * No default port is assumed.
+ */
+export function resolveMcpPort(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const fromFlag = explicit?.trim();
+  const raw = fromFlag || env.PLUMBUS_MCP_PORT?.trim();
+  if (!raw) {
+    throw new Error(
+      '--port is required with --http (or set PLUMBUS_MCP_PORT). No default listen port is assumed.',
+    );
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid port "${raw}". Expected an integer in 1-65535 from --port or PLUMBUS_MCP_PORT.`,
+    );
+  }
+  return port;
+}
+
 async function loadMcpRuntime(): Promise<typeof import('@plumbus/mcp')> {
   try {
     return await import('@plumbus/mcp');
@@ -38,11 +62,20 @@ export function registerMcpCommand(program: Command): void {
     .description('Start an MCP server for capabilities with exposeAs: ["mcp"]')
     .option('--stdio', 'Use stdio transport (default when neither --stdio nor --http is set)')
     .option('--http', 'Use Streamable HTTP transport')
-    .option('--port <port>', 'HTTP listen port', '3001')
+    .option('--port <port>', 'HTTP listen port (or set PLUMBUS_MCP_PORT)')
     .option('--host <host>', 'HTTP listen host', '0.0.0.0')
     .action(async (opts: McpServeOptions) => {
       const useHttp = opts.http === true;
       const useStdio = opts.stdio === true || !useHttp;
+      let httpPort: number | undefined;
+      if (useHttp) {
+        try {
+          httpPort = resolveMcpPort(opts.port);
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exit(1);
+        }
+      }
 
       const ctx = await buildMcpServeContext();
       const exposed = ctx.capabilities.getAll().filter(isMcpExposed);
@@ -78,7 +111,7 @@ export function registerMcpCommand(program: Command): void {
       }
 
       if (useHttp) {
-        const port = parseInt(opts.port ?? '3001', 10);
+        const port = httpPort as number;
         const host = opts.host ?? '0.0.0.0';
         const { close } = await startHttpServer({
           config: mcpConfig,

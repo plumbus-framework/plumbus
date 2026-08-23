@@ -35,7 +35,9 @@ describe('createTransactionRunner persist-before-ack on Postgres', () => {
       }),
     ).rejects.toThrow('rollback me');
 
-    expect(await loadExecutionState(harness.tenantDb, 'exec-rollback', harness.coreSchema)).toBeUndefined();
+    expect(
+      await loadExecutionState(harness.tenantDb, 'exec-rollback', harness.coreSchema),
+    ).toBeUndefined();
     expect(await listUnpublishedOutbox(harness.tenantDb, harness.coreSchema)).toEqual([]);
 
     const committed = await runner(async (scope) => {
@@ -49,7 +51,9 @@ describe('createTransactionRunner persist-before-ack on Postgres', () => {
       });
     });
     expect(committed?.outboxId).toBeTruthy();
-    expect(await loadExecutionState(harness.tenantDb, 'exec-commit', harness.coreSchema)).toMatchObject({
+    expect(
+      await loadExecutionState(harness.tenantDb, 'exec-commit', harness.coreSchema),
+    ).toMatchObject({
       executionId: 'exec-commit',
       revision: 1,
     });

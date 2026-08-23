@@ -269,7 +269,9 @@ export function createFilesystemGovernedArtifactStore(
       if (digestWrite === 'exists') {
         const raced = readPublished(digest);
         if (raced) return raced;
-        throw new GovernedArtifactConflictError('Stored artifact digest does not match its address');
+        throw new GovernedArtifactConflictError(
+          'Stored artifact digest does not match its address',
+        );
       }
 
       const keyWrite = writeJsonExclusive(keyPath(key), { key, digest });

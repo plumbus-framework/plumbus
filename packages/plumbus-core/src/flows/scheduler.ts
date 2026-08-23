@@ -39,8 +39,7 @@ export function planMissedSchedule(input: {
 }): MissedSchedulePlan {
   const maxCatchUp = Math.max(1, input.maxCatchUp ?? DEFAULT_SCHEDULE_CATCH_UP_MAX);
   const policy = input.policy ?? ScheduleCatchUpPolicy.Skip;
-  const take =
-    policy === ScheduleCatchUpPolicy.CatchUp ? maxCatchUp : 1;
+  const take = policy === ScheduleCatchUpPolicy.CatchUp ? maxCatchUp : 1;
 
   let cursor = input.nextRunAt;
   let starts = 0;

@@ -84,10 +84,7 @@ export function runSpineSweep(
     if (ageMs(row.updatedAt, nowIso) < clock.spineAgeMs) continue;
 
     const execution = tenant.getExecution(row.executionId);
-    const dangling =
-      !execution ||
-      execution.terminal ||
-      execution.tenantEpoch !== row.tenantEpoch;
+    const dangling = !execution || execution.terminal || execution.tenantEpoch !== row.tenantEpoch;
 
     if (dangling) {
       spine.ack(row.dispatchId, nowIso);

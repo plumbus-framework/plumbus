@@ -166,7 +166,11 @@ export function createSpineDispatchTable(schemaName?: string) {
       updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
     },
     (t) => [
-      uniqueIndex('opaque_dispatch_hint_uidx').on(t.tenantRouteId, t.executionId, t.expectedRevision),
+      uniqueIndex('opaque_dispatch_hint_uidx').on(
+        t.tenantRouteId,
+        t.executionId,
+        t.expectedRevision,
+      ),
       index('opaque_dispatch_claim_idx').on(t.deliveryState, t.notBefore, t.leaseExpiresAt),
     ],
   );

@@ -23,9 +23,11 @@ Plumbus core registers only `/health`, `/ready`, and capability routes. It does 
    await app.register(cors, {
      origin: (origin, cb) => {
        if (!origin) return cb(null, false);
-       const isLocalWeb =
-         origin === 'http://localhost:3000' ||
-         origin === 'http://localhost:5173';
+       const allowedWeb = (process.env.CORS_WEB_ORIGINS ?? "")
+         .split(",")
+         .map((value) => value.trim())
+         .filter(Boolean);
+       const isLocalWeb = allowedWeb.includes(origin);
        const isDevExtension =
          origin.startsWith('chrome-extension://') ||
          origin.startsWith('moz-extension://');

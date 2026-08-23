@@ -25,8 +25,8 @@ import { createServer } from "@plumbus/core";
 const authenticationRuntime = createAuthRuntime({
   applicationId: "my-app",
   environment: "development",
-  externalBaseUrl: "http://localhost:3000",
-  applicationBaseUrl: "http://localhost:3001",
+  externalBaseUrl: process.env.AUTH_EXTERNAL_BASE_URL!,
+  applicationBaseUrl: process.env.AUTH_APPLICATION_BASE_URL!,
   defaultReturnPath: "/",
   errorPath: "/login/error",
   session: { ttl: "7d" },

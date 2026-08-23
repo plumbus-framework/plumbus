@@ -326,8 +326,8 @@ const classifySentiment = definePrompt({
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `string` | Yes | Prompt name |
-| `system` | `string` | No | Provider system instructions. Supports top-level `{{key}}` substitution |
-| `description` | `string` | No | User/data prompt content. Supports top-level `{{key}}` substitution |
+| `system` | `string` | No | Provider system instructions. Supports top-level `{{key}}` substitution (single-pass, literal values) |
+| `description` | `string` | No | User/data prompt content. Supports top-level `{{key}}` substitution (single-pass, literal values) |
 | `domain` | `string` | No | Business domain |
 | `tags` | `string[]` | No | Searchable tags |
 | `owner` | `string` | No | Owning team |

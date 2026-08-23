@@ -86,7 +86,12 @@ export function chargeExecutionBudget(
 ): ExecutionBudgetLedger {
   const primary = ledger.amounts[0];
   if (!primary) {
-    return { ...ledger, state: 'exhausted', revision: ledger.revision + 1, updatedAt: now.toISOString() };
+    return {
+      ...ledger,
+      state: 'exhausted',
+      revision: ledger.revision + 1,
+      updatedAt: now.toISOString(),
+    };
   }
   const nextConsumed = primary.consumed + amount;
   const next: ExecutionBudgetAmount = { ...primary, consumed: nextConsumed };

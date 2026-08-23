@@ -87,9 +87,7 @@ export function registerFlowCommand(program: Command): void {
           reason: 'operator-retry',
         });
         await enqueueFlowStep(queues.flows, executionId);
-        success(
-          `Retried flow ${result.executionId} by ${result.retriedBy}; re-enqueued step`,
-        );
+        success(`Retried flow ${result.executionId} by ${result.retriedBy}; re-enqueued step`);
       } finally {
         await queues.close();
         await closeDatabaseConnection(connection);

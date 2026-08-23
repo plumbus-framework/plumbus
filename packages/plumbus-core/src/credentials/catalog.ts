@@ -134,7 +134,9 @@ function freezeRecord(record: CredentialRecord): CredentialRecord {
   });
 }
 
-function normalizeTypes(types: readonly CredentialTypeDeclaration[]): Map<string, CredentialTypeRecord> {
+function normalizeTypes(
+  types: readonly CredentialTypeDeclaration[],
+): Map<string, CredentialTypeRecord> {
   if (!Array.isArray(types)) {
     throw catalogError(ErrorCode.Validation, 'types must be an array', { field: 'types' });
   }
@@ -150,10 +152,14 @@ function normalizeTypes(types: readonly CredentialTypeDeclaration[]): Map<string
       });
     }
     if (!Array.isArray(declared.fields) || declared.fields.length === 0) {
-      throw catalogError(ErrorCode.Validation, `credential type "${id}" must declare at least one field`, {
-        typeId: id,
-        field: 'fields',
-      });
+      throw catalogError(
+        ErrorCode.Validation,
+        `credential type "${id}" must declare at least one field`,
+        {
+          typeId: id,
+          field: 'fields',
+        },
+      );
     }
     const fieldNames = new Set<string>();
     const fields: CredentialFieldSpec[] = [];
@@ -171,10 +177,14 @@ function normalizeTypes(types: readonly CredentialTypeDeclaration[]): Map<string
         });
       }
       if (typeof field.secret !== 'boolean') {
-        throw catalogError(ErrorCode.Validation, `field "${name}" on type "${id}" must set secret`, {
-          typeId: id,
-          field: name,
-        });
+        throw catalogError(
+          ErrorCode.Validation,
+          `field "${name}" on type "${id}" must set secret`,
+          {
+            typeId: id,
+            field: name,
+          },
+        );
       }
       fieldNames.add(name);
       fields.push({ name, secret: field.secret });
@@ -209,10 +219,14 @@ function normalizeLabels(
       });
     }
     if (hasControlCharacter(value)) {
-      throw catalogError(ErrorCode.Validation, `label "${key}" must not contain control characters`, {
-        field: 'labels',
-        label: key,
-      });
+      throw catalogError(
+        ErrorCode.Validation,
+        `label "${key}" must not contain control characters`,
+        {
+          field: 'labels',
+          label: key,
+        },
+      );
     }
     normalized[key] = value;
   }
@@ -374,7 +388,9 @@ export function createMemoryCredentialCatalog(
       if (byRef.has(binding.ref)) {
         throw catalogError(ErrorCode.Conflict, 'binding ref is already in use', { field: 'ref' });
       }
-      const secretFields = new Set(type.fields.filter((field) => field.secret).map((field) => field.name));
+      const secretFields = new Set(
+        type.fields.filter((field) => field.secret).map((field) => field.name),
+      );
       const record = freezeRecord({
         name,
         typeId,

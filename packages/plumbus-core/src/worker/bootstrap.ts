@@ -25,6 +25,10 @@ import type { ApprovalService, AuthorizationProvider } from '../approvals/types.
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import { createExecutionContext } from '../execution/context-factory.js';
+import {
+  resolveCompiledFlowRegistry,
+  type CompiledFlowRegistry,
+} from '../flows/compiled-registry.js';
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
@@ -278,6 +282,17 @@ export interface WorkerPoolConfig {
    * Harness stub only unless the host supplies one.
    */
   authorizationProvider?: AuthorizationProvider;
+  /**
+   * Compiled flow definitions (Plan 02 Stage 5). When set, the engine
+   * consumes signed JSON instead of live TypeScript steps.
+   */
+  compiledRegistry?: CompiledFlowRegistry;
+  /**
+   * Directory of `plumbus compile-flows` JSON. Used when `compiledRegistry`
+   * is omitted. An explicit path that is missing, empty, or tampered fails
+   * closed. Omitted: `{cwd}/.plumbus/compiled-flows` is loaded when it has JSON.
+   */
+  compiledFlowsDirectory?: string;
 }
 
 // ── Worker Pool Instance ──
@@ -479,9 +494,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             });
           }
         : undefined,
-    spineDispatch: dataPlaneResolver
-      ? { db, resolver: dataPlaneResolver }
-      : undefined,
+    spineDispatch: dataPlaneResolver ? { db, resolver: dataPlaneResolver } : undefined,
+    compiledRegistry: resolveCompiledFlowRegistry({
+      compiledRegistry: poolConfig.compiledRegistry,
+      compiledFlowsDirectory: poolConfig.compiledFlowsDirectory,
+    }),
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
     createEventService: eventRegistry
       ? (auth) => {
@@ -540,9 +557,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     registry: flows,
     engine: flowEngine,
     pollIntervalMs: schedulerPollIntervalMs,
-    ...(dataPlaneResolver
-      ? { resolver: dataPlaneResolver, listTenantRefs: listedTenantRefs }
-      : {}),
+    ...(dataPlaneResolver ? { resolver: dataPlaneResolver, listTenantRefs: listedTenantRefs } : {}),
   };
   const scheduler = enableScheduler ? createFlowScheduler(schedulerConfig) : null;
   let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;

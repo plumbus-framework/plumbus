@@ -10,6 +10,7 @@ It is not a complete production application generator. It creates the baseline f
 interface NextjsTemplateConfig {
   appName: string;
   auth?: boolean;
+  /** Required for `.env.local`. No localhost port default. */
   apiBaseUrl?: string;
 }
 
@@ -27,7 +28,7 @@ import { generateNextjsTemplate } from "@plumbus/ui";
 const files = generateNextjsTemplate({
   appName: "My App",
   auth: true,
-  apiBaseUrl: "http://localhost:3000",
+  apiBaseUrl: "https://api.example.com",
 });
 ```
 
@@ -159,13 +160,13 @@ The generated page:
 
 ### `generateEnvLocal(config)`
 
-Generates `.env.local` with:
+`apiBaseUrl` is required. There is no localhost port default. CLI wrappers must pass `--api-base-url` or set `NEXT_PUBLIC_API_BASE_URL` / `API_BASE_URL`. The file writes that URL into `.env.local`:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_API_BASE_URL=https://api.example.com
 NEXT_PUBLIC_AUTH_ENABLED=true
 AUTH_SECRET=change-me-in-production
-# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plumbus
+# DATABASE_URL=  # from the host environment — do not invent a port here
 ```
 
 ### `generateErrorBoundary()`

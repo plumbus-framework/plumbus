@@ -302,13 +302,19 @@ describe('StepExecutor', () => {
       type: FlowStepType.ApprovalOutcome,
       outcomes: { approved: 'pay', rejected: 'deny' },
     };
-    const result = await executeStep(step, { ...mockCtx, flowId: 'exec-1' }, {}, {}, {
-      ...defaultDeps,
-      findApprovalForExecution: async () =>
-        ({ state: 'approved' }) as Awaited<
-          ReturnType<NonNullable<StepExecutorDeps['findApprovalForExecution']>>
-        >,
-    });
+    const result = await executeStep(
+      step,
+      { ...mockCtx, flowId: 'exec-1' },
+      {},
+      {},
+      {
+        ...defaultDeps,
+        findApprovalForExecution: async () =>
+          ({ state: 'approved' }) as Awaited<
+            ReturnType<NonNullable<StepExecutorDeps['findApprovalForExecution']>>
+          >,
+      },
+    );
     expect(result.status).toBe(StepStatus.Completed);
     expect(result.nextStep).toBe('pay');
   });

@@ -25,7 +25,7 @@ function sampleFlow() {
       {
         name: 'route',
         type: FlowStepType.Conditional,
-        if: "state.amount > 100",
+        if: 'state.amount > 100',
         then: 'hold',
         else: 'ship',
       },

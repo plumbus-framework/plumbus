@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock discoverResources before importing dev module
 vi.mock('../discover.js', () => ({
@@ -26,7 +26,7 @@ vi.mock('../discover.js', () => ({
 vi.mock('../../server/bootstrap.js', () => ({
   createServer: vi.fn(() => ({
     app: {},
-    start: vi.fn(async () => 'http://0.0.0.0:3000'),
+    start: vi.fn(async () => 'http://0.0.0.0:8080'),
     stop: vi.fn(async () => {}),
   })),
 }));
@@ -53,9 +53,18 @@ vi.mock('../../runtime/start-worker-pool.js', () => ({
 }));
 
 import { createServer } from '../../server/bootstrap.js';
+import { loadServerExtensions } from '../../runtime/load-extensions.js';
 import { startWorkerPool } from '../../runtime/start-worker-pool.js';
-import { runDev, startDevServer } from '../commands/dev.js';
+import { resolveDevPort, runDev, startDevServer } from '../commands/dev.js';
 import { discoverResources } from '../discover.js';
+
+const LISTEN_PORT = '8080';
+const ENV_PORT = '9090';
+const ORIGINAL_DEV_PORT = process.env.PLUMBUS_DEV_PORT;
+
+function runConfiguredDev(options: Parameters<typeof runDev>[0] = {}): ReturnType<typeof runDev> {
+  return runDev({ port: LISTEN_PORT, ...options });
+}
 
 // ── Tests ──
 
@@ -64,19 +73,66 @@ describe('CLI dev command', () => {
     // CLI utils use console.log for info/warn and console.error for error
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    delete process.env.PLUMBUS_DEV_PORT;
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_DEV_PORT === undefined) {
+      delete process.env.PLUMBUS_DEV_PORT;
+    } else {
+      process.env.PLUMBUS_DEV_PORT = ORIGINAL_DEV_PORT;
+    }
+  });
+
+  describe('resolveDevPort', () => {
+    it('uses the explicit --port flag', () => {
+      expect(resolveDevPort('8080', {})).toBe(8080);
+    });
+
+    it('falls back to PLUMBUS_DEV_PORT', () => {
+      expect(resolveDevPort(undefined, { PLUMBUS_DEV_PORT: ENV_PORT })).toBe(9090);
+    });
+
+    it('prefers the flag over env', () => {
+      expect(resolveDevPort('4000', { PLUMBUS_DEV_PORT: ENV_PORT })).toBe(4000);
+    });
+
+    it('rejects missing values', () => {
+      expect(() => resolveDevPort(undefined, {})).toThrow(/--port is required/);
+    });
+
+    it('rejects empty flag and empty env', () => {
+      expect(() => resolveDevPort('  ', { PLUMBUS_DEV_PORT: '' })).toThrow(/--port is required/);
+    });
+
+    it('rejects non-integer ports', () => {
+      expect(() => resolveDevPort('not-a-port', {})).toThrow(/Invalid port/);
+    });
+
+    it('rejects out-of-range ports', () => {
+      expect(() => resolveDevPort('0', {})).toThrow(/Invalid port/);
+      expect(() => resolveDevPort('70000', {})).toThrow(/Invalid port/);
+    });
   });
 
   describe('runDev', () => {
     it('returns config, validation, and serverUrl', () => {
-      const result = runDev({});
+      const result = runConfiguredDev();
       expect(result).toHaveProperty('config');
       expect(result).toHaveProperty('validation');
       expect(result).toHaveProperty('serverUrl');
+      expect(result.port).toBe(8080);
     });
 
-    it('defaults to port 3000 and host localhost', () => {
+    it('requires --port or PLUMBUS_DEV_PORT', () => {
+      expect(() => runDev({})).toThrow(/--port is required/);
+    });
+
+    it('uses PLUMBUS_DEV_PORT when --port is omitted', () => {
+      process.env.PLUMBUS_DEV_PORT = ENV_PORT;
       const result = runDev({});
-      expect(result.serverUrl).toBe('http://localhost:3000');
+      expect(result.serverUrl).toBe(`http://localhost:${ENV_PORT}`);
+      expect(result.port).toBe(9090);
     });
 
     it('uses custom port from options', () => {
@@ -85,8 +141,8 @@ describe('CLI dev command', () => {
     });
 
     it('uses custom host from options', () => {
-      const result = runDev({ host: '0.0.0.0' });
-      expect(result.serverUrl).toBe('http://0.0.0.0:3000');
+      const result = runConfiguredDev({ host: '0.0.0.0' });
+      expect(result.serverUrl).toBe(`http://0.0.0.0:${LISTEN_PORT}`);
     });
 
     it('uses both custom port and host', () => {
@@ -95,52 +151,52 @@ describe('CLI dev command', () => {
     });
 
     it('loads config with development environment', () => {
-      const result = runDev({});
+      const result = runConfiguredDev();
       expect(result.config.environment).toBe('development');
     });
 
     it('config has development database defaults', () => {
-      const result = runDev({});
+      const result = runConfiguredDev();
       expect(result.config.database.host).toBe('localhost');
       expect(result.config.database.database).toBe('plumbus_dev');
     });
 
     it('validation is valid for development defaults', () => {
-      const result = runDev({});
+      const result = runConfiguredDev();
       expect(result.validation.valid).toBe(true);
       expect(result.validation.errors).toHaveLength(0);
     });
 
     it('prints info messages for non-JSON mode', () => {
-      runDev({});
+      runConfiguredDev();
       expect(console.log).toHaveBeenCalled();
     });
 
     it('suppresses info output in JSON mode', () => {
-      runDev({ json: true });
+      runConfiguredDev({ json: true });
       expect(console.log).not.toHaveBeenCalled();
     });
 
     it('prints server URL info', () => {
-      runDev({});
+      runConfiguredDev();
       const calls = (console.log as any).mock.calls.map((c: any[]) => c[0]);
       expect(calls.some((msg: string) => msg.includes('Server URL'))).toBe(true);
     });
 
     it('prints database info', () => {
-      runDev({});
+      runConfiguredDev();
       const calls = (console.log as any).mock.calls.map((c: any[]) => c[0]);
       expect(calls.some((msg: string) => msg.includes('Database'))).toBe(true);
     });
 
     it('prints queue info', () => {
-      runDev({});
+      runConfiguredDev();
       const calls = (console.log as any).mock.calls.map((c: any[]) => c[0]);
       expect(calls.some((msg: string) => msg.includes('Queue'))).toBe(true);
     });
 
     it('warns when AI provider is not configured', () => {
-      runDev({});
+      runConfiguredDev();
       // warn() uses console.log with ⚠ prefix
       const calls = (console.log as any).mock.calls.map((c: any[]) => c[0]);
       expect(calls.some((msg: string) => msg.includes('AI provider not configured'))).toBe(true);
@@ -155,21 +211,42 @@ describe('CLI dev command', () => {
     });
 
     it('calls discoverResources to auto-discover app primitives', async () => {
-      await startDevServer({ db: {} as never });
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
       expect(discoverResources).toHaveBeenCalled();
     });
 
     it('passes discovered capabilities to createServer', async () => {
-      await startDevServer({ db: {} as never });
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
       expect(createServer).toHaveBeenCalled();
       const serverConfig = (createServer as any).mock.calls[0][0];
       expect(serverConfig.capabilities.getAll()).toHaveLength(1);
       expect(serverConfig.capabilities.getAll()[0].name).toBe('testCap');
     });
 
+    it('passes a credentials catalog from server extensions to createServer', async () => {
+      const credentials = { id: 'host-catalog' };
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({ credentials } as never);
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.credentials).toBe(credentials);
+    });
+
+    it('passes the resolved port to createServer', async () => {
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.port).toBe(8080);
+    });
+
+    it('uses PLUMBUS_DEV_PORT when --port is omitted', async () => {
+      process.env.PLUMBUS_DEV_PORT = ENV_PORT;
+      await startDevServer({ db: {} as never });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.port).toBe(9090);
+    });
+
     it('uses provided db when given', async () => {
       const mockDb = { execute: vi.fn() };
-      await startDevServer({ db: mockDb as never });
+      await startDevServer({ db: mockDb as never, port: LISTEN_PORT });
       const serverConfig = (createServer as any).mock.calls[0][0];
       expect(serverConfig.db).toBe(mockDb);
     });
@@ -195,7 +272,7 @@ describe('CLI dev command', () => {
         eventHandlers: [],
       } as never);
 
-      await startDevServer({ db: { execute: vi.fn() } as never });
+      await startDevServer({ db: { execute: vi.fn() } as never, port: LISTEN_PORT });
 
       expect(startWorkerPool).toHaveBeenCalled();
     });

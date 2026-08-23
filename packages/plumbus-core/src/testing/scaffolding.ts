@@ -281,7 +281,10 @@ ${fieldFills}
   return `import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { chromium, type Browser, type Page } from "@plumbus/core/testing";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3001";
+const BASE_URL = process.env.E2E_BASE_URL;
+if (!BASE_URL) {
+  throw new Error("E2E_BASE_URL is required. No default frontend port is assumed.");
+}
 
 describe("${page.pageName} page", () => {
   let browser: Browser;

@@ -61,24 +61,21 @@ describe('Protocol A crash-matrix simulation', () => {
     CRASH_POINTS.filter(
       (point) => point !== 'before-tenant-commit' && point !== 'during-spine-sweep-after-ack',
     ),
-  )(
-    'loses no accepted work and duplicates no side effect when crashing at %s',
-    (point) => {
-      const world = createProtocolAWorld({ crashAt: point });
-      try {
-        world.accept(acceptArgs);
-      } catch (error) {
-        if (!(error instanceof CrashSignal)) throw error;
-      }
-      driveToIdle(world);
-      const snap = world.inspect();
-      assertProtocolProperties(snap);
-      expect(snap.lastCrash).toBe(point);
-      expect(snap.executions).toHaveLength(1);
-      expect(snap.executions[0]?.status).toBe(DurableExecutionStatus.Succeeded);
-      expect(snap.sideEffects).toEqual(['exec-1:step-a', 'exec-1:step-b']);
-    },
-  );
+  )('loses no accepted work and duplicates no side effect when crashing at %s', (point) => {
+    const world = createProtocolAWorld({ crashAt: point });
+    try {
+      world.accept(acceptArgs);
+    } catch (error) {
+      if (!(error instanceof CrashSignal)) throw error;
+    }
+    driveToIdle(world);
+    const snap = world.inspect();
+    assertProtocolProperties(snap);
+    expect(snap.lastCrash).toBe(point);
+    expect(snap.executions).toHaveLength(1);
+    expect(snap.executions[0]?.status).toBe(DurableExecutionStatus.Succeeded);
+    expect(snap.sideEffects).toEqual(['exec-1:step-a', 'exec-1:step-b']);
+  });
 
   it('acks dangling spine rows when tenant state is gone, including crash during sweep', () => {
     const world = createProtocolAWorld({ crashAt: 'during-spine-sweep-after-ack' });
@@ -152,7 +149,9 @@ describe('Protocol A crash-matrix simulation', () => {
       if (!(error instanceof CrashSignal)) throw error;
     }
     const afterCrash = world.inspect();
-    const leased = afterCrash.spine.filter((row) => row.deliveryState === SpineDeliveryState.Leased);
+    const leased = afterCrash.spine.filter(
+      (row) => row.deliveryState === SpineDeliveryState.Leased,
+    );
     expect(leased).toHaveLength(1);
     expect(world.workerTick('worker-b')).toBe(false);
     driveToIdle(world);

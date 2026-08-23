@@ -63,4 +63,3 @@ export function scanCapabilityDirectImports(appRoot: string = process.cwd()): Go
 
   return signals;
 }
-

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **OpenAPI 3.1 conversion lives in `@plumbus/core`.** `toJsonSchema2020` / `toOpenApi31Document` are implemented there so `plumbus generate` and `plumbus api generate openapi --openapi-version 3.1.0` share one rewrite. This package re-exports them with the partner `OpenApiDocument` type. Behaviour of the partner generator is unchanged (3.0.3 default).
+
 ## 0.1.4 — 2026-08-10 — partner routes honor session auth
 
 **Runtime floor: `@plumbus/core` ≥ 0.6.9.** This release imports `buildAuthenticationRequest` from `@plumbus/core`, which first shipped in core **0.6.9**. On older cores the package fails to load. Declared peer stays `0.5.x || 0.6.x`; the floor applies at runtime.

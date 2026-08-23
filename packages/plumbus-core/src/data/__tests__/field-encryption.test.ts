@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { field } from '../../fields/index.js';
 import type { EntityDefinition } from '../../types/entity.js';
 import {
+  decryptBytes,
   decryptFieldValue,
+  encryptBytes,
   encryptFieldValue,
   ENCRYPTION_PREFIX,
   getEncryptedFields,
@@ -74,5 +76,17 @@ describe('field encryption', () => {
     const payload = ciphertext.slice(ENCRYPTION_PREFIX.length);
     const tampered = `${ENCRYPTION_PREFIX}${payload.slice(0, -4)}AAAA`;
     expect(() => decryptFieldValue(tampered, key)).toThrow(EncryptionPayloadError);
+  });
+
+  it('encrypts and decrypts raw bytes round-trip', () => {
+    const key = testKey();
+    const plain = randomBytes(32);
+    const packed = encryptBytes(plain, key);
+    expect(decryptBytes(packed, key).equals(plain)).toBe(true);
+  });
+
+  it('throws EncryptionPayloadError when packed bytes are truncated', () => {
+    const key = testKey();
+    expect(() => decryptBytes(Buffer.alloc(8), key)).toThrow(EncryptionPayloadError);
   });
 });

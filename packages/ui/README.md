@@ -96,11 +96,13 @@ import { generateNextjsTemplate, generateCapabilityPage } from "@plumbus/ui";
 const files = generateNextjsTemplate({
   appName: "My App",
   auth: true,
-  apiBaseUrl: "http://localhost:3000",
+  apiBaseUrl: "https://api.example.com",
 });
 
 const examplePage = generateCapabilityPage(getUserCapability);
 ```
+
+`apiBaseUrl` is required (CLI: `--api-base-url`, or `NEXT_PUBLIC_API_BASE_URL` / `API_BASE_URL`). No default API port is assumed.
 
 `generateNextjsTemplate` emits a starter shell: `package.json`, `tsconfig.json`, Tailwind/PostCSS files, `.env.local`, app layout, home/loading/error pages, `proxy.ts`, placeholder `hooks/` and `lib/` directories, and auth pages/components when auth is enabled.
 

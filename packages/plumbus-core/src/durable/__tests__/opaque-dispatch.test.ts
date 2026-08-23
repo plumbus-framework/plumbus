@@ -44,7 +44,9 @@ describe('opaque dispatch privacy', () => {
   });
 
   it('rejects additional properties', () => {
-    expect(() => spineRecordFromUnknown(validRecord({ stepInput: { n: 1 } }))).toThrow(/additional property/);
+    expect(() => spineRecordFromUnknown(validRecord({ stepInput: { n: 1 } }))).toThrow(
+      /additional property/,
+    );
   });
 
   it('requires lease fields when deliveryState is leased', () => {

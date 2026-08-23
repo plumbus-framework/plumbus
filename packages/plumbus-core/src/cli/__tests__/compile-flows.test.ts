@@ -7,6 +7,7 @@ import { defineFlow } from '../../define/defineFlow.js';
 import { compileFlowDefinition } from '../../flows/compile-flow.js';
 import { FlowStepType } from '../../types/enums.js';
 import { writeCompiledFlowArtifacts } from '../commands/compile-flows.js';
+import { loadCompiledFlowRegistryFromDirectory } from '../../flows/compiled-registry.js';
 
 const dirs: string[] = [];
 
@@ -34,5 +35,23 @@ describe('writeCompiledFlowArtifacts', () => {
     expect(parsed.flowDefinitionId).toBe('ops.ping');
     expect(parsed.definitionDigest).toBe(compiled.definitionDigest);
     expect(parsed.steps[0]).not.toHaveProperty('if');
+  });
+
+  it('reloads into CompiledFlowRegistry with the same digest', () => {
+    const compiled = compileFlowDefinition(
+      defineFlow({
+        name: 'ping',
+        domain: 'ops',
+        input: z.object({}),
+        steps: [{ name: 'noop', type: FlowStepType.Capability }],
+      }),
+    );
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-compile-flows-'));
+    dirs.push(outDir);
+    writeCompiledFlowArtifacts([compiled], outDir);
+    const registry = loadCompiledFlowRegistryFromDirectory(outDir);
+    expect(registry.get('ops.ping', compiled.definitionVersion)?.definitionDigest).toBe(
+      compiled.definitionDigest,
+    );
   });
 });

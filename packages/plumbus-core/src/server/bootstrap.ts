@@ -23,6 +23,7 @@ import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import type { HttpAuthenticationRuntime } from './authentication-runtime.js';
+import type { CredentialCatalog } from '../credentials/catalog.js';
 import type { EntityRegistry } from '../data/registry.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventQueue } from '../events/queue.js';
@@ -40,6 +41,10 @@ import {
   resolveInvocationCausationId,
 } from '../execution/invocation-emit-scope.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
+import {
+  resolveCompiledFlowRegistry,
+  type CompiledFlowRegistry,
+} from '../flows/compiled-registry.js';
 import { createFlowEngine } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
 import type { FlowRegistry } from '../flows/registry.js';
@@ -102,11 +107,18 @@ export interface ServerConfig {
   authAdapter?: AuthAdapter;
   /** Optional session/OIDC authentication runtime, e.g. from @plumbus/auth */
   authenticationRuntime?: HttpAuthenticationRuntime;
+  /**
+   * Optional host credential catalog. Names, types, refs, and public labels
+   * only — secret values stay in the host resolver until `reveal`. Omitted:
+   * existing hosts boot unchanged. The catalog is retained on the returned
+   * server; it is never logged.
+   */
+  credentials?: CredentialCatalog;
   /** Optional custom logger */
   logger?: LoggerService;
   /** Fastify listen host (default: "0.0.0.0") */
   host?: string;
-  /** Fastify listen port (default: 3000) */
+  /** Fastify listen port. Required to call `start()` — no default is assumed. */
   port?: number;
   /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
   trustProxy?: boolean | string | string[] | number;
@@ -215,6 +227,17 @@ export interface ServerConfig {
    * Harness tests may pass `createAllowAllAuthorizationProvider`.
    */
   authorizationProvider?: AuthorizationProvider;
+  /**
+   * Compiled flow definitions (Plan 02 Stage 5). When set, HTTP start/inspect
+   * pins the same signed JSON the worker consumes.
+   */
+  compiledRegistry?: CompiledFlowRegistry;
+  /**
+   * Directory of `plumbus compile-flows` JSON. Used when `compiledRegistry`
+   * is omitted. An explicit path that is missing, empty, or tampered fails
+   * closed. Omitted: `{cwd}/.plumbus/compiled-flows` is loaded when it has JSON.
+   */
+  compiledFlowsDirectory?: string;
 }
 
 // ── Server Instance ──
@@ -226,6 +249,8 @@ export interface PlumbusServer {
   start(): Promise<string>;
   /** Graceful shutdown */
   stop(): Promise<void>;
+  /** Host credential catalog when `createServer({ credentials })` was given. */
+  credentials?: CredentialCatalog;
 }
 
 /** Create and configure a Plumbus Fastify server */
@@ -239,7 +264,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     consumers,
     flows,
     host = '0.0.0.0',
-    port = 3000,
+    port,
     trustProxy,
   } = serverConfig;
 
@@ -405,10 +430,15 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       return false;
     },
   };
+  const compiledRegistry = resolveCompiledFlowRegistry({
+    compiledRegistry: serverConfig.compiledRegistry,
+    compiledFlowsDirectory: serverConfig.compiledFlowsDirectory,
+  });
   const requestFlowEngine = createFlowEngine({
     db,
     registry: flows,
     stepDeps: httpFlowStepDeps,
+    compiledRegistry,
   });
 
   /**
@@ -430,6 +460,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       db: dataPlaneDb,
       registry: flows,
       stepDeps: httpFlowStepDeps,
+      compiledRegistry,
     });
     flowEnginesByDataPlane.set(dataPlaneDb, engine);
     return engine;
@@ -628,7 +659,13 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
   return {
     app,
+    credentials: serverConfig.credentials,
     async start() {
+      if (port == null) {
+        throw new Error(
+          'createServer({ port }) is required to listen. No default listen port is assumed.',
+        );
+      }
       const address = await app.listen({ host, port });
       logger.info(`Plumbus server listening on ${address}`);
       return address;

@@ -73,7 +73,7 @@ plumbus generate
 
 ```bash
 plumbus mcp serve --stdio                # Claude Desktop, Cursor, local agents
-plumbus mcp serve --http --port 3001     # remote agents over Streamable HTTP
+plumbus mcp serve --http --port $PLUMBUS_MCP_PORT     # remote agents over Streamable HTTP
 plumbus mcp list-tools                   # debug: print tool names + descriptions
 ```
 

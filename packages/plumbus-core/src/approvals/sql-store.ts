@@ -232,7 +232,10 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
 
     async getTask(id) {
       const db = await resolveDb();
-      const rows = await db.select().from(tables.humanTask).where(eq(tables.humanTask.humanTaskId, id));
+      const rows = await db
+        .select()
+        .from(tables.humanTask)
+        .where(eq(tables.humanTask.humanTaskId, id));
       return rows[0] ? mapTask(rows[0]) : undefined;
     },
   };

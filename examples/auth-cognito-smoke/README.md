@@ -51,7 +51,7 @@ cd examples/auth-cognito-smoke
 # Automated pass/fail battery (no browser). Exit code != 0 on a real failure.
 node check.mjs
 
-# Interactive server — open http://localhost:3000 and click "Sign in".
+# Interactive server — set PORT, then open the printed URL and click "Sign in".
 node serve.mjs
 ```
 

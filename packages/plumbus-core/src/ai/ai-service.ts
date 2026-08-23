@@ -17,6 +17,7 @@ import type {
 import type { PromptDefinition } from '../types/prompt.js';
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
+import { fillPromptTemplate } from './fill-prompt-template.js';
 import { calculateModelCost } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import {
@@ -274,21 +275,16 @@ export function createAIService(config: AIServiceConfig): AIService {
     // Validate input against prompt input schema
     def.input.parse(input);
 
-    // Simple template resolution: replace top-level {{key}} placeholders.
-    const substitutedKeys = new Set<string>();
-    const renderTemplate = (template: string): string => {
-      let text = template;
-      for (const [key, value] of Object.entries(input)) {
-        const placeholder = `{{${key}}}`;
-        if (text.includes(placeholder)) {
-          substitutedKeys.add(key);
-          text = text.replaceAll(placeholder, String(value));
-        }
-      }
-      return text;
-    };
-    const system = def.system ? renderTemplate(def.system) : undefined;
-    const text = renderTemplate(def.description ?? promptName);
+    // Single-pass {{key}} fill. Values are literal: `$` patterns and
+    // nested `{{otherKey}}` inside a value are not interpreted.
+    const systemFilled = def.system ? fillPromptTemplate(def.system, input) : undefined;
+    const textFilled = fillPromptTemplate(def.description ?? promptName, input);
+    const substitutedKeys = new Set<string>([
+      ...(systemFilled?.substitutedKeys ?? []),
+      ...textFilled.substitutedKeys,
+    ]);
+    const system = systemFilled?.text;
+    const text = textFilled.text;
 
     // Resolution chain: config/env override → prompt-level → defaults
     // Look up override by prompt name (dots replaced with underscores for env var matching)

@@ -18,11 +18,10 @@ export type DefinitionInFlightStrategy =
 
 export class DefinitionStrategyNotSupportedError extends PlumbusError {
   constructor(strategy: string) {
-    super(
-      ErrorCode.Validation,
-      `Definition in-flight strategy "${strategy}" is not supported`,
-      { reason: DEFINITION_STRATEGY_NOT_SUPPORTED, strategy },
-    );
+    super(ErrorCode.Validation, `Definition in-flight strategy "${strategy}" is not supported`, {
+      reason: DEFINITION_STRATEGY_NOT_SUPPORTED,
+      strategy,
+    });
     this.name = 'DefinitionStrategyNotSupportedError';
   }
 }

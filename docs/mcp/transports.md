@@ -30,7 +30,7 @@ Run from the app project root so resource discovery finds `app/capabilities/`.
 
 ## Streamable HTTP
 
-**Command:** `plumbus mcp serve --http [--port 3001] [--host 0.0.0.0]`
+**Command:** `plumbus mcp serve --http --port $PLUMBUS_MCP_PORT [--host 0.0.0.0]`
 
 - MCP endpoint: `POST /mcp` (Streamable HTTP transport).
 - **Discovery:** `GET /mcp/discovery` returns manifest + auth hints:

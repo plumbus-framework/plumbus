@@ -40,6 +40,30 @@ export interface DevOptions {
 }
 
 /**
+ * Resolve the listen port from `--port` or `PLUMBUS_DEV_PORT`.
+ * No default port is assumed.
+ */
+export function resolveDevPort(
+  explicit: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const fromFlag = explicit?.trim();
+  const raw = fromFlag || env.PLUMBUS_DEV_PORT?.trim();
+  if (!raw) {
+    throw new Error(
+      '--port is required (or set PLUMBUS_DEV_PORT). No default listen port is assumed.',
+    );
+  }
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid port "${raw}". Expected an integer in 1-65535 from --port or PLUMBUS_DEV_PORT.`,
+    );
+  }
+  return port;
+}
+
+/**
  * Run the development server config validation (sync).
  *
  * This:
@@ -53,11 +77,12 @@ export function runDev(options: DevOptions): {
   config: ReturnType<typeof loadConfig>;
   validation: ReturnType<typeof validateConfig>;
   serverUrl: string;
+  port: number;
 } {
   const config = loadConfig({ environment: 'development' });
   const validation = validateConfig(config);
 
-  const port = parseInt(options.port ?? '3000', 10);
+  const port = resolveDevPort(options.port);
   const host = options.host ?? 'localhost';
   const serverUrl = `http://${host}:${port}`;
 
@@ -92,7 +117,7 @@ export function runDev(options: DevOptions): {
     }
   }
 
-  return { config, validation, serverUrl };
+  return { config, validation, serverUrl, port };
 }
 
 /**
@@ -106,13 +131,12 @@ export async function startDevServer(
   server: PlumbusServer;
   shutdown: () => Promise<void>;
 }> {
-  const { config, validation, serverUrl } = runDev(options);
+  const { config, validation, serverUrl, port } = runDev(options);
 
   if (!validation.valid) {
     throw new Error(`Config validation failed: ${validation.errors.join(', ')}`);
   }
 
-  const port = parseInt(options.port ?? '3000', 10);
   const host = options.host ?? '0.0.0.0';
 
   // Auto-discover resources from app/ directory
@@ -185,6 +209,7 @@ export async function startDevServer(
     onProcessError: extensions.onProcessError,
     onAICostRecorded: extensions.onAICostRecorded,
     enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
+    credentials: extensions.credentials,
     jobQueue: jobQueueNeeded ? queues.jobs : undefined,
     metrics,
     ...(process.env.TRUST_PROXY && {
@@ -292,7 +317,7 @@ export function registerDevCommand(program: Command): void {
   program
     .command('dev')
     .description('Start development server with hot-reload')
-    .option('-p, --port <port>', 'Server port', '3000')
+    .option('-p, --port <port>', 'Server port (or set PLUMBUS_DEV_PORT)')
     .option('-H, --host <host>', 'Server host', 'localhost')
     .option('--json', 'Output JSON')
     .action(async (opts: DevOptions) => {

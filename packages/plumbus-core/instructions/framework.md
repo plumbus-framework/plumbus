@@ -147,6 +147,7 @@ The optional `app/server.ts` file exports hooks that customize server behavior. 
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
 | `onAICostRecorded` | After each AI cost record is written | Custom cost analytics or billing hooks |
 | `enableStrictStructuredOutputs` | Server bootstrap | Global toggle for strict structured-output mode |
+| `credentials` | Server bootstrap | Optional host credential catalog (`export const credentials`). Passed to `createServer({ credentials })`. Names, types, refs, and public labels only — secrets stay in the host resolver. |
 
 ### Error Capture Coverage
 

@@ -86,7 +86,7 @@ export declare function startStdioServer(options: { server: Server }): Promise<u
 
 export interface StartHttpServerOptions {
   config: McpServerConfig;
-  port?: number;
+  port: number;
   host?: string;
   mcpPath?: string;
 }
