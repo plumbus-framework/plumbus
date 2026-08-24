@@ -43,6 +43,7 @@ registerVoiceRoutes(app, routeConfig, [supportVoice], {
 - `resolveTone(ctx, args)` chooses the tone profile per turn. It may also return `voiceId` and `targetGender` on `DeliveryTone`.
 - `DeliveryTone.voiceId` is a per-turn voice override (Deepdub style-variant `voicePromptId` of the same speaker). Providers without per-call voice selection ignore it.
 - `preprocessForTts(text, ctx)` can normalize or annotate output before TTS.
+- `onHearingRepair(ctx, { reason, transcript?, confidence?, language?, sessionId })` owns hearing-repair content: return the text to speak (string or `{ text, tone }` — `tone` maps through `mapDeliveryTone` like `resolveTone`), or `undefined`/`null` to suppress the repair (a suppressed/hookless `low_confidence` signal lets the turn proceed). The framework reports signals only (`empty`, `low_confidence`) and never judges transcript content. Absent hook → built-in default line for `empty` only; throwing hook → same fallback. Detection, timing, playback, and `voice.hearing_repair` cost stay in the framework.
 - For Soniox STT (`@plumbus/voice-soniox`), set `stt.options.contextTerms` to send `context.terms` for domain vocabulary. A single hinted language also sends `language_hints_strict` unless `stt.options.languageHintsStrict` overrides it. TTS uses the same package (`SONIOX_TTS_REGISTRATION`, `tts.provider: 'soniox'`).
 
 Use the hooks for delivery behavior, not for app business logic.

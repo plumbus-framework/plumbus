@@ -95,6 +95,27 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
     expect(call?.params).not.toHaveProperty('realtime');
   });
 
+  it('meters usage as seconds of generated audio, not characters of input text', async () => {
+    // Deepdub bills by minutes of generated audio. 48,000 samples/sec × 2
+    // bytes/sample = 96,000 bytes per second of PCM16 mono.
+    const secondOfAudio = Buffer.alloc(96_000);
+    const provider = createDeepdubProvider(makeFakeDeepdubFactory([], secondOfAudio), {
+      sampleRate: 48000,
+    });
+
+    for await (const _chunk of provider.synthesizeStream('שלום עולם', undefined)) {
+      // consume
+    }
+
+    const records = provider.usage();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      kind: 'synthesize',
+      unit: 'seconds',
+      quantity: 1,
+    });
+  });
+
   it('includes delivery shaping params only when a tone profile is active', async () => {
     const captured: CapturedCall[] = [];
     const provider = createDeepdubProvider(makeFakeDeepdubFactory(captured), {

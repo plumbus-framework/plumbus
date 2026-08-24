@@ -14,6 +14,7 @@ import {
   speakDirectUtterance,
   type HearingRepairReason,
 } from './hearing-repair.js';
+import type { VoiceHearingRepairResult } from '../types/voice.js';
 import {
   applyPcm16InputGain,
   analyzePcm16Levels,
@@ -30,7 +31,7 @@ import {
 import type { VoiceDefinition } from '../types/voice.js';
 import type { VoiceEvent } from '../types/event.js';
 import { createAgentStateEvent } from './events.js';
-import { resolveDeliveryTone } from './delivery-tone.js';
+import { resolveDeliveryTone, normalizeResolvedTone } from './delivery-tone.js';
 import { mapDeliveryToneForProvider } from './tone-mapper.js';
 
 export type SttMode = 'client' | 'server';
@@ -243,13 +244,21 @@ export class VoiceSessionController {
           language: event.language,
           trigger: 'final',
         });
-        if (repair.needed && repair.prompt) {
-          this.#pendingTranscript = undefined;
-          this.#pendingLanguage = undefined;
-          this.#pendingConfidence = undefined;
-          this.#resetListeningWindow();
-          await this.#runHearingRepair(repair.reason ?? 'uncertain_name', repair.prompt);
-          return;
+        if (repair.needed && repair.reason) {
+          const repairUtterance = await this.#resolveHearingRepairUtterance({
+            ...repair,
+            reason: repair.reason,
+          });
+          if (repairUtterance) {
+            this.#pendingTranscript = undefined;
+            this.#pendingLanguage = undefined;
+            this.#pendingConfidence = undefined;
+            this.#resetListeningWindow();
+            await this.#runHearingRepair(repair.reason, repairUtterance);
+            return;
+          }
+          // No repair speech (hook suppressed it, or a low-confidence signal
+          // with no hook): the transcript stands — proceed with the turn.
         }
         this.#resetListeningWindow();
         await this.runTurn();
@@ -634,8 +643,14 @@ export class VoiceSessionController {
         hadSpeechEnergy: this.#hadSpeechEnergyInWindow,
       });
       this.#resetListeningWindow();
-      if (repair.needed && repair.prompt) {
-        await this.#runHearingRepair(repair.reason ?? 'empty', repair.prompt);
+      if (repair.needed && repair.reason) {
+        const repairUtterance = await this.#resolveHearingRepairUtterance({
+          ...repair,
+          reason: repair.reason,
+        });
+        if (repairUtterance) {
+          await this.#runHearingRepair(repair.reason, repairUtterance);
+        }
       }
       return;
     }
@@ -646,13 +661,21 @@ export class VoiceSessionController {
       language: this.#pendingLanguage,
       trigger: 'endpoint',
     });
-    if (repair.needed && repair.prompt) {
-      this.#pendingTranscript = undefined;
-      this.#pendingLanguage = undefined;
-      this.#pendingConfidence = undefined;
-      this.#resetListeningWindow();
-      await this.#runHearingRepair(repair.reason ?? 'uncertain_name', repair.prompt);
-      return;
+    if (repair.needed && repair.reason) {
+      const repairUtterance = await this.#resolveHearingRepairUtterance({
+        ...repair,
+        reason: repair.reason,
+      });
+      if (repairUtterance) {
+        this.#pendingTranscript = undefined;
+        this.#pendingLanguage = undefined;
+        this.#pendingConfidence = undefined;
+        this.#resetListeningWindow();
+        await this.#runHearingRepair(repair.reason, repairUtterance);
+        return;
+      }
+      // Suppressed repair (or hookless low-confidence): the transcript stands
+      // and becomes a normal turn below.
     }
 
     this.options.budget?.record({ sttCharacters: utterance.length });
@@ -767,14 +790,21 @@ export class VoiceSessionController {
       typeof sttOptions?.lowConfidenceThreshold === 'number'
         ? sttOptions.lowConfidenceThreshold
         : undefined;
-    return assessHearingRepairNeeded({
+    const language = args.language ?? this.#getSessionLanguage();
+    const assessment = assessHearingRepairNeeded({
       transcript: args.transcript,
       confidence: args.confidence,
-      language: args.language ?? this.#getSessionLanguage(),
+      language,
       lowConfidenceThreshold,
       trigger: args.trigger,
       hadSpeechEnergy: args.hadSpeechEnergy,
     });
+    return {
+      ...assessment,
+      language,
+      transcript: args.transcript,
+      confidence: args.confidence,
+    };
   }
 
   #getSessionLanguage(): string | undefined {
@@ -801,31 +831,92 @@ export class VoiceSessionController {
     });
   }
 
-  async #runHearingRepair(reason: HearingRepairReason, prompt: string): Promise<void> {
+  /**
+   * Resolve what (if anything) to speak for a hearing repair. The app hook
+   * owns the content — and, for 'low_confidence', the very decision to repair:
+   * the framework reports the raw signals (transcript/confidence/language) and
+   * never judges what a transcript *is*. Without a hook, only 'empty' speaks
+   * the built-in default line. A hook returning undefined/null/empty text (or
+   * a hook that throws on 'low_confidence') means no repair speech; the caller
+   * then proceeds with the normal turn.
+   */
+  async #resolveHearingRepairUtterance(repair: {
+    reason: HearingRepairReason;
+    prompt?: string;
+    language?: string;
+    transcript?: string;
+    confidence?: number;
+  }): Promise<{ text: string; ttsParams?: unknown } | undefined> {
+    const defaultUtterance =
+      repair.reason === 'empty' && repair.prompt ? { text: repair.prompt } : undefined;
+    const hook = this.options.voice.onHearingRepair;
+    if (!hook) {
+      return defaultUtterance;
+    }
+
+    let result: VoiceHearingRepairResult;
+    try {
+      result = await hook(this.options.ctx, {
+        reason: repair.reason,
+        transcript: repair.transcript,
+        confidence: repair.confidence,
+        language: repair.language,
+        sessionId: this.session.id,
+      });
+    } catch (error) {
+      console.error('[voice-session] onHearingRepair hook failed', {
+        sessionId: this.session.id,
+        reason: repair.reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return defaultUtterance;
+    }
+
+    if (result === undefined || result === null) {
+      return undefined;
+    }
+    const text = typeof result === 'string' ? result : result.text;
+    if (!text || text.trim().length === 0) {
+      return undefined;
+    }
+    const tone = typeof result === 'string' ? undefined : result.tone;
+    if (!tone) {
+      return { text };
+    }
+    const resolved = normalizeResolvedTone(this.options.voice, tone);
+    const mapped = mapDeliveryToneForProvider(this.options.ttsProvider, resolved);
+    return { text, ttsParams: mapped.providerParams };
+  }
+
+  async #runHearingRepair(
+    reason: HearingRepairReason,
+    utterance: { text: string; ttsParams?: unknown },
+  ): Promise<void> {
     if (this.#repairInFlight || this.#turnInFlight) {
       return;
     }
 
     this.#repairInFlight = true;
     this.#listening = false;
-    console.info('[voice-session] hearing repair', {
-      sessionId: this.session.id,
-      reason,
-      promptLength: prompt.length,
-    });
 
     try {
+      console.info('[voice-session] hearing repair', {
+        sessionId: this.session.id,
+        reason,
+        promptLength: utterance.text.length,
+      });
       setVoiceSessionState(this.session, 'Synthesizing');
       await this.options.onEvent(createAgentStateEvent('Synthesizing'));
       await speakDirectUtterance({
-        text: prompt,
+        text: utterance.text,
         ttsProvider: this.options.ttsProvider,
         transportProvider: this.options.transportProvider,
         onEvent: this.options.onEvent,
         onAudioChunk: this.options.onAudioChunk,
         abortSignal: this.#turnAbort?.signal,
+        ttsParams: utterance.ttsParams,
       });
-      await this.#recordAuxiliaryTtsCost(prompt, 'voice.hearing_repair');
+      await this.#recordAuxiliaryTtsCost(utterance.text, 'voice.hearing_repair');
     } finally {
       this.#repairInFlight = false;
       const queued = this.#turnQueuedWhileInFlight;

@@ -31,7 +31,8 @@ describe('recordLiveKitTransportCost', () => {
         connectionMinutes: 2,
         participantMinutes: 4,
       },
-      cost: 0.08,
+      // 4 participant-minutes × $0.0005 (LiveKit Cloud Ship-tier overage rate).
+      cost: 0.002,
     });
   });
 
@@ -42,6 +43,6 @@ describe('recordLiveKitTransportCost', () => {
         disconnectedAt: new Date('2026-01-01T00:02:00.000Z'),
         participantCount: 2,
       }),
-    ).toBe(0.08);
+    ).toBe(0.002);
   });
 });

@@ -35,14 +35,14 @@ Provider `usage()` may report vendor model IDs (`stt-rt-v5`, `dd-etts-3.2`). `re
 
 ## Persisting usage in app ledgers
 
-`AICostRecord` carries optional `mediaUsage` (seconds, characters, participant-minutes) alongside token counts. When writing to an app-owned ledger (for example via `onAICostRecorded`), call **`deriveLedgerUsage(record)`** from `@plumbus/core` to map the hook payload to `{ usageKind, usageQuantity, usageQuantitySecondary? }` — STT → `audio_seconds`, TTS → `characters`, transport → `participant_minutes`, otherwise → `llm_tokens` with provider-reported in/out tokens. Quantities are often fractional (for example `32.4` audio seconds); store them in decimal/double-precision columns, not integers.
+`AICostRecord` carries optional `mediaUsage` (seconds, characters, participant-minutes) alongside token counts. When writing to an app-owned ledger (for example via `onAICostRecorded`), call **`deriveLedgerUsage(record)`** from `@plumbus/core` to map the hook payload to `{ usageKind, usageQuantity, usageQuantitySecondary? }` — STT → `audio_seconds`, TTS → `characters` (or `audio_output_seconds` for per-minute-billed vendors like Deepdub), transport → `participant_minutes`, otherwise → `llm_tokens` with provider-reported in/out tokens. Quantities are often fractional (for example `32.4` audio seconds); store them in decimal/double-precision columns, not integers.
 
 ## Operations
 
 Use these `operation` values:
 
 - `transcribe` — STT
-- `synthesize` — TTS (including Deepdub instant-reference preview; characters = text length)
+- `synthesize` — TTS. Deepdub (0.1.4+) meters seconds of generated audio (`audio_output_seconds` in the ledger) — the vendor bills per minute of generated audio; direct-utterance paths (repair/replay) estimate seconds from characters at ~1,000 chars/min. Other TTS providers meter characters of input text.
 - `transport` — realtime session infrastructure
 - `clone` — persisted voice create/delete (`VoiceUsageKind: 'clone'`, typically `unit: 'events'`, quantity 1). Clone usage is recorded via usage helpers / observability even when no USD pricing row exists.
 

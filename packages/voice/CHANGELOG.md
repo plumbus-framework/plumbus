@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.5
+
+### Fixed
+
+- **Per-minute-audio pricing falls back to a character estimate** — `calculateVoiceCost` for `audioOutputSeconds`-priced models (Deepdub 0.1.4+) now converts `characters` at the vendor-published ~1,000 chars/min when no exact audio duration is available, so direct-utterance cost rows (hearing repair, replay) keep a nonzero estimate instead of silently recording $0.
+
+### Added
+
+- **`onHearingRepair` app hook on `defineVoice`** — hearing repair is now split into framework-owned mechanism and app-owned content. The session controller keeps only signal-level detection: an endpoint with no transcript after speech energy (`reason: 'empty'`) and any transcript below the configured confidence threshold (`reason: 'low_confidence'`). The hook is called with `{ reason, transcript?, confidence?, language?, sessionId }` and returns the text to speak (a bare string or `{ text, tone }`), or `undefined`/`null` to suppress the repair. A suppressed (or hookless) `low_confidence` signal lets the turn proceed normally with what was heard; `empty` without a hook keeps the built-in Hebrew/English default line (backwards compatible). The optional `tone` is resolved against `toneProfiles` and mapped through the TTS adapter's `mapDeliveryTone(...)` like a `resolveTone` result, so repair utterances can carry per-turn `targetGender` / `voiceId` delivery controls. A throwing hook falls back to the `empty` default line; for `low_confidence` there is no fallback — the turn simply proceeds.
+
+### Removed
+
+- **The proper-name content judgment from the framework** — `looksLikeUncertainProperName`, the `'uncertain_name'` repair reason, and the built-in "spell the name" lines are gone. Deciding that a transcript is a *name* is app-level content judgment; the framework now reports only the raw `low_confidence` signal and lets the app's `onHearingRepair` hook decide. **Migration:** apps that relied on the built-in spell-the-name behavior must implement it in `onHearingRepair` (the hook receives the raw transcript and confidence).
+
 ## 0.4.4
 
 ### Added

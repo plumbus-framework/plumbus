@@ -68,6 +68,7 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 | `DEEPDUB_BASE_URL` | no | Override REST base (default `https://restapi.deepdub.ai/api/v1`; EU: `https://eu-restapi.deepdub.ai/api/v1`) |
 | `DEEPDUB_VOICE_ID` | for live/smoke | Persisted `voicePromptId` |
 | `DEEPDUB_MODEL` | for live/smoke | Optional; defaults to `dd-etts-3.2` in the live test |
+| `DEEPDUB_USD_PER_MINUTE` | no | Ledger rate per minute of generated audio (Deepdub bills per generated minute against contract allotments; there is no public rate card). Default `0.143` (smallest published AI-agents tier's effective rate). Set your contract's real effective rate so ledger USD tracks real spend |
 
 ## Deepdub wire notes (from vendor skill)
 
