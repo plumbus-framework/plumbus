@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { createPlan02Harness, type Plan02Harness } from '../harness.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../harness.js';
 import {
   bumpTenantEpochOnDb,
   casAdvanceExecution,
@@ -12,14 +12,14 @@ import {
 import { ackSpineDispatch, claimSpineDispatch } from '../spine-claim.js';
 
 describe('Protocol A on two real databases', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('persists before publish, claims on the spine, and no-ops after epoch restore', async () => {
-    harness = await createPlan02Harness();
+    harness = await createDurableTestHarness();
     const nowIso = new Date().toISOString();
     const accepted = await persistAcceptanceOnDb(
       harness.tenantDb,

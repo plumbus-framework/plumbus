@@ -28,6 +28,7 @@ function makeCap(overrides: Partial<CapabilityContract> = {}): CapabilityContrac
     output: z.object({ amount: z.number() }),
     effects: { data: [], events: [], external: [], ai: false },
     handler: async () => ({ amount: 0 }),
+    exposeAs: ['api'],
     ...overrides,
   } as CapabilityContract;
 }
@@ -393,6 +394,32 @@ describe('generateClientModule', () => {
     const code = generateClientModule([makeCap()], [], { authModuleImport: './auth.js' });
     expect(code).toContain('import { getAuthHeaders } from "./auth.js"');
   });
+
+  it('omits capabilities that are not exposeAs api', () => {
+    const code = generateClientModule(
+      [makeCap({ name: 'closeTenant', exposeAs: undefined }), makeCap()],
+      [],
+    );
+    expect(code).toContain('export async function getInvoice');
+    expect(code).not.toContain('closeTenant');
+  });
+
+  it('omits mcp-only capabilities', () => {
+    const code = generateClientModule(
+      [makeCap({ name: 'agentTool', exposeAs: ['mcp'] }), makeCap()],
+      [],
+    );
+    expect(code).not.toContain('agentTool');
+    expect(code).toContain('getInvoice');
+  });
+
+  it('omits eventHandler capabilities even when exposeAs includes api', () => {
+    const code = generateClientModule(
+      [makeCap({ name: 'onUserCreated', kind: 'eventHandler', exposeAs: ['api'] })],
+      [],
+    );
+    expect(code).not.toContain('onUserCreated');
+  });
 });
 
 // ── generateHooksModule ──
@@ -423,5 +450,15 @@ describe('generateHooksModule', () => {
     const code = generateHooksModule(caps, { toastImport: 'my-toast-lib' });
     expect(code).toContain('import { toast } from "my-toast-lib"');
     expect(code).not.toContain('sonner');
+  });
+
+  it('omits hooks for capabilities that are not exposeAs api', () => {
+    const code = generateHooksModule([
+      makeCap({ name: 'closeTenant', exposeAs: undefined }),
+      makeCap(),
+    ]);
+    expect(code).toContain('useGetInvoice');
+    expect(code).not.toContain('closeTenant');
+    expect(code).not.toContain('useCloseTenant');
   });
 });

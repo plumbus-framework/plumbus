@@ -1,9 +1,9 @@
 import postgres from 'postgres';
 
-const PLAN02_DB = /^plumbus_plan02_[a-z0-9_]+$/;
-const tenant = process.env.PLAN02_TENANT_DB ?? '';
-if (!PLAN02_DB.test(tenant)) {
-  console.error('sigkill-chaos-child refuses a non-plan02 database');
+const DURABLE_TEST_DB = /^plumbus_durable_test_[a-z0-9_]+$/;
+const tenant = process.env.DURABLE_TEST_TENANT_DB ?? '';
+if (!DURABLE_TEST_DB.test(tenant)) {
+  console.error('sigkill-chaos-child refuses a non-durable-test database');
   process.exit(2);
 }
 
@@ -14,7 +14,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   process.exit(2);
 }
 
-const schema = process.env.PLAN02_CORE_SCHEMA ?? 'core_plumbus';
+const schema = process.env.DURABLE_TEST_CORE_SCHEMA ?? 'core_plumbus';
 if (!/^[a-z][a-z0-9_]*$/.test(schema)) {
   console.error('sigkill-chaos-child refuses an unsafe schema name');
   process.exit(2);

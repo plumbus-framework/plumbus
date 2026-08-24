@@ -1,4 +1,4 @@
-// Plan 02 Stage 1 executable model — Protocol A crash-matrix simulation.
+// Executable model — Protocol A crash-matrix simulation.
 // Two in-memory stores (tenant authoritative, spine reconstructible). Injected
 // crash at every ordered write boundary; recovery via orphan sweeps + workers.
 // This is not a second flow engine: it is the protocol proof the real engine

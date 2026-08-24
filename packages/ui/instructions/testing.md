@@ -40,6 +40,7 @@ const mockCap = {
   output: {} as any,
   effects: { data: [], events: [], external: [], ai: false },
   handler: async () => ({}),
+  exposeAs: ["api"],
 } as unknown as CapabilityContract;
 
 describe("generateTypedClient", () => {
@@ -91,6 +92,8 @@ describe("client and hook modules", () => {
   });
 });
 ```
+
+`generateClientModule` and `generateHooksModule` omit capabilities that are not `exposeAs: ['api']`. Include that field on fixtures when asserting generated fetch or hook names.
 
 ## Test auth generation
 

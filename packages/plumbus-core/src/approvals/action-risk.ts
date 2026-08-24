@@ -1,8 +1,8 @@
 /**
- * F-09 / DEC-14 action-risk vocabulary.
+ * Action-risk vocabulary.
  *
- * Single import for Plan 02 Stage 4. Values are the frozen three-tier set
- * (read-only, limited-reversible, consequential). Callers keep these names
+ * Single import point for the approval gate. Values are the frozen three-tier
+ * set (read-only, limited-reversible, consequential). Callers keep these names
  * if the host later swaps the catalog module.
  */
 
@@ -27,7 +27,7 @@ export const ReviewMandateReason = {
 
 export type ReviewMandateReason = (typeof ReviewMandateReason)[keyof typeof ReviewMandateReason];
 
-/** Retired DEC-14 values. defineCapability rejects these; do not accept at runtime. */
+/** Retired risk values. defineCapability rejects these; do not accept at runtime. */
 export const RETIRED_ACTION_RISK_VALUES = [
   'read',
   'routine-write',

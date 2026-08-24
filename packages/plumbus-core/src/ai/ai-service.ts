@@ -20,6 +20,7 @@ import type { AIExplainabilityTracker } from './explainability.js';
 import { fillPromptTemplate } from './fill-prompt-template.js';
 import { calculateModelCost } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
+import { createPromptRegistry } from './prompt-registry.js';
 import {
   type AIProviderAdapter,
   type AITool,
@@ -63,6 +64,13 @@ export interface AIServiceConfig {
   /** Which provider to use when a prompt doesn't specify one */
   defaultProvider: string;
   promptRegistry?: PromptRegistry;
+  /**
+   * Prompt definitions to register for this service. Convenience for hosts
+   * that assemble a service by hand (tests, local providers): the registry
+   * is built internally, so app code never constructs one itself. Merged
+   * onto `promptRegistry` when both are given.
+   */
+  prompts?: readonly PromptDefinition[];
   costTracker?: CostTracker;
   ragPipeline?: RAGPipeline;
   explainability?: AIExplainabilityTracker;
@@ -111,13 +119,24 @@ export function createAIService(config: AIServiceConfig): AIService {
   const {
     providers,
     defaultProvider,
-    promptRegistry,
+    promptRegistry: configuredPromptRegistry,
+    prompts,
     costTracker,
     ragPipeline,
     explainability,
     security,
     onAICostRecorded,
   } = config;
+  const promptRegistry =
+    prompts !== undefined
+      ? (() => {
+          const registry = configuredPromptRegistry ?? createPromptRegistry([]);
+          for (const prompt of prompts) {
+            if (!registry.has(prompt.name)) registry.register(prompt);
+          }
+          return registry;
+        })()
+      : configuredPromptRegistry;
   const responseSchemaCache = new WeakMap<z.ZodTypeAny, Record<string, unknown>>();
 
   function resolveProvider(providerName?: string): AIProviderAdapter {

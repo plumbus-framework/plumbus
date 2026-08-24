@@ -326,7 +326,7 @@ Re-dispatch an outbox event to the queue.
 
 ### plumbus compile-flows
 
-Compile `app/flows` `defineFlow` modules into signed FlowDefinition JSON (Plan 02 Stage 5 / D-02-2). Condition expressions and step IO mappings are hoisted into digested bindings. Recompiling an identical flow yields the same `definitionDigest`.
+Compile `app/flows` `defineFlow` modules into signed FlowDefinition JSON. Condition expressions and step IO mappings are hoisted into digested bindings. Recompiling an identical flow yields the same `definitionDigest`.
 
 `createServer` and `createWorkerPool` reload that directory on boot (or `compiledFlowsDirectory` / an explicit `compiledRegistry`). A tampered file whose stored digest no longer matches is refused. An empty or missing default directory leaves live TypeScript flows on.
 
@@ -501,7 +501,7 @@ plumbus ui generate [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--out-dir <path>` | `string` | auto-detected | Output directory: `frontend/` (or monorepo frontend) when present; otherwise `.plumbus/generated/ui` as a last-resort fallback |
+| `--out-dir <path>` | `string` | auto-detected `frontend/` | Output directory. Auto-detects `frontend/` (monorepo frontend, an existing `frontend/` folder, or `web`/`client`/`app` with `tsconfig.json`). Required when none of those exist — there is no last-resort write to `.plumbus/generated/ui`. |
 | `--base-url <url>` | `string` | `""` | Prefix for generated API calls |
 | `--auth-provider <provider>` | `string` | `jwt` | Auth provider used by generated auth helpers |
 | `--token-key <key>` | `string` | — | Storage key for generated auth helpers |
@@ -513,13 +513,15 @@ plumbus ui generate [options]
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
-- `lib/client.ts` — typed capability clients and flow triggers
-- `hooks/hooks.ts` — React hooks for capability invocation
+- `lib/client.ts` — typed fetch clients and flow triggers for capabilities with `exposeAs: ['api']` (event handlers omitted)
+- `hooks/hooks.ts` — React hooks for those same HTTP-exposed capabilities
 - `lib/auth.ts` — frontend auth helpers
-- `lib/form-hints.ts` — extracted form metadata from capability schemas
+- `lib/form-hints.ts` — extracted form metadata from those HTTP-exposed capability schemas
 - `i18n/*` — messages, config (`localeSchema` / Zod-backed `isLocale`), typed keys, `TranslatedText` brand, `global.ts` AppConfig, catalog-typed `useTranslations` (`t`/`markup` → `TranslatedText`), provider, request (when translation definitions exist)
 
-Output goes only to the resolved out-dir (`--out-dir`, or auto-detected `frontend/` / monorepo frontend). `.plumbus/generated/ui` is used solely when no frontend directory can be detected — it is not a secondary mirror of `frontend/`.
+Operator-only capabilities (no `exposeAs: ['api']`) are not given fetch or hook wrappers.
+
+Output goes only to `--out-dir` or a detected frontend directory. `.plumbus/generated/ui` is not used unless you pass `--out-dir` pointing there. It is not a secondary mirror of `frontend/`.
 
 When translations are present, generate runs the same coverage check as `plumbus translation status` and exits non-zero on incomplete locales unless `--skip-locale-parity` is set.
 

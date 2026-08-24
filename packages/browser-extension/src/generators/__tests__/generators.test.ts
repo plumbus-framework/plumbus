@@ -20,6 +20,7 @@ function makeCap(overrides: Partial<CapabilityContract> = {}): CapabilityContrac
     output: z.object({ items: z.array(z.string()) }),
     effects: { data: [], events: [], external: [], ai: false },
     handler: async () => ({ items: [] }),
+    exposeAs: ['api'],
     ...overrides,
   } as CapabilityContract;
 }

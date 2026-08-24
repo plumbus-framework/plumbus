@@ -1,15 +1,15 @@
-// ── Durable dispatch core (Plan 02 Stage 3 / Protocol A) ──
+// ── Durable dispatch core (Protocol A) ──
 // Tenant-DB-authoritative execution state plus a reconstructible spine hint.
 // This is the v1 field subset of execution-state.schema.json / opaque-dispatch
 // — not a second workflow engine. The existing flows engine will consume these
 // records; it is not replaced here.
 //
-// Contract fields v1 does not populate (filed to Plan 01 as F-12 relaxations):
+// Contract fields v1 does not populate:
 //   ExecutionState: budgetLedgerRefId, package, policySnapshotRefId,
 //     privateInput/OutputRefId, evidenceSetRefId, provenanceRefId,
 //     authorizationDecisionRefId on every step, required domainOutcomeId on
 //     infrastructure-failure terminals, human-task / approval / compensation
-//     refs (Stages 4 and 6).
+//     refs.
 //   Spine: no private payload by construction (additionalProperties: false).
 
 /** Operational states the v1 durable core persists. */
@@ -97,7 +97,7 @@ export interface TerminalStateRecord {
   operationalState: 'succeeded' | 'failed' | 'cancelled';
   finalRevision: number;
   completedAt: string;
-  /** Optional in v1 (F-12); required in the draft contract. */
+  /** Optional in v1; required in the draft contract. */
   domainOutcomeId?: string;
 }
 

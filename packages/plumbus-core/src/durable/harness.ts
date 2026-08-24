@@ -1,5 +1,5 @@
-// Two-database Plan 02 harness against local Postgres (no Docker).
-// Creates only plumbus_plan02_* databases and drops them on close.
+// Two-database durable test harness against local Postgres (no Docker).
+// Creates only plumbus_durable_test_* databases and drops them on close.
 
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomBytes } from 'node:crypto';
@@ -10,13 +10,13 @@ import {
   eventDeliveryDdl,
   eventOutboxDdl,
   flowExecutionsDdl,
-  PLAN02_DB_NAME_PATTERN,
+  DURABLE_TEST_DB_PATTERN,
   spineDispatchDdl,
   tenantDurableDdl,
 } from './apply-ddl.js';
 import { resolveTestPostgresAdmin, type TestPostgresAdmin } from './pg-env.js';
 
-export interface Plan02Harness {
+export interface DurableTestHarness {
   admin: TestPostgresAdmin;
   spineName: string;
   tenantName: string;
@@ -49,7 +49,7 @@ async function applyStatements(client: postgres.Sql, ddl: string): Promise<void>
 }
 
 async function dropHarnessDatabase(admin: TestPostgresAdmin, name: string): Promise<void> {
-  const safe = assertSafeIdentifier(name, 'database', PLAN02_DB_NAME_PATTERN);
+  const safe = assertSafeIdentifier(name, 'database', DURABLE_TEST_DB_PATTERN);
   const quoted = quoteIdentifier(safe);
   const client = adminClient(admin);
   try {
@@ -62,16 +62,16 @@ async function dropHarnessDatabase(admin: TestPostgresAdmin, name: string): Prom
   }
 }
 
-export async function createPlan02Harness(options?: {
+export async function createDurableTestHarness(options?: {
   coreSchema?: string;
   includeFlowExecutions?: boolean;
   includeEventOutbox?: boolean;
   includeEventDelivery?: boolean;
-}): Promise<Plan02Harness> {
+}): Promise<DurableTestHarness> {
   const admin = resolveTestPostgresAdmin();
   const suffix = randomBytes(4).toString('hex');
-  const spineName = `plumbus_plan02_spine_${suffix}`;
-  const tenantName = `plumbus_plan02_tenant_${suffix}`;
+  const spineName = `plumbus_durable_test_spine_${suffix}`;
+  const tenantName = `plumbus_durable_test_tenant_${suffix}`;
   const coreSchema = options?.coreSchema ?? FRAMEWORK_SCHEMA;
 
   const bootstrap = adminClient(admin);
@@ -123,15 +123,15 @@ export async function createPlan02Harness(options?: {
   };
 }
 
-export async function createPlan02Database(options: {
+export async function createDurableTestDatabase(options: {
   admin?: TestPostgresAdmin;
   kind: string;
   ddl: string;
 }): Promise<{ name: string; db: PostgresJsDatabase; close(): Promise<void> }> {
   const admin = options.admin ?? resolveTestPostgresAdmin();
   const suffix = randomBytes(4).toString('hex');
-  const name = `plumbus_plan02_${options.kind}_${suffix}`;
-  const safe = assertSafeIdentifier(name, 'database', PLAN02_DB_NAME_PATTERN);
+  const name = `plumbus_durable_test_${options.kind}_${suffix}`;
+  const safe = assertSafeIdentifier(name, 'database', DURABLE_TEST_DB_PATTERN);
   const bootstrap = adminClient(admin);
   try {
     await bootstrap.unsafe(`CREATE DATABASE ${quoteIdentifier(safe)}`);

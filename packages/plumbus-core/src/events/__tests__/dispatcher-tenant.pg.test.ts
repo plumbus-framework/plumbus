@@ -3,9 +3,9 @@ import { sql } from 'drizzle-orm';
 import { createSingleDataPlaneResolver } from '../../tenancy/data-plane-resolver.js';
 import type { DataPlaneResolver } from '../../tenancy/types.js';
 import {
-  createPlan02Database,
-  createPlan02Harness,
-  type Plan02Harness,
+  createDurableTestDatabase,
+  createDurableTestHarness,
+  type DurableTestHarness,
 } from '../../durable/harness.js';
 import { eventOutboxDdl, tenantDurableDdl } from '../../durable/apply-ddl.js';
 import { persistAcceptanceOnDb } from '../../durable/postgres-persist.js';
@@ -13,8 +13,8 @@ import { createOutboxDispatcher } from '../dispatcher.js';
 import { createInMemoryQueue } from '../queue.js';
 
 describe('Per-tenant outbox pump on two real databases', () => {
-  let harness: Plan02Harness;
-  let tenant2: { name: string; db: Plan02Harness['tenantDb']; close(): Promise<void> };
+  let harness: DurableTestHarness;
+  let tenant2: { name: string; db: DurableTestHarness['tenantDb']; close(): Promise<void> };
 
   afterAll(async () => {
     await tenant2?.close();
@@ -22,8 +22,8 @@ describe('Per-tenant outbox pump on two real databases', () => {
   });
 
   it('drains event_outbox and dispatch_outbox per resolved tenant', async () => {
-    harness = await createPlan02Harness({ includeEventOutbox: true });
-    tenant2 = await createPlan02Database({
+    harness = await createDurableTestHarness({ includeEventOutbox: true });
+    tenant2 = await createDurableTestDatabase({
       admin: harness.admin,
       kind: 'tenant',
       ddl: `${tenantDurableDdl(harness.coreSchema)}\n${eventOutboxDdl()}`,

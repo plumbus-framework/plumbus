@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlumbusConfig } from '../../types/config.js';
 import type { LoggerService } from '../../types/context.js';
@@ -216,6 +219,66 @@ describe('Server Bootstrap', () => {
         logger.error.mock.calls,
       ]);
       expect(logged).not.toContain(password);
+    });
+
+    it('wires a filesystem governed artifact store onto request dependencies without dropping credentials', () => {
+      const password = 'smtp-boot-pass-not-for-logs';
+      const logger: LoggerService = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      };
+      const credentials = createMemoryCredentialCatalog({
+        types: [
+          {
+            id: 'smtp',
+            fields: [
+              { name: 'host', secret: false },
+              { name: 'password', secret: true },
+            ],
+          },
+        ],
+        resolve: () => ({ host: 'mail.test', password }),
+      });
+      credentials.bind({
+        name: 'outbound-mail',
+        typeId: 'smtp',
+        ref: 'secret:smtp/outbound-mail#r1',
+      });
+      const directory = mkdtempSync(join(tmpdir(), 'plumbus-server-artifacts-'));
+      try {
+        const server = createServer(
+          makeServerConfig({ credentials, logger, artifactsDirectory: directory }),
+        );
+        expect(server.credentials).toBe(credentials);
+        expect(server.artifacts).toBeDefined();
+        const published = server.artifacts?.publish({
+          kind: 'prompt',
+          id: 'boot.prompt',
+          body: 'Keep this text.',
+        });
+        expect(published?.digest).toMatch(/^[0-9a-f]{64}$/);
+        const routeConfig = (registerAllRoutes as any).mock.calls.at(-1)?.[2];
+        const deps = routeConfig?.createDependencies({
+          userId: 'user-1',
+          tenantId: 'tenant-1',
+          roles: ['admin'],
+          scopes: [],
+          provider: 'test',
+        });
+        expect(deps.artifacts).toBe(server.artifacts);
+        expect(JSON.stringify([logger.debug.mock.calls, logger.info.mock.calls])).not.toContain(
+          password,
+        );
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
+    it('leaves artifacts unwired when the default directory is absent', () => {
+      const server = createServer(makeServerConfig());
+      expect(server.artifacts).toBeUndefined();
     });
 
     it('registers /health endpoint', () => {

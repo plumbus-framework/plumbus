@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { extraHarnessConnection, createPlan02Harness, type Plan02Harness } from '../harness.js';
+import { extraHarnessConnection, createDurableTestHarness, type DurableTestHarness } from '../harness.js';
 import { ackSpineDispatch, claimSpineDispatch, upsertSpineDispatch } from '../spine-claim.js';
 import { createOpaqueDispatchRecord } from '../opaque-dispatch.js';
 import { SpineDeliveryState } from '../types.js';
@@ -28,14 +28,14 @@ function hint(overrides: Partial<Parameters<typeof createOpaqueDispatchRecord>[0
 }
 
 describe('spine SKIP LOCKED claim on real Postgres', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('gives each concurrent worker a different row and skips an unexpired lease', async () => {
-    harness = await createPlan02Harness();
+    harness = await createDurableTestHarness();
     await upsertSpineDispatch(
       harness.spineDb,
       hint({ dispatchId: 'disp-a', executionId: 'exec-a', expectedRevision: 1 }),

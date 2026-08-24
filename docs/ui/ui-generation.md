@@ -148,7 +148,7 @@ function generateClientModule(
 ): string;
 ```
 
-The generated client file starts with shared Plumbus API error helpers, then emits `{PascalName}Input` and `{PascalName}Output` aliases for each capability. After the types, it emits one fetch function per capability and one trigger function per flow descriptor.
+The generated client file starts with shared Plumbus API error helpers, then emits `{PascalName}Input` and `{PascalName}Output` aliases for each HTTP-exposed capability (`exposeAs: ['api']`; event handlers are omitted). After the types, it emits one fetch function per those capabilities and one trigger function per flow descriptor. Capabilities without `exposeAs: ['api']` are not given fetch wrappers.
 
 For a query capability named `getUser` in domain `users`, the generated client function is named `getUser` and sends a `GET` request to `/api/users/get-user`. Inputs are serialized through `URLSearchParams`. Action and job capabilities use `POST` and send `JSON.stringify(input)` in the request body.
 

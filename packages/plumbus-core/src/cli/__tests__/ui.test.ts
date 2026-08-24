@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
@@ -9,6 +12,7 @@ import {
   generateNextjsAppFiles,
   generateUiModuleFiles,
   resolveE2eBaseUrl,
+  resolveGenerateOutDir,
   resolveUiApiBaseUrl,
   type UiGeneratorModule,
 } from '../commands/ui.js';
@@ -73,6 +77,42 @@ describe('plumbus ui helpers', () => {
       'lib/auth.ts',
       'lib/form-hints.ts',
     ]);
+  });
+
+  it('passes only exposeAs api capabilities to client, hooks, and form-hint generators', () => {
+    let clientCaps: CapabilityContract[] = [];
+    let hookCaps: CapabilityContract[] = [];
+    let formCaps: CapabilityContract[] = [];
+    const generators: UiGeneratorModule = {
+      ...mockUiGenerators(),
+      generateClientModule: (caps) => {
+        clientCaps = caps;
+        return 'client-module';
+      },
+      generateHooksModule: (caps) => {
+        hookCaps = caps;
+        return 'hooks-module';
+      },
+      generateFormHintsModule: (caps) => {
+        formCaps = caps;
+        return 'form-hints-module';
+      },
+    };
+
+    const http = mockCapability({ name: 'listUsers', exposeAs: ['api'] });
+    const operator = mockCapability({ name: 'closeTenant' });
+    const mcpOnly = mockCapability({ name: 'agentTool', exposeAs: ['mcp'] });
+    const event = mockCapability({
+      name: 'onSomething',
+      kind: 'eventHandler',
+      exposeAs: ['api'],
+    });
+
+    generateUiModuleFiles([http, operator, mcpOnly, event], [], generators, {});
+
+    expect(clientCaps.map((cap) => cap.name)).toEqual(['listUsers']);
+    expect(hookCaps.map((cap) => cap.name)).toEqual(['listUsers']);
+    expect(formCaps.map((cap) => cap.name)).toEqual(['listUsers']);
   });
 
   it('generates a Next.js scaffold with generated modules', () => {
@@ -241,6 +281,68 @@ describe('resolveE2eBaseUrl', () => {
 
   it('rejects missing values', () => {
     expect(() => resolveE2eBaseUrl(undefined, {})).toThrow(/--base-url is required/);
+  });
+});
+
+describe('resolveGenerateOutDir', () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plumbus-ui-outdir-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tmpDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    tmpDirs.length = 0;
+  });
+
+  it('uses an explicit --out-dir, including .plumbus/generated/ui', () => {
+    const cwd = makeTmpDir();
+    expect(resolveGenerateOutDir('.plumbus/generated/ui', cwd)).toBe('.plumbus/generated/ui');
+    expect(resolveGenerateOutDir('custom-ui', cwd)).toBe('custom-ui');
+  });
+
+  it('prefers --out-dir over a detected frontend/', () => {
+    const cwd = makeTmpDir();
+    fs.mkdirSync(path.join(cwd, 'frontend'));
+    expect(resolveGenerateOutDir('other', cwd)).toBe('other');
+  });
+
+  it('detects an existing frontend/ directory', () => {
+    const cwd = makeTmpDir();
+    fs.mkdirSync(path.join(cwd, 'frontend'));
+    expect(resolveGenerateOutDir(undefined, cwd)).toBe('frontend');
+  });
+
+  it('detects web/ with tsconfig.json when frontend/ is absent', () => {
+    const cwd = makeTmpDir();
+    fs.mkdirSync(path.join(cwd, 'web'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, 'web', 'tsconfig.json'), '{}');
+    expect(resolveGenerateOutDir(undefined, cwd)).toBe('web');
+  });
+
+  it('detects a Plumbus monorepo frontend package', () => {
+    const cwd = makeTmpDir();
+    fs.writeFileSync(path.join(cwd, 'pnpm-workspace.yaml'), 'packages:\n  - "backend"\n');
+    fs.mkdirSync(path.join(cwd, 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, 'backend', 'package.json'), '{}');
+    expect(resolveGenerateOutDir(undefined, cwd)).toBe('frontend');
+  });
+
+  it('refuses a last-resort write to .plumbus/generated/ui', () => {
+    const cwd = makeTmpDir();
+    fs.mkdirSync(path.join(cwd, '.plumbus', 'generated', 'ui'), { recursive: true });
+    expect(() => resolveGenerateOutDir(undefined, cwd)).toThrow(
+      /--out-dir is required.*\.plumbus\/generated\/ui/,
+    );
+  });
+
+  it('treats a blank --out-dir as missing', () => {
+    expect(() => resolveGenerateOutDir('  ', makeTmpDir())).toThrow(/--out-dir is required/);
   });
 });
 

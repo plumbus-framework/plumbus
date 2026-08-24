@@ -5,7 +5,7 @@
 
 // ── Audit ──
 export type { AuditRecord, AuditService } from './audit.js';
-// ── Action risk (F-09 placeholder; single import) ──
+// ── Action risk (single import) ──
 export {
   ActionRiskTier,
   ReviewMandateReason,

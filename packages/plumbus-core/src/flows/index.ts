@@ -8,7 +8,7 @@
 // ── Flow Registry ──
 export { FlowRegistry } from './registry.js';
 
-// ── Compiled definitions (Plan 02 Stage 5) ──
+// ── Compiled definitions ──
 export {
   CompiledFlowRegistry,
   DEFAULT_COMPILED_FLOWS_DIRECTORY,

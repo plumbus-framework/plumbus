@@ -2,22 +2,22 @@ import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createPlan02Harness, type Plan02Harness } from '../harness.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../harness.js';
 import { listUnpublishedOutbox, loadExecutionState } from '../postgres-persist.js';
 import { resolveTestPostgresAdmin } from '../pg-env.js';
 
 const CHILD = join(dirname(fileURLToPath(import.meta.url)), 'sigkill-chaos-child.mjs');
-const RUN_SIGKILL = process.env.PLUMBUS_PLAN02_RUN_SIGKILL === '1';
+const RUN_SIGKILL = process.env.PLUMBUS_DURABLE_TEST_RUN_SIGKILL === '1';
 
 describe('SIGKILL chaos on two local Postgres DBs', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('rolls back an uncommitted persist-before-ack when the writer is SIGKILL-ed', async () => {
-    harness = await createPlan02Harness();
+    harness = await createDurableTestHarness();
     if (!RUN_SIGKILL) {
       expect(
         await loadExecutionState(harness.tenantDb, 'exec-sigkill', harness.coreSchema),
@@ -29,8 +29,8 @@ describe('SIGKILL chaos on two local Postgres DBs', () => {
     const child = spawn('nice', ['-n', '15', 'node', CHILD], {
       env: {
         ...process.env,
-        PLAN02_TENANT_DB: harness.tenantName,
-        PLAN02_CORE_SCHEMA: harness.coreSchema,
+        DURABLE_TEST_TENANT_DB: harness.tenantName,
+        DURABLE_TEST_CORE_SCHEMA: harness.coreSchema,
         PLUMBUS_TEST_PG_PORT: String(admin.port),
         PLUMBUS_TEST_PG_HOST: admin.host,
         PLUMBUS_TEST_PG_USER: admin.user,

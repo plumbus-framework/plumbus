@@ -237,6 +237,7 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     withTransaction: deps.withTransaction,
     approvals: deps.approvals,
     authorizationProvider: deps.authorizationProvider,
+    artifacts: deps.artifacts,
   };
 
   const ctx: ExecutionContext = {

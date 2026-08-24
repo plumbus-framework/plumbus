@@ -123,14 +123,14 @@ describe('registerCapabilityRoute', () => {
     const config = makeMockConfig();
     const cap = makeCapability({
       kind: 'action',
-      name: 'create_install_enrollment',
+      name: 'create_widget_order',
       domain: 'identity',
     });
 
     registerCapabilityRoute(app as any, cap, config);
 
     expect(app.post).toHaveBeenCalledTimes(1);
-    expect(app.post.mock.calls[0]?.[0]).toBe('/api/identity/create-install-enrollment');
+    expect(app.post.mock.calls[0]?.[0]).toBe('/api/identity/create-widget-order');
   });
 
   it('skips eventHandler capabilities', () => {

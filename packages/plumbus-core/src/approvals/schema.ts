@@ -1,9 +1,9 @@
-// Tenant-local human-task / approval tables (Plan 02 Stage 4).
+// Tenant-local human-task / approval tables.
 // v1 field subset of human-task.schema.json — opaque contract refs omitted
 // until a host populates them honestly.
 //
 // Listed in FRAMEWORK_TABLE_NAMES. Shipped SQL lives in
-// packages/plumbus-core/migrations/durable-tenant/0001_plan02_human_task.sql.
+// packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql.
 // Apply on dedicated harness DBs only; never on application tenant databases.
 
 import { index, text, timestamp } from 'drizzle-orm/pg-core';

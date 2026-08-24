@@ -35,15 +35,19 @@ export {
   eventDeliveryDdl,
   eventOutboxDdl,
   flowExecutionsDdl,
-  PLAN02_DB_NAME_PATTERN,
+  DURABLE_TEST_DB_PATTERN,
   qualifyTable,
   spineDispatchDdl,
   tenantApprovalDdl,
   tenantDurableDdl,
   tenantEpochTableDdl,
 } from './apply-ddl.js';
-export { createPlan02Database, extraHarnessConnection, createPlan02Harness } from './harness.js';
-export type { Plan02Harness } from './harness.js';
+export {
+  createDurableTestDatabase,
+  extraHarnessConnection,
+  createDurableTestHarness,
+} from './harness.js';
+export type { DurableTestHarness } from './harness.js';
 export {
   FRAMEWORK_DURABLE_TENANT_MIGRATIONS,
   FRAMEWORK_SPINE_MIGRATIONS,

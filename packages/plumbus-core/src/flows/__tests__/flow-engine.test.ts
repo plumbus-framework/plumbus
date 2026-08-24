@@ -1302,7 +1302,7 @@ function v1Flow() {
   });
 }
 
-describe('FlowEngine — approval-outcome (D-02-3)', () => {
+describe('FlowEngine — approval-outcome', () => {
   it('routes the next step from the Stage 4 approval decision', async () => {
     const flow = defineFlow({
       name: 'refund',

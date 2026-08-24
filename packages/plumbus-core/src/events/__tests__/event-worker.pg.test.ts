@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createPlan02Harness, type Plan02Harness } from '../../durable/harness.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../../durable/harness.js';
 import { createSingleDataPlaneResolver } from '../../tenancy/data-plane-resolver.js';
 import { ConsumerRegistry } from '../consumer-registry.js';
 import { createIdempotencyService } from '../idempotency.js';
@@ -8,14 +8,14 @@ import { createInMemoryQueue } from '../queue.js';
 import { createEventWorker } from '../worker.js';
 
 describe('Event worker + idempotency on a tenant data plane', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('records idempotency and dead-letter on the tenant db, not the spine', async () => {
-    harness = await createPlan02Harness({ includeEventDelivery: true });
+    harness = await createDurableTestHarness({ includeEventDelivery: true });
     const resolver = createSingleDataPlaneResolver(harness.tenantDb, {
       coreSchema: harness.coreSchema,
     });

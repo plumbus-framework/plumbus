@@ -27,7 +27,7 @@ export const FlowStepType = {
   Delay: 'delay',
   Parallel: 'parallel',
   EventEmit: 'eventEmit',
-  /** D-02-3: route on a Stage 4 approval decision outcome. */
+  /** Route on an approval decision outcome. */
   ApprovalOutcome: 'approval-outcome',
 } as const;
 

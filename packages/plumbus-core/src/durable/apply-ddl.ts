@@ -3,7 +3,7 @@
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import { assertSafeIdentifier, quoteIdentifier } from '../tenancy/data-plane-provisioning.js';
 
-export const PLAN02_DB_NAME_PATTERN = /^plumbus_plan02_[a-z0-9_]+$/;
+export const DURABLE_TEST_DB_PATTERN = /^plumbus_durable_test_[a-z0-9_]+$/;
 
 export function qualifyTable(schemaName: string | undefined, tableName: string): string {
   const table = quoteIdentifier(assertSafeIdentifier(tableName, 'table'));

@@ -1,5 +1,5 @@
 // ── plumbus compile-flows ──
-// Compile defineFlow modules into signed FlowDefinition JSON (D-02-2).
+// Compile defineFlow modules into signed FlowDefinition JSON.
 
 import type { Command } from 'commander';
 import * as fs from 'node:fs';

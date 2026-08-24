@@ -8,8 +8,8 @@ import { ActionRiskTier } from '../../approvals/action-risk.js';
 import { createMemoryApprovalStore } from '../../approvals/memory-store.js';
 import { createApprovalService } from '../../approvals/service.js';
 import { defineFlow } from '../../define/defineFlow.js';
-import { PLAN02_DB_NAME_PATTERN } from '../../durable/apply-ddl.js';
-import { createPlan02Harness, type Plan02Harness } from '../../durable/harness.js';
+import { DURABLE_TEST_DB_PATTERN } from '../../durable/apply-ddl.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../../durable/harness.js';
 import { createSingleDataPlaneResolver } from '../../tenancy/data-plane-resolver.js';
 import { FlowStepType } from '../../types/enums.js';
 import type { FlowDefinition } from '../../types/flow.js';
@@ -124,18 +124,16 @@ function compileStable(flow: FlowDefinition) {
 }
 
 describe('E5 three-flow compiled harness', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('runs three compiled example flows on the two-DB harness; pin, approval-outcome, migrate refuse', async () => {
-    harness = await createPlan02Harness();
-    expect(harness.spineName).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(harness.tenantName).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(harness.spineName).not.toMatch(/tenant_qv/);
-    expect(harness.tenantName).not.toMatch(/tenant_qv/);
+    harness = await createDurableTestHarness();
+    expect(harness.spineName).toMatch(DURABLE_TEST_DB_PATTERN);
+    expect(harness.tenantName).toMatch(DURABLE_TEST_DB_PATTERN);
 
     const a = flowA();
     const b = flowB();

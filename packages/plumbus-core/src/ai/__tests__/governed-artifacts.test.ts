@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import {
   createMemoryGovernedArtifactStore,
   digestGovernedArtifact,
   GovernedArtifactConflictError,
+  resolveGovernedArtifactStore,
   type GovernedArtifactStore,
 } from '../governed-artifacts.js';
 
@@ -239,5 +240,43 @@ describe('createFilesystemGovernedArtifactStore', () => {
     expect(() => createFilesystemGovernedArtifactStore({ directory: '   ' })).toThrow(
       /requires a directory/,
     );
+  });
+});
+
+describe('resolveGovernedArtifactStore', () => {
+  const directories: string[] = [];
+
+  afterEach(() => {
+    for (const directory of directories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('returns an explicit store unchanged', () => {
+    const store = createMemoryGovernedArtifactStore();
+    expect(resolveGovernedArtifactStore({ artifacts: store })).toBe(store);
+  });
+
+  it('opens artifactsDirectory even when the folder is new', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'plumbus-resolve-artifacts-'));
+    directories.push(directory);
+    const store = resolveGovernedArtifactStore({ artifactsDirectory: directory });
+    expect(store).toBeDefined();
+    const published = store?.publish({
+      kind: 'prompt',
+      id: 'resolve.prompt',
+      body: 'Keep this text.',
+    });
+    expect(published?.digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('opens the default directory only when it already exists', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'plumbus-resolve-cwd-'));
+    directories.push(cwd);
+    expect(resolveGovernedArtifactStore({ cwd })).toBeUndefined();
+    const defaultDir = join(cwd, '.plumbus/governed-artifacts');
+    mkdirSync(defaultDir, { recursive: true });
+    const store = resolveGovernedArtifactStore({ cwd });
+    expect(store).toBeDefined();
   });
 });

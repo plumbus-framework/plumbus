@@ -13,7 +13,7 @@ import {
 } from '../postgres-persist.js';
 import { ackSpineDispatch, claimSpineDispatch, upsertSpineDispatch } from '../spine-claim.js';
 import { DEFAULT_PRIORITY_CLASS_ID, DEFAULT_WORK_CLASS_ID, SpineDeliveryState } from '../types.js';
-import { createPlan02Harness, type Plan02Harness } from '../harness.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../harness.js';
 
 /**
  * E3.5 chaos on two local Postgres DBs. Every persist checkpoint is exercised
@@ -23,7 +23,7 @@ import { createPlan02Harness, type Plan02Harness } from '../harness.js';
  * skipped here (leftover backends can block DROP DATABASE).
  */
 describe('E3.5 Protocol A chaos on two databases', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
@@ -46,7 +46,7 @@ describe('E3.5 Protocol A chaos on two databases', () => {
   }
 
   it('covers persist checkpoints, duplicate/delayed dispatch, and restore-as-chaos', async () => {
-    harness = await createPlan02Harness();
+    harness = await createDurableTestHarness();
     const schema = harness.coreSchema;
     const nowIso = new Date().toISOString();
 

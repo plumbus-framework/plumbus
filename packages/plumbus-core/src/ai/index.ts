@@ -46,7 +46,7 @@ export {
   type ModelRate,
 } from './model-pricing.js';
 // Prompt registry
-export { PromptRegistry } from './prompt-registry.js';
+export { PromptRegistry, createPromptRegistry } from './prompt-registry.js';
 // Provider adapters
 export {
   createAnthropicAdapter,
@@ -132,16 +132,20 @@ export {
 export { checkGovernedBudget } from './governed-budget.js';
 export type { GovernedBudgetInput } from './governed-budget.js';
 export {
+  DEFAULT_GOVERNED_ARTIFACTS_DIRECTORY,
   createFilesystemGovernedArtifactStore,
   createMemoryGovernedArtifactStore,
   digestGovernedArtifact,
   GovernedArtifactConflictError,
+  resolveGovernedArtifactStore,
 } from './governed-artifacts.js';
 export type {
+  FilesystemGovernedArtifactStoreConfig,
   GovernedArtifact,
   GovernedArtifactKind,
   GovernedArtifactStore,
   PublishedGovernedArtifact,
+  ResolveGovernedArtifactStoreOptions,
 } from './governed-artifacts.js';
 export type {
   GovernedAiHost,

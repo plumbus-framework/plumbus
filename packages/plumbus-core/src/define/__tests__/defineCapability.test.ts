@@ -46,7 +46,7 @@ describe('defineCapability', () => {
     expect(cap.audit?.event).toBe('user.fetched');
   });
 
-  it('accepts F-09 risk tiers', () => {
+  it('accepts action-risk tiers', () => {
     const cap = defineCapability({
       ...validConfig(),
       riskTier: 'consequential',

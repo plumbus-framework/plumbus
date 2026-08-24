@@ -6,7 +6,7 @@ import {
   RETIRED_ACTION_RISK_VALUES,
 } from '../action-risk.js';
 
-describe('F-09 action-risk vocabulary', () => {
+describe('Action-risk vocabulary', () => {
   it('accepts the frozen catalog tiers only', () => {
     expect(isActionRiskTier('read-only')).toBe(true);
     expect(isActionRiskTier('limited-reversible')).toBe(true);

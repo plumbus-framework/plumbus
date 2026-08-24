@@ -1,6 +1,6 @@
 export const hebrewTranscriptFixtures = Object.freeze({
   greeting: 'שלום עולם',
-  interviewerPrompt: 'ספרי לי על הילדות שלך.',
+  conversationPrompt: 'ספרי לי על היום שלך.',
   mixedSentence: 'שלום עולם. More details follow.',
 });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`generateClientModule` and `generateHooksModule` skip capabilities that are not `exposeAs: ['api']`**, and skip `eventHandler` even when they are. Callers that pass a mixed registry get HTTP wrappers only for HTTP-exposed operations. Regenerate with `plumbus ui generate`.
+
 ## 0.7.3
 
 ### Fixed

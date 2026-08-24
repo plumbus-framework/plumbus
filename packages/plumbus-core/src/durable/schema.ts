@@ -4,7 +4,7 @@
 // (reconstructible hints) and stay unqualified by default.
 //
 // SQL migrations live in packages/plumbus-core/migrations/. The two-DB harness
-// applies equivalent DDL to dedicated plumbus_plan02_* databases only.
+// applies equivalent DDL to dedicated plumbus_durable_test_* databases only.
 
 import { boolean, index, integer, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { resolveFrameworkSchema, tableBuilderFor } from '../data/schema-generator.js';

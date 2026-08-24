@@ -36,7 +36,7 @@ const clientCode = generateClientModule(capabilities, flows, {
 });
 ```
 
-The generated client module contains shared API error helpers, TypeScript aliases for each capability input/output schema, one fetch function per capability, and one trigger function per flow descriptor. Query capabilities are emitted as `GET` requests with query parameters. Action and job capabilities are emitted as `POST` requests with JSON request bodies.
+The generated client module contains shared API error helpers, TypeScript aliases for each HTTP-exposed (`exposeAs: ['api']`) capability input/output schema, one fetch function per those capabilities, and one trigger function per flow descriptor. Capabilities without `exposeAs: ['api']` are omitted, as are event handlers. Query capabilities are emitted as `GET` requests with query parameters. Action and job capabilities are emitted as `POST` requests with JSON request bodies.
 
 ### React hooks
 

@@ -1,4 +1,4 @@
-// Postgres admin coordinates for Plan 02 harness tests.
+// Postgres admin coordinates for durable harness tests.
 // Every port comes from the environment — never a literal in source.
 
 export interface TestPostgresAdmin {
@@ -15,7 +15,7 @@ export function resolveTestPostgresAdmin(
   const portRaw = env.PLUMBUS_TEST_PG_PORT ?? env.PGPORT ?? env.DB_PORT;
   if (!portRaw?.trim()) {
     throw new Error(
-      'Plan 02 harness needs a Postgres port from PLUMBUS_TEST_PG_PORT, PGPORT, or DB_PORT',
+      'Durable test harness needs a Postgres port from PLUMBUS_TEST_PG_PORT, PGPORT, or DB_PORT',
     );
   }
   const port = Number(portRaw);

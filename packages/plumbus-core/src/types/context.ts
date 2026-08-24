@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
+import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
 import type {
   AITool,
@@ -603,6 +604,8 @@ export interface ExecutionRuntimeMetadata {
   approvals?: ApprovalService;
   /** Optional host gate. Revalidates after an approval wait. */
   authorizationProvider?: AuthorizationProvider;
+  /** Governed prompt/policy store when createServer or the worker pool resolved one. */
+  artifacts?: GovernedArtifactStore;
 }
 
 // ── Security Service ──
@@ -657,6 +660,7 @@ export interface ContextDependencies {
   withTransaction?: WithTransactionFn;
   approvals?: ExecutionRuntimeMetadata['approvals'];
   authorizationProvider?: ExecutionRuntimeMetadata['authorizationProvider'];
+  artifacts?: ExecutionRuntimeMetadata['artifacts'];
 }
 
 // ── Request Metadata ──

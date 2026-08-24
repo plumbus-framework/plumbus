@@ -42,7 +42,7 @@ export interface EventEmitStep extends BaseFlowStep {
   event: RegisteredEventName;
 }
 
-/** D-02-3 routes keyed by Stage 4 `ApprovalDecisionOutcome`. */
+/** Routes keyed by `ApprovalDecisionOutcome`. */
 export interface ApprovalOutcomeRoutes {
   approved?: string;
   rejected?: string;
@@ -85,7 +85,7 @@ export const ScheduleCatchUpPolicy = {
 export type ScheduleCatchUpPolicy =
   (typeof ScheduleCatchUpPolicy)[keyof typeof ScheduleCatchUpPolicy];
 
-/** Per-execution budget v1 (D-02-5). */
+/** Per-execution budget v1. */
 export interface FlowBudget {
   profileId: string;
   allocated: number;
@@ -128,7 +128,7 @@ export interface FlowDefinition<
    */
   version?: string;
 
-  /** Per-execution budget (D-02-5). Stored on execution state as `__budget`. */
+  /** Per-execution budget. Stored on execution state as `__budget`. */
   budget?: FlowBudget;
 }
 
@@ -137,7 +137,7 @@ export type CompiledBindingKind = 'condition' | 'input-mapping';
 
 /**
  * Named, individually digested binding. Inline expressions are prohibited
- * in the signed artifact; the compiler hoists them here (D-02-2).
+ * in the signed artifact; the compiler hoists them here.
  */
 export interface CompiledBinding {
   bindingId: string;
@@ -166,7 +166,7 @@ export interface CompiledFlowStep {
 }
 
 /**
- * Compiled, digest-addressed flow definition (Plan 02 Stage 5 v1 subset).
+ * Compiled, digest-addressed flow definition (v1 subset).
  * The live TypeScript `FlowDefinition` remains the authoring model.
  */
 export interface CompiledFlowDefinition {

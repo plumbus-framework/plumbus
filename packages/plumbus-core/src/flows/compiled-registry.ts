@@ -1,4 +1,4 @@
-// Immutable, versioned registry of compiled flow definitions (D-02-2).
+// Immutable, versioned registry of compiled flow definitions.
 // Keyed by (flowDefinitionId, definitionVersion). Publishing a version
 // a second time is idempotent only when the digest matches.
 // Disk artifacts from `plumbus compile-flows` reload through

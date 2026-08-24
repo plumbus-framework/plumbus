@@ -101,15 +101,18 @@ export type {
 // ── AI Runtime ──
 export {
   PromptRegistry,
+  createPromptRegistry,
   UsageAPIError,
   allKnownModels,
   calculateModelCost,
   checkGovernedBudget,
   checkPromptSecurity,
+  DEFAULT_GOVERNED_ARTIFACTS_DIRECTORY,
   createFilesystemGovernedArtifactStore,
   createMemoryGovernedArtifactStore,
   createPlumbusRuntime,
   digestGovernedArtifact,
+  resolveGovernedArtifactStore,
   buildAISecurityConfig,
   chunkDocument,
   createAIService,
@@ -226,7 +229,7 @@ export {
   sql,
   ENCRYPTION_PREFIX,
 } from './data/index.js';
-// ── Approvals / human tasks (Plan 02 Stage 4) ──
+// ── Approvals / human tasks ──
 export {
   createApprovalService,
   createMemoryApprovalStore,

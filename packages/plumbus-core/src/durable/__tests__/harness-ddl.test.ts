@@ -1,22 +1,20 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { FRAMEWORK_SCHEMA } from '../../data/schema-generator.js';
-import { PLAN02_DB_NAME_PATTERN } from '../apply-ddl.js';
-import { createPlan02Harness, type Plan02Harness } from '../harness.js';
+import { DURABLE_TEST_DB_PATTERN } from '../apply-ddl.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../harness.js';
 
-describe('Plan 02 two-database harness DDL', () => {
-  let harness: Plan02Harness;
+describe('Two-database durable test harness DDL', () => {
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
-  it('creates dedicated databases, applies tenant and spine DDL, and names only plumbus_plan02_*', async () => {
-    harness = await createPlan02Harness();
-    expect(harness.spineName).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(harness.tenantName).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(harness.spineName).not.toMatch(/tenant_qv/);
-    expect(harness.tenantName).not.toMatch(/tenant_qv/);
+  it('creates dedicated databases, applies tenant and spine DDL, and names only plumbus_durable_test_*', async () => {
+    harness = await createDurableTestHarness();
+    expect(harness.spineName).toMatch(DURABLE_TEST_DB_PATTERN);
+    expect(harness.tenantName).toMatch(DURABLE_TEST_DB_PATTERN);
 
     const tenantTables = await harness.tenantDb.execute(sql`
       SELECT table_schema, table_name

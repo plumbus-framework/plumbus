@@ -33,7 +33,7 @@ export const ApprovalRequestState = {
 } as const;
 export type ApprovalRequestState = (typeof ApprovalRequestState)[keyof typeof ApprovalRequestState];
 
-/** D-02-3 default human decision outcomes. `expired` is a system state, not a decision. */
+/** Default human decision outcomes. `expired` is a system state, not a decision. */
 export const ApprovalDecisionOutcome = {
   Approved: 'approved',
   Rejected: 'rejected',

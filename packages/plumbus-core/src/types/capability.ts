@@ -145,7 +145,7 @@ export interface CapabilityContract<
    */
   transactional?: boolean;
   /**
-   * F-09 action-risk tier. Omitted: no approval gate (existing capabilities keep working).
+   * Action-risk tier. Omitted: no approval gate (existing capabilities keep working).
    * Only `consequential` requires a bound, unexpired approval before the handler runs.
    */
   riskTier?: ActionRiskTier;

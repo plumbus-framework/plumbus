@@ -1,8 +1,8 @@
 # Approvals and human tasks
 
-Plan 02 Stage 4 primitives. They sit in the existing capability and flow pipeline — not a second engine.
+Approval and human-task primitives. They sit in the existing capability and flow pipeline — not a second engine.
 
-## Action-risk vocabulary (F-09)
+## Action-risk vocabulary
 
 Single module: `ActionRiskTier` in `@plumbus/core`.
 
@@ -14,7 +14,7 @@ Single module: `ActionRiskTier` in `@plumbus/core`.
 
 Review mandate reason is separate: `risk-tier` | `application-mandated`. Retired values (`read`, `routine-write`, `sensitive-write`, `analytical`, `reversible-change`) are rejected at `defineCapability`.
 
-When Plan 01 R1 lands in Design, swap that one module. Callers keep the same names.
+If a host contract later standardizes different tier names, swap that one module. Callers keep the same names.
 
 ## Capability pipeline
 
@@ -31,11 +31,11 @@ The gate fails closed if the host did not wire an approval service. Matching use
 
 ## Flow wait
 
-Use the existing Wait step with event `approval_pending` (`APPROVAL_PENDING_WAIT`). `createFlowEngine` already pauses on `waitEvent` and `resume`s when the event arrives. Decision outcomes (D-02-3 default): `approved`, `rejected`, `changes-requested`, plus system `expired`.
+Use the existing Wait step with event `approval_pending` (`APPROVAL_PENDING_WAIT`). `createFlowEngine` already pauses on `waitEvent` and `resume`s when the event arrives. Decision outcomes (default set): `approved`, `rejected`, `changes-requested`, plus system `expired`.
 
 ## Tenant tables
 
-`human_task`, `approval_request`, and `approval_decision` are in `FRAMEWORK_TABLE_NAMES`. Shipped SQL is `packages/plumbus-core/migrations/durable-tenant/0001_plan02_human_task.sql` (v1 field subset of `human-task.schema.json`). Apply on dedicated `plumbus_plan02_*` harness DBs only. Do not apply to application tenant databases.
+`human_task`, `approval_request`, and `approval_decision` are in `FRAMEWORK_TABLE_NAMES`. Shipped SQL is `packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql` (v1 field subset of `human-task.schema.json`). Apply on dedicated `plumbus_durable_test_*` harness DBs only. Do not apply to application tenant databases.
 
 ## Wiring
 

@@ -41,7 +41,7 @@ export const flowExecutionsTable = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
     leaseOwner: text('lease_owner'),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
-    /** Pinned compiled definition version (Plan 02 Stage 5). Nullable for live-TS runs. */
+    /** Pinned compiled definition version. Nullable for live-TS runs. */
     definitionVersion: text('definition_version'),
     /** Pinned compiled definition digest. Nullable for live-TS runs. */
     definitionDigest: text('definition_digest'),

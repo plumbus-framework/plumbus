@@ -148,9 +148,10 @@ The generated file includes:
 
 - the auto-generated file header;
 - shared error types;
-- generated capability types;
-- generated capability client functions;
+- generated types and fetch functions for capabilities with `exposeAs: ['api']` (event handlers omitted);
 - generated flow trigger functions.
+
+Capabilities without `exposeAs: ['api']` are not given fetch wrappers. `generateTypedClient` still emits a single-capability function when called directly.
 
 ### `generateHooksModule(capabilities, config?)`
 
@@ -162,7 +163,7 @@ const source = generateHooksModule(capabilities, {
 });
 ```
 
-The generated file imports React hooks and the configured toast library, imports generated client functions/types, and emits one hook per capability.
+The generated file imports React hooks and the configured toast library, imports generated client functions/types, and emits one hook per HTTP-exposed capability (`exposeAs: ['api']`; event handlers omitted).
 
 ## Runtime expectations
 

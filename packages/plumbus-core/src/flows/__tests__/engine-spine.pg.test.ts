@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../define/defineFlow.js';
-import { createPlan02Harness, type Plan02Harness } from '../../durable/harness.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../../durable/harness.js';
 import { listSideEffects, loadExecutionState } from '../../durable/postgres-persist.js';
 import { createSingleDataPlaneResolver } from '../../tenancy/data-plane-resolver.js';
 import { FlowStepType } from '../../types/enums.js';
@@ -11,7 +11,7 @@ import { FlowStatus } from '../state-machine.js';
 
 function makeFlow() {
   return defineFlow({
-    name: 'plan02-demo',
+    name: 'durable-demo',
     domain: 'durable',
     input: z.object({ n: z.number() }),
     steps: [
@@ -22,14 +22,14 @@ function makeFlow() {
 }
 
 describe('flow engine spine dispatch on two databases', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('starts on the tenant db, claims from the spine, and runs the existing step machine', async () => {
-    harness = await createPlan02Harness();
+    harness = await createDurableTestHarness();
     const registry = new FlowRegistry();
     registry.register(makeFlow());
     const resolver = createSingleDataPlaneResolver(harness.tenantDb, {
@@ -52,7 +52,7 @@ describe('flow engine spine dispatch on two databases', () => {
     });
 
     const started = await engine.start(
-      'plan02-demo',
+      'durable-demo',
       { n: 1 },
       { userId: 'tester', roles: ['system'], scopes: [], provider: 'test', tenantId: 'tenant-a' },
     );

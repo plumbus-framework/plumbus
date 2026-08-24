@@ -20,6 +20,8 @@
 - **`plumbus generate` no longer writes leftover `clients/` fetch/hook files.** Re-running generate deletes `.plumbus/generated/clients/` if that tree is still present. Typed fetch clients and React hooks come from `plumbus ui generate`.
 - **`plumbus e2e --port`**, **`plumbus worker --health-port`**, and **`plumbus mcp serve --http --port`** require an explicit port (or `PLUMBUS_E2E_PORT` / `PLUMBUS_WORKER_HEALTH_PORT` / `PLUMBUS_MCP_PORT`). `createServer({ port })` is required to listen. No default 3000/3001 is assumed.
 - **`plumbus migrate` connections** go through `openDataPlaneConnection` (bounded pool of 1, `application_name: plumbus-migrate`, empty passwords omitted). Connection failures surface the factory's redacted message.
+- **`plumbus ui generate` requires `--out-dir` or a detected frontend.** It no longer writes to `.plumbus/generated/ui` as a last-resort default. Detection still uses a monorepo `frontend/` package, an existing `frontend/` directory, or `frontend`/`web`/`client`/`app` with `tsconfig.json`. Explicit `--out-dir .plumbus/generated/ui` still works.
+- **`plumbus ui generate` emits fetch clients, React hooks, and form hints only for `exposeAs: ['api']` capabilities** (event handlers omitted). Operator-only capabilities are not given HTTP wrappers.
 
 ## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening
 

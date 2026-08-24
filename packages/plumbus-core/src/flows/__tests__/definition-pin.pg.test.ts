@@ -2,8 +2,8 @@ import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../define/defineFlow.js';
-import { flowExecutionsDdl, PLAN02_DB_NAME_PATTERN } from '../../durable/apply-ddl.js';
-import { createPlan02Database } from '../../durable/harness.js';
+import { flowExecutionsDdl, DURABLE_TEST_DB_PATTERN } from '../../durable/apply-ddl.js';
+import { createDurableTestDatabase } from '../../durable/harness.js';
 import { FlowStepType } from '../../types/enums.js';
 import { compileFlowDefinition } from '../compile-flow.js';
 import { CompiledFlowRegistry } from '../compiled-registry.js';
@@ -43,10 +43,9 @@ describe('durable compiled definition pin on flow_executions', () => {
   });
 
   it('stores version+digest on the row and a new engine instance completes on the original', async () => {
-    const tenant = await createPlan02Database({ kind: 'flowpin', ddl: flowExecutionsDdl() });
+    const tenant = await createDurableTestDatabase({ kind: 'flowpin', ddl: flowExecutionsDdl() });
     closers.push(tenant.close);
-    expect(tenant.name).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(tenant.name).not.toMatch(/tenant_qv/);
+    expect(tenant.name).toMatch(DURABLE_TEST_DB_PATTERN);
 
     const v1 = defineFlow({
       name: 'pin-me',

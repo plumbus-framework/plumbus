@@ -124,7 +124,7 @@ const { db } = await resolver.resolve(tenantRef);
 
 ## What this does not apply
 
-Shipped Plan 02 durable-core / human-task SQL under `packages/plumbus-core/migrations/` is for dedicated harness databases only. Do not apply those files to an application tenant database. Tenant schema comes from the host app's generated `drizzle/` folder, which already includes the framework tables the generator emits.
+Shipped durable-core / human-task SQL under `packages/plumbus-core/migrations/` is for dedicated harness databases only. Do not apply those files to an application tenant database. Tenant schema comes from the host app's generated `drizzle/` folder, which already includes the framework tables the generator emits.
 
 ## Factory properties (unchanged)
 

@@ -133,7 +133,7 @@ export interface FlowEngineConfig {
    */
   spineDispatch?: FlowSpineDispatchConfig;
   /**
-   * Optional compiled-definition registry (Plan 02 Stage 5). When set,
+   * Optional compiled-definition registry. When set,
    * the engine consumes compiled JSON (not live TypeScript steps):
    * `start` requires a published version and pins it on `flow_executions`.
    * Omitted: existing live-TS `FlowRegistry` path is unchanged.

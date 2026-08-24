@@ -83,3 +83,16 @@ function isPromptDefinition(value: unknown): value is PromptDefinition {
     typeof (value as any).name === 'string'
   );
 }
+
+/**
+ * Build a registry from an explicit list of prompt definitions. Hosts that
+ * assemble an AIService by hand (tests, local providers) use this instead of
+ * touching the class, so the registry always comes from the framework.
+ */
+export function createPromptRegistry(prompts: readonly PromptDefinition[]): PromptRegistry {
+  const registry = new PromptRegistry();
+  for (const prompt of prompts) {
+    registry.register(prompt);
+  }
+  return registry;
+}

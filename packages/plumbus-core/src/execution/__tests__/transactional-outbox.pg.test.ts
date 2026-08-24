@@ -1,17 +1,17 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { createPlan02Harness, type Plan02Harness } from '../../durable/harness.js';
+import { createDurableTestHarness, type DurableTestHarness } from '../../durable/harness.js';
 import { listUnpublishedOutbox, loadExecutionState } from '../../durable/postgres-persist.js';
 import { createTransactionRunner } from '../transactional-outbox.js';
 
 describe('createTransactionRunner persist-before-ack on Postgres', () => {
-  let harness: Plan02Harness;
+  let harness: DurableTestHarness;
 
   afterAll(async () => {
     await harness?.close();
   });
 
   it('writes dispatch_outbox in the same tenant txn and rolls it back on throw', async () => {
-    harness = await createPlan02Harness();
+    harness = await createDurableTestHarness();
     const runner = createTransactionRunner({
       db: harness.tenantDb,
       entities: { createDataService: () => ({}) } as never,

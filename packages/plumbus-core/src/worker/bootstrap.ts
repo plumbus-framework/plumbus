@@ -21,6 +21,8 @@ import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
 import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
+import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
+import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
@@ -278,12 +280,21 @@ export interface WorkerPoolConfig {
    */
   approvals?: ApprovalService;
   /**
+   * Optional governed prompt/policy store. Omitted: existing hosts boot unchanged.
+   * Same resolution rules as createServer.
+   */
+  artifacts?: GovernedArtifactStore;
+  /**
+   * Directory for the filesystem governed artifact store when `artifacts` is omitted.
+   */
+  artifactsDirectory?: string;
+  /**
    * Host authorization revalidation after an approval wait.
    * Harness stub only unless the host supplies one.
    */
   authorizationProvider?: AuthorizationProvider;
   /**
-   * Compiled flow definitions (Plan 02 Stage 5). When set, the engine
+   * Compiled flow definitions. When set, the engine
    * consumes signed JSON instead of live TypeScript steps.
    */
   compiledRegistry?: CompiledFlowRegistry;
@@ -335,6 +346,10 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const logger = poolConfig.logger ?? createWorkerLogger();
   const metrics = poolConfig.metrics;
   const eventRegistry = poolConfig.eventRegistry;
+  const artifacts = resolveGovernedArtifactStore({
+    artifacts: poolConfig.artifacts,
+    artifactsDirectory: poolConfig.artifactsDirectory,
+  });
 
   // ── Per-unit data-plane resolution (opt-in) ──
 
@@ -696,6 +711,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             config: poolConfig.config as unknown as Record<string, unknown>,
             ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
             ...hostApprovalRuntimeExtras(poolConfig),
+            ...(artifacts ? { artifacts } : {}),
           },
         ),
       );
@@ -724,6 +740,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       config: poolConfig.config as unknown as Record<string, unknown>,
       ...(poolConfig.capabilities ? buildCapabilityRuntimeDeps(poolConfig.capabilities) : {}),
       ...hostApprovalRuntimeExtras(poolConfig),
+      ...(artifacts ? { artifacts } : {}),
     });
   }
 

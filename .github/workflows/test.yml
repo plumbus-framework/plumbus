@@ -28,7 +28,7 @@ jobs:
         run: pnpm test
 
   protocol-a:
-    name: Protocol A crash-matrix (D-02-1)
+    name: Protocol A crash-matrix
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

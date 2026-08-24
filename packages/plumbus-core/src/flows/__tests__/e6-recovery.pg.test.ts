@@ -1,12 +1,12 @@
 // E6: cancel+compensate, dead-letter operator retry, budget exhaustion.
-// Uses a plumbus_plan02_* harness DB and drops it on close.
+// Uses a plumbus_durable_test_* harness DB and drops it on close.
 
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../define/defineFlow.js';
-import { flowExecutionsDdl, PLAN02_DB_NAME_PATTERN } from '../../durable/apply-ddl.js';
-import { createPlan02Database } from '../../durable/harness.js';
+import { flowExecutionsDdl, DURABLE_TEST_DB_PATTERN } from '../../durable/apply-ddl.js';
+import { createDurableTestDatabase } from '../../durable/harness.js';
 import { FlowStepType } from '../../types/enums.js';
 import { deadLetterFlow, retryDeadLetteredFlow } from '../dead-letter.js';
 import { createFlowEngine } from '../engine.js';
@@ -45,10 +45,9 @@ describe('E6 recovery harness', () => {
   });
 
   it('cancels an in-flight flow after a compensable committed step; dead-letters then operator-retries; budget exhaustion fails closed', async () => {
-    const tenant = await createPlan02Database({ kind: 'e6rec', ddl: flowExecutionsDdl() });
+    const tenant = await createDurableTestDatabase({ kind: 'e6rec', ddl: flowExecutionsDdl() });
     closers.push(tenant.close);
-    expect(tenant.name).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(tenant.name).not.toMatch(/tenant_qv/);
+    expect(tenant.name).toMatch(DURABLE_TEST_DB_PATTERN);
 
     const registry = new FlowRegistry();
     registry.register(

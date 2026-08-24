@@ -5,7 +5,7 @@ export const BUDGET_STATE_KEY = '__budget';
 export const BUDGET_EXHAUSTED = 'budget-exhausted';
 export { BudgetExhaustedError };
 
-/** Per-execution ledger (recovery.schema BudgetLedger v1 subset). D-02-5. */
+/** Per-execution ledger (recovery.schema BudgetLedger v1 subset). */
 export interface ExecutionBudgetAmount {
   dimensionId: string;
   unitId: string;

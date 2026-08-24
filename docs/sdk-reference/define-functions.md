@@ -73,7 +73,7 @@ const getUser = defineCapability({
 | `explanation` | `ExplanationConfig` | No | Explainability settings |
 | `trigger` | `EventHandlerTrigger` | No | **Only `kind: "eventHandler"`** — `{ event: string, versionConstraint?: string }` for auto-registration at worker startup (0.5+) |
 | `transactional` | `boolean` | No | When `false`, opts this capability out of the transactional outbox (default: `true` for `action` / `eventHandler`, auto-excluded for `job`, `effects.ai: true`, and non-empty `effects.external`) |
-| `riskTier` | `"read-only" \| "limited-reversible" \| "consequential"` | No | F-09 action-risk tier. Only `consequential` requires a bound, unexpired approval before the handler runs. Omitted: no gate. See [approvals](../core-concepts/approvals.md). |
+| `riskTier` | `"read-only" \| "limited-reversible" \| "consequential"` | No | Action-risk tier. Only `consequential` requires a bound, unexpired approval before the handler runs. Omitted: no gate. See [approvals](../core-concepts/approvals.md). |
 | `handler` | `(ctx, input) => Promise<output>` | Yes | Business logic implementation |
 
 `trigger` on non-`eventHandler` kinds throws at define time. Omit `trigger` to keep manual `ConsumerRegistry` wiring only.
@@ -280,7 +280,7 @@ const nightlyCleanup = defineFlow({
 // Event emit step
 { name: string; type: "eventEmit"; event: string }
 
-// Approval-outcome step (D-02-3; Stage 4 ApprovalService)
+// Approval-outcome step (routes on an ApprovalService decision)
 { name: string; type: "approval-outcome"; outcomes: { approved?: string; rejected?: string; "changes-requested"?: string } }
 ```
 

@@ -336,7 +336,7 @@ await runtime.syncTimers();
 
 ## vNext durable dispatch (Protocol A)
 
-The live flow engine still stores execution rows and leases in one database (`flow_executions`). Plan 02 evolves that engine toward **tenant-DB-authoritative state** with reconstructible spine hints — not a second workflow engine.
+The live flow engine still stores execution rows and leases in one database (`flow_executions`). The durable core evolves that engine toward **tenant-DB-authoritative state** with reconstructible spine hints — not a second workflow engine.
 
 See [Dispatch and execution-state protocol](dispatch-state-protocol.md) for the ordered write pairs, persist-before-ack, lease rules, and orphan sweeps. The executable crash-matrix model lives at `packages/plumbus-core/src/testing/crash-matrix-simulation.ts`.
 

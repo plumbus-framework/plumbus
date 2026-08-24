@@ -1,17 +1,15 @@
 # Dispatch and execution-state protocol (Protocol A)
 
-**Plan 02 Stage 1 — E1**  
-**Status:** Adopted default (DEC-26) with an executable in-memory model  
+**Status:** Adopted default with an executable in-memory model  
 **Binding default:** Protocol A — tenant-DB-authoritative state + spine outbox with idempotent re-dispatch
 
-This is the tracked copy of the F-03 protocol. The working copy also lives at
-`design/dispatch-state-protocol.md` (gitignored nested design tree). Implement against this
-document until Plan 01 applies the matching spec edits.
+This is the tracked copy of the dispatch/state protocol. The working copy also lives at
+`design/dispatch-state-protocol.md` (gitignored nested design tree).
 
-The live flow engine still stores executions and leases in one database. Stage 3 evolves that
-engine to this protocol. It does not add a second workflow engine.
+The live flow engine still stores executions and leases in one database. The durable core
+evolves that engine to this protocol. It does not add a second workflow engine.
 
-## Authority model (AB-003b)
+## Authority model
 
 | Store | Role | Recovery unit? |
 |-------|------|----------------|
@@ -20,8 +18,6 @@ engine to this protocol. It does not add a second workflow engine.
 
 Spine rows carry only opaque references (`executionId`, `tenantExecutionStateRefId`, expected
 `revision`, `tenantEpoch`). No private payload, no step inputs/outputs, no domain writes.
-
-Contradicting spec rows (`06/04:24-35`, `06/02:74-81`) are filed to Plan 01 for prose alignment.
 
 ## Persist-before-ack
 
@@ -102,10 +98,10 @@ rows are repaired by the tenant-side orphan sweep.
 | `event_outbox` | Commit-coupled cross-boundary events (existing table; not moved this milestone) |
 | `idempotency` | Protected side-effect deduplication |
 
-v1 omits contract fields that cannot be populated honestly (F-12): per-step
+v1 omits contract fields that cannot be populated honestly: per-step
 `authorizationDecisionRefId`, required `domainOutcomeId` on infrastructure-failure terminals,
-budget/evidence/provenance refs, human-task and approval refs. Those are Plan 01 relaxation
-requests, not silent omissions at conformance time.
+budget/evidence/provenance refs, human-task and approval refs. These are documented
+relaxations, not silent omissions at conformance time.
 
 ## Per-tenant epoch / generation guard
 
@@ -156,16 +152,9 @@ Property checks after recovery:
 
 | Protocol | Verdict |
 |----------|---------|
-| **A — tenant-authoritative + spine outbox** | **Default (DEC-26).** Safe duplicates by construction. |
+| **A — tenant-authoritative + spine outbox** | **Default.** Safe duplicates by construction. |
 | B — spine-authoritative two-phase ack | Rejected default: dual authority on every crash window. |
-| C — per-tenant polling workers | Costed fallback; AB-003b forecloses as the initial profile. |
-
-## Spec-edit list (Plan 01 handoff)
-
-- State placement prose alignment (`06/04`, `06/02`) to AB-003b.
-- Commit-aware publication artifact (`04/05:185` deferred mechanism).
-- Reconciliation procedure cross-reference at `06/04:50`.
-- Execution-state schema optional-field edits (F-12).
+| C — per-tenant polling workers | Costed fallback; foreclosed as the initial profile by the authority split above. |
 
 ## Implementation note (2026-08-20)
 
@@ -178,12 +167,10 @@ dispatcher, not a second bus). `createTransactionRunner({ durableDispatch })`
 writes `dispatch_outbox` in the tenant transaction. Event worker and
 scheduler resolve per tenant when `DataPlaneResolver` is set. Shipped SQL:
 `packages/plumbus-core/migrations/`. Local harness: `src/durable/harness.ts`
-(`plumbus_plan02_*` databases only). D-02-1 CI job: `protocol-a` in
-`.github/workflows/test.yml` (crash-matrix only).
+(`plumbus_durable_test_*` databases only). Crash-matrix CI job: `protocol-a` in
+`.github/workflows/test.yml`.
 
-## Acceptance (E1)
+## Acceptance
 
 - [x] Protocol document (this file + `design/dispatch-state-protocol.md`).
 - [x] Executable crash-matrix simulation with property checks (in-memory; CI job `protocol-a` in `.github/workflows/test.yml`).
-- [ ] D-02-1 decision record ratification after simulation green in CI.
-- [ ] Plan 01 spec edits applied by Mark.

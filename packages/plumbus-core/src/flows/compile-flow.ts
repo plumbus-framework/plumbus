@@ -1,6 +1,6 @@
 // Compile defineFlow authoring objects into a signed FlowDefinition JSON
-// artifact (Plan 02 Stage 5 / D-02-2). Inline condition expressions and
-// step IO mappings are hoisted into individually digested bindings.
+// artifact. Inline condition expressions and step IO mappings are hoisted
+// into individually digested bindings.
 // The existing flow engine hydrates these back to FlowStep[] — this is
 // not a second workflow engine.
 

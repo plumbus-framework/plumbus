@@ -65,7 +65,7 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   trigger?: { event: string; versionConstraint?: string };
   /** When `false`, opts out of transactional outbox for this capability. */
   transactional?: boolean;
-  /** F-09 action-risk tier. Only `consequential` requires the approval gate. */
+  /** Action-risk tier. Only `consequential` requires the approval gate. */
   riskTier?: ActionRiskTier;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;

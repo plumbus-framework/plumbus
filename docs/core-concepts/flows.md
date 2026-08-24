@@ -40,13 +40,13 @@ export const orderFulfillment = defineFlow({
 });
 ```
 
-## Compiled definitions (Plan 02 Stage 5)
+## Compiled definitions
 
 Authoring stays TypeScript. `plumbus compile-flows` (and `compileFlowDefinition`) extracts steps, hoists condition expressions and step `input` mappings into individually digested bindings, and emits signed JSON with `flowDefinitionId` (`{domain}.{name}`), `definitionVersion`, and `definitionDigest`. Inline expressions are prohibited in the signed artifact.
 
 `CompiledFlowRegistry` retains every published `(flowDefinitionId, definitionVersion)` immutably. `plumbus compile-flows` writes signed JSON under `.plumbus/compiled-flows`. `loadCompiledFlowRegistryFromDirectory` (and `tryLoadCompiledFlowRegistryFromDirectory`) reloads those files into a new registry, recomputing `definitionDigest` and refusing a mismatch. `createServer` and `createWorkerPool` use that load: pass `compiledRegistry`, or `compiledFlowsDirectory`, or leave both off to load `{cwd}/.plumbus/compiled-flows` when that tree has JSON. When a registry is set, the engine **consumes compiled JSON** (not live TypeScript steps): `start` requires a published version and writes `definition_version` + `definition_digest` on `flow_executions`. Later `runNext` / `resume` restore that pin from the row (complete-on-original), including across process restarts. Omit the registry (and have no compiled-flows tree) and the engine keeps today's live `FlowRegistry` objects.
 
-`approval-outcome` steps route on a Stage 4 approval decision (`approved` / `rejected` / `changes-requested`) via `createApprovalService`. In-flight strategies: `complete-on-original` (default), `stop-and-recover` (cancel + record), `migrate` throws `definition-strategy-not-supported` — never a silent no-op.
+`approval-outcome` steps route on an approval decision (`approved` / `rejected` / `changes-requested`) via `createApprovalService`. In-flight strategies: `complete-on-original` (default), `stop-and-recover` (cancel + record), `migrate` throws `definition-strategy-not-supported` — never a silent no-op.
 
 ```bash
 plumbus compile-flows [--out .plumbus/compiled-flows] [--json]

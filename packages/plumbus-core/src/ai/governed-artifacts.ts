@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { digestApprovalInput } from '../approvals/digest.js';
 
@@ -25,6 +25,15 @@ export interface GovernedArtifactStore {
 export interface FilesystemGovernedArtifactStoreConfig {
   /** Host-owned directory. Created if missing. */
   directory: string;
+}
+
+/** Project-relative default used by `createServer` when no store is passed. */
+export const DEFAULT_GOVERNED_ARTIFACTS_DIRECTORY = '.plumbus/governed-artifacts';
+
+export interface ResolveGovernedArtifactStoreOptions {
+  artifacts?: GovernedArtifactStore;
+  artifactsDirectory?: string;
+  cwd?: string;
 }
 
 export class GovernedArtifactConflictError extends Error {
@@ -291,4 +300,41 @@ export function createFilesystemGovernedArtifactStore(
       return readPublished(trimmed);
     },
   };
+}
+
+function directoryExists(path: string): boolean {
+  try {
+    return existsSync(path) && statSync(path).isDirectory();
+  } catch (err) {
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? (err as { code?: string }).code
+        : undefined;
+    if (code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
+/**
+ * Prefer an explicit store. Else open `artifactsDirectory` (created if missing).
+ * Else open `{cwd}/.plumbus/governed-artifacts` when that directory already exists.
+ * Omitted and no default directory: existing hosts boot unchanged.
+ */
+export function resolveGovernedArtifactStore(
+  options: ResolveGovernedArtifactStoreOptions = {},
+): GovernedArtifactStore | undefined {
+  if (options.artifacts) return options.artifacts;
+
+  if (options.artifactsDirectory !== undefined) {
+    const directory = options.artifactsDirectory.trim();
+    if (!directory) {
+      throw new Error('Governed artifact directory is required');
+    }
+    return createFilesystemGovernedArtifactStore({ directory });
+  }
+
+  const cwd = options.cwd ?? process.cwd();
+  const directory = join(cwd, DEFAULT_GOVERNED_ARTIFACTS_DIRECTORY);
+  if (!directoryExists(directory)) return undefined;
+  return createFilesystemGovernedArtifactStore({ directory });
 }

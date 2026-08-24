@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { FRAMEWORK_SCHEMA } from '../../data/schema-generator.js';
 import { applyMigrations } from '../../data/migration.js';
-import { PLAN02_DB_NAME_PATTERN } from '../../durable/apply-ddl.js';
-import { createPlan02Database } from '../../durable/harness.js';
+import { DURABLE_TEST_DB_PATTERN } from '../../durable/apply-ddl.js';
+import { createDurableTestDatabase } from '../../durable/harness.js';
 import { FRAMEWORK_DURABLE_TENANT_MIGRATIONS } from '../../durable/migrations-path.js';
 import { ActionRiskTier } from '../action-risk.js';
 import { digestApprovalInput } from '../digest.js';
@@ -29,12 +29,11 @@ describe('SQL approval store', () => {
     }
   });
 
-  it('persists requests, decisions, and tasks on a dedicated plumbus_plan02_* plane', async () => {
-    const tenant = await createPlan02Database({ kind: 'sqlappr', ddl: '' });
+  it('persists requests, decisions, and tasks on a dedicated plumbus_durable_test_* plane', async () => {
+    const tenant = await createDurableTestDatabase({ kind: 'sqlappr', ddl: '' });
     closers.push(tenant.close);
 
-    expect(tenant.name).toMatch(PLAN02_DB_NAME_PATTERN);
-    expect(tenant.name).not.toMatch(/tenant_qv/);
+    expect(tenant.name).toMatch(DURABLE_TEST_DB_PATTERN);
 
     await applyMigrations({
       db: tenant.db,

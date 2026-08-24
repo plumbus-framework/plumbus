@@ -1,4 +1,4 @@
-// In-flight definition strategies (Plan 02 Stage 5 / D-02-4).
+// In-flight definition strategies.
 // v1 implements complete-on-original and stop-and-recover.
 // migrate is refused with a stable error — not a silent no-op.
 

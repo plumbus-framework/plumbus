@@ -11,6 +11,8 @@ import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
 import type { AICostContext } from '../types/context.js';
+import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
+import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { DependencyOptions, RouteGeneratorConfig } from '../api/route-generator.js';
@@ -114,6 +116,17 @@ export interface ServerConfig {
    * server; it is never logged.
    */
   credentials?: CredentialCatalog;
+  /**
+   * Optional governed prompt/policy artifact store. Omitted: existing hosts
+   * boot unchanged. Retained on the returned server; never logged.
+   */
+  artifacts?: GovernedArtifactStore;
+  /**
+   * Directory for the filesystem governed artifact store. Used when `artifacts`
+   * is omitted. An explicit path is created if missing. Omitted:
+   * `{cwd}/.plumbus/governed-artifacts` is opened when that directory exists.
+   */
+  artifactsDirectory?: string;
   /** Optional custom logger */
   logger?: LoggerService;
   /** Fastify listen host (default: "0.0.0.0") */
@@ -228,7 +241,7 @@ export interface ServerConfig {
    */
   authorizationProvider?: AuthorizationProvider;
   /**
-   * Compiled flow definitions (Plan 02 Stage 5). When set, HTTP start/inspect
+   * Compiled flow definitions. When set, HTTP start/inspect
    * pins the same signed JSON the worker consumes.
    */
   compiledRegistry?: CompiledFlowRegistry;
@@ -251,6 +264,8 @@ export interface PlumbusServer {
   stop(): Promise<void>;
   /** Host credential catalog when `createServer({ credentials })` was given. */
   credentials?: CredentialCatalog;
+  /** Governed artifact store when one was passed or auto-loaded from disk. */
+  artifacts?: GovernedArtifactStore;
 }
 
 /** Create and configure a Plumbus Fastify server */
@@ -430,6 +445,10 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       return false;
     },
   };
+  const artifacts = resolveGovernedArtifactStore({
+    artifacts: serverConfig.artifacts,
+    artifactsDirectory: serverConfig.artifactsDirectory,
+  });
   const compiledRegistry = resolveCompiledFlowRegistry({
     compiledRegistry: serverConfig.compiledRegistry,
     compiledFlowsDirectory: serverConfig.compiledFlowsDirectory,
@@ -514,6 +533,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         invocationEmitScope,
         ...capRuntime,
         ...hostApprovalRuntimeExtras(serverConfig),
+        ...(artifacts ? { artifacts } : {}),
       },
     );
   }
@@ -660,6 +680,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   return {
     app,
     credentials: serverConfig.credentials,
+    artifacts,
     async start() {
       if (port == null) {
         throw new Error(

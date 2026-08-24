@@ -40,7 +40,7 @@ export interface StepExecutorDeps {
   ) => Promise<{ success: boolean; data?: unknown; error?: unknown }>;
   /** Evaluate a condition expression against the flow state */
   evaluateCondition: (expression: string, state: unknown) => boolean;
-  /** Stage 4 approval lookup for D-02-3 approval-outcome steps. */
+  /** Approval lookup for approval-outcome steps. */
   findApprovalForExecution?: (executionId: string) => Promise<ApprovalRequestRecord | undefined>;
 }
 

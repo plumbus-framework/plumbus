@@ -12,6 +12,7 @@ import {
   generateE2ETest,
 } from '../../testing/scaffolding.js';
 import { computeStatus, formatTranslationStatus } from '../../translations/status.js';
+import { isApiExposed } from '../../api/exposure.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import type { TranslationDefinition } from '../../types/translation.js';
@@ -287,6 +288,11 @@ function nextEnvTypesFile(): GeneratedFile {
   };
 }
 
+/** Fetch, hooks, and form hints are HTTP wrappers — skip capabilities that are not `exposeAs: ['api']`. */
+function httpApiCapabilities(capabilities: CapabilityContract[]): CapabilityContract[] {
+  return capabilities.filter((cap) => isApiExposed(cap) && cap.kind !== 'eventHandler');
+}
+
 export function generateUiModuleFiles(
   capabilities: CapabilityContract[],
   flows: FlowDefinition[],
@@ -296,6 +302,7 @@ export function generateUiModuleFiles(
   translations: TranslationDefinition[] = [],
 ): GeneratedFile[] {
   const prefix = directoryPrefix ? `${directoryPrefix}/` : '';
+  const httpCapabilities = httpApiCapabilities(capabilities);
   const authTransport = resolveAuthTransport(options.authTransport);
   const clientConfig = {
     baseUrl: options.baseUrl,
@@ -312,11 +319,11 @@ export function generateUiModuleFiles(
   const files: GeneratedFile[] = [
     {
       path: `${prefix}lib/client.ts`,
-      content: generators.generateClientModule(capabilities, toFlowTriggers(flows), clientConfig),
+      content: generators.generateClientModule(httpCapabilities, toFlowTriggers(flows), clientConfig),
     },
     {
       path: `${prefix}hooks/hooks.ts`,
-      content: generators.generateHooksModule(capabilities, clientConfig),
+      content: generators.generateHooksModule(httpCapabilities, clientConfig),
     },
     {
       path: `${prefix}lib/auth.ts`,
@@ -324,7 +331,7 @@ export function generateUiModuleFiles(
     },
     {
       path: `${prefix}lib/form-hints.ts`,
-      content: generators.generateFormHintsModule(capabilities),
+      content: generators.generateFormHintsModule(httpCapabilities),
     },
   ];
 
@@ -416,22 +423,49 @@ function printMigrationSummary(migration: import('../utils.js').MigrationResult)
   success('Legacy migration complete');
 }
 
-/** Auto-detect the frontend output dir; fall back to `.plumbus/generated/ui` only when none is found. */
-function resolveGenerateOutDir(explicit: string | undefined): string {
-  if (explicit) return explicit;
-  // In a monorepo, default to the frontend package
-  const monorepo = detectMonorepoLayout();
+const UI_GENERATE_TSCONFIG_CANDIDATES = ['frontend', 'web', 'client', 'app'] as const;
+
+function directoryExists(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve where `plumbus ui generate` writes.
+ * Uses `--out-dir` or a detected frontend directory (monorepo `frontend/`, an existing
+ * `frontend/` folder, or `frontend`/`web`/`client`/`app` with `tsconfig.json`).
+ * Does not fall back to `.plumbus/generated/ui`.
+ */
+export function resolveGenerateOutDir(
+  explicit: string | undefined,
+  cwd: string = process.cwd(),
+): string {
+  const fromFlag = explicit?.trim();
+  if (fromFlag) {
+    return fromFlag;
+  }
+
+  const monorepo = detectMonorepoLayout(cwd);
   if (monorepo.isMonorepo && monorepo.frontendDir) {
     return 'frontend';
   }
-  // Check common Next.js frontend locations
-  for (const candidate of ['frontend', 'web', 'client', 'app']) {
-    const tsconfigPath = path.join(process.cwd(), candidate, 'tsconfig.json');
-    if (fs.existsSync(tsconfigPath)) {
+
+  if (directoryExists(path.join(cwd, 'frontend'))) {
+    return 'frontend';
+  }
+
+  for (const candidate of UI_GENERATE_TSCONFIG_CANDIDATES) {
+    if (fs.existsSync(path.join(cwd, candidate, 'tsconfig.json'))) {
       return candidate;
     }
   }
-  return '.plumbus/generated/ui';
+
+  throw new Error(
+    '--out-dir is required (or add a frontend/ directory). No last-resort write to .plumbus/generated/ui.',
+  );
 }
 
 /**
@@ -471,7 +505,7 @@ export function registerUiCommand(program: Command): void {
     .description('Generate UI modules (client, hooks, auth, form hints) from discovered contracts')
     .option(
       '--out-dir <path>',
-      'Output directory (auto-detects frontend/generated if a Next.js app exists)',
+      'Output directory (auto-detects frontend/; required when none is found)',
     )
     .option('--base-url <url>', 'Base URL prepended to generated API calls', '')
     .option('--auth-provider <provider>', 'Auth provider for generated auth helpers', 'jwt')
@@ -496,6 +530,14 @@ export function registerUiCommand(program: Command): void {
     )
     .option('--json', 'Output generated file list as JSON')
     .action(async (opts: UiGenerateOptions) => {
+      let outDir: string;
+      try {
+        outDir = resolveGenerateOutDir(opts.outDir);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+
       info('Loading @plumbus/ui generators...');
       const generators = await loadUiGenerators();
       const authTransport = resolveAuthTransport(opts.authTransport);
@@ -503,7 +545,6 @@ export function registerUiCommand(program: Command): void {
       info('Discovering capabilities and flows...');
       const resources = await discoverResources();
       enforceLocaleParity(resources.translations, opts.skipLocaleParity);
-      const outDir = resolveGenerateOutDir(opts.outDir);
       const outputRoot = resolvePath(outDir);
       info(`Writing UI modules to ${outDir}`);
 
