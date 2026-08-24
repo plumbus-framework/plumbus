@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Fixed
+
+- **LiveKit transport rate corrected to $0.0005/participant-minute** (was $0.02 — 40× the LiveKit Cloud Ship-tier WebRTC overage rate). Below each plan's included monthly allotment (5k–1.5M participant-minutes) the marginal cost is $0; this records the overage rate. A self-hosted agent joining the room bills as an ordinary participant.
+
 ## 0.1.3
 
 ### Changed

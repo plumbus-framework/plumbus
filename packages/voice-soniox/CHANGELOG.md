@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Fixed
+
+- **Real-time STT rate corrected to the vendor list price: $0.12/hour** (`0.12/3600` per second, was $0.60/hour). Soniox pricing page (2026): $2.00 per 1M input audio tokens ≈ $0.12/hour for real-time streaming. TTS row unchanged (~$0.70/hour of generated speech, matching the vendor's equivalence).
+
 ## 0.1.3
 
 ### Added

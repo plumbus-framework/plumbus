@@ -198,12 +198,21 @@ stt: {
 ```
 
 `VoiceSessionController` logs PCM peak/RMS for the first useful frame and warns
-on sustained low input levels. When the STT endpoint fires with no transcript,
-or a final transcript is empty / low-confidence / looks like an uncertain proper
-name, the controller can speak a short, app-supplied repair prompt via TTS only
-(no brain turn persisted) — for example "I didn't catch that, can you say it
-again?", a low-confidence variant, and a "can you spell that name?" variant. The
-prompt text is owned by the app, in whatever language(s) it supports.
+on sustained low input levels. When the STT endpoint fires with no transcript
+after speech energy, or a transcript arrives below the configured confidence
+threshold, the controller can speak a short repair prompt via TTS only (no brain
+turn persisted). The framework owns only the signals and the mechanism —
+detection, timing, playback, and cost recording (`voice.hearing_repair`) — while
+the **app owns every content decision** via the `onHearingRepair` hook on
+`defineVoice` (see
+[defining-voices.md](./defining-voices.md#hearing-repair-hook)): the hook
+receives the repair reason (`'empty'` / `'low_confidence'`), the raw transcript
+and confidence, the detected language, and the session id, and returns the text
+to speak (optionally with a delivery `tone`), or `undefined`/`null` to suppress
+the repair speech — a suppressed low-confidence repair lets the turn proceed
+with what was heard. With no hook configured, only the `empty` signal speaks a
+built-in Hebrew/English default line; the framework never guesses what a
+low-confidence transcript contains.
 
 STT token `confidence` and `language` metadata are forwarded on `stt.partial` /
 `stt.final` events when the provider supplies them.

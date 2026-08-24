@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+### Changed
+
+- **Usage is metered in seconds of generated audio, not characters of input text** — Deepdub bills by minutes of generated audio (vendor's conversion: ~1,000 characters ≈ 1 minute), so the provider now accumulates output PCM bytes and reports `seconds` (PCM16 mono at the stream's configured rate, default 48 kHz). The ledger pricing entry's unit is now `audioOutputSeconds`.
+- **The rate is env-driven: `DEEPDUB_USD_PER_MINUTE`.** Deepdub pricing is contract-based with no public rate card, so deployments set their real contract rate. Default `0.143` (the effective rate of the smallest published AI-agents tier: $300/mo for 2.1M credits ≈ 2,100 minutes). Resolved per lookup, so the env var applies regardless of import order; invalid values fall back to the default with a warning.
+
 ## 0.1.3
 
 ### Added

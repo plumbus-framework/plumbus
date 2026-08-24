@@ -22,7 +22,7 @@ describe('assessHearingRepairNeeded', () => {
     expect(withEnergy.prompt).toContain('לא הצלחתי');
   });
 
-  it('requests spelling prompt for mixed-script proper names with low confidence', () => {
+  it('flags low-confidence transcripts as low_confidence signals without judging content', () => {
     const repair = assessHearingRepairNeeded({
       transcript: 'John דוד',
       confidence: 0.4,
@@ -30,8 +30,21 @@ describe('assessHearingRepairNeeded', () => {
       trigger: 'final',
     });
     expect(repair.needed).toBe(true);
-    expect(repair.reason).toBe('uncertain_name');
-    expect(repair.prompt).toContain('לאיית');
+    expect(repair.reason).toBe('low_confidence');
+    // The framework ships no prompt for content-level repairs — the app hook
+    // decides whether this transcript is a name, a mumble, or nothing at all.
+    expect(repair.prompt).toBeUndefined();
+  });
+
+  it('flags any low-confidence transcript, name-shaped or not', () => {
+    const repair = assessHearingRepairNeeded({
+      transcript: 'גדלתי בעיר קטנה',
+      confidence: 0.3,
+      language: 'he',
+      trigger: 'final',
+    });
+    expect(repair.needed).toBe(true);
+    expect(repair.reason).toBe('low_confidence');
   });
 
   it('does not repair short transcripts without explicit low confidence', () => {
