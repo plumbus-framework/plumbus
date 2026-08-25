@@ -169,6 +169,17 @@ describe('generateTypedClient', () => {
     expect(code).toContain('/** Retrieve an invoice */');
   });
 
+  /**
+   * A route answers `{ data: <output> }`; the function's return type says `<output>`. Returning
+   * the envelope under that type is a lie no compiler catches — every property access
+   * type-checks and every one is `undefined` at run time — so the client has to take it off.
+   */
+  it('returns the capability output, not the envelope the route wrapped it in', () => {
+    const code = generateTypedClient(makeCap());
+    expect(code).toContain('return unwrapEnvelope<GetInvoiceOutput>(await response.json());');
+    expect(code).not.toContain('response.json() as Promise<GetInvoiceOutput>');
+  });
+
   it('generates proper error handling', () => {
     const code = generateTypedClient(makeCap());
     expect(code).toContain('if (!response.ok)');
@@ -354,6 +365,15 @@ describe('flowTriggerFnName', () => {
 // ── generateClientModule ──
 
 describe('generateClientModule', () => {
+  it.each(['session', 'bearer'] as const)(
+    'emits the envelope helper once under %s transport, so every function can use it',
+    (authTransport) => {
+      const code = generateClientModule([makeCap(), makeActionCap()], [], { authTransport });
+      expect(code.match(/function unwrapEnvelope</g)).toHaveLength(1);
+      expect(code).toContain('const ENVELOPE_KEYS = new Set(["data", "ok", "meta"]);');
+    },
+  );
+
   it('generates a complete client module', () => {
     const caps = [makeCap(), makeActionCap()];
     const flows: FlowTriggerInput[] = [{ name: 'refundFlow', domain: 'billing' }];

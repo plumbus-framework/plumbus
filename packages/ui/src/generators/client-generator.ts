@@ -74,6 +74,40 @@ function authImportPath(config?: ClientGeneratorConfig): string {
   return config?.authModuleImport ?? './auth';
 }
 
+/**
+ * The success envelope, removed where the client meets it.
+ *
+ * A route answers `{ data: <capability output> }` (`route-generator.ts`), and a partner API route
+ * answers `{ ok, data, meta }`. Both are deliberate and stay on the wire — the OpenAPI documents
+ * describe them, and the SDKs generated from those documents depend on them.
+ *
+ * What a *caller of this client* is handed, though, must be the output its return type promises.
+ * Returning the envelope under an unenveloped type is a lie the compiler cannot catch: every
+ * property access type-checks and every one of them is `undefined` at run time. So the envelope
+ * comes off here, in the generated client, once — rather than in each application, where an
+ * unwrapping wrapper would be a re-implementation of the client each app has to keep in step.
+ *
+ * A body is an envelope only when it carries `data` **and** nothing beyond the envelope's own
+ * keys. A capability whose output has a `data` field of its own alongside anything else is
+ * therefore passed through untouched, which is the conservative half of the ambiguity: a payload
+ * that is genuinely `{ data: ... }` and nothing else is indistinguishable from an envelope, and
+ * unwrapping it is the same answer the platform's own callers already assume.
+ */
+const UNWRAP_ENVELOPE_HELPER = `const ENVELOPE_KEYS = new Set(["data", "ok", "meta"]);
+
+function unwrapEnvelope<T>(body: unknown): T {
+  if (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body) &&
+    "data" in body &&
+    Object.keys(body).every((key) => ENVELOPE_KEYS.has(key))
+  ) {
+    return (body as { data: T }).data;
+  }
+  return body as T;
+}`;
+
 function generateClientFetchHelpers(config?: ClientGeneratorConfig): string {
   const transport = config?.authTransport ?? 'bearer';
   const authImport = authImportPath(config);
@@ -92,7 +126,9 @@ function clientFetchInit(
       ...headers,
     },
   };
-}`;
+}
+
+${UNWRAP_ENVELOPE_HELPER}`;
   }
 
   return `import { getAuthHeaders } from "${authImport}";
@@ -108,7 +144,9 @@ function clientFetchInit(
       ...headers,
     },
   };
-}`;
+}
+
+${UNWRAP_ENVELOPE_HELPER}`;
 }
 
 // ── Zod Schema → TypeScript Type String ──
@@ -303,7 +341,7 @@ export function generateTypedClient(
       metadata: err.metadata,
     });
   }
-  return response.json() as Promise<${pascal}Output>;
+  return unwrapEnvelope<${pascal}Output>(await response.json());
 }`;
 }
 
@@ -427,7 +465,7 @@ export function generateFlowTrigger(
       code: err.code,
     });
   }
-  return response.json() as Promise<{ executionId: string; status: string }>;
+  return unwrapEnvelope<{ executionId: string; status: string }>(await response.json());
 }`;
 }
 
