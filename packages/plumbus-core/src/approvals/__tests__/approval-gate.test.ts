@@ -189,6 +189,59 @@ describe('approval gate in executeCapability', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('refuses a prohibited capability outright, even with the approval service bound', async () => {
+    const { capability, handler } = makeConsequential();
+    const prohibited = { ...capability, riskTier: ActionRiskTier.Prohibited } as CapabilityContract;
+    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const ctx = createExecutionContext({
+      auth: makeAuth(),
+      data: {},
+      approvals,
+    });
+
+    const result = await executeCapability(prohibited, ctx, { amount: 25 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('forbidden');
+      expect(result.error.metadata?.approvalGate).toBe('prohibited-capability');
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('refuses a prohibited capability even when a matching approval exists', async () => {
+    const { capability, handler } = makeConsequential();
+    const prohibited = { ...capability, riskTier: ActionRiskTier.Prohibited } as CapabilityContract;
+    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const request = await approvals.requestApproval({
+      capabilityId: 'billing.issueRefund',
+      definitionVersion: '1.2.0',
+      input: { amount: 25 },
+      riskClass: ActionRiskTier.Consequential,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await approvals.decide({
+      requestId: request.approvalRequestId,
+      outcome: 'approved',
+      auth: makeAuth({ userId: 'approver-1', roles: ['reviewer'] }),
+    });
+
+    const ctx = createExecutionContext({
+      auth: makeAuth(),
+      data: {},
+      approvals,
+      authorizationProvider: createAllowAllAuthorizationProvider(),
+    });
+
+    const result = await executeCapability(prohibited, ctx, { amount: 25 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.metadata?.approvalGate).toBe('prohibited-capability');
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('runs the handler when a matching unexpired approval is bound', async () => {
     const { capability, handler } = makeConsequential();
     const approvals = createApprovalService({ store: createMemoryApprovalStore() });

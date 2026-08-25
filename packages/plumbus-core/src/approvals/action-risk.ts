@@ -1,23 +1,30 @@
 /**
  * Action-risk vocabulary.
  *
- * Single import point for the approval gate. Values are the frozen three-tier
- * set (read-only, limited-reversible, consequential). Callers keep these names
- * if the host later swaps the catalog module.
+ * Single import point for the approval gate. Values are the frozen four-tier
+ * set (analytical, limited-reversible, consequential, prohibited). Callers keep
+ * these names if the host later swaps the catalog module.
+ *
+ * `prohibited` is normative, not descriptive: a prohibited action cannot be
+ * invoked, cannot be proposed for approval, and is not exposed as available.
+ * The approval gate refuses it outright — creating an approval request never
+ * makes a prohibited action permissible.
  */
 
 export const ActionRiskTier = {
-  ReadOnly: 'read-only',
+  Analytical: 'analytical',
   LimitedReversible: 'limited-reversible',
   Consequential: 'consequential',
+  Prohibited: 'prohibited',
 } as const;
 
 export type ActionRiskTier = (typeof ActionRiskTier)[keyof typeof ActionRiskTier];
 
 export const ACTION_RISK_TIERS = [
-  ActionRiskTier.ReadOnly,
+  ActionRiskTier.Analytical,
   ActionRiskTier.LimitedReversible,
   ActionRiskTier.Consequential,
+  ActionRiskTier.Prohibited,
 ] as const;
 
 export const ReviewMandateReason = {
@@ -30,9 +37,9 @@ export type ReviewMandateReason = (typeof ReviewMandateReason)[keyof typeof Revi
 /** Retired risk values. defineCapability rejects these; do not accept at runtime. */
 export const RETIRED_ACTION_RISK_VALUES = [
   'read',
+  'read-only',
   'routine-write',
   'sensitive-write',
-  'analytical',
   'reversible-change',
 ] as const;
 
@@ -47,6 +54,15 @@ export function isActionRiskTier(value: unknown): value is ActionRiskTier {
 /** Only `consequential` requires the mandatory approval gate. */
 export function requiresApprovalForRiskTier(tier: ActionRiskTier | undefined): boolean {
   return tier === ActionRiskTier.Consequential;
+}
+
+/**
+ * `prohibited` can never run: not invoked, not proposed for approval, not
+ * exposed as available. Approval must not be able to make it permissible, so
+ * it deliberately does not route through the approval gate.
+ */
+export function isProhibitedRiskTier(tier: ActionRiskTier | undefined): boolean {
+  return tier === ActionRiskTier.Prohibited;
 }
 
 export function capabilityDefinitionVersion(capability: { version?: string }): string {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking
+
+- **Action-risk vocabulary is now the four-tier canonical set** — `analytical`, `limited-reversible`, `consequential`, `prohibited`. `read-only` is retired (it was the analytical tier under its former name) and joins `RETIRED_ACTION_RISK_VALUES`; `defineCapability` rejects it like every other retired value. `ActionRiskTier.ReadOnly` is gone; use `ActionRiskTier.Analytical`. **`prohibited` is normative**: the approval gate refuses a prohibited capability outright (new gate code `prohibited-capability`) before any approval lookup, `ApprovalService.requestApproval` rejects `riskClass: 'prohibited'` (an approval must not make a prohibited action permissible), and `defineCapability` rejects `exposeAs` on a prohibited capability so it is never exposed as an MCP tool or API route. New helper: `isProhibitedRiskTier`.
+
 ### Added
 
 - **`createMemoryCredentialCatalog`** — host-declared named credential types and opaque bindings. The catalog stores type shapes, names, refs, and public labels; the host resolver supplies field values at `reveal`. Secret fields are read with `secret(name)` and never appear in JSON, `util.inspect`, or catalog errors. No built-in types. Optional on `createPlumbusRuntime({ credentials })` and on `createServer({ credentials })`. HTTP boot loads `export const credentials` from `app/server.ts` through `loadServerExtensions`. The catalog is retained on `PlumbusServer.credentials` and is never logged. Published at `@plumbus/core` and `@plumbus/core/credentials` (`dist/credentials/index.js`). Docs: [Credential catalog](../../docs/sdk-reference/credential-catalog.md).

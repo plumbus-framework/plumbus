@@ -5,6 +5,7 @@ export {
   RETIRED_ACTION_RISK_VALUES,
   capabilityDefinitionVersion,
   isActionRiskTier,
+  isProhibitedRiskTier,
   requiresApprovalForRiskTier,
 } from './action-risk.js';
 export type { RetiredActionRiskValue } from './action-risk.js';

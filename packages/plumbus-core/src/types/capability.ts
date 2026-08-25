@@ -147,6 +147,8 @@ export interface CapabilityContract<
   /**
    * Action-risk tier. Omitted: no approval gate (existing capabilities keep working).
    * Only `consequential` requires a bound, unexpired approval before the handler runs.
+   * `prohibited` never runs: the approval gate refuses it outright, it cannot be
+   * proposed for approval, and defineCapability rejects exposing it.
    */
   riskTier?: ActionRiskTier;
 

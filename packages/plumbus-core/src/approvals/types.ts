@@ -155,6 +155,7 @@ export interface ApprovalService {
 }
 
 export type ApprovalGateCode =
+  | 'prohibited-capability'
   | 'missing-approval'
   | 'missing-approval-service'
   | 'expired-approval'

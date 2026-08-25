@@ -42,7 +42,7 @@ const getUser = defineCapability({
     enabled: true,
     summary: "Fetches user profile by ID",
   },
-  riskTier: "read-only",
+  riskTier: "analytical",
   handler: async (ctx, input) => {
     const user = await ctx.data.User.findById(input.userId);
     if (!user) throw ctx.errors.notFound("User not found");
@@ -73,7 +73,7 @@ const getUser = defineCapability({
 | `explanation` | `ExplanationConfig` | No | Explainability settings |
 | `trigger` | `EventHandlerTrigger` | No | **Only `kind: "eventHandler"`** — `{ event: string, versionConstraint?: string }` for auto-registration at worker startup (0.5+) |
 | `transactional` | `boolean` | No | When `false`, opts this capability out of the transactional outbox (default: `true` for `action` / `eventHandler`, auto-excluded for `job`, `effects.ai: true`, and non-empty `effects.external`) |
-| `riskTier` | `"read-only" \| "limited-reversible" \| "consequential"` | No | Action-risk tier. Only `consequential` requires a bound, unexpired approval before the handler runs. Omitted: no gate. See [approvals](../core-concepts/approvals.md). |
+| `riskTier` | `"analytical" \| "limited-reversible" \| "consequential" \| "prohibited"` | No | Action-risk tier. Only `consequential` requires a bound, unexpired approval before the handler runs; `prohibited` never runs and cannot be exposed. Omitted: no gate. See [approvals](../core-concepts/approvals.md). |
 | `handler` | `(ctx, input) => Promise<output>` | Yes | Business logic implementation |
 
 `trigger` on non-`eventHandler` kinds throws at define time. Omit `trigger` to keep manual `ConsumerRegistry` wiring only.

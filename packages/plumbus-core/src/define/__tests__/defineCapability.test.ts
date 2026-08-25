@@ -47,20 +47,43 @@ describe('defineCapability', () => {
   });
 
   it('accepts action-risk tiers', () => {
-    const cap = defineCapability({
-      ...validConfig(),
-      riskTier: 'consequential',
-    });
-    expect(cap.riskTier).toBe('consequential');
+    for (const riskTier of ['analytical', 'limited-reversible', 'consequential', 'prohibited'] as const) {
+      const cap = defineCapability({
+        ...validConfig(),
+        riskTier,
+      });
+      expect(cap.riskTier).toBe(riskTier);
+    }
   });
 
   it('rejects retired action-risk values', () => {
+    for (const retired of ['sensitive-write', 'read-only', 'read', 'reversible-change'] as const) {
+      expect(() =>
+        defineCapability({
+          ...validConfig(),
+          riskTier: retired as 'consequential',
+        }),
+      ).toThrow('riskTier must be one of');
+    }
+  });
+
+  it('rejects exposing a prohibited capability', () => {
     expect(() =>
       defineCapability({
         ...validConfig(),
-        riskTier: 'sensitive-write' as 'consequential',
+        riskTier: 'prohibited',
+        exposeAs: ['mcp'],
+        description: 'Must never be a tool',
       }),
-    ).toThrow('riskTier must be one of');
+    ).toThrow('prohibited capabilities cannot be exposed');
+    expect(() =>
+      defineCapability({
+        ...validConfig(),
+        riskTier: 'prohibited',
+        exposeAs: ['api'],
+        api: { operationId: 'getUser', method: 'GET', path: '/users' },
+      }),
+    ).toThrow('prohibited capabilities cannot be exposed');
   });
 
   it('throws if name is missing', () => {

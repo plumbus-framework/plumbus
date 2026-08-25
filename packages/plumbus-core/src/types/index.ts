@@ -10,6 +10,7 @@ export {
   ActionRiskTier,
   ReviewMandateReason,
   isActionRiskTier,
+  isProhibitedRiskTier,
   requiresApprovalForRiskTier,
 } from '../approvals/action-risk.js';
 export { APPROVAL_PENDING_WAIT } from '../approvals/wait.js';

@@ -195,7 +195,7 @@ See [upgrading-capability-names](../upgrading-capability-names.md) when migratin
 
 ## Action-risk tiers and the approval gate
 
-`defineCapability` accepts optional `riskTier` from the action-risk vocabulary (`read-only`, `limited-reversible`, `consequential`). Omit it and existing capabilities keep working — the gate is a no-op.
+`defineCapability` accepts optional `riskTier` from the action-risk vocabulary (`analytical`, `limited-reversible`, `consequential`, `prohibited`). Omit it and existing capabilities keep working — the gate is a no-op.
 
 Only `consequential` requires a bound, unexpired approval before the handler runs. The approval binds the canonical capability name, definition version (`version` or `"1"`), and an input digest. A material input or version change invalidates the prior request. After an `approval_pending` wait, execution revalidates authorization through an `AuthorizationProvider` (harness stub; the host supplies the real gate later).
 

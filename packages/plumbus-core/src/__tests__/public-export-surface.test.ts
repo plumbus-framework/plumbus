@@ -287,6 +287,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'isCanonicalCapabilityName',
   'isEncryptedValue',
   'isPlumbusError',
+  'isProhibitedRiskTier',
   'isTerminal',
   'isValidTransition',
   'jobEventType',

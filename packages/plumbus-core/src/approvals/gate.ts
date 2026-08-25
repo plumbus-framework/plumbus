@@ -1,7 +1,11 @@
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { ActionRiskTier } from './action-risk.js';
-import { capabilityDefinitionVersion, requiresApprovalForRiskTier } from './action-risk.js';
+import {
+  capabilityDefinitionVersion,
+  isProhibitedRiskTier,
+  requiresApprovalForRiskTier,
+} from './action-risk.js';
 import { digestApprovalInput } from './digest.js';
 import { ApprovalRequestState, type ApprovalGateResult } from './types.js';
 
@@ -18,6 +22,18 @@ export async function evaluateApprovalGate(opts: {
   input: unknown;
 }): Promise<ApprovalGateResult> {
   const { capability, ctx, input } = opts;
+
+  // A prohibited capability can never run, and an approval must not make it
+  // permissible — refuse before any approval lookup with a stable reason code.
+  if (isProhibitedRiskTier(capability.riskTier)) {
+    return {
+      blocked: true,
+      code: 'prohibited-capability',
+      reason: 'Prohibited capability cannot be invoked, proposed for approval, or made available',
+      metadata: { capabilityId: getCanonicalCapabilityName(capability) },
+    };
+  }
+
   if (!requiresApprovalForRiskTier(capability.riskTier)) {
     return { blocked: false };
   }

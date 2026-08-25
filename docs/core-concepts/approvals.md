@@ -8,11 +8,14 @@ Single module: `ActionRiskTier` in `@plumbus/core`.
 
 | Tier | Approval gate |
 |------|----------------|
-| `read-only` | No |
+| `analytical` | No |
 | `limited-reversible` | No |
 | `consequential` | Yes — bound, unexpired approval required |
+| `prohibited` | Never runs — refused outright, cannot be proposed for approval, cannot be exposed |
 
-Review mandate reason is separate: `risk-tier` | `application-mandated`. Retired values (`read`, `routine-write`, `sensitive-write`, `analytical`, `reversible-change`) are rejected at `defineCapability`.
+Review mandate reason is separate: `risk-tier` | `application-mandated`. Retired values (`read`, `read-only`, `routine-write`, `sensitive-write`, `reversible-change`) are rejected at `defineCapability`.
+
+`prohibited` is normative: the gate blocks it with code `prohibited-capability` before any approval lookup (an approval must not make a prohibited action permissible), `requestApproval` rejects `riskClass: 'prohibited'`, and `defineCapability` refuses `exposeAs` on a prohibited capability so it is never listed as an MCP tool or API route.
 
 If a host contract later standardizes different tier names, swap that one module. Callers keep the same names.
 

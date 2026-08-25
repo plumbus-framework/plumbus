@@ -81,6 +81,19 @@ describe('createApprovalService', () => {
     ).toBeUndefined();
   });
 
+  it('refuses to create an approval request for a prohibited risk class', async () => {
+    const service = createApprovalService({ store: createMemoryApprovalStore() });
+    await expect(
+      service.requestApproval({
+        capabilityId: 'billing.refund',
+        definitionVersion: '1',
+        input: { amount: 10 },
+        riskClass: ActionRiskTier.Prohibited,
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    ).rejects.toThrow(/prohibited/);
+  });
+
   it('finds an approval request by flow execution id', async () => {
     const service = createApprovalService({ store: createMemoryApprovalStore() });
     await service.requestApproval({

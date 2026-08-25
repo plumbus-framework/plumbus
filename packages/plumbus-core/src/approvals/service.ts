@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ReviewMandateReason } from './action-risk.js';
+import { ActionRiskTier, ReviewMandateReason } from './action-risk.js';
 import { requireHumanActor } from './actors.js';
 import { createAllowAllAuthorizationProvider } from './authorization.js';
 import { digestApprovalInput } from './digest.js';
@@ -120,6 +120,13 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
 
   return {
     async requestApproval(input: RequestApprovalInput): Promise<ApprovalRequestRecord> {
+      // A prohibited action cannot be proposed for approval: creating the
+      // request must not make the action permissible.
+      if (input.riskClass === ActionRiskTier.Prohibited) {
+        throw new Error(
+          `Approval cannot be requested for prohibited capability "${input.capabilityId}"`,
+        );
+      }
       const now = nowFn();
       const inputDigest = digestApprovalInput(input.input);
       await invalidateMaterialChanges(

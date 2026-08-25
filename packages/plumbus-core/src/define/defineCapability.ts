@@ -13,7 +13,7 @@ import type { CapabilityKind } from '../types/enums.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { isMcpExposed } from '../mcp/exposure.js';
 import type { AccessPolicy } from '../types/security.js';
-import { isActionRiskTier } from '../approvals/action-risk.js';
+import { isActionRiskTier, isProhibitedRiskTier } from '../approvals/action-risk.js';
 import type { ActionRiskTier } from '../approvals/action-risk.js';
 import { throwDefineValidationError } from './validation-error.js';
 
@@ -65,7 +65,10 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   trigger?: { event: string; versionConstraint?: string };
   /** When `false`, opts out of transactional outbox for this capability. */
   transactional?: boolean;
-  /** Action-risk tier. Only `consequential` requires the approval gate. */
+  /**
+   * Action-risk tier. Only `consequential` requires the approval gate;
+   * `prohibited` can never run, be proposed for approval, or be exposed.
+   */
   riskTier?: ActionRiskTier;
 
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
@@ -271,8 +274,16 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
 
   if (config.riskTier !== undefined && !isActionRiskTier(config.riskTier)) {
     throwDefineValidationError(
-      `Capability "${config.name}": riskTier must be one of read-only, limited-reversible, consequential`,
+      `Capability "${config.name}": riskTier must be one of analytical, limited-reversible, consequential, prohibited`,
       { field: 'riskTier' },
+    );
+  }
+
+  // A prohibited capability is never made available: no MCP tool, no API route.
+  if (isProhibitedRiskTier(config.riskTier) && config.exposeAs !== undefined && config.exposeAs.length > 0) {
+    throwDefineValidationError(
+      `Capability "${config.name}": prohibited capabilities cannot be exposed (exposeAs)`,
+      { field: 'exposeAs' },
     );
   }
 
