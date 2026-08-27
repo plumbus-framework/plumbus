@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { getCanonicalCapabilityName } from '../../execution/canonical-name.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { capabilityHttpMethod } from '../../api/exposure.js';
 import { buildMcpManifest, isMcpExposed, renderSkillFile } from '../../mcp/index.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { EntityDefinition } from '../../types/entity.js';
@@ -224,8 +225,7 @@ export function generatePlumbusDeclaration(
  */
 export function generateClientFunction(cap: CapabilityContract): string {
   const fnName = toCamelCase(cap.name);
-  const kind = cap.kind as CapabilityKind;
-  const method = kind === 'query' ? 'GET' : 'POST';
+  const method = capabilityHttpMethod(cap);
   const urlPath = `/api/${cap.domain}/${toKebabCase(cap.name)}`;
 
   if (method === 'GET') {
@@ -246,7 +246,7 @@ export function generateClientFunction(cap: CapabilityContract): string {
 
   return `export async function ${fnName}(input: ${toPascalCase(cap.name)}Input): Promise<${toPascalCase(cap.name)}Output> {
   const response = await fetch("${urlPath}", {
-    method: "POST",
+    method: "${method}",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });

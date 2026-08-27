@@ -120,6 +120,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'builtInProfiles',
   'calculateModelCost',
   'capabilityDependencyRules',
+  'capabilityHttpMethod',
   'capabilityTemplate',
   'capabilityTestTemplate',
   'chargeExecutionBudget',

@@ -150,6 +150,7 @@ export {
   authenticationFailureToHttp,
   buildAuthenticationRequest,
   isApiExposed,
+  capabilityHttpMethod,
   parseCookieHeader,
   registerAllRoutes,
   registerCapabilityRoute,

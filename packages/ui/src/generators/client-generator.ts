@@ -2,7 +2,7 @@
 // Generates typed fetch-based API clients, React hooks, and flow trigger functions
 // from capability contracts and flow definitions.
 
-import { isApiExposed, type CapabilityContract } from '@plumbus/core';
+import { capabilityHttpMethod, isApiExposed, type CapabilityContract } from '@plumbus/core';
 
 /** Fetch/hook wrappers target HTTP routes. Operator-only capabilities are not `exposeAs: ['api']`. */
 function httpApiCapabilities(capabilities: CapabilityContract[]): CapabilityContract[] {
@@ -57,8 +57,9 @@ export function flowTriggerFnName(flow: FlowTriggerInput): string {
   return `start${toPascalCase(flow.name)}`;
 }
 
-function httpMethod(kind: string): string {
-  return kind === 'query' ? 'GET' : 'POST';
+/** The declared method where a capability states one; the kind's default otherwise. */
+function httpMethod(cap: CapabilityContract): string {
+  return capabilityHttpMethod(cap);
 }
 
 function capabilityPath(domain: string, name: string): string {
@@ -302,7 +303,7 @@ export function generateTypedClient(
 ): string {
   const fnName = toCamelCase(cap.name);
   const pascal = toPascalCase(cap.name);
-  const method = httpMethod(cap.kind);
+  const method = httpMethod(cap);
   const urlPath = capabilityPath(cap.domain, cap.name);
   const base = config?.baseUrl ?? '';
 

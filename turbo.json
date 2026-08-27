@@ -10,7 +10,14 @@
       "persistent": true
     },
     "test": {
-      "dependsOn": ["^build", "build"]
+      "dependsOn": ["^build", "build"],
+      "passThroughEnv": [
+        "PLUMBUS_TEST_PG_HOST",
+        "PLUMBUS_TEST_PG_PORT",
+        "PLUMBUS_TEST_PG_DATABASE",
+        "PLUMBUS_TEST_PG_USER",
+        "PLUMBUS_TEST_PG_PASSWORD"
+      ]
     },
     "lint": {},
     "format": {

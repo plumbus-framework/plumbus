@@ -10,6 +10,7 @@ import {
   GENERIC_INTERNAL_MESSAGE,
   unknownErrorToSsePayload,
 } from '../errors/http.js';
+import { capabilityHttpMethod } from './exposure.js';
 import { isPlumbusError } from '../errors/index.js';
 import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
@@ -116,7 +117,7 @@ export function registerCapabilityRoute(
   // Event handlers are internal-only, no HTTP route
   if (capability.kind === 'eventHandler') return;
 
-  const method = capability.kind === 'query' ? 'GET' : 'POST';
+  const method = capabilityHttpMethod(capability);
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}`;
 
   const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
@@ -272,10 +273,26 @@ export function registerCapabilityRoute(
     }
   };
 
-  if (method === 'GET') {
-    app.get(path, handler);
-  } else {
-    app.post(path, handler);
+  /*
+   * Every method a capability may declare, not just the two the `kind` fallback produces. A
+   * declared `PATCH` that silently registered as `POST` is the same defect as a declared `POST`
+   * served as `GET`: the contract says one thing and the wire does another.
+   */
+  switch (method) {
+    case 'GET':
+      app.get(path, handler);
+      break;
+    case 'PATCH':
+      app.patch(path, handler);
+      break;
+    case 'PUT':
+      app.put(path, handler);
+      break;
+    case 'DELETE':
+      app.delete(path, handler);
+      break;
+    default:
+      app.post(path, handler);
   }
 }
 
