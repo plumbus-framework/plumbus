@@ -152,14 +152,6 @@ ${UNWRAP_ENVELOPE_HELPER}`;
 
 // ── Zod Schema → TypeScript Type String ──
 
-function getZodTypeName(schema: unknown): string {
-  if (schema && typeof schema === 'object' && '_def' in schema) {
-    const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
-    if (typeof def.typeName === 'string') return def.typeName;
-  }
-  return 'ZodUnknown';
-}
-
 function getZodDef(schema: unknown): Record<string, unknown> | null {
   if (schema && typeof schema === 'object' && '_def' in schema) {
     return (schema as Record<string, unknown>)._def as Record<string, unknown>;
@@ -209,7 +201,7 @@ function zodSchemaToTypeString(
         const fields = entries.map(([key, fieldSchema]) => {
           const optional = isFieldOptional(fieldSchema);
           const innerType = zodSchemaToTypeString(unwrapWrappers(fieldSchema), innerIndent, mode);
-          const nullable = getZodTypeName(fieldSchema) === 'ZodNullable';
+          const nullable = isFieldNullable(fieldSchema);
           const typeStr = nullable ? `${innerType} | null` : innerType;
           return `${innerIndent}${key}${optional ? '?' : ''}: ${typeStr};`;
         });
@@ -270,6 +262,30 @@ function isFieldOptional(schema: unknown): boolean {
   // See through .refine/.superRefine/.transform wrappers to the source schema so a
   // field like `z.string().optional().superRefine(...)` is still emitted optional.
   if (tn === 'ZodEffects' && def.schema) return isFieldOptional(def.schema);
+  return false;
+}
+
+/**
+ * Whether a field may be `null`, seen through the wrappers a schema author writes around it.
+ *
+ * `.nullable()` and `.optional()` compose in either order, and the idiomatic order for "may be
+ * omitted, and may be sent as null to clear it" is `.nullable().optional()` — which puts
+ * `ZodOptional` outermost. A flat check on the outer type name therefore reported such a field as
+ * non-nullable, and the generated client typed it `string | undefined`: the capability accepted a
+ * `null` that no caller of the client could construct, so a clearable field became write-only.
+ *
+ * This recurses the same way `isFieldOptional` does, and for the same reason.
+ */
+function isFieldNullable(schema: unknown): boolean {
+  const def = getZodDef(schema);
+  if (!def) return false;
+  const tn = typeof def.typeName === 'string' ? def.typeName : '';
+  if (tn === 'ZodNullable') return true;
+  if ((tn === 'ZodOptional' || tn === 'ZodDefault') && def.innerType) {
+    return isFieldNullable(def.innerType);
+  }
+  // See through .refine/.superRefine/.transform to the source schema, as above.
+  if (tn === 'ZodEffects' && def.schema) return isFieldNullable(def.schema);
   return false;
 }
 

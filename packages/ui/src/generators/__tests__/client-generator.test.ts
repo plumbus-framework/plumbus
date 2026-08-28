@@ -139,6 +139,26 @@ describe('generateCapabilityTypes', () => {
     expect(code).toContain('tags: string[]');
     expect(code).toContain('note: string | null');
   });
+
+  /*
+   * `.nullable()` and `.optional()` compose in either order, and the order that means "may be
+   * omitted, and may be sent as null to clear it" puts ZodOptional outermost. A flat check on the
+   * outer wrapper missed that, and generated a client whose callers could not construct the null
+   * the capability accepts — turning every clearable field write-only.
+   */
+  it('keeps null in the type whichever way nullable and optional are composed', () => {
+    const cap = makeCap({
+      input: z.object({
+        clearable: z.string().nullable().optional(),
+        alsoClearable: z.string().optional().nullable(),
+        plainOptional: z.string().optional(),
+      }),
+    });
+    const code = generateCapabilityTypes(cap);
+    expect(code).toContain('clearable?: string | null');
+    expect(code).toContain('alsoClearable?: string | null');
+    expect(code).toContain('plainOptional?: string;');
+  });
 });
 
 // ── generateTypedClient ──
