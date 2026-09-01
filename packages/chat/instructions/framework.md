@@ -4,7 +4,7 @@ This package is the chat primitive for Plumbus apps. Use it when the user wants 
 
 **`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`. Never use `^0.x` caret ranges.
 
-**Runtime floor (0.1.11+):** install `@plumbus/core` **≥ 0.6.11**. The declared peer still accepts 0.5.x / early 0.6.x for npm install, but the turn pipeline imports the provider tool protocol and conditional repository APIs that only exist from 0.6.11.
+**Runtime floor:** existing Chat behavior remains **≥ 0.6.11**. Only the optional `policy.toolCalling.ai` per-call provider/model/reasoning override requires core **≥ 0.6.18**; the runtime fails clearly if that field is configured on an older core.
 
 **Do NOT use this package** for: one-shot AI calls (use `defineCapability` + `ctx.ai.generate`), background workflows (use `defineFlow`), or pure RAG search with no chat UI (use `ctx.ai.retrieve` directly).
 
@@ -77,7 +77,7 @@ If you need to find or extend something, this is where it lives:
 3. **Wiring up context:** see [`context-sources.md`](./context-sources.md). Built-in helpers cover most cases; custom `ContextSource` only when truly bespoke.
 4. **Writing tests:** see [`testing.md`](./testing.md). Always use `mockChatRuntime`; never spin up a real provider in unit tests.
 5. **Extending the framework:** see [`extending.md`](./extending.md). Custom guards, custom context sources, custom prompts.
-6. **Provider-native tool calling (Path B):** see [`defining-chats.md`](./defining-chats.md) and [`policies.md`](./policies.md). Enable `policy.toolCalling` to bind capabilities/flows as provider tools; complete both Path B setup steps (re-export prompts + `chatRegistry`) first.
+6. **Provider-native tool calling (Path B):** see [`defining-chats.md`](./defining-chats.md) and [`policies.md`](./policies.md). Staged orchestration requires the package prompt re-exports + `chatRegistry`; custom-prompt agent orchestration with `scopePreflight:false` needs neither.
 
 ## Deeper Reference
 
@@ -97,10 +97,10 @@ The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do tha
 
 - **Never bump `@plumbus/chat` without running migrations.** 0.1.11 adds columns to all three chat entities and a **unique** index on `chat_turn (session_id, ordinal)`. After upgrading, run `plumbus generate && plumbus migrate generate && plumbus migrate apply`. The change is additive with no backfill, but the unique index **fails to build** if the existing table already holds duplicate `(session_id, ordinal)` rows — check with `SELECT session_id, ordinal, count(*) FROM chat_turn GROUP BY 1,2 HAVING count(*) > 1` and dedupe first. Full detail: `/docs/chat/confirmation-persistence.md`.
 - **Never use a write-effect capability as `capabilityContext`.** The framework rejects it at construction time; if you bypass that, every turn mutates state.
-- **Never narrow the chat prompt's output schema.** The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required for the runtime's guards. Add extra fields if you need them.
+- **Never narrow a staged chat prompt's output schema.** The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required for staged runtime guards. Agent tool orchestration is the explicit exception: it requires a custom plain-text prompt and synthesizes the policy envelope.
 - **Never call `runChatTurn` directly from a route.** Use `registerChatRoutes(app, routeConfig, chats)` so SSE, auth, body validation, and `clientHistory` capping are handled correctly.
 - **Never store sensitive prose in `ChatTurn.content` without setting `persistence: { messageContent: 'client' }`.** Audit + cross-device hydration are nice but they have privacy implications — pick the mode deliberately.
 - **Never invent source IDs in tests or fixtures.** The resolver issues handles (`src_a`, `src_b`, ...) in the order sources are declared in the chat config; cite using those exact strings.
 - **Never bypass the action-guard for capability-backed writes.** Configure `policy.action.allowedCapabilities` and let the framework re-validate + confirm. Do not exec capabilities directly from a context source.
 - **Never resolve tools with `ctx.capabilities.invoke`.** Chat's tool allowlist is dynamic, so `invoke` throws `undeclaredInvocation`. Tool calling resolves via `ctx.__runtime.resolveCapability(name)` and `executeCapability(cap, ctx, input)` — which still enforces the target's access policy. This is framework internals; do not re-implement it in app code.
-- **Never enable `policy.toolCalling` without completing both Path B setup steps.** (a) Re-export `chatToolRoundPrompt` and `chatScopeCheckPrompt` from `@plumbus/chat` into `app/prompts/` (same one-time wiring as `chat.turn`); and (b) build `createChatRegistry(promptRegistry)` and pass it as the `chatRegistry` opt to `registerChatRoutes(app, config, chats, { store, chatRegistry })`. Missing prompts fail on the first Path B turn — a per-turn `turn.failed` carrying `chat.prompt_not_registered`, not a boot-time error. Path B also requires a transactional store; a non-transactional adapter fails closed with `chat.storage_unsupported`.
+- **Complete the setup required by the chosen tool orchestration.** Staged Path B—and agent mode with `scopePreflight:true`—must re-export the package prompts they use and wire `createChatRegistry(promptRegistry)`. Agent orchestration with its default `scopePreflight:false` uses only its custom prompt and needs neither package prompt. Path B still requires durable ChatTurn rows; confirmation-capable deployments require a transactional conversation store.

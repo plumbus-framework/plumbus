@@ -49,6 +49,7 @@ export type {
   ListModelsFilter,
   ModelRate,
   OpenAIAdapterConfig,
+  ProviderAssistantState,
   ProviderJsonSchemaOptions,
   ProviderJsonSchemaResult,
   ProviderModel,

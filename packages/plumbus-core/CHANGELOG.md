@@ -1,5 +1,23 @@
 # @plumbus/core changelog
 
+## 0.6.18 — 2026-09-01 — provider-aware tool-call AI configuration
+
+### Added
+
+- **Per-call AI provider/model override.** `generate`, `generateWithUsage`, and `streamGenerate` accept `provider` and `model` without changing the registered prompt or global default.
+- **Provider-neutral reasoning contract.** `AIReasoningConfig` expresses `disabled`, `effort`, or token `budget` intent. Built-in OpenAI and Anthropic adapters translate the intent to native fields and reject adapter-level incompatibilities with `AIInvalidRequestError`. Custom providers implement the same contract in their own `AIProviderAdapter`.
+- **Reasoning capability metadata.** Adapters can expose supported reasoning modes/efforts through `AIProviderCapabilities`.
+- **Provider tool continuation state.** Anthropic thinking/redacted-thinking blocks are carried opaquely across tool-result rounds so the Messages API receives the original assistant content unmodified.
+
+### Changed
+
+- Reasoning wire translation lives exclusively in provider adapters. Chat and application code pass intent and contain no provider payload fields or model-name compatibility branches.
+
+### Compatibility
+
+- The exported legacy `ReasoningEffort` remains exactly `'low' | 'medium' | 'high'` and keeps its OpenAI-only behavior. New levels, disabled mode, and Anthropic thinking require the new `reasoning` property.
+- Anthropic requests without the new `reasoning` property keep the previous `temperature: 0.7` default and continue to ignore legacy `reasoningEffort`.
+
 ## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening
 
 ### Changed

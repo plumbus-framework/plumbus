@@ -1,5 +1,5 @@
 // packages/chat/src/runtime/tool-phase.ts
-import type { AIToolCall, ChatMessage, ExecutionContext } from '@plumbus/core';
+import type { AIService, AIToolCall, ChatMessage, ExecutionContext } from '@plumbus/core';
 import { executeCapability, safeJsonStringify } from '@plumbus/core';
 import type { BoundChatTool } from './bind-tools.js';
 import {
@@ -8,14 +8,39 @@ import {
   type FlowToolTurnCounters,
 } from './execute-flow-tool.js';
 import type { ChatEvent } from '../types/event.js';
+import type { ChatToolAiConfig } from '../types/policy.js';
 import type { ToolExecutionRecord } from '../types/tool.js';
 
 const MAX_OBSERVATION_BYTES = 8 * 1024;
 const MAX_ANSWER_OBS_BYTES = 16 * 1024;
 const MAX_ARGS_PREVIEW_BYTES = 2 * 1024;
 
-function execCtxWithSignal(ctx: ExecutionContext, signal?: AbortSignal): ExecutionContext {
-  return signal ? { ...ctx, signal } : ctx;
+function execCtxWithTrackedAi(
+  ctx: ExecutionContext,
+  signal: AbortSignal | undefined,
+  addUsage: (usage: { inputTokens?: number; outputTokens?: number }, cost?: number) => void,
+  includeNestedAiUsage: boolean,
+): ExecutionContext {
+  const withSignal = signal ? { ...ctx, signal } : ctx;
+  if (!includeNestedAiUsage) return withSignal;
+  const base = ctx.ai;
+  const tracked: AIService = {
+    ...base,
+    generateWithUsage: (async (config: never) => {
+      const result = await base.generateWithUsage(config);
+      addUsage(result.usage ?? {}, result.cost);
+      return result;
+    }) as AIService['generateWithUsage'],
+    async *streamGenerate(config) {
+      for await (const event of base.streamGenerate(config)) {
+        if (event.type === 'done') {
+          addUsage(event.usage ?? {}, event.cost);
+        }
+        yield event;
+      }
+    },
+  };
+  return { ...withSignal, ai: tracked };
 }
 
 export interface RunToolPhaseArgs {
@@ -32,6 +57,18 @@ export interface RunToolPhaseArgs {
   flowCounters?: FlowToolTurnCounters;
   /** When false, argsPreview is omitted from execution records (client-mode persistence). */
   persistToolArgs?: boolean;
+  /** Per-call model/reasoning overrides for the tool-using AI. */
+  ai?: ChatToolAiConfig;
+  includeNestedAiUsage?: boolean;
+  /**
+   * When present, run this custom chat prompt as the tool-using agent and
+   * return its first tool-less completion as the final user-facing answer.
+   * When absent, preserve the staged `chat.toolRound` behavior.
+   */
+  agentPrompt?: {
+    name: string;
+    input: Record<string, unknown>;
+  };
 }
 
 export interface ToolPhasePause {
@@ -51,6 +88,12 @@ export type ToolPhaseResult =
       observationsForAnswer: string;
       rounds: number;
       roundLimitReached: boolean;
+      /** Present only for agent orchestration. */
+      finalAnswer?: string;
+      /** Provider model that produced finalAnswer. */
+      finalModel?: string;
+      /** Provider that produced finalAnswer. */
+      finalProvider?: string;
       usage: { tokensIn: number; tokensOut: number };
       cost: number;
     }
@@ -111,7 +154,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
     cost: 0,
   });
 
-  if (boundTools.length === 0) return emptyCompleted();
+  if (boundTools.length === 0 && !args.agentPrompt) return emptyCompleted();
 
   const byName = new Map(boundTools.map((b) => [b.tool.name, b]));
   const providerTools = boundTools.map((b) => b.tool);
@@ -184,7 +227,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
     }
 
     if (bound.mode === 'confirm') {
-      const cap = ctx.__runtime?.resolveCapability?.(bound.targetName);
+      const cap = bound.capability ?? ctx.__runtime?.resolveCapability?.(bound.targetName);
       if (!cap) {
         toolsExecuted.push({
           toolCallId: call.id,
@@ -275,7 +318,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
     }
 
     const capKind = 'capability' as const;
-    const cap = ctx.__runtime?.resolveCapability?.(bound.targetName);
+    const cap = bound.capability ?? ctx.__runtime?.resolveCapability?.(bound.targetName);
     if (!cap) {
       toolsExecuted.push({
         toolCallId: call.id,
@@ -302,7 +345,16 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
 
     const result = await executeCapability(
       cap,
-      execCtxWithSignal(ctx, args.signal),
+      execCtxWithTrackedAi(
+        ctx,
+        args.signal,
+        (usage, nestedCost) => {
+          usageIn += usage.inputTokens ?? 0;
+          usageOut += usage.outputTokens ?? 0;
+          cost += nestedCost ?? 0;
+        },
+        args.includeNestedAiUsage === true,
+      ),
       call.arguments,
     );
     if (result.success) {
@@ -345,15 +397,29 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
   while (rounds < args.maxToolRounds) {
     rounds++;
     const res = await ctx.ai.generateWithUsage({
-      prompt: 'chat.toolRound',
-      input: { systemPrompt: args.systemPrompt, userMessage: args.userMessage },
+      prompt: args.agentPrompt?.name ?? 'chat.toolRound',
+      input: args.agentPrompt?.input ?? {
+        systemPrompt: args.systemPrompt,
+        userMessage: args.userMessage,
+      },
       messages: [...baseThread, ...exchange],
       tools: providerTools,
       toolChoice: 'auto',
       toolExecution: { parallelToolCalls: false },
       outputValidation: 'none',
+      ...(args.ai?.provider ? { provider: args.ai.provider } : {}),
+      ...(args.ai?.model ? { model: args.ai.model } : {}),
+      ...(args.ai?.reasoning !== undefined ? { reasoning: args.ai.reasoning } : {}),
+      ...(args.ai?.reasoningEffort !== undefined
+        ? { reasoningEffort: args.ai.reasoningEffort }
+        : {}),
       signal: args.signal,
-      costContext: { serviceArea: 'chat', operationName: `chat.${args.chatName}.toolRound` },
+      costContext: {
+        serviceArea: 'chat',
+        operationName: args.agentPrompt
+          ? `chat.${args.chatName}.agent`
+          : `chat.${args.chatName}.toolRound`,
+      },
     });
     usageIn += res.usage?.inputTokens ?? 0;
     usageOut += res.usage?.outputTokens ?? 0;
@@ -366,6 +432,13 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
         observationsForAnswer: truncateJson(answerObs, MAX_ANSWER_OBS_BYTES),
         rounds,
         roundLimitReached,
+        ...(args.agentPrompt
+          ? {
+              finalAnswer: String(res.data?.content ?? ''),
+              finalModel: res.model ?? 'unknown',
+              finalProvider: res.provider ?? 'unknown',
+            }
+          : {}),
         usage: { tokensIn: usageIn, tokensOut: usageOut },
         cost,
       };
@@ -397,7 +470,12 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
     }
 
     if (batchCalls.length > 0) {
-      exchange.push({ role: 'assistant', content: '', toolCalls: batchCalls });
+      exchange.push({
+        role: 'assistant',
+        content: '',
+        toolCalls: batchCalls,
+        ...(res.providerState ? { providerState: res.providerState } : {}),
+      });
       exchange.push(...toolMessages);
     }
 
@@ -415,6 +493,42 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
   }
 
   roundLimitReached = true;
+  if (args.agentPrompt) {
+    // One bounded terminal request without tools. The provider cannot start
+    // another tool round, so the custom agent must answer with what it has.
+    const terminal = await ctx.ai.generateWithUsage({
+      prompt: args.agentPrompt.name,
+      input: args.agentPrompt.input,
+      messages: [...baseThread, ...exchange],
+      outputValidation: 'none',
+      ...(args.ai?.provider ? { provider: args.ai.provider } : {}),
+      ...(args.ai?.model ? { model: args.ai.model } : {}),
+      ...(args.ai?.reasoning !== undefined ? { reasoning: args.ai.reasoning } : {}),
+      ...(args.ai?.reasoningEffort !== undefined
+        ? { reasoningEffort: args.ai.reasoningEffort }
+        : {}),
+      signal: args.signal,
+      costContext: {
+        serviceArea: 'chat',
+        operationName: `chat.${args.chatName}.agent`,
+      },
+    });
+    usageIn += terminal.usage?.inputTokens ?? 0;
+    usageOut += terminal.usage?.outputTokens ?? 0;
+    cost += terminal.cost ?? 0;
+    return {
+      status: 'completed',
+      toolsExecuted,
+      observationsForAnswer: truncateJson(answerObs, MAX_ANSWER_OBS_BYTES),
+      rounds,
+      roundLimitReached,
+      finalAnswer: String(terminal.data?.content ?? ''),
+      finalModel: terminal.model ?? 'unknown',
+      finalProvider: terminal.provider ?? 'unknown',
+      usage: { tokensIn: usageIn, tokensOut: usageOut },
+      cost,
+    };
+  }
   return {
     status: 'completed',
     toolsExecuted,

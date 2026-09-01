@@ -164,6 +164,7 @@ export interface AIResponse {
 /** Create a mock AI service with configurable responses */
 export function mockAI(responses?: AIResponse): AIService {
   return {
+    features: { perCallProviderModelReasoning: true },
     async recordProviderCost() {},
     checkProviderCostBudget() {},
     async generate(_config) {

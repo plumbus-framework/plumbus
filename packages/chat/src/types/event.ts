@@ -25,6 +25,8 @@ export type ChatEvent =
       turnId: string;
       usage: ChatUsage;
       cost: number;
+      model?: string;
+      provider?: string;
       inScope?: boolean;
       refusalReason?: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
       sources?: ChatSourceRef[];

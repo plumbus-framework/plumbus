@@ -316,7 +316,44 @@ export async function resumeAfterConfirm(
         logicalTurnId,
         emit,
         signal: args.signal,
+        promptInput: payload.agentPromptInput,
       });
+
+      if (outcome.kind === 'failed') {
+        try {
+          await store.completePending({
+            actionId: pending.id,
+            attemptId,
+            lease,
+            expectedRevision,
+            terminalStatus: 'confirmed',
+            completedAt: nowIso(ctx),
+          });
+        } catch {
+          await reconcileConfirmedAfterCasLoss(ctx, store, {
+            actionId: pending.id,
+            attemptId,
+            lease,
+            expectedRevision,
+            completedAt: nowIso(ctx),
+          });
+        }
+        emit({
+          type: 'confirmation.resolved',
+          actionId: pending.id,
+          decision: 'confirm',
+          pendingStatus: 'confirmed',
+          executionStatus: 'succeeded',
+        });
+        onResult({
+          decisionRecorded: true,
+          pendingStatus: 'confirmed',
+          execution: { status: 'succeeded' },
+          resume: { status: 'failed' },
+        });
+        emit(outcome.failure);
+        return;
+      }
 
       if (outcome.kind === 'paused') {
         // Nested confirm: finalize original + append continuation turn + insert new pending.
@@ -417,6 +454,8 @@ export async function resumeAfterConfirm(
         turnId: logicalTurnId,
         usage: { tokensIn: outcome.usage.tokensIn, tokensOut: outcome.usage.tokensOut },
         cost: outcome.cost,
+        model: outcome.model,
+        provider: outcome.provider,
         inScope: outcome.inScope,
         refusalReason: outcome.refusalReason ?? null,
         sources: outcome.sourceRefs,

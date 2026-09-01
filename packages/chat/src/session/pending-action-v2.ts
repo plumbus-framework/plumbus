@@ -56,6 +56,8 @@ export interface ChatToolResumePayloadV1 {
 
   toolsExecuted: ToolExecutionRecord[];
   sourceRefs: ChatSourceRef[];
+  /** Server-owned custom prompt fields needed to resume agent orchestration. */
+  agentPromptInput?: Record<string, unknown>;
   // Serialized ChatToolResumePayloadV1 MUST NOT exceed 256 KiB; overflow fails proposal
   // persistence before emitting confirmation_required.
 }

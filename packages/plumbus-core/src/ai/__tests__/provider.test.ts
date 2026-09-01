@@ -8,7 +8,7 @@ import {
   type ListModelsFilter,
   ProviderAPIError,
 } from '../provider.js';
-import { AIIncompleteOutputError, AIRefusalError } from '../refusal.js';
+import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from '../refusal.js';
 
 // The built-in OpenAI and Anthropic adapters always implement `listModels`;
 // the interface marks it optional only for third-party adapters. This helper
@@ -193,13 +193,46 @@ describe('AI Provider Adapters', () => {
       vi.stubGlobal('fetch', mockFetch);
 
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5' });
-      await adapter.complete({ prompt: 'Say hello', reasoningEffort: 'medium' });
+      await adapter.complete({
+        prompt: 'Say hello',
+        reasoning: { mode: 'effort', effort: 'medium' },
+      });
       await adapter.complete({ prompt: 'Say hello' });
 
       const withEffort = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
       expect(withEffort.reasoning_effort).toBe('medium');
       const without = JSON.parse(mockFetch.mock.calls[1]?.[1].body);
       expect(without.reasoning_effort).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it('maps disabled reasoning to explicit none and rejects token budgets before I/O', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Hello' }, finish_reason: 'stop' }],
+          model: 'gpt-5.5',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5' });
+      await adapter.complete({ prompt: 'Say hello', reasoning: { mode: 'disabled' } });
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.reasoning_effort).toBe('none');
+
+      await expect(
+        adapter.complete({
+          prompt: 'Say hello',
+          reasoning: { mode: 'budget', maxTokens: 2048 },
+        }),
+      ).rejects.toMatchObject({
+        name: 'AIInvalidRequestError',
+        reason: 'reasoning_budget_unsupported',
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
 
       vi.unstubAllGlobals();
     });
@@ -790,6 +823,28 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
+    it('preserves legacy defaults and ignores legacy reasoningEffort', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'Legacy behavior' }],
+          model: 'claude-sonnet-4',
+          usage: { input_tokens: 10, output_tokens: 4 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      await adapter.complete({ prompt: 'Hello', reasoningEffort: 'high' });
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.temperature).toBe(0.7);
+      expect(body.thinking).toBeUndefined();
+      expect(body.output_config).toBeUndefined();
+      vi.unstubAllGlobals();
+    });
+
     it('sends Anthropic output_config.format when responseSchema is provided', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -828,6 +883,116 @@ describe('AI Provider Adapters', () => {
         },
       });
       expect(call?.[1].headers).not.toHaveProperty('anthropic-beta');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('maps reasoning intent and preserves thinking blocks across tool rounds', async () => {
+      const firstContent = [
+        { type: 'thinking', thinking: 'private', signature: 'sig-1' },
+        { type: 'tool_use', id: 'tool-1', name: 'lookup', input: { id: '1' } },
+      ];
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            content: firstContent,
+            model: 'claude-sonnet-5',
+            usage: { input_tokens: 10, output_tokens: 8 },
+            stop_reason: 'tool_use',
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            content: [{ type: 'text', text: 'Done' }],
+            model: 'claude-sonnet-5',
+            usage: { input_tokens: 12, output_tokens: 4 },
+            stop_reason: 'end_turn',
+          }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      const first = await adapter.complete({
+        prompt: 'Use a tool',
+        maxTokens: 8192,
+        reasoning: { mode: 'effort', effort: 'medium' },
+        tools: [{ name: 'lookup', description: 'Lookup', parameters: { type: 'object' } }],
+      });
+      expect(first.providerState).toEqual({ provider: 'anthropic', content: firstContent });
+
+      await adapter.complete({
+        prompt: '',
+        maxTokens: 8192,
+        reasoning: { mode: 'effort', effort: 'medium' },
+        messages: [
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: first.toolCalls,
+            providerState: first.providerState,
+          },
+          { role: 'tool', content: '{"ok":true}', toolCallId: 'tool-1', name: 'lookup' },
+        ],
+      });
+
+      const firstBody = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(firstBody.temperature).toBeUndefined();
+      expect(firstBody.thinking).toEqual({ type: 'adaptive', display: 'omitted' });
+      expect(firstBody.output_config).toEqual({ effort: 'medium' });
+      const secondBody = JSON.parse(mockFetch.mock.calls[1]?.[1].body);
+      expect(secondBody.messages[0]).toEqual({ role: 'assistant', content: firstContent });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('maps disabled and budget reasoning and validates Anthropic constraints', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'Done' }],
+          model: 'claude-sonnet-4-5',
+          usage: { input_tokens: 10, output_tokens: 8 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+
+      await adapter.complete({ prompt: 'Fast', reasoning: { mode: 'disabled' } });
+      await adapter.complete({
+        prompt: 'Think',
+        maxTokens: 4096,
+        reasoning: { mode: 'budget', maxTokens: 2048 },
+      });
+      expect(JSON.parse(mockFetch.mock.calls[0]?.[1].body).thinking).toEqual({
+        type: 'disabled',
+      });
+      expect(JSON.parse(mockFetch.mock.calls[1]?.[1].body).thinking).toEqual({
+        type: 'enabled',
+        budget_tokens: 2048,
+        display: 'omitted',
+      });
+
+      await expect(
+        adapter.complete({
+          prompt: 'Think',
+          maxTokens: 2048,
+          reasoning: { mode: 'budget', maxTokens: 2048 },
+        }),
+      ).rejects.toBeInstanceOf(AIInvalidRequestError);
+      await expect(
+        adapter.complete({
+          prompt: 'Think',
+          reasoning: { mode: 'effort', effort: 'minimal' },
+        }),
+      ).rejects.toMatchObject({
+        name: 'AIInvalidRequestError',
+        reason: 'reasoning_effort_unsupported',
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
 
       vi.unstubAllGlobals();
     });

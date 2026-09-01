@@ -65,6 +65,10 @@ Enabled by `policy.toolCalling: { enabled: true, ... }`. The runtime:
    `resumePayload`. Path B is **always framework-invoke + resume** — there is no
    decision-only mode for Path B.
 
+### Agent orchestration (additive refinement)
+
+The original staged Path B remains the default for guarded support assistants. Domain conversations can opt into `toolCalling.orchestration: 'agent'`: their custom plain-text prompt is itself the bounded provider tool loop. A tool-less completion is the final answer, while a tool call continues that same prompt after execution. `scopePreflight` defaults off in this mode, eliminating the unconditional scope classifier and separate answer composer. This is deliberately restricted to custom prompts; chats that require inline scope, provenance, or structured action fields should remain staged.
+
 ### Round-limit terminal (C7)
 
 At `maxToolRounds` the runtime makes **one** final model request that **omits both
@@ -100,13 +104,13 @@ if the live binding no longer matches the proposal, confirm fails with
 
 ## Prompt registration (D5)
 
-Path B uses two package-shipped prompts in addition to `chat.turn`:
+Staged Path B uses two package-shipped prompts in addition to `chat.turn`:
 `chatToolRoundPrompt` (`chat.toolRound`) and `chatScopeCheckPrompt` (`chat.scopeCheck`).
 Plumbus registers prompts by **`app/prompts/*.prompt.ts` directory discovery**, so the app
 must **re-export** these two into `app/prompts/` (the same one-time wiring already used for
 `chat.turn` and the chat entities). There is no `registerChatToolCallingPrompts()` helper.
-A startup check fails Path B with `chat.prompt_not_registered` when either name is absent
-from `ctx.ai`'s registry, before any provider I/O.
+A startup check fails staged Path B with `chat.prompt_not_registered` when either name is absent
+from `ctx.ai`'s registry, before any provider I/O. Agent orchestration without scope preflight uses only its custom prompt.
 
 ## Error vocabulary and HTTP status
 

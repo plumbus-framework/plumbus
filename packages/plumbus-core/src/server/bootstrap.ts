@@ -135,7 +135,9 @@ export interface ServerConfig {
         model?: string;
         temperature?: number;
         maxTokens?: number;
-        reasoningEffort?: 'low' | 'medium' | 'high';
+        reasoning?: import('../types/prompt.js').AIReasoningConfig;
+        /** @deprecated Use `reasoning`. */
+        reasoningEffort?: import('../types/prompt.js').ReasoningEffort;
       }
     >;
   }>;

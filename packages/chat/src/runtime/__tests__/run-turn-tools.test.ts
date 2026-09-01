@@ -6,6 +6,7 @@ import type {
   CapabilityContract,
   ExecutionContext,
 } from '@plumbus/core';
+import { definePrompt } from '@plumbus/core';
 import { createTestContext, mockAI } from '@plumbus/core/testing';
 import { defineChat } from '../../define/defineChat.js';
 import { chatScopeCheckPrompt } from '../../prompt/chat-scope-check.prompt.js';
@@ -95,7 +96,291 @@ function toolCallingChat(capabilities: string[] = ['readThing']) {
   });
 }
 
+const interviewAgentPrompt = definePrompt({
+  name: 'interview.agent',
+  domain: 'interview',
+  description: 'Answer the user directly. Use the process tool only when it is needed.',
+  input: z
+    .object({
+      systemPrompt: z.string().optional(),
+      userMessage: z.string().optional(),
+      history: z.array(z.unknown()).optional(),
+      periodDepthContext: z.string().optional(),
+    })
+    .passthrough(),
+  output: z.object({ content: z.string() }),
+});
+
+function agentToolCallingChat(capabilities: string[] = ['readThing']) {
+  return defineChat({
+    name: 'interview',
+    access: {},
+    prompt: interviewAgentPrompt,
+    persistence: { messageContent: 'client', saveToDb: true },
+    policy: {
+      toolCalling: {
+        enabled: true,
+        capabilities,
+        orchestration: 'agent',
+      },
+    },
+  });
+}
+
 describe('runChatTurn — Path B tool calling', () => {
+  it('agent orchestration answers an ordinary turn in one model call', async () => {
+    const readCap = makeReadCap('readThing');
+    const generateWithUsage = vi.fn(async (config: Record<string, unknown>) => {
+      expect(config.prompt).toBe('interview.agent');
+      expect(config).not.toHaveProperty('model');
+      expect(config).not.toHaveProperty('reasoningEffort');
+      expect(config.input).toEqual(
+        expect.objectContaining({ periodDepthContext: 'stay in childhood' }),
+      );
+      expect(config.messages).toEqual([
+        { role: 'assistant', content: 'Tell me about your childhood.' },
+        { role: 'user', content: 'I grew up by the sea.' },
+      ]);
+      return {
+        finishReason: 'stop' as const,
+        data: { content: 'What do you remember about the harbor?' },
+        usage: { inputTokens: 10, outputTokens: 6, totalTokens: 16 },
+        model: 'mock-agent',
+        provider: 'mock',
+        cost: 0.01,
+      };
+    });
+    const ai: AIService = {
+      ...mockAI({ generate: inScopeAnswer }),
+      features: { perCallProviderModelReasoning: true },
+      generateWithUsage: generateWithUsage as AIService['generateWithUsage'],
+      streamGenerate() {
+        throw new Error('agent orchestration must not run a separate answer stream');
+      },
+    };
+    const ctx = ctxWithCaps([readCap], { ai, auth: { roles: ['user'] } });
+    const chat = agentToolCallingChat();
+    const session = await createSession(ctx, {
+      chatName: chat.name,
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    const events: ChatEvent[] = [];
+    for await (const event of runChatTurn(ctx, {
+      chatDefinition: chat,
+      sessionId: session.id,
+      userMessage: 'I grew up by the sea.',
+      audience: 'user',
+      locale: 'en',
+      trustedHistory: [{ role: 'assistant', content: 'Tell me about your childhood.' }],
+      promptInput: { periodDepthContext: 'stay in childhood' },
+    })) {
+      events.push(event);
+    }
+
+    expect(generateWithUsage).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual({
+      type: 'message.delta',
+      text: 'What do you remember about the harbor?',
+    });
+    expect(events.at(-1)?.type).toBe('turn.completed');
+  });
+
+  it('agent orchestration invokes an auto tool only when the model requests it', async () => {
+    const readCap = makeReadCap('readThing');
+    let call = 0;
+    const generateWithUsage = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        return {
+          finishReason: 'tool_calls' as const,
+          toolCalls: [
+            {
+              id: 'tc-process',
+              name: 'readThing',
+              argumentsStatus: 'parsed' as const,
+              arguments: {},
+            },
+          ],
+          usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+          model: 'mock-agent',
+          provider: 'mock',
+          cost: 0.01,
+        };
+      }
+      return {
+        finishReason: 'stop' as const,
+        data: { content: 'The tool says how the interview works.' },
+        usage: { inputTokens: 12, outputTokens: 6, totalTokens: 18 },
+        model: 'mock-agent',
+        provider: 'mock',
+        cost: 0.01,
+      };
+    });
+    const ai: AIService = {
+      ...mockAI({ generate: inScopeAnswer }),
+      generateWithUsage: generateWithUsage as AIService['generateWithUsage'],
+    };
+    const ctx = ctxWithCaps([readCap], { ai, auth: { roles: ['user'] } });
+    const chat = agentToolCallingChat();
+    const session = await createSession(ctx, {
+      chatName: chat.name,
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    const events = await collectTurnEvents(ctx, chat, {
+      sessionId: session.id,
+      userMessage: 'How does this work?',
+    });
+
+    expect(generateWithUsage).toHaveBeenCalledTimes(2);
+    expect(events.map((event) => event.type)).toContain('tool.completed');
+    expect(events).toContainEqual({
+      type: 'message.delta',
+      text: 'The tool says how the interview works.',
+    });
+  });
+
+  it('forwards toolCalling.ai provider, model, and reasoning overrides to the agent call', async () => {
+    const readCap = makeReadCap('readThing');
+    const generateWithUsage = vi.fn(async (config: Record<string, unknown>) => {
+      expect(config).toEqual(
+        expect.objectContaining({
+          provider: 'anthropic',
+          model: 'tool-model',
+          reasoning: { mode: 'effort', effort: 'medium' },
+        }),
+      );
+      return {
+        finishReason: 'stop' as const,
+        data: { content: 'Configured agent answer.' },
+        usage: { inputTokens: 4, outputTokens: 3, totalTokens: 7 },
+        model: 'tool-model',
+        provider: 'mock',
+        cost: 0.01,
+      };
+    });
+    const ai: AIService = {
+      ...mockAI({ generate: inScopeAnswer }),
+      generateWithUsage: generateWithUsage as AIService['generateWithUsage'],
+    };
+    const ctx = ctxWithCaps([readCap], { ai, auth: { roles: ['user'] } });
+    const chat = defineChat({
+      ...agentToolCallingChat(),
+      policy: {
+        toolCalling: {
+          enabled: true,
+          capabilities: ['readThing'],
+          orchestration: 'agent',
+          scopePreflight: false,
+          ai: {
+            provider: 'anthropic',
+            model: 'tool-model',
+            reasoning: { mode: 'effort', effort: 'medium' },
+          },
+        },
+      },
+    });
+    const session = await createSession(ctx, {
+      chatName: chat.name,
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+
+    const events = await collectTurnEvents(ctx, chat, {
+      sessionId: session.id,
+      userMessage: 'A normal turn.',
+    });
+
+    expect(events).toContainEqual({ type: 'message.delta', text: 'Configured agent answer.' });
+  });
+
+  it('binds an explicit programmatic capability resolver when ctx.__runtime is hidden', async () => {
+    const readCap = makeReadCap('readThing');
+    const ai: AIService = {
+      ...mockAI({ generate: inScopeAnswer }),
+      generateWithUsage: vi.fn(async () => ({
+        finishReason: 'stop' as const,
+        data: { content: 'Programmatic agent answer.' },
+        usage: { inputTokens: 4, outputTokens: 3, totalTokens: 7 },
+        model: 'mock-agent',
+        provider: 'mock',
+        cost: 0,
+      })) as AIService['generateWithUsage'],
+    };
+    const ctx = createTestContext({ ai, auth: { roles: ['user'] } });
+    const chat = agentToolCallingChat();
+    const session = await createSession(ctx, {
+      chatName: chat.name,
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    const events: ChatEvent[] = [];
+
+    for await (const event of runChatTurn(
+      ctx,
+      {
+        chatDefinition: chat,
+        sessionId: session.id,
+        userMessage: 'A normal memoir answer.',
+        audience: 'user',
+        locale: 'en',
+      },
+      {
+        resolveCapability: (name) => (name === readCap.name ? readCap : undefined),
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({ type: 'message.delta', text: 'Programmatic agent answer.' });
+    expect(events.at(-1)?.type).toBe('turn.completed');
+  });
+
+  it('fails clearly when toolCalling.ai runs on a core without per-call override support', async () => {
+    const readCap = makeReadCap('readThing');
+    const ai: AIService = { ...mockAI({ generate: inScopeAnswer }) };
+    const generateWithUsage = vi.spyOn(ai, 'generateWithUsage');
+    delete ai.features;
+    const ctx = ctxWithCaps([readCap], { ai, auth: { roles: ['user'] } });
+    const chat = defineChat({
+      ...agentToolCallingChat(),
+      policy: {
+        toolCalling: {
+          enabled: true,
+          capabilities: ['readThing'],
+          orchestration: 'agent',
+          scopePreflight: false,
+          ai: { model: 'tool-model' },
+        },
+      },
+    });
+    const session = await createSession(ctx, {
+      chatName: chat.name,
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+
+    const events = await collectTurnEvents(ctx, chat, {
+      sessionId: session.id,
+      userMessage: 'A normal turn.',
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'turn.failed',
+        code: 'chat.core_version_unsupported',
+        message: expect.stringContaining('@plumbus/core >= 0.6.18'),
+      }),
+    );
+    expect(generateWithUsage).not.toHaveBeenCalled();
+  });
+
   it('fails with chat.prompt_not_registered when registry is missing', async () => {
     const ctx = createTestContext({ ai: mockAI({ generate: inScopeAnswer }) });
     const chat = toolCallingChat();

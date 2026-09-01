@@ -204,6 +204,12 @@ If you find yourself writing the same custom guard across multiple chats, file a
 `policy.toolCalling` is the provider-native tool-calling path (see
 [defining-chats.md → Provider-native tool calling](./defining-chats.md#provider-native-tool-calling-policytoolcalling-path-b) for the config shape). This section is the normative source for its error vocabulary and HTTP status mapping.
 
+Two orchestration modes share the same binding, execution, event, budget, and confirmation machinery. `staged` is the backward-compatible default (`scopeCheck` → `toolRound` → structured answer). `agent` requires a custom plain-text prompt and makes that prompt the tool loop and final answer; `scopePreflight` defaults off, so an ordinary in-domain turn is one call and an auto tool runs only when the agent requests it.
+
+The tool-using AI inherits its prompt/runtime provider, model, and reasoning configuration by default. `policy.toolCalling.ai` may override all three for tool rounds and resume. Reasoning uses core's provider-neutral `disabled`, `effort`, or token `budget` contract; `null` restores provider default. The selected core adapter performs wire translation and rejects unsupported modes without model-name heuristics in Chat.
+
+`policy.toolCalling.includeNestedAiUsage` controls whether `ctx.ai.generateWithUsage` / `streamGenerate` calls made inside auto tools are added to the logical Chat turn's usage and budget. It defaults to `false` for staged orchestration, preserving 0.1.11 behavior, and `true` for the new agent orchestration.
+
 ### Confirm round-trip
 
 Confirm-mode tools pause the turn with `confirmation_required` (which now also carries an

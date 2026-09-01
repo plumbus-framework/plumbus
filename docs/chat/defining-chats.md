@@ -85,6 +85,14 @@ defineChat({
       enabled: true,
       capabilities?: ['openSupportTicket'],   // capability tools (confirm/auto per binding)
       autoStartFlows?: ['refundFlow'],        // flow tools, bound flow__<name>
+      ai?: {
+        provider?: 'anthropic',
+        model?: 'claude-sonnet-5',
+        reasoning?: { mode: 'effort', effort: 'medium' },
+      }, // optional per-call overrides
+      includeNestedAiUsage?: boolean, // staged false; agent true
+      orchestration?: 'staged' | 'agent',     // default staged
+      scopePreflight?: true,                  // staged true; agent false
       maxToolRounds?: 5,                       // default 5, range 1..20
       maxTools?: 32,                           // default 32, range 1..64
       flowAwaitMs?: 10000,                     // default 10_000
@@ -162,7 +170,7 @@ export const helpChat = defineChat({
 });
 ```
 
-**The five base output fields are required** — the runtime's scope, provenance, and action guards depend on them. Custom fields can be added freely.
+**The five base output fields are required for staged chats** — the runtime's scope, provenance, and action guards depend on them. Custom fields can be added freely. Agent tool orchestration is the explicit exception: it requires a custom plain-text prompt and synthesizes the policy envelope.
 
 ## Provider-native tool calling (`policy.toolCalling`, Path B)
 
@@ -179,6 +187,13 @@ export const supportChat = defineChat({
       enabled: true,
       capabilities: ['lookupOrder', 'openSupportTicket'],
       autoStartFlows: ['issueRefund'],
+      ai: {
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        reasoning: { mode: 'effort', effort: 'medium' },
+      }, // optional
+      orchestration: 'staged', // or 'agent' with a custom plain-text prompt
+      scopePreflight: true,    // agent mode defaults false
       maxToolRounds: 5,
     },
   },
@@ -210,6 +225,9 @@ Requirements and behavior:
   model call and emits a `chat.tool_round_limit` notice.
 - **Chat does not use core's `runToolLoop`** — the chat loop default is `maxToolRounds: 5`;
   core's `runToolLoop` default (8, hard cap 20) is for capability authors.
+- **Agent orchestration.** Set `orchestration: 'agent'` on a chat with a custom plain-text prompt when that same domain agent should decide whether to call a tool and answer. With the default `scopePreflight:false`, no package tool prompts or `ChatRegistry` are required. A no-tool turn is one call; a tool turn continues the same prompt with the observation. Use staged mode when the five-field structured policy output, scope preflight, or provenance is required.
+- **Tool AI configuration.** `toolCalling.ai.provider`, `.model`, and `.reasoning` override tool selection/continuation calls. Omit them to inherit prompt/dynamic overrides. `reasoning:null` restores provider default and clears inherited new or legacy reasoning controls; otherwise use `disabled`, `effort`, or token `budget`. Translation belongs to core provider adapters, and Chat never rewrites configuration based on model names.
+- **Nested AI accounting.** `toolCalling.includeNestedAiUsage` controls whether AI calls inside auto tools count toward the logical Chat turn and its budgets. Existing staged behavior defaults false; agent orchestration defaults true.
 
 Full error/status semantics: [policies.md → Tool calling (Path B)](./policies.md#tool-calling-path-b).
 Design rationale: [design/tool-calling.md](./design/tool-calling.md).
@@ -288,7 +306,7 @@ registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
 | `audienceTenantOverride` | Public/multi-tenant chats where the audience implies a tenant the auth adapter couldn't infer (e.g. anonymous `audience: 'support'` → marketing tenant). Only applied when `auth.tenantId` is empty. |
 | `beforeTurn` | Mutate the user message (sanitise, normalise) or short-circuit with a typed `{ error: { status, body } }` reply before any runtime work fires. |
 | `afterTurn` | Observability / audit. Receives the full ordered `ChatEvent[]` after the turn completes (or after the SSE stream ends). Errors are swallowed with a `console.warn`; do not rely on this for correctness. |
-| `chatRegistry` | Required for chats with `policy.toolCalling.enabled` — supplies `chat.toolRound` / `chat.scopeCheck` registration status. Build with `createChatRegistry(promptRegistry)`. |
+| `chatRegistry` | Required for staged tool calling and agent mode with `scopePreflight:true`; supplies package-prompt registration status. Agent mode with preflight off does not need it. |
 | `store` | A `ChatConversationStore`. Mounting it enables the `POST /chat/:name/confirm` route and switches the pre-turn live-pending check to the store's `inspectSession`. Required for tool confirmations. Without it, the pre-turn check falls back to reading `ctx.data` directly. |
 | `sessionStore` | A `ChatSessionStore`. Serves session and turn state from somewhere other than `ctx.data` — for deployments with no local database. Validated against every registered chat at registration time. Supplying it without `store` also **skips** the pre-turn live-pending probe, which would otherwise read `ctx.data`: a tier-1-only deployment cannot hold pending actions. See [session-store.md](./session-store.md). |
 | `authenticator` | Replace the default credential resolution (Authorization header, then cookies). |
