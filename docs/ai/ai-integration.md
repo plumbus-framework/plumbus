@@ -267,8 +267,11 @@ for those models — configured prompt/`generate` temperatures are ignored for t
 causing a 400 `unsupported_value` error. Earlier `gpt-5` lines (for example `gpt-5.4-mini`)
 still receive the configured temperature.
 
-Optional `model.reasoning` is provider-neutral. OpenAI maps effort/disabled to
-`reasoning_effort`; Anthropic maps disabled/effort/budget to `thinking` and
+Optional `model.reasoning` is provider-neutral. OpenAI retains Chat Completions
+for compatible requests and uses the Responses API when caller tools require
+active reasoning (including GPT-5.6's default reasoning). Stateless tool rounds
+request and replay encrypted reasoning items through provider continuation state.
+Anthropic maps disabled/effort/budget to `thinking` and
 `output_config.effort`. Adapter-level
 incompatibilities fail locally with `AIInvalidRequestError`; model-specific limitations remain
 provider errors. No model-name inference is used. The same override can be supplied via
