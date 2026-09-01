@@ -14,7 +14,7 @@ import type {
   AIToolCallsGenerateResult,
   AIToolEnabledGenerateResult,
 } from '../types/context.js';
-import type { PromptDefinition } from '../types/prompt.js';
+import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../types/prompt.js';
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import { calculateModelCost } from './model-pricing.js';
@@ -28,6 +28,7 @@ import {
   type ChatMessage,
   normalizeFinishReason,
   type ProviderRequest,
+  type ProviderAssistantState,
   type TokenUsage,
 } from './provider.js';
 import type { RAGPipeline } from './rag/pipeline.js';
@@ -78,7 +79,9 @@ export interface AIServiceConfig {
       model?: string;
       temperature?: number;
       maxTokens?: number;
-      reasoningEffort?: 'low' | 'medium' | 'high';
+      reasoning?: AIReasoningConfig;
+      /** @deprecated Use `reasoning`. */
+      reasoningEffort?: ReasoningEffort;
     }
   > /** Budget enforcement settings */;
   budget?: {
@@ -104,6 +107,14 @@ export function singleProviderConfig(
     defaultProvider: provider.name,
     ...rest,
   };
+}
+
+function resolveReasoningOverride(
+  reasoning: AIReasoningConfig | null | undefined,
+  inherited: AIReasoningConfig | undefined,
+): AIReasoningConfig | undefined {
+  if (reasoning !== undefined) return reasoning ?? undefined;
+  return inherited;
 }
 
 export function createAIService(config: AIServiceConfig): AIService {
@@ -255,7 +266,8 @@ export function createAIService(config: AIServiceConfig): AIService {
     provider?: string;
     temperature?: number;
     maxTokens?: number;
-    reasoningEffort?: 'low' | 'medium' | 'high';
+    reasoning?: AIReasoningConfig;
+    reasoningEffort?: ReasoningEffort;
     appendUnsubstitutedInput?: boolean;
     /**
      * Set of input keys that had a `{{key}}` placeholder in the prompt
@@ -302,6 +314,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       provider: override?.provider ?? def.model?.provider,
       temperature: override?.temperature ?? def.model?.temperature,
       maxTokens: override?.maxTokens ?? def.model?.maxTokens,
+      reasoning: override?.reasoning ?? def.model?.reasoning,
       reasoningEffort: override?.reasoningEffort ?? def.model?.reasoningEffort,
       appendUnsubstitutedInput: def.appendUnsubstitutedInput,
       substitutedKeys,
@@ -369,6 +382,10 @@ export function createAIService(config: AIServiceConfig): AIService {
     toolChoice?: AIToolChoice;
     toolExecution?: AIToolExecutionOptions;
     outputValidation?: 'prompt' | 'none';
+    provider?: string;
+    model?: string;
+    reasoning?: AIReasoningConfig | null;
+    reasoningEffort?: ReasoningEffort | null;
   }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
@@ -383,9 +400,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       ? buildPromptText(params.prompt, inputForAI)
       : { text: params.prompt, substitutedKeys: new Set<string>() };
 
-    // Resolve provider: prompt-level > default
+    // Resolve provider: per-call > prompt-level > default
     const activeProvider = resolveProvider(
-      'provider' in promptInfo ? promptInfo.provider : undefined,
+      params.provider ?? ('provider' in promptInfo ? promptInfo.provider : undefined),
     );
 
     // Check if we have a schema to validate against
@@ -403,14 +420,24 @@ export function createAIService(config: AIServiceConfig): AIService {
     const outputValidationNone = params.outputValidation === 'none';
     const skipStructuredOutput = toolsEnabled || outputValidationNone;
     const structuredResponseFormat = promptDef && !singleTextField ? 'json' : undefined;
+    const resolvedReasoning = resolveReasoningOverride(
+      params.reasoning,
+      'reasoning' in promptInfo ? promptInfo.reasoning : undefined,
+    );
+    const resolvedLegacyReasoningEffort =
+      params.reasoning === null || params.reasoningEffort === null
+        ? undefined
+        : (params.reasoningEffort ??
+          ('reasoningEffort' in promptInfo ? promptInfo.reasoningEffort : undefined));
     const request: ProviderRequest = {
       system: mergedSystem || undefined,
       prompt: useMultiTurn ? '' : basePrompt,
       messages: params.messages,
-      model: promptInfo.model ?? config.defaultModel,
+      model: params.model ?? promptInfo.model ?? config.defaultModel,
       temperature: promptInfo.temperature,
       maxTokens: promptInfo.maxTokens,
-      reasoningEffort: promptInfo.reasoningEffort,
+      reasoning: resolvedReasoning,
+      reasoningEffort: resolvedLegacyReasoningEffort,
       responseFormat: skipStructuredOutput ? undefined : structuredResponseFormat,
       responseSchema: skipStructuredOutput ? undefined : responseSchema,
       structuredOutputTransport: skipStructuredOutput
@@ -425,7 +452,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (params.toolExecution !== undefined) request.toolExecution = params.toolExecution;
     }
 
-    const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+    const resolvedModel =
+      params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
 
     let result: any;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -434,6 +462,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     let validationPassed = true;
     let finalFinishReason: 'stop' | 'length' | 'refusal' | 'other' = 'stop';
     let toolCallsResult: AIToolCall[] | undefined;
+    let toolProviderState: ProviderAssistantState | undefined;
     let toolFinishNormalized: 'stop' | 'length' | 'refusal' | 'tool_calls' | 'other' | undefined;
 
     try {
@@ -447,6 +476,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         totalUsage = response.usage;
         providerCost = response.cost;
         toolCallsResult = response.toolCalls;
+        toolProviderState = response.providerState;
         toolFinishNormalized = normalizeFinishReason(response.finishReason);
       } else if (outputValidationNone) {
         // Explicit no-validation path (no tools): return raw content as data.
@@ -571,6 +601,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       return {
         finishReason: 'tool_calls',
         toolCalls: toolCallsResult,
+        ...(toolProviderState ? { providerState: toolProviderState } : {}),
         usage: totalUsage,
         model: resolvedModel,
         provider: activeProvider.name,
@@ -618,6 +649,7 @@ export function createAIService(config: AIServiceConfig): AIService {
   }
 
   return {
+    features: { perCallProviderModelReasoning: true },
     recordProviderCost,
 
     checkProviderCostBudget(config = {}) {
@@ -632,6 +664,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       signal?: AbortSignal;
       costContext?: AICostContext;
       seed?: number;
+      provider?: string;
+      model?: string;
+      reasoning?: AIReasoningConfig | null;
+      reasoningEffort?: ReasoningEffort | null;
     }): Promise<Record<string, any>> {
       const result = await _generateCore(params);
       if (result.finishReason === 'tool_calls') {
@@ -658,6 +694,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       messages?: ChatMessage[];
       signal?: AbortSignal;
       costContext?: AICostContext;
+      provider?: string;
+      model?: string;
+      reasoning?: AIReasoningConfig | null;
+      reasoningEffort?: ReasoningEffort | null;
       /**
        * Deterministic sampling seed forwarded to providers that support it
        * (OpenAI-compatible, including xAI/Grok). Combined with temperature 0
@@ -681,7 +721,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       // Resolve provider
       const activeProvider = resolveProvider(
-        'provider' in promptInfo ? promptInfo.provider : undefined,
+        params.provider ?? ('provider' in promptInfo ? promptInfo.provider : undefined),
       );
 
       // Detect if the output schema is a simple single-string-field object
@@ -722,6 +762,16 @@ export function createAIService(config: AIServiceConfig): AIService {
             .join('\n\n')
         : promptInfo.system;
 
+      const resolvedReasoning = resolveReasoningOverride(
+        params.reasoning,
+        'reasoning' in promptInfo ? promptInfo.reasoning : undefined,
+      );
+      const resolvedLegacyReasoningEffort =
+        params.reasoning === null || params.reasoningEffort === null
+          ? undefined
+          : (params.reasoningEffort ??
+            ('reasoningEffort' in promptInfo ? promptInfo.reasoningEffort : undefined));
+
       const request: ProviderRequest = {
         system: mergedSystem || undefined,
         prompt: promptForProvider,
@@ -729,10 +779,11 @@ export function createAIService(config: AIServiceConfig): AIService {
         // use it verbatim and ignore `prompt`. Otherwise legacy single-user
         // mode applies.
         messages: params.messages,
-        model: promptInfo.model ?? config.defaultModel,
+        model: params.model ?? promptInfo.model ?? config.defaultModel,
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,
-        reasoningEffort: promptInfo.reasoningEffort,
+        reasoning: resolvedReasoning,
+        reasoningEffort: resolvedLegacyReasoningEffort,
         responseFormat: streamTextMode ? 'text' : 'json',
         responseSchema: streamTextMode ? undefined : responseSchema,
         structuredOutputTransport: promptDef?.structuredOutputTransport,
@@ -740,7 +791,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         seed: params.seed,
       };
 
-      const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+      const resolvedModel =
+        params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
 
       // Stream from provider, collecting full text and usage
       let fullText = '';

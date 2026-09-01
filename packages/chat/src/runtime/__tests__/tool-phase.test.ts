@@ -108,6 +108,244 @@ function createScriptedAI(script: AIToolEnabledGenerateResult[]): {
 }
 
 describe('runToolPhase', () => {
+  it('uses a custom agent prompt as the final answer without a separate answer phase', async () => {
+    const cap = makeCap('readThing');
+    const { ai } = createScriptedAI([
+      {
+        finishReason: 'stop',
+        data: { content: 'Direct interviewer answer.' },
+        usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 },
+        model: 'agent-model',
+        provider: 'mock',
+        cost: 0.01,
+      },
+    ]);
+    const ctx = ctxWithCaps([cap], { ai, auth: { roles: ['user'] } });
+    const bound = bindChatCapabilityTools(ctx, ['readThing'], { maxTools: 32 });
+
+    const result = await runToolPhase({
+      ctx,
+      chatName: 'interview',
+      boundTools: bound,
+      systemPrompt: 'unused generic system prompt',
+      userMessage: 'A memoir answer',
+      history: [],
+      maxToolRounds: 5,
+      emit: () => {},
+      ai: {
+        provider: 'anthropic',
+        model: 'tool-model',
+        reasoning: { mode: 'disabled' },
+      },
+      agentPrompt: {
+        name: 'interview.ask_next_question',
+        input: { periodDepthContext: 'stay in this period' },
+      },
+    });
+
+    expect(result.status).toBe('completed');
+    expect(ai.generateWithUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'anthropic',
+        model: 'tool-model',
+        reasoning: { mode: 'disabled' },
+      }),
+    );
+    if (result.status === 'completed') {
+      expect(result.finalAnswer).toBe('Direct interviewer answer.');
+      expect(result.finalModel).toBe('agent-model');
+      expect(result.rounds).toBe(1);
+    }
+  });
+
+  it('continues the same custom agent after an auto tool result', async () => {
+    const cap = makeCap('readThing');
+    const { ai } = createScriptedAI([
+      toolCallsResult([parsedCall('tc-agent', 'readThing', { q: 'process' })]),
+      {
+        finishReason: 'stop',
+        data: { content: 'Answer grounded in the process tool.' },
+        usage: { inputTokens: 7, outputTokens: 4, totalTokens: 11 },
+        model: 'agent-model',
+        provider: 'mock',
+        cost: 0.01,
+      },
+    ]);
+    const ctx = ctxWithCaps([cap], { ai, auth: { roles: ['user'] } });
+    const bound = bindChatCapabilityTools(ctx, ['readThing'], { maxTools: 32 });
+    const events: ChatEvent[] = [];
+
+    const result = await runToolPhase({
+      ctx,
+      chatName: 'interview',
+      boundTools: bound,
+      systemPrompt: 'unused generic system prompt',
+      userMessage: 'How does this work?',
+      history: [],
+      maxToolRounds: 5,
+      emit: (event) => events.push(event),
+      agentPrompt: {
+        name: 'interview.ask_next_question',
+        input: {},
+      },
+    });
+
+    expect(events.map((event) => event.type)).toEqual(['tool.started', 'tool.completed']);
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.finalAnswer).toBe('Answer grounded in the process tool.');
+      expect(result.toolsExecuted).toHaveLength(1);
+      expect(result.rounds).toBe(2);
+    }
+  });
+
+  it('preserves provider assistant state when continuing after a tool result', async () => {
+    const cap = makeCap('readThing');
+    const providerState = {
+      provider: 'anthropic',
+      content: [{ type: 'redacted_thinking', data: 'opaque-signature' }],
+    };
+    const { ai } = createScriptedAI([
+      {
+        ...toolCallsResult([parsedCall('tc-state', 'readThing', {})]),
+        providerState,
+      },
+      {
+        finishReason: 'stop',
+        data: { content: 'Done.' },
+        usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9 },
+        model: 'agent-model',
+        provider: 'anthropic',
+        cost: 0.01,
+      },
+    ]);
+    const ctx = ctxWithCaps([cap], { ai, auth: { roles: ['user'] } });
+
+    await runToolPhase({
+      ctx,
+      chatName: 'interview',
+      boundTools: bindChatCapabilityTools(ctx, ['readThing'], { maxTools: 32 }),
+      systemPrompt: 'system',
+      userMessage: 'question',
+      history: [],
+      maxToolRounds: 5,
+      emit: () => {},
+    });
+
+    const calls = (ai.generateWithUsage as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[1]?.[0]?.messages).toContainEqual(
+      expect.objectContaining({ role: 'assistant', providerState }),
+    );
+  });
+
+  it('includes AI usage from an auto capability tool in the logical turn totals', async () => {
+    const cap = makeCap('explainProcess', {
+      handler: async (ctx) => {
+        const nested = await ctx.ai.generateWithUsage({ prompt: 'process.explain', input: {} });
+        return { value: String(nested.data?.answer ?? '') };
+      },
+    });
+    const { ai } = createScriptedAI([
+      toolCallsResult([parsedCall('tc-cost', 'explainProcess', {})]),
+      {
+        finishReason: 'stop',
+        data: { answer: 'Nested explanation.' },
+        usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+        model: 'tool-model',
+        provider: 'mock',
+        cost: 0.02,
+      },
+      {
+        finishReason: 'stop',
+        data: { content: 'Final interviewer answer.' },
+        usage: { inputTokens: 7, outputTokens: 4, totalTokens: 11 },
+        model: 'agent-model',
+        provider: 'mock',
+        cost: 0.01,
+      },
+    ]);
+    const ctx = ctxWithCaps([cap], { ai, auth: { roles: ['user'] } });
+    const bound = bindChatCapabilityTools(ctx, ['explainProcess'], { maxTools: 32 });
+    const nestedCalls: Record<string, unknown>[] = [];
+
+    const result = await runToolPhase({
+      ctx,
+      chatName: 'interview',
+      boundTools: bound,
+      systemPrompt: '',
+      userMessage: 'How does this work?',
+      history: [],
+      maxToolRounds: 5,
+      emit: () => {},
+      includeNestedAiUsage: true,
+      onNestedAiCall: (call) => nestedCalls.push(call),
+      agentPrompt: { name: 'interview.agent', input: {} },
+    });
+
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.usage).toEqual({ tokensIn: 20, tokensOut: 11 });
+      expect(result.cost).toBeCloseTo(0.04);
+    }
+    expect(nestedCalls).toEqual([
+      {
+        toolName: 'explainProcess',
+        prompt: 'process.explain',
+        usage: { tokensIn: 3, tokensOut: 2 },
+        cost: 0.02,
+        model: 'tool-model',
+        provider: 'mock',
+        includedInTurnUsage: true,
+      },
+    ]);
+  });
+
+  it('preserves staged compatibility by excluding nested tool AI usage by default', async () => {
+    const cap = makeCap('explainProcess', {
+      handler: async (ctx) => {
+        await ctx.ai.generateWithUsage({ prompt: 'process.explain', input: {} });
+        return { value: 'ok' };
+      },
+    });
+    const { ai } = createScriptedAI([
+      toolCallsResult([parsedCall('tc-legacy-cost', 'explainProcess', {})]),
+      {
+        finishReason: 'stop',
+        data: { answer: 'Nested explanation.' },
+        usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+        model: 'tool-model',
+        provider: 'mock',
+        cost: 0.02,
+      },
+      {
+        finishReason: 'stop',
+        data: { content: 'Final answer.' },
+        usage: { inputTokens: 7, outputTokens: 4, totalTokens: 11 },
+        model: 'agent-model',
+        provider: 'mock',
+        cost: 0.01,
+      },
+    ]);
+    const ctx = ctxWithCaps([cap], { ai, auth: { roles: ['user'] } });
+
+    const result = await runToolPhase({
+      ctx,
+      chatName: 'staged-compatible',
+      boundTools: bindChatCapabilityTools(ctx, ['explainProcess'], { maxTools: 32 }),
+      systemPrompt: '',
+      userMessage: 'How does this work?',
+      history: [],
+      maxToolRounds: 5,
+      emit: () => {},
+    });
+
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.usage).toEqual({ tokensIn: 17, tokensOut: 9 });
+      expect(result.cost).toBeCloseTo(0.02);
+    }
+  });
+
   it('executes an auto tool and emits tool.started then tool.completed', async () => {
     const cap = makeCap('readThing');
     const { ai } = createScriptedAI([

@@ -1,4 +1,4 @@
-import type { ChatMessage, ExecutionContext } from '@plumbus/core';
+import type { CapabilityContract, ChatMessage, ExecutionContext } from '@plumbus/core';
 import { checkBudgetPreflight } from '../budget/enforcer.js';
 import { trimContextToBudget } from '../budget/context-budget.js';
 import { withTurnTimeout } from '../budget/timeout.js';
@@ -38,7 +38,7 @@ import { runToolPhase } from './tool-phase.js';
 import { chatScopeCheckPrompt } from '../prompt/chat-scope-check.prompt.js';
 import { chatToolRoundPrompt } from '../prompt/chat-tool-round.prompt.js';
 import type { ChatRegistry } from './chat-registry.js';
-import type { ToolExecutionRecord } from '../types/tool.js';
+import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
 
 export interface RunChatTurnArgs {
   chatDefinition: ChatDefinition;
@@ -47,6 +47,20 @@ export interface RunChatTurnArgs {
   audience: string;
   locale: string;
   clientHistory?: ClientHistoryMessage[];
+  /**
+   * Server-authoritative native history for programmatic chat callers. Unlike
+   * browser-owned clientHistory, this is not accepted by registerChatRoutes and
+   * is not capped to the public wire limit.
+   */
+  trustedHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /**
+   * Server-owned fields merged into a custom prompt's input. The standard
+   * systemPrompt/userMessage/history fields always win. HTTP routes never copy
+   * arbitrary request fields into this object.
+   */
+  promptInput?: Record<string, unknown>;
+  /** Caller cancellation (request disconnect, voice interruption, etc.). */
+  signal?: AbortSignal;
   traceRecorder?: TraceRecorder;
   /** Injected registry used to fail Path B closed when tool prompts are unregistered (D5). */
   registry?: ChatRegistry;
@@ -65,6 +79,18 @@ export interface RunChatTurnArgs {
 export interface RunChatTurnOpts {
   sessionStore?: ChatSessionStore;
   conversationStore?: ChatConversationStore;
+  /**
+   * Supported binding path for programmatic calls made inside a capability,
+   * where core deliberately hides ctx.__runtime.resolveCapability. Returned
+   * contracts still execute through executeCapability with normal access checks.
+   */
+  resolveCapability?: (name: string) => CapabilityContract<any, any> | undefined;
+  /**
+   * Server-only observer for successful `generateWithUsage` / `streamGenerate`
+   * calls made inside auto capability tools. Useful for attributing nested
+   * provider spend without removing it from Chat's logical-turn budget total.
+   */
+  onNestedAiCall?: (call: ChatNestedAiCall) => void;
 }
 
 const defaultModelOutput = (): ChatTurnModelOutput => ({
@@ -74,6 +100,34 @@ const defaultModelOutput = (): ChatTurnModelOutput => ({
   citedSources: [],
   requestedAction: null,
 });
+
+function hasToolAiOverride(chat: ChatDefinition): boolean {
+  if (chat.policy?.toolCalling?.enabled !== true) return false;
+  const ai = chat.policy?.toolCalling?.ai;
+  return Boolean(
+    ai &&
+      (ai.provider !== undefined ||
+        ai.model !== undefined ||
+        ai.reasoning !== undefined ||
+        ai.reasoningEffort !== undefined),
+  );
+}
+
+type ChatTurnFailedEvent = Extract<ChatEvent, { type: 'turn.failed' }>;
+
+function toolAiOverrideCompatibilityFailure(
+  ctx: ExecutionContext,
+  chat: ChatDefinition,
+): ChatTurnFailedEvent | undefined {
+  if (hasToolAiOverride(chat) && ctx.ai.features?.perCallProviderModelReasoning !== true) {
+    return {
+      type: 'turn.failed',
+      code: 'chat.core_version_unsupported',
+      message: `Chat "${chat.name}" policy.toolCalling.ai requires @plumbus/core >= 0.6.18`,
+    };
+  }
+  return undefined;
+}
 
 export async function* runChatTurn(
   ctx: ExecutionContext,
@@ -199,14 +253,26 @@ export async function* runChatTurn(
 
       const policy = chat.policy ?? {};
       const toolCallingEnabled = policy.toolCalling?.enabled === true;
+      const toolOrchestration = policy.toolCalling?.orchestration ?? 'staged';
+      const compatibilityFailure = toolAiOverrideCompatibilityFailure(ctx, chat);
+      if (compatibilityFailure) {
+        emit(compatibilityFailure);
+        return;
+      }
+      const scopePreflightEnabled =
+        policy.toolCalling?.scopePreflight ?? toolOrchestration === 'staged';
       let toolsExecuted: ToolExecutionRecord[] = [];
       let toolPhaseTokensIn = 0;
       let toolPhaseTokensOut = 0;
       let toolPhaseCost = 0;
-      let scopeInScope: boolean | undefined;
+      let scopeInScope: boolean | undefined =
+        toolCallingEnabled && !scopePreflightEnabled ? true : undefined;
       let skipAnswerGeneration = false;
       let proposalCommitted = false;
       const { preTurnGuards, postTurnGuards } = compilePolicy(policy);
+      const timeoutSignal = AbortSignal.timeout(
+        (chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000,
+      );
       const turnCtx = {
         sessionId: args.sessionId,
         ordinal,
@@ -214,7 +280,7 @@ export async function* runChatTurn(
         tenantId: session.tenantId,
         audience: args.audience,
         locale: args.locale,
-        signal: AbortSignal.timeout((chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000),
+        signal: args.signal ? AbortSignal.any([args.signal, timeoutSignal]) : timeoutSignal,
         traceId: turnId,
         contextTokenBudget: chat.budget?.contextTokens,
         userMessage: args.userMessage,
@@ -278,7 +344,8 @@ export async function* runChatTurn(
       }
 
       const historyMessages =
-        persistence === 'client'
+        args.trustedHistory ??
+        (persistence === 'client'
           ? capClientHistory(args.clientHistory)
           : await loadHistoryWindow(
               ctx,
@@ -286,7 +353,7 @@ export async function* runChatTurn(
               chat.history?.includeLastTurns ?? 8,
               persistence,
               opts?.sessionStore,
-            );
+            ));
 
       // Summarizer reads chat_turn rows. Ephemeral mode has none — skip.
       const summaryResult = saveToDb
@@ -313,6 +380,7 @@ export async function* runChatTurn(
 
       const promptName = chat.prompt?.name ?? chatTurnPrompt.name;
       let userPayload = {
+        ...(args.promptInput ?? {}),
         systemPrompt,
         userMessage: args.userMessage,
         history: historyMessages,
@@ -321,6 +389,7 @@ export async function* runChatTurn(
       let modelOutput = defaultModelOutput();
       let usage = { tokensIn: 0, tokensOut: 0 };
       let model = 'unknown';
+      let provider = 'unknown';
       let cost = 0;
 
       // Track whether streaming actually delivered a validated `done` payload.
@@ -340,19 +409,25 @@ export async function* runChatTurn(
 
       // ── Path B: provider-native tool calling ──
       if (toolCallingEnabled) {
-        // 1. Prompt registration — fail closed (D5). Cannot verify without a registry.
-        if (!args.registry) {
+        const requiredPrompts = [
+          ...(scopePreflightEnabled ? [chatScopeCheckPrompt.name] : []),
+          ...(toolOrchestration === 'staged' ? [chatToolRoundPrompt.name] : []),
+        ];
+
+        // 1. Prompt registration — fail closed for the package prompts this
+        // orchestration actually uses. Agent mode without scope preflight uses
+        // only the chat's own custom prompt, so it needs no package re-export.
+        if (requiredPrompts.length > 0 && !args.registry) {
           emit({
             type: 'turn.failed',
             code: 'chat.prompt_not_registered',
-            message:
-              'ChatRegistry not provided; cannot verify chat.scopeCheck / chat.toolRound registration',
+            message: `ChatRegistry not provided; cannot verify ${requiredPrompts.join(' / ')} registration`,
           });
           emitter.end();
           return;
         }
-        for (const requiredPrompt of [chatScopeCheckPrompt.name, chatToolRoundPrompt.name]) {
-          if (!args.registry.hasPrompt(requiredPrompt)) {
+        for (const requiredPrompt of requiredPrompts) {
+          if (!args.registry?.hasPrompt(requiredPrompt)) {
             emit({
               type: 'turn.failed',
               code: 'chat.prompt_not_registered',
@@ -363,33 +438,41 @@ export async function* runChatTurn(
           }
         }
 
-        // 2. Scope preflight (chat.scopeCheck) — refuse before spending tool rounds.
+        // 2. Optional scope preflight. Staged mode keeps the historical default;
+        // agent mode defaults it off so an in-domain no-tool turn is one call.
         try {
-          const scope = await ctx.ai.generateWithUsage({
-            prompt: chatScopeCheckPrompt.name,
-            input: { systemPrompt, userMessage: args.userMessage },
-            signal: turnCtx.signal,
-            costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}.scopeCheck` },
-          });
-          const sd = scope.data as {
-            inScope: boolean;
-            refusalReason: ChatTurnModelOutput['refusalReason'];
-          };
-          scopeInScope = sd.inScope === true;
-          toolPhaseTokensIn += scope.usage?.inputTokens ?? 0;
-          toolPhaseTokensOut += scope.usage?.outputTokens ?? 0;
-          toolPhaseCost += scope.cost ?? 0;
-          if (!scopeInScope) {
-            modelOutput = {
-              inScope: false,
-              answer: '',
-              refusalReason: sd.refusalReason ?? 'off_topic',
-              citedSources: [],
-              requestedAction: null,
+          if (!scopePreflightEnabled) {
+            scopeInScope = true;
+          } else {
+            const scope = await ctx.ai.generateWithUsage({
+              prompt: chatScopeCheckPrompt.name,
+              input: { systemPrompt, userMessage: args.userMessage },
+              signal: turnCtx.signal,
+              costContext: {
+                serviceArea: 'chat',
+                operationName: `chat.${chat.name}.scopeCheck`,
+              },
+            });
+            const sd = scope.data as {
+              inScope: boolean;
+              refusalReason: ChatTurnModelOutput['refusalReason'];
             };
-            usage = { tokensIn: toolPhaseTokensIn, tokensOut: toolPhaseTokensOut };
-            cost = toolPhaseCost;
-            skipAnswerGeneration = true;
+            scopeInScope = sd.inScope === true;
+            toolPhaseTokensIn += scope.usage?.inputTokens ?? 0;
+            toolPhaseTokensOut += scope.usage?.outputTokens ?? 0;
+            toolPhaseCost += scope.cost ?? 0;
+            if (!scopeInScope) {
+              modelOutput = {
+                inScope: false,
+                answer: '',
+                refusalReason: sd.refusalReason ?? 'off_topic',
+                citedSources: [],
+                requestedAction: null,
+              };
+              usage = { tokensIn: toolPhaseTokensIn, tokensOut: toolPhaseTokensOut };
+              cost = toolPhaseCost;
+              skipAnswerGeneration = true;
+            }
           }
         } catch (err) {
           emit({
@@ -407,6 +490,7 @@ export async function* runChatTurn(
           try {
             boundTools = bindChatCapabilityTools(ctx, policy.toolCalling?.capabilities ?? [], {
               maxTools: policy.toolCalling?.maxTools ?? 32,
+              resolveCapability: opts?.resolveCapability,
             });
           } catch (err) {
             if (err instanceof ChatToolBindError) {
@@ -446,9 +530,21 @@ export async function* runChatTurn(
             userMessage: args.userMessage,
             history: threadMessages,
             maxToolRounds: policy.toolCalling?.maxToolRounds ?? 5,
+            ai: policy.toolCalling?.ai,
+            includeNestedAiUsage:
+              policy.toolCalling?.includeNestedAiUsage ?? toolOrchestration === 'agent',
+            onNestedAiCall: opts?.onNestedAiCall,
             signal: turnCtx.signal,
             emit,
             persistToolArgs: persistence !== 'client',
+            ...(toolOrchestration === 'agent'
+              ? {
+                  agentPrompt: {
+                    name: promptName,
+                    input: userPayload,
+                  },
+                }
+              : {}),
             flowBudget: {
               maxFlowStartsPerTurn: policy.toolCalling?.maxFlowStartsPerTurn ?? 2,
               flowAwaitBudgetMsPerTurn: policy.toolCalling?.flowAwaitBudgetMsPerTurn ?? 15_000,
@@ -461,6 +557,24 @@ export async function* runChatTurn(
           toolPhaseTokensIn += toolPhase.usage.tokensIn;
           toolPhaseTokensOut += toolPhase.usage.tokensOut;
           toolPhaseCost += toolPhase.cost;
+
+          if (toolPhase.status === 'completed' && toolOrchestration === 'agent') {
+            modelOutput = {
+              inScope: true,
+              answer: toolPhase.finalAnswer ?? '',
+              refusalReason: null,
+              citedSources: [],
+              requestedAction: null,
+            };
+            usage = {
+              tokensIn: toolPhaseTokensIn,
+              tokensOut: toolPhaseTokensOut,
+            };
+            model = toolPhase.finalModel ?? 'unknown';
+            provider = toolPhase.finalProvider ?? 'unknown';
+            cost = toolPhaseCost;
+            skipAnswerGeneration = true;
+          }
 
           if (toolPhase.status === 'paused') {
             skipAnswerGeneration = true;
@@ -495,6 +609,7 @@ export async function* runChatTurn(
                 },
                 toolsExecuted: toolPhase.toolsExecuted,
                 sourceRefs: sourceRefsForResume,
+                ...(toolOrchestration === 'agent' ? { agentPromptInput: userPayload } : {}),
               };
               const built = buildNormalizedPending({
                 ctx,
@@ -606,7 +721,11 @@ export async function* runChatTurn(
               message: 'Tool round limit reached; answering with results gathered so far',
             });
           }
-          if (toolPhase.status === 'completed' && toolPhase.toolsExecuted.length > 0) {
+          if (
+            toolOrchestration === 'staged' &&
+            toolPhase.status === 'completed' &&
+            toolPhase.toolsExecuted.length > 0
+          ) {
             userPayload = {
               ...userPayload,
               systemPrompt: `${userPayload.systemPrompt}\n\n## Tool results\nThe following tools ran for this turn. Ground your answer ONLY in these results.\n${toolPhase.observationsForAnswer}`,
@@ -654,6 +773,7 @@ export async function* runChatTurn(
               };
             }
             if (chunk.model) model = chunk.model;
+            if (chunk.provider) provider = chunk.provider;
             if (chunk.cost != null) cost = chunk.cost;
           }
         }
@@ -676,6 +796,7 @@ export async function* runChatTurn(
           tokensOut: gen.usage?.outputTokens ?? 0,
         };
         model = gen.model;
+        provider = gen.provider;
         cost = gen.cost ?? 0;
       }
 
@@ -1025,6 +1146,8 @@ export async function* runChatTurn(
         turnId,
         usage,
         cost,
+        model,
+        provider,
         inScope: modelOutput.inScope,
         refusalReason: modelOutput.refusalReason ?? null,
         sources: citedSourceRefs,
@@ -1049,6 +1172,8 @@ export interface ResumeToolLoopArgs {
   logicalTurnId: string;
   emit: (evt: ChatEvent) => void;
   signal?: AbortSignal;
+  /** Restored server-owned prompt fields for agent orchestration. */
+  promptInput?: Record<string, unknown>;
 }
 
 export type ResumeToolLoopResult =
@@ -1058,10 +1183,15 @@ export type ResumeToolLoopResult =
       inScope: boolean;
       refusalReason: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
       model: string;
+      provider: string;
       usage: { tokensIn: number; tokensOut: number };
       cost: number;
       sourceRefs: ChatSourceRef[];
       toolsExecuted: ToolExecutionRecord[];
+    }
+  | {
+      kind: 'failed';
+      failure: ChatTurnFailedEvent;
     }
   | {
       kind: 'paused';
@@ -1089,14 +1219,38 @@ export async function resumeToolLoop(
 ): Promise<ResumeToolLoopResult> {
   const chat = args.chat;
   const promptName = chat.prompt?.name ?? chatTurnPrompt.name;
+  const agentOrchestration = chat.policy?.toolCalling?.orchestration === 'agent';
+  const compatibilityFailure = toolAiOverrideCompatibilityFailure(ctx, chat);
+  if (compatibilityFailure) {
+    return { kind: 'failed', failure: compatibilityFailure };
+  }
   const gen = await ctx.ai.generateWithUsage({
     prompt: promptName,
-    input: { userMessage: 'Continue after tool execution' },
+    input:
+      agentOrchestration && args.promptInput
+        ? args.promptInput
+        : { userMessage: 'Continue after tool execution' },
     messages: args.messages,
+    ...(agentOrchestration ? { outputValidation: 'none' as const } : {}),
+    ...(chat.policy?.toolCalling?.ai?.provider
+      ? { provider: chat.policy.toolCalling.ai.provider }
+      : {}),
+    ...(chat.policy?.toolCalling?.ai?.model ? { model: chat.policy.toolCalling.ai.model } : {}),
+    ...(chat.policy?.toolCalling?.ai?.reasoning !== undefined
+      ? { reasoning: chat.policy.toolCalling.ai.reasoning }
+      : {}),
+    ...(chat.policy?.toolCalling?.ai?.reasoningEffort !== undefined
+      ? { reasoningEffort: chat.policy.toolCalling.ai.reasoningEffort }
+      : {}),
     signal: args.signal,
     costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}.resume` },
   });
-  const modelOutput = gen.data as ChatTurnModelOutput;
+  const modelOutput = agentOrchestration
+    ? {
+        ...defaultModelOutput(),
+        answer: String(gen.data?.content ?? ''),
+      }
+    : (gen.data as ChatTurnModelOutput);
   args.counters.inputTokensUsed += gen.usage?.inputTokens ?? 0;
   args.counters.outputTokensUsed += gen.usage?.outputTokens ?? 0;
   args.counters.costUsed += gen.cost ?? 0;
@@ -1106,6 +1260,7 @@ export async function resumeToolLoop(
     inScope: modelOutput.inScope !== false,
     refusalReason: modelOutput.refusalReason ?? null,
     model: gen.model ?? 'unknown',
+    provider: gen.provider ?? 'unknown',
     usage: {
       tokensIn: gen.usage?.inputTokens ?? 0,
       tokensOut: gen.usage?.outputTokens ?? 0,

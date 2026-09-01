@@ -237,7 +237,12 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
     // Append the assistant turn carrying the tool calls, then one tool
     // observation per call, in provider order.
     const toolCalls = result.toolCalls;
-    messages.push({ role: 'assistant', content: '', toolCalls });
+    messages.push({
+      role: 'assistant',
+      content: '',
+      toolCalls,
+      ...(result.providerState ? { providerState: result.providerState } : {}),
+    });
 
     for (const call of toolCalls) {
       let observation: string;

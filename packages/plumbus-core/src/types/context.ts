@@ -1,11 +1,13 @@
 import type { z } from 'zod';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
+import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 import type {
   AITool,
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
   ChatMessage,
+  ProviderAssistantState,
 } from '../ai/provider.js';
 
 // Re-export the provider tool-calling protocol types on the context surface.
@@ -15,6 +17,7 @@ export type {
   AIToolChoice,
   AIToolExecutionOptions,
   AIProviderCapabilities,
+  ProviderAssistantState,
 } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
@@ -350,6 +353,8 @@ export interface AIFinalGenerateResult<T = Record<string, any>> {
 export interface AIToolCallsGenerateResult {
   finishReason: 'tool_calls';
   toolCalls: AIToolCall[];
+  /** Opaque server-owned state required to continue some provider tool loops. */
+  providerState?: ProviderAssistantState;
   data?: never;
   usage: AITokenUsage;
   model: string;
@@ -375,6 +380,20 @@ export interface AIGenerateWithUsageConfig {
   costContext?: AICostContext;
   seed?: number;
   outputValidation?: 'prompt' | 'none';
+  /** Override the prompt/config provider for this call. */
+  provider?: string;
+  /** Override the prompt/config model for this call. */
+  model?: string;
+  /**
+   * Override the prompt/config reasoning intent. `null` deliberately restores
+   * the provider/model default by omitting reasoning controls on the wire.
+   */
+  reasoning?: AIReasoningConfig | null;
+  /**
+   * @deprecated Use `reasoning`. Retained with the legacy OpenAI-only
+   * `'low' | 'medium' | 'high'` values.
+   */
+  reasoningEffort?: ReasoningEffort | null;
 }
 
 export interface AIValidationOptions {
@@ -408,6 +427,12 @@ export interface AICostContext {
 
 // ── AI Service ──
 export interface AIService {
+  /** Optional runtime feature flags for cross-version integrations. */
+  readonly features?: {
+    /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */
+    perCallProviderModelReasoning?: true;
+  };
+
   /**
    * Record provider-side spend directly when a caller already has normalized
    * cost metadata (for example voice/media adapters that do not flow through
@@ -438,6 +463,14 @@ export interface AIService {
     costContext?: AICostContext;
     /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
     seed?: number;
+    /** Per-call provider override. */
+    provider?: string;
+    /** Per-call model override. */
+    model?: string;
+    /** Provider-neutral per-call reasoning override; `null` restores provider default. */
+    reasoning?: AIReasoningConfig | null;
+    /** @deprecated Use `reasoning`. */
+    reasoningEffort?: ReasoningEffort | null;
   }): Promise<Record<string, any>>;
 
   /** Like generate(), but also returns actual token usage. No tools → flat result; `.data` unconditional (C1). */
@@ -469,6 +502,14 @@ export interface AIService {
     costContext?: AICostContext;
     /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
     seed?: number;
+    /** Per-call provider override. */
+    provider?: string;
+    /** Per-call model override. */
+    model?: string;
+    /** Provider-neutral per-call reasoning override; `null` restores provider default. */
+    reasoning?: AIReasoningConfig | null;
+    /** @deprecated Use `reasoning`. */
+    reasoningEffort?: ReasoningEffort | null;
   }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {

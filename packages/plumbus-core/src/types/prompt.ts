@@ -1,20 +1,37 @@
 import type { z } from 'zod';
 
 // ── Model Config ──
+/** Provider-neutral effort levels. Adapters translate these onto their own wire format. */
+export const ReasoningLevelValues = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+export type ReasoningLevel = (typeof ReasoningLevelValues)[number];
+
+/** Legacy OpenAI-only values. Kept unchanged for source compatibility. */
+export const ReasoningEffortValues = ['low', 'medium', 'high'] as const;
+
 /**
- * Reasoning effort for models that support it (OpenAI o-series / gpt-5
- * family `reasoning_effort`). Sent to the provider ONLY when explicitly
- * configured — a model that rejects the parameter fails loudly rather than
- * silently degrading. Adapters for providers without an equivalent
- * parameter ignore it.
+ * Legacy OpenAI reasoning effort. Prefer {@link AIReasoningConfig} for new
+ * provider-aware configuration.
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high';
+export type ReasoningEffort = (typeof ReasoningEffortValues)[number];
+
+/**
+ * Provider-neutral reasoning intent. The selected provider adapter owns wire
+ * translation and rejects modes it cannot represent before making network I/O.
+ * Omitting the field means "use the provider/model default".
+ */
+export type AIReasoningConfig =
+  | { mode: 'disabled' }
+  | { mode: 'effort'; effort: ReasoningLevel }
+  | { mode: 'budget'; maxTokens: number };
 
 export interface ModelConfig {
   provider?: string;
   name?: string;
   temperature?: number;
   maxTokens?: number;
+  reasoning?: AIReasoningConfig;
+  /** @deprecated Use `reasoning`. Retained as a source-compatible shorthand. */
   reasoningEffort?: ReasoningEffort;
 }
 

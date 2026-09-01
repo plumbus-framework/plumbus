@@ -58,7 +58,7 @@ export const classifyTicket = definePrompt({
     name: "gpt-4o-mini",
     temperature: 0.2,
     maxTokens: 256,
-    // reasoningEffort: "medium", // OpenAI o-series / gpt-5 only — omit unless needed
+    // reasoning: { mode: "effort", effort: "medium" },
   },
 });
 ```
@@ -116,6 +116,8 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 ```
 
 `generate()` returns only the data; `generateWithUsage()` returns `{ data, usage, model, provider, cost }`.
+
+For a one-off override, `generateWithUsage` accepts `provider`, `model`, and provider-neutral `reasoning`. Leaving a field undefined preserves normal prompt/config resolution; `reasoning:null` restores the provider/model default for that call and clears both inherited `reasoning` and inherited legacy `reasoningEffort`. Use `{ mode:'disabled' }`, `{ mode:'effort', effort }`, or `{ mode:'budget', maxTokens }`. The selected adapter translates the intent into its native wire format and explicitly rejects modes it cannot represent. Legacy `reasoningEffort` remains exactly `'low' | 'medium' | 'high'` with its previous OpenAI-only behavior.
 
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 
@@ -265,14 +267,20 @@ for those models — configured prompt/`generate` temperatures are ignored for t
 causing a 400 `unsupported_value` error. Earlier `gpt-5` lines (for example `gpt-5.4-mini`)
 still receive the configured temperature.
 
-Optional `model.reasoningEffort` (`'low' | 'medium' | 'high'`) maps to OpenAI `reasoning_effort`
-and is sent **only when explicitly set** — there is no auto-detection. Use it for o-series /
-gpt-5 reasoning models; a model that rejects the parameter fails with HTTP 400 so misconfiguration
-is visible immediately. Anthropic and other adapters ignore the field. The same override can be
-supplied via `resolveAiOverrides` / `promptOverrides`.
+Optional `model.reasoning` is provider-neutral. OpenAI maps effort/disabled to
+`reasoning_effort`; Anthropic maps disabled/effort/budget to `thinking` and
+`output_config.effort`. Adapter-level
+incompatibilities fail locally with `AIInvalidRequestError`; model-specific limitations remain
+provider errors. No model-name inference is used. The same override can be supplied via
+`resolveAiOverrides` / `promptOverrides`.
+
+The legacy `model.reasoningEffort` union and runtime behavior are unchanged: only
+`low`, `medium`, and `high`, and only the OpenAI adapter consumes it. Anthropic
+continues to ignore that legacy property and keeps its existing `temperature: 0.7`
+default unless the new `reasoning` property is explicitly configured.
 
 ```typescript
-import { createAIService, createProviderAdapter, createOpenAIAdapter } from "@plumbus/core";
+import { createAIService, createOpenAIAdapter, createProviderAdapter } from "@plumbus/core";
 import { createBedrockAdapter } from "@plumbus/ai-bedrock";
 
 const service = createAIService({
@@ -325,9 +333,9 @@ The `extract()` and `classify()` convenience methods always use the default prov
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
 | `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
 
-Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire Ollama and custom providers programmatically. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
+Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
 
-A present-but-empty `AI_OPENAI_API_KEY=` or `AI_ANTHROPIC_API_KEY=` (core **≥ 0.6.17**) is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
+A present-but-empty OpenAI or Anthropic API-key slot is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
 
 When an adapter returns `cost` on `ProviderResponse` / stream `done` (Bedrock), `createAIService` uses that value instead of the hardcoded OpenAI/Anthropic `MODEL_PRICING` catalog.
 
@@ -521,13 +529,13 @@ const anthropic = createAnthropicAdapter({
 
 ### OpenAI-Compatible (Ollama, Azure, etc.)
 
-Unknown provider names use the OpenAI-compatible adapter:
+Custom OpenAI-compatible providers use `createOpenAIAdapter` explicitly:
 
 ```typescript
-import { createProviderAdapter } from "@plumbus/core";
+import { createOpenAIAdapter } from "@plumbus/core";
 
-const ollama = createProviderAdapter("ollama", {
-  apiKey: "",
+const ollama = createOpenAIAdapter({
+  apiKey: "ollama",
   baseUrl: "http://localhost:11434/v1",
   model: "llama3",
 });
@@ -572,7 +580,7 @@ Each returned `ProviderModel` carries:
 | Scenario                                          | No filter   | `{ kind: 'embedding' }`               |
 | ------------------------------------------------- | ----------- | ------------------------------------- |
 | Official OpenAI / Anthropic                       | Everything  | Just embeddings (unknowns excluded)   |
-| Custom OpenAI-compatible (Ollama, OpenRouter, …)  | Everything  | Embeddings **+ all unknowns**         |
+| Custom OpenAI-compatible                         | Everything  | Catalog matches **+ all unknowns**    |
 
 "Official" means `baseUrl === 'https://api.openai.com/v1'` for OpenAI and
 `baseUrl === 'https://api.anthropic.com/v1'` for Anthropic. Any other base URL
@@ -1012,4 +1020,3 @@ const result = await ctx.ai.generate({
 ```
 
 `mockAI` keys responses by operation (`generate`, `extract`, `classify`, `retrieve`), not by prompt name.
-

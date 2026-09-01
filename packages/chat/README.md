@@ -16,7 +16,7 @@
 - Seven built-in policy guards (audience, locale, scope, privacy, provenance, action, behavioral)
 - Per-turn / per-session / per-user / per-tenant budgets, with cost recording
 - Action-confirmation flow with schema-hash re-validation
-- Provider-native tool calling (`policy.toolCalling`, Path B): capabilities and flows bound as tools, a bounded per-turn loop, and a confirm-and-resume round-trip
+- Provider-native tool calling (`policy.toolCalling`, Path B): staged orchestration for guarded support chats, or custom-prompt agent orchestration where a no-tool turn is one model call and tools run only when that agent requests them
 - A streamed `ChatEvent` protocol consumed by `<ChatPanel />` in [`@plumbus/chat-ui`](../chat-ui/)
 
 If you're not using Plumbus, this package won't make sense in isolation — `defineChat` composes on the framework's `ExecutionContext`, capability registry, prompt registry, and audit pipeline.
@@ -42,7 +42,7 @@ Declared peer: `@plumbus/core` `0.5.x || 0.6.x`. **Ship with `@plumbus/core` ≥
 pnpm add @plumbus/chat
 ```
 
-Required peer: `@plumbus/core` `0.5.x || 0.6.x` (**≥ 0.6.11** in practice for this release). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
+Required peer: `@plumbus/core` `0.5.x || 0.6.x` (**runtime ≥ 0.6.11** for existing Chat behavior; **≥ 0.6.18** only when using `policy.toolCalling.ai` overrides). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
 
 For the React UI, also install [`@plumbus/chat-ui`](../chat-ui/). For registry-backed knowledge sources, [`@plumbus/knowledge-base`](../knowledge-base/).
 
@@ -89,7 +89,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 | Surface | What it does |
 |---|---|
 | `defineChat({...})` | The declarative entrypoint. Validated with Zod, deep-frozen. |
-| `runChatTurn(ctx, args, opts?)` | Streaming runtime — yields `ChatEvent`s. Composable in custom transports. `opts` injects storage (`sessionStore`, `conversationStore`). |
+| `runChatTurn(ctx, args, opts?)` | Streaming event runtime — yields `ChatEvent`s. Composable in custom transports. Programmatic callers can provide server-owned `promptInput`, `trustedHistory`, cancellation `signal`, and an explicit capability resolver; `opts` also injects storage (`sessionStore`, `conversationStore`). |
 | `registerChatRoutes(app, routeConfig, chats, opts?)` | Mount one SSE/JSON route per chat. Opts: `authCookieNames`, `audienceTenantOverride`, `beforeTurn`, `afterTurn`, `chatRegistry`, `store`, `sessionStore`, `authenticator`, `externalBaseUrl`, `csrfSecret`. |
 | `ChatSessionStore` + `dbChatSessionStore` | Injectable session/turn persistence for deployments with no local database. See [`docs/chat/session-store.md`](../../docs/chat/session-store.md). |
 | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations` | Built-in context sources. |
@@ -110,6 +110,8 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 - **`exposeAs` defaults to `'sse'`** — the SSE route is the only one mounted. Set `exposeAs: 'capability'` for server-to-server clients that can't consume an event stream, or `'both'` to mount both (rare).
 - **`persistence.saveToDb: false` requires `messageContent: 'client'`.** And it rejects `policy.action.allowedCapabilities` — ephemeral chats can't survive the action-confirmation round-trip. `defineChat` validates this at startup.
 - **`policy.scope.classifier: 'inline'`** — the model classifies and answers in one call (Decision 0001). Refusal turns spend generation tokens; empirically cheaper than a preflight LLM call.
+- **Tool orchestration is explicit.** `orchestration: 'staged'` is backward-compatible and uses `chat.scopeCheck` → `chat.toolRound` → answer. `orchestration: 'agent'` requires a custom plain-text prompt; it defaults `scopePreflight` off and lets that same prompt either answer immediately or call a tool and continue with the result.
+- **Tool AI configuration is explicit but optional.** `policy.toolCalling.ai` can override `provider`, `model`, and provider-neutral `reasoning`; when omitted, Chat preserves prompt/runtime overrides. Core adapters translate `{mode:'disabled'|'effort'|'budget'}` into native provider fields and reject unsupported modes instead of silently ignoring them. This optional field requires core ≥ 0.6.18; the rest of Chat retains the ≥ 0.6.11 floor.
 - **`useChat.confirm()` in `@plumbus/chat-ui` performs the real `POST /chat/:name/confirm` round-trip** (it also exposes `decline` and `lastConfirmResult`). Path B confirm-mode tools execute through the framework capability pipeline and resume the turn; legacy Path A confirmation is decision-only in this release — `policy.action.frameworkExecuteOnConfirm` is reserved and not yet enforced, so no code reads it. See [chat-ui docs](../chat-ui/) and [`docs/chat/policies.md`](../../docs/chat/policies.md).
 
 ## Documentation

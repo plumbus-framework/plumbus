@@ -24,7 +24,7 @@ When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x
 
 | Package | Declared peer | Runtime floor |
 |---|---|---|
-| `@plumbus/chat` **0.1.11+** | `0.5.x \|\| 0.6.x` | `@plumbus/core` **≥ 0.6.11** (tool protocol + `updateWhere`) |
+| `@plumbus/chat` **0.1.11+** | `0.5.x \|\| 0.6.x` | `@plumbus/core` **≥ 0.6.11**; optional `toolCalling.ai` overrides in chat 0.1.12 require **≥ 0.6.18** |
 | `@plumbus/chat-ui` **0.1.7+** | `0.5.x \|\| 0.6.x` (+ `@plumbus/chat` `0.1.x`) | `@plumbus/chat` **≥ 0.1.11** (and thus core **≥ 0.6.11**) |
 | `@plumbus/auth` | `0.6.x` | `@plumbus/core` **≥ 0.6.8** (`HttpAuthenticationRuntime`) |
 | `@plumbus/api` **0.1.4+** | `0.5.x \|\| 0.6.x` | `@plumbus/core` **≥ 0.6.9** (`buildAuthenticationRequest` for partner session auth) |

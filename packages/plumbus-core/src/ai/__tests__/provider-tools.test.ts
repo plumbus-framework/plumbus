@@ -91,6 +91,23 @@ describe('provider tool calling', () => {
       vi.unstubAllGlobals();
     });
 
+    it('maps disabled provider-neutral reasoning on tool requests', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponse({ finish_reason: 'stop' }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'configured-model' });
+      await adapter.complete({
+        prompt: 'Run tool',
+        tools: [sampleTool],
+        reasoning: { mode: 'disabled' },
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.reasoning_effort).toBe('none');
+
+      vi.unstubAllGlobals();
+    });
+
     it('parses tool_calls into a parsed AIToolCall with finishReason tool_calls', async () => {
       const mockFetch = vi.fn().mockResolvedValue(
         mockOpenAIResponse({

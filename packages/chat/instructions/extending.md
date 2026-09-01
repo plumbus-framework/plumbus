@@ -72,6 +72,8 @@ defineChat({
 
 **Do not narrow the output schema.** The five base fields are required by the runtime's scope, provenance, and action guards. Narrowing them breaks guards at runtime — `defineChat` now emits a **one-time define-time warning** when a custom prompt's output schema is not a Zod object or omits any of the five base fields (`warnMissingChatPromptBaseFields`).
 
+**Exception: agent tool orchestration.** A chat with `policy.toolCalling.orchestration:'agent'` deliberately uses a custom plain-text/single-field prompt. The same prompt chooses tools and supplies the final answer, and Chat synthesizes the five-field policy envelope. This mode defaults scope preflight off and is intended for trusted domain conversations; keep the standard structured schema for staged, scope, provenance, and requested-action chats.
+
 ## Custom `ContextSource`
 
 When none of `staticContext`, `staticContextFromTranslations`, `capabilityContext`, `knowledgeContext` fit. Example: a markdown-wiki adapter.

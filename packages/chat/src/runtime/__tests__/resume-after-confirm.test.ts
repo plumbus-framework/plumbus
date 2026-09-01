@@ -287,6 +287,49 @@ describe('resumeAfterConfirm', () => {
     expect(resumeToolLoopMock).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves successful tool execution when resume returns a structured compatibility failure', async () => {
+    resumeToolLoopMock.mockResolvedValue({
+      kind: 'failed',
+      failure: {
+        type: 'turn.failed',
+        code: 'chat.core_version_unsupported',
+        message: 'tool AI overrides require a newer core',
+      },
+    });
+    const store = fakeStore();
+    const events: ChatEvent[] = [];
+    let result: unknown;
+
+    await resumeAfterConfirm(ctxWithCap(), {
+      chat: defineChat({ name: 'help', access: {}, instructions: ['x'] }),
+      store,
+      pending: pendingRow(),
+      owner: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
+      emit: (event) => events.push(event),
+      onResult: (value) => {
+        result = value;
+      },
+    });
+
+    expect(result).toMatchObject({
+      pendingStatus: 'confirmed',
+      execution: { status: 'succeeded' },
+      resume: { status: 'failed' },
+    });
+    expect(store.completePending).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalStatus: 'confirmed' }),
+    );
+    expect(store.completePending).not.toHaveBeenCalledWith(
+      expect.objectContaining({ resumeTurn: expect.anything() }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'turn.failed',
+        code: 'chat.core_version_unsupported',
+      }),
+    );
+  });
+
   it('nested confirm finalizes original and emits a new confirmation_required', async () => {
     resumeToolLoopMock.mockResolvedValue({
       kind: 'paused',

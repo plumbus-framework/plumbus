@@ -699,6 +699,70 @@ describe('AI Service (ctx.ai)', () => {
       expect(anthropic.complete).not.toHaveBeenCalled();
     });
 
+    it('lets one tool call override provider, model, and provider-neutral reasoning', async () => {
+      const openai = createNamedProvider('openai');
+      const anthropic = createNamedProvider('anthropic');
+      const service = createAIService({
+        providers: { openai, anthropic },
+        defaultProvider: 'openai',
+      });
+
+      const result = await service.generateWithUsage({
+        prompt: 'raw tool prompt',
+        input: {},
+        tools: [],
+        provider: 'anthropic',
+        model: 'claude-sonnet-5',
+        reasoning: { mode: 'effort', effort: 'medium' },
+      });
+
+      expect(result.provider).toBe('anthropic');
+      expect(openai.complete).not.toHaveBeenCalled();
+      const call = (anthropic.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call).toEqual(
+        expect.objectContaining({
+          model: 'claude-sonnet-5',
+          reasoning: { mode: 'effort', effort: 'medium' },
+          reasoningEffort: undefined,
+        }),
+      );
+    });
+
+    it('surfaces provider continuation state only on the tool-call result', async () => {
+      const providerState = {
+        provider: 'anthropic',
+        content: [{ type: 'thinking', thinking: 'opaque', signature: 'sig' }],
+      };
+      const anthropic = createMockProvider({
+        name: 'anthropic',
+        complete: vi.fn(async () => ({
+          content: '',
+          model: 'claude-sonnet-5',
+          usage: { inputTokens: 4, outputTokens: 3, totalTokens: 7 },
+          finishReason: 'tool_use',
+          toolCalls: [
+            { id: 'tool-1', name: 'lookup', argumentsStatus: 'parsed' as const, arguments: {} },
+          ],
+          providerState,
+        })),
+      });
+      const service = createAIService({
+        providers: { anthropic },
+        defaultProvider: 'anthropic',
+      });
+
+      const result = await service.generateWithUsage({
+        prompt: 'Use a tool',
+        input: {},
+        tools: [{ name: 'lookup', description: 'Lookup', parameters: { type: 'object' } }],
+      });
+
+      expect(result.finishReason).toBe('tool_calls');
+      if (result.finishReason === 'tool_calls') {
+        expect(result.providerState).toEqual(providerState);
+      }
+    });
+
     it('throws when prompt specifies an unknown provider', async () => {
       const openai = createNamedProvider('openai');
 
@@ -917,6 +981,101 @@ describe('AI Service (ctx.ai)', () => {
       await plainService.generate({ prompt: 'write-bio', input: { name: 'Alice' } });
       const plainCall = (plain.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
       expect(plainCall?.reasoningEffort).toBeUndefined();
+    });
+
+    it('allows one generateWithUsage call to omit configured reasoning effort', async () => {
+      const openai = createNamedProvider('openai');
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'tool-agent',
+          description: 'Answer or use a tool',
+          input: z.object({}),
+          output: z.object({ content: z.string() }),
+          model: { name: 'configured-model', provider: 'openai', reasoningEffort: 'high' },
+        }),
+      );
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+      });
+
+      await service.generateWithUsage({
+        prompt: 'tool-agent',
+        input: {},
+        tools: [],
+        reasoningEffort: null,
+      });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.reasoningEffort).toBeUndefined();
+    });
+
+    it('reasoning null clears inherited new and legacy reasoning for generate', async () => {
+      const openai = createNamedProvider('openai', '{"content":"ok"}');
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'tool-agent',
+          description: 'Answer or use a tool',
+          input: z.object({}),
+          output: z.object({ content: z.string() }),
+          model: {
+            name: 'configured-model',
+            provider: 'openai',
+            reasoning: { mode: 'effort', effort: 'medium' },
+            reasoningEffort: 'high',
+          },
+        }),
+      );
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+      });
+
+      await service.generate({
+        prompt: 'tool-agent',
+        input: {},
+        reasoning: null,
+      });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.reasoning).toBeUndefined();
+      expect(call?.reasoningEffort).toBeUndefined();
+    });
+
+    it('allows one tool-enabled call to override both model and new reasoning config', async () => {
+      const openai = createNamedProvider('openai');
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'tool-agent',
+          description: 'Answer or use a tool',
+          input: z.object({}),
+          output: z.object({ content: z.string() }),
+          model: { name: 'prompt-model', provider: 'openai', reasoningEffort: 'high' },
+        }),
+      );
+      const service = createAIService({
+        providers: { openai },
+        defaultProvider: 'openai',
+        promptRegistry,
+      });
+
+      await service.generateWithUsage({
+        prompt: 'tool-agent',
+        input: {},
+        tools: [],
+        model: 'tool-model',
+        reasoning: { mode: 'disabled' },
+      });
+
+      const call = (openai.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(call?.model).toBe('tool-model');
+      expect(call?.reasoning).toEqual({ mode: 'disabled' });
+      expect(call?.reasoningEffort).toBe('high');
     });
 
     it('falls back to defaultModel when neither override nor prompt defines model', async () => {
@@ -1350,6 +1509,8 @@ describe('AI Service (ctx.ai)', () => {
       system?: string;
       prompt?: string;
       responseFormat?: string;
+      reasoning?: unknown;
+      reasoningEffort?: string;
     } {
       const firstCall = streamSpy.mock.calls[0] as unknown[] | undefined;
       const req = firstCall?.[0] as
@@ -1430,6 +1591,45 @@ describe('AI Service (ctx.ai)', () => {
       expect(req.system).toBe('You are editor.');
       expect(req.prompt).toBe('Write about Baghdad\n\nInput: {"locale":"he"}');
       expect(req.responseFormat).toBe('text');
+    });
+
+    it('reasoning null clears inherited new and legacy reasoning for streaming', async () => {
+      const streamSpy = makeStreamSpy();
+      const provider: AIProviderAdapter = {
+        name: 'openai',
+        complete: vi.fn(),
+        stream: streamSpy,
+        embed: vi.fn(),
+      };
+      const reg = new PromptRegistry();
+      reg.register(
+        definePrompt({
+          name: 'stream-reasoning',
+          description: 'Answer the question.',
+          input: z.object({}),
+          output: z.object({ content: z.string() }),
+          model: {
+            provider: 'openai',
+            reasoning: { mode: 'effort', effort: 'medium' },
+            reasoningEffort: 'high',
+          },
+        }),
+      );
+      const service = createAIService(
+        singleProviderConfig(provider, { promptRegistry: reg, defaultModel: 'mock-model' }),
+      );
+
+      await drain(
+        service.streamGenerate({
+          prompt: 'stream-reasoning',
+          input: {},
+          reasoning: null,
+        }),
+      );
+
+      const request = getStreamRequest(streamSpy);
+      expect(request?.reasoning).toBeUndefined();
+      expect(request?.reasoningEffort).toBeUndefined();
     });
 
     it('text-mode with disableTextModeBrevityHint=true: omits brevity-hint suffix but stays in text mode', async () => {

@@ -1,5 +1,6 @@
 import type { PolicyProfile } from './enums.js';
 import type { AISecurityConfig } from '../ai/security.js';
+import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 
 // ── Database Config ──
 export interface DatabaseConfig {
@@ -92,6 +93,9 @@ export interface PromptModelOverride {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  reasoning?: AIReasoningConfig;
+  /** @deprecated Use `reasoning`. */
+  reasoningEffort?: ReasoningEffort;
 }
 
 // ── MCP agent config ──

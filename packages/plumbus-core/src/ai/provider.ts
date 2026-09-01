@@ -3,6 +3,7 @@
 
 import { createRequire } from 'node:module';
 import type { AIProviderSlotConfig } from '../types/config.js';
+import type { AIReasoningConfig, ReasoningEffort, ReasoningLevel } from '../types/prompt.js';
 import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
@@ -48,6 +49,17 @@ export interface AIProviderCapabilities {
   parallelToolCalls: boolean;
   parallelToolCallControl: boolean;
   namedToolChoice: boolean;
+  /** Adapter-level wire support. Individual models may support a subset. */
+  reasoning?: {
+    modes: readonly AIReasoningConfig['mode'][];
+    efforts?: readonly ReasoningLevel[];
+  };
+}
+
+/** Opaque assistant content that a provider requires on the next tool round. */
+export interface ProviderAssistantState {
+  provider: string;
+  content: unknown;
 }
 
 /**
@@ -59,7 +71,13 @@ export interface AIProviderCapabilities {
  */
 export type ChatMessage =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; toolCalls?: AIToolCall[] }
+  | {
+      role: 'assistant';
+      content: string;
+      toolCalls?: AIToolCall[];
+      /** Server-owned continuation state; never serialize into client chat events. */
+      providerState?: ProviderAssistantState;
+    }
   | { role: 'tool'; content: string; toolCallId: string; name: string };
 
 export interface ProviderRequest {
@@ -86,12 +104,10 @@ export interface ProviderRequest {
   temperature?: number;
   /** Max tokens for response */
   maxTokens?: number;
-  /**
-   * Reasoning effort for models that support it. Sent ONLY when set (OpenAI
-   * `reasoning_effort` on o-series / gpt-5 family); adapters for providers
-   * without an equivalent parameter ignore it.
-   */
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  /** Provider-neutral reasoning intent translated by the selected adapter. */
+  reasoning?: AIReasoningConfig;
+  /** @deprecated Use `reasoning`. Retained with its legacy OpenAI-only behavior. */
+  reasoningEffort?: ReasoningEffort;
   /** Response format hint */
   responseFormat?: 'text' | 'json';
   /** Provider-compatible JSON Schema for strict structured outputs. */
@@ -141,6 +157,8 @@ export interface ProviderResponse {
   finishReason: string;
   /** Parsed provider tool calls (present when finishReason is 'tool_calls'/'tool_use'). */
   toolCalls?: AIToolCall[];
+  /** Opaque assistant content needed to continue a provider-native tool loop. */
+  providerState?: ProviderAssistantState;
   /**
    * Optional USD cost computed by the adapter (e.g. `@plumbus/ai-bedrock` from
    * its Price List cache). When set, `createAIService` prefers this over
@@ -537,19 +555,81 @@ function applyOpenAITemperature(
   body.temperature = temperature ?? 0.7;
 }
 
-/**
- * `reasoning_effort` is sent ONLY when explicitly configured — no model
- * detection. A model that rejects the parameter fails loudly (HTTP 400)
- * instead of silently running without reasoning, so a misconfigured prompt
- * is visible immediately.
- */
-function applyOpenAIReasoningEffort(
-  body: Record<string, unknown>,
-  reasoningEffort?: 'low' | 'medium' | 'high',
-): void {
-  if (reasoningEffort) {
-    body.reasoning_effort = reasoningEffort;
+function normalizeProviderRequestReasoning(
+  request: ProviderRequest,
+): AIReasoningConfig | undefined {
+  return request.reasoning;
+}
+
+function unsupportedReasoning(provider: string, reasoning: AIReasoningConfig): never {
+  throw new AIInvalidRequestError({
+    reason: `reasoning_${reasoning.mode}_unsupported`,
+    message: `AI provider "${provider}" cannot represent reasoning mode "${reasoning.mode}"`,
+  });
+}
+
+/** Translate provider-neutral reasoning onto OpenAI's top-level `reasoning_effort`. */
+function applyOpenAIReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
+  const reasoning = normalizeProviderRequestReasoning(request);
+  if (!reasoning) {
+    if (request.reasoningEffort) body.reasoning_effort = request.reasoningEffort;
+    return;
   }
+  if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  body.reasoning_effort = reasoning.mode === 'disabled' ? 'none' : reasoning.effort;
+}
+
+/** Translate provider-neutral reasoning onto Anthropic Messages API fields. */
+function applyAnthropicReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
+  const reasoning = normalizeProviderRequestReasoning(request);
+  if (!reasoning) return;
+  if (reasoning.mode === 'disabled') {
+    body.thinking = { type: 'disabled' };
+    return;
+  }
+  if (reasoning.mode === 'budget') {
+    if (!Number.isInteger(reasoning.maxTokens) || reasoning.maxTokens < 1024) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_budget_invalid',
+        message: 'Anthropic reasoning budget must be an integer of at least 1024 tokens',
+      });
+    }
+    if (request.maxTokens != null && reasoning.maxTokens >= request.maxTokens) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_budget_exceeds_output_limit',
+        message: 'Anthropic reasoning budget must be smaller than maxTokens',
+      });
+    }
+    if (request.temperature != null && request.temperature !== 1) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_temperature_conflict',
+        message: 'Anthropic thinking requires temperature 1 or an omitted temperature',
+      });
+    }
+    if (request.temperature == null) delete body.temperature;
+    body.thinking = {
+      type: 'enabled',
+      budget_tokens: reasoning.maxTokens,
+      display: 'omitted',
+    };
+    return;
+  }
+  if (reasoning.effort === 'minimal') {
+    unsupportedReasoning('anthropic', reasoning);
+  }
+  if (request.temperature != null && request.temperature !== 1) {
+    throw new AIInvalidRequestError({
+      reason: 'reasoning_temperature_conflict',
+      message: 'Anthropic adaptive thinking requires temperature 1 or an omitted temperature',
+    });
+  }
+  if (request.temperature == null) delete body.temperature;
+  body.thinking = { type: 'adaptive', display: 'omitted' };
+  const outputConfig =
+    body.output_config && typeof body.output_config === 'object'
+      ? (body.output_config as Record<string, unknown>)
+      : {};
+  body.output_config = { ...outputConfig, effort: reasoning.effort };
 }
 
 function anthropicUsageToTokenUsage(usage: {
@@ -763,6 +843,10 @@ function toAnthropicMessages(request: ProviderRequest): Record<string, unknown>[
         out.push({ role: 'user', content: [block] });
       }
     } else if (msg.role === 'assistant') {
+      if (msg.providerState?.provider === 'anthropic' && Array.isArray(msg.providerState.content)) {
+        out.push({ role: 'assistant', content: msg.providerState.content });
+        continue;
+      }
       const blocks: Record<string, unknown>[] = [];
       if (msg.content.length > 0) blocks.push({ type: 'text', text: msg.content });
       if (msg.toolCalls) {
@@ -836,6 +920,10 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       parallelToolCalls: true,
       parallelToolCallControl: true,
       namedToolChoice: true,
+      reasoning: {
+        modes: ['disabled', 'effort'],
+        efforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      },
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
@@ -847,7 +935,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         messages,
       };
       applyOpenAITemperature(body, model, request.temperature);
-      applyOpenAIReasoningEffort(body, request.reasoningEffort);
+      applyOpenAIReasoning(body, request);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
@@ -990,7 +1078,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream_options: { include_usage: true },
       };
       applyOpenAITemperature(body, model, request.temperature);
-      applyOpenAIReasoningEffort(body, request.reasoningEffort);
+      applyOpenAIReasoning(body, request);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {
@@ -1130,6 +1218,10 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       parallelToolCalls: true,
       parallelToolCallControl: true,
       namedToolChoice: true,
+      reasoning: {
+        modes: ['disabled', 'effort', 'budget'],
+        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      },
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
@@ -1149,6 +1241,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           },
         };
       }
+      applyAnthropicReasoning(body, request);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
         validateCallerTools(request.tools);
@@ -1213,13 +1306,21 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         });
       }
       if (request.tools && request.tools.length > 0 && data.stop_reason === 'tool_use') {
-        return {
+        const response: ProviderResponse = {
           content: text,
           model: data.model,
           usage,
           finishReason: 'tool_use',
           toolCalls: parseAnthropicToolUse(data.content),
         };
+        if (
+          data.content.some(
+            (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
+          )
+        ) {
+          response.providerState = { provider: 'anthropic', content: data.content };
+        }
+        return response;
       }
       // Mirror the OpenAI adapter: only throw on max_tokens when the caller
       // requested structured JSON output. Free-text completions should return
@@ -1268,6 +1369,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           },
         };
       }
+      applyAnthropicReasoning(body, request);
 
       let resp: Response;
       try {

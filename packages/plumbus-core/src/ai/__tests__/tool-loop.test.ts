@@ -42,6 +42,7 @@ function toolCallsResult(
   toolCalls: AIToolCall[],
   usageValue = usage(10, 5),
   cost = 0.01,
+  providerState?: AIToolCallsGenerateResult['providerState'],
 ): AIToolCallsGenerateResult {
   return {
     finishReason: 'tool_calls',
@@ -50,6 +51,7 @@ function toolCallsResult(
     model: 'mock-model',
     provider: 'mock',
     cost,
+    ...(providerState ? { providerState } : {}),
   };
 }
 
@@ -161,6 +163,27 @@ describe('runToolLoop', () => {
     expect(tail[0]).toMatchObject({ role: 'assistant', toolCalls: [call1, call2] });
     expect(tail[1]).toMatchObject({ role: 'tool', toolCallId: 'call_1', name: 'do_thing' });
     expect(tail[2]).toMatchObject({ role: 'tool', toolCallId: 'call_2', name: 'do_thing' });
+  });
+
+  it('preserves opaque provider assistant state on the next tool round', async () => {
+    const call = parsedCall('call_state', 'do_thing', { x: 1 });
+    const providerState = {
+      provider: 'anthropic',
+      content: [{ type: 'thinking', thinking: 'opaque', signature: 'sig' }],
+    };
+    const { ai, configs } = createScriptedAI([
+      toolCallsResult([call], usage(10, 5), 0.01, providerState),
+      stopResult({ done: true }),
+    ]);
+
+    await runToolLoop(ai, {
+      ...baseParams,
+      execute: async () => ({ ok: true }),
+    });
+
+    expect(configs[1]?.messages?.[0]).toEqual(
+      expect.objectContaining({ role: 'assistant', providerState }),
+    );
   });
 
   it('never executes an invalid-argument call and emits a tool_arguments_invalid observation', async () => {

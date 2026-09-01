@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.12 — 2026-08-31 — agent-orchestrated provider tools
+
+### Added
+
+- **`policy.toolCalling.orchestration: 'agent'`.** A custom plain-text chat prompt now drives the provider-native tool loop itself. A no-tool turn returns that first completion as the answer; a tool turn executes the capability and continues the same prompt with the native observation. This removes the staged path's unconditional scope check/tool router/separate answer composer for trusted domain chats. The default remains `'staged'`.
+- **`policy.toolCalling.scopePreflight`.** Defaults to `true` for staged orchestration and `false` for agent orchestration. Agent mode without preflight needs no `chat.scopeCheck` / `chat.toolRound` prompt re-exports or `ChatRegistry`.
+- **Programmatic chat inputs.** `runChatTurn` accepts server-owned `promptInput`, uncapped `trustedHistory`, caller cancellation via `signal`, and `opts.resolveCapability` for capability-hosted callers whose execution context intentionally hides `ctx.__runtime.resolveCapability`. Resolved tools still execute through `executeCapability` with their normal access policy.
+- **Turn model metadata.** `turn.completed` now includes optional `model` and `provider` fields.
+- **Optional nested AI tool accounting.** `policy.toolCalling.includeNestedAiUsage` includes `generateWithUsage` / `streamGenerate` calls made inside auto tools in logical-turn totals. Existing staged chats default to `false`; new agent orchestration defaults to `true`.
+- **Nested AI call attribution.** Programmatic callers may provide `RunChatTurnOpts.onNestedAiCall` to observe the prompt, provider/model, usage, cost, and logical-turn-inclusion flag for each successful AI call inside an auto capability tool. The callback is server-only and does not remove that usage from Chat budgets.
+
+### Changed
+
+- Agent-orchestrated custom prompts may use a plain-text/single-field schema; Chat synthesizes the standard policy output envelope around the raw final answer, so the five structured base fields are not required in this mode.
+- Confirm/resume payloads carry server-owned agent prompt input so a confirmed tool can resume the same custom prompt contract.
+- **Provider-aware tool AI.** `policy.toolCalling.ai` can override `provider`, `model`, and provider-neutral `reasoning` for selection, continuation, terminal answer, and confirm/resume. When omitted, the round inherits prompt/runtime overrides. Core adapters own wire translation; deprecated `reasoningEffort` remains compatibility-only.
+- Anthropic provider continuation state is retained on internal assistant tool messages, including durable confirm/resume payloads, so thinking signatures are not discarded between rounds.
+
+### Compatibility
+
+- The existing Chat runtime still loads with its prior core floor (**≥ 0.6.11**): Chat owns its new validation constants/types and imports no new 0.6.18 runtime exports. Only an explicitly configured `policy.toolCalling.ai` override requires core **≥ 0.6.18**; older cores receive a structured `turn.failed` event with code `chat.core_version_unsupported`.
+
 ## 0.1.11 — 2026-07-26 — provider-native tool calling + injectable session store
 
 ### Added

@@ -119,7 +119,14 @@ export type {
   RuleEvaluation,
 } from './governance.js';
 // ── Prompt ──
-export type { ModelConfig, PromptDefinition } from './prompt.js';
+export { ReasoningEffortValues, ReasoningLevelValues } from './prompt.js';
+export type {
+  AIReasoningConfig,
+  ModelConfig,
+  PromptDefinition,
+  ReasoningEffort,
+  ReasoningLevel,
+} from './prompt.js';
 // ── Registry ──
 export type {
   PlumbusRegistry,

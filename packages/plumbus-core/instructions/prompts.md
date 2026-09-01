@@ -53,9 +53,10 @@ By default, any input keys not referenced as `{{key}}` in `system`/`description`
 | `name` | string? | Model id (e.g. `gpt-4o-mini`) |
 | `temperature` | number? | Sampling temperature |
 | `maxTokens` | number? | Max output tokens |
-| `reasoningEffort` | `'low' \| 'medium' \| 'high'?` | OpenAI o-series / gpt-5 `reasoning_effort` — sent only when set; other providers ignore it |
+| `reasoning` | `{ mode:'disabled' } \| { mode:'effort', effort } \| { mode:'budget', maxTokens }?` | Provider-neutral reasoning intent; the selected adapter translates or explicitly rejects it |
+| `reasoningEffort` | `'low' \| 'medium' \| 'high'?` | Deprecated OpenAI-only shorthand; unchanged for source/runtime compatibility |
 
-**Recommended convention:** omit `provider` and `name` in the prompt definition and resolve them via env (`AI_DEFAULT_PROVIDER`, `AI_DEFAULT_MODEL`, `PROMPT_{NAME}_*`) or the `resolveAiOverrides` hook in `app/server.ts`. Set only `temperature`, `maxTokens`, and (when needed) `reasoningEffort` in the prompt when you want per-prompt tuning baked into the contract.
+**Recommended convention:** omit `provider` and `name` in the prompt definition and resolve them via env (`AI_DEFAULT_PROVIDER`, `AI_DEFAULT_MODEL`, `PROMPT_{NAME}_*`) or the `resolveAiOverrides` hook in `app/server.ts`. Set only `temperature`, `maxTokens`, and (when needed) `reasoning` in the prompt when you want per-prompt tuning baked into the contract.
 
 Bare `z.string()` prompt `output` schemas run in plain text mode (same as a single-string-field object). Prefer that for free-text prompts; use an object schema when you need structured fields.
 
