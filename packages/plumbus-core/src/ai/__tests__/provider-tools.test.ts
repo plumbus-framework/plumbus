@@ -39,6 +39,27 @@ function mockOpenAIResponse(overrides: {
   };
 }
 
+function mockOpenAIResponsesResponse(overrides: {
+  status?: string;
+  output?: Record<string, unknown>[];
+}) {
+  return {
+    ok: true,
+    json: async () => ({
+      id: 'resp_1',
+      status: overrides.status ?? 'completed',
+      model: 'gpt-5.6-sol',
+      output: overrides.output ?? [],
+      usage: {
+        input_tokens: 12,
+        output_tokens: 7,
+        total_tokens: 19,
+        input_tokens_details: { cached_tokens: 3 },
+      },
+    }),
+  };
+}
+
 function mockAnthropicResponse(overrides: {
   stop_reason?: string;
   content?: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>;
@@ -103,9 +124,189 @@ describe('provider tool calling', () => {
       });
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
       expect(body.reasoning_effort).toBe('none');
 
       vi.unstubAllGlobals();
+    });
+
+    it('uses Responses API for active reasoning with tools', async () => {
+      const reasoningItem = {
+        id: 'rs_1',
+        type: 'reasoning',
+        encrypted_content: 'encrypted-reasoning',
+        summary: [],
+      };
+      const functionCall = {
+        id: 'fc_1',
+        type: 'function_call',
+        status: 'completed',
+        call_id: 'call_1',
+        name: 'do_thing',
+        arguments: '{"x":1}',
+      };
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValue(mockOpenAIResponsesResponse({ output: [reasoningItem, functionCall] }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.6-sol' });
+      const result = await adapter.complete({
+        prompt: 'Run tool',
+        system: 'Use tools when needed',
+        tools: [sampleTool],
+        toolChoice: { type: 'function', function: { name: 'do_thing' } },
+        toolExecution: { parallelToolCalls: false },
+        reasoning: { mode: 'effort', effort: 'high' },
+        maxTokens: 1234,
+      });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body).toMatchObject({
+        model: 'gpt-5.6-sol',
+        instructions: 'Use tools when needed',
+        store: false,
+        include: ['reasoning.encrypted_content'],
+        reasoning: { effort: 'high' },
+        max_output_tokens: 1234,
+        parallel_tool_calls: false,
+        tool_choice: { type: 'function', name: 'do_thing' },
+      });
+      expect(body.reasoning_effort).toBeUndefined();
+      expect(body.messages).toBeUndefined();
+      expect(body.tools[0]).toMatchObject({ type: 'function', name: 'do_thing' });
+      expect(result.finishReason).toBe('tool_calls');
+      expect(result.toolCalls?.[0]).toMatchObject({
+        id: 'call_1',
+        name: 'do_thing',
+        argumentsStatus: 'parsed',
+      });
+      expect(result.providerState).toEqual({
+        provider: 'openai-responses',
+        content: [reasoningItem, functionCall],
+      });
+      expect(result.usage.cachedInputTokens).toBe(3);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('uses Responses API for GPT-5.6 default reasoning with tools', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponsesResponse({ output: [] }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.6-terra' });
+      await adapter.complete({ prompt: 'Run tool', tools: [sampleTool] });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.reasoning).toBeUndefined();
+      expect(body.tools[0].name).toBe('do_thing');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('replays encrypted Responses reasoning state with function outputs', async () => {
+      const reasoningItem = {
+        id: 'rs_1',
+        type: 'reasoning',
+        encrypted_content: 'encrypted-reasoning',
+        summary: [],
+      };
+      const functionCall = {
+        id: 'fc_1',
+        type: 'function_call',
+        status: 'completed',
+        call_id: 'call_1',
+        name: 'do_thing',
+        arguments: '{"x":1}',
+      };
+      const mockFetch = vi.fn().mockResolvedValue(
+        mockOpenAIResponsesResponse({
+          output: [
+            {
+              id: 'msg_1',
+              type: 'message',
+              role: 'assistant',
+              status: 'completed',
+              content: [{ type: 'output_text', text: 'Done' }],
+            },
+          ],
+        }),
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.6-sol' });
+      const result = await adapter.complete({
+        prompt: '',
+        reasoningEffort: 'medium',
+        messages: [
+          { role: 'user', content: 'Run tool' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              {
+                id: 'call_1',
+                name: 'do_thing',
+                argumentsStatus: 'parsed',
+                arguments: { x: 1 },
+              },
+            ],
+            providerState: {
+              provider: 'openai-responses',
+              content: [reasoningItem, functionCall],
+            },
+          },
+          { role: 'tool', content: '{"ok":true}', toolCallId: 'call_1', name: 'do_thing' },
+        ],
+      });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.reasoning).toEqual({ effort: 'medium' });
+      expect(body.input).toEqual([
+        { role: 'user', content: 'Run tool' },
+        reasoningItem,
+        functionCall,
+        { type: 'function_call_output', call_id: 'call_1', output: '{"ok":true}' },
+      ]);
+      expect(result.content).toBe('Done');
+      expect(result.finishReason).toBe('stop');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('surfaces a failed Responses result as a structured provider error', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'failed',
+          model: 'gpt-5.6-sol',
+          output: [],
+          error: { code: 'server_error', message: 'Reasoning failed' },
+          usage: { input_tokens: 4, output_tokens: 0, total_tokens: 4 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      try {
+        const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.6-sol' });
+        await expect(
+          adapter.complete({
+            prompt: 'Run tool',
+            tools: [sampleTool],
+            reasoning: { mode: 'effort', effort: 'high' },
+          }),
+        ).rejects.toMatchObject({
+          name: 'ProviderAPIError',
+          providerName: 'openai',
+          retryable: false,
+          attempts: 1,
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('parses tool_calls into a parsed AIToolCall with finishReason tool_calls', async () => {

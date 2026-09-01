@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+## 0.6.19 — 2026-09-01 — OpenAI reasoning tool-call transport
+
+### Fixed
+
+- **OpenAI reasoning with function tools.** OpenAI caller-tool requests use the Responses API when reasoning is active, when a GPT-5.6 model uses its default reasoning, or when continuing an existing Responses tool round. Stateless continuations request and replay encrypted reasoning output. Explicit disabled reasoning and all compatible non-tool requests retain the existing Chat Completions transport.
+
 ## 0.6.18 — 2026-09-01 — provider-aware tool-call AI configuration
 
 ### Added
