@@ -32,6 +32,8 @@ Tool-enabled rounds inherit prompt/runtime provider, model, and reasoning config
 
 The optional `toolCalling.ai` override requires core ≥ 0.6.18. Older cores receive a structured `turn.failed` event with code `chat.core_version_unsupported`. Chats that omit it keep Chat's previous core ≥ 0.6.11 runtime floor.
 
+Programmatic callers that need per-operation billing attribution can pass `RunChatTurnOpts.onNestedAiCall`. It observes each successful `generateWithUsage` or `streamGenerate` call inside an auto capability tool, including its capability name, prompt, provider/model, usage, cost, and `includedInTurnUsage` flag. This is a server-only callback: nested usage remains part of the logical Chat turn and its budget total when that flag is true, so callers can split ledger rows without weakening enforcement.
+
 ## Which capabilities become auto tools
 
 A capability is an **auto/read** tool when its only effect is `ai: true` (all of `data`, `events`, `external`, `flows`, `capabilities` empty). Any write/side-effect makes it a **confirm** tool. Confirm-mode tools are bound but not executed by this path.

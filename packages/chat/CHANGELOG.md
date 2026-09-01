@@ -9,6 +9,7 @@
 - **Programmatic chat inputs.** `runChatTurn` accepts server-owned `promptInput`, uncapped `trustedHistory`, caller cancellation via `signal`, and `opts.resolveCapability` for capability-hosted callers whose execution context intentionally hides `ctx.__runtime.resolveCapability`. Resolved tools still execute through `executeCapability` with their normal access policy.
 - **Turn model metadata.** `turn.completed` now includes optional `model` and `provider` fields.
 - **Optional nested AI tool accounting.** `policy.toolCalling.includeNestedAiUsage` includes `generateWithUsage` / `streamGenerate` calls made inside auto tools in logical-turn totals. Existing staged chats default to `false`; new agent orchestration defaults to `true`.
+- **Nested AI call attribution.** Programmatic callers may provide `RunChatTurnOpts.onNestedAiCall` to observe the prompt, provider/model, usage, cost, and logical-turn-inclusion flag for each successful AI call inside an auto capability tool. The callback is server-only and does not remove that usage from Chat budgets.
 
 ### Changed
 

@@ -21,3 +21,17 @@ export interface ToolExecutionRecord {
    */
   argsPreview?: unknown;
 }
+
+/** Successful physical AI call made inside an auto capability tool. */
+export interface ChatNestedAiCall {
+  /** Bound capability name, before provider tool-name normalization. */
+  toolName: string;
+  /** Registered prompt name supplied by the capability. */
+  prompt: string;
+  usage: { tokensIn: number; tokensOut: number };
+  cost: number;
+  model: string;
+  provider: string;
+  /** Whether this call was added to the logical Chat turn's usage and budget. */
+  includedInTurnUsage: boolean;
+}

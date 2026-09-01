@@ -9,7 +9,7 @@ import {
 } from './execute-flow-tool.js';
 import type { ChatEvent } from '../types/event.js';
 import type { ChatToolAiConfig } from '../types/policy.js';
-import type { ToolExecutionRecord } from '../types/tool.js';
+import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
 
 const MAX_OBSERVATION_BYTES = 8 * 1024;
 const MAX_ANSWER_OBS_BYTES = 16 * 1024;
@@ -18,23 +18,67 @@ const MAX_ARGS_PREVIEW_BYTES = 2 * 1024;
 function execCtxWithTrackedAi(
   ctx: ExecutionContext,
   signal: AbortSignal | undefined,
+  toolName: string,
   addUsage: (usage: { inputTokens?: number; outputTokens?: number }, cost?: number) => void,
   includeNestedAiUsage: boolean,
+  onNestedAiCall?: (call: ChatNestedAiCall) => void,
 ): ExecutionContext {
   const withSignal = signal ? { ...ctx, signal } : ctx;
-  if (!includeNestedAiUsage) return withSignal;
+  if (!includeNestedAiUsage && !onNestedAiCall) return withSignal;
   const base = ctx.ai;
+  const reportNestedCall = (call: ChatNestedAiCall): void => {
+    if (includeNestedAiUsage) {
+      addUsage(
+        {
+          inputTokens: call.usage.tokensIn,
+          outputTokens: call.usage.tokensOut,
+        },
+        call.cost,
+      );
+    }
+    try {
+      onNestedAiCall?.(call);
+    } catch (error) {
+      ctx.logger?.warn?.('chat nested AI usage callback failed', {
+        chatTool: toolName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   const tracked: AIService = {
     ...base,
     generateWithUsage: (async (config: never) => {
       const result = await base.generateWithUsage(config);
-      addUsage(result.usage ?? {}, result.cost);
+      const request = config as unknown as { prompt?: unknown };
+      reportNestedCall({
+        toolName,
+        prompt: String(request.prompt ?? ''),
+        usage: {
+          tokensIn: result.usage?.inputTokens ?? 0,
+          tokensOut: result.usage?.outputTokens ?? 0,
+        },
+        cost: result.cost ?? 0,
+        model: result.model ?? 'unknown',
+        provider: result.provider ?? 'unknown',
+        includedInTurnUsage: includeNestedAiUsage,
+      });
       return result;
     }) as AIService['generateWithUsage'],
     async *streamGenerate(config) {
       for await (const event of base.streamGenerate(config)) {
         if (event.type === 'done') {
-          addUsage(event.usage ?? {}, event.cost);
+          reportNestedCall({
+            toolName,
+            prompt: String(config.prompt ?? ''),
+            usage: {
+              tokensIn: event.usage?.inputTokens ?? 0,
+              tokensOut: event.usage?.outputTokens ?? 0,
+            },
+            cost: event.cost ?? 0,
+            model: event.model ?? 'unknown',
+            provider: event.provider ?? 'unknown',
+            includedInTurnUsage: includeNestedAiUsage,
+          });
         }
         yield event;
       }
@@ -60,6 +104,8 @@ export interface RunToolPhaseArgs {
   /** Per-call model/reasoning overrides for the tool-using AI. */
   ai?: ChatToolAiConfig;
   includeNestedAiUsage?: boolean;
+  /** Server-side observer for successful AI calls made inside auto capability tools. */
+  onNestedAiCall?: (call: ChatNestedAiCall) => void;
   /**
    * When present, run this custom chat prompt as the tool-using agent and
    * return its first tool-less completion as the final user-facing answer.
@@ -348,12 +394,14 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
       execCtxWithTrackedAi(
         ctx,
         args.signal,
+        bound.targetName,
         (usage, nestedCost) => {
           usageIn += usage.inputTokens ?? 0;
           usageOut += usage.outputTokens ?? 0;
           cost += nestedCost ?? 0;
         },
         args.includeNestedAiUsage === true,
+        args.onNestedAiCall,
       ),
       call.arguments,
     );

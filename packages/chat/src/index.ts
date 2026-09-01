@@ -49,7 +49,11 @@ export { buildSystemPrompt } from './prompt/build-system-prompt.js';
 export { renderContext } from './prompt/render-context.js';
 
 export { compilePolicy } from './policy/registry.js';
-export { runChatTurn, type RunChatTurnOpts } from './runtime/run-turn.js';
+export {
+  runChatTurn,
+  type RunChatTurnOpts,
+} from './runtime/run-turn.js';
+export type { ChatNestedAiCall } from './types/tool.js';
 export {
   registerChatRoutes,
   type RegisterChatRoutesOpts,

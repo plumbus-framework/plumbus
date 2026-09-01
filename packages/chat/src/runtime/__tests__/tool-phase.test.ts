@@ -266,6 +266,7 @@ describe('runToolPhase', () => {
     ]);
     const ctx = ctxWithCaps([cap], { ai, auth: { roles: ['user'] } });
     const bound = bindChatCapabilityTools(ctx, ['explainProcess'], { maxTools: 32 });
+    const nestedCalls: Record<string, unknown>[] = [];
 
     const result = await runToolPhase({
       ctx,
@@ -277,6 +278,7 @@ describe('runToolPhase', () => {
       maxToolRounds: 5,
       emit: () => {},
       includeNestedAiUsage: true,
+      onNestedAiCall: (call) => nestedCalls.push(call),
       agentPrompt: { name: 'interview.agent', input: {} },
     });
 
@@ -285,6 +287,17 @@ describe('runToolPhase', () => {
       expect(result.usage).toEqual({ tokensIn: 20, tokensOut: 11 });
       expect(result.cost).toBeCloseTo(0.04);
     }
+    expect(nestedCalls).toEqual([
+      {
+        toolName: 'explainProcess',
+        prompt: 'process.explain',
+        usage: { tokensIn: 3, tokensOut: 2 },
+        cost: 0.02,
+        model: 'tool-model',
+        provider: 'mock',
+        includedInTurnUsage: true,
+      },
+    ]);
   });
 
   it('preserves staged compatibility by excluding nested tool AI usage by default', async () => {

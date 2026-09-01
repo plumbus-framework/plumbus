@@ -38,7 +38,7 @@ import { runToolPhase } from './tool-phase.js';
 import { chatScopeCheckPrompt } from '../prompt/chat-scope-check.prompt.js';
 import { chatToolRoundPrompt } from '../prompt/chat-tool-round.prompt.js';
 import type { ChatRegistry } from './chat-registry.js';
-import type { ToolExecutionRecord } from '../types/tool.js';
+import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
 
 export interface RunChatTurnArgs {
   chatDefinition: ChatDefinition;
@@ -85,6 +85,12 @@ export interface RunChatTurnOpts {
    * contracts still execute through executeCapability with normal access checks.
    */
   resolveCapability?: (name: string) => CapabilityContract<any, any> | undefined;
+  /**
+   * Server-only observer for successful `generateWithUsage` / `streamGenerate`
+   * calls made inside auto capability tools. Useful for attributing nested
+   * provider spend without removing it from Chat's logical-turn budget total.
+   */
+  onNestedAiCall?: (call: ChatNestedAiCall) => void;
 }
 
 const defaultModelOutput = (): ChatTurnModelOutput => ({
@@ -527,6 +533,7 @@ export async function* runChatTurn(
             ai: policy.toolCalling?.ai,
             includeNestedAiUsage:
               policy.toolCalling?.includeNestedAiUsage ?? toolOrchestration === 'agent',
+            onNestedAiCall: opts?.onNestedAiCall,
             signal: turnCtx.signal,
             emit,
             persistToolArgs: persistence !== 'client',
