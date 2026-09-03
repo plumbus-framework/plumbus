@@ -257,6 +257,30 @@ describe('createRepository', () => {
     );
   });
 
+  it('an update that changes only auditSilent fields writes no audit record', async () => {
+    const entity = makeEntity({
+      fields: {
+        id: field.id(),
+        title: field.string({ required: true }),
+        lastSeenAt: field.timestamp({ nullable: true, auditSilent: true }),
+      },
+    });
+    const table = generateDrizzleSchema(entity);
+    const db = makeMockDb();
+    const audit: AuditService = { record: vi.fn().mockResolvedValue(undefined) };
+    const repo = createRepository({ entity, table, db: db as any, auth: makeAuth(), audit });
+
+    await repo.update('doc-1', { lastSeenAt: new Date() } as any);
+    expect(audit.record).not.toHaveBeenCalled();
+
+    // Any other field in the same update is a real mutation and is audited as before.
+    await repo.update('doc-1', { lastSeenAt: new Date(), title: 'Renamed' } as any);
+    expect(audit.record).toHaveBeenCalledWith(
+      'Document.update',
+      expect.objectContaining({ title: 'Renamed' }),
+    );
+  });
+
   it('does not call audit when no audit service provided', async () => {
     const entity = makeEntity();
     const table = generateDrizzleSchema(entity);

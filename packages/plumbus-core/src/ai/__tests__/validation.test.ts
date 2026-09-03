@@ -117,6 +117,35 @@ describe('generateWithValidation', () => {
     expect(provider.complete).toHaveBeenCalledTimes(1);
   });
 
+  it('a truncation after a retried attempt reports what the whole call spent', async () => {
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: '{"wrong":"schema"}',
+        model: 'mock',
+        usage: { inputTokens: 24000, outputTokens: 12000, totalTokens: 36000 },
+        finishReason: 'stop',
+      })
+      .mockResolvedValueOnce({
+        content: '{"name":"Alice"',
+        model: 'mock',
+        usage: { inputTokens: 24100, outputTokens: 32000, totalTokens: 56100 },
+        finishReason: 'length',
+      });
+    const provider = createMockProvider({ complete });
+
+    const failure = await generateWithValidation(provider, { prompt: 'test json' }, schema, {
+      maxRetries: 1,
+    }).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(AIIncompleteOutputError);
+    // Both attempts were billed; a ledger reading only the last one would lose the first.
+    expect((failure as AIIncompleteOutputError).usage).toMatchObject({
+      inputTokens: 48100,
+      outputTokens: 44000,
+      totalTokens: 92100,
+    });
+  });
+
   it('does not silently repair truncated JSON', async () => {
     const provider = createMockProvider({
       complete: vi.fn(async () => ({

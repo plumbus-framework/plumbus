@@ -31,6 +31,18 @@ export async function loadServerExtensions(cwd = process.cwd()): Promise<ServerE
         mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
       extensions.onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
       extensions.credentials = mod.credentials ?? mod.default?.credentials;
+      const schedulePlanes = mod.schedulePlanes ?? mod.default?.schedulePlanes;
+      if (
+        schedulePlanes &&
+        typeof schedulePlanes.resolver?.resolve === 'function' &&
+        typeof schedulePlanes.listTenantRefs === 'function'
+      ) {
+        extensions.schedulePlanes = schedulePlanes;
+      }
+      const bodyLimit = mod.bodyLimit ?? mod.default?.bodyLimit;
+      if (typeof bodyLimit === 'number' && Number.isFinite(bodyLimit) && bodyLimit > 0) {
+        extensions.bodyLimit = bodyLimit;
+      }
     } catch {
       // caller may log
     }

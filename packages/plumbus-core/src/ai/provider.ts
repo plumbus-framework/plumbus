@@ -157,7 +157,8 @@ export interface TokenUsage {
   /** Tokens served from provider cache (charged at reduced rate). */
   cachedInputTokens?: number;
   /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
-  cacheWriteTokens?: number;
+  cacheWriteTokens?: number;  /** Tokens the model spent reasoning, when the provider reports the split (OpenAI o-series / gpt-5). */
+  reasoningTokens?: number;
 }
 
 // ── Streaming ──
@@ -488,12 +489,18 @@ function openAIUsageToTokenUsage(usage: {
   completion_tokens: number;
   total_tokens: number;
   prompt_tokens_details?: { cached_tokens?: number };
+  completion_tokens_details?: { reasoning_tokens?: number };
 }): TokenUsage {
+  const reasoning = usage.completion_tokens_details?.reasoning_tokens;
   return {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
     cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    // Reasoning models count their thinking inside `completion_tokens`. Without this split a
+    // caller that hit `max_completion_tokens` cannot tell a long answer from a long deliberation,
+    // and can only guess at which knob to turn.
+    ...(typeof reasoning === 'number' ? { reasoningTokens: reasoning } : {}),
   };
 }
 

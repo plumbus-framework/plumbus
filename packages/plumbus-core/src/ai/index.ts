@@ -124,6 +124,7 @@ export {
 } from './usage-client.js';
 // Output validation
 export {
+  AIValidationError,
   generateWithValidation,
   type ValidatedResponse,
   type ValidationRetryConfig,

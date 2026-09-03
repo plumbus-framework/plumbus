@@ -353,6 +353,8 @@ export interface AITokenUsage {
   cachedInputTokens?: number;
   /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
   cacheWriteTokens?: number;
+  /** Tokens the model spent reasoning, when the provider reports the split; counted inside `outputTokens`. */
+  reasoningTokens?: number;
 }
 
 // ── AI Tool-Calling Generation Config + Results (C1) ──

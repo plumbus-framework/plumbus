@@ -214,6 +214,9 @@ export type ServerExtensions = Pick<
   | 'onAICostRecorded'
   | 'enableStrictStructuredOutputs'
   | 'credentials'
+  | 'bodyLimit'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
+  /** Tenant planes for the flow scheduler, from `app/server.ts` (`export const schedulePlanes`). */
+  schedulePlanes?: WorkerPoolConfig['schedulePlanes'];
 };

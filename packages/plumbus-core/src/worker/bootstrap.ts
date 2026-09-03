@@ -270,6 +270,16 @@ export interface WorkerPoolConfig {
   /** Policy for claimed work carrying no tenant reference. Default: `'refuse'`. */
   untenantedDataPlane?: UntenantedDataPlanePolicy;
   /**
+   * Tenant planes for the flow scheduler alone: one schedule row per tenant for flows
+   * scheduled on `tenants`, started with that tenant on auth. Flows, events and the outbox keep
+   * the pool's data plane — for a host that routes tenant data itself and has no
+   * `dataPlaneResolver`. Ignored when `dataPlaneResolver` is set (it already covers the scheduler).
+   */
+  schedulePlanes?: {
+    resolver: DataPlaneResolver;
+    listTenantRefs: () => Iterable<string> | Promise<Iterable<string>>;
+  };
+  /**
    * Map an auth context to the reference `dataPlaneResolver` is keyed by.
    * Defaults to `auth.tenantId`.
    */
@@ -567,13 +577,22 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     logger.info(`Registered flow trigger consumer for ${triggerEventTypes.size} event types`);
   }
 
+  const schedulePlanes = poolConfig.schedulePlanes;
   const schedulerConfig: SchedulerConfig = {
     db,
     registry: flows,
     engine: flowEngine,
     pollIntervalMs: schedulerPollIntervalMs,
-    ...(dataPlaneResolver ? { resolver: dataPlaneResolver, listTenantRefs: listedTenantRefs } : {}),
+    logger,
+    ...(dataPlaneResolver
+      ? { resolver: dataPlaneResolver, listTenantRefs: listedTenantRefs }
+      : schedulePlanes
+        ? { resolver: schedulePlanes.resolver, listTenantRefs: schedulePlanes.listTenantRefs }
+        : {}),
   };
+  if (!dataPlaneResolver && schedulePlanes) {
+    logger.info('Flow scheduler runs on the pool plane and every tenant plane the host lists');
+  }
   const scheduler = enableScheduler ? createFlowScheduler(schedulerConfig) : null;
   let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;
 

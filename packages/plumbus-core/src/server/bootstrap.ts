@@ -135,6 +135,15 @@ export interface ServerConfig {
   port?: number;
   /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
   trustProxy?: boolean | string | string[] | number;
+  /**
+   * Largest request body the server accepts, in bytes. Passed to Fastify's `bodyLimit`.
+   *
+   * Fastify's default is 1 MiB, which is right for an API of JSON capability calls and wrong the
+   * moment one capability carries a file: an application that accepts a 10 MiB upload as a base64
+   * field answers `413` to every file above ~700 KB and never reaches its own quota check. Left
+   * unset, the default stands.
+   */
+  bodyLimit?: number;
   /** Jobs queue for async kind: 'job' capabilities (when API wires jobQueue). */
   jobQueue?: EventQueue;
   /** Expose Prometheus metrics at GET /metrics (colocated role=all deployments). */
@@ -281,6 +290,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     host = '0.0.0.0',
     port,
     trustProxy,
+    bodyLimit,
   } = serverConfig;
 
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
@@ -335,6 +345,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
             level: 'info',
           },
     ...(trustProxy != null && { trustProxy }),
+    ...(bodyLimit != null && { bodyLimit }),
   });
 
   // Health check endpoint

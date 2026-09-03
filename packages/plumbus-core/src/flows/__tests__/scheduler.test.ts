@@ -145,6 +145,45 @@ describe('FlowScheduler', () => {
     expect(pool.select).not.toHaveBeenCalled();
   });
 
+  it('keeps spine-scheduled flows on the pool and tenant-scheduled ones on the planes', async () => {
+    const engine = mockEngine();
+    const pool = mockDb([{ id: 'p1', flowName: 'nightly-spine', cron: 'every:24h', enabled: true }]);
+    const tenantA = mockDb([{ id: 'a1', flowName: 'hourly-tenant', cron: 'every:1h', enabled: true }]);
+    const registry = new FlowRegistry();
+    registry.register({
+      name: 'nightly-spine',
+      domain: 'ops',
+      input: {} as any,
+      steps: [],
+      schedule: { cron: 'every:24h', plane: 'spine' },
+    } as any);
+    registry.register({
+      name: 'hourly-tenant',
+      domain: 'ops',
+      input: {} as any,
+      steps: [],
+      schedule: { cron: 'every:1h' },
+    } as any);
+    const scheduler = createFlowScheduler({
+      db: pool,
+      registry,
+      engine: engine as any,
+      resolver: {
+        resolve: async (tenantRef: string) => ({
+          db: tenantA,
+          coreSchema: 'core_plumbus',
+          packageSchemaPrefix: 'pkg_',
+          tenantRef,
+        }),
+      },
+      listTenantRefs: async () => ['tenant-a'],
+    });
+    const triggered = await scheduler.poll();
+    expect(triggered).toBe(2);
+    expect(engine.start).toHaveBeenCalledWith('nightly-spine', {}, expect.not.objectContaining({ tenantId: 'tenant-a' }));
+    expect(engine.start).toHaveBeenCalledWith('hourly-tenant', {}, expect.objectContaining({ tenantId: 'tenant-a' }));
+  });
+
   it('does not start twice', () => {
     const scheduler = createFlowScheduler({
       db: mockDb(),

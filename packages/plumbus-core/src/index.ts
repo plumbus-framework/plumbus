@@ -142,6 +142,7 @@ export {
   AIIncompleteOutputError,
   AIInvalidRequestError,
   AIRefusalError,
+  AIValidationError,
   GovernedArtifactConflictError,
 } from './ai/index.js';
 export type { RouteGeneratorConfig } from './api/index.js';

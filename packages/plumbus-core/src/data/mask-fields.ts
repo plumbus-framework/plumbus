@@ -25,6 +25,13 @@ export function getMaskedFields(entity: EntityDefinition): string[] {
   return masked;
 }
 
+/** Field names whose changes alone are not worth an audit record (`auditSilent: true`). */
+export function getAuditSilentFields(entity: EntityDefinition): string[] {
+  return Object.entries(entity.fields)
+    .filter(([, descriptor]) => descriptor.options.auditSilent === true)
+    .map(([name]) => name);
+}
+
 /** Token substituted for redacted structured log metadata. */
 export const LOG_MASK_TOKEN = '***MASKED***';
 

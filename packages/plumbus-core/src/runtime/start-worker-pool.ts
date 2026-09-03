@@ -115,6 +115,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     flows,
     stepDeps,
     aiService,
+    ...(extensions?.schedulePlanes ? { schedulePlanes: extensions.schedulePlanes } : {}),
     createDataService: (auth) => {
       const effectiveAuth = auth ?? {
         userId: 'system-flow-runner',

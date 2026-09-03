@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+### Schedule planes for the flow scheduler
+
+- `FlowSchedule.plane` (`'spine' | 'tenants'`): where a scheduled flow's row lives and whose data plane its run gets.
+- `WorkerPoolConfig.schedulePlanes` and `app/server.ts` `export const schedulePlanes`: tenant planes for the scheduler alone, for hosts that route tenant data themselves; flows, events and the outbox keep the pool plane.
+- The scheduler syncs and polls the pool only when a registered flow is scheduled on the spine, tolerates a plane it cannot resolve or read, and reports the driver's cause.
+
 ## Unreleased
 
 ### Breaking
@@ -8,6 +14,7 @@
 
 ### Added
 
+- **`AIValidationError` is exported from the package root.** The class always carried `usage` (accumulated across every retry the validation loop paid for), `model`, and `provider`, and the docs always said to catch it — but it was never re-exported from the barrel, so a host could not name the class and the sunk spend of a validation-exhausted call was unreadable outside `ai-service`. It now sits beside `AIRefusalError`, `AIIncompleteOutputError`, and `AIInvalidRequestError`. Matters to any host that keeps its own cost ledger instead of installing `onAICostRecorded`. Docs: [AI integration](../../docs/ai/ai-integration.md).
 - **`createMemoryCredentialCatalog`** — host-declared named credential types and opaque bindings. The catalog stores type shapes, names, refs, and public labels; the host resolver supplies field values at `reveal`. Secret fields are read with `secret(name)` and never appear in JSON, `util.inspect`, or catalog errors. No built-in types. Optional on `createPlumbusRuntime({ credentials })` and on `createServer({ credentials })`. HTTP boot loads `export const credentials` from `app/server.ts` through `loadServerExtensions`. The catalog is retained on `PlumbusServer.credentials` and is never logged. Published at `@plumbus/core` and `@plumbus/core/credentials` (`dist/credentials/index.js`). Docs: [Credential catalog](../../docs/sdk-reference/credential-catalog.md).
 - **Compiled-flow disk reload** — `loadCompiledFlowRegistryFromDirectory` / `tryLoadCompiledFlowRegistryFromDirectory` read `plumbus compile-flows` JSON, recompute `definitionDigest`, and refuse a mismatch. `createServer` and `createWorkerPool` load `{cwd}/.plumbus/compiled-flows` when that tree has JSON, or an explicit `compiledRegistry` / `compiledFlowsDirectory`. Docs: [Flows — compiled definitions](../../docs/core-concepts/flows.md).
 - **`applyDataPlaneMigrations({ target, migrationsFolder })`** — host helper that opens one named tenant database through `openDataPlaneConnection` (owner role), runs existing `applyMigrations`, and always closes the pool. Result includes `database` when the target named one.

@@ -210,6 +210,7 @@ export async function startDevServer(
     onAICostRecorded: extensions.onAICostRecorded,
     enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
     credentials: extensions.credentials,
+    ...(extensions.bodyLimit != null && { bodyLimit: extensions.bodyLimit }),
     jobQueue: jobQueueNeeded ? queues.jobs : undefined,
     metrics,
     ...(process.env.TRUST_PROXY && {

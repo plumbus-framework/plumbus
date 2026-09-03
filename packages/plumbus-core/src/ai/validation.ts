@@ -292,11 +292,22 @@ export async function generateWithValidation<T>(
       !textOutput &&
       (response.finishReason === 'length' || response.finishReason === 'max_tokens')
     ) {
+      // The usage on the error is what the WHOLE call spent: earlier attempts that came back
+      // invalid and were retried are billed too, and a ledger that reads only the last attempt
+      // under-reports a failed call by everything the retries cost.
       throw new AIIncompleteOutputError({
         provider: config?.provider ?? provider.name,
         model: config?.model ?? response.model,
         partialText: response.content,
-        usage: response.usage,
+        usage: {
+          inputTokens: totalUsage.inputTokens + response.usage.inputTokens,
+          outputTokens: totalUsage.outputTokens + response.usage.outputTokens,
+          totalTokens: totalUsage.totalTokens + response.usage.totalTokens,
+          cachedInputTokens:
+            (totalUsage.cachedInputTokens ?? 0) + (response.usage.cachedInputTokens ?? 0),
+          cacheWriteTokens:
+            (totalUsage.cacheWriteTokens ?? 0) + (response.usage.cacheWriteTokens ?? 0),
+        },
         finishReason: response.finishReason,
       });
     }

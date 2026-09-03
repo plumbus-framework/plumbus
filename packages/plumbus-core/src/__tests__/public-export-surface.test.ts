@@ -33,6 +33,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'AIInvalidRequestError',
   'AIRefusalError',
   'AISecurityBlockedError',
+  'AIValidationError',
   'APPROVAL_PENDING_WAIT',
   'ActionRiskTier',
   'BackoffStrategy',

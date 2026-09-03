@@ -10,6 +10,13 @@ export interface BaseFieldOptions {
   classification?: FieldClassification;
   encrypted?: boolean;
   maskedInLogs?: boolean;
+  /**
+   * An update that changes only fields marked `auditSilent` writes no audit record. For
+   * operational stamps — a session's `lastSeenAt`, a heartbeat — that a request touches every
+   * time it runs; auditing them buries every real mutation under one row per request. Creates,
+   * deletes and updates that touch any other field are audited as before.
+   */
+  auditSilent?: boolean;
 }
 
 // ── Specific Field Descriptors ──

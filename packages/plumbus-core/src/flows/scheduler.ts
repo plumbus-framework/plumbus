@@ -53,6 +53,8 @@ export function planMissedSchedule(input: {
   return { starts: Math.max(starts, 0), nextRunAt: cursor };
 }
 
+import type { FlowDefinition } from '../types/flow.js';
+
 export interface SchedulerConfig {
   db: PostgresJsDatabase;
   registry: FlowRegistry;
@@ -99,15 +101,36 @@ export function createFlowScheduler(config: SchedulerConfig) {
     provider: 'scheduler',
   };
 
+  const multiPlane = Boolean(resolver && listTenantRefs);
+  /** Which plane a scheduled flow belongs to; without tenant planes everything is the pool's. */
+  function planeOf(flow: FlowDefinition | undefined): 'spine' | 'tenants' {
+    if (!multiPlane) return 'spine';
+    return flow?.schedule?.plane ?? 'tenants';
+  }
+  /**
+   * The planes to sync and poll: the pool database when a registered flow is scheduled on the
+   * spine, plus every resolved tenant plane when the pool has schedule planes. The pool is
+   * skipped entirely when nothing is scheduled there, so a tenant-only host never reads it.
+   */
   async function tenantPlanes(): Promise<Array<{ db: PostgresJsDatabase; tenantRef?: string }>> {
     if (!resolver || !listTenantRefs) {
       return [{ db }];
     }
-    const refs = [...(await listTenantRefs())];
     const planes: Array<{ db: PostgresJsDatabase; tenantRef?: string }> = [];
+    if (registry.getScheduled().some((flow) => planeOf(flow) === 'spine')) {
+      planes.push({ db });
+    }
+    const refs = [...(await listTenantRefs())];
     for (const tenantRef of refs) {
-      const handle = await resolver.resolve(tenantRef);
-      planes.push({ db: handle.db, tenantRef: handle.tenantRef });
+      try {
+        const handle = await resolver.resolve(tenantRef);
+        planes.push({ db: handle.db, tenantRef: handle.tenantRef });
+      } catch (err: unknown) {
+        logger?.warn(`Scheduler skipped a tenant plane it could not resolve`, {
+          tenantRef,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     return planes;
   }
@@ -116,29 +139,50 @@ export function createFlowScheduler(config: SchedulerConfig) {
    * Sync registered flows with schedules into the database.
    * Call once at startup to ensure all scheduled flows have a row.
    */
+  function readDue(planeDb: PostgresJsDatabase, now: Date) {
+    return planeDb.select().from(flowSchedulesTable).where(lte(flowSchedulesTable.nextRunAt, now));
+  }
+
+  /** The error and, when a driver wrapped it, the cause underneath — the part that names the table. */
+  function describeError(err: unknown): string {
+    if (!(err instanceof Error)) return String(err);
+    const cause = (err as { cause?: unknown }).cause;
+    return cause instanceof Error ? `${err.message} — ${cause.message}` : err.message;
+  }
+
   async function syncSchedules(): Promise<number> {
     const scheduled = registry.getScheduled();
     let synced = 0;
     const planes = await tenantPlanes();
 
     for (const plane of planes) {
-      for (const flow of scheduled) {
-        if (!flow.schedule?.cron) continue;
+      const planeKind = plane.tenantRef === undefined ? 'spine' : 'tenants';
+      try {
+        for (const flow of scheduled) {
+          if (!flow.schedule?.cron) continue;
+          if (planeOf(flow) !== planeKind) continue;
 
-        const existing = await plane.db
-          .select()
-          .from(flowSchedulesTable)
-          .where(eq(flowSchedulesTable.flowName, flow.name))
-          .limit(1);
+          const existing = await plane.db
+            .select()
+            .from(flowSchedulesTable)
+            .where(eq(flowSchedulesTable.flowName, flow.name))
+            .limit(1);
 
-        if (existing.length === 0) {
-          await plane.db.insert(flowSchedulesTable).values({
-            flowName: flow.name,
-            cron: flow.schedule.cron,
-            nextRunAt: new Date(), // first run immediately
-          });
-          synced++;
+          if (existing.length === 0) {
+            await plane.db.insert(flowSchedulesTable).values({
+              flowName: flow.name,
+              cron: flow.schedule.cron,
+              nextRunAt: new Date(), // first run immediately
+            });
+            synced++;
+          }
         }
+      } catch (err: unknown) {
+        // A plane whose schedule table is missing or behind must not stop the others, nor boot.
+        logger?.error(`Scheduler could not sync schedules on a plane`, {
+          tenantRef: plane.tenantRef,
+          error: describeError(err),
+        });
       }
     }
 
@@ -154,10 +198,16 @@ export function createFlowScheduler(config: SchedulerConfig) {
     const planes = await tenantPlanes();
 
     for (const plane of planes) {
-      const dueSchedules = await plane.db
-        .select()
-        .from(flowSchedulesTable)
-        .where(lte(flowSchedulesTable.nextRunAt, now));
+      let dueSchedules: Awaited<ReturnType<typeof readDue>>;
+      try {
+        dueSchedules = await readDue(plane.db, now);
+      } catch (err: unknown) {
+        logger?.error(`Scheduler could not read schedules on a plane`, {
+          tenantRef: plane.tenantRef,
+          error: describeError(err),
+        });
+        continue;
+      }
 
       for (const schedule of dueSchedules) {
         if (!schedule.enabled) continue;
@@ -167,6 +217,8 @@ export function createFlowScheduler(config: SchedulerConfig) {
             ? { ...systemAuth, tenantId: plane.tenantRef }
             : systemAuth;
           const flow = registry.get(schedule.flowName);
+          // A row left on the wrong plane (a flow moved between spine and tenants) is not started.
+          if (flow && planeOf(flow) !== (plane.tenantRef === undefined ? 'spine' : 'tenants')) continue;
           const dueAt = toDate(schedule.nextRunAt, now);
           const plan = planMissedSchedule({
             cron: schedule.cron,

@@ -134,7 +134,7 @@ await ctx.ai.generateWithUsage({
 });
 ```
 
-When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. Catch it in capability handlers to surface a structured error to the caller instead of a generic 500.
+When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. `AIValidationError` is exported from `@plumbus/core`, alongside `AIRefusalError` and `AIIncompleteOutputError`, so `catch (err) { if (err instanceof AIValidationError) ... }` works in a capability handler — surface a structured error to the caller instead of a generic 500, and read `err.usage` when the host keeps its own spend ledger rather than using `onAICostRecorded`.
 
 ### streamGenerate (streaming completions)
 

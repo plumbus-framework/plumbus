@@ -96,6 +96,13 @@ export interface FlowBudget {
 export interface FlowSchedule {
   cron: string;
   /**
+   * Where the schedule row lives and whose data plane the run gets. `tenants` (the default
+   * when the pool has schedule planes) puts one row in every tenant plane and starts the flow
+   * with that tenant on auth; `spine` keeps one row on the pool database and starts the flow
+   * untenanted. A host with no schedule planes runs everything on the pool.
+   */
+  plane?: 'spine' | 'tenants';
+  /**
    * Missed-tick policy. Default `skip` (one start, jump to the next future
    * slot — no unbounded backlog). `catch-up` starts once per missed slot
    * up to a bound.

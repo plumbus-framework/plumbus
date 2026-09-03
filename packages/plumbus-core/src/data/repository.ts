@@ -43,7 +43,12 @@ import {
   getEncryptedFields,
   isEncryptedValue,
 } from './field-encryption.js';
-import { getMaskedFields, maskSensitiveValues, AUDIT_MASK_TOKEN } from './mask-fields.js';
+import {
+  getAuditSilentFields,
+  getMaskedFields,
+  maskSensitiveValues,
+  AUDIT_MASK_TOKEN,
+} from './mask-fields.js';
 
 export interface RepositoryOptions {
   entity: EntityDefinition;
@@ -81,6 +86,13 @@ export function createRepository<
   } = options;
 
   const maskedFields = getMaskedFields(entity);
+  const auditSilentFields = new Set(getAuditSilentFields(entity));
+  /** True when the update changes nothing but `auditSilent` fields (plus the framework's `updatedAt`). */
+  function isAuditSilentUpdate(updates: Record<string, unknown>): boolean {
+    if (auditSilentFields.size === 0) return false;
+    const changed = Object.keys(updates).filter((key) => key !== 'updatedAt');
+    return changed.length > 0 && changed.every((key) => auditSilentFields.has(key));
+  }
   const encryptedFields = getEncryptedFields(entity);
   const isTenantScoped = entity.tenantScoped === true;
   const hasDeletedAt = 'deletedAt' in table;
@@ -392,7 +404,9 @@ export function createRepository<
           id,
         });
       }
-      await auditMutation('update', { id, ...updateData });
+      if (!isAuditSilentUpdate(updates as Record<string, unknown>)) {
+        await auditMutation('update', { id, ...updateData });
+      }
       return updated;
     },
 
@@ -435,7 +449,9 @@ export function createRepository<
       if (!updated) {
         return { matched: false, row: null };
       }
-      await auditMutation('update', { id, ...updateData });
+      if (!isAuditSilentUpdate(updates as Record<string, unknown>)) {
+        await auditMutation('update', { id, ...updateData });
+      }
       return { matched: true, row: updated };
     },
 
