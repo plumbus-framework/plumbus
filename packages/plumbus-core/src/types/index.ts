@@ -3,17 +3,17 @@
 // Organized by domain: enums, fields, capability, flow, entity, event,
 // context (ExecutionContext + service interfaces), security, governance, etc.
 
-// ── Audit ──
-export type { AuditRecord, AuditService } from './audit.js';
 // ── Action risk (single import) ──
 export {
   ActionRiskTier,
-  ReviewMandateReason,
   isActionRiskTier,
   isProhibitedRiskTier,
+  ReviewMandateReason,
   requiresApprovalForRiskTier,
 } from '../approvals/action-risk.js';
 export { APPROVAL_PENDING_WAIT } from '../approvals/wait.js';
+// ── Audit ──
+export type { AuditRecord, AuditService } from './audit.js';
 // ── Capability ──
 export type {
   ApiDeprecationConfig,
@@ -35,8 +35,8 @@ export type {
 // ── Config ──
 export type {
   AIProviderConfig,
-  AIProvidersConfig,
   AIProviderSlotConfig,
+  AIProvidersConfig,
   AuthAdapterConfig,
   DatabaseConfig,
   Environment,
@@ -48,6 +48,9 @@ export type {
 } from './config.js';
 // ── Context ──
 export type {
+  AggregateOptions,
+  AggregateRow,
+  AggregateValue,
   AIDocument,
   AIFinalGenerateResult,
   AIGenerateConfig,
@@ -58,6 +61,7 @@ export type {
   AITokenUsage,
   AIToolCallsGenerateResult,
   AIToolEnabledGenerateResult,
+  ConditionalUpdateResult,
   ConfigService,
   DataService,
   EventService,
@@ -66,12 +70,8 @@ export type {
   FlowExecution,
   FlowService,
   LoggerService,
-  AggregateOptions,
-  AggregateRow,
-  AggregateValue,
   QueryOptions,
   Repository,
-  ConditionalUpdateResult,
   RequestMeta,
   SecurityService,
   TimeService,
@@ -136,8 +136,9 @@ export type {
   PolicyReport,
   RuleEvaluation,
 } from './governance.js';
+export type { ModelConfig, PromptDefinition, ReasoningEffort } from './prompt.js';
 // ── Prompt ──
-export type { ModelConfig, PromptDefinition } from './prompt.js';
+export { REASONING_EFFORTS } from './prompt.js';
 // ── Registry ──
 export type {
   PlumbusRegistry,

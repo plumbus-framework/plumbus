@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../types/prompt.js';
 // ── AI Service Implementation ──
 // Full ctx.ai implementation: generate, extract, classify, retrieve
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
@@ -87,7 +88,7 @@ export interface AIServiceConfig {
       model?: string;
       temperature?: number;
       maxTokens?: number;
-      reasoningEffort?: 'low' | 'medium' | 'high';
+      reasoningEffort?: ReasoningEffort;
     }
   > /** Budget enforcement settings */;
   budget?: {
@@ -275,7 +276,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     provider?: string;
     temperature?: number;
     maxTokens?: number;
-    reasoningEffort?: 'low' | 'medium' | 'high';
+    reasoningEffort?: ReasoningEffort;
     appendUnsubstitutedInput?: boolean;
     /**
      * Set of input keys that had a `{{key}}` placeholder in the prompt

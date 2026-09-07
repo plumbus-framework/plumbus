@@ -181,7 +181,15 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
-    it('sends reasoning_effort only when explicitly set', async () => {
+    it.each([
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ] as const)('sends reasoning effort %s unchanged only when explicitly set', async (effort) => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -193,11 +201,11 @@ describe('AI Provider Adapters', () => {
       vi.stubGlobal('fetch', mockFetch);
 
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-5.5' });
-      await adapter.complete({ prompt: 'Say hello', reasoningEffort: 'medium' });
+      await adapter.complete({ prompt: 'Say hello', reasoningEffort: effort });
       await adapter.complete({ prompt: 'Say hello' });
 
       const withEffort = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
-      expect(withEffort.reasoning_effort).toBe('medium');
+      expect(withEffort.reasoning_effort).toBe(effort);
       const without = JSON.parse(mockFetch.mock.calls[1]?.[1].body);
       expect(without.reasoning_effort).toBeUndefined();
 
@@ -1358,5 +1366,34 @@ describe('AI Provider Adapters', () => {
 
       vi.unstubAllGlobals();
     });
+  });
+});
+
+describe('model reasoning metadata', () => {
+  it('distinguishes supported, unsupported, unknown, and custom endpoints', () => {
+    const entries = [{ id: 'gpt-5.6-sol' }, { id: 'gpt-4o' }, { id: 'future-model' }];
+    const official = joinAndFilterModels({
+      provider: 'openai',
+      entries,
+      filter: undefined,
+      isOfficial: true,
+    });
+    expect(official[0]?.reasoningEfforts).toEqual([
+      'none',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ]);
+    expect(official[1]?.reasoningEfforts).toEqual([]);
+    expect(official[2]?.reasoningEfforts).toBeNull();
+    const custom = joinAndFilterModels({
+      provider: 'openai',
+      entries,
+      filter: undefined,
+      isOfficial: false,
+    });
+    expect(custom.every((model) => model.reasoningEfforts === null)).toBe(true);
   });
 });

@@ -1099,3 +1099,22 @@ const result = await ctx.ai.generate({
 
 `mockAI` keys responses by operation (`generate`, `extract`, `classify`, `retrieve`), not by prompt name.
 
+
+
+### Model-supported reasoning controls
+
+`REASONING_EFFORTS` and `ReasoningEffort` are public SDK exports covering `none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. The dynamic prompt override,
+prompt definition, and provider request share this type. Values pass through unchanged;
+omitting a value remains distinct from explicitly selecting `none`.
+
+`ProviderModel.reasoningEfforts` describes known official-endpoint model support.
+An empty array means unsupported; null or an absent field means unknown. Custom
+endpoints are not assumed to have OpenAI's support simply because model names match.
+Applications should obtain choices from this metadata, validate the effective model
+after inheritance, and never silently clamp a persisted choice.
+
+Profiles follow the [OpenAI model catalog](https://developers.openai.com/api/docs/models),
+including [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol).
+Model-list endpoints do not themselves publish reasoning levels; these framework
+profiles need maintenance when provider support changes.

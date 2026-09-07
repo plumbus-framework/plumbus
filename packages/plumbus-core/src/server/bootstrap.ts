@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../types/prompt.js';
 // ── Fastify Server Bootstrap ──
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
@@ -7,61 +8,60 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
-import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
-import type { AICostContext } from '../types/context.js';
 import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
+import { buildAISecurityConfig } from '../ai/security.js';
 import type { DependencyOptions, RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
-import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
-import { logHookError } from '../errors/hook-log.js';
-import { PlumbusError } from '../errors/plumbus-error.js';
-import { ErrorCode } from '../types/enums.js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
+import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
-import type { HttpAuthenticationRuntime } from './authentication-runtime.js';
 import type { CredentialCatalog } from '../credentials/catalog.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { EntityRegistry } from '../data/registry.js';
+import { logHookError } from '../errors/hook-log.js';
+import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
-import { registerJobStatusRoute } from '../jobs/routes.js';
-import { createJobDispatchService } from '../jobs/job-dispatch-service.js';
-import { JobExecutionSource } from '../jobs/schema.js';
-import type { CapabilityRegistry } from '../execution/capability-registry.js';
-import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
-import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
+import type { ContextDependencies } from '../execution/context-factory.js';
 import {
   createInvocationEmitScope,
   resolveInvocationCausationId,
 } from '../execution/invocation-emit-scope.js';
-import type { ContextDependencies } from '../execution/context-factory.js';
 import {
-  resolveCompiledFlowRegistry,
   type CompiledFlowRegistry,
+  resolveCompiledFlowRegistry,
 } from '../flows/compiled-registry.js';
 import { createFlowEngine } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
 import type { FlowRegistry } from '../flows/registry.js';
-import { createTranslationService, TranslationRegistry } from '../translations/index.js';
-import type { PlumbusConfig } from '../types/config.js';
-import type { AIService, LoggerService } from '../types/context.js';
-import type { AuthContext } from '../types/security.js';
-import type { TranslationDefinition } from '../types/translation.js';
+import { createJobDispatchService } from '../jobs/job-dispatch-service.js';
+import { registerJobStatusRoute } from '../jobs/routes.js';
+import { JobExecutionSource } from '../jobs/schema.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
 import { createStructuredLogger, withLogMasking } from '../observability/metrics.js';
-import { resolveEncryptionKey } from '../data/field-encryption.js';
 import {
   warnAiSecurityBlockMode,
   warnEncryptedFieldsWithoutKey,
 } from '../runtime/startup-warnings.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
+import { createTranslationService, TranslationRegistry } from '../translations/index.js';
+import type { PlumbusConfig } from '../types/config.js';
+import type { AICostContext, AIService, LoggerService } from '../types/context.js';
+import { ErrorCode } from '../types/enums.js';
+import type { AuthContext } from '../types/security.js';
+import type { TranslationDefinition } from '../types/translation.js';
+import type { HttpAuthenticationRuntime } from './authentication-runtime.js';
 
 // ── Server Config ──
 
@@ -195,7 +195,7 @@ export interface ServerConfig {
         model?: string;
         temperature?: number;
         maxTokens?: number;
-        reasoningEffort?: 'low' | 'medium' | 'high';
+        reasoningEffort?: ReasoningEffort;
       }
     >;
   }>;

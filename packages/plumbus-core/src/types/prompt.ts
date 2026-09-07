@@ -8,7 +8,16 @@ import type { z } from 'zod';
  * silently degrading. Adapters for providers without an equivalent
  * parameter ignore it.
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high';
+export const REASONING_EFFORTS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export interface ModelConfig {
   provider?: string;

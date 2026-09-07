@@ -87,6 +87,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'PolicyProfile',
   'PromptRegistry',
   'ProviderJsonSchemaError',
+  'REASONING_EFFORTS',
   'RelationType',
   'ReviewMandateReason',
   'RuleStatus',

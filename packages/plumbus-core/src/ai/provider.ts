@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '../types/prompt.js';
 // ── AI Provider Adapter Interface ──
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
@@ -91,7 +92,7 @@ export interface ProviderRequest {
    * `reasoning_effort` on o-series / gpt-5 family); adapters for providers
    * without an equivalent parameter ignore it.
    */
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: ReasoningEffort;
   /** Response format hint */
   responseFormat?: 'text' | 'json';
   /** Provider-compatible JSON Schema for strict structured outputs. */
@@ -157,7 +158,7 @@ export interface TokenUsage {
   /** Tokens served from provider cache (charged at reduced rate). */
   cachedInputTokens?: number;
   /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
-  cacheWriteTokens?: number;  /** Tokens the model spent reasoning, when the provider reports the split (OpenAI o-series / gpt-5). */
+  cacheWriteTokens?: number /** Tokens the model spent reasoning, when the provider reports the split (OpenAI o-series / gpt-5). */;
   reasoningTokens?: number;
 }
 
@@ -222,6 +223,8 @@ export interface ProviderModel {
   inputPerMTok: number | null;
   /** USD per 1M output tokens, or `null` if the model is not in the catalog. */
   outputPerMTok: number | null;
+  /** Supported reasoning values; null means unknown, [] means unsupported. */
+  reasoningEfforts?: readonly ReasoningEffort[] | null;
   /** Provider-supplied human-readable label (Anthropic exposes this; OpenAI doesn't). */
   displayName?: string;
   /** ISO-8601 creation timestamp when the provider exposes one. */
@@ -283,6 +286,24 @@ export interface AIProviderAdapter {
  * provider-supplied model entries against the pricing catalog, then apply
  * the kind filter respecting the official-endpoint rule.
  */
+/** Published model profiles for official endpoints. Unknown models stay unknown. */
+function knownReasoningEfforts(provider: string, model: string): readonly ReasoningEffort[] | null {
+  if (provider !== 'openai') return null;
+  const id = model.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  if (['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(id))
+    return ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+  if (['gpt-5.2', 'gpt-5.4', 'gpt-5.5'].includes(id))
+    return ['none', 'low', 'medium', 'high', 'xhigh'];
+  if (id === 'gpt-5.1') return ['none', 'low', 'medium', 'high'];
+  if (['gpt-5', 'gpt-5-mini', 'gpt-5-nano'].includes(id))
+    return ['minimal', 'low', 'medium', 'high'];
+  if (id === 'gpt-5-pro') return ['high'];
+  if (['gpt-5.2-pro', 'gpt-5.4-pro'].includes(id)) return ['medium', 'high', 'xhigh'];
+  if (['o1', 'o3', 'o3-mini', 'o4-mini'].includes(id)) return ['low', 'medium', 'high'];
+  if (/^gpt-4(?:o|\.1)(?:-|$)/.test(id)) return [];
+  return null;
+}
+
 export function joinAndFilterModels(args: {
   provider: string;
   entries: Array<{
@@ -312,6 +333,7 @@ export function joinAndFilterModels(args: {
     const model: ProviderModel = {
       id: e.id,
       provider: args.provider,
+      reasoningEfforts: args.isOfficial ? knownReasoningEfforts(args.provider, e.id) : null,
       kind: cat?.kind ?? 'unknown',
       inputPerMTok: cat?.inputPerMTok ?? null,
       outputPerMTok: cat?.outputPerMTok ?? null,
@@ -552,7 +574,7 @@ function applyOpenAITemperature(
  */
 function applyOpenAIReasoningEffort(
   body: Record<string, unknown>,
-  reasoningEffort?: 'low' | 'medium' | 'high',
+  reasoningEffort?: ReasoningEffort,
 ): void {
   if (reasoningEffort) {
     body.reasoning_effort = reasoningEffort;
