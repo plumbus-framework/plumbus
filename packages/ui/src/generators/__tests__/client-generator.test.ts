@@ -164,6 +164,17 @@ describe('generateCapabilityTypes', () => {
 // ── generateTypedClient ──
 
 describe('generateTypedClient', () => {
+  it('sends an Idempotency-Key on every state-changing call unless the caller supplied one', () => {
+    const code = generateTypedClient(makeActionCap());
+    expect(code).toContain('clientFetchInit("POST", withIdempotencyKey(options?.headers))');
+  });
+
+  it('sends no Idempotency-Key on a read', () => {
+    const code = generateTypedClient(makeCap());
+    expect(code).toContain('clientFetchInit("GET", options?.headers)');
+    expect(code).not.toContain('withIdempotencyKey');
+  });
+
   it('generates a GET client for query capabilities', () => {
     const code = generateTypedClient(makeCap());
     expect(code).toContain('export async function getInvoice');
@@ -385,6 +396,15 @@ describe('flowTriggerFnName', () => {
 // ── generateClientModule ──
 
 describe('generateClientModule', () => {
+  it('emits the idempotency helpers once, for either auth transport', () => {
+    for (const authTransport of ['session', 'bearer'] as const) {
+      const code = generateClientModule([makeActionCap()], [], { authTransport });
+      expect(code.split('export function clientIdempotencyKey(')).toHaveLength(2);
+      expect(code).toContain('function withIdempotencyKey(');
+      expect(code).toContain('"Idempotency-Key"');
+    }
+  });
+
   it.each(['session', 'bearer'] as const)(
     'emits the envelope helper once under %s transport, so every function can use it',
     (authTransport) => {

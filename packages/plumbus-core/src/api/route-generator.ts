@@ -19,6 +19,17 @@ import { dispatchQueuedJob } from '../jobs/dispatch.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
 import { executeCapability } from '../execution/capability-executor.js';
+import {
+  buildIdempotencyStoreKey,
+  createInMemoryIdempotencyStore,
+  hashPayload,
+  IdempotencyAbortedError,
+  isAnonymousIdempotencyPrincipal,
+  parseIdempotencyTtl,
+  type IdempotencyPrincipal,
+  type IdempotencyStore,
+  type IdempotencyStoreOptions,
+} from './idempotency.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { CapabilityContract } from '../types/capability.js';
@@ -85,6 +96,18 @@ export interface RouteGeneratorConfig {
   ) => Promise<ResolvedRequestDependencies>;
   /** Optional queue for dispatching async job capabilities */
   jobQueue?: EventQueue;
+  /**
+   * Where `api.idempotency` claims are kept for the routes this config registers.
+   *
+   * A capability that declares `api: { idempotency: { required: true, header } }` is served
+   * only with that header present; the same key with the same payload replays the stored
+   * answer, the same key with a different payload or principal is refused with a conflict,
+   * and a failed execution releases the key so the caller may retry. Left unset, every route
+   * registered with this config shares one in-memory store — correct within a process and
+   * lost on restart; a deployment that needs replay protection across instances supplies a
+   * shared store here.
+   */
+  idempotencyStore?: IdempotencyStore;
   /** Default locale when request headers do not resolve one */
   defaultLocale?: string;
   /** Locales supported by registered translation definitions */
@@ -109,6 +132,19 @@ export interface RouteGeneratorConfig {
  * HTTP method is derived from capability kind:
  *   query → GET, action → POST, job → POST (async), eventHandler → skipped
  */
+/** One in-memory store per route configuration, for deployments that supplied none. */
+const defaultIdempotencyStores = new WeakMap<RouteGeneratorConfig, IdempotencyStore>();
+
+function idempotencyStoreOf(config: RouteGeneratorConfig): IdempotencyStore {
+  if (config.idempotencyStore) return config.idempotencyStore;
+  let store = defaultIdempotencyStores.get(config);
+  if (!store) {
+    store = createInMemoryIdempotencyStore();
+    defaultIdempotencyStores.set(config, store);
+  }
+  return store;
+}
+
 export function registerCapabilityRoute(
   app: FastifyInstance,
   capability: CapabilityContract,
@@ -241,6 +277,108 @@ export function registerCapabilityRoute(
       });
       reply.status(202).send({ data: { jobId, status: 'accepted' } });
       return;
+    }
+
+    // 4b. Declared idempotency (`api.idempotency.required`): the key is demanded, and the
+    // outcome of one execution is what every later request with that key receives.
+    const idempotency = capability.api?.idempotency;
+    // A caller the capability refuses is answered by the executor as always (403, audited)
+    // before any header is looked at, so authorization never leaks behind a validation answer.
+    const idempotencyApplies =
+      idempotency?.required === true &&
+      method !== 'GET' &&
+      evaluateAccess(capability.access, ctx.auth).allowed;
+    if (idempotencyApplies && idempotency) {
+      const headerName = (idempotency.header ?? 'Idempotency-Key').toLowerCase();
+      const rawKey = request.headers[headerName];
+      const idempotencyKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+      if (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0) {
+        const err = ctx.errors.validation(
+          `Missing required header: ${idempotency.header ?? 'Idempotency-Key'}`,
+          { capability: canonicalName, reason: 'idempotency-key-required' },
+        );
+        const { statusCode, body } = errorToHttpResponse(err);
+        reply.status(statusCode).send(body);
+        return;
+      }
+      // Only a request that would execute claims a key: invalid input is answered by the
+      // executor as always, and leaves nothing behind for a retry to hit.
+      const parsed = capability.input.safeParse(input);
+      const principal: IdempotencyPrincipal = { userId: ctx.auth.userId, tenantId: ctx.auth.tenantId };
+      if (parsed.success && !isAnonymousIdempotencyPrincipal(principal)) {
+        const store = idempotencyStoreOf(config);
+        const operationId = capability.api?.operationId ?? canonicalName;
+        const storeKey = buildIdempotencyStoreKey(operationId, principal, idempotencyKey);
+        const payloadHash = hashPayload(parsed.data);
+        const ttlMs = idempotency.ttl !== undefined ? parseIdempotencyTtl(idempotency.ttl) : undefined;
+        const storeOptions: IdempotencyStoreOptions | undefined = ttlMs !== undefined ? { ttlMs } : undefined;
+
+        let claim = await store.claim(storeKey, payloadHash, principal, storeOptions);
+        for (;;) {
+          if (claim.status === 'replay') {
+            reply.status(200).send({ data: claim.record.result });
+            return;
+          }
+          if (claim.status === 'conflict') {
+            const err = ctx.errors.conflict(
+              claim.reason === 'principal'
+                ? 'Idempotency key belongs to a different principal'
+                : 'Idempotency key reused with different input',
+              { capability: canonicalName, reason: 'idempotency-conflict', conflict: claim.reason },
+            );
+            const { statusCode, body } = errorToHttpResponse(err);
+            reply.status(statusCode).send(body);
+            return;
+          }
+          if (claim.status === 'in-flight') {
+            try {
+              const record = await claim.wait;
+              reply.status(200).send({ data: record.result });
+              return;
+            } catch (waitErr) {
+              if (!(waitErr instanceof IdempotencyAbortedError)) throw waitErr;
+              claim = await store.claim(storeKey, payloadHash, principal, storeOptions);
+              continue;
+            }
+          }
+          break;
+        }
+
+        let claimed: Awaited<ReturnType<typeof executeCapability>>;
+        try {
+          claimed = await executeCapability(capability, ctx, input);
+        } catch (execErr) {
+          await store.abort(storeKey);
+          throw execErr;
+        }
+        if (claimed.success) {
+          await store.complete(storeKey, claimed.data, storeOptions);
+          reply.status(200).send({ data: claimed.data });
+          return;
+        }
+        await store.abort(storeKey);
+        const httpError = errorToHttpResponse(claimed.error);
+        reply.status(httpError.statusCode).send(httpError.body);
+        if (config.onCapabilityError) {
+          const failed = claimed.error;
+          void (async () =>
+            config.onCapabilityError?.({
+              capabilityName: capability.name,
+              domain: capability.domain,
+              errorCode: failed.code,
+              errorMessage: failed.message,
+              metadata: failed.metadata,
+              userId: ctx.auth.userId,
+              tenantId: ctx.auth.tenantId,
+              sourceIp: request.ip,
+              userAgent: request.headers['user-agent'],
+              db: requestDb,
+            }))().catch((hookErr) => {
+            logHookError('onCapabilityError', hookErr);
+          });
+        }
+        return;
+      }
     }
 
     const result = await executeCapability(capability, ctx, input);

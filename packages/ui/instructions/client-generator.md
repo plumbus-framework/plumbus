@@ -58,6 +58,15 @@ Generated behavior:
 - each function accepts optional `headers` and `signal`;
 - non-OK responses throw an error enriched with response details when possible.
 
+Every non-`GET` client function (and every flow trigger) sends an `Idempotency-Key` — a
+fresh `clientIdempotencyKey()` per call unless the caller passed one in `options.headers`
+(any casing). Reads send none. The core route generator demands the header on capabilities
+that declare `api.idempotency.required` and replays the first answer for a retry carrying
+the same key and input, so a client retry after a timeout never re-executes a mutation.
+`clientIdempotencyKey` is exported from the generated module for callers that want to
+reuse one key across their own retries; it falls back to random bytes where
+`crypto.randomUUID` is unavailable (plain-http origins).
+
 ### `generateQueryHook(cap, config?)`
 
 Generates a React hook for a query capability.

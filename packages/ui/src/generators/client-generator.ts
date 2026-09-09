@@ -129,7 +129,8 @@ function clientFetchInit(
   };
 }
 
-${UNWRAP_ENVELOPE_HELPER}`;
+${UNWRAP_ENVELOPE_HELPER}
+${IDEMPOTENCY_HELPERS}`;
   }
 
   return `import { getAuthHeaders } from "${authImport}";
@@ -147,8 +148,41 @@ function clientFetchInit(
   };
 }
 
-${UNWRAP_ENVELOPE_HELPER}`;
+${UNWRAP_ENVELOPE_HELPER}
+${IDEMPOTENCY_HELPERS}`;
 }
+
+const IDEMPOTENCY_HELPERS = `
+/**
+ * A caller-generated idempotency key for a state-changing call (one per invocation). The
+ * platform demands one on every declared-idempotent operation and replays the first answer
+ * for a retry that carries the same key and input. \`crypto.randomUUID\` is unavailable on a
+ * plain-http origin, so the fallback draws random bytes instead of throwing.
+ */
+export function clientIdempotencyKey(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") {
+    try {
+      return c.randomUUID();
+    } catch {
+      // insecure context: fall through
+    }
+  }
+  const bytes = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") c.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Adds a fresh Idempotency-Key unless the caller supplied one. */
+function withIdempotencyKey(headers?: Record<string, string>): Record<string, string> {
+  const merged = { ...(headers ?? {}) };
+  if (!Object.keys(merged).some((k) => k.toLowerCase() === "idempotency-key")) {
+    merged["Idempotency-Key"] = clientIdempotencyKey();
+  }
+  return merged;
+}
+`;
 
 // ── Zod Schema → TypeScript Type String ──
 
@@ -339,6 +373,9 @@ export function generateTypedClient(
 
   const fetchUrl = method === 'GET' ? 'url' : `"${base}${urlPath}"`;
   const fetchBody = method === 'GET' ? '' : `\n    body: JSON.stringify(input),`;
+  // Every state-changing call carries an Idempotency-Key (one per invocation) unless the
+  // caller supplied its own; a read never does.
+  const fetchHeaders = method === 'GET' ? 'options?.headers' : 'withIdempotencyKey(options?.headers)';
 
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}Input,
@@ -346,7 +383,7 @@ export function generateTypedClient(
 ): Promise<${pascal}Output> {${queryParams}
   const response = await fetch(${fetchUrl}, {
     method: "${method}",
-    ...clientFetchInit("${method}", options?.headers),${fetchBody}
+    ...clientFetchInit("${method}", ${fetchHeaders}),${fetchBody}
     signal: options?.signal,
   });
   if (!response.ok) {
@@ -471,7 +508,7 @@ export function generateFlowTrigger(
 ): Promise<{ executionId: string; status: string }> {
   const response = await fetch("${base}${urlPath}", {
     method: "POST",
-    ...clientFetchInit("POST", options?.headers),
+    ...clientFetchInit("POST", withIdempotencyKey(options?.headers)),
     body: JSON.stringify(input),
   });
   if (!response.ok) {

@@ -237,6 +237,132 @@ describe('job capability with jobQueue', () => {
   });
 });
 
+describe('declared idempotency on the core /api surface', () => {
+  function makeIdempotentSetup(options: { handler?: (input: { orderId: string }) => Promise<unknown>; ttl?: string } = {}) {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const handler = vi.fn(options.handler ?? (async (input: { orderId: string }) => ({ orderId: input.orderId, created: true })));
+    const cap = makeCapability({
+      kind: 'action',
+      name: 'createOrder',
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ orderId: z.string(), created: z.boolean() }),
+      exposeAs: ['api'],
+      api: {
+        operationId: 'ordersCreate',
+        method: 'POST',
+        path: '/orders',
+        idempotency: { required: true, header: 'Idempotency-Key', ...(options.ttl ? { ttl: options.ttl } : {}) },
+      },
+      handler: async (_ctx, input) => handler(input as { orderId: string }),
+    } as Partial<CapabilityContract>);
+    registerCapabilityRoute(app as any, cap, config as any);
+    const route = app.post.mock.calls[0]?.[1];
+    const request = (key: string | undefined, body: Record<string, unknown>) => ({
+      headers: { authorization: 'Bearer test-token', ...(key ? { 'idempotency-key': key } : {}) },
+      query: {},
+      body,
+      ip: '127.0.0.1',
+    });
+    return { route, handler, request, config };
+  }
+
+  it('refuses a state-changing call that carries no key', async () => {
+    const { route, handler, request } = makeIdempotentSetup();
+    const reply = makeMockReply();
+    await route(request(undefined, { orderId: 'o1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(reply.send.mock.calls[0]?.[0]?.error?.metadata?.reason).toBe('idempotency-key-required');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('executes once and replays the stored answer for the same key and input', async () => {
+    const { route, handler, request } = makeIdempotentSetup();
+    const first = makeMockReply();
+    await route(request('k1', { orderId: 'o1' }), first);
+    const second = makeMockReply();
+    await route(request('k1', { orderId: 'o1' }), second);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(first.status).toHaveBeenCalledWith(200);
+    expect(second.status).toHaveBeenCalledWith(200);
+    expect(second.send.mock.calls[0]?.[0]).toEqual(first.send.mock.calls[0]?.[0]);
+  });
+
+  it('refuses the same key with different input as a conflict', async () => {
+    const { route, handler, request } = makeIdempotentSetup();
+    await route(request('k2', { orderId: 'o1' }), makeMockReply());
+    const reply = makeMockReply();
+    await route(request('k2', { orderId: 'o2' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(reply.send.mock.calls[0]?.[0]?.error?.metadata?.reason).toBe('idempotency-conflict');
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys claims by principal, so another principal cannot replay or collide', async () => {
+    const { route, handler, request, config } = makeIdempotentSetup();
+    await route(request('k3', { orderId: 'o1' }), makeMockReply());
+    const other = { userId: 'u2', roles: ['admin'], scopes: [], provider: 'test', tenantId: 'tenant-1' };
+    config.authAdapter.authenticate.mockResolvedValueOnce(other);
+    config.createDependencies.mockReturnValueOnce({ auth: other, data: {} });
+    const reply = makeMockReply();
+    await route(request('k3', { orderId: 'o1' }), reply);
+    // A different principal with the same key is a different claim: executed, not replayed.
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the key when execution fails, so a retry executes again', async () => {
+    let attempts = 0;
+    const { route, handler, request } = makeIdempotentSetup({
+      handler: async (input) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('transient');
+        return { orderId: input.orderId, created: true };
+      },
+    });
+    const failed = makeMockReply();
+    await route(request('k4', { orderId: 'o1' }), failed);
+    expect(failed.status).toHaveBeenCalledWith(500);
+    const retried = makeMockReply();
+    await route(request('k4', { orderId: 'o1' }), retried);
+    expect(retried.status).toHaveBeenCalledWith(200);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses an unauthorized caller as the executor does, before looking for a key', async () => {
+    const { route, handler, request, config } = makeIdempotentSetup();
+    const viewer = { userId: 'u9', roles: ['viewer'], scopes: [], provider: 'test', tenantId: 'tenant-1' };
+    config.authAdapter.authenticate.mockResolvedValueOnce(viewer);
+    config.createDependencies.mockReturnValueOnce({ auth: viewer, data: {} });
+    const reply = makeMockReply();
+    await route(request(undefined, { orderId: 'o1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('answers invalid input with the executor’s own refusal and claims nothing', async () => {
+    const { route, handler, request } = makeIdempotentSetup();
+    const invalid = makeMockReply();
+    await route(request('k5', {}), invalid);
+    expect(invalid.status).toHaveBeenCalledWith(400);
+    const valid = makeMockReply();
+    await route(request('k5', { orderId: 'o1' }), valid);
+    expect(valid.status).toHaveBeenCalledWith(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a capability that declares no idempotency exactly as it was', async () => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const cap = makeCapability({ kind: 'action', name: 'touch', input: z.object({}), output: z.object({ ok: z.boolean() }), handler: async () => ({ ok: true }) });
+    registerCapabilityRoute(app as any, cap, config as any);
+    const route = app.post.mock.calls[0]?.[1];
+    const reply = makeMockReply();
+    await route(makeMockRequest({}, {}), reply);
+    expect(reply.status).toHaveBeenCalledWith(200);
+  });
+});
+
 describe('registerStreamingRoute', () => {
   function makeStreamingSetup(
     authRoles: string[] = ['admin'],

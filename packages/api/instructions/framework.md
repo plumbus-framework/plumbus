@@ -48,7 +48,7 @@ generateApiDocs
 diffOpenApi
 
 buildSuccessEnvelope, mapCoreError, mapUnknownError, mapApiErrorCode, ...
-createInMemoryIdempotencyStore, parseIdempotencyTtl, IdempotencyAbortedError
+createInMemoryIdempotencyStore, parseIdempotencyTtl, IdempotencyAbortedError   // re-exported from @plumbus/core, which enforces the same declaration on /api
 
 ApiManifestError
 ```

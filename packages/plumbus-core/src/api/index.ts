@@ -23,3 +23,19 @@ export type {
   ResolveRequestLocaleOptions,
   RouteGeneratorConfig,
 } from './route-generator.js';
+export {
+  buildIdempotencyStoreKey,
+  createInMemoryIdempotencyStore,
+  hashPayload,
+  IdempotencyAbortedError,
+  isAnonymousIdempotencyPrincipal,
+  parseIdempotencyTtl,
+  principalsMatch,
+} from './idempotency.js';
+export type {
+  IdempotencyClaimResult,
+  IdempotencyPrincipal,
+  IdempotencyRecord,
+  IdempotencyStore,
+  IdempotencyStoreOptions,
+} from './idempotency.js';

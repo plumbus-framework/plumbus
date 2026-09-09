@@ -145,7 +145,14 @@ export {
   AIValidationError,
   GovernedArtifactConflictError,
 } from './ai/index.js';
-export type { RouteGeneratorConfig } from './api/index.js';
+export type {
+  IdempotencyClaimResult,
+  IdempotencyPrincipal,
+  IdempotencyRecord,
+  IdempotencyStore,
+  IdempotencyStoreOptions,
+  RouteGeneratorConfig,
+} from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
   authenticationFailureToHttp,
@@ -158,6 +165,13 @@ export {
   registerStreamingRoute,
   resolveRequestLocale,
   LOCALE_COOKIE_NAME,
+  buildIdempotencyStoreKey,
+  createInMemoryIdempotencyStore,
+  hashPayload,
+  IdempotencyAbortedError,
+  isAnonymousIdempotencyPrincipal,
+  parseIdempotencyTtl,
+  principalsMatch,
 } from './api/index.js';
 export type { AuditEvent, AuditWriter } from './types/audit.js';
 export type { AuditServiceConfig } from './audit/index.js';

@@ -1,3 +1,4 @@
+import type { IdempotencyStore } from '../api/idempotency.js';
 import type { ReasoningEffort } from '../types/prompt.js';
 // ── Fastify Server Bootstrap ──
 // Wires together all runtime components into a running Fastify server:
@@ -146,6 +147,11 @@ export interface ServerConfig {
   bodyLimit?: number;
   /** Jobs queue for async kind: 'job' capabilities (when API wires jobQueue). */
   jobQueue?: EventQueue;
+  /**
+   * Store for `api.idempotency` claims on the `/api` surface. Unset: one in-memory store per
+   * server (per process); supply a shared store for replay protection across instances.
+   */
+  idempotencyStore?: IdempotencyStore;
   /** Expose Prometheus metrics at GET /metrics (colocated role=all deployments). */
   metrics?: PlumbusMetrics;
   /** Called after all capability routes are registered. Use to add custom routes (e.g. streaming). */
@@ -593,6 +599,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       : {}),
     onCapabilityError: serverConfig.onCapabilityError,
     jobQueue: serverConfig.jobQueue,
+    ...(serverConfig.idempotencyStore ? { idempotencyStore: serverConfig.idempotencyStore } : {}),
   };
 
   // Register all capability routes
