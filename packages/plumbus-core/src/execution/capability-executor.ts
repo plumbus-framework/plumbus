@@ -32,6 +32,31 @@ export interface ExecutionFailure {
 
 export type CapabilityResult<T = unknown> = ExecutionResult<T> | ExecutionFailure;
 
+/** Check current access without invoking a mutation or consuming an approval. */
+export async function authorizeCapability<TInput extends z.ZodTypeAny>(
+  capability: CapabilityContract<TInput>,
+  ctx: ExecutionContext,
+  input: z.infer<TInput>,
+): Promise<CapabilityResult<void>> {
+  const canonicalName = getCanonicalCapabilityName(capability);
+  const contract = capability as unknown as CapabilityContract;
+  const access = evaluateAccess(capability.access, ctx.auth);
+  try {
+    if (!access.allowed) {
+      throw ctx.errors.forbidden(access.reason ?? 'Access denied', { capability: canonicalName });
+    }
+    // Authorization is a read-only phase, with no capability invocation runtime exposed.
+    await capability.authorize?.(buildHandlerContext(ctx, contract, undefined), input);
+    return { success: true, data: undefined };
+  } catch (error) {
+    if (isPlumbusError(error)) {
+      await recordAudit(ctx, capability, canonicalName, 'denied', { error });
+      return { success: false, error };
+    }
+    return handleExecutionError(error, ctx, contract, canonicalName);
+  }
+}
+
 function buildHandlerContext(
   ctx: ExecutionContext,
   capability: CapabilityContract,
@@ -181,14 +206,8 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   const input = inputResult.data as z.infer<TInput>;
 
   // 2. Evaluate access policy (deny-by-default)
-  const authResult = evaluateAccess(capability.access, ctx.auth);
-  if (!authResult.allowed) {
-    const error = ctx.errors.forbidden(authResult.reason ?? 'Access denied', {
-      capability: canonicalName,
-    });
-    await recordAudit(ctx, capability, canonicalName, 'denied', { error });
-    return { success: false, error };
-  }
+  const authResult = await authorizeCapability(capability, ctx, input);
+  if (!authResult.success) return authResult;
 
   const approvalGate = await evaluateApprovalGate({ capability, ctx, input });
   if (approvalGate.blocked) {

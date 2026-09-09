@@ -323,3 +323,32 @@ defineCapability({
 
 For every `defineCapability` option (including `tags`, `owner`, `audit`, `explanation`, `mcp`, `exposeAs`, and all undocumented advanced flags), see [SDK Reference → defineCapability](../sdk-reference/define-functions.md#definecapability). This page covers the common case; the reference is exhaustive.
 
+
+## Input-aware authorization
+
+Use the optional `authorize(ctx, input)` phase for current resource ownership and permission
+checks that a static `access` policy cannot express. It receives validated input after the
+static policy passes, and throws a framework error to refuse. The executor audits denial and
+does not invoke the handler. Keep this phase read-only (apart from audit); do not mutate data,
+call AI, or consume a one-use approval here. The normal approval gate still owns approval
+consumption for the actual operation.
+
+```typescript
+authorize: async (ctx, input) => {
+  const invoice = await ctx.data.Invoice.findById(input.invoiceId);
+  if (!invoice || invoice.accountId !== ctx.auth.userId) {
+    throw ctx.errors.forbidden('Invoice not accessible');
+  }
+},
+```
+
+The core HTTP idempotency path refreshes dependencies/session authority and runs this phase
+again before replaying a stored result, including after waiting for an in-flight claim. The
+mutation handler is never rerun on replay. A role/scope change invalidates reuse of the old
+response even when the new role would still pass the static gate. Applications that previously
+kept input/resource authorization only in their handlers must move those checks to `authorize`
+when using idempotent replies; static `access` alone cannot check domain ownership.
+
+See [API exposure](../api/exposure-model.md) for replay behavior. `authorizeCapability` is also
+exported for transports implementing an authorization-only result-delivery phase; it requires
+validated input and does not consume approvals or execute a handler.

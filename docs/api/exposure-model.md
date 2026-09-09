@@ -268,3 +268,18 @@ Default core routes (`/api/{domain}/{kebab-name}`) continue to exist unless you 
 - [test-intent.md](./test-intent.md) — safe partner testing without side effects
 - [structure-policy.md](./structure-policy.md) — tenant routing and GET semantics
 - [governance.md](./governance.md) — advisory warnings for incomplete metadata
+
+## Current authorization on core `/api` replays
+
+Core convention routes honor `CapabilityContract.authorize` before returning an idempotency
+replay. They rebuild the request dependencies (including host/session resolvers), evaluate
+static `access`, and run the input-aware authorization phase. An in-flight duplicate does this
+after the original request finishes, so authority lost during the wait is not carried into the
+response. A denied replay leaves the original claim intact and never reruns the mutation.
+Claim payload comparison also includes normalized roles/scopes, so a response filtered for one
+role cannot be replayed under another role. Principal keys still separate tenants and users.
+
+This is a core convention-route guarantee; a custom transport implementing its own result cache
+must also call `authorizeCapability` with current context and validated input before disclosure.
+See [capabilities](../core-concepts/capabilities.md#input-aware-authorization). The default store
+remains per-process memory; this change does not supply cross-process persistence.

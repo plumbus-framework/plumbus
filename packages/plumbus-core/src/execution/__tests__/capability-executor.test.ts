@@ -45,6 +45,26 @@ function makeCtx(authOverrides: Partial<AuthContext> = {}) {
 }
 
 describe('executeCapability', () => {
+  it('checks input-aware authorization before executing and audits denial', async () => {
+    const handler = vi.fn(async () => ({ id: 'u1', name: 'Test' }));
+    const cap = makeCapability({
+      authorize: async (ctx, input) => {
+        if (input.id !== 'held') throw ctx.errors.forbidden('resource not held');
+      },
+      handler,
+    });
+    const { ctx, audit } = makeCtx();
+    const denied = await executeCapability(cap, ctx, { id: 'foreign' });
+    expect(denied).toMatchObject({ success: false, error: { code: 'forbidden' } });
+    expect(handler).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ outcome: 'denied' }),
+    );
+    expect((await executeCapability(cap, ctx, { id: 'held' })).success).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('executes successfully with valid input and authorization', async () => {
     const cap = makeCapability();
     const { ctx } = makeCtx();

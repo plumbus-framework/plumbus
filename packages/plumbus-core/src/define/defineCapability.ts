@@ -71,6 +71,8 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
    */
   riskTier?: ActionRiskTier;
 
+  authorize?: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<void>;
+
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }
 
@@ -257,6 +259,11 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
       field: 'handler',
     });
   }
+  if (config.authorize !== undefined && typeof config.authorize !== 'function') {
+    throwDefineValidationError(`Capability "${config.name}": authorize must be a function`, {
+      field: 'authorize',
+    });
+  }
 
   validateMcpExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
   validateApiExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
@@ -280,7 +287,11 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   }
 
   // A prohibited capability is never made available: no MCP tool, no API route.
-  if (isProhibitedRiskTier(config.riskTier) && config.exposeAs !== undefined && config.exposeAs.length > 0) {
+  if (
+    isProhibitedRiskTier(config.riskTier) &&
+    config.exposeAs !== undefined &&
+    config.exposeAs.length > 0
+  ) {
     throwDefineValidationError(
       `Capability "${config.name}": prohibited capabilities cannot be exposed (exposeAs)`,
       { field: 'exposeAs' },

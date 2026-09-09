@@ -238,10 +238,19 @@ describe('job capability with jobQueue', () => {
 });
 
 describe('declared idempotency on the core /api surface', () => {
-  function makeIdempotentSetup(options: { handler?: (input: { orderId: string }) => Promise<unknown>; ttl?: string } = {}) {
+  function makeIdempotentSetup(
+    options: {
+      handler?: (input: { orderId: string }) => Promise<unknown>;
+      authorize?: CapabilityContract['authorize'];
+      ttl?: string;
+    } = {},
+  ) {
     const app = makeMockApp();
     const config = makeMockConfig();
-    const handler = vi.fn(options.handler ?? (async (input: { orderId: string }) => ({ orderId: input.orderId, created: true })));
+    const handler = vi.fn(
+      options.handler ??
+        (async (input: { orderId: string }) => ({ orderId: input.orderId, created: true })),
+    );
     const cap = makeCapability({
       kind: 'action',
       name: 'createOrder',
@@ -252,8 +261,13 @@ describe('declared idempotency on the core /api surface', () => {
         operationId: 'ordersCreate',
         method: 'POST',
         path: '/orders',
-        idempotency: { required: true, header: 'Idempotency-Key', ...(options.ttl ? { ttl: options.ttl } : {}) },
+        idempotency: {
+          required: true,
+          header: 'Idempotency-Key',
+          ...(options.ttl ? { ttl: options.ttl } : {}),
+        },
       },
+      authorize: options.authorize,
       handler: async (_ctx, input) => handler(input as { orderId: string }),
     } as Partial<CapabilityContract>);
     registerCapabilityRoute(app as any, cap, config as any);
@@ -288,6 +302,78 @@ describe('declared idempotency on the core /api surface', () => {
     expect(second.send.mock.calls[0]?.[0]).toEqual(first.send.mock.calls[0]?.[0]);
   });
 
+  it('rechecks input authorization on replay without executing the mutation again', async () => {
+    let held = true;
+    const authorize = vi.fn(async (ctx) => {
+      if (!held) throw ctx.errors.forbidden('scope lost');
+    });
+    const { route, handler, request } = makeIdempotentSetup({ authorize });
+    await route(request('resource-key', { orderId: 'o1' }), makeMockReply());
+    held = false;
+    const revoked = makeMockReply();
+    await route(request('resource-key', { orderId: 'o1' }), revoked);
+    expect(revoked.status).toHaveBeenCalledWith(403);
+    expect(handler).toHaveBeenCalledTimes(1);
+    held = true;
+    const restored = makeMockReply();
+    await route(request('resource-key', { orderId: 'o1' }), restored);
+    expect(restored.status).toHaveBeenCalledWith(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(authorize).toHaveBeenCalledTimes(3);
+  });
+
+  it('rechecks current resource authority after waiting for an in-flight mutation', async () => {
+    let held = true;
+    let complete = () => {};
+    let entered = () => {};
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      complete = resolve;
+    });
+    const { route, handler, request } = makeIdempotentSetup({
+      authorize: async (ctx) => {
+        if (!held) throw ctx.errors.forbidden('scope lost');
+      },
+      handler: async (input) => {
+        entered();
+        await pending;
+        return { ...input, created: true };
+      },
+    });
+    const first = route(request('wait-key', { orderId: 'o1' }), makeMockReply());
+    await started;
+    const duplicateReply = makeMockReply();
+    const duplicate = route(request('wait-key', { orderId: 'o1' }), duplicateReply);
+    // Let the duplicate enter its wait; the first execution is still deliberately blocked.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    held = false;
+    complete();
+    await Promise.all([first, duplicate]);
+    expect(duplicateReply.status).toHaveBeenCalledWith(403);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a cached result when the same person now has different roles', async () => {
+    const { route, handler, request, config } = makeIdempotentSetup();
+    await route(request('role-key', { orderId: 'o1' }), makeMockReply());
+    // Both authorities still pass the broad role gate; their result visibility can differ.
+    const changed = {
+      userId: 'u1',
+      roles: ['admin', 'reviewer'],
+      scopes: [],
+      provider: 'test',
+      tenantId: 'tenant-1',
+    };
+    config.authAdapter.authenticate.mockResolvedValue(changed);
+    config.createDependencies.mockReturnValue({ auth: changed, data: {} });
+    const reply = makeMockReply();
+    await route(request('role-key', { orderId: 'o1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses the same key with different input as a conflict', async () => {
     const { route, handler, request } = makeIdempotentSetup();
     await route(request('k2', { orderId: 'o1' }), makeMockReply());
@@ -301,7 +387,13 @@ describe('declared idempotency on the core /api surface', () => {
   it('keys claims by principal, so another principal cannot replay or collide', async () => {
     const { route, handler, request, config } = makeIdempotentSetup();
     await route(request('k3', { orderId: 'o1' }), makeMockReply());
-    const other = { userId: 'u2', roles: ['admin'], scopes: [], provider: 'test', tenantId: 'tenant-1' };
+    const other = {
+      userId: 'u2',
+      roles: ['admin'],
+      scopes: [],
+      provider: 'test',
+      tenantId: 'tenant-1',
+    };
     config.authAdapter.authenticate.mockResolvedValueOnce(other);
     config.createDependencies.mockReturnValueOnce({ auth: other, data: {} });
     const reply = makeMockReply();
@@ -331,7 +423,13 @@ describe('declared idempotency on the core /api surface', () => {
 
   it('refuses an unauthorized caller as the executor does, before looking for a key', async () => {
     const { route, handler, request, config } = makeIdempotentSetup();
-    const viewer = { userId: 'u9', roles: ['viewer'], scopes: [], provider: 'test', tenantId: 'tenant-1' };
+    const viewer = {
+      userId: 'u9',
+      roles: ['viewer'],
+      scopes: [],
+      provider: 'test',
+      tenantId: 'tenant-1',
+    };
     config.authAdapter.authenticate.mockResolvedValueOnce(viewer);
     config.createDependencies.mockReturnValueOnce({ auth: viewer, data: {} });
     const reply = makeMockReply();
@@ -354,7 +452,13 @@ describe('declared idempotency on the core /api surface', () => {
   it('leaves a capability that declares no idempotency exactly as it was', async () => {
     const app = makeMockApp();
     const config = makeMockConfig();
-    const cap = makeCapability({ kind: 'action', name: 'touch', input: z.object({}), output: z.object({ ok: z.boolean() }), handler: async () => ({ ok: true }) });
+    const cap = makeCapability({
+      kind: 'action',
+      name: 'touch',
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      handler: async () => ({ ok: true }),
+    });
     registerCapabilityRoute(app as any, cap, config as any);
     const route = app.post.mock.calls[0]?.[1];
     const reply = makeMockReply();

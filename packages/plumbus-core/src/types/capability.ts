@@ -152,5 +152,12 @@ export interface CapabilityContract<
    */
   riskTier?: ActionRiskTier;
 
+  /**
+   * Read-only, input-aware authorization. Throw to refuse. Runs before the handler and
+   * again before an idempotent result is replayed, including after an in-flight wait.
+   * Keep current resource/permission checks here, not mutation or result-dependent work.
+   */
+  authorize?: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<void>;
+
   handler: (ctx: ExecutionContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
 }

@@ -18,7 +18,7 @@ import { JobExecutionSource } from '../jobs/schema.js';
 import { dispatchQueuedJob } from '../jobs/dispatch.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
-import { executeCapability } from '../execution/capability-executor.js';
+import { authorizeCapability, executeCapability } from '../execution/capability-executor.js';
 import {
   buildIdempotencyStoreKey,
   createInMemoryIdempotencyStore,
@@ -304,19 +304,65 @@ export function registerCapabilityRoute(
       // Only a request that would execute claims a key: invalid input is answered by the
       // executor as always, and leaves nothing behind for a retry to hit.
       const parsed = capability.input.safeParse(input);
-      const principal: IdempotencyPrincipal = { userId: ctx.auth.userId, tenantId: ctx.auth.tenantId };
+      const principal: IdempotencyPrincipal = {
+        userId: ctx.auth.userId,
+        tenantId: ctx.auth.tenantId,
+      };
       if (parsed.success && !isAnonymousIdempotencyPrincipal(principal)) {
         const store = idempotencyStoreOf(config);
         const operationId = capability.api?.operationId ?? canonicalName;
         const storeKey = buildIdempotencyStoreKey(operationId, principal, idempotencyKey);
-        const payloadHash = hashPayload(parsed.data);
-        const ttlMs = idempotency.ttl !== undefined ? parseIdempotencyTtl(idempotency.ttl) : undefined;
-        const storeOptions: IdempotencyStoreOptions | undefined = ttlMs !== undefined ? { ttlMs } : undefined;
+        const authorityOf = (auth: ExecutionContext['auth']) => ({
+          roles: [...auth.roles].sort(),
+          scopes: [...auth.scopes].sort(),
+        });
+        // A role change can change the shape of a permitted result (e.g. staff vs student).
+        // Never reuse that result across different authority, even for the same person/input.
+        const authority = hashPayload(authorityOf(ctx.auth));
+        const payloadHash = hashPayload({ input: parsed.data, authority });
+        const ttlMs =
+          idempotency.ttl !== undefined ? parseIdempotencyTtl(idempotency.ttl) : undefined;
+        const storeOptions: IdempotencyStoreOptions | undefined =
+          ttlMs !== undefined ? { ttlMs } : undefined;
+
+        // A cached result is still a disclosure. Refresh session/dependency authority, then
+        // run the capability's current resource checks without executing its handler again.
+        // In particular, the same check runs after an in-flight wait, not only before it.
+        const replay = async (result: unknown) => {
+          try {
+            const fresh = config.resolveDependencies
+              ? (await config.resolveDependencies(authContext, { bypassTenantScope, locale }))
+                  .dependencies
+              : config.createDependencies(authContext, { bypassTenantScope, locale });
+            fresh.correlationId = deps.correlationId;
+            fresh.request = deps.request;
+            const current = createExecutionContext(fresh);
+            if (
+              current.auth.userId !== principal.userId ||
+              current.auth.tenantId !== principal.tenantId
+            ) {
+              throw current.errors.forbidden('Idempotency replay principal changed');
+            }
+            if (hashPayload(authorityOf(current.auth)) !== authority) {
+              throw current.errors.forbidden('Idempotency replay authority changed');
+            }
+            const authorized = await authorizeCapability(capability, current, parsed.data);
+            if (!authorized.success) {
+              const failure = errorToHttpResponse(authorized.error);
+              reply.status(failure.statusCode).send(failure.body);
+              return;
+            }
+            reply.status(200).send({ data: result });
+          } catch (error) {
+            const failure = dependencyResolutionToHttp(error, requestId);
+            reply.status(failure.statusCode).send(failure.body);
+          }
+        };
 
         let claim = await store.claim(storeKey, payloadHash, principal, storeOptions);
         for (;;) {
           if (claim.status === 'replay') {
-            reply.status(200).send({ data: claim.record.result });
+            await replay(claim.record.result);
             return;
           }
           if (claim.status === 'conflict') {
@@ -333,7 +379,7 @@ export function registerCapabilityRoute(
           if (claim.status === 'in-flight') {
             try {
               const record = await claim.wait;
-              reply.status(200).send({ data: record.result });
+              await replay(record.result);
               return;
             } catch (waitErr) {
               if (!(waitErr instanceof IdempotencyAbortedError)) throw waitErr;

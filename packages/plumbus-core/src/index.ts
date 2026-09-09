@@ -325,6 +325,7 @@ export {
   CapabilityRegistry,
   evaluateAccess,
   executeCapability,
+  authorizeCapability,
   getCanonicalCapabilityName,
   isCanonicalCapabilityName,
 } from './execution/index.js';
