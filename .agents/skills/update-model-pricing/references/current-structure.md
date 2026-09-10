@@ -81,4 +81,4 @@ If a run reports `OpenAI models found: 0` (or an implausibly low Anthropic count
 
 ## Fixed rates and aliases
 
-`gpt-5.6` resolves to the canonical Sol entry, including dated suffixes. Keep the numeric rates and long-context threshold synchronized in `CURRENT_PRICING`. The runtime uses fixed bundled prices; changes require an explicit manual update. There is no automatic refresh or promotion-specific lifecycle handling.
+`gpt-5.6` resolves to the canonical Sol entry, including dated suffixes. Regular Sol rates remain $5/$30 ($0.50 cached input) in the base catalog. The bundled override returns $4/$20 ($0.40 cached input) before `2026-11-22T00:00:00.000Z`. The cutoff is a static fallback after the minimum guaranteed promotional period, not a confirmed vendor expiry. The manual tool imports `allKnownModels()` to compare against the effective catalog, eliminating a duplicate snapshot. No runtime pricing fetch or polling exists; changes to the static window require a code update.

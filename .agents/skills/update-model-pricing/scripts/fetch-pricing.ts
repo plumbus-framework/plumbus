@@ -1,3 +1,5 @@
+import { allKnownModels } from '../../../../packages/plumbus-core/src/ai/model-pricing.js';
+
 // Minimal node-global typing. This file is run via `tsx`, not type-checked
 // inside the workspace, and @types/node isn't hoisted to the root for this
 // path. Declaring only what we use keeps the IDE quiet without dragging a
@@ -62,127 +64,6 @@ interface PricingReport {
     removed: DiffEntry[];
   };
 }
-
-// ── Current MODEL_PRICING snapshot (kept in sync manually or by the skill) ──
-// Duplicated here so the script can diff without importing from src/.
-
-const CURRENT_PRICING: Record<string, Omit<ModelPrice, 'model'>> = {
-  // OpenAI: Flagship / Reasoning / Legacy (all text)
-  'gpt-6-astra': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
-  'gpt-5.6-sol': {
-    kind: 'text',
-    inputPerMTok: 5,
-    outputPerMTok: 30,
-    longContextThreshold: 272_000,
-  },
-  'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
-  'gpt-5.6-luna': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.2 },
-  'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
-  'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
-  'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
-  'gpt-5.4-mini': { kind: 'text', inputPerMTok: 0.75, outputPerMTok: 4.5 },
-  'gpt-5.4-nano': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.25 },
-  'gpt-5.4-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
-  'gpt-5.2': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
-  'gpt-5.2-pro': { kind: 'text', inputPerMTok: 21, outputPerMTok: 168 },
-  'gpt-5.1': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
-  'gpt-5': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
-  'gpt-5-mini': { kind: 'text', inputPerMTok: 0.25, outputPerMTok: 2 },
-  'gpt-5-nano': { kind: 'text', inputPerMTok: 0.05, outputPerMTok: 0.4 },
-  'gpt-5-pro': { kind: 'text', inputPerMTok: 15, outputPerMTok: 120 },
-  'gpt-4.1': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8, cachedInputPerMTok: 0.5 },
-  'gpt-4.1-mini': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 1.6, cachedInputPerMTok: 0.1 },
-  'gpt-4.1-nano': {
-    kind: 'text',
-    inputPerMTok: 0.1,
-    outputPerMTok: 0.4,
-    cachedInputPerMTok: 0.025,
-  },
-  'gpt-4o': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 10, cachedInputPerMTok: 1.25 },
-  'gpt-4o-2024-05-13': { kind: 'text', inputPerMTok: 5, outputPerMTok: 15 },
-  'gpt-4o-mini': {
-    kind: 'text',
-    inputPerMTok: 0.15,
-    outputPerMTok: 0.6,
-    cachedInputPerMTok: 0.075,
-  },
-  o1: { kind: 'text', inputPerMTok: 15, outputPerMTok: 60, cachedInputPerMTok: 7.5 },
-  'o1-pro': { kind: 'text', inputPerMTok: 150, outputPerMTok: 600 },
-  'o1-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4 },
-  o3: { kind: 'text', inputPerMTok: 2, outputPerMTok: 8, cachedInputPerMTok: 0.5 },
-  'o3-pro': { kind: 'text', inputPerMTok: 20, outputPerMTok: 80 },
-  'o3-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4, cachedInputPerMTok: 0.55 },
-  'o4-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4, cachedInputPerMTok: 0.275 },
-  // OpenAI: Specialized
-  'o3-deep-research': { kind: 'text', inputPerMTok: 10, outputPerMTok: 40 },
-  'o4-mini-deep-research': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
-  'computer-use-preview': { kind: 'text', inputPerMTok: 3, outputPerMTok: 12 },
-  'chat-latest': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
-  'gpt-5.3-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
-  'gpt-5.2-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
-  'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
-  'gpt-5.6-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
-  'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
-  'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
-  // OpenAI: Embeddings
-  'text-embedding-3-small': { kind: 'embedding', inputPerMTok: 0.02, outputPerMTok: 0 },
-  'text-embedding-3-large': { kind: 'embedding', inputPerMTok: 0.13, outputPerMTok: 0 },
-  'text-embedding-ada-002': { kind: 'embedding', inputPerMTok: 0.1, outputPerMTok: 0 },
-  // OpenAI: Moderation (free)
-  'omni-moderation-latest': { kind: 'moderation', inputPerMTok: 0, outputPerMTok: 0 },
-  'text-moderation-latest': { kind: 'moderation', inputPerMTok: 0, outputPerMTok: 0 },
-  // OpenAI: Legacy
-  'gpt-4-turbo': { kind: 'text', inputPerMTok: 10, outputPerMTok: 30 },
-  'gpt-4-turbo-2024-04-09': { kind: 'text', inputPerMTok: 10, outputPerMTok: 30 },
-  'gpt-4-0125-preview': { kind: 'text', inputPerMTok: 10, outputPerMTok: 30 },
-  'gpt-4-1106-preview': { kind: 'text', inputPerMTok: 10, outputPerMTok: 30 },
-  'gpt-4-1106-vision-preview': { kind: 'text', inputPerMTok: 10, outputPerMTok: 30 },
-  'gpt-4-0613': { kind: 'text', inputPerMTok: 30, outputPerMTok: 60 },
-  'gpt-4-0314': { kind: 'text', inputPerMTok: 30, outputPerMTok: 60 },
-  'gpt-4': { kind: 'text', inputPerMTok: 30, outputPerMTok: 60 },
-  'gpt-4-32k': { kind: 'text', inputPerMTok: 60, outputPerMTok: 120 },
-  'gpt-3.5-turbo': { kind: 'text', inputPerMTok: 0.5, outputPerMTok: 1.5 },
-  'gpt-3.5-turbo-0125': { kind: 'text', inputPerMTok: 0.5, outputPerMTok: 1.5 },
-  'gpt-3.5-turbo-1106': { kind: 'text', inputPerMTok: 1, outputPerMTok: 2 },
-  'gpt-3.5-turbo-0613': { kind: 'text', inputPerMTok: 1.5, outputPerMTok: 2 },
-  'gpt-3.5-0301': { kind: 'text', inputPerMTok: 1.5, outputPerMTok: 2 },
-  'gpt-3.5-turbo-instruct': { kind: 'text', inputPerMTok: 1.5, outputPerMTok: 2 },
-  'gpt-3.5-turbo-16k-0613': { kind: 'text', inputPerMTok: 3, outputPerMTok: 4 },
-  'davinci-002': { kind: 'text', inputPerMTok: 2, outputPerMTok: 2 },
-  'babbage-002': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 0.4 },
-  // Anthropic: Claude (all text)
-  'claude-fable-5-1': {
-    kind: 'text',
-    inputPerMTok: 10,
-    outputPerMTok: 50,
-    cachedInputPerMTok: 0.25,
-  },
-  'claude-fable-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
-  'claude-mythos-5-1': {
-    kind: 'text',
-    inputPerMTok: 10,
-    outputPerMTok: 50,
-    cachedInputPerMTok: 0.25,
-  },
-  'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
-  'claude-opus-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
-  'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
-  'claude-opus-4-7': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
-  'claude-opus-4-6': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
-  'claude-opus-4-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
-  'claude-opus-4-1': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
-  'claude-opus-4': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
-  'claude-sonnet-5': { kind: 'text', inputPerMTok: 2, outputPerMTok: 10 },
-  'claude-sonnet-4-6': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
-  'claude-sonnet-4-5': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
-  'claude-sonnet-4': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
-  'claude-3-7-sonnet': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
-  'claude-3-5-sonnet': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
-  'claude-haiku-4-5': { kind: 'text', inputPerMTok: 1, outputPerMTok: 5 },
-  'claude-3-5-haiku': { kind: 'text', inputPerMTok: 0.8, outputPerMTok: 4 },
-  'claude-3-opus': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
-  'claude-3-haiku': { kind: 'text', inputPerMTok: 0.25, outputPerMTok: 1.25 },
-};
 
 // ── Fetch helpers ──
 
@@ -559,10 +440,11 @@ function computeDiff(
   const changed: DiffEntry[] = [];
   const removed: DiffEntry[] = [];
 
+  const currentPricing = Object.fromEntries(allKnownModels());
   const fetchedMap = new Map(fetched.map((p) => [p.model, p]));
 
   for (const fp of fetched) {
-    const current = CURRENT_PRICING[fp.model];
+    const current = currentPricing[fp.model];
     if (!current) {
       added.push({
         model: fp.model,
@@ -576,7 +458,8 @@ function computeDiff(
       current.inputPerMTok !== fp.inputPerMTok ||
       current.outputPerMTok !== fp.outputPerMTok ||
       current.kind !== fp.kind ||
-      current.cachedInputPerMTok !== fp.cachedInputPerMTok
+      (current.cachedInputPerMTok ?? current.inputPerMTok * 0.1) !==
+        (fp.cachedInputPerMTok ?? fp.inputPerMTok * 0.1)
     ) {
       changed.push({
         model: fp.model,
@@ -596,9 +479,9 @@ function computeDiff(
     provider === 'openai'
       ? /^(gpt-|o\d|chat-latest|text-embedding|omni-moderation|text-moderation|computer-use|davinci|babbage)/
       : /^claude-/;
-  for (const model of Object.keys(CURRENT_PRICING)) {
+  for (const model of Object.keys(currentPricing)) {
     if (providerPrefix.test(model) && !fetchedMap.has(model)) {
-      const current = CURRENT_PRICING[model];
+      const current = currentPricing[model];
       if (!current) continue;
       removed.push({
         model,

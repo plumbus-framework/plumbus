@@ -691,7 +691,7 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 
 For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
 
-The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol retains its original fixed $5/$30 per million input/output tokens, with $0.50 per million cached input tokens; the temporary reduction is not applied. Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
+The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol uses the bundled $4/$20 input/output rates ($0.40 cached input) before November 22, 2026 UTC, then falls back to its regular $5/$30 rates ($0.50 cached input). Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
 The [core 0.7.0 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
 
@@ -1044,7 +1044,16 @@ A stream that provides neither usage nor price records unknown cost, not zero. R
 
 ### Fixed pricing catalog
 
-Prices are fixed in the bundled catalog and change only through an explicit manual update. There is no automatic refresh, promotion-window metadata, review reminder, or scheduled price change. GPT-5.6 Sol and its `gpt-5.6` alias retain the original $5/$30 input/output rates per million tokens ($0.50 cached input), with the existing context-length and cache calculations. Free/local-provider behavior is unchanged.
+Prices and the Sol window are static data bundled with the package. GPT-5.6 Sol and its `gpt-5.6` alias (including supported dated names) use:
+
+| Lookup time | Input / MTok | Cached input / MTok | Output / MTok |
+| --- | --- | --- | --- |
+| Before `2026-11-22T00:00:00.000Z` | $4 | $0.40 | $20 |
+| At or after that UTC instant | $5 | $0.50 | $30 |
+
+The same selection drives `findModelRate`, `allKnownModels`, cost estimates, and catalog-derived generation/streaming ledger entries. The decision happens when estimating cost; already-recorded ledger rows keep their original values. Long-context and cache-write multipliers apply to the selected rate. Free/local-provider behavior is unchanged.
+
+[OpenAI's Sol documentation](https://developers.openai.com/api/docs/models/gpt-5.6-sol) guarantees special pricing **at least through November 21, 2026**, not a fixed termination time. The November 22 UTC fallback is our accounting policy, not a claim about the provider's final billing cutoff. If the promotion is extended, the static fallback can overestimate cost until the bundled date is manually updated. There are no runtime fetches, polling jobs, or scheduled tasks; a process running across the cutoff switches on its next pricing lookup.
 
 ### Numeric cost compatibility
 

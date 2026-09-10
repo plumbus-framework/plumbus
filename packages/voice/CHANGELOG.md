@@ -15,6 +15,10 @@
 - Bound inbound WebSocket audio/control frames and pending input, serialize callbacks, and remove duplicate audio delivery. Warn when session budgets are absent; reject invalid budget/usage values and short session-token secrets.
 - Pass tenant identity to room transports and attribute reference synthesis through the configured AI ledger.
 
+### Fixed
+
+- Wait for asynchronous assistant-text delivery before closing the TTS queue. A fast brain that emits a complete reply without awaiting callbacks could previously report `turn.completed` without speaking when the LiveKit data send was still pending. Delta delivery now preserves order, and delivery failures produce a failed turn instead of an unhandled rejection.
+
 ### Compatibility
 
 - Preserve explicitly configured finite positive token lifetimes; the default remains 90 seconds. No new blanket 300-second ceiling.

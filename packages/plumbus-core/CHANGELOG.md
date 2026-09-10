@@ -9,7 +9,7 @@
 ### Agent instructions
 
 - Bump `AGENT_WIRING_VERSION` from 14 to **16**. Every generated agent format now points to the packaged security release checklist, including inline mode. `plumbus init --patch` upgrades existing managed blocks while retaining app-owned instructions.
-- Update packaged auth, audit, RAG, cost, MCP, flow, and deployment guidance to match this release. No automatic pricing or promotion handling is introduced.
+- Update packaged auth, audit, RAG, cost, MCP, flow, and deployment guidance to match this release. Sol uses a bundled date-based price window; no runtime price fetching is introduced.
 
 ### Fixed
 
@@ -25,15 +25,16 @@ The fixed OpenAI/Anthropic catalog was refreshed on September 10. The following 
 
 | Model | Previous catalog | 0.7.0 catalog |
 | --- | --- | --- |
-| `gpt-5.6-sol` | $5 / $30 | $5 / $30 (retained) |
+| `gpt-5.6-sol` | $5 / $30 | $4 / $20 before November 22 UTC; $5 / $30 from the cutoff |
 | `gpt-6-astra` | Not cataloged | $10 / $50 |
 | `gpt-5.6-cyber` | Not cataloged | $12.50 / $75 |
 | `claude-fable-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
 | `claude-mythos-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
 
-- **GPT-5.6 Sol retains its original fixed rates:** $5 input, $0.50 cached input, and $30 output per MTok. The temporary $4/$20 reduction is not included in this release.
-- **GPT-5.6 alias and long context:** `gpt-5.6` now resolves to Sol, including supported date-suffixed names. Above 272,000 input tokens, Sol uses 2× input/cache-read rates and 1.5× output rates ($10 input, $1 cached input, $45 output per MTok). The base rates apply at exactly 272,000 tokens. Cyber remains a separate catalog entry.
-- **Sonnet 5 stays unchanged at $2 / $10.** These are fixed catalog values, with no automatic refresh, scheduled price switch, or promotional lifecycle logic. Batch, Flex, and Fast mode pricing are not modeled.
+- **Static Sol price window:** use $4 input, $0.40 cached input, and $20 output per MTok before `2026-11-22T00:00:00.000Z`; at and after the cutoff use the retained regular $5 / $0.50 / $30 rates. All values and the cutoff are bundled in code; lookups switch using the clock without fetching prices, scheduling jobs, or restarting. The `gpt-5.6` alias and supported dated names share the same window. Existing ledger rows are not repriced.
+- **Cutoff interpretation:** [OpenAI documents](https://developers.openai.com/api/docs/models/gpt-5.6-sol) availability at least through November 21, 2026, not a guaranteed expiry. November 22 UTC is this framework's fallback policy. If OpenAI extends the promotion, estimates after that point can be higher until the bundled window is explicitly updated.
+- **GPT-5.6 alias and long context:** `gpt-5.6` now resolves to Sol, including supported date-suffixed names. Above 272,000 input tokens, Sol uses 2× input/cache-read rates and 1.5× output rates ($8 / $0.80 / $30 during the special window; $10 / $1 / $45 afterward, for input/cache/output per MTok). The base rates apply at exactly 272,000 tokens. Cyber remains a separate catalog entry.
+- **Sonnet 5 stays unchanged at $2 / $10.** Sonnet pricing has no date switch. No runtime pricing fetch is performed. Batch, Flex, and Fast mode pricing are not modeled.
 - **Model-specific cache-read rates:** replace the blanket 10%-of-input assumption for the models below. Their base input/output rates are unchanged.
 
 | Model | Previous cache-read estimate / MTok | 0.7.0 cache-read estimate / MTok |
@@ -49,7 +50,7 @@ The fixed OpenAI/Anthropic catalog was refreshed on September 10. The following 
 | `o4-mini` | $0.11 | $0.275 |
 
 - **Anthropic usage accounting:** normalized input includes cache-read and cache-write tokens, and streamed final usage retains them. Long-context threshold checks count cached tokens once rather than adding them twice. Preserve positive sub-microdollar estimates instead of rounding them to zero.
-- **Manual update tooling:** parse standard/base-context tables, cache rates and footnotes, and effective-dated Anthropic rows; ignore missing prices and non-token units. Its comparison snapshot stays synchronized with the runtime catalog, including Sol's retained $5/$30 rates. Legacy entries absent from pricing pages are retained.
+- **Manual update tooling:** parse standard/base-context tables, cache rates and footnotes, and effective-dated Anthropic rows; ignore missing prices and non-token units. It reads the effective bundled catalog directly, including Sol's active window, instead of maintaining a duplicate rate snapshot. Legacy entries absent from pricing pages are retained.
 - **Free versus unknown:** provider-supplied zero costs remain supported, including with dollar budgets. Unpriced local providers still work without dollar caps; internal ledgers keep unknown costs as `null`, and configured dollar budgets reject unknown prior spend. Released numeric cost APIs remain compatible through the availability flags described below.
 
 See [AI cost tracking and pricing](../../docs/ai/ai-integration.md) for provider overrides, usage normalization, and budget behavior. Bedrock pricing-file validation is documented separately in the [`@plumbus/ai-bedrock` 0.1.1 changelog](../ai-bedrock/CHANGELOG.md).

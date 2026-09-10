@@ -27,6 +27,8 @@ Run `runVoiceTurn()` or `mockVoiceRuntime()` with mock providers:
 
 Lifecycle regressions cover concurrent/repeated shutdown, rejected and pending cost recorders, individual cleanup failures, initial hello failures, and partially initialized native connections. Assertions check that remaining resources are released and that accounting is attempted only once per session.
 
+Include delayed `onAssistantDelta` callbacks when testing real transports: a brain can emit deltas without awaiting them. The runtime must drain pending delivery before flushing/closing the TTS queue, preserve token order, and fail the turn if delivery rejects. Immediate in-memory callbacks alone do not cover this race.
+
 ### Tier 2 — HTTP smoke
 
 Fastify `inject()` tests for:

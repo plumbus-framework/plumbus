@@ -52,6 +52,7 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
     kind: 'text',
     inputPerMTok: 5,
     outputPerMTok: 30,
+    cachedInputPerMTok: 0.5,
     longContextThreshold: 272_000,
   },
   'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
@@ -166,6 +167,18 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'claude-3-haiku': { kind: 'text', inputPerMTok: 0.25, outputPerMTok: 1.25 },
 };
 
+// OpenAI guarantees the special price at least through November 21, 2026.
+// November 22 UTC is our static fallback policy, not a confirmed vendor expiry.
+// Source: https://developers.openai.com/api/docs/models/gpt-5.6-sol
+const SOL_SPECIAL_PRICE_END = Date.parse('2026-11-22T00:00:00.000Z');
+
+function effectiveRate(id: string, rate: ModelRate, now: number): ModelRate {
+  if (id === 'gpt-5.6-sol' && now < SOL_SPECIAL_PRICE_END) {
+    return { ...rate, inputPerMTok: 4, cachedInputPerMTok: 0.4, outputPerMTok: 20 };
+  }
+  return rate;
+}
+
 /**
  * Finds the per-token rate for a model.
  * Tries exact match first, then strips trailing date suffixes
@@ -174,14 +187,19 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
  */
 export function findModelRate(model: string): ModelRate | null {
   const canonical = model === 'gpt-5.6' ? 'gpt-5.6-sol' : model;
-  if (Object.hasOwn(MODEL_PRICING, canonical)) return MODEL_PRICING[canonical] ?? null;
+  if (Object.hasOwn(MODEL_PRICING, canonical)) {
+    const rate = MODEL_PRICING[canonical];
+    return rate ? effectiveRate(canonical, rate, Date.now()) : null;
+  }
 
   // Strip trailing date suffix (e.g. "-20250514")
   const withoutDate = model.replace(/-\d{8}$/, '');
   if (withoutDate !== model) {
     const canonicalWithoutDate = withoutDate === 'gpt-5.6' ? 'gpt-5.6-sol' : withoutDate;
-    if (Object.hasOwn(MODEL_PRICING, canonicalWithoutDate))
-      return MODEL_PRICING[canonicalWithoutDate] ?? null;
+    if (Object.hasOwn(MODEL_PRICING, canonicalWithoutDate)) {
+      const rate = MODEL_PRICING[canonicalWithoutDate];
+      return rate ? effectiveRate(canonicalWithoutDate, rate, Date.now()) : null;
+    }
   }
 
   return null;
@@ -193,7 +211,8 @@ export function findModelRate(model: string): ModelRate | null {
  * catalog. Order is not guaranteed.
  */
 export function allKnownModels(): ReadonlyArray<readonly [string, ModelRate]> {
-  return Object.entries(MODEL_PRICING);
+  const now = Date.now();
+  return Object.entries(MODEL_PRICING).map(([id, rate]) => [id, effectiveRate(id, rate, now)]);
 }
 
 /** Models subject to Anthropic's long context premium (>200K input tokens). */

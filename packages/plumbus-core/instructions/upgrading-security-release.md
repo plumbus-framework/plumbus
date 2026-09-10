@@ -58,7 +58,7 @@ Agent wiring is **version 16**. `--patch` refreshes only the managed wiring bloc
 
 Numeric APIs remain source-compatible: `calculateModelCost()`, generation `cost`, tool-loop `aggregatedCost`, and RAG embedding callback `cost` remain numbers. A legacy zero is **not** proof of free usage. Use `estimateModelCost()` for an unknown-aware estimate, and check `costAvailable` / `aggregatedCostAvailable`; custom ledgers must store `null` when availability is false. Framework budget accounting already does this.
 
-Explicit zero-cost providers remain supported. Unpriced local providers work without dollar caps. Do not invent a zero price to bypass a configured spending limit. Catalog prices remain fixed until an explicit manual update; do not add automatic refresh or promotional lifecycle logic.
+Explicit zero-cost providers remain supported. Unpriced local providers work without dollar caps. Do not invent a zero price to bypass a configured spending limit. Catalog prices are bundled. Sol uses $4/$20 before `2026-11-22T00:00:00.000Z` and $5/$30 afterward ($0.40/$0.50 cached input respectively). The UTC cutoff is a static fallback policy; OpenAI only guarantees the discount at least through November 21. No runtime pricing fetch is used.
 
 ## Verify the app
 

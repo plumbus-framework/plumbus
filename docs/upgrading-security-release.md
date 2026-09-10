@@ -50,7 +50,7 @@ Core 0.7.0 ships agent wiring **v16** and a self-contained consumer checklist at
 - JWT verification preserves valid issuer-selected finite lifetimes unless `maxTokenLifetimeSeconds` is explicitly configured. Voice token lifetimes remain configurable positive whole seconds, with the existing 90-second default. Non-expiring/nonfinite tokens remain rejected.
 - Core constructs per-completion tenant-bound dependencies before calling the original MCP deps-object API, allowing a rolling upgrade without requiring the new factory overload immediately.
 - Explicitly configured shared LiveKit rooms keep their names and application authorization requirements. Tenantless defaults keep their prior naming behavior; tenanted defaults are isolated.
-- Model prices remain fixed until an explicit manual update. No automatic refresh or promotional lifecycle logic is included.
+- Model rates are bundled, with Sol using $4/$20 until `2026-11-22T00:00:00.000Z` and $5/$30 at and after it. The static cutoff follows the minimum guaranteed promotional period, not a confirmed provider expiry; no runtime price fetch is included.
 
 ## Migration-sensitive security changes
 

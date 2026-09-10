@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createCostTracker } from '../cost-tracker.js';
 import { createAIService, singleProviderConfig } from '../ai-service.js';
 import type { AIProviderAdapter, ProviderResponse, ProviderStreamEvent } from '../provider.js';
+
+afterEach(() => vi.useRealTimers());
 
 function mockProvider(overrides: Partial<AIProviderAdapter> = {}): AIProviderAdapter {
   return {
@@ -180,7 +182,12 @@ it('does not treat a stream without usage or pricing as free', async () => {
   expect(tracker.checkBudget({}).allowed).toBe(false);
 });
 
-it('uses Sol alias long-context pricing consistently in results and the budget ledger', async () => {
+it.each([
+  ['2026-11-21T23:59:59.999Z', 1.81],
+  ['2026-11-22T00:00:00.000Z', 2.27],
+])('uses Sol alias pricing consistently in results and the budget ledger at %s', async (at, expectedCost) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(at));
   const tracker = createCostTracker({ dailyCostLimit: 1 });
   const service = createAIService(
     singleProviderConfig(
@@ -204,9 +211,39 @@ it('uses Sol alias long-context pricing consistently in results and the budget l
     ),
   );
   const result = await service.generateWithUsage({ prompt: 'x', input: {} });
-  expect(result.cost).toBe(2.27);
-  expect(tracker.getRecords()[0]?.cost).toBe(2.27);
+  expect(result.cost).toBe(expectedCost);
+  expect(tracker.getRecords()[0]?.cost).toBe(expectedCost);
   await expect(service.generate({ prompt: 'x', input: {} })).rejects.toThrow('AI budget exceeded');
+});
+
+it.each([
+  ['2026-11-21T23:59:59.999Z', 0.014],
+  ['2026-11-22T00:00:00.000Z', 0.02],
+])('uses the same static Sol rate for stream results and ledger rows at %s', async (at, expectedCost) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(at));
+  const tracker = createCostTracker();
+  const service = createAIService(
+    singleProviderConfig(
+      mockProvider({
+        async *stream() {
+          yield { type: 'content_delta', delta: 'answer' };
+          yield {
+            type: 'done',
+            finishReason: 'stop',
+            usage: { inputTokens: 1000, outputTokens: 500, totalTokens: 1500 },
+          };
+        },
+      }),
+      { defaultModel: 'gpt-5.6', costTracker: tracker },
+    ),
+  );
+  let resultCost: number | undefined;
+  for await (const event of service.streamGenerate({ prompt: 'x', input: {} })) {
+    if (event.type === 'done') resultCost = event.cost;
+  }
+  expect(resultCost).toBe(expectedCost);
+  expect(tracker.getRecords()[0]?.cost).toBe(expectedCost);
 });
 
 it('keeps legacy numeric results without counting unknown cost as free in budgets', async () => {
