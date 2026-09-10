@@ -1,6 +1,6 @@
 # Security release — consumer agent checklist
 
-Read this before upgrading an app to `@plumbus/core` **0.7.0**. This guide ships inside the package; it does not require a checkout of the framework repository.
+Read this before upgrading an app to the `@plumbus/core` **0.7.x** line. This guide ships inside the package; it does not require a checkout of the framework repository.
 
 ## Keep the framework architecture
 
@@ -10,24 +10,24 @@ Implement app business logic through Plumbus capabilities, flows, entities, even
 
 | Installed package | Security release |
 | --- | --- |
-| `@plumbus/ai-bedrock` | 0.2.0 |
-| `@plumbus/api` | 0.2.0 |
-| `@plumbus/auth` | 0.2.0 |
-| `@plumbus/auth-cognito` | 0.2.0 |
-| `@plumbus/browser-extension` | 0.2.0 |
-| `@plumbus/chat` | 0.2.0 |
-| `@plumbus/chat-ui` | 0.2.0 |
-| `@plumbus/knowledge-base` | 0.2.0 |
-| `@plumbus/mcp` | 0.6.0 |
-| `@plumbus/core` | 0.7.0 |
-| `@plumbus/ui` | 0.8.0 |
-| `@plumbus/voice` | 0.5.0 |
-| `@plumbus/voice-deepdub` | 0.2.0 |
-| `@plumbus/voice-elevenlabs` | 0.2.0 |
-| `@plumbus/voice-livekit` | 0.2.0 |
-| `@plumbus/voice-minimax` | 0.2.0 |
-| `@plumbus/voice-openai` | 0.2.0 |
-| `@plumbus/voice-soniox` | 0.2.0 |
+| `@plumbus/ai-bedrock` | 0.2.1 |
+| `@plumbus/api` | 0.2.1 |
+| `@plumbus/auth` | 0.2.1 |
+| `@plumbus/auth-cognito` | 0.2.1 |
+| `@plumbus/browser-extension` | 0.2.1 |
+| `@plumbus/chat` | 0.2.1 |
+| `@plumbus/chat-ui` | 0.2.1 |
+| `@plumbus/knowledge-base` | 0.2.1 |
+| `@plumbus/mcp` | 0.6.1 |
+| `@plumbus/core` | 0.7.1 |
+| `@plumbus/ui` | 0.8.1 |
+| `@plumbus/voice` | 0.5.1 |
+| `@plumbus/voice-deepdub` | 0.2.1 |
+| `@plumbus/voice-elevenlabs` | 0.2.1 |
+| `@plumbus/voice-livekit` | 0.2.1 |
+| `@plumbus/voice-minimax` | 0.2.1 |
+| `@plumbus/voice-openai` | 0.2.1 |
+| `@plumbus/voice-soniox` | 0.2.1 |
 
 This is an explicit migration across minor lines, not a caret-compatible patch. Update every Plumbus package the app already uses to this family in one dependency change. Do not install unused add-ons. Core peers must be `0.7.x`, voice-provider peers `0.5.x`; copy all literals from [peer-dependencies.md](./peer-dependencies.md). Never bypass mixed-family errors with `--force` or `--legacy-peer-deps`.
 

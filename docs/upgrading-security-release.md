@@ -1,31 +1,33 @@
 # Security release upgrade guide
 
-This is an **explicit migration release**, not a patch update. Core 0.7.x and the coordinated package family below preserve source compatibility where safe while enforcing stricter security behavior. Existing caret ranges such as `^0.6.19` cannot select core 0.7.0; the same minor-line boundary applies to every package, including UI and otherwise unchanged add-ons.
+Moving from an earlier minor line to core 0.7.x is an **explicit migration**. The patch releases listed below correct the published READMEs and publishing metadata within that family. Core 0.7.x and the coordinated package family below preserve source compatibility where safe while enforcing stricter security behavior. Existing caret ranges such as `^0.6.19` cannot select core 0.7.0; the same minor-line boundary applies to every package, including UI and otherwise unchanged add-ons.
 
-The earlier patch-version plan is superseded and must not be published. New-family packages reject legacy Plumbus peer versions instead of silently mixing runtimes. No security bypass or compatibility flag re-enables vulnerable behavior.
+The earlier plan to ship these security changes as patches on the old minor lines is superseded. New-family packages reject legacy Plumbus peer versions instead of silently mixing runtimes. No security bypass or compatibility flag re-enables vulnerable behavior.
 
 ## Packages to publish
 
+These patch releases publish the corrected READMEs and use normal `latest` publication. Runtime behavior and peer ranges are unchanged from the initial release of this minor-version family.
+
 | Package | Previous | Prepared |
 | --- | --- | --- |
-| `@plumbus/ai-bedrock` | 0.1.0 | 0.2.0 |
-| `@plumbus/api` | 0.1.4 | 0.2.0 |
-| `@plumbus/auth` | 0.1.2 | 0.2.0 |
-| `@plumbus/auth-cognito` | 0.1.0 | 0.2.0 |
-| `@plumbus/browser-extension` | 0.1.4 | 0.2.0 |
-| `@plumbus/chat` | 0.1.12 | 0.2.0 |
-| `@plumbus/chat-ui` | 0.1.7 | 0.2.0 |
-| `@plumbus/knowledge-base` | 0.1.5 | 0.2.0 |
-| `@plumbus/mcp` | 0.5.1 | 0.6.0 |
-| `@plumbus/core` | 0.6.19 | 0.7.0 |
-| `@plumbus/ui` | 0.7.3 | 0.8.0 |
-| `@plumbus/voice` | 0.4.5 | 0.5.0 |
-| `@plumbus/voice-deepdub` | 0.1.4 | 0.2.0 |
-| `@plumbus/voice-elevenlabs` | 0.1.1 | 0.2.0 |
-| `@plumbus/voice-livekit` | 0.1.4 | 0.2.0 |
-| `@plumbus/voice-minimax` | 0.1.1 | 0.2.0 |
-| `@plumbus/voice-openai` | 0.1.3 | 0.2.0 |
-| `@plumbus/voice-soniox` | 0.1.4 | 0.2.0 |
+| `@plumbus/ai-bedrock` | 0.1.0 | 0.2.1 |
+| `@plumbus/api` | 0.1.4 | 0.2.1 |
+| `@plumbus/auth` | 0.1.2 | 0.2.1 |
+| `@plumbus/auth-cognito` | 0.1.0 | 0.2.1 |
+| `@plumbus/browser-extension` | 0.1.4 | 0.2.1 |
+| `@plumbus/chat` | 0.1.12 | 0.2.1 |
+| `@plumbus/chat-ui` | 0.1.7 | 0.2.1 |
+| `@plumbus/knowledge-base` | 0.1.5 | 0.2.1 |
+| `@plumbus/mcp` | 0.5.1 | 0.6.1 |
+| `@plumbus/core` | 0.6.19 | 0.7.1 |
+| `@plumbus/ui` | 0.7.3 | 0.8.1 |
+| `@plumbus/voice` | 0.4.5 | 0.5.1 |
+| `@plumbus/voice-deepdub` | 0.1.4 | 0.2.1 |
+| `@plumbus/voice-elevenlabs` | 0.1.1 | 0.2.1 |
+| `@plumbus/voice-livekit` | 0.1.4 | 0.2.1 |
+| `@plumbus/voice-minimax` | 0.1.1 | 0.2.1 |
+| `@plumbus/voice-openai` | 0.1.3 | 0.2.1 |
+| `@plumbus/voice-soniox` | 0.1.4 | 0.2.1 |
 
 All 18 packages move outside their previous caret range. Some add-ons have only peer/documentation changes, but patch-publishing narrowed peers could break an existing app install. UI moves to 0.8.0 and replaces its direct core dependency with the required core 0.7.x peer, preventing npm from installing a hidden second core alongside an old application runtime. New core peers are `0.7.x`, voice-provider peers are `0.5.x`, and the other canonical ranges are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
 

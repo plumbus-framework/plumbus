@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+## 0.7.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.7.0.
+
 ## 0.7.0 — 2026-09-10 — security hardening and fixed pricing
 
 ### Upgrade boundary
