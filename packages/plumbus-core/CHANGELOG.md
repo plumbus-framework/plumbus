@@ -11,9 +11,43 @@
 
 - Bind AI retrieval and accounting to each execution identity; enforce exact RAG tenant namespaces and fail closed on invalid flow auth snapshots.
 - Record successful/retried AI spend, reject malformed numeric accounting, and enforce configured budgets when prior prices are unknown. Preserve provider-supplied zero costs and local providers without dollar caps.
-- Apply configured redaction to extraction/classification and explainability; substitute prompt values once. Refresh the fixed OpenAI/Anthropic catalog and cache rates, with Sol alias/long-context support. No automatic pricing refresh or promotion lifecycle logic.
+- Apply configured redaction to extraction/classification and explainability; substitute prompt values once.
 - Reject shared development signing keys, non-expiring JWTs, SAML replay/correlation failures, ambiguous cookies, unsafe scaffold paths, and malformed queue envelopes. Bound JWKS refreshes and billing fetches.
 - Make safe HTTP errors unconditional and audit writes idempotent across retries. Keep MCP worker completion compatible with the dependency-object API during rolling upgrades.
+
+### AI pricing and accounting
+
+The fixed OpenAI/Anthropic catalog was refreshed on September 10. The following are changes to the framework's standard-tier estimates; all rates below are **USD per 1 million tokens**, with input/output listed in that order.
+
+| Model | Previous catalog | 0.6.20 catalog |
+| --- | --- | --- |
+| `gpt-5.6-sol` | $5 / $30 | $4 / $20 |
+| `gpt-6-astra` | Not cataloged | $10 / $50 |
+| `gpt-5.6-cyber` | Not cataloged | $12.50 / $75 |
+| `claude-fable-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
+| `claude-mythos-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
+
+- **GPT-5.6 alias and long context:** `gpt-5.6` now resolves to Sol, including supported date-suffixed names. Above 272,000 input tokens, Sol uses 2× input/cache-read rates and 1.5× output rates ($8 input, $0.80 cached input, $30 output per MTok). The base rates apply at exactly 272,000 tokens. Cyber remains a separate catalog entry.
+- **Sonnet 5 stays unchanged at $2 / $10.** These are fixed catalog values, with no automatic refresh, scheduled price switch, or promotional lifecycle logic. Batch, Flex, and Fast mode pricing are not modeled.
+- **Model-specific cache-read rates:** replace the blanket 10%-of-input assumption for the models below. Their base input/output rates are unchanged.
+
+| Model | Previous cache-read estimate / MTok | 0.6.20 cache-read estimate / MTok |
+| --- | --- | --- |
+| `gpt-4.1` | $0.20 | $0.50 |
+| `gpt-4.1-mini` | $0.04 | $0.10 |
+| `gpt-4.1-nano` | $0.01 | $0.025 |
+| `gpt-4o` | $0.25 | $1.25 |
+| `gpt-4o-mini` | $0.015 | $0.075 |
+| `o1` | $1.50 | $7.50 |
+| `o3` | $0.20 | $0.50 |
+| `o3-mini` | $0.11 | $0.55 |
+| `o4-mini` | $0.11 | $0.275 |
+
+- **Anthropic usage accounting:** normalized input includes cache-read and cache-write tokens, and streamed final usage retains them. Long-context threshold checks count cached tokens once rather than adding them twice. Preserve positive sub-microdollar estimates instead of rounding them to zero.
+- **Manual update tooling:** parse standard/base-context tables, cache rates and footnotes, and effective-dated Anthropic rows; ignore missing prices and non-token units. The tool reads the runtime catalog for comparisons. Legacy entries absent from pricing pages are retained.
+- **Free versus unknown:** provider-supplied zero costs remain supported, including with dollar budgets. Unpriced local providers still work without dollar caps; internal ledgers keep unknown costs as `null`, and configured dollar budgets reject unknown prior spend. Released numeric cost APIs remain compatible through the availability flags described below.
+
+See [AI cost tracking and pricing](../../docs/ai/ai-integration.md) for provider overrides, usage normalization, and budget behavior. Bedrock pricing-file validation is documented separately in the [`@plumbus/ai-bedrock` 0.1.1 changelog](../ai-bedrock/CHANGELOG.md).
 
 ### Compatibility
 

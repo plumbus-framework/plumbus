@@ -693,6 +693,8 @@ For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in tab
 
 The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol is $4/$20 per million input/output tokens. Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
+The [core 0.6.20 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
+
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
