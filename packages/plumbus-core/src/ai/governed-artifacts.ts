@@ -307,9 +307,7 @@ function directoryExists(path: string): boolean {
     return existsSync(path) && statSync(path).isDirectory();
   } catch (err) {
     const code =
-      err && typeof err === 'object' && 'code' in err
-        ? (err as { code?: string }).code
-        : undefined;
+      err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined;
     if (code === 'ENOENT') return false;
     throw err;
   }

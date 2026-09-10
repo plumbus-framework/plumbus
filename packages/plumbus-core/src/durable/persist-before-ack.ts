@@ -106,7 +106,8 @@ export function persistStepCompletion(
   if (current.terminal) return { kind: 'stale', execution: current };
 
   const applied = tx.applySideEffect(input.sideEffectKey, input.sideEffectLabel);
-  const terminal = input.nextStepId === undefined;
+  const nextStepId = input.nextStepId;
+  const terminal = nextStepId === undefined;
   const next: TenantExecutionState = {
     ...current,
     revision: input.expectedRevision + 1,
@@ -145,7 +146,7 @@ export function persistStepCompletion(
     return { kind: 'committed', execution: next, sideEffectApplied: applied };
   }
 
-  const outbox = newOutbox(tx, next, input.nextStepId!, nowIso);
+  const outbox = newOutbox(tx, next, nextStepId, nowIso);
   tx.insertOutbox(outbox);
   return { kind: 'committed', execution: next, outbox, sideEffectApplied: applied };
 }

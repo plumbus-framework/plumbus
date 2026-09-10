@@ -23,6 +23,7 @@ import {
   buildIdempotencyStoreKey,
   createInMemoryIdempotencyStore,
   hashPayload,
+  PayloadTooDeepError,
   IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
   parseIdempotencyTtl,
@@ -319,7 +320,21 @@ export function registerCapabilityRoute(
         // A role change can change the shape of a permitted result (e.g. staff vs student).
         // Never reuse that result across different authority, even for the same person/input.
         const authority = hashPayload(authorityOf(ctx.auth));
-        const payloadHash = hashPayload({ input: parsed.data, authority });
+        let payloadHash: string;
+        try {
+          payloadHash = hashPayload({ input: parsed.data, authority });
+        } catch (hashErr) {
+          if (!(hashErr instanceof PayloadTooDeepError)) throw hashErr;
+          // A body nested past the fingerprint's depth cap is malformed input, answered like
+          // any other validation failure — not an unhandled RangeError from the hasher.
+          const err = ctx.errors.validation('Request body nests too deeply', {
+            capability: canonicalName,
+            reason: 'payload-too-deep',
+          });
+          const { statusCode, body } = errorToHttpResponse(err);
+          reply.status(statusCode).send(body);
+          return;
+        }
         const ttlMs =
           idempotency.ttl !== undefined ? parseIdempotencyTtl(idempotency.ttl) : undefined;
         const storeOptions: IdempotencyStoreOptions | undefined =

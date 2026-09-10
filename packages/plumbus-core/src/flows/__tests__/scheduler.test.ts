@@ -147,8 +147,12 @@ describe('FlowScheduler', () => {
 
   it('keeps spine-scheduled flows on the pool and tenant-scheduled ones on the planes', async () => {
     const engine = mockEngine();
-    const pool = mockDb([{ id: 'p1', flowName: 'nightly-spine', cron: 'every:24h', enabled: true }]);
-    const tenantA = mockDb([{ id: 'a1', flowName: 'hourly-tenant', cron: 'every:1h', enabled: true }]);
+    const pool = mockDb([
+      { id: 'p1', flowName: 'nightly-spine', cron: 'every:24h', enabled: true },
+    ]);
+    const tenantA = mockDb([
+      { id: 'a1', flowName: 'hourly-tenant', cron: 'every:1h', enabled: true },
+    ]);
     const registry = new FlowRegistry();
     registry.register({
       name: 'nightly-spine',
@@ -180,8 +184,16 @@ describe('FlowScheduler', () => {
     });
     const triggered = await scheduler.poll();
     expect(triggered).toBe(2);
-    expect(engine.start).toHaveBeenCalledWith('nightly-spine', {}, expect.not.objectContaining({ tenantId: 'tenant-a' }));
-    expect(engine.start).toHaveBeenCalledWith('hourly-tenant', {}, expect.objectContaining({ tenantId: 'tenant-a' }));
+    expect(engine.start).toHaveBeenCalledWith(
+      'nightly-spine',
+      {},
+      expect.not.objectContaining({ tenantId: 'tenant-a' }),
+    );
+    expect(engine.start).toHaveBeenCalledWith(
+      'hourly-tenant',
+      {},
+      expect.objectContaining({ tenantId: 'tenant-a' }),
+    );
   });
 
   it('does not start twice', () => {

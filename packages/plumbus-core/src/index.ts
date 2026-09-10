@@ -18,6 +18,13 @@
 // │ TIER 1 — SDK Surface                                                  │
 // └────────────────────────────────────────────────────────────────────────┘
 
+export type { RequestAdmissionChallenge, RequestAdmissionProof } from './admission/index.js';
+export {
+  createRequestAdmission,
+  requestAdmissionChallengeSchema,
+  requestAdmissionProofSchema,
+  withRequestAdmissionLock,
+} from './admission/index.js';
 export type {
   AICostRecord,
   AIExplainabilityTracker,
@@ -170,7 +177,9 @@ export {
   hashPayload,
   IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
+  MAX_PAYLOAD_DEPTH,
   parseIdempotencyTtl,
+  PayloadTooDeepError,
   principalsMatch,
 } from './api/index.js';
 export type { AuditEvent, AuditWriter } from './types/audit.js';

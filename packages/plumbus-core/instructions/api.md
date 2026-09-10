@@ -29,7 +29,10 @@ same key with different input or from another principal is refused with `conflic
 (`metadata.reason: 'idempotency-conflict'`), a missing header is `validation`
 (`metadata.reason: 'idempotency-key-required'`), and a failed execution releases the key so a
 retry executes again. Authorization is evaluated before the header is looked at, so a refused
-caller is answered by the executor as always. Reads (`GET`) are never keyed.
+caller is answered by the executor as always. Reads (`GET`) are never keyed. The payload
+fingerprint (`hashPayload`) refuses a body nested deeper than `MAX_PAYLOAD_DEPTH` (64 levels)
+with `validation` (`metadata.reason: 'payload-too-deep'`) — a pathological body can never take
+the hasher down with a `RangeError`.
 
 The store is `RouteGeneratorConfig.idempotencyStore` (`IdempotencyStore`, from
 `createServer({ idempotencyStore })`); when unset every route registered with one config

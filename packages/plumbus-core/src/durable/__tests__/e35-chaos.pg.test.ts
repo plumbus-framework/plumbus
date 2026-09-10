@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { afterAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { createOpaqueDispatchRecord } from '../opaque-dispatch.js';
@@ -156,7 +157,8 @@ describe('E3.5 Protocol A chaos on two databases', () => {
       schema,
     );
     expect(cas).toBe('ok');
-    await ackSpineDispatch(harness.spineDb, claimRow!.dispatchId);
+    assert(claimRow);
+    await ackSpineDispatch(harness.spineDb, claimRow.dispatchId);
     await markOutboxAcked(harness.tenantDb, claimed.outbox.outboxId, nowIso, schema);
 
     // duplicate dispatch: republish same revision after ack; CAS is stale; one side effect.

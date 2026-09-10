@@ -449,6 +449,43 @@ describe('declared idempotency on the core /api surface', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a body nested past the fingerprint depth cap as validation, not a RangeError', async () => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const handler = vi.fn(async () => ({ ok: true }));
+    const cap = makeCapability({
+      kind: 'action',
+      name: 'invokeAnything',
+      input: z.object({ input: z.unknown() }),
+      output: z.object({ ok: z.boolean() }),
+      exposeAs: ['api'],
+      api: {
+        operationId: 'invokeAnything',
+        method: 'POST',
+        path: '/invoke',
+        idempotency: { required: true, header: 'Idempotency-Key' },
+      },
+      handler: async () => handler(),
+    } as Partial<CapabilityContract>);
+    registerCapabilityRoute(app as any, cap, config as any);
+    const route = app.post.mock.calls[0]?.[1];
+    let deep: unknown = { leaf: true };
+    for (let level = 0; level < 20_000; level += 1) deep = { a: [deep] };
+    const reply = makeMockReply();
+    await route(
+      {
+        headers: { authorization: 'Bearer test-token', 'idempotency-key': 'deep-1' },
+        query: {},
+        body: { input: deep },
+        ip: '127.0.0.1',
+      },
+      reply,
+    );
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(reply.send.mock.calls[0]?.[0]?.error?.metadata?.reason).toBe('payload-too-deep');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('leaves a capability that declares no idempotency exactly as it was', async () => {
     const app = makeMockApp();
     const config = makeMockConfig();

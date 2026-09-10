@@ -47,7 +47,12 @@ describe('defineCapability', () => {
   });
 
   it('accepts action-risk tiers', () => {
-    for (const riskTier of ['analytical', 'limited-reversible', 'consequential', 'prohibited'] as const) {
+    for (const riskTier of [
+      'analytical',
+      'limited-reversible',
+      'consequential',
+      'prohibited',
+    ] as const) {
       const cap = defineCapability({
         ...validConfig(),
         riskTier,

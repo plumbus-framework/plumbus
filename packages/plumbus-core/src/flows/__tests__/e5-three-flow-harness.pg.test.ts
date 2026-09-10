@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 // E5 three-flow compile pilot on the two-DB harness.
 // Fixture names are opaque examples (domain-agnostic).
 
@@ -202,8 +203,9 @@ describe('E5 three-flow compiled harness', () => {
       executionId: second.id,
     });
     const pending = await approvals.findByExecutionId(second.id);
+    assert(pending);
     await approvals.decide({
-      requestId: pending!.approvalRequestId,
+      requestId: pending.approvalRequestId,
       outcome: 'approved',
       auth: humanAuth(),
     });

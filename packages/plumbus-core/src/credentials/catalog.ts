@@ -267,14 +267,15 @@ function wrapMaterial(
           { name: record.name, field: fieldName },
         );
       }
-      if (!Object.hasOwn(frozenSecrets, fieldName)) {
+      const secret = Object.hasOwn(frozenSecrets, fieldName) ? frozenSecrets[fieldName] : undefined;
+      if (secret === undefined) {
         throw catalogError(
           ErrorCode.NotFound,
           `credential "${record.name}" has no secret field "${fieldName}"`,
           { name: record.name, field: fieldName },
         );
       }
-      return frozenSecrets[fieldName]!;
+      return secret;
     },
   });
   Object.defineProperty(material, 'toJSON', {

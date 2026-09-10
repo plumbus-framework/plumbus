@@ -34,6 +34,13 @@ function completeHappyPath() {
 }
 
 describe('Protocol A crash-matrix simulation', () => {
+  it('refuses acceptance without a first step before persisting anything', () => {
+    const world = createProtocolAWorld({ steps: [] });
+    expect(() => world.accept(acceptArgs)).toThrowError('Simulation requires a first step');
+    expect(world.inspect().executions).toEqual([]);
+    expect(world.inspect().outbox).toEqual([]);
+  });
+
   it('completes two steps with persist-before-ack and one side effect per step', () => {
     const world = completeHappyPath();
     const snap = world.inspect();

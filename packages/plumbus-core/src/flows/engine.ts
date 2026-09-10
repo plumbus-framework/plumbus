@@ -1272,14 +1272,16 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const completed = new Set(
       history.filter((entry) => entry.status === StepStatus.Completed).map((entry) => entry.step),
     );
-    const compensable = [...flow.steps].reverse().filter((step): step is CapabilityStep => {
-      return (
-        step.type === FlowStepType.Capability &&
-        typeof step.compensate === 'string' &&
-        step.compensate.length > 0 &&
-        completed.has(step.name)
-      );
-    });
+    const compensable = [...flow.steps]
+      .reverse()
+      .filter((step): step is CapabilityStep & { compensate: string } => {
+        return (
+          step.type === FlowStepType.Capability &&
+          typeof step.compensate === 'string' &&
+          step.compensate.length > 0 &&
+          completed.has(step.name)
+        );
+      });
     if (compensable.length === 0) return;
 
     const flowAuth = resolveFlowStepAuth(row, {
@@ -1319,7 +1321,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     for (const step of compensable) {
       const startedAt = new Date();
-      const result = await stepDeps.executeCapability(step.compensate!, ctx, row.input);
+      const result = await stepDeps.executeCapability(step.compensate, ctx, row.input);
       const completedAt = new Date();
       history.push(
         buildHistoryEntry(

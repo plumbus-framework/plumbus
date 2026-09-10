@@ -401,7 +401,9 @@ function convertComponents(components: unknown): void {
  * Convert an assembled OpenAPI 3.0 document into the equivalent 3.1 document.
  * The input is left untouched; the caller receives a deep copy.
  */
-export function toOpenApi31Document(doc: OpenApi31ConvertibleDocument): OpenApi31ConvertibleDocument {
+export function toOpenApi31Document(
+  doc: OpenApi31ConvertibleDocument,
+): OpenApi31ConvertibleDocument {
   const { openapi: _openapi30, ...rest } = structuredClone(doc);
   const out: OpenApi31ConvertibleDocument = {
     openapi: '3.1.0',

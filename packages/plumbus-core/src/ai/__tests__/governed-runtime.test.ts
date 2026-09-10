@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { z } from 'zod';
 import { ActionRiskTier } from '../../approvals/action-risk.js';
@@ -7,10 +8,10 @@ import { createMemoryCredentialCatalog } from '../../credentials/catalog.js';
 import { defineCapability } from '../../define/defineCapability.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import type { AuthContext } from '../../types/security.js';
-import { ConsumerRegistry } from '../../events/consumer-registry.js';
-import { createOutboxDispatcher } from '../../events/dispatcher.js';
-import { createEventEmitter } from '../../events/emitter.js';
-import { createFlowScheduler } from '../../flows/scheduler.js';
+import type { ConsumerRegistry } from '../../events/consumer-registry.js';
+import type { createOutboxDispatcher } from '../../events/dispatcher.js';
+import type { createEventEmitter } from '../../events/emitter.js';
+import type { createFlowScheduler } from '../../flows/scheduler.js';
 import { createMemoryGovernedArtifactStore } from '../governed-artifacts.js';
 import type { GovernedAiHost } from '../governed-host.js';
 import { governedReviewSubject } from '../governed-invoke.js';
@@ -69,14 +70,15 @@ describe('createPlumbusRuntime', () => {
     const runtime = createPlumbusRuntime({ host, approvals, artifacts });
     const input = { documentId: 'doc-1' };
 
-    const request = await runtime.approvals!.requestApproval({
+    assert(runtime.approvals);
+    const request = await runtime.approvals.requestApproval({
       capabilityId: 'example.summarize',
       definitionVersion: '1',
       input: governedReviewSubject(input, pin),
       riskClass: ActionRiskTier.Consequential,
       expiresAt: new Date(Date.now() + 60_000),
     });
-    await runtime.approvals!.decide({
+    await runtime.approvals.decide({
       requestId: request.approvalRequestId,
       outcome: 'approved',
       auth: humanAuth(),

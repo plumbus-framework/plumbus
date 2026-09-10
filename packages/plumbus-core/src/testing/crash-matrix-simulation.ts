@@ -4,6 +4,7 @@
 // This is not a second flow engine: it is the protocol proof the real engine
 // will be evolved to obey.
 
+import { PlumbusError } from '../errors/index.js';
 import {
   createMemorySpineStore,
   createMemoryTenantStore,
@@ -177,10 +178,11 @@ export function createProtocolAWorld(options: ProtocolAOptions = {}): ProtocolAW
 
   const world: ProtocolAWorld = {
     accept(input) {
-      const firstStepId = input.firstStepId ?? steps[0]!;
-      let persisted: ReturnType<typeof persistAcceptance> | undefined;
-      tenant.runInTransaction((tx) => {
-        persisted = persistAcceptance(
+      const firstStepId = input.firstStepId ?? steps[0];
+      if (firstStepId === undefined)
+        throw new PlumbusError('validation', 'Simulation requires a first step');
+      const persisted = tenant.runInTransaction((tx) => {
+        const result = persistAcceptance(
           tx,
           {
             ...input,
@@ -191,15 +193,16 @@ export function createProtocolAWorld(options: ProtocolAOptions = {}): ProtocolAW
           nowIso(),
         );
         crash('before-tenant-commit');
+        return result;
       });
       crash('after-tenant-commit-before-publish');
       if (persisted?.outbox) publish(persisted.outbox);
       return {
         persisted: true,
         acked: true,
-        kind: persisted!.kind,
-        executionId: persisted!.execution.executionId,
-        revision: persisted!.execution.revision,
+        kind: persisted.kind,
+        executionId: persisted.execution.executionId,
+        revision: persisted.execution.revision,
       };
     },
     pump,
@@ -429,10 +432,7 @@ function nextWakeMs(
 ): number | undefined {
   const candidates = [
     ...spine.list().map((row) => Date.parse(row.notBefore)),
-    ...tenant
-      .listExecutions()
-      .filter((row) => row.wakeAt)
-      .map((row) => Date.parse(row.wakeAt!)),
+    ...tenant.listExecutions().flatMap((row) => (row.wakeAt ? [Date.parse(row.wakeAt)] : [])),
   ].filter((ms) => Number.isFinite(ms) && ms > nowMs);
   if (candidates.length === 0) return undefined;
   return Math.min(...candidates);

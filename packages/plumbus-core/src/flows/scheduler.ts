@@ -218,7 +218,8 @@ export function createFlowScheduler(config: SchedulerConfig) {
             : systemAuth;
           const flow = registry.get(schedule.flowName);
           // A row left on the wrong plane (a flow moved between spine and tenants) is not started.
-          if (flow && planeOf(flow) !== (plane.tenantRef === undefined ? 'spine' : 'tenants')) continue;
+          if (flow && planeOf(flow) !== (plane.tenantRef === undefined ? 'spine' : 'tenants'))
+            continue;
           const dueAt = toDate(schedule.nextRunAt, now);
           const plan = planMissedSchedule({
             cron: schedule.cron,

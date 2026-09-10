@@ -405,14 +405,14 @@ describe('generateClientModule', () => {
     }
   });
 
-  it.each(['session', 'bearer'] as const)(
-    'emits the envelope helper once under %s transport, so every function can use it',
-    (authTransport) => {
-      const code = generateClientModule([makeCap(), makeActionCap()], [], { authTransport });
-      expect(code.match(/function unwrapEnvelope</g)).toHaveLength(1);
-      expect(code).toContain('const ENVELOPE_KEYS = new Set(["data", "ok", "meta"]);');
-    },
-  );
+  it.each([
+    'session',
+    'bearer',
+  ] as const)('emits the envelope helper once under %s transport, so every function can use it', (authTransport) => {
+    const code = generateClientModule([makeCap(), makeActionCap()], [], { authTransport });
+    expect(code.match(/function unwrapEnvelope</g)).toHaveLength(1);
+    expect(code).toContain('const ENVELOPE_KEYS = new Set(["data", "ok", "meta"]);');
+  });
 
   it('generates a complete client module', () => {
     const caps = [makeCap(), makeActionCap()];

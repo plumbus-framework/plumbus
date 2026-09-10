@@ -92,25 +92,51 @@ type InFlightEntry = {
   reject: (error: Error) => void;
 };
 
-function canonicalize(value: unknown): unknown {
+/**
+ * How deep a payload may nest before fingerprinting refuses it.
+ *
+ * `canonicalize` recurses once per level, and a body that nests tens of thousands of levels
+ * (JSON.parse accepts it) took the whole request handler down with a `RangeError` — an
+ * unhandled 500 from a tiny payload. No real input comes close to this depth; a payload past
+ * it is refused as malformed rather than hashed.
+ */
+export const MAX_PAYLOAD_DEPTH = 64;
+
+/** Thrown by {@link hashPayload} when a payload nests deeper than {@link MAX_PAYLOAD_DEPTH}. */
+export class PayloadTooDeepError extends Error {
+  constructor() {
+    super(`Payload nests deeper than ${MAX_PAYLOAD_DEPTH} levels`);
+    this.name = 'PayloadTooDeepError';
+  }
+}
+
+function canonicalize(value: unknown, depth: number): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
   }
+  if (depth >= MAX_PAYLOAD_DEPTH) {
+    throw new PayloadTooDeepError();
+  }
   if (Array.isArray(value)) {
-    return value.map(canonicalize);
+    return value.map((item) => canonicalize(item, depth + 1));
   }
   const obj = value as Record<string, unknown>;
   const sorted = Object.keys(obj).sort();
   const result: Record<string, unknown> = {};
   for (const key of sorted) {
-    result[key] = canonicalize(obj[key]);
+    result[key] = canonicalize(obj[key], depth + 1);
   }
   return result;
 }
 
-/** Stable JSON serialization for idempotency payload hashing (sorted object keys). */
+/**
+ * Stable JSON serialization for idempotency payload hashing (sorted object keys).
+ *
+ * Throws {@link PayloadTooDeepError} for a payload nested past {@link MAX_PAYLOAD_DEPTH}; a
+ * route answers that as a `validation` refusal, never as an unhandled error.
+ */
 export function hashPayload(payload: unknown): string {
-  return JSON.stringify(canonicalize(payload));
+  return JSON.stringify(canonicalize(payload, 0));
 }
 
 function isExpired(record: IdempotencyRecord): boolean {

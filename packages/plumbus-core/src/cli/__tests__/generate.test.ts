@@ -245,9 +245,7 @@ describe('plumbus generate', () => {
 
     it('omits eventHandler capabilities even when exposeAs includes api', () => {
       expect(
-        generateOpenApiPath(
-          mockCapability({ kind: 'eventHandler', exposeAs: ['api'] }),
-        ),
+        generateOpenApiPath(mockCapability({ kind: 'eventHandler', exposeAs: ['api'] })),
       ).toEqual({});
     });
 
@@ -465,9 +463,10 @@ describe('plumbus generate', () => {
             .schema.properties?.memo;
         expect(memo).toEqual({ type: ['string', 'null'] });
 
-        const dataProperties = spec.paths['/api/billing/get-invoice']?.get?.responses['200'].content[
-          'application/json'
-        ].schema.allOf?.find((branch) => branch.properties?.data)?.properties?.data?.properties;
+        const dataProperties = spec.paths['/api/billing/get-invoice']?.get?.responses[
+          '200'
+        ].content['application/json'].schema.allOf?.find((branch) => branch.properties?.data)
+          ?.properties?.data?.properties;
         expect(dataProperties?.total).toEqual({ type: ['number', 'null'] });
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });

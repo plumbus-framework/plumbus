@@ -35,6 +35,7 @@ import {
   buildIdempotencyStoreKey,
   createInMemoryIdempotencyStore,
   hashPayload,
+  PayloadTooDeepError,
   IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
   parseIdempotencyTtl,
@@ -371,7 +372,21 @@ export function registerApiRoutes(
             return reply.status(mapped.status).send(mapped.body);
           }
           const storeKey = buildIdempotencyStoreKey(resolved.operationId, principal, idemKey);
-          const payloadHash = hashPayload(parsed.data);
+          let payloadHash: string;
+          try {
+            payloadHash = hashPayload(parsed.data);
+          } catch (hashErr) {
+            if (!(hashErr instanceof PayloadTooDeepError)) throw hashErr;
+            return reply.status(400).send({
+              ok: false,
+              error: {
+                code: 'validation_failed',
+                message: 'Request body nests too deeply',
+                requestId,
+              },
+              meta: { apiVersion },
+            });
+          }
           const ttlMs =
             resolved.idempotency.ttl !== undefined
               ? parseIdempotencyTtl(resolved.idempotency.ttl)

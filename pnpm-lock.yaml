@@ -222,6 +222,9 @@ importers:
 
   packages/plumbus-core:
     dependencies:
+      '@noble/hashes':
+        specifier: 1.8.0
+        version: 1.8.0
       '@xmldom/xmldom':
         specifier: ^0.9.10
         version: 0.9.10
@@ -1564,6 +1567,10 @@ packages:
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
+
+  '@noble/hashes@1.8.0':
+    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
+    engines: {node: ^14.21.3 || >=16}
 
   '@opentelemetry/api-logs@0.208.0':
     resolution: {integrity: sha512-CjruKY9V6NMssL/T1kAFgzosF1v9o6oeN+aX5JB/C/xPNtmgIJqcXHG7fA82Ou1zCpWGl4lROQUKwUNE1pMCyg==}
@@ -4932,6 +4939,8 @@ snapshots:
 
   '@next/swc-win32-x64-msvc@16.2.1':
     optional: true
+
+  '@noble/hashes@1.8.0': {}
 
   '@opentelemetry/api-logs@0.208.0':
     dependencies:

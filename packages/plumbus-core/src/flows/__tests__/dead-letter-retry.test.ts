@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deadLetterFlow, retryDeadLetteredFlow } from '../dead-letter.js';
-import { flowDeadLetterTable, flowExecutionsTable } from '../schema.js';
+import { flowDeadLetterTable } from '../schema.js';
 import { FlowStatus } from '../state-machine.js';
 
 function mockRecoveryDb() {

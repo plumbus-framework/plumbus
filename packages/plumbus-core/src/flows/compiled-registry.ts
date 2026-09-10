@@ -6,10 +6,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import {
-  COMPILED_FLOW_CONTRACT_VERSION,
-  digestCanonicalJson,
-} from './compile-flow.js';
+import { COMPILED_FLOW_CONTRACT_VERSION, digestCanonicalJson } from './compile-flow.js';
 import type { CompiledFlowDefinition } from '../types/flow.js';
 
 /** Project-relative default used by `plumbus compile-flows` and boot load. */
@@ -57,9 +54,8 @@ export class CompiledFlowRegistry {
 
   /** Most recently published version for this id (not semver-max). */
   getLatest(flowDefinitionId: string): CompiledFlowDefinition | undefined {
-    const order = this.publishOrder.get(flowDefinitionId);
-    if (!order?.length) return undefined;
-    return this.get(flowDefinitionId, order[order.length - 1]!);
+    const latest = this.publishOrder.get(flowDefinitionId)?.at(-1);
+    return latest === undefined ? undefined : this.get(flowDefinitionId, latest);
   }
 
   listVersions(flowDefinitionId: string): string[] {

@@ -86,9 +86,7 @@ export async function startHttpServer(options: StartHttpServerOptions): Promise<
   close: () => Promise<void>;
 }> {
   if (options.port == null) {
-    throw new Error(
-      'startHttpServer({ port }) is required. No default listen port is assumed.',
-    );
+    throw new Error('startHttpServer({ port }) is required. No default listen port is assumed.');
   }
   const Fastify = (await import('fastify')).default;
   const app = Fastify({ logger: false });

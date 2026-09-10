@@ -375,7 +375,8 @@ export function generateTypedClient(
   const fetchBody = method === 'GET' ? '' : `\n    body: JSON.stringify(input),`;
   // Every state-changing call carries an Idempotency-Key (one per invocation) unless the
   // caller supplied its own; a read never does.
-  const fetchHeaders = method === 'GET' ? 'options?.headers' : 'withIdempotencyKey(options?.headers)';
+  const fetchHeaders =
+    method === 'GET' ? 'options?.headers' : 'withIdempotencyKey(options?.headers)';
 
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}Input,

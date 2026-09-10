@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../define/defineFlow.js';
@@ -1343,8 +1344,9 @@ describe('FlowEngine — approval-outcome', () => {
       executionId: exec.id,
     });
     const pending = await approvals.findByExecutionId(exec.id);
+    assert(pending);
     await approvals.decide({
-      requestId: pending!.approvalRequestId,
+      requestId: pending.approvalRequestId,
       outcome: 'approved',
       auth: makeAuth(),
     });

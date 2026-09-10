@@ -105,6 +105,7 @@ describe('createMemoryCredentialCatalog', () => {
       username: 'notifier',
     });
     expect(material.secret('password')).toBe(PASSWORD);
+    expect(() => material.secret('toString')).toThrow(CredentialCatalogError);
     expect(material.fields).not.toHaveProperty('password');
     expect(Object.keys(material)).toEqual(['typeId', 'name', 'ref', 'fields']);
 

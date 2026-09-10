@@ -84,6 +84,8 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'LOCALE_COOKIE_NAME',
   'LeaseLostError',
   'MAX_DATA_PLANE_POOL_SIZE',
+  'MAX_PAYLOAD_DEPTH',
+  'PayloadTooDeepError',
   'PlumbusError',
   'PolicyProfile',
   'PromptRegistry',
@@ -194,6 +196,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'createRAGPipeline',
   'createRedisQueue',
   'createRepository',
+  'createRequestAdmission',
   'createSamlAdapter',
   'createScimService',
   'createServer',
@@ -326,6 +329,8 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'registerCapabilityRoute',
   'registerJobStatusRoute',
   'registerStreamingRoute',
+  'requestAdmissionChallengeSchema',
+  'requestAdmissionProofSchema',
   'requiresApprovalForRiskTier',
   'resolveEncryptionKey',
   'resolveGovernedArtifactStore',
@@ -384,6 +389,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'validateConfig',
   'verifyPassword',
   'withLogMasking',
+  'withRequestAdmissionLock',
   'workerRules',
   'wrapAuthAdapter',
   'writeAgentFiles',
@@ -404,6 +410,8 @@ const RUNTIME_SEAM_EXPORTS: readonly string[] = ['createExecutionContext'];
 
 /** Subpaths the package publishes. A new one widens the framework's surface. */
 const PUBLISHED_ENTRY_POINTS: readonly string[] = [
+  './admission',
+  './admission/client',
   '.',
   './errors',
   './runtime',

@@ -5,6 +5,7 @@
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
+import { PlumbusError } from '../errors/index.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import { qualifyTable } from './apply-ddl.js';
 import { createOpaqueDispatchRecord } from './opaque-dispatch.js';
@@ -31,6 +32,13 @@ function toIso(value: unknown): string | undefined {
   return String(value);
 }
 
+function requiredIso(value: unknown, field: string): string {
+  const instant = toIso(value);
+  if (instant === undefined)
+    throw new PlumbusError('internal', 'Durable record is missing a required timestamp', { field });
+  return instant;
+}
+
 function mapExecution(row: Record<string, unknown>): TenantExecutionState {
   return {
     executionId: String(row.execution_id),
@@ -45,8 +53,8 @@ function mapExecution(row: Record<string, unknown>): TenantExecutionState {
     stepIndex: Number(row.step_index),
     attempt: Number(row.attempt),
     correlationId: String(row.correlation_id),
-    createdAt: toIso(row.created_at)!,
-    updatedAt: toIso(row.updated_at)!,
+    createdAt: requiredIso(row.created_at, 'created_at'),
+    updatedAt: requiredIso(row.updated_at, 'updated_at'),
     wakeAt: toIso(row.wake_at),
     terminal: Boolean(row.terminal),
   };
@@ -66,8 +74,8 @@ function mapOutbox(row: Record<string, unknown>): DispatchOutboxRow {
     correlationId: String(row.correlation_id),
     workClassId: String(row.work_class_id),
     priorityClassId: String(row.priority_class_id),
-    notBefore: toIso(row.not_before)!,
-    createdAt: toIso(row.created_at)!,
+    notBefore: requiredIso(row.not_before, 'not_before'),
+    createdAt: requiredIso(row.created_at, 'created_at'),
     publishedAt: toIso(row.published_at),
     spineRowId: row.spine_row_id == null ? undefined : String(row.spine_row_id),
     spineAckedAt: toIso(row.spine_acked_at),
@@ -213,7 +221,9 @@ export async function insertDispatchOutbox(
   const rows = asRows(
     await db.execute(sql`SELECT * FROM ${sql.raw(outboxTable)} WHERE outbox_id = ${outboxId}`),
   );
-  return mapOutbox(rows[0]!);
+  const row = rows[0];
+  if (!row) throw new PlumbusError('internal', 'Inserted dispatch outbox row could not be read');
+  return mapOutbox(row);
 }
 
 export async function listUnpublishedOutbox(

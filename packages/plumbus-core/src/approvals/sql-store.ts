@@ -32,6 +32,8 @@ function toDate(value: string): Date {
   return new Date(value);
 }
 
+function toIso(value: Date | string): string;
+function toIso(value: Date | string | null | undefined): string | undefined;
 function toIso(value: Date | string | null | undefined): string | undefined {
   if (value == null) return undefined;
   if (value instanceof Date) return value.toISOString();
@@ -66,9 +68,9 @@ function mapRequest(row: {
     reviewReason: row.reviewReason as ReviewMandateReason,
     state: row.state as ApprovalRequestState,
     executionId: row.executionId ?? undefined,
-    createdAt: toIso(row.createdAt)!,
-    expiresAt: toIso(row.expiresAt)!,
-    updatedAt: toIso(row.updatedAt)!,
+    createdAt: toIso(row.createdAt),
+    expiresAt: toIso(row.expiresAt),
+    updatedAt: toIso(row.updatedAt),
     resolvedAt: toIso(row.resolvedAt),
     invalidatedReason: row.invalidatedReason ?? undefined,
   };
@@ -87,7 +89,7 @@ function mapDecision(row: {
     approvalRequestId: row.approvalRequestId,
     approverAccountId: row.approverAccountId,
     decision: row.decision as ApprovalDecisionOutcome,
-    decidedAt: toIso(row.decidedAt)!,
+    decidedAt: toIso(row.decidedAt),
   };
 }
 
@@ -109,9 +111,9 @@ function mapTask(row: {
     state: row.state as HumanTaskState,
     approvalRequestId: row.approvalRequestId ?? undefined,
     executionId: row.executionId ?? undefined,
-    createdAt: toIso(row.createdAt)!,
-    expiresAt: toIso(row.expiresAt)!,
-    updatedAt: toIso(row.updatedAt)!,
+    createdAt: toIso(row.createdAt),
+    expiresAt: toIso(row.expiresAt),
+    updatedAt: toIso(row.updatedAt),
     resolvedAt: toIso(row.resolvedAt),
   };
 }

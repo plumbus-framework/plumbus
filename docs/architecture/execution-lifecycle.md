@@ -340,3 +340,7 @@ The live flow engine still stores execution rows and leases in one database (`fl
 
 See [Dispatch and execution-state protocol](dispatch-state-protocol.md) for the ordered write pairs, persist-before-ack, lease rules, and orphan sweeps. The executable crash-matrix model lives at `packages/plumbus-core/src/testing/crash-matrix-simulation.ts`.
 
+
+Capability-owned pre-side-effect admission can use the [request admission primitives](../security/request-admission.md), with shared transaction locks and bundled work challenges.
+
+[Validation maintenance](../testing/validation-maintenance.md) documents explicit durable-record and compensation checks and their regression coverage.

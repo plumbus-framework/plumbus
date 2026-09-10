@@ -20,9 +20,7 @@ async function writeServerModule(source: string): Promise<string> {
 
 describe('loadServerExtensions', () => {
   it('loads an optional credentials catalog from app/server.js', async () => {
-    const cwd = await writeServerModule(
-      'export const credentials = { id: "host-catalog" };\n',
-    );
+    const cwd = await writeServerModule('export const credentials = { id: "host-catalog" };\n');
     const extensions = await loadServerExtensions(cwd);
     expect(extensions.credentials).toEqual({ id: 'host-catalog' });
   });

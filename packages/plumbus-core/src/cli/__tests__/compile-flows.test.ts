@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -31,7 +32,9 @@ describe('writeCompiledFlowArtifacts', () => {
     dirs.push(outDir);
     const written = writeCompiledFlowArtifacts([compiled], outDir);
     expect(written).toHaveLength(1);
-    const parsed = JSON.parse(fs.readFileSync(written[0]!, 'utf-8'));
+    const artifactPath = written[0];
+    assert(artifactPath);
+    const parsed = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
     expect(parsed.flowDefinitionId).toBe('ops.ping');
     expect(parsed.definitionDigest).toBe(compiled.definitionDigest);
     expect(parsed.steps[0]).not.toHaveProperty('if');

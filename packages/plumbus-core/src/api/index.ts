@@ -29,7 +29,9 @@ export {
   hashPayload,
   IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
+  MAX_PAYLOAD_DEPTH,
   parseIdempotencyTtl,
+  PayloadTooDeepError,
   principalsMatch,
 } from './idempotency.js';
 export type {

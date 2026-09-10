@@ -1,5 +1,10 @@
+import assert from 'node:assert/strict';
 import { afterAll, describe, expect, it } from 'vitest';
-import { extraHarnessConnection, createDurableTestHarness, type DurableTestHarness } from '../harness.js';
+import {
+  extraHarnessConnection,
+  createDurableTestHarness,
+  type DurableTestHarness,
+} from '../harness.js';
 import { ackSpineDispatch, claimSpineDispatch, upsertSpineDispatch } from '../spine-claim.js';
 import { createOpaqueDispatchRecord } from '../opaque-dispatch.js';
 import { SpineDeliveryState } from '../types.js';
@@ -72,7 +77,8 @@ describe('spine SKIP LOCKED claim on real Postgres', () => {
       });
       expect(empty).toEqual([]);
 
-      expect(await ackSpineDispatch(harness.spineDb, a[0]!.dispatchId)).toBe(true);
+      assert(a[0]);
+      expect(await ackSpineDispatch(harness.spineDb, a[0].dispatchId)).toBe(true);
     } finally {
       await second.close();
     }

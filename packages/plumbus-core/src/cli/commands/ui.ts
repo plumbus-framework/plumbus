@@ -319,7 +319,11 @@ export function generateUiModuleFiles(
   const files: GeneratedFile[] = [
     {
       path: `${prefix}lib/client.ts`,
-      content: generators.generateClientModule(httpCapabilities, toFlowTriggers(flows), clientConfig),
+      content: generators.generateClientModule(
+        httpCapabilities,
+        toFlowTriggers(flows),
+        clientConfig,
+      ),
     },
     {
       path: `${prefix}hooks/hooks.ts`,

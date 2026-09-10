@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createDurableTestHarness, type DurableTestHarness } from '../harness.js';
 import {
@@ -93,7 +94,8 @@ describe('Protocol A on two real databases', () => {
     ).toBe('stale');
     expect(await listSideEffects(harness.tenantDb, harness.coreSchema)).toEqual(['exec-1:step-a']);
 
-    await ackSpineDispatch(harness.spineDb, claimed[0]!.dispatchId);
+    assert(claimed[0]);
+    await ackSpineDispatch(harness.spineDb, claimed[0].dispatchId);
 
     const epoch = await bumpTenantEpochOnDb(harness.tenantDb, harness.coreSchema);
     expect(epoch).toBeGreaterThanOrEqual(2);

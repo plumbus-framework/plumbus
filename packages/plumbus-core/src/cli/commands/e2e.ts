@@ -253,7 +253,9 @@ export function registerE2ECommand(program: Command): void {
         // ── Start frontend server ──
         if (!options.skipServer) {
           if (!port) {
-            logError('--port is required (or set PLUMBUS_E2E_PORT) when starting the frontend server.');
+            logError(
+              '--port is required (or set PLUMBUS_E2E_PORT) when starting the frontend server.',
+            );
             process.exitCode = 1;
             return;
           }
