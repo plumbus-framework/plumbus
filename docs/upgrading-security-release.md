@@ -1,27 +1,45 @@
 # Security release upgrade guide
 
-This release prepares the security-review fixes for publishing. It preserves the released numeric cost API types and configurable finite token lifetimes, but intentionally rejects insecure credentials, invalid authorization state, and oversized input. It is a security-patch release with migration-sensitive runtime behavior, not an unconditional drop-in deployment.
+This is an **explicit migration release**, not a patch update. Core 0.7.x and the coordinated package family below preserve source compatibility where safe while enforcing stricter security behavior. Existing caret ranges such as `^0.6.19` cannot select core 0.7.0; the same minor-line boundary applies to every package, including UI and otherwise unchanged add-ons.
+
+The earlier patch-version plan is superseded and must not be published. New-family packages reject legacy Plumbus peer versions instead of silently mixing runtimes. No security bypass or compatibility flag re-enables vulnerable behavior.
 
 ## Packages to publish
 
 | Package | Previous | Prepared |
-|---|---|---|
-| `@plumbus/core` | 0.6.19 | 0.6.20 |
-| `@plumbus/ui` | 0.7.3 | 0.7.4 |
-| `@plumbus/ai-bedrock` | 0.1.0 | 0.1.1 |
-| `@plumbus/api` | 0.1.4 | 0.1.5 |
-| `@plumbus/chat` | 0.1.12 | 0.1.13 |
-| `@plumbus/mcp` | 0.5.1 | 0.5.2 |
-| `@plumbus/voice` | 0.4.5 | 0.4.6 |
-| `@plumbus/voice-livekit` | 0.1.4 | 0.1.5 |
+| --- | --- | --- |
+| `@plumbus/ai-bedrock` | 0.1.0 | 0.2.0 |
+| `@plumbus/api` | 0.1.4 | 0.2.0 |
+| `@plumbus/auth` | 0.1.2 | 0.2.0 |
+| `@plumbus/auth-cognito` | 0.1.0 | 0.2.0 |
+| `@plumbus/browser-extension` | 0.1.4 | 0.2.0 |
+| `@plumbus/chat` | 0.1.12 | 0.2.0 |
+| `@plumbus/chat-ui` | 0.1.7 | 0.2.0 |
+| `@plumbus/knowledge-base` | 0.1.5 | 0.2.0 |
+| `@plumbus/mcp` | 0.5.1 | 0.6.0 |
+| `@plumbus/core` | 0.6.19 | 0.7.0 |
+| `@plumbus/ui` | 0.7.3 | 0.8.0 |
+| `@plumbus/voice` | 0.4.5 | 0.5.0 |
+| `@plumbus/voice-deepdub` | 0.1.4 | 0.2.0 |
+| `@plumbus/voice-elevenlabs` | 0.1.1 | 0.2.0 |
+| `@plumbus/voice-livekit` | 0.1.4 | 0.2.0 |
+| `@plumbus/voice-minimax` | 0.1.1 | 0.2.0 |
+| `@plumbus/voice-openai` | 0.1.3 | 0.2.0 |
+| `@plumbus/voice-soniox` | 0.1.4 | 0.2.0 |
 
-Each package has a versioned changelog entry. The UI bump updates its packed direct dependency on core. Other add-ons are unchanged. Existing canonical peer ranges remain unchanged; install the full set of **used** packages above to obtain all security fixes. Peer-range satisfaction alone does not mean an older package contains those fixes.
+All 18 packages move outside their previous caret range. Some add-ons have only peer/documentation changes, but patch-publishing narrowed peers could break an existing app install. UI moves to 0.8.0 and replaces its direct core dependency with the required core 0.7.x peer, preventing npm from installing a hidden second core alongside an old application runtime. New core peers are `0.7.x`, voice-provider peers are `0.5.x`, and the other canonical ranges are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
 
-Use the existing publish workflow: MCP and Bedrock publish before core, then the remaining packages; voice publishes before its LiveKit add-on, and core before UI. Roll out applications only after the complete set of used package versions is available. Update application lockfiles and deploy API/worker processes from the same dependency set. No publication, merge, or production deployment is performed by this guide.
+## Publication and dependency resolution
+
+- Every package stages under **`next`**, both in `publishConfig` and the publish workflow. No publication or dist-tag promotion is performed by this guide. Promote to `latest` only after all packages and application staging checks pass.
+- The workflow checks the release plan before publishing. A release tag must match the core version, initially `v0.7.0`. `pnpm check:release` rejects old-line patch versions, broad or legacy Plumbus peers, and incorrect packed UI dependencies.
+- `^0.6.19`, `~0.6.19`, and `0.6.x` stay on the legacy core line; existing lockfiles remain reproducible with `npm ci` / `pnpm install --frozen-lockfile`. Wildcards, `^0`, `latest`, `next`, and explicit new versions are not protected by that minor-line boundary. Dist-tags do not override semver ranges: the version boundary is the protection for old carets.
+- Upgrade only the optional packages the app uses, but upgrade every installed Plumbus package to the matching family in one dependency change. For example, select `@plumbus/core@0.7.0`, `@plumbus/voice@0.5.0`, and `@plumbus/voice-livekit@0.2.0` together. Do not use `--force` or `--legacy-peer-deps` to hide mixed-family errors.
+- Update application lockfiles, stage the migration, and deploy API/worker processes from the same dependency set. Staying on old versions avoids automatic behavior changes but does not deliver these security fixes.
 
 ## Agent instructions
 
-Core 0.6.20 ships agent wiring **v15** and a self-contained consumer checklist at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. The eight prepared packages include updated agent guidance. After installing them, run `plumbus init --patch` in the consumer app to refresh managed Copilot/Cursor/AGENTS/CLAUDE blocks while retaining app-owned text. This does not migrate credentials or application state.
+Core 0.7.0 ships agent wiring **v16** and a self-contained consumer checklist at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. All prepared packages include updated peer and upgrade guidance. After installing them, run `plumbus init --patch` to refresh managed agent instructions while retaining app-owned text. This does not migrate credentials, application code, or stored state.
 
 ## Compatibility preserved
 
@@ -56,19 +74,17 @@ No database schema changes are introduced in this release. Existing tables and m
 
 Before deploying an application:
 
-1. Publish/install the prepared package versions and update its lockfile; verify the packed UI dependency resolves the new core.
+1. Publish/install the prepared package versions and update its lockfile; verify UI shares the application's new core through its required peer.
 2. Check the applicable rows above against the application's credentials, SAML configuration, active flow rows, audit storage, and voice clients.
 3. Run application-level authentication, RAG isolation, job/flow, and voice smoke tests in staging. The framework suite cannot establish the state of a consumer production database or identity provider.
 4. Deploy API and worker processes together, then monitor authentication failures, rejected legacy flows, audit persistence errors, and budget/voice-limit denials.
 
-Release-preparation checks:
+## Release-preparation checks
 
-- Final `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, and `pnpm test` all passed, including the legacy consumer type fixture and 2,170 core tests.
+1. Run `pnpm check:release`, `pnpm test:release`, and the four repository gates: lint, format checking, typechecking, and tests.
+2. Pack all 18 packages. Check packed metadata with `node scripts/check-release-boundaries.mjs --packed-manifests <manifest-map.json>`; UI must require the shared core 0.7.x peer with no nested core dependency; all internal peers must stay within the new family.
+3. Install the complete tarball family in a clean npm consumer using `--omit=dev --ignore-scripts`. Verify SDK imports and `npm ls` without bypassing peer errors. Also test core alone, core with UI, and core with voice/provider packages.
+4. Verify that legacy core mixed with a new add-on, new core mixed with an old add-on, and legacy voice mixed with a new provider are rejected by npm. Legacy caret selection must remain on old versions when both families are available.
+5. Run consumer staging authentication, RAG, task/flow, audit, and voice checks before promoting dist-tags or deploying.
 
-- Versioned changelogs and unused registry version numbers were verified for all eight prepared packages.
-- All eight rebuilt tarballs contain their declared entry points, updated instruction files, and matching changelogs; core includes the packaged security checklist and compiled wiring v15. Packed UI depends on core 0.6.20; no runtime dependency retains a `workspace:` reference.
-- A fresh `npm install --omit=dev --ignore-scripts` from the local tarballs passed. `npm ls` reports one core 0.6.20 and one voice 0.4.6 without peer errors.
-- Every packed SDK imported successfully. A packed-consumer smoke test verified legacy numeric costs, unknown-cost budget enforcement, tool-loop availability, and configurable JWT lifetime checks.
-- The publish workflow now runs lint, format checking, typechecking, and tests before publication. It is triggered by `v*` tags; no tag or publication was created in this preparation.
-
-The install check disables dependency lifecycle scripts and does not exercise live providers. Application staging and database/identity-provider checks remain necessary. The prepared changes are local until committed and published.
+These checks do not constitute a production migration. Application-specific credentials, databases, identity providers, and voice integrations still need staging validation.

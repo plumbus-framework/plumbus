@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.6.20",
+  "version": "0.7.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -66,7 +66,8 @@
     "directory": "packages/plumbus-core"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "next"
   },
   "engines": {
     "node": ">=20.6.0"
@@ -88,9 +89,9 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "peerDependencies": {
-    "@plumbus/api": "0.1.x",
-    "@plumbus/ai-bedrock": "0.1.x",
-    "@plumbus/mcp": "0.5.x || 0.6.x",
+    "@plumbus/api": "0.2.x",
+    "@plumbus/ai-bedrock": "0.2.x",
+    "@plumbus/mcp": "0.6.x",
     "cron-parser": "^4.9.0",
     "redis": "^4.7.0"
   },

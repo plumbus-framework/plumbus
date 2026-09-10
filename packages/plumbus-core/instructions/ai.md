@@ -362,7 +362,7 @@ Also:
 See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.
 
 
-## Security release rules (core 0.6.20)
+## Security release rules (core 0.7.0)
 
 - `ctx.ai` is bound to the executing actor/tenant. Keep `withContext` on wrappers; never reuse another caller's bound service. Missing-tenant retrieval returns only unscoped documents.
 - With security configured, generate/stream/extract/classify apply the field-classification policy. Extract/classify use the `text` field; arbitrary free-text PII is not automatically detected. Explainability stores redacted input.

@@ -6,7 +6,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 
 | File | When to read |
 |------|--------------|
-| [upgrading-security-release.md](./upgrading-security-release.md) | Core 0.6.20 security migration, coordinated package versions, and agent wiring v15. |
+| [upgrading-security-release.md](./upgrading-security-release.md) | Core 0.7.0 security migration, coordinated package versions, and agent wiring v16. |
 | [guardrails.md](./guardrails.md) | First. Framework-first rules, forbidden escape hatches, git safety. |
 | [framework.md](./framework.md) | Core abstractions, `ctx`, consumption surfaces, project layout, server hooks. |
 | [capabilities.md](./capabilities.md) | `defineCapability()`, kinds, access, effects, MCP/API exposure. |

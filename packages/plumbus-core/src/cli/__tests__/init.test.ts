@@ -479,7 +479,7 @@ describe('security release agent wiring', () => {
         generateClaudeMd,
       ]) {
         const content = generate(inline, monorepo);
-        expect(content).toContain('plumbus:agent-wiring version=15');
+        expect(content).toContain('plumbus:agent-wiring version=16');
         expect(content).toContain(recipe);
         expect(content).toContain('Plumbus primitives');
         expect(content).toContain('`ctx.*`');
@@ -489,11 +489,11 @@ describe('security release agent wiring', () => {
     expect(generateCursorCapabilityRule()).toContain(recipe);
   });
 
-  it('patches v14 managed guidance while preserving app-owned text', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'plumbus-wiring-v15-'));
+  it('patches v15 managed guidance while preserving app-owned text', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'plumbus-wiring-v16-'));
     try {
       const old = generateAgentsMd(false)
-        .replace('version=15', 'version=14')
+        .replace('version=16', 'version=15')
         .split('\n')
         .filter((line) => !line.includes('upgrading-security-release.md'))
         .join('\n');
@@ -501,7 +501,7 @@ describe('security release agent wiring', () => {
       const results = writeAgentFiles(root, ['agents-md'], false, false, false, 'patch');
       const updated = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
       expect(results[0]?.action).toBe('patched');
-      expect(updated).toContain('version=15');
+      expect(updated).toContain('version=16');
       expect(updated).toContain(recipe);
       expect(updated.startsWith('App-owned preface\n')).toBe(true);
       expect(updated.endsWith('\nApp-owned footer\n')).toBe(true);

@@ -71,8 +71,8 @@ const CURRENT_PRICING: Record<string, Omit<ModelPrice, 'model'>> = {
   'gpt-6-astra': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
   'gpt-5.6-sol': {
     kind: 'text',
-    inputPerMTok: 4,
-    outputPerMTok: 20,
+    inputPerMTok: 5,
+    outputPerMTok: 30,
     longContextThreshold: 272_000,
   },
   'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },

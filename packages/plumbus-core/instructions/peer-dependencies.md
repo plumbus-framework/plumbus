@@ -1,85 +1,44 @@
 # `@plumbus/core` peer dependency ranges
 
-Read this file **before** editing `peerDependencies` in any `packages/*/package.json`.
+Read this file before editing `peerDependencies` in any `packages/*/package.json`.
 
-## CRITICAL rules
+## Security release family — explicit upgrade required
 
-1. **Copy literals — do not derive ranges.** Never compute semver ranges from intuition. Copy the exact string from the table below or from a canonical `package.json` (`packages/mcp/package.json`, `packages/api/package.json`, `packages/voice/package.json`).
-2. **Never use `^0.x` caret ranges** on `@plumbus/core` peers in add-on packages. npm treats `^0.5.0` as **0.5.x only** (`>=0.5.0 <0.6.0`), not "0.5 and above."
-3. **pnpm passing locally does not prove peers are correct.** Backend Docker images install production deps with **npm** (`deployment.md` Rule 7). Wrong peers break Docker builds even when `pnpm install` succeeds.
-4. **Do not copy from CHANGELOG history.** Older releases documented incorrect ranges (`^0.5.0 <0.7.0` claimed to support 0.6.x — it does not under npm). Use this file and the canonical `package.json` files instead.
+Core **0.7.x**, UI **0.8.x**, MCP **0.6.x**, voice **0.5.x**, and the remaining add-ons **0.2.x** form one coordinated release family. This is an intentional migration boundary: legacy caret ranges must not install these packages, and new packages must not accept legacy Plumbus peers. Do not widen these ranges to admit old core/voice lines just to make an installation pass.
 
-## Canonical `@plumbus/core` peer strings (add-ons → core)
+The previous family remains on core 0.6.x, UI 0.7.x, MCP 0.5.x, voice 0.4.x, and add-ons 0.1.x. Historical feature floors are not peer contracts for the new release.
 
-| Package kind | `peerDependencies["@plumbus/core"]` | Canonical copy-from |
-|---|---|---|
-| Most add-ons (chat, chat-ui, knowledge-base, mcp, api, browser-extension) | `"0.5.x \|\| 0.6.x"` | `packages/mcp/package.json` |
-| Voice only (requires core 0.6+ media/cost APIs) | `"0.6.x"` | `packages/voice/package.json` |
-| Auth only (requires core 0.6.8+ HttpAuthenticationRuntime) | `"0.6.x"` | `packages/auth/package.json` |
-| AI Bedrock (requires provider `cost` preference + optional peer load; **runtime ≥ 0.6.16**) | `"0.6.x"` | `packages/ai-bedrock/package.json` |
+## Canonical literals — copy exactly
 
-When adding a **new** publishable add-on under `packages/`, use `"0.5.x || 0.6.x"` unless the package genuinely requires core 0.6+ only (then use the voice pattern).
+| Declaring package | Peer target | Literal |
+| --- | --- | --- |
+| Every add-on that peers on core | `@plumbus/core` | `"0.7.x"` |
+| `@plumbus/core` | `@plumbus/mcp` | `"0.6.x"` (optional) |
+| `@plumbus/core` | `@plumbus/api` | `"0.2.x"` (optional) |
+| `@plumbus/core` | `@plumbus/ai-bedrock` | `"0.2.x"` (optional) |
+| `@plumbus/chat` | `@plumbus/knowledge-base` | `"0.2.x"` (optional) |
+| `@plumbus/chat-ui` | `@plumbus/chat` | `"0.2.x"` |
+| `@plumbus/auth-cognito` | `@plumbus/auth` | `"0.2.x"` |
+| Every `@plumbus/voice-*` provider | `@plumbus/voice` | `"0.5.x"` |
 
-**Documented runtime floors (declared peer may be wider):** npm peer strings stay on the coarse literals above. When a release needs a patch floor inside a minor line, document it in that package's README / CHANGELOG / `instructions/framework.md` — do not invent fine-grained peer ranges. Current floors:
+UI 0.8.0 replaces its direct core dependency with the required peer `"@plumbus/core": "0.7.x"` and uses `workspace:*` only for development. This prevents npm from accepting old application core plus a hidden new core nested inside UI. Install core and UI together. All Plumbus packages share the application runtime through peers.
 
-| Package | Declared peer | Runtime floor |
-|---|---|---|
-| `@plumbus/chat` **0.1.11+** | `0.5.x \|\| 0.6.x` | `@plumbus/core` **≥ 0.6.11**; optional `toolCalling.ai` overrides in chat 0.1.12 require **≥ 0.6.18** |
-| `@plumbus/chat-ui` **0.1.7+** | `0.5.x \|\| 0.6.x` (+ `@plumbus/chat` `0.1.x`) | `@plumbus/chat` **≥ 0.1.11** (and thus core **≥ 0.6.11**) |
-| `@plumbus/auth` | `0.6.x` | `@plumbus/core` **≥ 0.6.8** (`HttpAuthenticationRuntime`) |
-| `@plumbus/api` **0.1.4+** | `0.5.x \|\| 0.6.x` | `@plumbus/core` **≥ 0.6.9** (`buildAuthenticationRequest` for partner session auth) |
+Voice does not peer on vendor add-ons. Apps explicitly install only providers they use, register their `*_REGISTRATION` through `createProviderRegistry()`, and pass that registry to routes/workers.
 
-## Other publishable peer strings
+## Rules
 
-| Declaring package | Peer target | Literal | Required? | Canonical copy-from |
-|---|---|---|---|---|
-| `@plumbus/core` | `@plumbus/mcp` | `"0.5.x \|\| 0.6.x"` | optional | `packages/plumbus-core/package.json` |
-| `@plumbus/core` | `@plumbus/api` | `"0.1.x"` | optional | `packages/plumbus-core/package.json` |
-| `@plumbus/core` | `@plumbus/ai-bedrock` | `"0.1.x"` | optional | `packages/plumbus-core/package.json` |
-| `@plumbus/ai-bedrock` | `@plumbus/core` | `"0.6.x"` | required | `packages/ai-bedrock/package.json` |
-| `@plumbus/chat` | `@plumbus/knowledge-base` | `"^0.1.0"` | optional | `packages/chat/package.json` |
-| `@plumbus/chat-ui` | `@plumbus/chat` | `"0.1.x"` | required | `packages/chat-ui/package.json` |
-| `@plumbus/chat-ui` | `@plumbus/core` | `"0.5.x \|\| 0.6.x"` | required | `packages/chat-ui/package.json` |
-| `@plumbus/auth` | `@plumbus/core` | `"0.6.x"` | required | `packages/auth/package.json` |
-| `@plumbus/auth-cognito` | `@plumbus/auth` | `"0.1.x"` | required | `packages/auth-cognito/package.json` |
-| `@plumbus/voice-deepdub` / `-soniox` / `-elevenlabs` / `-minimax` / `-livekit` | `@plumbus/core` | `"0.6.x"` | required | `packages/voice-deepdub/package.json` (same literal on all five) |
-| `@plumbus/voice-deepdub` / `-soniox` / `-elevenlabs` / `-minimax` / `-livekit` | `@plumbus/voice` | `"0.4.x"` | required | `packages/voice-deepdub/package.json` (same literal on all five) |
-| `@plumbus/voice` | `@plumbus/voice-deepdub` | `"0.1.x"` | optional | `packages/voice/package.json` |
-| `@plumbus/voice` | `@plumbus/voice-soniox` | `"0.1.x"` | optional | `packages/voice/package.json` |
-| `@plumbus/voice` | `@plumbus/voice-elevenlabs` | `"0.1.x"` | optional | `packages/voice/package.json` |
-| `@plumbus/voice` | `@plumbus/voice-minimax` | `"0.1.x"` | optional | `packages/voice/package.json` |
-| `@plumbus/voice` | `@plumbus/voice-livekit` | `"0.1.x"` | optional | `packages/voice/package.json` |
+- Copy literals from the table and canonical manifests (`packages/mcp/package.json`, `packages/plumbus-core/package.json`, `packages/voice-livekit/package.json`). Never use `^0.x` core peers or derive unions from intuition.
+- New-family packages require the new family. Do not publish narrowed peers or migration-requiring behavior as a patch on an old line: an existing caret could select that patch.
+- `pnpm install` passing in this workspace does not prove npm consumer compatibility. Validate packed tarballs with npm; production installs use npm.
+- Keep `release/security-release.json`, all manifests, READMEs, package instructions, changelogs, and AGENTS/CLAUDE in sync. `pnpm check:release` checks the version boundary and internal dependency graph.
+- Packages stage under the **next** npm dist-tag. Promoting to latest is a separate operator decision after the entire family and consumer staging checks pass.
 
-**Peering direction:** add-ons declare `@plumbus/core` as a peer — consumer apps install both. `@plumbus/core` optionally peers `@plumbus/mcp`, `@plumbus/api`, and `@plumbus/ai-bedrock` when those packages are present. `@plumbus/chat` optionally peers `@plumbus/knowledge-base` for registry-backed context sources — **not** the reverse. `@plumbus/knowledge-base` only peers `@plumbus/core`. `@plumbus/auth-cognito` peers `@plumbus/auth` only — not `@plumbus/core` directly. Voice provider packages peer `@plumbus/voice` `0.4.x` (and `@plumbus/core` `0.6.x`); `@plumbus/voice` does **not** peer the add-ons — apps install add-ons and pass `*_REGISTRATION` into `createProviderRegistry()` — **copy these literals; do not derive**.
+## Future releases
 
-## Forbidden patterns
+Within this family, patch releases must preserve supported behavior. For another migration-requiring release, first update this policy and `release/security-release.json`, then move every affected package outside its previous caret range. Re-check direct and transitive dependencies; a core-only bump is insufficient when UI bundles core or peers are auto-installed.
 
-| Range | Why it is wrong |
-|---|---|
-| `"^0.5.0 <0.7.0"` | npm resolves `^0.5.0` to 0.5.x only — **rejects `@plumbus/core@0.6.0`** |
-| `"^0.5.0 <0.6.0"` | 0.5.x only — rejects 0.6.x |
-| `"^0.6.0 <0.7.0"` or `"^0.6.x"` on voice | Use the voice literal `"0.6.x"` from `packages/voice/package.json` |
-| Widening an upper bound on a caret range | e.g. changing `<0.6.0` to `<0.7.0` on `^0.5.0` does **not** add 0.6.x support |
+Run lint, format checking, typechecking, tests, and packed npm install checks before publication. Never mutate git, create a release tag, publish, or promote npm dist-tags without the authorization required by repository instructions.
 
-## When `@plumbus/core` gets a new minor line (e.g. 0.7.0)
+## Consumer upgrade
 
-Before tagging a core release:
-
-1. Update the literal table in **this file** (add `0.7.x` to the union, e.g. `"0.5.x || 0.6.x || 0.7.x"`).
-2. Update `peerDependencies["@plumbus/core"]` in **every** publishable add-on under `packages/` — copy the new literal everywhere; do not edit packages one-off with different strings.
-3. Patch-bump and publish each affected add-on.
-4. Update add-on `instructions/framework.md` (or `conventions.md`) peer lines to match.
-5. Run `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm test` from repo root.
-
-See also: `.agents/skills/bump-version/SKILL.md` (core **minor** bump checklist).
-
-## Related docs
-
-- `deployment.md` Rule 7 — backend `proddeps` uses `npm install --omit=dev`
-- `.agents/skills/new-package-instructions/SKILL.md` — new package `package.json` peers
-- `packages/mcp/package.json` / `packages/api/package.json` / `packages/voice/package.json` — canonical examples
-
-
-## Security release baseline
-
-For the complete security remediation, install core **0.6.20** and the relevant updated add-ons listed in [upgrading-security-release.md](./upgrading-security-release.md). This baseline does not change the canonical peer literals or the historical feature-specific floors above. Refresh consumer agent wiring with `plumbus init --patch` (**v15**).
+Read [upgrading-security-release.md](./upgrading-security-release.md), explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch` for agent wiring **v16**. Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.

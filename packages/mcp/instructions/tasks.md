@@ -158,4 +158,4 @@ Sequence diagram, full lifecycle, and design rationale: `docs/mcp/tasks-and-jobs
 
 ## Security release rules
 
-On MCP 0.5.2/core 0.6.20, task input and access are validated before storage/dispatch. Task reads, lists, and cancellation require the authenticated owner and exact tenant namespace. When writing a custom worker integration, recreate repository dependencies for each job tenant; changing only `ctx.auth` does not rebind data access. The original `createMcpJobCompletionSync(deps)` API remains supported. Never give a task handler a tenant bypass merely because task storage needs to handle a tenantless job.
+On MCP 0.6.0/core 0.7.0, task input and access are validated before storage/dispatch. Task reads, lists, and cancellation require the authenticated owner and exact tenant namespace. When writing a custom worker integration, recreate repository dependencies for each job tenant; changing only `ctx.auth` does not rebind data access. The original `createMcpJobCompletionSync(deps)` API remains supported. Never give a task handler a tenant bypass merely because task storage needs to handle a tenantless job.

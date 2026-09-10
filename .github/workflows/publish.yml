@@ -30,6 +30,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check:release
       - run: pnpm build
       - run: pnpm lint
       - run: pnpm format:check
@@ -46,7 +47,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       # Publish @plumbus/ai-bedrock BEFORE @plumbus/core (optional peer of core).
@@ -58,7 +59,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/core
@@ -69,10 +70,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
-      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.6.x).
+      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.7.x).
       - name: Publish @plumbus/auth
         working-directory: packages/auth
         run: |
@@ -81,10 +82,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
-      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.1.x).
+      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.2.x).
       - name: Publish @plumbus/auth-cognito
         working-directory: packages/auth-cognito
         run: |
@@ -93,7 +94,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/voice
@@ -104,10 +105,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
-      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.4.x).
+      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.5.x).
       - name: Publish @plumbus/voice-openai
         working-directory: packages/voice-openai
         run: |
@@ -116,7 +117,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/voice-deepdub
@@ -127,7 +128,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/voice-soniox
@@ -138,7 +139,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/voice-elevenlabs
@@ -149,7 +150,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/voice-minimax
@@ -160,7 +161,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/voice-livekit
@@ -171,10 +172,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
-      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.5.x).
+      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.7.x).
       - name: Publish @plumbus/api
         working-directory: packages/api
         run: |
@@ -183,7 +184,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/knowledge-base
@@ -194,7 +195,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/chat
@@ -205,7 +206,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/ui
@@ -216,7 +217,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/chat-ui
@@ -227,7 +228,7 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi
 
       - name: Publish @plumbus/browser-extension
@@ -238,5 +239,5 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            pnpm publish --access public --tag next --no-git-checks
           fi

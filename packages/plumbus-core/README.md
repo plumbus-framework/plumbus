@@ -1,5 +1,10 @@
 # @plumbus/core
 
+## Release family 0.7.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/api` `0.2.x`, `@plumbus/ai-bedrock` `0.2.x`, `@plumbus/mcp` `0.6.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 **AI-native, contract-driven TypeScript application framework.**
 
 Define your application through six composable primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — and get deny-by-default security, advisory governance, audit trails, and managed AI integration out of the box. Optional companion packages extend the surface for partner APIs, MCP agents, chat, knowledge, UI generation, and browser extensions — install only what you need.

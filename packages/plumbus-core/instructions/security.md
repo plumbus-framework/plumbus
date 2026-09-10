@@ -102,7 +102,7 @@ import { hashPassword, verifyPassword } from "@plumbus/core";
 - Store only the returned hash string in entity fields marked `classification: "highly_sensitive"`
 
 
-## Core 0.6.20 security migration
+## Core 0.7.0 security migration
 
 Read [upgrading-security-release.md](./upgrading-security-release.md) before changing authentication or recovering stored flows. Never restore public development signing keys or fabricate system auth snapshots. JWTs require finite expiry; configured finite lifetimes are preserved unless an explicit maximum is set. SAML validates recipient/request correlation and consumes assertions once; unsolicited mode requires an intentional opt-in. Duplicate cookie names are discarded, and client-facing denials omit private policy details.
 

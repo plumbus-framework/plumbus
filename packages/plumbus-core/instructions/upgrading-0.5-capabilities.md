@@ -181,4 +181,4 @@ Work through this list when upgrading an existing Plumbus app to 0.5.x:
 | MCP exposure | `node_modules/@plumbus/core/instructions/mcp.md` |
 
 
-When upgrading through core 0.6.20, also read [upgrading-security-release.md](./upgrading-security-release.md). Missing/corrupt snapshots no longer inherit worker privileges, and new snapshots omit session IDs/authentication timestamps. Recover only with a verified initiating identity.
+When upgrading through core 0.7.0, also read [upgrading-security-release.md](./upgrading-security-release.md). Missing/corrupt snapshots no longer inherit worker privileges, and new snapshots omit session IDs/authentication timestamps. Recover only with a verified initiating identity.

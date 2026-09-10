@@ -204,8 +204,8 @@ it('uses Sol alias long-context pricing consistently in results and the budget l
     ),
   );
   const result = await service.generateWithUsage({ prompt: 'x', input: {} });
-  expect(result.cost).toBe(1.81);
-  expect(tracker.getRecords()[0]?.cost).toBe(1.81);
+  expect(result.cost).toBe(2.27);
+  expect(tracker.getRecords()[0]?.cost).toBe(2.27);
   await expect(service.generate({ prompt: 'x', input: {} })).rejects.toThrow('AI budget exceeded');
 });
 

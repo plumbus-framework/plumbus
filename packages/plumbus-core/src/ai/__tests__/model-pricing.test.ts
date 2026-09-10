@@ -71,9 +71,9 @@ describe('calculateModelCost', () => {
   });
 
   it('returns non-zero cost for newly added models', () => {
-    // gpt-5.6-sol: input $4/MTok, output $20/MTok
-    // 1000 × 4 + 500 × 20 = 14000 / 1M = 0.014
-    expect(calculateModelCost(1000, 500, 'gpt-5.6-sol')).toBe(0.014);
+    // gpt-5.6-sol: restored input $5/MTok, output $30/MTok
+    // 1000 × 5 + 500 × 30 = 20000 / 1M = 0.02
+    expect(calculateModelCost(1000, 500, 'gpt-5.6-sol')).toBe(0.02);
     // gpt-5.5: input $5/MTok, output $30/MTok
     // 1000 × 5 + 500 × 30 = 5000 + 15000 = 20000 / 1M = 0.02
     expect(calculateModelCost(1000, 500, 'gpt-5.5')).toBe(0.02);
@@ -89,14 +89,14 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'claude-opus-5')).toBe(0.0175);
   });
 
-  it('prices the gpt-5.6 line at its reduced rates', () => {
+  it('prices the gpt-5.6 line at its configured fixed rates', () => {
     // gpt-5.6-luna: input $0.20/MTok, output $1.20/MTok
     // 1000 × 0.2 + 500 × 1.2 = 200 + 600 = 800 / 1M = 0.0008
     expect(calculateModelCost(1000, 500, 'gpt-5.6-luna')).toBe(0.0008);
     // gpt-5.6-terra: input $2/MTok, output $12/MTok
     // 1000 × 2 + 500 × 12 = 2000 + 6000 = 8000 / 1M = 0.008
     expect(calculateModelCost(1000, 500, 'gpt-5.6-terra')).toBe(0.008);
-    // luna is the cheapest of the three; sol is now $4/$20
+    // luna is the cheapest of the three; sol retains $5/$30
     expect(calculateModelCost(1000, 500, 'gpt-5.6-luna')).toBeLessThan(
       calculateModelCost(1000, 500, 'gpt-5.6-terra'),
     );
@@ -251,15 +251,17 @@ it.each([
   'gpt-5.6-sol-20260910',
   'gpt-5.6-20260910',
 ])('applies fixed Sol pricing and the exact context boundary to %s', (model) => {
-  expect(calculateModelCost(1000, 500, model)).toBe(0.014);
-  expect(calculateModelCost(272_000, 0, model)).toBe(1.088);
-  expect(calculateModelCost(272_001, 1000, model)).toBe(2.206008);
+  expect(findModelRate(model)).toMatchObject({ inputPerMTok: 5, outputPerMTok: 30 });
+  expect(calculateModelCost(1000, 500, model)).toBe(0.02);
+  expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0005);
+  expect(calculateModelCost(272_000, 0, model)).toBe(1.36);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(2.76501);
   expect(
     calculateModelCost(300_000, 1000, model, {
       cachedInputTokens: 100_000,
       cacheWriteTokens: 50_000,
     }),
-  ).toBe(1.81);
+  ).toBe(2.27);
   expect(findModelRate(model)).not.toHaveProperty('promotionalPricing');
 });
 

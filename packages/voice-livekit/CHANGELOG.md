@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.5 — 2026-09-10
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
 
 ### Fixed
 
@@ -10,7 +14,7 @@
 
 ### Agent instructions
 
-- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
 
 ### Security
 
@@ -19,7 +23,7 @@
 ### Compatibility
 
 - Explicitly configured room names remain unchanged; callers without a tenant keep their previous naming behavior. Clients should use returned room names, not reconstruct them. App-authorized shared rooms remain supported.
-- Deploy with voice 0.4.6 and core 0.6.20 for automatic tenant propagation and the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
+- Deploy with voice 0.5.0 and core 0.7.0 for automatic tenant propagation and the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
 
 ## 0.1.4
 

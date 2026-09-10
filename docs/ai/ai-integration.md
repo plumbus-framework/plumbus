@@ -691,9 +691,9 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 
 For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
 
-The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol is $4/$20 per million input/output tokens. Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
+The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol retains its original fixed $5/$30 per million input/output tokens, with $0.50 per million cached input tokens; the temporary reduction is not applied. Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
-The [core 0.6.20 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
+The [core 0.7.0 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
 
 ### Cached Token Pricing
 
@@ -1044,7 +1044,7 @@ A stream that provides neither usage nor price records unknown cost, not zero. R
 
 ### Fixed pricing catalog
 
-Prices are fixed in the bundled catalog and change only through an explicit manual update. There is no automatic refresh, promotion-window metadata, review reminder, or scheduled price change. GPT-5.6 Sol and its `gpt-5.6` alias retain the configured $4/$20 input/output rates per million tokens, with the existing context-length and cache calculations. Free/local-provider behavior is unchanged.
+Prices are fixed in the bundled catalog and change only through an explicit manual update. There is no automatic refresh, promotion-window metadata, review reminder, or scheduled price change. GPT-5.6 Sol and its `gpt-5.6` alias retain the original $5/$30 input/output rates per million tokens ($0.50 cached input), with the existing context-length and cache calculations. Free/local-provider behavior is unchanged.
 
 ### Numeric cost compatibility
 

@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.1.5 — 2026-09-10
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
 
 ### Agent instructions
 
-- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
 
 ### Security
 
@@ -13,7 +17,7 @@
 
 ### Compatibility
 
-- Runtime route and payload interfaces are unchanged. Manifests advertising query API keys must use implemented authentication before export. Deploy with core 0.6.20 for the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
+- Runtime route and payload interfaces are unchanged. Manifests advertising query API keys must use implemented authentication before export. Deploy with core 0.7.0 for the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
 
 ## 0.1.4 — 2026-08-10 — partner routes honor session auth
 

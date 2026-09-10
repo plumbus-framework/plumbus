@@ -1,10 +1,14 @@
 # @plumbus/mcp changelog
 
-## 0.5.2 — 2026-09-10
+## 0.6.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
 
 ### Agent instructions
 
-- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
 
 ### Security
 
@@ -15,7 +19,7 @@
 ### Compatibility
 
 - HTTP clients must now authenticate initialization/listing as well as calls. Tool names and task payloads are unchanged; error details are intentionally reduced.
-- Deploy core 0.6.20 for the coordinated security fixes. Existing coarse peer literals remain unchanged; they do not mean older core releases contain these fixes. [Migration guide](../../docs/upgrading-security-release.md).
+- Deploy core 0.7.0 for the coordinated security fixes. Plumbus peers now require the new release family; do not mix these packages with legacy core. [Migration guide](../../docs/upgrading-security-release.md).
 
 ## 0.5.1
 

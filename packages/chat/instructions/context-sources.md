@@ -169,4 +169,4 @@ Use it like any built-in: `context: [wikiContext({ wikiPath: '/wiki' })]`.
 - `src/context/knowledge-context.ts` — registry-backed KB adapter
 
 
-For chat 0.1.13/core 0.6.20, preserve the runtime's untrusted context envelopes and the executing tenant on `ctx.ai`. Missing tenant context only retrieves unscoped documents. Never share a tenant-bound AI service between callers or concatenate raw source/tool output around the runtime's trust framing. Authorization still runs through Plumbus capabilities.
+For chat 0.2.0/core 0.7.0, preserve the runtime's untrusted context envelopes and the executing tenant on `ctx.ai`. Missing tenant context only retrieves unscoped documents. Never share a tenant-bound AI service between callers or concatenate raw source/tool output around the runtime's trust framing. Authorization still runs through Plumbus capabilities.

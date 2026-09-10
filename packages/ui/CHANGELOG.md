@@ -1,14 +1,18 @@
 # Changelog
 
-## 0.7.4 — 2026-09-10
+## 0.8.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
 
 ### Agent instructions
 
-- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
 
 ### Changed
 
-- The packed UI dependency now resolves `@plumbus/core` 0.6.20, carrying the coordinated security release. Frontend APIs are unchanged.
+- Replace UI's direct core dependency with the required `@plumbus/core` `0.7.x` peer. This rejects new UI with an old application core instead of silently installing a second core inside UI. Install core and UI together; frontend APIs are unchanged.
 - See [security release migration](../../docs/upgrading-security-release.md) for backend authentication and audit requirements.
 
 ## 0.7.3

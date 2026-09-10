@@ -122,4 +122,4 @@ Steps that fail with transient errors are retried. Permanent failures stop the f
 - Failed flows with exhausted retries land in a dead-letter queue for manual inspection
 
 
-Core 0.6.20 rejects missing, malformed, or actor/tenant-inconsistent stored auth snapshots before a step executes. New snapshots omit session IDs and authentication timestamps. Do not recover legacy rows by injecting worker/system roles; follow [the security release checklist](./upgrading-security-release.md) with a verified initiating identity and a review of prior effects.
+Core 0.7.0 rejects missing, malformed, or actor/tenant-inconsistent stored auth snapshots before a step executes. New snapshots omit session IDs and authentication timestamps. Do not recover legacy rows by injecting worker/system roles; follow [the security release checklist](./upgrading-security-release.md) with a verified initiating identity and a review of prior effects.

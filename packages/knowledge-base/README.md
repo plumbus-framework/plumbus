@@ -1,11 +1,16 @@
 # @plumbus/knowledge-base
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 > **Audience-scoped, queryable knowledge for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** One provider contract, multiple content backends, composed through an explicit registry — so chat, tooltips, capabilities, and admin search all see the same facts under the same scope rules.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/knowledge-base.svg)](https://www.npmjs.com/package/@plumbus/knowledge-base)
 [![license](https://img.shields.io/npm/l/@plumbus/knowledge-base.svg)](./LICENSE)
 [![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/chat 0.1.x](https://img.shields.io/badge/peer-%40plumbus%2Fchat%200.1.x-blue)](https://www.npmjs.com/package/@plumbus/chat)
+[![peer: @plumbus/chat 0.2.x](https://img.shields.io/badge/peer-%40plumbus%2Fchat%200.2.x-blue)](https://www.npmjs.com/package/@plumbus/chat)
 
 ## What is this?
 
@@ -52,7 +57,7 @@ This package gives you a single answer: declare each knowledge source once with 
 
 ## Status
 
-Optional peer of `@plumbus/chat` (version-locked `0.1.x`). Implements the `defineKnowledgeSource` / registry contract, all five built-in providers, the scope model, and the chat `knowledgeContext` integration. Auto-discovery, file watching for `documentCollection`, governance hooks, and chat tier-2 tool execution are not implemented — see [Out of scope](#out-of-scope).
+Optional peer of `@plumbus/chat` (version-locked `0.2.x`). Implements the `defineKnowledgeSource` / registry contract, all five built-in providers, the scope model, and the chat `knowledgeContext` integration. Auto-discovery, file watching for `documentCollection`, governance hooks, and chat tier-2 tool execution are not implemented — see [Out of scope](#out-of-scope).
 
 ## Install
 
@@ -61,7 +66,7 @@ pnpm add @plumbus/knowledge-base
 ```
 
 Peers:
-- `@plumbus/core` `0.5.x || 0.6.x` — required (`ctx`, RAG, capabilities, translations)
+- `@plumbus/core` `0.7.x` — required (`ctx`, RAG, capabilities, translations)
 - `@plumbus/chat` `^0.1.4 <0.2.0` — required only if you wire knowledge into chat via `knowledgeContext`
 
 ## Quickstart

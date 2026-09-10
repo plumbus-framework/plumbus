@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.4.6 — 2026-09-10
+## 0.5.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
 
 ### Agent instructions
 
-- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
 
 ### Security
 
@@ -15,7 +19,7 @@
 
 - Preserve explicitly configured finite positive token lifetimes; the default remains 90 seconds. No new blanket 300-second ceiling.
 - Existing clients must send audio frames ≤64 KiB and control frames ≤16 KiB; pending input is capped at 256 KiB. These intentional limits replace unlimited input. Use a real session-token key of at least 32 non-padding characters.
-- For the complete security fixes, deploy with core 0.6.20 and LiveKit 0.1.5 when used. [Migration guide](../../docs/upgrading-security-release.md).
+- For the complete security fixes, deploy with core 0.7.0 and LiveKit 0.2.0 when used. [Migration guide](../../docs/upgrading-security-release.md).
 
 ## 0.4.5
 
