@@ -39,17 +39,11 @@ Example:
 ./scripts/bump-version.sh patch
 ```
 
-### Step 3: Core **minor** bump — update add-on peers (mandatory)
+### Step 3: Coordinated migration releases — mandatory
 
-When bumping `@plumbus/core` **minor** (e.g. 0.6.0 → 0.7.0), **before** tagging:
+For the core 0.7 security family, follow the version table in `docs/upgrading-security-release.md` and read `packages/plumbus-core/instructions/peer-dependencies.md` before editing manifests. All 18 packages move outside their previous caret ranges, even add-ons with only peer changes. Copy the new-family-only peer literals; do not widen them to legacy core or voice lines. UI 0.8.x requires core 0.7.x as a shared peer; never restore a direct nested core dependency to bypass the upgrade boundary.
 
-1. Read `packages/plumbus-core/instructions/peer-dependencies.md`.
-2. Update the canonical peer literal in that file (e.g. add `0.7.x` to the union).
-3. Set `peerDependencies["@plumbus/core"]` in **every** publishable add-on under `packages/` to the new literal — copy from `packages/mcp/package.json`; do not invent ranges.
-4. Patch-bump each affected add-on (`chat`, `chat-ui`, `knowledge-base`, `mcp`, `api`, `browser-extension`, `voice` if applicable).
-5. Update each add-on's `instructions/framework.md` (or `conventions.md`) peer line to match.
-
-Skip this step for core **patch** bumps that do not add a new supported core line.
+The generic bump script changes only core, UI, and voice. It is not sufficient to prepare a coordinated release: update every package in the plan, its changelog, packaged guidance, lockfile, and root agent instructions. Publish normally to `latest`. Run the four repository checks and packed npm consumer checks before publication. Never tag, publish, promote dist-tags, or mutate git without the authorization required by repository instructions.
 
 ### Step 4: Verify the result
 

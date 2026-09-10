@@ -64,3 +64,5 @@ plumbus api validate   # manifest, policy, path params, fixtures, governance (re
 ```
 
 See [overview.md](./overview.md) for `generate openapi`, `generate docs`, `diff`, and `test-fixtures validate`.
+
+Query-string API keys are not supported by the partner runtime. Manifest validation reports this as an error, and OpenAPI export refuses to advertise such a scheme. Use the runtime's configured Bearer or session authentication. Permission-denied responses omit required scope/role names; detailed policy diagnostics remain server-side.

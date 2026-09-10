@@ -2,22 +2,24 @@
 
 `@plumbus/mcp` provides two transports. Both use the same `createMcpServer()` handlers and `executeCapability()` pipeline.
 
+CLI startup resolves `PLUMBUS_ENV`, then `NODE_ENV`, defaulting to `development`. Outside development, both transports require configured agents or a valid explicit `AUTH_SECRET`; missing credentials and known development placeholder secrets stop startup. Development without credentials is anonymous and never accepts placeholder-signed JWTs. The CLI currently loads environment variables, not project config files; agent maps require application-owned runtime wiring. See [CLI environment and credentials](./agent-authentication.md#cli-environment-and-credentials).
+
 ## stdio
 
 **Command:** `plumbus mcp serve` (default when `--http` is omitted) or `plumbus mcp serve --stdio`
 
 - Uses the MCP SDK `StdioServerTransport`.
 - Typical for Claude Desktop, Cursor, and local agent runners that spawn a child process.
-- **Auth:** set `PLUMBUS_MCP_TOKEN` to a key configured in `plumbus.config.ts` → `mcp.agents` (see [agent-authentication.md](./agent-authentication.md)).
+- **Auth:** with an application-wired agent-map adapter, set `PLUMBUS_MCP_TOKEN` to a configured agent key (see [agent-authentication.md](./agent-authentication.md)). CLI JWT authentication requires the runner to forward an Authorization header in request metadata.
 
-Example Claude Desktop config fragment:
+Example Claude Desktop config fragment for an application-owned runner that supplies an agent-map adapter:
 
 ```json
 {
   "mcpServers": {
     "my-plumbus-app": {
-      "command": "plumbus",
-      "args": ["mcp", "serve", "--stdio"],
+      "command": "node",
+      "args": ["dist/mcp-server.js"],
       "env": {
         "PLUMBUS_MCP_TOKEN": "your-agent-token-key"
       }
@@ -29,6 +31,10 @@ Example Claude Desktop config fragment:
 Run from the app project root so resource discovery finds `app/capabilities/`.
 
 ## Streamable HTTP
+
+Every request to the MCP transport route authenticates before the SDK takes over the connection, including initialization and tool listing. Missing/invalid credentials return 401. The separate discovery document retains its documented public default and `requireDiscoveryAuth` opt-in. An anonymous-only development CLI can use stdio; authenticated HTTP requires credentials.
+
+Tool failures use core's safe error formatter: internal errors use a generic message, forbidden responses do not enumerate policy requirements, and metadata is allowlisted. Detailed errors remain available through server-side error hooks.
 
 **Command:** `plumbus mcp serve --http --port $PLUMBUS_MCP_PORT [--host 0.0.0.0]`
 
@@ -45,7 +51,7 @@ Run from the app project root so resource discovery finds `app/capabilities/`.
 }
 ```
 
-- **Auth:** `Authorization: Bearer <token>` where `<token>` is a key in `mcp.agents`.
+- **Auth:** `Authorization: Bearer <token>`: a JWT signed with the CLI's explicit `AUTH_SECRET`, or an opaque agent key when the runtime uses `createMcpAuthAdapter`.
 
 Remote agents should fetch discovery first, then call tools with Bearer auth.
 

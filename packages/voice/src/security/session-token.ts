@@ -1,3 +1,5 @@
+import { z } from '@plumbus/core/zod';
+import { PlumbusError, ErrorCode } from '@plumbus/core';
 import { createJwtAdapter, signJwt } from '@plumbus/core';
 import type { AuthContext } from '@plumbus/core';
 
@@ -26,6 +28,18 @@ export interface VerifiedVoiceSessionToken {
 const DEFAULT_EXPIRES_IN_SECONDS = 90;
 
 export function mintVoiceSessionToken(args: MintVoiceSessionTokenArgs): string {
+  if (
+    !z
+      .number()
+      .finite()
+      .int()
+      .positive()
+      .safeParse(args.expiresInSeconds ?? DEFAULT_EXPIRES_IN_SECONDS).success
+  )
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      'Voice handshake token lifetime must be a finite positive number of whole seconds',
+    );
   return signJwt({
     secret: args.secret,
     sub: args.auth.userId ?? 'anonymous',

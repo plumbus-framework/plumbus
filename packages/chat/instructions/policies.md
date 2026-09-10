@@ -121,6 +121,14 @@ policy: {
     enabled: true,
     capabilities: ['lookupOrder', 'openSupportTicket'],
     autoStartFlows: ['issueRefund'],
+    ai: {
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+      reasoning: { mode: 'effort', effort: 'medium' },
+    }, // optional; prompt config wins when omitted
+    includeNestedAiUsage: false, // staged compatibility; agent defaults true
+    orchestration: 'staged', // or 'agent' with a custom plain-text prompt
+    scopePreflight: true,    // agent defaults false
     maxToolRounds: 5,  // default 5, range 1..20
   },
 },
@@ -130,11 +138,16 @@ policy: {
   over a bounded per-turn loop. Auto-mode tools execute inline (access policy enforced);
   confirm-mode tools pause with `confirmation_required` and execute on `POST
   /chat/:name/confirm`.
-- **Re-export `chatToolRoundPrompt` and `chatScopeCheckPrompt`** into `app/prompts/` first —
-  missing prompts fail startup with `chat.prompt_not_registered`.
+- **For staged orchestration**, re-export `chatToolRoundPrompt` and `chatScopeCheckPrompt`
+  into `app/prompts/`; missing prompts fail the turn with `chat.prompt_not_registered`.
+  Agent orchestration with `scopePreflight:false` uses neither package prompt.
 - Path B needs a transactional store (`chat.storage_unsupported` on failure) and never
   uses core's `runToolLoop`. See `/docs/chat/policies.md#tool-calling-path-b` for the full
   error/status table.
+- Agent orchestration makes the custom prompt itself choose tools and return the final plain-text answer. With the default `scopePreflight:false`, a no-tool turn is one model call and neither `chat.scopeCheck` nor `chat.toolRound` is required. Staged behavior remains the default.
+- `toolCalling.ai` can explicitly override the tool AI's provider, model, and provider-neutral reasoning. When omitted, prompt/runtime overrides are preserved. `reasoning:null` restores provider default and clears inherited new or legacy reasoning controls; adapters translate `disabled`, `effort`, or `budget` and reject unsupported modes. Chat performs no model-name inference.
+- `includeNestedAiUsage` defaults false for staged chats and true for the new agent orchestration. It changes Chat budget/accounting only; nested core AI calls still record their own cost ledger entries either way.
+- AI usage/cost returned by `generateWithUsage` or `streamGenerate` inside an auto capability tool is included in the logical turn totals; plain `generate` has no usage payload to aggregate.
 
 ### Provenance (require citations)
 

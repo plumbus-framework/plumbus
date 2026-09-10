@@ -41,6 +41,8 @@ The package does **not** replace normal app security work. The app still must:
 
 ## Session token guidance
 
+The `plumbus voice` CLI shares its base runtime bootstrap with `plumbus mcp serve`. It resolves `PLUMBUS_ENV`, then `NODE_ENV`, defaulting to `development`; outside development it requires configured authentication before opening database or queue connections. For CLI JWT authentication, set an explicit `AUTH_SECRET` of at least 32 characters excluding surrounding whitespace. Known development placeholders are rejected in every environment. These credentials are separate from voice session-token and provider secrets. See [CLI authentication](../mcp/agent-authentication.md#cli-environment-and-credentials).
+
 - Keep TTL short: handshake-oriented, not session-long.
 - Scope claims to the voice name + session id.
 - Avoid putting the token in the URL.
@@ -85,3 +87,9 @@ At minimum, test:
 - [testing.md](./testing.md)
 - [configuration.md](./configuration.md)
 - [voice-cloning.md](./voice-cloning.md)
+
+WebSocket input is capped before conversion or resampling: 64 KiB per audio message, 16 KiB per control message, and 256 KiB pending input per connection. Oversized input closes with 1009. Input callbacks are serialized and each audio frame is delivered once. The WebSocket plugin also has a 64 KiB `maxPayload`. An omitted/empty session budget emits a startup warning: duration/media caps are optional, not silently assumed. Configured budgets and usage must be finite and nonnegative. Explicit session-token secrets require at least 32 non-padding characters.
+
+Default LiveKit room names include the authenticated tenant when present. Explicit room names and app-owned room resolvers remain application-authorized sharing mechanisms; a resolver now receives `tenantId` as well as user/session identity. Redis event envelopes are schema-validated before delivery, and malformed envelopes are discarded with a diagnostic rather than repeatedly requeued.
+
+Voice handshake JWT lifetimes must be finite positive whole seconds (default 90, with existing configured lifetimes preserved); established session duration remains a separate session-budget/lifecycle setting.

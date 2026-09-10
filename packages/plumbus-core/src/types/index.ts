@@ -136,9 +136,16 @@ export type {
   PolicyReport,
   RuleEvaluation,
 } from './governance.js';
-export type { ModelConfig, PromptDefinition, ReasoningEffort } from './prompt.js';
 // ── Prompt ──
-export { REASONING_EFFORTS } from './prompt.js';
+export { REASONING_EFFORTS, ReasoningEffortValues, ReasoningLevelValues } from './prompt.js';
+export type {
+  AIReasoningConfig,
+  ModelConfig,
+  PromptDefinition,
+  ReasoningEffort,
+  ReasoningEffortOption,
+  ReasoningLevel,
+} from './prompt.js';
 // ── Registry ──
 export type {
   PlumbusRegistry,

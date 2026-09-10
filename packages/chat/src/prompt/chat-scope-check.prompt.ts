@@ -5,8 +5,9 @@ import { z } from '@plumbus/core/zod';
 export const chatScopeCheckPrompt = definePrompt({
   name: 'chat.scopeCheck',
   domain: 'chat',
+  system: '{{systemPrompt}}',
   description:
-    '{{systemPrompt}}\n\nClassify ONLY whether the following user message is in scope for this assistant. Do NOT answer it.\nUser message: {{userMessage}}\n\nReturn inScope=true if it is on-topic and safe to handle; otherwise inScope=false with a refusalReason.',
+    'Classify ONLY whether the following user message is in scope for this assistant. Do NOT answer it.\nUser message: {{userMessage}}\n\nReturn inScope=true if it is on-topic and safe to handle; otherwise inScope=false with a refusalReason.',
   input: z.object({
     systemPrompt: z.string(),
     userMessage: z.string(),

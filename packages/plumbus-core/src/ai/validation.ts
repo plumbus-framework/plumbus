@@ -18,7 +18,7 @@ export interface ValidatedResponse<T> {
   data: T;
   raw: string;
   attempts: number;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: TokenUsage;
   /**
    * Sum of adapter-supplied `ProviderResponse.cost` across attempts, when every
    * successful attempt provided a cost. Otherwise omitted so callers fall back

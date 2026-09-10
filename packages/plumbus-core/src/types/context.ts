@@ -2,12 +2,14 @@ import type { z } from 'zod';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
+import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 import type {
   AITool,
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
   ChatMessage,
+  ProviderAssistantState,
 } from '../ai/provider.js';
 
 // Re-export the provider tool-calling protocol types on the context surface.
@@ -17,6 +19,7 @@ export type {
   AIToolChoice,
   AIToolExecutionOptions,
   AIProviderCapabilities,
+  ProviderAssistantState,
 } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
@@ -323,6 +326,7 @@ export interface AIStreamEvent {
   provider?: string;
   /** Estimated cost in USD (for done events) */
   cost?: number;
+  costAvailable?: boolean;
   /**
    * Provider-reported termination reason (for done events). Typical values:
    * 'stop' (natural completion), 'length' (hit max_tokens — output was
@@ -382,19 +386,25 @@ export interface AIFinalGenerateResult<T = Record<string, any>> {
   usage: AITokenUsage;
   model: string;
   provider: string;
-  /** Estimated cost in USD based on published per-token rates. 0 for unknown models. */
+  /** USD cost when known; legacy zero when unpriced. Check costAvailable before treating zero as free. */
   cost: number;
+  /** False means cost is unknown; numeric zero is retained for compatibility. */
+  costAvailable?: boolean;
 }
 
 /** C1: tool-call branch — never carries `.data`. */
 export interface AIToolCallsGenerateResult {
   finishReason: 'tool_calls';
   toolCalls: AIToolCall[];
+  /** Opaque server-owned state required to continue some provider tool loops. */
+  providerState?: ProviderAssistantState;
   data?: never;
   usage: AITokenUsage;
   model: string;
   provider: string;
   cost: number;
+  /** False means cost is unknown; numeric zero is retained for compatibility. */
+  costAvailable?: boolean;
 }
 
 /** C1: only tool-enabled config returns this discriminated union (keyed on finishReason). */
@@ -415,6 +425,20 @@ export interface AIGenerateWithUsageConfig {
   costContext?: AICostContext;
   seed?: number;
   outputValidation?: 'prompt' | 'none';
+  /** Override the prompt/config provider for this call. */
+  provider?: string;
+  /** Override the prompt/config model for this call. */
+  model?: string;
+  /**
+   * Override the prompt/config reasoning intent. `null` deliberately restores
+   * the provider/model default by omitting reasoning controls on the wire.
+   */
+  reasoning?: AIReasoningConfig | null;
+  /**
+   * @deprecated Use `reasoning`. Retained with the legacy OpenAI-only
+   * `'low' | 'medium' | 'high'` values.
+   */
+  reasoningEffort?: ReasoningEffort | null;
 }
 
 export interface AIValidationOptions {
@@ -448,6 +472,15 @@ export interface AICostContext {
 
 // ── AI Service ──
 export interface AIService {
+  /** Bind a fresh service to the executing identity without mutating shared configuration. */
+  withContext?(identity: { tenantId?: string; actor?: string }): AIService;
+
+  /** Optional runtime feature flags for cross-version integrations. */
+  readonly features?: {
+    /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */
+    perCallProviderModelReasoning?: true;
+  };
+
   /**
    * Record provider-side spend directly when a caller already has normalized
    * cost metadata (for example voice/media adapters that do not flow through
@@ -478,6 +511,14 @@ export interface AIService {
     costContext?: AICostContext;
     /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
     seed?: number;
+    /** Per-call provider override. */
+    provider?: string;
+    /** Per-call model override. */
+    model?: string;
+    /** Provider-neutral per-call reasoning override; `null` restores provider default. */
+    reasoning?: AIReasoningConfig | null;
+    /** @deprecated Use `reasoning`. */
+    reasoningEffort?: ReasoningEffort | null;
   }): Promise<Record<string, any>>;
 
   /** Like generate(), but also returns actual token usage. No tools → flat result; `.data` unconditional (C1). */
@@ -509,6 +550,14 @@ export interface AIService {
     costContext?: AICostContext;
     /** Deterministic sampling seed forwarded to providers that support it (OpenAI-compatible). Ignored by others. */
     seed?: number;
+    /** Per-call provider override. */
+    provider?: string;
+    /** Per-call model override. */
+    model?: string;
+    /** Provider-neutral per-call reasoning override; `null` restores provider default. */
+    reasoning?: AIReasoningConfig | null;
+    /** @deprecated Use `reasoning`. */
+    reasoningEffort?: ReasoningEffort | null;
   }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {

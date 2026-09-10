@@ -169,7 +169,7 @@ export function mapAuthenticationUnavailable(
 }
 
 export function mapMissingScope(
-  missing: string[],
+  _missing: string[],
   requestId: string,
   apiVersion: string,
 ): { status: number; body: ApiErrorEnvelope } {
@@ -179,7 +179,7 @@ export function mapMissingScope(
       ok: false,
       error: {
         code: 'missing_scope',
-        message: `Missing scopes: ${missing.join(', ')}`,
+        message: 'Access denied',
         requestId,
       },
       meta: { apiVersion },
@@ -214,7 +214,12 @@ export function mapCoreError(
   const mapped = coreCodeMap[err.code] ?? 'internal_error';
   const metadata = 'metadata' in err ? err.metadata : undefined;
   const metadataStatus = getMetadataStatusCode(metadata);
-  const message = mapped === 'internal_error' ? GENERIC_INTERNAL_MESSAGE : err.message;
+  const message =
+    mapped === 'internal_error' || (metadataStatus ?? 0) >= 500
+      ? GENERIC_INTERNAL_MESSAGE
+      : mapped === 'forbidden'
+        ? 'Access denied'
+        : err.message;
   const details = mapped === 'validation_failed' ? extractValidationDetails(metadata) : undefined;
 
   return {

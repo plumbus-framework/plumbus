@@ -378,3 +378,10 @@ plumbus init --patch --agent <your-agent>
 
 This refreshes the Plumbus-managed wiring sections with the latest instructions while preserving surrounding custom notes. If doctor reports that a file cannot be patched safely, rerun with `--force` for that full replacement.
 
+
+
+## Security release wiring v16
+
+Core 0.7.0 generates wiring version **15**. All root agent formats (reference and inline, flat and monorepo) and the Cursor capability rule point at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. The checklist ships in the npm package and covers coordinated versions, credentials/SAML, legacy flow recovery, unknown-cost flags, audit behavior, and voice limits. The framework-first guardrails remain mandatory.
+
+After updating the app's packages, run `plumbus init --patch`, then `plumbus doctor`. Patching updates only managed wiring blocks and retains custom text outside them. See [the release migration guide](../upgrading-security-release.md).

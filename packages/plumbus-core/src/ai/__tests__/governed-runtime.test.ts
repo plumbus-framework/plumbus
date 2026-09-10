@@ -12,6 +12,7 @@ import type { ConsumerRegistry } from '../../events/consumer-registry.js';
 import type { createOutboxDispatcher } from '../../events/dispatcher.js';
 import type { createEventEmitter } from '../../events/emitter.js';
 import type { createFlowScheduler } from '../../flows/scheduler.js';
+import { mockAudit } from '../../testing/context.js';
 import { createMemoryGovernedArtifactStore } from '../governed-artifacts.js';
 import type { GovernedAiHost } from '../governed-host.js';
 import { governedReviewSubject } from '../governed-invoke.js';
@@ -103,6 +104,7 @@ describe('createPlumbusRuntime', () => {
     const runtime = createPlumbusRuntime({
       capabilities,
       auth: humanAuth(),
+      contextDeps: { data: {}, audit: mockAudit() },
     });
 
     const result = await runtime.invokeCapability('billing.getInvoice', {

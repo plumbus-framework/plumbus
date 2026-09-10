@@ -5,6 +5,26 @@
 ### Changed
 
 - **`generateClientModule` and `generateHooksModule` skip capabilities that are not `exposeAs: ['api']`**, and skip `eventHandler` even when they are. Callers that pass a mixed registry get HTTP wrappers only for HTTP-exposed operations. Regenerate with `plumbus ui generate`.
+## 0.8.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.8.0.
+
+## 0.8.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages publish to npm’s default `latest` dist-tag.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Changed
+
+- Replace UI's direct core dependency with the required `@plumbus/core` `0.7.x` peer. This rejects new UI with an old application core instead of silently installing a second core inside UI. Install core and UI together; frontend APIs are unchanged.
+- See [security release migration](../../docs/upgrading-security-release.md) for backend authentication and audit requirements.
 
 ## 0.7.3
 

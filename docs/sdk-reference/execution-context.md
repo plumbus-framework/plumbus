@@ -357,6 +357,10 @@ handler: async (ctx, input) => {
 
 ## ctx.audit
 
+Audit writers retry transient failures up to three times with one stable event ID. The database writer uses that ID to make retries idempotent. Permanent audit failures propagate instead of returning an apparently successful capability response; missing audit-service wiring also fails when used. This does not undo external effects or already-committed transactions. Post-commit deferred callbacks remain isolated and log failures; for regulatory durability, write required audit events through a transaction/outbox or an app-owned durable `AuditWriter` before committing the protected effect. Custom writers must deduplicate by `AuditEvent.id`.
+
+Outcomes are restricted to `success`, `failure`, and `denied`. Framework-generated capability outcomes cannot be overwritten by extra metadata; actor and tenant come from the execution identity. Manual event names/metadata are application assertions, not independent proof of an action. `audit.enabled: false` is an explicit capability-author opt-out, not a compliance guarantee. The default database table is not cryptographically tamper-evident against a database administrator; use restricted append-only DB permissions and an independently protected audit sink when that threat is in scope.
+
 Record audit trail entries:
 
 ```typescript

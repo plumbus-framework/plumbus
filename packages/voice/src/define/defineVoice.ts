@@ -57,6 +57,11 @@ const voiceConfigSchema = z.object({
       message: 'resolveTone must be a function',
     })
     .optional(),
+  onHearingRepair: z
+    .custom((value: unknown) => value === undefined || typeof value === 'function', {
+      message: 'onHearingRepair must be a function',
+    })
+    .optional(),
   preprocessForTts: z
     .custom((value: unknown) => value === undefined || typeof value === 'function', {
       message: 'preprocessForTts must be a function',

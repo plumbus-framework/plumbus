@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-livekit",
-  "version": "0.1.3",
+  "version": "0.2.1",
   "description": "LiveKit transport, agent worker, and browser session helpers for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,7 +28,12 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
@@ -41,8 +46,8 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.6.x",
-    "@plumbus/voice": "0.4.x",
+    "@plumbus/core": "0.7.x",
+    "@plumbus/voice": "0.5.x",
     "fastify": "^5.0.0",
     "livekit-client": "^2.0.0",
     "@livekit/krisp-noise-filter": "^0.4.0"

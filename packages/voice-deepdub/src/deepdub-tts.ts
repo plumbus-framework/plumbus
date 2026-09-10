@@ -45,7 +45,9 @@ const IDLE_RECONNECT_MS = 120_000;
 
 class DeepdubTTSProvider implements TTSProvider {
   readonly capabilities = DEEPDUB_TTS_DESCRIPTOR;
-  #characters = 0;
+  // Deepdub bills by minutes of generated audio, so usage is metered in
+  // output bytes and converted to seconds at the stream's sample rate.
+  #audioBytes = 0;
   #client: DeepdubSdkClient | undefined;
   #connectPromise: Promise<DeepdubSdkClient> | undefined;
   #lastUsedAt = 0;
@@ -118,7 +120,6 @@ class DeepdubTTSProvider implements TTSProvider {
   }
 
   async *synthesizeStream(text: string, params: unknown, signal?: AbortSignal) {
-    this.#characters += text.length;
     const voiceReference = resolveVoiceReference(this.voiceSlice.options, params);
     if (voiceReference) {
       const buffer = await deepdubSynthesizeWithVoiceReference(this.credentials, {
@@ -130,6 +131,7 @@ class DeepdubTTSProvider implements TTSProvider {
       if (signal?.aborted) {
         return;
       }
+      this.#audioBytes += buffer.byteLength;
       yield buffer;
       return;
     }
@@ -150,6 +152,7 @@ class DeepdubTTSProvider implements TTSProvider {
 
     const pushChunk = (chunk: Uint8Array) => {
       if (!chunk || chunk.length === 0) return;
+      this.#audioBytes += chunk.byteLength;
       if (!firstChunkLogged) {
         firstChunkLogged = true;
         console.info('[voice-tts] first deepdub audio chunk received', {
@@ -294,16 +297,21 @@ class DeepdubTTSProvider implements TTSProvider {
   }
 
   usage() {
-    if (this.#characters === 0) {
+    if (this.#audioBytes === 0) {
       return [];
     }
+
+    // PCM16 mono: 2 bytes per sample. The stream's rate is the configured
+    // output rate; Deepdub's native rate (48 kHz) is the fallback.
+    const sampleRate = resolveOutputSampleRate(this.voiceSlice.options);
+    const seconds = this.#audioBytes / (2 * sampleRate);
 
     return [
       {
         provider: this.capabilities.id,
         kind: 'synthesize' as const,
-        quantity: this.#characters,
-        unit: 'characters' as const,
+        quantity: seconds,
+        unit: 'seconds' as const,
         model:
           getVoiceModelOption(DEEPDUB_TTS_MODELS, this.voiceSlice.model)?.costModelKey ??
           DEEPDUB_TTS_MODELS[0]?.costModelKey ??
@@ -500,6 +508,12 @@ function resolveVoiceReference(
 function resolveReconnectDelayMs(credentials: VoiceProviderCredentials): number {
   const configured = (credentials.options as Record<string, unknown> | undefined)?.reconnectDelayMs;
   return typeof configured === 'number' && configured >= 0 ? configured : RECONNECT_DELAY_MS;
+}
+
+/** Output PCM rate for usage metering: the configured rate, else Deepdub's native 48 kHz. */
+function resolveOutputSampleRate(options: VoiceTtsConfig['options']): number {
+  const configured = options?.sampleRate;
+  return typeof configured === 'number' && configured > 0 ? configured : 48_000;
 }
 
 /** Idle window before a socket is replaced rather than trusted. Test seam. */

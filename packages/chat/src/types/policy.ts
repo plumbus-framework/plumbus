@@ -12,6 +12,31 @@ export interface Cooldown {
   scope?: 'session' | 'user';
 }
 
+export const ChatReasoningLevelValues = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+export const ChatLegacyReasoningEffortValues = ['low', 'medium', 'high'] as const;
+
+export type ChatReasoningLevel = (typeof ChatReasoningLevelValues)[number];
+export type ChatLegacyReasoningEffort = (typeof ChatLegacyReasoningEffortValues)[number];
+export type ChatReasoningConfig =
+  | { mode: 'disabled' }
+  | { mode: 'effort'; effort: ChatReasoningLevel }
+  | { mode: 'budget'; maxTokens: number };
+
+export interface ChatToolAiConfig {
+  provider?: string;
+  model?: string;
+  reasoning?: ChatReasoningConfig | null;
+  /** @deprecated Use `reasoning`. */
+  reasoningEffort?: ChatLegacyReasoningEffort | null;
+}
+
 /** Path A action policy. */
 export interface ChatActionPolicy {
   allowedCapabilities?: string[];
@@ -31,6 +56,36 @@ export interface ChatToolCallingPolicy {
   enabled: boolean;
   capabilities?: string[];
   autoStartFlows?: string[];
+
+  /**
+   * Optional per-call overrides for the AI that selects and continues tools.
+   * Omit either field to inherit the custom/staged prompt's normal model and
+   * reasoning configuration (including runtime prompt overrides).
+   */
+  ai?: ChatToolAiConfig;
+
+  /**
+   * Count AI calls made inside auto tools toward this Chat turn's usage and
+   * budget. Defaults false for staged compatibility and true for agent
+   * orchestration, which is new in 0.1.12.
+   */
+  includeNestedAiUsage?: boolean;
+
+  /**
+   * `staged` (default) preserves the original Path B pipeline:
+   * scope preflight -> chat.toolRound loop -> separate structured answer.
+   *
+   * `agent` runs the chat's custom prompt as the provider-native tool loop and
+   * treats its tool-less completion as the final answer. This is intended for
+   * trusted domain conversations whose prompt emits plain text. It avoids an
+   * unconditional router/classifier and a second answer-composition call.
+   */
+  orchestration?: 'staged' | 'agent';
+  /**
+   * Run `chat.scopeCheck` before tool selection. Defaults to true for staged
+   * orchestration and false for agent orchestration.
+   */
+  scopePreflight?: boolean;
 
   /** Default 5; range 1..20. */
   maxToolRounds?: number;

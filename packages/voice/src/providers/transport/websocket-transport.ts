@@ -4,6 +4,10 @@ import type { TransportProviderCapabilities } from '../base/capabilities.js';
 import type { TransportProviderRegistration } from '../base/provider-registration.js';
 import type { TransportProvider, TransportProviderSession } from '../base/transport-provider.js';
 
+export const MAX_WEBSOCKET_MESSAGE_BYTES = 64 * 1024;
+const MAX_CONTROL_BYTES = 16 * 1024;
+const MAX_PENDING_BYTES = 256 * 1024;
+
 const DEFAULT_AUDIO_FORMAT = 'pcm16;rate=16000;channels=1';
 
 export interface WebSocketTransportSessionMetadata {
@@ -44,6 +48,7 @@ export class WebSocketTransportProvider implements TransportProvider {
   async mintSession(args: {
     voiceName: string;
     userId?: string;
+    tenantId?: string;
   }): Promise<TransportProviderSession> {
     return {
       sessionId: `websocket:${args.voiceName}:${args.userId ?? 'anonymous'}:${randomUUID()}`,
@@ -59,30 +64,50 @@ export class WebSocketTransportProvider implements TransportProvider {
 
   attachSocket(args: AttachWebSocketTransportArgs): void {
     this.activeSocket = args.socket;
+    let pendingBytes = 0;
+    let closed = false;
+    let pending = Promise.resolve();
     args.socket.on('message', (raw, isBinary) => {
-      if (isBinary) {
-        const chunk =
-          typeof raw === 'string'
-            ? Uint8Array.from(raw, (char) => char.charCodeAt(0) & 0xff)
-            : new Uint8Array(raw);
-        void args.onAudio?.(chunk);
+      const bytes = typeof raw === 'string' ? Buffer.byteLength(raw, 'utf8') : raw.byteLength;
+      if (closed) return;
+      if (
+        bytes > (isBinary ? MAX_WEBSOCKET_MESSAGE_BYTES : MAX_CONTROL_BYTES) ||
+        pendingBytes + bytes > MAX_PENDING_BYTES
+      ) {
+        closed = true;
+        args.socket.close(1009, 'Voice frame or pending input exceeds limit');
         return;
       }
-
-      const payload = decodeControlFrame(raw);
-      if ('error' in payload) {
-        void this.sendData({
-          type: 'error',
-          code: 'voice.invalid_message',
-          message: payload.error,
+      pendingBytes += bytes;
+      pending = pending
+        .then(async () => {
+          if (closed) return;
+          if (isBinary) {
+            const chunk =
+              typeof raw === 'string'
+                ? Uint8Array.from(raw, (char) => char.charCodeAt(0) & 0xff)
+                : new Uint8Array(raw);
+            await args.onAudio?.(chunk);
+            return;
+          }
+          const payload = decodeControlFrame(raw);
+          if ('error' in payload) {
+            this.sendData({ type: 'error', code: 'voice.invalid_message', message: payload.error });
+            return;
+          }
+          await args.onControl?.(payload.value);
+        })
+        .catch(() => {
+          closed = true;
+          args.socket.close(1011, 'Voice input processing failed');
+        })
+        .finally(() => {
+          pendingBytes -= bytes;
         });
-        return;
-      }
-
-      void args.onControl?.(payload.value);
     });
 
     args.socket.on('close', () => {
+      closed = true;
       this.activeSocket = undefined;
       void args.onClose?.();
     });

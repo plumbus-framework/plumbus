@@ -137,7 +137,8 @@ describe('resolveDependencies', () => {
 
     expect(sent.statusCode).toBe(403);
     expect(sent.body.error.code).toBe('forbidden');
-    expect(sent.body.error.message).toContain('no tenant reference');
+    // 403 bodies carry the generic message; the refusal reason stays server-side.
+    expect(sent.body.error.message).toBe('Access denied');
     expect(dispatchQueuedJob).not.toHaveBeenCalled();
   });
 

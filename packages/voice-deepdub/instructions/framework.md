@@ -1,5 +1,10 @@
 # @plumbus/voice-deepdub — Framework
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 **Exact path in a consumer app:** `node_modules/@plumbus/voice-deepdub/instructions/framework.md`
 
 Index: `node_modules/@plumbus/voice-deepdub/instructions/README.md`
@@ -17,8 +22,8 @@ Vendor API reference (source of truth for endpoints/models): [Deepdub API skill]
 **Peers (copy literals):**
 
 ```json
-"@plumbus/core": "0.6.x",
-"@plumbus/voice": "0.4.x"
+"@plumbus/core": "0.7.x",
+"@plumbus/voice": "0.5.x"
 ```
 
 ## Install
@@ -68,6 +73,7 @@ Pass `registry` into `registerVoiceRoutes()` / worker bootstrap as documented in
 | `DEEPDUB_BASE_URL` | no | Override REST base (default `https://restapi.deepdub.ai/api/v1`; EU: `https://eu-restapi.deepdub.ai/api/v1`) |
 | `DEEPDUB_VOICE_ID` | for live/smoke | Persisted `voicePromptId` |
 | `DEEPDUB_MODEL` | for live/smoke | Optional; defaults to `dd-etts-3.2` in the live test |
+| `DEEPDUB_USD_PER_MINUTE` | no | Ledger rate per minute of generated audio (Deepdub bills per generated minute against contract allotments; there is no public rate card). Default `0.143` (smallest published AI-agents tier's effective rate). Set your contract's real effective rate so ledger USD tracks real spend |
 
 ## Deepdub wire notes (from vendor skill)
 

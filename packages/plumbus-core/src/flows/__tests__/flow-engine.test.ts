@@ -1368,3 +1368,27 @@ describe('FlowEngine — approval-outcome', () => {
     ]);
   });
 });
+
+it.each([
+  null,
+  { roles: 'system' },
+  { userId: 'impostor', roles: ['system'], scopes: [], provider: 'worker' },
+])('never runs legacy or corrupt auth snapshots with worker privileges: %j', async (snapshot) => {
+  const db = mockDb();
+  const registry = new FlowRegistry();
+  registry.register(makeTestFlow());
+  const executeCapability = vi.fn().mockResolvedValue({ success: true, data: {} });
+  const engine = createFlowEngine({
+    db,
+    registry,
+    stepDeps: { executeCapability, evaluateCondition: () => true },
+  });
+  const execution = await engine.start('order-processing', { orderId: 'x' }, makeAuth());
+  db._rows.get(execution.id).authSnapshotJson = snapshot;
+  const result = await engine.runNext(
+    execution.id,
+    makeCtx({ auth: { userId: 'worker', roles: ['system'], scopes: [], provider: 'worker' } }),
+  );
+  expect(result.status).toBe('failed');
+  expect(executeCapability).not.toHaveBeenCalled();
+});

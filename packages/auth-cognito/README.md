@@ -4,7 +4,7 @@ Amazon Cognito provider integration for [`@plumbus/auth`](../auth/). Supplies th
 
 **Confidential client only** — Cognito app clients must have a client secret; public/SPA clients are not supported by `@plumbus/auth`.
 
-Peer: `@plumbus/auth` at **`0.1.x`**.
+Peer: `@plumbus/auth` at **`0.2.x`**.
 
 ## Install
 

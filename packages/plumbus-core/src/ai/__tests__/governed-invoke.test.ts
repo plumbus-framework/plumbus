@@ -323,7 +323,8 @@ describe('checkGovernedBudget', () => {
   });
 
   it('refuses unknown dollar cost even when the tracker would allow it', () => {
-    const tracker = createCostTracker({ dailyCostLimit: 1 });
+    // An unlimited tracker admits unknown-cost history; the governed check must not.
+    const tracker = createCostTracker({});
     tracker.record({
       model: 'host-model-a',
       provider: 'host-provider',

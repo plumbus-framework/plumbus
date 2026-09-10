@@ -58,6 +58,7 @@ function makeMockConfig() {
         tenantId: 'tenant-1',
       },
       data: {},
+      audit: { record: vi.fn(async () => {}) },
     }),
   };
 }
@@ -184,6 +185,7 @@ describe('job capability with jobQueue', () => {
       createDependencies: vi.fn().mockReturnValue({
         auth: authContext,
         data: {},
+        audit: { record: vi.fn(async () => {}) },
       }),
     };
     const cap = makeCapability({
@@ -367,7 +369,11 @@ describe('declared idempotency on the core /api surface', () => {
       tenantId: 'tenant-1',
     };
     config.authAdapter.authenticate.mockResolvedValue(changed);
-    config.createDependencies.mockReturnValue({ auth: changed, data: {} });
+    config.createDependencies.mockReturnValue({
+      auth: changed,
+      data: {},
+      audit: { record: vi.fn(async () => {}) },
+    });
     const reply = makeMockReply();
     await route(request('role-key', { orderId: 'o1' }), reply);
     expect(reply.status).toHaveBeenCalledWith(409);
@@ -395,7 +401,11 @@ describe('declared idempotency on the core /api surface', () => {
       tenantId: 'tenant-1',
     };
     config.authAdapter.authenticate.mockResolvedValueOnce(other);
-    config.createDependencies.mockReturnValueOnce({ auth: other, data: {} });
+    config.createDependencies.mockReturnValueOnce({
+      auth: other,
+      data: {},
+      audit: { record: vi.fn(async () => {}) },
+    });
     const reply = makeMockReply();
     await route(request('k3', { orderId: 'o1' }), reply);
     // A different principal with the same key is a different claim: executed, not replayed.
@@ -431,7 +441,11 @@ describe('declared idempotency on the core /api surface', () => {
       tenantId: 'tenant-1',
     };
     config.authAdapter.authenticate.mockResolvedValueOnce(viewer);
-    config.createDependencies.mockReturnValueOnce({ auth: viewer, data: {} });
+    config.createDependencies.mockReturnValueOnce({
+      auth: viewer,
+      data: {},
+      audit: { record: vi.fn(async () => {}) },
+    });
     const reply = makeMockReply();
     await route(request(undefined, { orderId: 'o1' }), reply);
     expect(reply.status).toHaveBeenCalledWith(403);
@@ -537,6 +551,7 @@ describe('registerStreamingRoute', () => {
       createDependencies: vi.fn().mockReturnValue({
         auth: authContext,
         data: {},
+        audit: { record: vi.fn(async () => {}) },
       }),
     };
     const cap = makeCapability({
@@ -620,6 +635,7 @@ describe('HTTP correlation ID propagation', () => {
         tenantId: 'tenant-1',
       },
       data: {},
+      audit: { record: vi.fn(async () => {}) },
     };
     const createDependencies = vi.fn().mockReturnValue(deps);
     const config = { ...makeMockConfig(), createDependencies };

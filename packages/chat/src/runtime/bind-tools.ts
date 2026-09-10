@@ -29,6 +29,8 @@ export interface BoundChatTool {
   annotations: ChatToolAnnotations;
   inputSchemaHash: string;
   toolBindingHash: string;
+  /** Resolved contract retained only for this in-process turn. Never persisted. */
+  capability?: CapabilityContract<any, any>;
 }
 
 export interface ChatToolPresentation {
@@ -110,9 +112,13 @@ function computeBindingHash(parts: {
 export function bindChatCapabilityTools(
   ctx: ExecutionContext,
   capabilityNames: string[],
-  opts: { maxTools: number },
+  opts: {
+    maxTools: number;
+    /** Programmatic runChatTurn callers can supply app contracts explicitly. */
+    resolveCapability?: (name: string) => CapabilityContract<any, any> | undefined;
+  },
 ): BoundChatTool[] {
-  const resolve = ctx.__runtime?.resolveCapability;
+  const resolve = opts.resolveCapability ?? ctx.__runtime?.resolveCapability;
   if (!resolve) {
     throw new ChatToolBindError(
       'chat.tools_runtime_unavailable',
@@ -161,6 +167,7 @@ export function bindChatCapabilityTools(
         mode,
         inputSchemaHash,
       }),
+      capability: cap,
     });
   }
   return bound;

@@ -1,5 +1,5 @@
 import type { IdempotencyStore } from '../api/idempotency.js';
-import type { ReasoningEffort } from '../types/prompt.js';
+import type { AIReasoningConfig, ReasoningEffort } from '../types/prompt.js';
 // ── Fastify Server Bootstrap ──
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
@@ -201,6 +201,8 @@ export interface ServerConfig {
         model?: string;
         temperature?: number;
         maxTokens?: number;
+        reasoning?: AIReasoningConfig;
+        /** @deprecated Use `reasoning`. */
         reasoningEffort?: ReasoningEffort;
       }
     >;
@@ -322,19 +324,17 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     );
   }
   const useDefaultJwtAdapter =
-    !serverConfig.authAdapter &&
-    !serverConfig.authenticationRuntime &&
-    (Boolean(config.auth.secret) || config.environment === 'development');
-  if (useDefaultJwtAdapter && !config.auth.secret) {
+    !serverConfig.authAdapter && !serverConfig.authenticationRuntime && Boolean(config.auth.secret);
+  if (!config.auth.secret && !serverConfig.authAdapter && !serverConfig.authenticationRuntime) {
     logger.warn(
-      'No auth.secret configured — using insecure development fallback. Do NOT use in production.',
+      'No auth.secret configured — development requests are anonymous; configure AUTH_SECRET for JWT authentication.',
     );
   }
   const authAdapter =
     serverConfig.authAdapter ??
     (useDefaultJwtAdapter
       ? createJwtAdapter({
-          secret: config.auth.secret ?? 'development-secret-placeholder-32chars-min',
+          secret: config.auth.secret ?? '',
           issuer: config.auth.issuer,
           audience: config.auth.audience,
         })
@@ -623,7 +623,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   }
 
   // Fastify-level error handler — catches malformed requests, timeouts, uncaught route errors
-  if (serverConfig.onProcessError) {
+  {
     const processErrorHook = serverConfig.onProcessError;
     app.setErrorHandler((err, request, reply) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -637,22 +637,24 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         method: request.method,
         statusCode,
       });
-      Promise.resolve(
-        processErrorHook({
-          source: 'fastify',
-          message,
-          stack,
-          metadata: {
-            url: request.url,
-            method: request.method,
-            statusCode,
-            ip: request.ip,
-          },
-          db,
-        }),
-      ).catch((hookErr) => {
-        logHookError('onCapabilityError', hookErr);
-      });
+      Promise.resolve()
+        .then(() =>
+          processErrorHook?.({
+            source: 'fastify',
+            message,
+            stack,
+            metadata: {
+              url: request.url,
+              method: request.method,
+              statusCode,
+              ip: request.ip,
+            },
+            db,
+          }),
+        )
+        .catch((hookErr) => {
+          logHookError('onCapabilityError', hookErr);
+        });
       const clientMessage = statusCode >= 500 ? GENERIC_INTERNAL_MESSAGE : message;
       reply.status(statusCode).send({
         error: { code: 'internal', message: clientMessage },
@@ -747,6 +749,15 @@ export function wrapAIServiceWithDynamicOverrides(
   }
 
   return {
+    withContext(identity) {
+      const scopedConfig = { ...aiServiceConfig, budget: { ...identity } };
+      return wrapAIServiceWithDynamicOverrides(
+        createAIService(scopedConfig),
+        scopedConfig,
+        resolver,
+        db,
+      );
+    },
     recordProviderCost(entry, costContext) {
       return base.recordProviderCost(entry, costContext);
     },

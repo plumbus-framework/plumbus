@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-minimax",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "MiniMax TTS provider for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
@@ -38,8 +38,8 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.6.x",
-    "@plumbus/voice": "0.4.x"
+    "@plumbus/core": "0.7.x",
+    "@plumbus/voice": "0.5.x"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",

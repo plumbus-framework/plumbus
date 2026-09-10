@@ -35,7 +35,9 @@ function mockDb(jobRow: Record<string, unknown>) {
         where: vi.fn().mockResolvedValue({ rowCount: 1 }),
       }),
     }),
-    insert: vi.fn(),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({ onConflictDoNothing: vi.fn(async () => {}) }),
+    }),
     delete: vi.fn(),
     execute: vi.fn(),
     transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(stub)),
@@ -65,7 +67,9 @@ function mockOutboxDb(outboxRow: Record<string, unknown> | null) {
         }),
       }),
     }),
-    insert: vi.fn(),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({ onConflictDoNothing: vi.fn(async () => {}) }),
+    }),
     update: vi.fn(),
     delete: vi.fn(),
     execute: vi.fn(),

@@ -42,6 +42,16 @@ export async function registerMcpOnFastify(
   await mcpServer.connect(transport);
 
   app.all(path, async (request, reply) => {
+    const header =
+      typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined;
+    // Transport authentication runs before handing ownership of the socket to the SDK.
+    let authenticated = false;
+    try {
+      authenticated = Boolean(header && (await config.authAdapter.authenticate(header)));
+    } catch {
+      /* fail closed */
+    }
+    if (!authenticated) return reply.code(401).send({ error: 'unauthorized' });
     // Tell Fastify we're taking over the response; the MCP transport
     // writes directly to reply.raw and will end the response itself.
     reply.hijack();

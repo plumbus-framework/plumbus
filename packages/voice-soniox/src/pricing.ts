@@ -12,7 +12,9 @@ export const SONIOX_VOICE_PRICING: Readonly<Record<string, VoicePricingEntry>> =
     model: 'soniox-stt',
     operation: 'transcribe',
     unit: 'audioInputSeconds',
-    usdPerUnit: 0.0001667,
+    // Soniox real-time STT list price: $0.12/hour (vendor pricing page, 2026 —
+    // token-based $2.00/1M input audio tokens, ~30k tokens/hour of audio).
+    usdPerUnit: 0.12 / 3600,
   },
   'soniox-tts': {
     model: 'soniox-tts',

@@ -2,6 +2,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { resolveGeneratedPath } from './scaffold-validation.js';
 import { writeFile } from './utils.js';
 
 export interface GeneratedFile {
@@ -19,7 +20,7 @@ export interface ScaffoldWriteResult {
 export function writeGeneratedFiles(outputRoot: string, files: GeneratedFile[]): string[] {
   const written: string[] = [];
   for (const file of files) {
-    const fullPath = path.join(outputRoot, file.path);
+    const fullPath = resolveGeneratedPath(outputRoot, file.path);
     writeFile(fullPath, file.content);
     written.push(path.join(outputRoot, file.path));
   }
@@ -40,12 +41,20 @@ export function writeScaffoldFiles(
   const overwritten: string[] = [];
 
   for (const file of files) {
-    const fullPath = path.join(outputRoot, file.path);
+    const fullPath = resolveGeneratedPath(outputRoot, file.path);
     const existed = fs.existsSync(fullPath);
     if (!force && existed) {
       skipped.push(path.join(outputRoot, file.path));
     } else {
-      writeFile(fullPath, file.content);
+      try {
+        writeFile(fullPath, file.content, !force);
+      } catch (error) {
+        if (!force && (error as NodeJS.ErrnoException).code === 'EEXIST') {
+          skipped.push(fullPath);
+          continue;
+        }
+        throw error;
+      }
       const rel = path.join(outputRoot, file.path);
       written.push(rel);
       if (existed && force) {

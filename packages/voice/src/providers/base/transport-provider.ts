@@ -5,6 +5,7 @@ export interface TransportProviderSession {
 }
 
 export interface TransportProviderMintSessionArgs {
+  tenantId?: string;
   voiceName: string;
   userId?: string;
   sessionId?: string;

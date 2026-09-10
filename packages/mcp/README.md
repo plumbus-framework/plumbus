@@ -42,7 +42,7 @@ Plumbus already has all of that for HTTP. This package routes it through MCP. **
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked `0.5.x`). Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
+Optional peer of `@plumbus/core` (version-locked `0.6.x`). Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
 
 ## Install
 

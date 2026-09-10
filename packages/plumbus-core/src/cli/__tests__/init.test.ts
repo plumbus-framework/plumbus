@@ -121,7 +121,7 @@ describe('plumbus init', () => {
       expect(content).toContain(
         'open `node_modules/@plumbus/<package>/instructions/README.md` first',
       );
-      expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
+      expect(content).not.toContain('node_modules/@plumbus/core/instructions/framework.md');
       expect(content).toContain('Documentation Maintenance');
     });
   });
@@ -182,7 +182,7 @@ describe('plumbus init', () => {
       expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
       expect(content).toContain('Non-Negotiable Guardrails');
       expect(content).toContain('bundled Plumbus instruction files');
-      expect(content).not.toContain('node_modules/@plumbus/core/instructions/');
+      expect(content).not.toContain('node_modules/@plumbus/core/instructions/framework.md');
       expect(content).toContain('Documentation Maintenance');
     });
   });
@@ -461,5 +461,52 @@ describe('plumbus init', () => {
         rmSync(tempDir, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('security release agent wiring', () => {
+  const recipe = 'node_modules/@plumbus/core/instructions/upgrading-security-release.md';
+
+  it.each([
+    false,
+    true,
+  ])('includes the packaged checklist and guardrails in inline=%s mode', (inline) => {
+    for (const monorepo of [false, true]) {
+      for (const generate of [
+        generateCopilotInstructions,
+        generateCursorRule,
+        generateAgentsMd,
+        generateClaudeMd,
+      ]) {
+        const content = generate(inline, monorepo);
+        expect(content).toContain('plumbus:agent-wiring version=16');
+        expect(content).toContain(recipe);
+        expect(content).toContain('Plumbus primitives');
+        expect(content).toContain('`ctx.*`');
+        expect(content).toContain('never restore placeholder signing keys');
+      }
+    }
+    expect(generateCursorCapabilityRule()).toContain(recipe);
+  });
+
+  it('patches v15 managed guidance while preserving app-owned text', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'plumbus-wiring-v16-'));
+    try {
+      const old = generateAgentsMd(false)
+        .replace('version=16', 'version=15')
+        .split('\n')
+        .filter((line) => !line.includes('upgrading-security-release.md'))
+        .join('\n');
+      writeFileSync(path.join(root, 'AGENTS.md'), `App-owned preface\n${old}\nApp-owned footer\n`);
+      const results = writeAgentFiles(root, ['agents-md'], false, false, false, 'patch');
+      const updated = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+      expect(results[0]?.action).toBe('patched');
+      expect(updated).toContain('version=16');
+      expect(updated).toContain(recipe);
+      expect(updated.startsWith('App-owned preface\n')).toBe(true);
+      expect(updated.endsWith('\nApp-owned footer\n')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/browser-extension.svg)](https://www.npmjs.com/package/@plumbus/browser-extension)
 [![license](https://img.shields.io/npm/l/@plumbus/browser-extension.svg)](./LICENSE)
-[![peer: @plumbus/core 0.5.x || 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x%20%7C%7C%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x%20%7C%7C%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![scaffolds: WXT · Chrome + Firefox](https://img.shields.io/badge/scaffolds-WXT%20%C2%B7%20Chrome%20%2B%20Firefox-7c5cff)](https://wxt.dev)
 
 ## What is this?
@@ -58,7 +58,7 @@ extension/
 
 ## Status
 
-Optional **dev-time** scaffolder, version-locked `0.1.x`. Peer `@plumbus/core` at `0.5.x || 0.6.x`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
+Optional **dev-time** scaffolder, version-locked `0.2.x`. Peer `@plumbus/core` at `0.7.x`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
 
 Out of scope (the scaffold deliberately does not invent these): OAuth/cookie auth, cross-site cookies, refresh-token rotation, and offline capability execution.
 

@@ -11,8 +11,8 @@ export function resolveMcpAgentToken(
   envToken?: string,
 ): string | null {
   const bearer = parseBearerToken(authorizationHeader);
-  if (bearer !== null && Object.hasOwn(agents, bearer)) {
-    return bearer;
+  if (authorizationHeader !== undefined) {
+    return bearer !== null && Object.hasOwn(agents, bearer) ? bearer : null;
   }
 
   const raw = envToken?.trim();

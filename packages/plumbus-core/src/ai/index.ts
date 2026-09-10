@@ -41,6 +41,7 @@ export {
 export {
   allKnownModels,
   calculateModelCost,
+  estimateModelCost,
   findModelRate,
   type Kind,
   type ModelRate,
@@ -66,6 +67,7 @@ export {
   type EmbeddingResponse,
   type ListModelsFilter,
   type OpenAIAdapterConfig,
+  type ProviderAssistantState,
   type ProviderModel,
   type ProviderRequest,
   type ProviderResponse,

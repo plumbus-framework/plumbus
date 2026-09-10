@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.2.0.
+
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- Join the coordinated core 0.7.x release family with updated Plumbus peer dependencies. This is a new minor line so legacy caret updates cannot silently select it. Runtime APIs in this package are unchanged.
+- Update all installed Plumbus packages together; packages publish to npm’s default `latest` dist-tag. Read the [security release migration checklist](../../docs/upgrading-security-release.md) and run `plumbus init --patch` for agent wiring v16.
+
+## 0.1.4
+
+### Fixed
+
+- **Real-time STT rate corrected to the vendor list price: $0.12/hour** (`0.12/3600` per second, was $0.60/hour). Soniox pricing page (2026): $2.00 per 1M input audio tokens ≈ $0.12/hour for real-time streaming. TTS row unchanged (~$0.70/hour of generated speech, matching the vendor's equivalence).
+
 ## 0.1.3
 
 ### Added

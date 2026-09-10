@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/auth-cognito",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Amazon Cognito integration for @plumbus/auth — hosted login options, client auth method, and logout URL builder.",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,16 +20,25 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"
   },
-  "files": ["dist", "instructions", "README.md", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
     "directory": "packages/auth-cognito"
   },
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=20.6.0" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
   "peerDependencies": {
-    "@plumbus/auth": "0.1.x"
+    "@plumbus/auth": "0.2.x"
   },
   "devDependencies": {
     "@plumbus/auth": "workspace:*",

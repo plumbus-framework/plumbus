@@ -30,3 +30,5 @@ export type {
   ScimUserRepository,
   ScimUserResource,
 } from './scim.js';
+
+export { isValidJwtSecret } from './jwt-policy.js';

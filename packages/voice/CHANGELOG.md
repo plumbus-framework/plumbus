@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.5.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.5.0.
+
+## 0.5.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages publish to npm’s default `latest` dist-tag.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Security
+
+- Bound inbound WebSocket audio/control frames and pending input, serialize callbacks, and remove duplicate audio delivery. Warn when session budgets are absent; reject invalid budget/usage values and short session-token secrets.
+- Pass tenant identity to room transports and attribute reference synthesis through the configured AI ledger.
+
+### Fixed
+
+- Wait for asynchronous assistant-text delivery before closing the TTS queue. A fast brain that emits a complete reply without awaiting callbacks could previously report `turn.completed` without speaking when the LiveKit data send was still pending. Delta delivery now preserves order, and delivery failures produce a failed turn instead of an unhandled rejection.
+
+### Compatibility
+
+- Preserve explicitly configured finite positive token lifetimes; the default remains 90 seconds. No new blanket 300-second ceiling.
+- Existing clients must send audio frames ≤64 KiB and control frames ≤16 KiB; pending input is capped at 256 KiB. These intentional limits replace unlimited input. Use a real session-token key of at least 32 non-padding characters.
+- For the complete security fixes, deploy with core 0.7.0 and LiveKit 0.2.0 when used. [Migration guide](../../docs/upgrading-security-release.md).
+
+## 0.4.5
+
+### Fixed
+
+- **Per-minute-audio pricing falls back to a character estimate** — `calculateVoiceCost` for `audioOutputSeconds`-priced models (Deepdub 0.1.4+) now converts `characters` at the vendor-published ~1,000 chars/min when no exact audio duration is available, so direct-utterance cost rows (hearing repair, replay) keep a nonzero estimate instead of silently recording $0.
+
+### Added
+
+- **`onHearingRepair` app hook on `defineVoice`** — hearing repair is now split into framework-owned mechanism and app-owned content. The session controller keeps only signal-level detection: an endpoint with no transcript after speech energy (`reason: 'empty'`) and any transcript below the configured confidence threshold (`reason: 'low_confidence'`). The hook is called with `{ reason, transcript?, confidence?, language?, sessionId }` and returns the text to speak (a bare string or `{ text, tone }`), or `undefined`/`null` to suppress the repair. A suppressed (or hookless) `low_confidence` signal lets the turn proceed normally with what was heard; `empty` without a hook keeps the built-in Hebrew/English default line (backwards compatible). The optional `tone` is resolved against `toneProfiles` and mapped through the TTS adapter's `mapDeliveryTone(...)` like a `resolveTone` result, so repair utterances can carry per-turn `targetGender` / `voiceId` delivery controls. A throwing hook falls back to the `empty` default line; for `low_confidence` there is no fallback — the turn simply proceeds.
+
+### Removed
+
+- **The proper-name content judgment from the framework** — `looksLikeUncertainProperName`, the `'uncertain_name'` repair reason, and the built-in "spell the name" lines are gone. Deciding that a transcript is a *name* is app-level content judgment; the framework now reports only the raw `low_confidence` signal and lets the app's `onHearingRepair` hook decide. **Migration:** apps that relied on the built-in spell-the-name behavior must implement it in `onHearingRepair` (the hook receives the raw transcript and confidence).
+
 ## 0.4.4
 
 ### Added

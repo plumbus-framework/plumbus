@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/chat-ui",
-  "version": "0.1.7",
+  "version": "0.2.1",
   "description": "React UI for @plumbus/chat",
   "type": "module",
   "main": "./dist/index.js",
@@ -37,8 +37,8 @@
   },
   "peerDependencies": {
     "react": ">=19",
-    "@plumbus/chat": "0.1.x",
-    "@plumbus/core": "0.5.x || 0.6.x"
+    "@plumbus/chat": "0.2.x",
+    "@plumbus/core": "0.7.x"
   },
   "devDependencies": {
     "@plumbus/chat": "workspace:*",

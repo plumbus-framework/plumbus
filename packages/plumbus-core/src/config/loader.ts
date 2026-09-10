@@ -2,6 +2,7 @@
 // Loads PlumbusConfig from environment variables with defaults per environment.
 // Secrets from env vars (never hardcoded in source).
 
+import { isValidJwtSecret } from '../auth/index.js';
 import { ErrorDocUrls, ErrorHints } from '../errors/hints.js';
 import type {
   AIProviderConfig,
@@ -45,7 +46,7 @@ export function loadConfig(options?: ConfigLoadOptions): PlumbusConfig {
     execution: loadExecutionConfig(env),
     ai: loadAIConfig(env),
     aiProviders: loadMultiProviderConfig(env),
-    auth: loadAuthConfig(env, environment),
+    auth: loadAuthConfig(env),
     complianceProfiles: loadComplianceProfiles(env),
   };
 }
@@ -317,18 +318,13 @@ export function loadPromptOverrides(
 
 // ── Auth Config ──
 
-function loadAuthConfig(
-  env: Record<string, string | undefined>,
-  environment: Environment,
-): AuthAdapterConfig {
+function loadAuthConfig(env: Record<string, string | undefined>): AuthAdapterConfig {
   return {
     provider: env.AUTH_PROVIDER ?? 'jwt',
     issuer: env.AUTH_ISSUER ?? undefined,
     audience: env.AUTH_AUDIENCE ?? undefined,
     jwksUri: env.AUTH_JWKS_URI ?? undefined,
-    secret:
-      env.AUTH_SECRET ??
-      (environment === 'development' ? 'development-secret-placeholder-32chars-min' : undefined),
+    secret: env.AUTH_SECRET ?? undefined,
   };
 }
 
@@ -387,6 +383,12 @@ export function validateConfig(config: PlumbusConfig): ConfigValidationResult {
     } else {
       errors.push('auth.secret or auth.jwksUri is required in production');
     }
+  }
+
+  if (config.auth.secret != null && !isValidJwtSecret(config.auth.secret)) {
+    errors.push(
+      'auth.secret must be at least 32 non-padding characters and must not be a development placeholder',
+    );
   }
 
   // AI (optional but validate if present)

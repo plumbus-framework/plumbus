@@ -19,7 +19,9 @@ import { createUnavailableCapabilityService } from './capability-invocation.js';
 export type { ContextDependencies } from '../types/context.js';
 
 const noopAudit: AuditService = {
-  async record() {},
+  async record() {
+    throw new PlumbusError(ErrorCode.Internal, 'Audit service not configured');
+  },
 };
 
 const noopTranslations: TranslationService = {
@@ -246,7 +248,10 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     events: deps.events ?? noopEvents,
     flows: deps.flows ?? noopFlows,
     jobs: deps.jobs ?? noopJobs,
-    ai: deps.ai ?? noopAI,
+    ai:
+      deps.ai?.withContext?.({ tenantId: deps.auth.tenantId, actor: deps.auth.userId }) ??
+      deps.ai ??
+      noopAI,
     audit: deps.audit ?? noopAudit,
     errors: createErrorService(),
     logger: deps.logger ?? consoleLogger,

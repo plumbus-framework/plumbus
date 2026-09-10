@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WebSocketTransportProvider } from '../websocket-transport.js';
 
 describe('websocket transport protocol', () => {
@@ -39,4 +39,57 @@ describe('websocket transport protocol', () => {
     expect(session.transport).toBe('websocket');
     expect(session.metadata).toMatchObject({ events: 'same-socket' });
   });
+});
+
+it('bounds frame sizes and pending audio before invoking callbacks', async () => {
+  for (const [size, count] of [
+    [65537, 1],
+    [65536, 5],
+    [16385, 1],
+  ]) {
+    let onMessage: ((raw: Buffer, binary: boolean) => void) | undefined;
+    const close = vi.fn();
+    const onAudio = vi.fn(async () => {});
+    const onControl = vi.fn(async () => {});
+    const transport = new WebSocketTransportProvider({ provider: 'websocket' });
+    transport.attachSocket({
+      socket: {
+        on(event, listener) {
+          if (event === 'message') onMessage = listener;
+        },
+        close,
+        send() {},
+      },
+      onAudio,
+      onControl,
+    });
+    for (let i = 0; i < (count ?? 0); i++) onMessage?.(Buffer.alloc(size ?? 0), size !== 16385);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(close).toHaveBeenCalledWith(1009, expect.any(String));
+    expect(onAudio).not.toHaveBeenCalled();
+    expect(onControl).not.toHaveBeenCalled();
+  }
+});
+
+it('delivers each accepted frame once and serializes callbacks', async () => {
+  let onMessage: ((raw: Buffer, binary: boolean) => void) | undefined;
+  const seen: number[] = [];
+  const transport = new WebSocketTransportProvider({ provider: 'websocket' });
+  transport.attachSocket({
+    socket: {
+      on(event, listener) {
+        if (event === 'message') onMessage = listener;
+      },
+      close() {},
+      send() {},
+    },
+    onAudio: async (audio) => {
+      seen.push(audio[0] ?? 0);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      seen.push(0);
+    },
+  });
+  onMessage?.(Buffer.from([1]), true);
+  onMessage?.(Buffer.from([2]), true);
+  await vi.waitFor(() => expect(seen).toEqual([1, 0, 2, 0]));
 });

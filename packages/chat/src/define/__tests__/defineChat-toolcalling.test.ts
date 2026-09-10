@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from '@plumbus/core/zod';
 import { defineChat } from '../defineChat.js';
 
 describe('defineChat — tool calling policy', () => {
@@ -40,6 +41,68 @@ describe('defineChat — tool calling policy', () => {
         },
       }),
     ).toThrow(/tool execution records require chat_turn rows/);
+  });
+
+  it('accepts agent orchestration with a custom prompt', () => {
+    const prompt = {
+      name: 'interview.agent',
+      input: z.object({}),
+      output: z.object({ content: z.string() }),
+    } as never;
+    const def = defineChat({
+      name: 'interview',
+      access: {},
+      prompt,
+      policy: {
+        toolCalling: {
+          enabled: true,
+          capabilities: ['explainProcess'],
+          orchestration: 'agent',
+          scopePreflight: false,
+          ai: {
+            provider: 'anthropic',
+            model: 'tool-model',
+            reasoning: { mode: 'effort', effort: 'medium' },
+          },
+        },
+      },
+    });
+
+    expect(def.policy?.toolCalling?.orchestration).toBe('agent');
+    expect(def.policy?.toolCalling?.scopePreflight).toBe(false);
+    expect(def.policy?.toolCalling?.ai).toEqual({
+      provider: 'anthropic',
+      model: 'tool-model',
+      reasoning: { mode: 'effort', effort: 'medium' },
+    });
+  });
+
+  it('rejects ambiguous new and legacy reasoning configuration', () => {
+    expect(() =>
+      defineChat({
+        name: 'ambiguous',
+        access: {},
+        policy: {
+          toolCalling: {
+            enabled: true,
+            ai: {
+              reasoning: { mode: 'disabled' },
+              reasoningEffort: 'low',
+            },
+          },
+        },
+      }),
+    ).toThrow(/cannot set both reasoning and deprecated reasoningEffort/);
+  });
+
+  it('rejects agent orchestration without a custom prompt', () => {
+    expect(() =>
+      defineChat({
+        name: 'interview',
+        access: {},
+        policy: { toolCalling: { enabled: true, orchestration: 'agent' } },
+      }),
+    ).toThrow("orchestration='agent' requires a custom plain-text prompt");
   });
 
   it('rejects out-of-range maxToolRounds', () => {

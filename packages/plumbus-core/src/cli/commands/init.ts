@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 14;
+export const AGENT_WIRING_VERSION = 16;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -123,6 +123,7 @@ const CORE_INSTRUCTION_TOPICS = [
   'events',
   'ai',
   'security',
+  'upgrading-security-release',
   'governance',
   'testing',
   'patterns',
@@ -142,6 +143,10 @@ const GUARDRAIL_LINES = [
   '- Allowed without extra approval: read-only inspection such as `git status`, `git diff`, `git log`, `git show`.',
   '- Require explicit user approval before any destructive or history-rewriting command, including `git checkout` used to overwrite files, `git restore`, `git reset`, `git clean`, `git revert` across user work, force-push, and branch or tag deletion.',
   '- Never discard or overwrite existing user work unless the user explicitly asked for that exact action.',
+  '',
+  '## Security Release Compatibility',
+  '- Before upgrading authentication, AI accounting, MCP, or voice, read `node_modules/@plumbus/core/instructions/upgrading-security-release.md`.',
+  '- Keep fixes within Plumbus primitives and `ctx.*`; never restore placeholder signing keys, fabricate system auth snapshots, or treat unknown prices as free to bypass security checks.',
 ] as const;
 
 function addGuardrailLines(lines: string[]): void {
@@ -813,6 +818,7 @@ When creating or modifying capabilities:
 - To expose a capability on the partner HTTP API, add \`exposeAs: ["api"]\` and optional \`api: { path, method, auth, ... }\`. Only \`query\` and \`action\` kinds are eligible.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
+- Security release checklist: \`node_modules/@plumbus/core/instructions/upgrading-security-release.md\`
 - Reference: \`node_modules/@plumbus/core/instructions/capabilities.md\`, \`node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md\` (when migrating pre-0.5 invoke/name patterns), \`node_modules/@plumbus/core/instructions/mcp.md\`, \`node_modules/@plumbus/mcp/instructions/README.md\` (when MCP is installed), \`node_modules/@plumbus/core/instructions/api.md\`, and \`node_modules/@plumbus/api/instructions/README.md\` (when @plumbus/api is installed)
 ${AGENT_WIRING_END_MARKER}
 `;

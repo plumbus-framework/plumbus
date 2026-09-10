@@ -75,8 +75,15 @@ function resolveUsageQuantity(unit: VoicePricingUnit, mediaUsage: VoiceMediaUsag
       return mediaUsage.audioInputSeconds ?? 0;
     case 'audioInputMinutes':
       return (mediaUsage.audioInputSeconds ?? 0) / 60;
-    case 'audioOutputSeconds':
-      return mediaUsage.audioOutputSeconds ?? 0;
+    case 'audioOutputSeconds': {
+      if (mediaUsage.audioOutputSeconds !== undefined) {
+        return mediaUsage.audioOutputSeconds;
+      }
+      // Direct-utterance paths (hearing repair, replay) know the text but not
+      // the audio duration. For vendors billed per minute of generated audio,
+      // estimate from characters at the vendor's published ~1,000 chars/min.
+      return ((mediaUsage.characters ?? 0) / 1000) * 60;
+    }
     case 'characters':
       return mediaUsage.characters ?? 0;
     case 'connectionMinutes':

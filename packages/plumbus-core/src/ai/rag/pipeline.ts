@@ -90,6 +90,8 @@ export interface RAGPipelineConfig {
     model: string;
     totalTokens: number;
     cost: number;
+    /** False means this legacy numeric zero represents unknown pricing. */
+    costAvailable?: boolean;
   }) => void | Promise<void>;
 }
 
@@ -117,6 +119,7 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
             model: embeddingResponse.model,
             totalTokens: embeddingResponse.usage.totalTokens,
             cost: embeddingResponse.cost ?? 0,
+            costAvailable: embeddingResponse.cost != null,
           });
         }
 
@@ -160,6 +163,7 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
           model: embeddingResponse.model,
           totalTokens: embeddingResponse.usage.totalTokens,
           cost: embeddingResponse.cost ?? 0,
+          costAvailable: embeddingResponse.cost != null,
         });
       }
 
@@ -176,6 +180,8 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
 
       // 3. Corpus + metadata filter
       const filtered = results.filter((r) => {
+        // Defense in depth for custom stores that omit the search predicate.
+        if ((r.tenantId ?? undefined) !== (query.tenantId ?? undefined)) return false;
         if (query.corpus) {
           const c = r.metadata?.corpus ?? r.metadata?.collection;
           if (c !== query.corpus) return false;
@@ -243,7 +249,7 @@ export function createInMemoryVectorStore(): VectorStore {
 
     async search(embedding, options) {
       const filtered = chunks.filter((c) => {
-        if (options.tenantId && c.tenantId !== options.tenantId) return false;
+        if ((c.tenantId ?? undefined) !== (options.tenantId ?? undefined)) return false;
         return true;
       });
 

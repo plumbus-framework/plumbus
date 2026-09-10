@@ -1,4 +1,3 @@
-import type { ReasoningEffort } from '../types/prompt.js';
 // ── AI Service Implementation ──
 // Full ctx.ai implementation: generate, extract, classify, retrieve
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
@@ -15,11 +14,12 @@ import type {
   AIToolCallsGenerateResult,
   AIToolEnabledGenerateResult,
 } from '../types/context.js';
-import type { PromptDefinition } from '../types/prompt.js';
+import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../types/prompt.js';
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import { fillPromptTemplate } from './fill-prompt-template.js';
-import { calculateModelCost } from './model-pricing.js';
+import { normalizeCost, validateTokenUsage } from './usage-validation.js';
+import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import { createPromptRegistry } from './prompt-registry.js';
 import {
@@ -31,6 +31,7 @@ import {
   type ChatMessage,
   normalizeFinishReason,
   type ProviderRequest,
+  type ProviderAssistantState,
   type TokenUsage,
 } from './provider.js';
 import type { RAGPipeline } from './rag/pipeline.js';
@@ -88,6 +89,8 @@ export interface AIServiceConfig {
       model?: string;
       temperature?: number;
       maxTokens?: number;
+      reasoning?: AIReasoningConfig;
+      /** @deprecated Use `reasoning`. */
       reasoningEffort?: ReasoningEffort;
     }
   > /** Budget enforcement settings */;
@@ -114,6 +117,14 @@ export function singleProviderConfig(
     defaultProvider: provider.name,
     ...rest,
   };
+}
+
+function resolveReasoningOverride(
+  reasoning: AIReasoningConfig | null | undefined,
+  inherited: AIReasoningConfig | undefined,
+): AIReasoningConfig | undefined {
+  if (reasoning !== undefined) return reasoning ?? undefined;
+  return inherited;
 }
 
 export function createAIService(config: AIServiceConfig): AIService {
@@ -147,7 +158,35 @@ export function createAIService(config: AIServiceConfig): AIService {
       const available = Object.keys(providers).join(', ');
       throw new Error(`AI provider "${name}" not configured. Available: ${available}`);
     }
-    return adapter;
+    // Every provider attempt, including validation retries, checks the budget.
+    const checkRequest = (request: ProviderRequest): void => {
+      const input = JSON.stringify({
+        system: request.system,
+        prompt: request.prompt,
+        messages: request.messages,
+        tools: request.tools,
+        responseSchema: request.responseSchema,
+      });
+      checkBudget(Math.ceil(Buffer.byteLength(input, 'utf8') / 4) + (request.maxTokens ?? 0));
+    };
+    return {
+      ...adapter,
+      name: adapter.name,
+      embed: (request) => adapter.embed(request),
+      async complete(request) {
+        checkRequest(request);
+        const response = await adapter.complete(request);
+        validateTokenUsage(response.usage);
+        return { ...response, cost: normalizeCost(response.cost) ?? undefined };
+      },
+      async *stream(request) {
+        checkRequest(request);
+        for await (const event of adapter.stream(request)) {
+          if (event.usage) validateTokenUsage(event.usage);
+          yield { ...event, cost: normalizeCost(event.cost) ?? undefined };
+        }
+      },
+    };
   }
 
   function getSingleTextFieldName(schema: z.ZodTypeAny): string | undefined {
@@ -223,12 +262,26 @@ export function createAIService(config: AIServiceConfig): AIService {
     entry: AICostRecordInput,
     costContext: AICostContext | undefined,
   ): Promise<void> {
+    entry = {
+      ...entry,
+      tenantId: config.budget ? config.budget.tenantId : entry.tenantId,
+      actor: config.budget ? config.budget.actor : entry.actor,
+      cost:
+        (entry.cost == null ? undefined : normalizeCost(entry.cost)) ??
+        (entry.cost == null && entry.usage.totalTokens > 0 && findModelRate(entry.model)
+          ? calculateModelCost(entry.usage.inputTokens, entry.usage.outputTokens, entry.model, {
+              cachedInputTokens: entry.usage.cachedInputTokens,
+              cacheWriteTokens: entry.usage.cacheWriteTokens,
+            })
+          : null),
+    };
     if (costTracker) {
       costTracker.record(entry);
     }
     if (onAICostRecorded) {
       const finalEntry: AICostRecord = {
         ...entry,
+        cost: normalizeCost(entry.cost),
         status: entry.status ?? 'success',
         id: crypto.randomUUID(),
         timestamp: new Date(),
@@ -276,6 +329,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     provider?: string;
     temperature?: number;
     maxTokens?: number;
+    reasoning?: AIReasoningConfig;
     reasoningEffort?: ReasoningEffort;
     appendUnsubstitutedInput?: boolean;
     /**
@@ -318,6 +372,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       provider: override?.provider ?? def.model?.provider,
       temperature: override?.temperature ?? def.model?.temperature,
       maxTokens: override?.maxTokens ?? def.model?.maxTokens,
+      reasoning: override?.reasoning ?? def.model?.reasoning,
       reasoningEffort: override?.reasoningEffort ?? def.model?.reasoningEffort,
       appendUnsubstitutedInput: def.appendUnsubstitutedInput,
       substitutedKeys,
@@ -385,6 +440,10 @@ export function createAIService(config: AIServiceConfig): AIService {
     toolChoice?: AIToolChoice;
     toolExecution?: AIToolExecutionOptions;
     outputValidation?: 'prompt' | 'none';
+    provider?: string;
+    model?: string;
+    reasoning?: AIReasoningConfig | null;
+    reasoningEffort?: ReasoningEffort | null;
   }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
@@ -399,9 +458,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       ? buildPromptText(params.prompt, inputForAI)
       : { text: params.prompt, substitutedKeys: new Set<string>() };
 
-    // Resolve provider: prompt-level > default
+    // Resolve provider: per-call > prompt-level > default
     const activeProvider = resolveProvider(
-      'provider' in promptInfo ? promptInfo.provider : undefined,
+      params.provider ?? ('provider' in promptInfo ? promptInfo.provider : undefined),
     );
 
     // Check if we have a schema to validate against
@@ -419,14 +478,24 @@ export function createAIService(config: AIServiceConfig): AIService {
     const outputValidationNone = params.outputValidation === 'none';
     const skipStructuredOutput = toolsEnabled || outputValidationNone;
     const structuredResponseFormat = promptDef && !singleTextField ? 'json' : undefined;
+    const resolvedReasoning = resolveReasoningOverride(
+      params.reasoning,
+      'reasoning' in promptInfo ? promptInfo.reasoning : undefined,
+    );
+    const resolvedLegacyReasoningEffort =
+      params.reasoning === null || params.reasoningEffort === null
+        ? undefined
+        : (params.reasoningEffort ??
+          ('reasoningEffort' in promptInfo ? promptInfo.reasoningEffort : undefined));
     const request: ProviderRequest = {
       system: mergedSystem || undefined,
       prompt: useMultiTurn ? '' : basePrompt,
       messages: params.messages,
-      model: promptInfo.model ?? config.defaultModel,
+      model: params.model ?? promptInfo.model ?? config.defaultModel,
       temperature: promptInfo.temperature,
       maxTokens: promptInfo.maxTokens,
-      reasoningEffort: promptInfo.reasoningEffort,
+      reasoning: resolvedReasoning,
+      reasoningEffort: resolvedLegacyReasoningEffort,
       responseFormat: skipStructuredOutput ? undefined : structuredResponseFormat,
       responseSchema: skipStructuredOutput ? undefined : responseSchema,
       structuredOutputTransport: skipStructuredOutput
@@ -441,7 +510,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (params.toolExecution !== undefined) request.toolExecution = params.toolExecution;
     }
 
-    const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+    const resolvedModel =
+      params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
 
     let result: any;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -450,6 +520,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     let validationPassed = true;
     let finalFinishReason: 'stop' | 'length' | 'refusal' | 'other' = 'stop';
     let toolCallsResult: AIToolCall[] | undefined;
+    let toolProviderState: ProviderAssistantState | undefined;
     let toolFinishNormalized: 'stop' | 'length' | 'refusal' | 'tool_calls' | 'other' | undefined;
 
     try {
@@ -463,6 +534,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         totalUsage = response.usage;
         providerCost = response.cost;
         toolCallsResult = response.toolCalls;
+        toolProviderState = response.providerState;
         toolFinishNormalized = normalizeFinishReason(response.finishReason);
       } else if (outputValidationNone) {
         // Explicit no-validation path (no tools): return raw content as data.
@@ -533,6 +605,13 @@ export function createAIService(config: AIServiceConfig): AIService {
 
     const latencyMs = performance.now() - start;
 
+    const cost =
+      providerCost ??
+      calculateModelCost(totalUsage.inputTokens, totalUsage.outputTokens, resolvedModel, {
+        cachedInputTokens: totalUsage.cachedInputTokens,
+        cacheWriteTokens: totalUsage.cacheWriteTokens,
+      });
+
     // Track cost (success path)
     await recordProviderCost(
       {
@@ -541,7 +620,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         promptName: hasPromptDef ? params.prompt : undefined,
         operation: 'generate',
         usage: totalUsage,
-        cost: null,
+        cost: cost ?? null,
         latencyMs,
         tenantId: config.budget?.tenantId,
         actor: config.budget?.actor,
@@ -557,7 +636,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         promptName: hasPromptDef ? params.prompt : undefined,
         model: promptInfo.model ?? config.defaultModel,
         provider: activeProvider.name,
-        input: params.input,
+        input: inputForAI,
         output: result,
         usage: totalUsage,
         validation: {
@@ -571,13 +650,6 @@ export function createAIService(config: AIServiceConfig): AIService {
       });
     }
 
-    const cost =
-      providerCost ??
-      calculateModelCost(totalUsage.inputTokens, totalUsage.outputTokens, resolvedModel, {
-        cachedInputTokens: totalUsage.cachedInputTokens,
-        cacheWriteTokens: totalUsage.cacheWriteTokens,
-      });
-
     if (
       toolsEnabled &&
       toolFinishNormalized === 'tool_calls' &&
@@ -587,10 +659,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       return {
         finishReason: 'tool_calls',
         toolCalls: toolCallsResult,
+        ...(toolProviderState ? { providerState: toolProviderState } : {}),
         usage: totalUsage,
         model: resolvedModel,
         provider: activeProvider.name,
-        cost,
+        cost: cost ?? 0,
+        costAvailable: cost != null,
       };
     }
 
@@ -605,7 +679,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       usage: totalUsage,
       model: resolvedModel,
       provider: activeProvider.name,
-      cost,
+      cost: cost ?? 0,
+      costAvailable: cost != null,
     };
   }
 
@@ -634,6 +709,10 @@ export function createAIService(config: AIServiceConfig): AIService {
   }
 
   return {
+    withContext(identity) {
+      return createAIService({ ...config, budget: { ...identity } });
+    },
+    features: { perCallProviderModelReasoning: true },
     recordProviderCost,
 
     checkProviderCostBudget(config = {}) {
@@ -648,6 +727,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       signal?: AbortSignal;
       costContext?: AICostContext;
       seed?: number;
+      provider?: string;
+      model?: string;
+      reasoning?: AIReasoningConfig | null;
+      reasoningEffort?: ReasoningEffort | null;
     }): Promise<Record<string, any>> {
       const result = await _generateCore(params);
       if (result.finishReason === 'tool_calls') {
@@ -674,6 +757,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       messages?: ChatMessage[];
       signal?: AbortSignal;
       costContext?: AICostContext;
+      provider?: string;
+      model?: string;
+      reasoning?: AIReasoningConfig | null;
+      reasoningEffort?: ReasoningEffort | null;
       /**
        * Deterministic sampling seed forwarded to providers that support it
        * (OpenAI-compatible, including xAI/Grok). Combined with temperature 0
@@ -697,7 +784,7 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       // Resolve provider
       const activeProvider = resolveProvider(
-        'provider' in promptInfo ? promptInfo.provider : undefined,
+        params.provider ?? ('provider' in promptInfo ? promptInfo.provider : undefined),
       );
 
       // Detect if the output schema is a simple single-string-field object
@@ -738,6 +825,16 @@ export function createAIService(config: AIServiceConfig): AIService {
             .join('\n\n')
         : promptInfo.system;
 
+      const resolvedReasoning = resolveReasoningOverride(
+        params.reasoning,
+        'reasoning' in promptInfo ? promptInfo.reasoning : undefined,
+      );
+      const resolvedLegacyReasoningEffort =
+        params.reasoning === null || params.reasoningEffort === null
+          ? undefined
+          : (params.reasoningEffort ??
+            ('reasoningEffort' in promptInfo ? promptInfo.reasoningEffort : undefined));
+
       const request: ProviderRequest = {
         system: mergedSystem || undefined,
         prompt: promptForProvider,
@@ -745,10 +842,11 @@ export function createAIService(config: AIServiceConfig): AIService {
         // use it verbatim and ignore `prompt`. Otherwise legacy single-user
         // mode applies.
         messages: params.messages,
-        model: promptInfo.model ?? config.defaultModel,
+        model: params.model ?? promptInfo.model ?? config.defaultModel,
         temperature: promptInfo.temperature,
         maxTokens: promptInfo.maxTokens,
-        reasoningEffort: promptInfo.reasoningEffort,
+        reasoning: resolvedReasoning,
+        reasoningEffort: resolvedLegacyReasoningEffort,
         responseFormat: streamTextMode ? 'text' : 'json',
         responseSchema: streamTextMode ? undefined : responseSchema,
         structuredOutputTransport: promptDef?.structuredOutputTransport,
@@ -756,7 +854,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         seed: params.seed,
       };
 
-      const resolvedModel = promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+      const resolvedModel =
+        params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
 
       // Stream from provider, collecting full text and usage
       let fullText = '';
@@ -862,18 +961,19 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Compute cost and model info for the done event
       const streamCost =
         streamProviderCost ??
-        (streamUsage
+        (streamUsage && findModelRate(resolvedModel)
           ? calculateModelCost(streamUsage.inputTokens, streamUsage.outputTokens, resolvedModel, {
               cachedInputTokens: streamUsage.cachedInputTokens,
               cacheWriteTokens: streamUsage.cacheWriteTokens,
             })
-          : 0);
+          : undefined);
 
       const doneBase = {
         usage: streamUsage,
         model: resolvedModel,
         provider: activeProvider.name,
         cost: streamCost,
+        costAvailable: streamCost != null,
         finishReason: providerFinishReason,
       };
 
@@ -889,7 +989,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
             usage: failureUsage,
-            cost: null,
+            cost: streamCost ?? null,
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -917,7 +1017,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
             usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-            cost: null,
+            cost: streamCost ?? null,
             latencyMs: performance.now() - streamStart,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -931,7 +1031,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             model: resolvedModel,
             provider: activeProvider.name,
-            input: params.input,
+            input: inputForAI,
             output: singleTextField
               ? { [singleTextField]: fullText.trim() }
               : { text: fullText.trim() },
@@ -954,6 +1054,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         let validatedData: unknown;
         let validationFellBackToNonStreaming = false;
         let fallbackUsage: TokenUsage | undefined;
+        let fallbackCost: number | undefined;
         try {
           const parsed = JSON.parse(fullText);
           validatedData = promptDef.output.parse(parsed);
@@ -1018,6 +1119,14 @@ export function createAIService(config: AIServiceConfig): AIService {
             );
             validatedData = validated.data;
             fallbackUsage = validated.usage;
+            fallbackCost =
+              validated.cost ??
+              calculateModelCost(
+                validated.usage.inputTokens,
+                validated.usage.outputTokens,
+                resolvedModel,
+                validated.usage,
+              );
           } catch (fallbackErr) {
             // Bill the caller for the combined streamUsage + whatever the
             // fallback provider ate before giving up (AIValidationError
@@ -1066,6 +1175,11 @@ export function createAIService(config: AIServiceConfig): AIService {
         const successUsage = validationFellBackToNonStreaming
           ? sumUsage(streamUsage, fallbackUsage)
           : (streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+        const successCost = validationFellBackToNonStreaming
+          ? streamCost != null && fallbackCost != null
+            ? streamCost + fallbackCost
+            : undefined
+          : streamCost;
         await recordProviderCost(
           {
             model: resolvedModel,
@@ -1074,7 +1188,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             operation: 'generate',
             fallbackUsed: validationFellBackToNonStreaming || undefined,
             usage: successUsage,
-            cost: null,
+            cost: successCost ?? null,
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1086,6 +1200,9 @@ export function createAIService(config: AIServiceConfig): AIService {
           type: 'done',
           data: validatedData as Record<string, any>,
           ...doneBase,
+          usage: successUsage,
+          cost: successCost,
+          costAvailable: successCost != null,
           validationFallbackFired: validationFellBackToNonStreaming,
         };
       } else {
@@ -1096,7 +1213,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
             usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-            cost: null,
+            cost: streamCost ?? null,
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1115,6 +1232,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       costContext?: AICostContext;
     }): Promise<Record<string, any>> {
       const start = performance.now();
+      const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
+      const textForAI = String(inputForAI.text);
 
       checkBudget();
 
@@ -1126,7 +1245,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         'Extract structured data from the following text. Return valid JSON matching the required schema.';
       const request: ProviderRequest = {
         system: systemPrompt,
-        prompt: params.text,
+        prompt: textForAI,
         model: config.defaultModel,
         responseFormat: 'json',
         responseSchema: config.enableStrictStructuredOutputs
@@ -1174,7 +1293,15 @@ export function createAIService(config: AIServiceConfig): AIService {
           provider: activeProvider.name,
           operation: 'extract',
           usage: validated.usage,
-          cost: null,
+          cost:
+            validated.cost ??
+            calculateModelCost(
+              validated.usage.inputTokens,
+              validated.usage.outputTokens,
+              resolvedModel,
+              validated.usage,
+            ) ??
+            null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -1188,7 +1315,8 @@ export function createAIService(config: AIServiceConfig): AIService {
           operation: 'extract',
           model: config.defaultModel,
           provider: activeProvider.name,
-          input: { text: params.text },
+          input: inputForAI,
+          securityWarnings: securityResult?.warnings.map((warning) => warning.message),
           output: validated.data,
           usage: validated.usage,
           validation: { passed: validated.attempts === 1, attempts: validated.attempts },
@@ -1208,6 +1336,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       costContext?: AICostContext;
     }): Promise<string[]> {
       const start = performance.now();
+      const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
+      const textForAI = String(inputForAI.text);
 
       checkBudget();
 
@@ -1219,7 +1349,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
       const request: ProviderRequest = {
         system: systemPrompt,
-        prompt: `Labels: ${JSON.stringify(params.labels)}\n\nText: ${params.text}`,
+        prompt: `Labels: ${JSON.stringify(params.labels)}\n\nText: ${textForAI}`,
         model: config.defaultModel,
         responseFormat: 'json',
         responseSchema: config.enableStrictStructuredOutputs
@@ -1271,7 +1401,15 @@ export function createAIService(config: AIServiceConfig): AIService {
           provider: activeProvider.name,
           operation: 'classify',
           usage: validated.usage,
-          cost: null,
+          cost:
+            validated.cost ??
+            calculateModelCost(
+              validated.usage.inputTokens,
+              validated.usage.outputTokens,
+              resolvedModel,
+              validated.usage,
+            ) ??
+            null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -1285,7 +1423,8 @@ export function createAIService(config: AIServiceConfig): AIService {
           operation: 'classify',
           model: config.defaultModel,
           provider: activeProvider.name,
-          input: { labels: params.labels, text: params.text },
+          input: { labels: params.labels, ...inputForAI },
+          securityWarnings: securityResult?.warnings.map((warning) => warning.message),
           output: result,
           usage: validated.usage,
           validation: { passed: validated.attempts === 1, attempts: validated.attempts },

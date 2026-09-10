@@ -122,4 +122,23 @@ describe('registerVoicePricing', () => {
     expect(tts.pricingKnown).toBe(true);
     expect(tts.cost).toBeCloseTo(0.001176, 5);
   });
+
+  it('estimates audio seconds from characters for per-minute-audio pricing', () => {
+    // Direct-utterance paths (hearing repair, replay) know the text but not the
+    // audio duration; vendors billed per minute of generated audio publish
+    // ~1,000 characters ≈ 1 minute of speech.
+    registerVoicePricing({
+      model: 'deepdub-phantom-x',
+      operation: 'synthesize',
+      unit: 'audioOutputSeconds',
+      usdPerUnit: 0.1 / 60,
+    });
+
+    // 2,000 characters ≈ 2 minutes = 120 seconds.
+    expect(calculateVoiceCost('deepdub-phantom-x', { characters: 2000 })).toBeCloseTo(0.2, 5);
+    // An exact duration always wins over the estimate.
+    expect(
+      calculateVoiceCost('deepdub-phantom-x', { audioOutputSeconds: 60, characters: 2000 }),
+    ).toBeCloseTo(0.1, 5);
+  });
 });

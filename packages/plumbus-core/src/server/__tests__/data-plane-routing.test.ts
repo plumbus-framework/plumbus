@@ -483,7 +483,7 @@ describe('per-request data-plane routing over two real databases', () => {
       // here can only have come from the untenanted-request policy.
       const refused = await note(server, 'untenanted', 'note-from-nobody');
       expect(refused.statusCode).toBe(403);
-      expect(refused.body.error?.message).toContain('no tenant reference');
+      expect(refused.body.error?.message).toBe('Access denied');
 
       expect(await readNotes(tenantA)).not.toContain('note-from-nobody');
       expect(await readNotes(tenantB)).not.toContain('note-from-nobody');

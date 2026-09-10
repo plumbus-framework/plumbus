@@ -1,10 +1,19 @@
-import type { ReasoningEffort } from '../types/prompt.js';
 // ── AI Provider Adapter Interface ──
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
 import { createRequire } from 'node:module';
 import type { AIProviderSlotConfig } from '../types/config.js';
-import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
+import type {
+  AIReasoningConfig,
+  ReasoningEffort,
+  ReasoningEffortOption,
+  ReasoningLevel,
+} from '../types/prompt.js';
+import {
+  allKnownModels,
+  estimateModelCost as calculateModelCost,
+  type Kind,
+} from './model-pricing.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
@@ -49,6 +58,17 @@ export interface AIProviderCapabilities {
   parallelToolCalls: boolean;
   parallelToolCallControl: boolean;
   namedToolChoice: boolean;
+  /** Adapter-level wire support. Individual models may support a subset. */
+  reasoning?: {
+    modes: readonly AIReasoningConfig['mode'][];
+    efforts?: readonly ReasoningLevel[];
+  };
+}
+
+/** Opaque assistant content that a provider requires on the next tool round. */
+export interface ProviderAssistantState {
+  provider: string;
+  content: unknown;
 }
 
 /**
@@ -60,7 +80,13 @@ export interface AIProviderCapabilities {
  */
 export type ChatMessage =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; toolCalls?: AIToolCall[] }
+  | {
+      role: 'assistant';
+      content: string;
+      toolCalls?: AIToolCall[];
+      /** Server-owned continuation state; never serialize into client chat events. */
+      providerState?: ProviderAssistantState;
+    }
   | { role: 'tool'; content: string; toolCallId: string; name: string };
 
 export interface ProviderRequest {
@@ -87,11 +113,9 @@ export interface ProviderRequest {
   temperature?: number;
   /** Max tokens for response */
   maxTokens?: number;
-  /**
-   * Reasoning effort for models that support it. Sent ONLY when set (OpenAI
-   * `reasoning_effort` on o-series / gpt-5 family); adapters for providers
-   * without an equivalent parameter ignore it.
-   */
+  /** Provider-neutral reasoning intent translated by the selected adapter. */
+  reasoning?: AIReasoningConfig;
+  /** @deprecated Use `reasoning`. Retained with its legacy OpenAI-only behavior. */
   reasoningEffort?: ReasoningEffort;
   /** Response format hint */
   responseFormat?: 'text' | 'json';
@@ -142,6 +166,8 @@ export interface ProviderResponse {
   finishReason: string;
   /** Parsed provider tool calls (present when finishReason is 'tool_calls'/'tool_use'). */
   toolCalls?: AIToolCall[];
+  /** Opaque assistant content needed to continue a provider-native tool loop. */
+  providerState?: ProviderAssistantState;
   /**
    * Optional USD cost computed by the adapter (e.g. `@plumbus/ai-bedrock` from
    * its Price List cache). When set, `createAIService` prefers this over
@@ -224,7 +250,7 @@ export interface ProviderModel {
   /** USD per 1M output tokens, or `null` if the model is not in the catalog. */
   outputPerMTok: number | null;
   /** Supported reasoning values; null means unknown, [] means unsupported. */
-  reasoningEfforts?: readonly ReasoningEffort[] | null;
+  reasoningEfforts?: readonly ReasoningEffortOption[] | null;
   /** Provider-supplied human-readable label (Anthropic exposes this; OpenAI doesn't). */
   displayName?: string;
   /** ISO-8601 creation timestamp when the provider exposes one. */
@@ -287,7 +313,10 @@ export interface AIProviderAdapter {
  * the kind filter respecting the official-endpoint rule.
  */
 /** Published model profiles for official endpoints. Unknown models stay unknown. */
-function knownReasoningEfforts(provider: string, model: string): readonly ReasoningEffort[] | null {
+function knownReasoningEfforts(
+  provider: string,
+  model: string,
+): readonly ReasoningEffortOption[] | null {
   if (provider !== 'openai') return null;
   const id = model.replace(/-\d{4}-\d{2}-\d{2}$/, '');
   if (['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(id))
@@ -566,19 +595,81 @@ function applyOpenAITemperature(
   body.temperature = temperature ?? 0.7;
 }
 
-/**
- * `reasoning_effort` is sent ONLY when explicitly configured — no model
- * detection. A model that rejects the parameter fails loudly (HTTP 400)
- * instead of silently running without reasoning, so a misconfigured prompt
- * is visible immediately.
- */
-function applyOpenAIReasoningEffort(
-  body: Record<string, unknown>,
-  reasoningEffort?: ReasoningEffort,
-): void {
-  if (reasoningEffort) {
-    body.reasoning_effort = reasoningEffort;
+function normalizeProviderRequestReasoning(
+  request: ProviderRequest,
+): AIReasoningConfig | undefined {
+  return request.reasoning;
+}
+
+function unsupportedReasoning(provider: string, reasoning: AIReasoningConfig): never {
+  throw new AIInvalidRequestError({
+    reason: `reasoning_${reasoning.mode}_unsupported`,
+    message: `AI provider "${provider}" cannot represent reasoning mode "${reasoning.mode}"`,
+  });
+}
+
+/** Translate provider-neutral reasoning onto OpenAI's top-level `reasoning_effort`. */
+function applyOpenAIReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
+  const reasoning = normalizeProviderRequestReasoning(request);
+  if (!reasoning) {
+    if (request.reasoningEffort) body.reasoning_effort = request.reasoningEffort;
+    return;
   }
+  if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  body.reasoning_effort = reasoning.mode === 'disabled' ? 'none' : reasoning.effort;
+}
+
+/** Translate provider-neutral reasoning onto Anthropic Messages API fields. */
+function applyAnthropicReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
+  const reasoning = normalizeProviderRequestReasoning(request);
+  if (!reasoning) return;
+  if (reasoning.mode === 'disabled') {
+    body.thinking = { type: 'disabled' };
+    return;
+  }
+  if (reasoning.mode === 'budget') {
+    if (!Number.isInteger(reasoning.maxTokens) || reasoning.maxTokens < 1024) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_budget_invalid',
+        message: 'Anthropic reasoning budget must be an integer of at least 1024 tokens',
+      });
+    }
+    if (request.maxTokens != null && reasoning.maxTokens >= request.maxTokens) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_budget_exceeds_output_limit',
+        message: 'Anthropic reasoning budget must be smaller than maxTokens',
+      });
+    }
+    if (request.temperature != null && request.temperature !== 1) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_temperature_conflict',
+        message: 'Anthropic thinking requires temperature 1 or an omitted temperature',
+      });
+    }
+    if (request.temperature == null) delete body.temperature;
+    body.thinking = {
+      type: 'enabled',
+      budget_tokens: reasoning.maxTokens,
+      display: 'omitted',
+    };
+    return;
+  }
+  if (reasoning.effort === 'minimal') {
+    unsupportedReasoning('anthropic', reasoning);
+  }
+  if (request.temperature != null && request.temperature !== 1) {
+    throw new AIInvalidRequestError({
+      reason: 'reasoning_temperature_conflict',
+      message: 'Anthropic adaptive thinking requires temperature 1 or an omitted temperature',
+    });
+  }
+  if (request.temperature == null) delete body.temperature;
+  body.thinking = { type: 'adaptive', display: 'omitted' };
+  const outputConfig =
+    body.output_config && typeof body.output_config === 'object'
+      ? (body.output_config as Record<string, unknown>)
+      : {};
+  body.output_config = { ...outputConfig, effort: reasoning.effort };
 }
 
 function anthropicUsageToTokenUsage(usage: {
@@ -588,9 +679,16 @@ function anthropicUsageToTokenUsage(usage: {
   cache_read_input_tokens?: number;
 }): TokenUsage {
   return {
-    inputTokens: usage.input_tokens,
+    inputTokens:
+      usage.input_tokens +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0),
     outputTokens: usage.output_tokens,
-    totalTokens: usage.input_tokens + usage.output_tokens,
+    totalTokens:
+      usage.input_tokens +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0) +
+      usage.output_tokens,
     cachedInputTokens: usage.cache_read_input_tokens ?? 0,
     cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
   };
@@ -776,6 +874,268 @@ function parseOpenAIToolCalls(
   return result;
 }
 
+const OPENAI_RESPONSES_PROVIDER_STATE = 'openai-responses';
+
+interface OpenAIResponsesOutputItem {
+  id?: string;
+  type?: string;
+  role?: string;
+  status?: string;
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  content?: Array<{
+    type?: string;
+    text?: string;
+    refusal?: string;
+  }>;
+  [key: string]: unknown;
+}
+
+interface OpenAIResponsesData {
+  status?: string;
+  model?: string;
+  output?: OpenAIResponsesOutputItem[];
+  output_text?: string;
+  incomplete_details?: { reason?: string } | null;
+  error?: { code?: string; message?: string } | null;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number };
+  };
+}
+
+function hasOpenAIResponsesContinuation(request: ProviderRequest): boolean {
+  return (
+    request.messages?.some(
+      (message) =>
+        message.role === 'assistant' &&
+        message.providerState?.provider === OPENAI_RESPONSES_PROVIDER_STATE,
+    ) === true
+  );
+}
+
+function isGpt56Family(model: string): boolean {
+  return /^gpt-5\.6(?:$|[-.])/.test(model.trim().toLowerCase());
+}
+
+/**
+ * Chat Completions cannot combine function tools with active reasoning on
+ * GPT-5.6. Keep every compatible request on the existing transport, but use
+ * Responses for explicit reasoning effort, GPT-5.6's default reasoning, and
+ * continuation rounds that already carry Responses output state.
+ */
+function shouldUseOpenAIResponses(request: ProviderRequest, model: string): boolean {
+  if (hasOpenAIResponsesContinuation(request)) return true;
+  if (!request.tools || request.tools.length === 0) return false;
+
+  const reasoning = normalizeProviderRequestReasoning(request);
+  if (reasoning?.mode === 'disabled') return false;
+  if (reasoning?.mode === 'effort' || request.reasoningEffort !== undefined) return true;
+  return reasoning === undefined && isGpt56Family(model);
+}
+
+function toOpenAIResponsesInput(request: ProviderRequest): Record<string, unknown>[] {
+  if (!request.messages || request.messages.length === 0) {
+    return [{ role: 'user', content: request.prompt }];
+  }
+
+  const input: Record<string, unknown>[] = [];
+  for (const message of request.messages) {
+    if (message.role === 'user') {
+      input.push({ role: 'user', content: message.content });
+      continue;
+    }
+    if (message.role === 'tool') {
+      input.push({
+        type: 'function_call_output',
+        call_id: message.toolCallId,
+        output: message.content,
+      });
+      continue;
+    }
+    if (
+      message.providerState?.provider === OPENAI_RESPONSES_PROVIDER_STATE &&
+      Array.isArray(message.providerState.content)
+    ) {
+      input.push(...(message.providerState.content as Record<string, unknown>[]));
+      continue;
+    }
+    if (message.content.length > 0) {
+      input.push({ role: 'assistant', content: message.content });
+    }
+    for (const toolCall of message.toolCalls ?? []) {
+      input.push({
+        type: 'function_call',
+        call_id: toolCall.id,
+        name: toolCall.name,
+        arguments:
+          toolCall.argumentsStatus === 'parsed'
+            ? JSON.stringify(toolCall.arguments ?? {})
+            : toolCall.rawArguments,
+      });
+    }
+  }
+  return input;
+}
+
+function buildOpenAIResponsesToolChoice(toolChoice: AIToolChoice | undefined): unknown {
+  if (toolChoice === undefined) return undefined;
+  if (toolChoice === 'auto' || toolChoice === 'none') return toolChoice;
+  return { type: 'function', name: toolChoice.function.name };
+}
+
+function applyOpenAIResponsesReasoning(
+  body: Record<string, unknown>,
+  request: ProviderRequest,
+): void {
+  const reasoning = normalizeProviderRequestReasoning(request);
+  if (!reasoning) {
+    if (request.reasoningEffort) body.reasoning = { effort: request.reasoningEffort };
+    return;
+  }
+  if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  body.reasoning = { effort: reasoning.mode === 'disabled' ? 'none' : reasoning.effort };
+}
+
+function openAIResponsesUsageToTokenUsage(usage: OpenAIResponsesData['usage']): TokenUsage {
+  const inputTokens = usage?.input_tokens ?? 0;
+  const outputTokens = usage?.output_tokens ?? 0;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: usage?.total_tokens ?? inputTokens + outputTokens,
+    cachedInputTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
+  };
+}
+
+function extractOpenAIResponsesContent(output: OpenAIResponsesOutputItem[]): {
+  content: string;
+  refusalText?: string;
+} {
+  const text: string[] = [];
+  let refusalText: string | undefined;
+  for (const item of output) {
+    if (item.type !== 'message') continue;
+    for (const block of item.content ?? []) {
+      if (block.type === 'output_text' && typeof block.text === 'string') {
+        text.push(block.text);
+      } else if (block.type === 'refusal' && typeof block.refusal === 'string') {
+        refusalText = block.refusal;
+      }
+    }
+  }
+  return { content: text.join(''), ...(refusalText ? { refusalText } : {}) };
+}
+
+function parseOpenAIResponsesToolCalls(output: OpenAIResponsesOutputItem[]): AIToolCall[] {
+  return parseOpenAIToolCalls(
+    output
+      .filter((item) => item.type === 'function_call')
+      .map((item) => ({
+        id: item.call_id ?? item.id,
+        type: 'function',
+        function: { name: item.name, arguments: item.arguments },
+      })),
+  );
+}
+
+async function completeOpenAIResponses(args: {
+  request: ProviderRequest;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+  defaultTimeout: number;
+}): Promise<ProviderResponse> {
+  const { request, model } = args;
+  if (request.tools && request.tools.length > 0) {
+    assertNoStructuredOutputToolConflict(request);
+    validateCallerTools(request.tools);
+  }
+
+  const body: Record<string, unknown> = {
+    model,
+    input: toOpenAIResponsesInput(request),
+    store: false,
+    include: ['reasoning.encrypted_content'],
+  };
+  if (request.system) body.instructions = request.system;
+  applyOpenAITemperature(body, model, request.temperature);
+  applyOpenAIResponsesReasoning(body, request);
+  if (request.maxTokens) body.max_output_tokens = request.maxTokens;
+  if (request.tools && request.tools.length > 0) {
+    body.tools = request.tools.map((tool) => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
+    const toolChoice = buildOpenAIResponsesToolChoice(request.toolChoice);
+    if (toolChoice !== undefined) body.tool_choice = toolChoice;
+    if (request.toolExecution?.parallelToolCalls === false) body.parallel_tool_calls = false;
+  }
+
+  const response = await executeRequestWithRetry({
+    providerName: 'openai',
+    errorLabel: 'OpenAI Responses API',
+    send: () =>
+      fetch(`${args.baseUrl}/responses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${args.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: combineRequestSignals(request.signal, request.timeout ?? args.defaultTimeout),
+      }),
+  });
+  const data = (await response.json()) as OpenAIResponsesData;
+  const usage = openAIResponsesUsageToTokenUsage(data.usage);
+  const output = data.output ?? [];
+  const extracted = extractOpenAIResponsesContent(output);
+  const content = extracted.content || data.output_text || '';
+  const responseModel = data.model ?? model;
+
+  if (data.status === 'failed' || data.error) {
+    throw new ProviderAPIError({
+      providerName: 'openai',
+      retryable: false,
+      attempts: 1,
+      message: `OpenAI Responses API failed: ${data.error?.message ?? data.error?.code ?? 'unknown error'}`,
+    });
+  }
+  if (extracted.refusalText) {
+    throw new AIRefusalError({
+      provider: 'openai',
+      model: responseModel,
+      refusalText: extracted.refusalText,
+      usage,
+    });
+  }
+
+  const toolCalls = parseOpenAIResponsesToolCalls(output);
+  if (toolCalls.length > 0) {
+    return {
+      content,
+      model: responseModel,
+      usage,
+      finishReason: 'tool_calls',
+      toolCalls,
+      providerState: { provider: OPENAI_RESPONSES_PROVIDER_STATE, content: output },
+    };
+  }
+
+  const finishReason =
+    data.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens'
+      ? 'length'
+      : data.status === 'completed'
+        ? 'stop'
+        : 'other';
+  return { content, model: responseModel, usage, finishReason };
+}
+
 /** Map framework ChatMessage[] to Anthropic messages (tool_use / tool_result blocks). */
 function toAnthropicMessages(request: ProviderRequest): Record<string, unknown>[] {
   if (!request.messages || request.messages.length === 0) {
@@ -792,6 +1152,10 @@ function toAnthropicMessages(request: ProviderRequest): Record<string, unknown>[
         out.push({ role: 'user', content: [block] });
       }
     } else if (msg.role === 'assistant') {
+      if (msg.providerState?.provider === 'anthropic' && Array.isArray(msg.providerState.content)) {
+        out.push({ role: 'assistant', content: msg.providerState.content });
+        continue;
+      }
       const blocks: Record<string, unknown>[] = [];
       if (msg.content.length > 0) blocks.push({ type: 'text', text: msg.content });
       if (msg.toolCalls) {
@@ -865,10 +1229,23 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       parallelToolCalls: true,
       parallelToolCallControl: true,
       namedToolChoice: true,
+      reasoning: {
+        modes: ['disabled', 'effort'],
+        efforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      },
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       const model = request.model ?? defaultModel;
+      if (shouldUseOpenAIResponses(request, model)) {
+        return completeOpenAIResponses({
+          request,
+          model,
+          baseUrl,
+          apiKey: config.apiKey,
+          defaultTimeout,
+        });
+      }
       const messages = toOpenAIMessages(request);
 
       const body: Record<string, unknown> = {
@@ -876,7 +1253,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         messages,
       };
       applyOpenAITemperature(body, model, request.temperature);
-      applyOpenAIReasoningEffort(body, request.reasoningEffort);
+      applyOpenAIReasoning(body, request);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
@@ -1019,7 +1396,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream_options: { include_usage: true },
       };
       applyOpenAITemperature(body, model, request.temperature);
-      applyOpenAIReasoningEffort(body, request.reasoningEffort);
+      applyOpenAIReasoning(body, request);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {
@@ -1159,6 +1536,10 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       parallelToolCalls: true,
       parallelToolCallControl: true,
       namedToolChoice: true,
+      reasoning: {
+        modes: ['disabled', 'effort', 'budget'],
+        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      },
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
@@ -1178,6 +1559,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           },
         };
       }
+      applyAnthropicReasoning(body, request);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
         validateCallerTools(request.tools);
@@ -1242,13 +1624,21 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         });
       }
       if (request.tools && request.tools.length > 0 && data.stop_reason === 'tool_use') {
-        return {
+        const response: ProviderResponse = {
           content: text,
           model: data.model,
           usage,
           finishReason: 'tool_use',
           toolCalls: parseAnthropicToolUse(data.content),
         };
+        if (
+          data.content.some(
+            (block) => block.type === 'thinking' || block.type === 'redacted_thinking',
+          )
+        ) {
+          response.providerState = { provider: 'anthropic', content: data.content };
+        }
+        return response;
       }
       // Mirror the OpenAI adapter: only throw on max_tokens when the caller
       // requested structured JSON output. Free-text completions should return
@@ -1297,6 +1687,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           },
         };
       }
+      applyAnthropicReasoning(body, request);
 
       let resp: Response;
       try {
@@ -1323,7 +1714,18 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         return;
       }
 
-      yield* parseSSEStream(resp, parseAnthropicSSEChunk);
+      let initialUsage: TokenUsage | undefined;
+      for await (const event of parseSSEStream(resp, parseAnthropicSSEChunk)) {
+        if (event.type === 'usage' && event.usage) initialUsage = event.usage;
+        if (event.type === 'done' && event.usage && initialUsage) {
+          event.usage = {
+            ...initialUsage,
+            outputTokens: event.usage.outputTokens,
+            totalTokens: initialUsage.inputTokens + event.usage.outputTokens,
+          };
+        }
+        yield event;
+      }
     },
 
     async embed(): Promise<EmbeddingResponse> {
@@ -1533,16 +1935,19 @@ function parseAnthropicSSEChunk(eventType: string, data: string): ProviderStream
       }
       case 'message_start': {
         const message = parsed.message as
-          | { usage?: { input_tokens: number; output_tokens: number } }
+          | {
+              usage?: {
+                input_tokens: number;
+                output_tokens: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
+            }
           | undefined;
         if (message?.usage) {
           return {
             type: 'usage',
-            usage: {
-              inputTokens: message.usage.input_tokens,
-              outputTokens: message.usage.output_tokens,
-              totalTokens: message.usage.input_tokens + message.usage.output_tokens,
-            },
+            usage: anthropicUsageToTokenUsage(message.usage),
           };
         }
         return null;

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.2.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.2.0.
+
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages publish to npm’s default `latest` dist-tag.
+
+### Fixed
+
+- Room-session shutdown is idempotent: concurrent or repeated `stop()` calls share one cleanup and one cost-recording attempt. Resources are released before awaiting accounting, including when accounting rejects or stalls.
+- Failed room connection, track publication, or initial hello releases acquired resources while preserving the startup error. Native transport cleanup attempts every resource even when another close fails.
+- The simulated worker integration now runs without credentials in the default suite; added lifecycle failure and concurrency regression tests. Public APIs and pricing remain unchanged.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Security
+
+- Include tenant identity in default room names when supplied by the voice runtime. Room resolvers receive optional tenant identity.
+
+### Compatibility
+
+- Explicitly configured room names remain unchanged; callers without a tenant keep their previous naming behavior. Clients should use returned room names, not reconstruct them. App-authorized shared rooms remain supported.
+- Deploy with voice 0.5.0 and core 0.7.0 for automatic tenant propagation and the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
+
+## 0.1.4
+
+### Fixed
+
+- **LiveKit transport rate corrected to $0.0005/participant-minute** (was $0.02 — 40× the LiveKit Cloud Ship-tier WebRTC overage rate). Below each plan's included monthly allotment (5k–1.5M participant-minutes) the marginal cost is $0; this records the overage rate. A self-hosted agent joining the room bills as an ordinary participant.
+
 ## 0.1.3
 
 ### Changed

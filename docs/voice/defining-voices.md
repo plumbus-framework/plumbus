@@ -80,6 +80,45 @@ Declare it on a tone profile or return it from `resolveTone`; the Deepdub adapte
 it over the static `tts.voiceId` and falls back when absent. Providers without per-call
 voice selection ignore it.
 
+## Hearing repair hook
+
+When the session controller detects an utterance it may not have heard — an
+endpoint with no transcript after speech energy (`reason: 'empty'`), or any
+transcript below the configured confidence threshold (`reason:
+'low_confidence'`) — it can speak a short repair prompt instead of starting a
+brain turn. The framework owns only the signals and the mechanism (detection,
+timing, playback, cost recording); it never judges what a transcript *is*. The
+app owns every content decision through `onHearingRepair`:
+
+```ts
+defineVoice({
+  // ...
+  onHearingRepair: async (ctx, { reason, transcript, confidence, language, sessionId }) => {
+    if (reason === 'low_confidence' && !looksLikeAName(transcript)) {
+      return undefined; // not name-shaped: no repair, the turn proceeds normally
+    }
+    // Return the text to speak, optionally with a delivery tone...
+    return {
+      text: language?.startsWith('en') ? 'Could you say that again?' : 'אפשר לחזור שוב?',
+      tone: { profile: 'apologetic_repair', targetGender: await lookupGender(ctx, sessionId) },
+    };
+    // ...a bare string for text only, or undefined/null to suppress the repair speech.
+  },
+});
+```
+
+- The `tone` result is resolved against `toneProfiles` and mapped through the
+  TTS adapter's `mapDeliveryTone(...)` exactly like a `resolveTone` result, so
+  repair speech can carry `targetGender` / `voiceId` style-variant selection
+  without the framework knowing anything about the app's data model.
+- A suppressed (or hookless) `low_confidence` signal is not a dropped turn:
+  the transcript stands and becomes a normal brain turn.
+- A hook that throws falls back to the built-in default line for `empty`
+  (the session must not go silent because app code failed); for
+  `low_confidence` there is no default — the turn proceeds.
+- When `onHearingRepair` is absent, only `empty` speaks the framework's
+  built-in Hebrew/English default line; `low_confidence` produces no repair.
+
 ## `preprocessForTts`
 
 Use `preprocessForTts(text, ctx)` for last-mile normalization before synthesis, for example:

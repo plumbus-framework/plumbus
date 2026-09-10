@@ -35,6 +35,7 @@ export async function runStreamingTurnPipeline(
   let brainError: Error | undefined;
   let playingEmitted = false;
   const capturedDeltas: string[] = [];
+  let pendingDeltas = Promise.resolve();
 
   const notifyUtterance = () => {
     const waiter = utteranceWaiters.shift();
@@ -60,16 +61,24 @@ export async function runStreamingTurnPipeline(
   };
 
   const brainPromise = args
-    .runBrain(async (delta) => {
+    .runBrain((delta) => {
       if (!delta || args.abortSignal?.aborted) return;
-      capturedDeltas.push(delta);
-      await args.onAssistantDelta?.(delta);
-      // Push the RAW delta so inter-word spaces (which streaming tokens carry as
-      // leading whitespace) are preserved. Sentinel markers are stripped per complete
-      // sentence below, not per delta — trimming each delta would mash words together.
-      enqueueUtterances(chunker.push(delta));
+      // Brain callbacks may ignore the returned promise. Track and serialize
+      // delivery ourselves so a network send cannot outlive the TTS queue.
+      pendingDeltas = pendingDeltas.then(async () => {
+        if (args.abortSignal?.aborted) return;
+        capturedDeltas.push(delta);
+        await args.onAssistantDelta?.(delta);
+        // Preserve the raw token whitespace until a complete sentence is ready.
+        enqueueUtterances(chunker.push(delta));
+      });
+      // Observe early rejections even when the brain does not await callbacks;
+      // the original rejection is propagated when draining pendingDeltas below.
+      void pendingDeltas.catch(() => {});
+      return pendingDeltas;
     })
-    .then((responseText) => {
+    .then(async (responseText) => {
+      await pendingDeltas;
       enqueueUtterances(chunker.flush());
       brainDone = true;
       notifyUtterance();
@@ -122,8 +131,7 @@ export async function runStreamingTurnPipeline(
     }
   })();
 
-  const responseText = await brainPromise;
-  await ttsPromise;
+  const [responseText] = await Promise.all([brainPromise, ttsPromise]);
 
   if (args.abortSignal?.aborted) {
     return { responseText: capturedDeltas.join('') || responseText };

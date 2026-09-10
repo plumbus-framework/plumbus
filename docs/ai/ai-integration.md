@@ -58,7 +58,7 @@ export const classifyTicket = definePrompt({
     name: "gpt-4o-mini",
     temperature: 0.2,
     maxTokens: 256,
-    // reasoningEffort: "medium", // OpenAI o-series / gpt-5 only — omit unless needed
+    // reasoning: { mode: "effort", effort: "medium" },
   },
 });
 ```
@@ -123,6 +123,8 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 ```
 
 `generate()` returns only the data; `generateWithUsage()` returns `{ data, usage, model, provider, cost }`.
+
+For a one-off override, `generateWithUsage` accepts `provider`, `model`, and provider-neutral `reasoning`. Leaving a field undefined preserves normal prompt/config resolution; `reasoning:null` restores the provider/model default for that call and clears both inherited `reasoning` and inherited legacy `reasoningEffort`. Use `{ mode:'disabled' }`, `{ mode:'effort', effort }`, or `{ mode:'budget', maxTokens }`. The selected adapter translates the intent into its native wire format and explicitly rejects modes it cannot represent. Legacy `reasoningEffort` remains exactly `'low' | 'medium' | 'high'` with its previous OpenAI-only behavior.
 
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 
@@ -272,14 +274,23 @@ for those models — configured prompt/`generate` temperatures are ignored for t
 causing a 400 `unsupported_value` error. Earlier `gpt-5` lines (for example `gpt-5.4-mini`)
 still receive the configured temperature.
 
-Optional `model.reasoningEffort` (`'low' | 'medium' | 'high'`) maps to OpenAI `reasoning_effort`
-and is sent **only when explicitly set** — there is no auto-detection. Use it for o-series /
-gpt-5 reasoning models; a model that rejects the parameter fails with HTTP 400 so misconfiguration
-is visible immediately. Anthropic and other adapters ignore the field. The same override can be
-supplied via `resolveAiOverrides` / `promptOverrides`.
+Optional `model.reasoning` is provider-neutral. OpenAI retains Chat Completions
+for compatible requests and uses the Responses API when caller tools require
+active reasoning (including GPT-5.6's default reasoning). Stateless tool rounds
+request and replay encrypted reasoning items through provider continuation state.
+Anthropic maps disabled/effort/budget to `thinking` and
+`output_config.effort`. Adapter-level
+incompatibilities fail locally with `AIInvalidRequestError`; model-specific limitations remain
+provider errors. No model-name inference is used. The same override can be supplied via
+`resolveAiOverrides` / `promptOverrides`.
+
+The legacy `model.reasoningEffort` union and runtime behavior are unchanged: only
+`low`, `medium`, and `high`, and only the OpenAI adapter consumes it. Anthropic
+continues to ignore that legacy property and keeps its existing `temperature: 0.7`
+default unless the new `reasoning` property is explicitly configured.
 
 ```typescript
-import { createAIService, createProviderAdapter, createOpenAIAdapter } from "@plumbus/core";
+import { createAIService, createOpenAIAdapter, createProviderAdapter } from "@plumbus/core";
 import { createBedrockAdapter } from "@plumbus/ai-bedrock";
 
 const service = createAIService({
@@ -332,9 +343,9 @@ The `extract()` and `classify()` convenience methods always use the default prov
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
 | `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
 
-Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire Ollama and custom providers programmatically. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
+Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
 
-A present-but-empty `AI_OPENAI_API_KEY=` or `AI_ANTHROPIC_API_KEY=` (core **≥ 0.6.17**) is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
+A present-but-empty OpenAI or Anthropic API-key slot is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
 
 When an adapter returns `cost` on `ProviderResponse` / stream `done` (Bedrock), `createAIService` uses that value instead of the hardcoded OpenAI/Anthropic `MODEL_PRICING` catalog.
 
@@ -528,13 +539,13 @@ const anthropic = createAnthropicAdapter({
 
 ### OpenAI-Compatible (Ollama, Azure, etc.)
 
-Unknown provider names use the OpenAI-compatible adapter:
+Custom OpenAI-compatible providers use `createOpenAIAdapter` explicitly:
 
 ```typescript
-import { createProviderAdapter } from "@plumbus/core";
+import { createOpenAIAdapter } from "@plumbus/core";
 
-const ollama = createProviderAdapter("ollama", {
-  apiKey: "",
+const ollama = createOpenAIAdapter({
+  apiKey: "ollama",
   baseUrl: "http://localhost:11434/v1",
   model: "llama3",
 });
@@ -579,7 +590,7 @@ Each returned `ProviderModel` carries:
 | Scenario                                          | No filter   | `{ kind: 'embedding' }`               |
 | ------------------------------------------------- | ----------- | ------------------------------------- |
 | Official OpenAI / Anthropic                       | Everything  | Just embeddings (unknowns excluded)   |
-| Custom OpenAI-compatible (Ollama, OpenRouter, …)  | Everything  | Embeddings **+ all unknowns**         |
+| Custom OpenAI-compatible                         | Everything  | Catalog matches **+ all unknowns**    |
 
 "Official" means `baseUrl === 'https://api.openai.com/v1'` for OpenAI and
 `baseUrl === 'https://api.anthropic.com/v1'` for Anthropic. Any other base URL
@@ -668,8 +679,8 @@ Return     Retry with error context
 Every AI call is metered. Cost resolution:
 
 1. If the adapter returns `cost` on the provider / stream response (**Bedrock** via `@plumbus/ai-bedrock`), that USD value wins.
-2. Otherwise `calculateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
-3. Unknown models (e.g. local Ollama) → `$0`.
+2. Otherwise `estimateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
+3. Unknown models (e.g. local Ollama) → no catalog price (`cost: 0, costAvailable: false` in legacy numeric results; `null` in ledger rows); explicitly free providers may report `cost: 0`.
 
 Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusaibedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
 
@@ -685,13 +696,17 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `calculateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. For models the provider prices by context length, the short-context (base) rate is used. Rates were last synced on 2026-08-06; run the `update-model-pricing` skill to refresh them.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
+
+The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol uses the bundled $4/$20 input/output rates ($0.40 cached input) before November 22, 2026 UTC, then falls back to its regular $5/$30 rates ($0.50 cached input). Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
+
+The [core 0.7.0 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
 
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) are charged at **0.1x** the base input rate
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
 - **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate
 - Standard (non-cached) input tokens are charged at the full base rate
 
@@ -706,9 +721,13 @@ For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when tota
 - Input rate: **2x** standard
 - Output rate: **1.5x** standard
 
-The framework detects this automatically based on the model name and total input token count.
+The framework detects this automatically based on the model name and total input token count. Normalized input already includes cache reads/writes, which are counted once when checking the long-context threshold.
 
 ### Budget Enforcement
+
+Successful generation (including streaming and validation fallback), extraction, and classification record adapter-supplied USD cost, falling back to catalog estimates for known models. Both stream and fallback usage/cost are included in the final streaming result and ledger row. Explicit zero cost is valid for free/local providers. Unpriced providers record `null` and remain usable without dollar caps; an adapter for a known-free provider can report `cost: 0` to participate in a shared dollar budget.
+
+When a dollar cap is configured, any prior unpriced row in its scope prevents further requests, including when other rows have known costs. A fresh budget starts at zero; a zero-dollar cap blocks calls. Token pre-checks estimate input from UTF-8 request bytes divided by four plus the requested output cap, including validation retries. These are estimates, not tokenizer-exact bounds. In-memory budgets are process-local pre-checks, not atomic spend reservations across concurrent workers; persist and coordinate a ledger for a deployment-wide hard cap.
 
 ```typescript
 import { createCostTracker } from "@plumbus/core";
@@ -992,6 +1011,8 @@ Documents are split into overlapping **character**-sized chunks:
 
 ### Retrieval
 
+`createExecutionContext` binds framework AI services to the executing `auth.tenantId` and `auth.userId` for retrieval, budgets, and ledger attribution, using a fresh service rather than mutating shared state. Custom AI service wrappers must preserve `withContext` if they wrap a framework service. Caller-supplied metadata filters cannot override the tenant namespace. The shipped vector store and pipeline both enforce exact tenant matching; a missing tenant retrieves only documents ingested without a tenant, never all tenants. Tag tenant-owned documents at ingest (`tenantId` or CLI `--tenant-id`). No production pgvector search adapter is shipped; custom stores must apply the same predicate before ranking/limiting results, and the pipeline rechecks returned chunks.
+
 ```typescript
 const results = await ctx.ai.retrieve({
   query: "How to configure authentication?",
@@ -1027,6 +1048,8 @@ Each AI invocation records:
 - Timestamp and caller identity
 
 ## Security Controls
+
+`generate`, `streamGenerate`, `extract`, and `classify` apply the same configured prompt-security policy before provider calls. Extract/classify expose their source as the `text` input field; classify labels remain application-owned vocabulary. Explainability stores the redacted input, not the original. Redaction is based on registered field classifications, including nested fields, not automatic detection of PII inside arbitrary free text: classify a `text` field for blanket protection or sanitize free text through an application capability before calling AI.
 
 | Control | Description |
 |---------|-------------|
@@ -1099,14 +1122,37 @@ const result = await ctx.ai.generate({
 
 `mockAI` keys responses by operation (`generate`, `extract`, `classify`, `retrieve`), not by prompt name.
 
+Provider accounting rejects negative/nonfinite token usage and invalid budget estimates. Invalid monetary values become unknown cost rather than poisoning totals. `estimateModelCost()` returns undefined for models absent from the pricing catalog; legacy `calculateModelCost()` and generation results retain numeric zero, with results marked `costAvailable: false`; this is distinct from a free adapter's explicit zero. Anthropic stream accounting retains initial input/cache usage through the final output-token event. These checks establish numeric validity, not proof that a custom provider reports honest usage.
+
+Billing/usage API fetches default to a 10-second timeout (`UsageClientConfig.timeoutMs` overrides it), so a stalled billing endpoint does not indefinitely block `syncCosts()`.
+
+A stream that provides neither usage nor price records unknown cost, not zero. RAG `onEmbeddingCost` retains numeric `cost: 0` with `costAvailable: false` when the embedding adapter has no price; callbacks should preserve that distinction when recording a ledger row. Positive sub-microdollar catalog charges retain precision so repeated small paid calls do not appear free.
+
+### Fixed pricing catalog
+
+Prices and the Sol window are static data bundled with the package. GPT-5.6 Sol and its `gpt-5.6` alias (including supported dated names) use:
+
+| Lookup time | Input / MTok | Cached input / MTok | Output / MTok |
+| --- | --- | --- | --- |
+| Before `2026-11-22T00:00:00.000Z` | $4 | $0.40 | $20 |
+| At or after that UTC instant | $5 | $0.50 | $30 |
+
+The same selection drives `findModelRate`, `allKnownModels`, cost estimates, and catalog-derived generation/streaming ledger entries. The decision happens when estimating cost; already-recorded ledger rows keep their original values. Long-context and cache-write multipliers apply to the selected rate. Free/local-provider behavior is unchanged.
+
+[OpenAI's Sol documentation](https://developers.openai.com/api/docs/models/gpt-5.6-sol) guarantees special pricing **at least through November 21, 2026**, not a fixed termination time. The November 22 UTC fallback is our accounting policy, not a claim about the provider's final billing cutoff. If the promotion is extended, the static fallback can overestimate cost until the bundled date is manually updated. There are no runtime fetches, polling jobs, or scheduled tasks; a process running across the cutoff switches on its next pricing lookup.
+
+### Numeric cost compatibility
+
+`calculateModelCost()` keeps its published `number` return type and legacy zero for an unknown model. Use `estimateModelCost()` when callers must distinguish missing pricing from explicit free usage. `generateWithUsage().cost` and `runToolLoop().aggregatedCost` also remain numeric; check `costAvailable` / `aggregatedCostAvailable` before treating those totals as fully priced. The RAG embedding-cost callback exposes `costAvailable` with its existing numeric `cost`. Custom ledgers should store null when availability is false. Framework accounting already uses the unknown-aware path internally, so numeric compatibility values never silently bypass its configured dollar budgets.
 
 
 ### Model-supported reasoning controls
 
-`REASONING_EFFORTS` and `ReasoningEffort` are public SDK exports covering `none`,
-`minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. The dynamic prompt override,
-prompt definition, and provider request share this type. Values pass through unchanged;
-omitting a value remains distinct from explicitly selecting `none`.
+`REASONING_EFFORTS` and `ReasoningEffortOption` are public SDK exports covering `none`
+plus every provider-neutral level (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+They are the vocabulary of model metadata; a selected option maps onto the `reasoning`
+config as `{ mode: 'disabled' }` for `none` or `{ mode: 'effort', effort }` otherwise.
+Omitting a value remains distinct from explicitly selecting `none`.
 
 `ProviderModel.reasoningEfforts` describes known official-endpoint model support.
 An empty array means unsupported; null or an absent field means unknown. Custom

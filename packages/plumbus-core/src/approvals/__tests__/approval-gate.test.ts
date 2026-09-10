@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { executeCapability } from '../../execution/capability-executor.js';
 import { createExecutionContext } from '../../execution/context-factory.js';
 import { executeStep } from '../../flows/step-executor.js';
+import { mockAudit } from '../../testing/context.js';
 import { FlowStepType } from '../../types/enums.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { AuthContext } from '../../types/security.js';
@@ -47,6 +48,7 @@ describe('approval gate in executeCapability', () => {
     const approvals = createApprovalService({ store: createMemoryApprovalStore() });
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
     });
@@ -84,6 +86,7 @@ describe('approval gate in executeCapability', () => {
     now = new Date('2026-08-20T10:06:00.000Z');
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
       time: { now: () => now },
@@ -116,6 +119,7 @@ describe('approval gate in executeCapability', () => {
 
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
     });
@@ -159,7 +163,7 @@ describe('approval gate in executeCapability', () => {
     };
     const wait = await executeStep(
       waitStep,
-      createExecutionContext({ auth: makeAuth(), data: {} }),
+      createExecutionContext({ auth: makeAuth(), data: {}, audit: mockAudit() }),
       {},
       {},
       {
@@ -171,6 +175,7 @@ describe('approval gate in executeCapability', () => {
 
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
       authorizationProvider: {
@@ -195,6 +200,7 @@ describe('approval gate in executeCapability', () => {
     const approvals = createApprovalService({ store: createMemoryApprovalStore() });
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
     });
@@ -228,6 +234,7 @@ describe('approval gate in executeCapability', () => {
 
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
       authorizationProvider: createAllowAllAuthorizationProvider(),
@@ -260,6 +267,7 @@ describe('approval gate in executeCapability', () => {
 
     const ctx = createExecutionContext({
       auth: makeAuth(),
+      audit: mockAudit(),
       data: {},
       approvals,
       authorizationProvider: createAllowAllAuthorizationProvider(),

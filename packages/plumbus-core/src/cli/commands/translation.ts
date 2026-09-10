@@ -1,3 +1,8 @@
+import {
+  assertScaffoldName,
+  assertPathSegment,
+  resolveGeneratedPath,
+} from '../scaffold-validation.js';
 // ── plumbus translation ──
 // Manage translation catalogs: scaffold, export, import, status
 
@@ -133,6 +138,7 @@ export function registerTranslationCommand(program: Command): void {
       'Scaffold per-locale message files under en/ and he/ with a thin assembler',
     )
     .action((name: string, opts: { localeFolders?: boolean }) => {
+      assertScaffoldName(name);
       const kebab = toKebabCase(name);
 
       if (opts.localeFolders) {
@@ -185,6 +191,8 @@ export function registerTranslationCommand(program: Command): void {
       const outDir = resolvePath(opts.outDir);
       const allLocales = [...new Set(definitions.flatMap((d) => d.locales))];
       const targetLocales = opts.locale ? [opts.locale] : allLocales;
+      for (const locale of targetLocales) assertPathSegment(locale);
+      for (const definition of definitions) assertPathSegment(definition.name);
 
       if (opts.format === 'xliff') {
         // Export XLIFF 2.0 files: one per target locale per namespace
@@ -201,7 +209,7 @@ export function registerTranslationCommand(program: Command): void {
               sourceMessages,
               targetMessages,
             );
-            const filePath = path.join(outDir, `${def.name}.${locale}.xlf`);
+            const filePath = resolveGeneratedPath(outDir, `${def.name}.${locale}.xlf`);
             writeFile(filePath, xliff);
           }
         }
@@ -210,7 +218,7 @@ export function registerTranslationCommand(program: Command): void {
         // Export flat JSON: one file per locale
         for (const locale of targetLocales) {
           const flat = flattenToJson(definitions, locale);
-          const filePath = path.join(outDir, `${locale}.json`);
+          const filePath = resolveGeneratedPath(outDir, `${locale}.json`);
           writeFile(
             filePath,
             `${JSON.stringify(flat, null, 2)}

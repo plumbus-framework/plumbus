@@ -68,7 +68,7 @@ Flow `capability` steps use the flow runtime — they are **not** subject to a p
 
 **Job capabilities** cannot run synchronously inside a flow step. Use job dispatch, an event-triggered flow, or an async job consumer instead — the flow step executor returns `dependencyViolation` / `unsupportedTargetKind` when a step references a `kind: 'job'` capability.
 
-Flow step execution does **not** inherit the worker's `system` roles. When a flow starts, the framework stores the caller's full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step (with `actor` / `tenant_id` from the row). Scheduled and worker-owned flows still run under explicit `system` auth from the worker bootstrap; user-triggered flows keep the caller's roles and scopes.
+Flow step execution does **not** inherit the worker's `system` roles. When a flow starts, the framework stores the caller's authorization fields in `flow_executions.auth_snapshot_json` and validates and restores them on each step against the row actor/tenant. Scheduled and worker-owned flows still run under explicit `system` auth from the worker bootstrap; user-triggered flows keep the caller's roles and scopes.
 
 By default, each capability step receives the **merged flow input + flow state** as its input. You can also provide explicit `input` overrides with template references:
 
@@ -515,3 +515,5 @@ app/flows/{domain}/{flow-name}/
 
 For every `defineFlow` option, the full step-type list, and the `FlowRetryPolicy` / `FlowTrigger` / `FlowSchedule` shapes, see [SDK Reference → defineFlow](../sdk-reference/define-functions.md#defineflow). This page covers the common case; the reference is exhaustive.
 
+
+Legacy executions without a valid auth snapshot now fail before step execution. Restart them with a verified initiating identity after reviewing the execution's prior side effects. Snapshot parsing requires roles, scopes, and provider plus matching actor/tenant fields; the worker identity is never a fallback. New snapshots omit session IDs and authentication timestamps.

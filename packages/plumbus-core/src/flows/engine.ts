@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
@@ -21,7 +22,7 @@ import type {
   FlowExecution,
   LoggerService,
 } from '../types/context.js';
-import { AuthRole, BackoffStrategy, ErrorCode, FlowStepType } from '../types/enums.js';
+import { BackoffStrategy, ErrorCode, FlowStepType } from '../types/enums.js';
 import type { CapabilityStep, FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
@@ -178,21 +179,23 @@ interface FlowExecutionRow {
 }
 
 /** Type-safe partial update payload for flow executions. */
-/** Step auth from stored snapshot; falls back to worker auth for legacy rows. */
-function resolveFlowStepAuth(row: FlowExecutionRow, workerAuth: AuthContext): AuthContext {
-  const snapshot = row.authSnapshotJson as AuthContext | null | undefined;
-  if (snapshot) {
-    return {
-      ...snapshot,
-      userId: row.actor ?? snapshot.userId,
-      tenantId: row.tenantId ?? snapshot.tenantId,
-    };
-  }
-  return {
-    ...workerAuth,
-    tenantId: row.tenantId ?? workerAuth.tenantId,
-    userId: row.actor ?? workerAuth.userId,
-  };
+const flowAuthSchema = z.object({
+  userId: z.string().min(1).optional(),
+  tenantId: z.string().min(1).optional(),
+  roles: z.array(z.string()),
+  scopes: z.array(z.string()),
+  provider: z.string().min(1),
+  providerId: z.string().optional(),
+  internal: z.boolean().optional(),
+});
+
+/** Legacy/corrupt snapshots never inherit the worker's privileges. */
+function resolveFlowStepAuth(row: FlowExecutionRow): AuthContext | null {
+  const result = flowAuthSchema.safeParse(row.authSnapshotJson);
+  if (!result.success) return null;
+  if ((result.data.tenantId ?? null) !== row.tenantId) return null;
+  if (result.data.userId != null && result.data.userId !== row.actor) return null;
+  return result.data;
 }
 
 interface FlowExecutionUpdate {
@@ -401,7 +404,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       stepHistory: [],
       actor: auth.userId ?? 'system',
       tenantId: auth.tenantId ?? null,
-      authSnapshotJson: auth,
+      authSnapshotJson: flowAuthSchema.parse(auth),
       correlationId: opts?.correlationId ?? null,
       triggerEventId: opts?.triggerEventId ?? null,
       definitionVersion: compiled?.definitionVersion ?? null,
@@ -762,7 +765,16 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     // Build flow-scoped context from stored auth snapshot (not worker systemAuth roles)
-    const flowAuth = resolveFlowStepAuth(row, ctx.auth);
+    const flowAuth = resolveFlowStepAuth(row);
+    if (!flowAuth) {
+      await failFlow(
+        executionId,
+        row.flowName,
+        'Missing or invalid flow auth snapshot; restart from a verified caller context',
+        row,
+      );
+      return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
+    }
     const flowData = config.createDataService ? config.createDataService(flowAuth) : ctx.data;
     const flowEvents = createEventService ? createEventService(flowAuth) : ctx.events;
 
@@ -788,7 +800,9 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // Auto-thread `signal` into AI calls so capability authors don't have to
     // pass it explicitly. An explicit `signal` in the call overrides the
     // step default. See AIService type for the per-method signal parameter.
-    const flowAi = wrapAiWithDefaultSignal(ctx.ai, stepAc.signal);
+    const scopedAi =
+      ctx.ai.withContext?.({ tenantId: flowAuth.tenantId, actor: flowAuth.userId }) ?? ctx.ai;
+    const flowAi = wrapAiWithDefaultSignal(scopedAi, stepAc.signal);
 
     const flowCtx: ExecutionContext = {
       ...ctx,
@@ -1284,13 +1298,34 @@ export function createFlowEngine(config: FlowEngineConfig) {
       });
     if (compensable.length === 0) return;
 
-    const flowAuth = resolveFlowStepAuth(row, {
-      userId: row.actor,
-      roles: [AuthRole.System],
-      scopes: [],
-      provider: 'flow-compensation',
-      tenantId: row.tenantId ?? undefined,
-    });
+    // Compensations run as the verified initiating identity, never as the
+    // worker. A missing or invalid snapshot is recorded and left for operator
+    // review, matching the step path above.
+    const flowAuth = resolveFlowStepAuth(row);
+    if (!flowAuth) {
+      const at = new Date();
+      history.push(
+        buildHistoryEntry(
+          'compensate',
+          {
+            status: StepStatus.Failed,
+            error:
+              'Missing or invalid flow auth snapshot; compensations require a verified caller context',
+          },
+          at,
+          at,
+        ),
+      );
+      if (audit) {
+        await audit.record('flow.compensation_skipped', {
+          executionId,
+          flowName: row.flowName,
+          reason: 'invalid-auth-snapshot',
+          steps: compensable.map((step) => step.name),
+        });
+      }
+      return;
+    }
     const ctx = {
       auth: flowAuth,
       data: config.createDataService ? config.createDataService(flowAuth) : {},

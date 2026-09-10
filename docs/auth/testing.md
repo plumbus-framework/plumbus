@@ -138,6 +138,20 @@ Mirror these patterns when adding app-specific resolver tests.
 
 ---
 
+## PostgreSQL store integration tests
+
+The default suite skips PostgreSQL. To exercise the real session and login-transaction stores, point the opt-in suite at a **disposable test database**:
+
+```bash
+PLUMBUS_PG_TEST=1 \
+PLUMBUS_TEST_DATABASE_URL=postgres://postgres:test-password@127.0.0.1:5432/plumbus_auth_test \
+pnpm --filter @plumbus/auth exec vitest run src/stores/__tests__/postgres.test.ts
+```
+
+The suite applies the auth migration, truncates both auth tables before each test and at teardown, and temporarily drops a column to check schema compatibility. Never point it at an application database. Each contract test starts with empty tables; the single-use login transaction test uses ten concurrent database connections to verify that only one consumer wins.
+
+---
+
 ## Agent instructions
 
 Prescriptive test recipes: [`packages/auth/instructions/testing.md`](../../packages/auth/instructions/testing.md).

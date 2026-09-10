@@ -320,15 +320,16 @@ async function recordAudit(
       capability: canonicalName,
       domain: capability.domain,
       kind: capability.kind,
-      outcome,
       actor: ctx.auth.userId,
       tenantId: ctx.auth.tenantId,
       ...(caller ? { caller } : {}),
       ...(stack.length > 0 ? { capabilityStack: stack } : {}),
       ...(correlationId ? { correlationId } : {}),
       ...metadata,
+      outcome,
     });
   } catch {
     ctx.logger.error(`Failed to record audit for capability "${canonicalName}"`);
+    throw ctx.errors.internal('Audit persistence failed', { capability: canonicalName });
   }
 }

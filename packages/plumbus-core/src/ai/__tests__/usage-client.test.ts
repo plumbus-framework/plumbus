@@ -154,3 +154,28 @@ describe('Usage API Client', () => {
     });
   });
 });
+
+it.each([
+  'openai',
+  'anthropic',
+] as const)('times out a stalled %s billing endpoint', async (provider) => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      (_url, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(options.signal.reason), {
+            once: true,
+          });
+        }),
+    ),
+  );
+  try {
+    const client = createUsageAPIClient({ provider, apiKey: 'test', timeoutMs: 5 });
+    await expect(
+      client.fetchUsage({ startDate: new Date(), endDate: new Date() }),
+    ).rejects.toThrow();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

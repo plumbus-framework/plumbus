@@ -1,9 +1,12 @@
 import type { ContextDependencies } from '@plumbus/core';
+import { errorToHttpResponse, isPlumbusError } from '@plumbus/core/errors';
 import { createExecutionContext } from '@plumbus/core/runtime';
-import { markStatus } from './task-store.js';
+import { markStatus, getByIdScoped } from './task-store.js';
 
 /** Sync MCP task rows when shared job_executions complete in a worker process. */
-export function createMcpJobCompletionSync(deps: ContextDependencies) {
+export function createMcpJobCompletionSync(
+  dependencies: ContextDependencies | ((tenantId?: string) => ContextDependencies),
+) {
   return async (
     jobId: string,
     result: 'completed' | 'failed',
@@ -11,16 +14,18 @@ export function createMcpJobCompletionSync(deps: ContextDependencies) {
     error?: unknown,
     tenantId?: string | null,
   ): Promise<void> => {
-    const auth = tenantId != null && tenantId !== '' ? { ...deps.auth, tenantId } : deps.auth;
-    const ctx = createExecutionContext({ ...deps, auth });
+    const tenant = tenantId || undefined;
+    const deps = typeof dependencies === 'function' ? dependencies(tenant) : dependencies;
+    const ctx = createExecutionContext({ ...deps, auth: { ...deps.auth, tenantId: tenant } });
+    const task = await getByIdScoped(ctx, jobId);
+    if (!task || (task.tenantId ?? undefined) !== tenant) return;
     if (result === 'completed') {
       await markStatus(ctx, jobId, 'completed', { payloadJson: payload });
     } else {
       await markStatus(ctx, jobId, 'failed', {
-        errorJson:
-          error && typeof error === 'object' && 'code' in error
-            ? error
-            : { code: 'failed', message: String(error ?? 'Job failed') },
+        errorJson: isPlumbusError(error)
+          ? errorToHttpResponse(error).body.error
+          : { code: 'failed', message: 'Job failed' },
       });
     }
   };

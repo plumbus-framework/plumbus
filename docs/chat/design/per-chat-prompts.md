@@ -65,4 +65,4 @@ The custom prompt still runs through the same runtime — guards, provenance, bu
 
 ## Addendum (2026-07-08)
 
-**Validation gap:** As of `@plumbus/chat@0.1.x`, `defineChat` accepts any custom `prompt` without checking that its output schema includes the five base fields. Missing fields fail silently at runtime (guards degrade). Treat the "required base fields" rule as author-time discipline until define-time validation lands.
+**Validation:** staged custom prompts are checked for the five base fields and warn at define time when fields are missing. Agent tool orchestration is deliberately different: its custom prompt is plain text/single-field, the same prompt chooses tools and returns the answer, and Chat synthesizes the policy envelope.

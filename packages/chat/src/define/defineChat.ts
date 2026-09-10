@@ -1,4 +1,5 @@
 import { z } from '@plumbus/core/zod';
+import { ChatLegacyReasoningEffortValues, ChatReasoningLevelValues } from '../types/policy.js';
 import { deepFreeze } from '../internal/deep-freeze.js';
 import { throwDefineValidationError } from '../internal/validation-error.js';
 import { warnMissingChatPromptBaseFields } from './chat-prompt-base-fields.js';
@@ -58,6 +59,30 @@ const chatConfigSchema = z.object({
           enabled: z.boolean(),
           capabilities: z.array(z.string()).optional(),
           autoStartFlows: z.array(z.string()).optional(),
+          ai: z
+            .object({
+              provider: z.string().min(1).optional(),
+              model: z.string().min(1).optional(),
+              reasoning: z
+                .discriminatedUnion('mode', [
+                  z.object({ mode: z.literal('disabled') }),
+                  z.object({
+                    mode: z.literal('effort'),
+                    effort: z.enum(ChatReasoningLevelValues),
+                  }),
+                  z.object({
+                    mode: z.literal('budget'),
+                    maxTokens: z.number().int().min(1),
+                  }),
+                ])
+                .nullable()
+                .optional(),
+              reasoningEffort: z.enum(ChatLegacyReasoningEffortValues).nullable().optional(),
+            })
+            .optional(),
+          includeNestedAiUsage: z.boolean().optional(),
+          orchestration: z.enum(['staged', 'agent']).optional(),
+          scopePreflight: z.boolean().optional(),
           maxToolRounds: z.number().int().min(1).max(20).optional(),
           maxTools: z.number().int().min(1).max(64).optional(),
           flowAwaitMs: z.number().int().min(0).max(120_000).optional(),
@@ -105,7 +130,11 @@ export function defineChat(config: ChatConfig): ChatDefinition {
     throwDefineValidationError(`defineChat: ${detail}`);
   }
 
-  if (!config.context || config.context.length === 0) {
+  const agentToolOrchestration =
+    config.policy?.toolCalling?.enabled === true &&
+    config.policy.toolCalling.orchestration === 'agent';
+
+  if ((!config.context || config.context.length === 0) && !agentToolOrchestration) {
     if (!warnedEmptyContext) {
       warnedEmptyContext = true;
       console.warn(
@@ -114,7 +143,7 @@ export function defineChat(config: ChatConfig): ChatDefinition {
     }
   }
 
-  if (config.prompt) {
+  if (config.prompt && !agentToolOrchestration) {
     warnMissingChatPromptBaseFields(config.prompt);
   }
 
@@ -144,6 +173,17 @@ export function defineChat(config: ChatConfig): ChatDefinition {
   if (toolCallingEnabled && legacyAllowlist.length > 0) {
     throwDefineValidationError(
       'defineChat: policy.toolCalling.enabled cannot be combined with the legacy action allowlist (actions / policy.action.allowedCapabilities) — choose one action path',
+    );
+  }
+  if (toolCallingEnabled && agentToolOrchestration && !config.prompt) {
+    throwDefineValidationError(
+      "defineChat: policy.toolCalling.orchestration='agent' requires a custom plain-text prompt",
+    );
+  }
+  const toolAi = config.policy?.toolCalling?.ai;
+  if (toolAi?.reasoning !== undefined && toolAi.reasoningEffort !== undefined) {
+    throwDefineValidationError(
+      'defineChat: policy.toolCalling.ai cannot set both reasoning and deprecated reasoningEffort',
     );
   }
 

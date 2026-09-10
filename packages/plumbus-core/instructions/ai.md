@@ -27,7 +27,7 @@ export const summarizeTicket = definePrompt({
 });
 ```
 
-Prompts should NOT hardcode `provider` or model `name` unless you have a deliberate per-prompt override. Prefer env-based resolution (`AI_DEFAULT_*`, `PROMPT_{NAME}_*`) or `resolveAiOverrides` in `app/server.ts`. Only set `temperature`, `maxTokens`, and (when needed for OpenAI o-series / gpt-5) `reasoningEffort` in the prompt definition when tuning is part of the contract. Bare `z.string()` outputs run in plain text mode. See `prompts.md` for `system`/`description` content and the full `ModelConfig` table.
+Prompts should NOT hardcode `provider` or model `name` unless you have a deliberate per-prompt override. Prefer env-based resolution (`AI_DEFAULT_*`, `PROMPT_{NAME}_*`) or `resolveAiOverrides` in `app/server.ts`. Only set `temperature`, `maxTokens`, and provider-neutral `reasoning` when tuning is part of the contract. Bare `z.string()` outputs run in plain text mode. See `prompts.md` for `system`/`description` content and the full `ModelConfig` table.
 
 ## `ctx.ai` Operations
 
@@ -88,6 +88,20 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 ```
 
 `generateWithUsage` is **overloaded**: called without `tools` (as above) it returns the flat `AIFinalGenerateResult` — `.data` is always present, plus a `finishReason`. Called **with** `tools` it returns the discriminated `AIToolEnabledGenerateResult` (see [Tool calling](#tool-calling-provider-native)).
+
+`generateWithUsage` also accepts per-call `provider`, `model`, and provider-neutral `reasoning` overrides:
+
+```ts
+await ctx.ai.generateWithUsage({
+  prompt: 'assistant.turn',
+  input: {},
+  provider: 'anthropic',
+  model: 'claude-sonnet-5',
+  reasoning: { mode: 'effort', effort: 'medium' },
+});
+```
+
+Omit `reasoning` to inherit prompt/config; use `null` to restore the provider/model default for one call, clearing both inherited `reasoning` and inherited legacy `reasoningEffort`. Explicit modes are `{ mode:'disabled' }`, `{ mode:'effort', effort:'minimal'|'low'|'medium'|'high'|'xhigh'|'max' }`, and `{ mode:'budget', maxTokens }`. Built-in core adapters translate the intent: OpenAI uses Chat Completions normally and switches caller-tool requests that need active/default GPT-5.6 reasoning to the Responses API; Anthropic uses `thinking` + `output_config.effort`. Responses tool continuations are stateless (`store:false`) and preserve encrypted reasoning items through server-owned `providerState`. Custom providers translate the contract in their own `AIProviderAdapter`. Unsupported modes fail with `AIInvalidRequestError` before provider I/O when the adapter can identify the incompatibility. Deprecated `reasoningEffort` remains the unchanged OpenAI-only `'low' | 'medium' | 'high'` shorthand.
 
 ### Tool calling (provider-native)
 
@@ -186,7 +200,7 @@ All AI responses are validated against the prompt's output Zod schema. On failur
 
 Every AI invocation records: model used, input/output token counts, latency, and prompt name. Token counts come directly from provider responses.
 
-**Per-request cost** for OpenAI/Anthropic is computed from a built-in pricing table (`calculateModelCost`). Unknown models (Ollama, custom endpoints) return cost `$0`. Cached-token and long-context adjustments are applied when providers return cache metadata.
+**Per-request accounting** uses `estimateModelCost()` and the fixed pricing catalog. The legacy `calculateModelCost()` and generation `cost` remain numeric for compatibility, but an unknown model produces `costAvailable: false`; it must be recorded as `null` in a custom ledger. Use `aggregatedCostAvailable` for tool-loop totals and `costAvailable` for embedding callbacks. Explicit free costs remain zero/available. Cached-token and long-context adjustments use provider usage metadata. Sol's bundled window uses $4/$20 ($0.40 cached input) before `2026-11-22T00:00:00.000Z`, then $5/$30 ($0.50 cached input). This is a static accounting fallback after the minimum guaranteed promotional period, not a confirmed provider expiry. Do not add runtime pricing fetches.
 
 **Provider-supplied cost:** when an adapter sets `cost` on `ProviderResponse` / stream `done` (Amazon Bedrock via `@plumbus/ai-bedrock`), `createAIService` **prefers that value** over `MODEL_PRICING`. Bedrock never returns USD — the add-on multiplies usage × AWS Price List rates (auto-download or `AI_BEDROCK_PRICING_FILE`). Do not alias Bedrock rates to Anthropic catalog rows.
 
@@ -221,9 +235,9 @@ AI_MODEL=gpt-4o-mini
 
 ### Multi-Provider
 
-Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`** (region-based; no API key). Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically via `createProviderAdapter` / `createAIService`.
+Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`** (region-based; no API key). Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically through `createAIService` and a custom `AIProviderAdapter`.
 
-A present-but-empty `AI_OPENAI_API_KEY=` or `AI_ANTHROPIC_API_KEY=` (core **≥ 0.6.17**) is treated as unset — the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key. Do not invent a placeholder key to “satisfy” validation.
+A present-but-empty API-key slot is treated as unset — the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key. Do not invent a placeholder key to “satisfy” validation.
 
 ```bash
 AI_DEFAULT_PROVIDER=openai
@@ -343,6 +357,14 @@ Entity definitions are merged from the registry when the `security` block is pre
 Also:
 
 - Tenant isolation is enforced — prompts cannot access cross-tenant data
-- All AI invocations are recorded in the audit trail
+- Cost and explainability hooks depend on configured services; do not assume audit durability or complete pricing without checking that wiring.
 
 See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.
+
+
+## Security release rules (core 0.7.0)
+
+- `ctx.ai` is bound to the executing actor/tenant. Keep `withContext` on wrappers; never reuse another caller's bound service. Missing-tenant retrieval returns only unscoped documents.
+- With security configured, generate/stream/extract/classify apply the field-classification policy. Extract/classify use the `text` field; arbitrary free-text PII is not automatically detected. Explainability stores redacted input.
+- Unknown prior spend rejects further requests when a dollar cap is configured. Local/unpriced providers still work without dollar caps; explicit free prices stay supported. Never supply fake zero costs to bypass budgets.
+- Read [the security release checklist](./upgrading-security-release.md) before upgrading custom cost hooks or AI wrappers.

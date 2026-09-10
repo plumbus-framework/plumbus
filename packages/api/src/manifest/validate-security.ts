@@ -30,6 +30,12 @@ export function validateSecurityConfig(manifest: ApiManifest): ApiManifestFindin
   }
 
   for (const [name, scheme] of Object.entries(schemes)) {
+    if (scheme.type === 'apiKey' && scheme.in === 'query')
+      findings.push({
+        code: 'manifest.security.unsupported-query-api-key',
+        severity: 'error',
+        message: `securitySchemes.${name}: query-string API keys are not supported by the runtime`,
+      });
     if (scheme.type === 'oauth2') {
       const configuredFlows = Object.entries(scheme.flows).filter(([, flow]) => flow !== undefined);
       if (configuredFlows.length === 0) {

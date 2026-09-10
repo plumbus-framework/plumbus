@@ -2,7 +2,7 @@
 
 OIDC relying-party runtime for Plumbus applications: hosted login redirect, authorization code + PKCE callback, opaque **`__Host-plumbus_session`** cookies, CSRF for mutating requests, and protected session/transaction stores (memory or PostgreSQL).
 
-Peer: `@plumbus/core` at **`0.6.x`**.
+Peer: `@plumbus/core` at **`0.7.x`**.
 
 ## Install
 

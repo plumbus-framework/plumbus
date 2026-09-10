@@ -19,9 +19,10 @@ import {
   validateVoiceProviders,
   type VoiceProviderRegistry,
 } from '../providers/registry.js';
-import type {
-  WebSocketTransportProvider,
-  AttachWebSocketTransportArgs,
+import {
+  MAX_WEBSOCKET_MESSAGE_BYTES,
+  type WebSocketTransportProvider,
+  type AttachWebSocketTransportArgs,
 } from '../providers/transport/websocket-transport.js';
 import type { TransportProvider } from '../providers/base/transport-provider.js';
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from '../security/session-token.js';
@@ -142,6 +143,24 @@ export function registerVoiceRoutes(
   opts: RegisterVoiceRoutesOpts,
 ): void {
   const needsWebsocketPlugin = voices.some((voice) => voice.transport.provider === 'websocket');
+  if (
+    needsWebsocketPlugin &&
+    !Object.values(opts.sessionBudget ?? {}).some((limit) => limit != null)
+  )
+    console.warn(
+      '[plumbus:voice] No session budget configured; duration and media usage are uncapped. Set sessionBudget for production workloads.',
+    );
+  if (
+    opts.sessionTokenSecret != null &&
+    !z
+      .string()
+      .refine((secret) => secret.trim().length >= 32)
+      .safeParse(opts.sessionTokenSecret).success
+  )
+    throw new PlumbusError(
+      ErrorCode.DependencyViolation,
+      'Voice session token secret must have at least 32 non-padding characters',
+    );
   const canNestRegister = typeof app.register === 'function';
 
   if (!needsWebsocketPlugin || !canNestRegister) {
@@ -150,7 +169,7 @@ export function registerVoiceRoutes(
   }
 
   void app.register(async (voiceApp) => {
-    await voiceApp.register(websocket);
+    await voiceApp.register(websocket, { options: { maxPayload: MAX_WEBSOCKET_MESSAGE_BYTES } });
     registerVoiceRoutesOnApp(voiceApp, routeConfig, voices, opts);
   });
 }
@@ -234,6 +253,7 @@ function registerVoiceRoutesOnApp(
 
       const minted = await transport.mintSession({
         voiceName,
+        tenantId: auth.tenantId,
         userId: auth.userId,
       });
       const sessionToken = mintVoiceSessionToken({
@@ -329,6 +349,7 @@ function registerVoiceRoutesOnApp(
       const roomOpts = beforeSuccess?.room;
       const minted = await transport.mintSession({
         voiceName,
+        tenantId: auth.tenantId,
         userId: beforeSuccess?.execution?.userId ?? auth.userId,
         roomName: roomOpts?.roomName,
         identity: roomOpts?.identity,
@@ -603,6 +624,9 @@ async function handleVoiceWebSocket(
     onAudio: async (audio) => {
       await controller.handleAudioChunk(audio, controller.session.audioFormat);
     },
+    onControl: async (payload) => {
+      await controller.handleControlMessage(payload);
+    },
     onClose: async () => {
       lifecycle.stop();
       await controller.notifyTransportLost();
@@ -611,44 +635,6 @@ async function handleVoiceWebSocket(
   });
 
   await controller.hello();
-
-  socket.on('message', (raw, isBinary) => {
-    void (async () => {
-      if (isBinary) {
-        const chunk =
-          typeof raw === 'string'
-            ? Uint8Array.from(raw, (char) => char.charCodeAt(0) & 0xff)
-            : new Uint8Array(raw);
-        await controller.handleAudioChunk(chunk, controller.session.audioFormat);
-        return;
-      }
-
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(
-          typeof raw === 'string' ? raw : Buffer.from(raw).toString('utf-8'),
-        ) as Record<string, unknown>;
-      } catch {
-        await controller.handleControlMessage({
-          type: 'error',
-          code: 'voice.invalid_message',
-          message: 'Expected JSON control frame',
-        });
-        return;
-      }
-
-      await controller.handleControlMessage(payload);
-    })().catch(async (error) => {
-      const message = error instanceof Error ? error.message : 'Voice websocket handler failed';
-      socket.send(
-        JSON.stringify({
-          type: 'error',
-          code: 'voice.runtime_error',
-          message,
-        }),
-      );
-    });
-  });
 }
 
 async function authenticateVoiceRequest(

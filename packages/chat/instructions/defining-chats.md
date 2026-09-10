@@ -70,6 +70,18 @@ defineChat({
       enabled: true,
       capabilities?: string[],
       autoStartFlows?: string[],
+      ai?: {
+        provider?: string,
+        model?: string,
+        reasoning?:
+          | { mode: 'disabled' }
+          | { mode: 'effort', effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
+          | { mode: 'budget', maxTokens: number }
+          | null,
+      },
+      includeNestedAiUsage?: boolean,                    // staged false; agent true
+      orchestration?: 'staged' | 'agent',              // default staged
+      scopePreflight?: boolean,                         // staged true; agent false
       maxToolRounds?: number,                          // default 5, range 1..20
     },
     custom?:   Guard[],
@@ -120,7 +132,7 @@ The optional fourth argument is `RegisterChatRoutesOpts`:
 | Option | When to use |
 |---|---|
 | `authCookieNames: string[]` | Browser callers carry the session token in a cookie rather than `Authorization`. First non-empty cookie wins; it becomes `Bearer <value>`. |
-| `chatRegistry: ChatRegistry` | **Required for `policy.toolCalling` (Path B) chats.** Build with `createChatRegistry(promptRegistry)`; supplies the `chat.toolRound` / `chat.scopeCheck` prompt-registration status Path B checks. Pass alongside the transactional `store`. |
+| `chatRegistry: ChatRegistry` | Required for staged tool calling and agent mode with `scopePreflight:true`. Build with `createChatRegistry(promptRegistry)`; agent mode with preflight off uses only its custom prompt. |
 | `audienceTenantOverride: (audience, auth) => tenantId \| undefined` | Audience-implied tenant routing when the auth adapter couldn't infer one. Only applied when `auth.tenantId` is empty. |
 | `beforeTurn: (ctx, parsed, rawBody) => { userMessage? } \| { error: { status, body } }` | Sanitize the user message or short-circuit with a typed error before any runtime work. |
 | `afterTurn: (ctx, rawBody, events) => Promise<void>` | Observability hook. Receives the full ordered `ChatEvent[]` after the turn completes. Errors are swallowed with `console.warn`. |
@@ -147,7 +159,7 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 
 - **Don't** put structured data in `instructions: [...]`. Use `staticContext` instead — it gets provenance handles and budget accounting.
 - **Don't** use a write-effect capability as `capabilityContext`. The framework rejects this at construction time; use `actions:` + `policy.action.allowedCapabilities` for writes.
-- **Don't** narrow the prompt output schema when using `defineChat({ prompt })`. The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required by runtime guards. Extra fields are fine.
+- **Don't** narrow a staged prompt output schema. The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required by staged runtime guards. `orchestration:'agent'` is the explicit plain-text exception.
 - **Don't** call `runChatTurn` directly from your route handlers. Use `registerChatRoutes(app, routeConfig, chats)` — it wires auth, body validation, SSE, and `clientHistory` capping correctly.
 - **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed`, plus the Path B tool events `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved` — defined in `src/types/event.ts`.
 - **Don't** invent source IDs. The resolver issues handles in source-declaration order (`src_a`, `src_b`, ...). Cite using exactly those strings.
@@ -212,8 +224,7 @@ export const helpChat = defineChat({
 
 ### Enable provider-native tool calling (Path B)
 
-Path B needs two one-time app setup steps — (a) re-export the prompts and (b) wire a
-`ChatRegistry` into `registerChatRoutes` — plus a transactional store.
+Staged Path B needs two one-time app setup steps—prompt re-exports and a `ChatRegistry`—plus durable storage. Agent orchestration with its default `scopePreflight:false` uses only its custom prompt and skips those two prompt-registry steps.
 
 1. **(a) Re-export the tool-calling prompts into `app/prompts/`** so directory discovery
    registers them (same one-time wiring as `chat.turn`). Missing prompts fail on the first
@@ -261,6 +272,29 @@ Path B needs two one-time app setup steps — (a) re-export the prompts and (b) 
    a non-transactional adapter fails closed with `chat.storage_unsupported`.
    Confirm-mode tools commit via `POST /chat/:name/confirm`, which the client's
    `useChat.confirm()` calls automatically.
+
+5. **For a domain agent that should answer or choose a tool itself**, provide a custom plain-text prompt and set:
+
+   ```ts
+   toolCalling: {
+     enabled: true,
+     capabilities: ['explainProcess'],
+     orchestration: 'agent',
+     scopePreflight: false,
+   }
+   ```
+
+   No-tool turns finish from the first custom-prompt call. Tool turns execute the capability and continue that same prompt with the native observation. The runtime synthesizes the standard policy envelope, so this mode does not require the five structured chat output fields. Use staged mode for scope/provenance-oriented chats.
+
+   Agent mode emits the completed plain-text answer as one `message.delta`; provider tool selection is not token-streamed.
+
+   `toolCalling.ai` optionally overrides the provider, model, and provider-neutral reasoning intent used for tool selection, continuation, the round-limit terminal answer, and confirm resume. Omit the object—or a field—to inherit prompt/runtime overrides; `reasoning:null` restores the provider/model default for the call and clears inherited new or legacy reasoning controls. Core's selected adapter translates `disabled`, `effort`, or token `budget` into its native wire format. This optional field requires core ≥ 0.6.18; older cores receive `turn.failed` with code `chat.core_version_unsupported`. Chat without it keeps the ≥ 0.6.11 floor. Deprecated `reasoningEffort` is accepted only for compatibility and cannot be combined with `reasoning`.
+
+   `includeNestedAiUsage` controls whether AI calls made inside auto tools count toward the Chat turn's usage/budget. It defaults to `false` for staged orchestration (0.1.11 compatibility) and `true` for the new agent orchestration. Set it explicitly when you need a different accounting boundary.
+
+### Programmatic agent chats inside capabilities
+
+`runChatTurn` accepts `promptInput`, `trustedHistory`, and `signal` as server-owned arguments. Core intentionally hides `ctx.__runtime.resolveCapability` inside capability handlers; supply `opts.resolveCapability` with the explicitly allowed app contract. Chat still calls `executeCapability`, so access and input validation are enforced. HTTP routes never forward arbitrary request properties into `promptInput` or `trustedHistory`.
 
 ### Add a refusal cooldown
 

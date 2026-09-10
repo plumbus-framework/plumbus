@@ -219,9 +219,9 @@ describe('Config Loader', () => {
       expect(config.auth.secret).toBe('my-secret');
     });
 
-    it('defaults auth secret to development placeholder in dev', () => {
+    it('does not inject an authentication secret in development', () => {
       const config = loadConfig({ env: {} });
-      expect(config.auth.secret).toBe('development-secret-placeholder-32chars-min');
+      expect(config.auth.secret).toBeUndefined();
     });
 
     it('does not default auth secret in production', () => {
@@ -261,7 +261,7 @@ describe('Config Loader', () => {
           password: 'postgres',
         },
         queue: { host: 'localhost', port: 6379, prefix: 'plumbus:dev' },
-        auth: { provider: 'jwt', secret: 'test-secret' },
+        auth: { provider: 'jwt', secret: 'test-signing-secret-at-least-32-characters' },
         ...overrides,
       };
     }
@@ -307,7 +307,7 @@ describe('Config Loader', () => {
         makeValidConfig({
           environment: 'production',
           database: { host: 'h', port: 5432, database: 'db', user: 'u', password: '', ssl: true },
-          auth: { provider: 'jwt', secret: 'prod-secret' },
+          auth: { provider: 'jwt', secret: 'production-signing-secret-at-least-32-characters' },
         }),
       );
       expect(result.valid).toBe(false);
@@ -319,7 +319,7 @@ describe('Config Loader', () => {
         makeValidConfig({
           environment: 'production',
           database: { host: 'h', port: 5432, database: 'db', user: 'u', password: 'p', ssl: false },
-          auth: { provider: 'jwt', secret: 'prod-secret' },
+          auth: { provider: 'jwt', secret: 'production-signing-secret-at-least-32-characters' },
         }),
       );
       expect(result.warnings).toContain('database.ssl should be enabled in production');

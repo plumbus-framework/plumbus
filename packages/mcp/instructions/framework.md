@@ -1,8 +1,19 @@
 # @plumbus/mcp — Framework
 
-`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.5.x || 0.6.x`).
+## Release family 0.6.0
 
-**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
+## Security release guidance (0.6.0)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+
+Send explicit credentials on every HTTP transport request, including initialization/listing. Public discovery remains separate. Invalid headers never fall back to `PLUMBUS_MCP_TOKEN`. Validate input through the capability contract and preserve per-call task ownership/tenant boundaries; do not bypass them in custom handlers.
+
+`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.7.x`).
+
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 

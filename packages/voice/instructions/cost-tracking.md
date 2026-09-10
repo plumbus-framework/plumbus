@@ -15,7 +15,7 @@ Voice spend belongs in the same AI ledger as text prompts.
 - `mediaUsage` (`audioInputSeconds`, `audioOutputSeconds`, `characters`, `connectionMinutes`, `participantMinutes`)
 - `cost`
 - `latencyMs`
-- `costContext` with app-specific rollup metadata — **must include `projectId`** or `onAICostRecorded` skips the ledger row
+- `costContext` with app-specific rollup metadata — include `projectId` when the app-owned ledger requires it; the framework hook does not require it
 - stable `operationName` values such as `voice.transcribe`, `voice.synthesize`, `voice.transport`, `voice.backchannel`, `voice.hearing_repair`, `voice.replay`
 
 ## Helper
@@ -42,3 +42,6 @@ ctx.ai.checkProviderCostBudget({ estimatedCostUsd });
 
 - `/docs/voice/cost-tracking.md`
 - `/docs/ai/ai-integration.md`
+
+
+Reference synthesis also records attempts through the configured AI ledger. Unknown pricing stays `null` there; a numeric compatibility result with `costAvailable: false` must not be converted to free spend. Voice-only/local deployments without an AI ledger remain supported. Read the core security release checklist before upgrading a custom ledger.

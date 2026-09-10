@@ -4,7 +4,11 @@ export const LIVEKIT_VOICE_PRICING: VoicePricingEntry = {
   model: 'livekit-cloud',
   operation: 'transport',
   unit: 'participantMinutes',
-  usdPerUnit: 0.02,
+  // LiveKit Cloud WebRTC participant-minute overage rate, Ship tier ($0.0005;
+  // Scale is $0.0004). Below each plan's included monthly allotment (5k–1.5M
+  // minutes) the marginal cost is $0 — this records the overage rate. A
+  // self-hosted agent joining the room bills as an ordinary participant.
+  usdPerUnit: 0.0005,
 };
 
 export function calculateLiveKitTransportUsd(args: {

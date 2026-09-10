@@ -12,6 +12,8 @@ export interface AuditRecord {
 }
 
 export interface AuditEvent {
+  /** Stable id for idempotent write retries. */
+  id?: string;
   actor?: string;
   tenantId?: string;
   component: string;

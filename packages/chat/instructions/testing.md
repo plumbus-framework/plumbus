@@ -99,8 +99,12 @@ round. Assert on `tool.started` → `tool.completed` / `tool.failed`, and for co
 tools on `confirmation_required` → `confirmation.resolved` after driving `POST
 /chat/:name/confirm`. Path B requires a transactional store — use the `ChatConversationStore`
 conformance fixture, not the plain in-memory repository (which fails closed with
-`chat.storage_unsupported`). Never enable `policy.toolCalling` in a test without registering
-`chat.toolRound` + `chat.scopeCheck` (`chat.prompt_not_registered` otherwise).
+`chat.storage_unsupported`). Staged tests must register `chat.toolRound` + `chat.scopeCheck`
+(`chat.prompt_not_registered` otherwise); agent tests with `scopePreflight:false` use neither.
+
+For `orchestration:'agent'`, use a custom plain-text prompt and script its tool-enabled calls directly. Assert that an ordinary turn makes exactly one `generateWithUsage` call and that a tool turn emits `tool.started` → `tool.completed` before the custom prompt's final `message.delta`. Agent mode with the default `scopePreflight:false` does not register or call `chat.scopeCheck` / `chat.toolRound`.
+
+When an application splits nested tool AI into separate ledger rows, pass `RunChatTurnOpts.onNestedAiCall` and assert the callback receives the tool name, prompt, provider/model, usage, cost, and `includedInTurnUsage`. When that flag is true, ledger splitting must subtract the nested call from any separately recorded outer aggregate to avoid double counting; the logical Chat budget total remains unchanged.
 
 ## Pure UI helpers (no React needed)
 
