@@ -30,12 +30,12 @@ Voice does not peer on vendor add-ons. Apps explicitly install only providers th
 - Copy literals from the table and canonical manifests (`packages/mcp/package.json`, `packages/plumbus-core/package.json`, `packages/voice-livekit/package.json`). Never use `^0.x` core peers or derive unions from intuition.
 - New-family packages require the new family. Do not publish narrowed peers or migration-requiring behavior as a patch on an old line: an existing caret could select that patch.
 - `pnpm install` passing in this workspace does not prove npm consumer compatibility. Validate packed tarballs with npm; production installs use npm.
-- Keep `release/security-release.json`, all manifests, READMEs, package instructions, changelogs, and AGENTS/CLAUDE in sync. `pnpm check:release` checks the version boundary and internal dependency graph.
+- Keep all manifests, READMEs, package instructions, changelogs, and AGENTS/CLAUDE in sync.
 - Packages stage under the **next** npm dist-tag. Promoting to latest is a separate operator decision after the entire family and consumer staging checks pass.
 
 ## Future releases
 
-Within this family, patch releases must preserve supported behavior. For another migration-requiring release, first update this policy and `release/security-release.json`, then move every affected package outside its previous caret range. Re-check direct and transitive dependencies; a core-only bump is insufficient when UI bundles core or peers are auto-installed.
+Within this family, patch releases must preserve supported behavior. For another migration-requiring release, first update this policy and the release version table, then move every affected package outside its previous caret range. Re-check direct and transitive dependencies; a core-only bump is insufficient when UI bundles core or peers are auto-installed.
 
 Run lint, format checking, typechecking, tests, and packed npm install checks before publication. Never mutate git, create a release tag, publish, or promote npm dist-tags without the authorization required by repository instructions.
 

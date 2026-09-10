@@ -11,9 +11,6 @@ importers:
       '@biomejs/biome':
         specifier: ^2.4.6
         version: 2.4.6
-      semver:
-        specifier: 7.7.4
-        version: 7.7.4
       turbo:
         specifier: ^2.9.14
         version: 2.9.14
