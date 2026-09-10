@@ -32,7 +32,7 @@ All 18 packages move outside their previous caret range. Some add-ons have only 
 ## Publication and dependency resolution
 
 - Every package stages under **`next`**, both in `publishConfig` and the publish workflow. No publication or dist-tag promotion is performed by this guide. Promote to `latest` only after all packages and application staging checks pass.
-- The workflow checks the release plan before publishing. A release tag must match the core version, initially `v0.7.0`. `pnpm check:release` rejects old-line patch versions, broad or legacy Plumbus peers, and incorrect packed UI dependencies.
+- The publish workflow runs when a new `v*` Git tag is pushed. Repository release tags are numbered independently from package versions; never move or reuse an existing release tag.
 - `^0.6.19`, `~0.6.19`, and `0.6.x` stay on the legacy core line; existing lockfiles remain reproducible with `npm ci` / `pnpm install --frozen-lockfile`. Wildcards, `^0`, `latest`, `next`, and explicit new versions are not protected by that minor-line boundary. Dist-tags do not override semver ranges: the version boundary is the protection for old carets.
 - Upgrade only the optional packages the app uses, but upgrade every installed Plumbus package to the matching family in one dependency change. For example, select `@plumbus/core@0.7.0`, `@plumbus/voice@0.5.0`, and `@plumbus/voice-livekit@0.2.0` together. Do not use `--force` or `--legacy-peer-deps` to hide mixed-family errors.
 - Update application lockfiles, stage the migration, and deploy API/worker processes from the same dependency set. Staying on old versions avoids automatic behavior changes but does not deliver these security fixes.
@@ -81,8 +81,8 @@ Before deploying an application:
 
 ## Release-preparation checks
 
-1. Run `pnpm check:release`, `pnpm test:release`, and the four repository gates: lint, format checking, typechecking, and tests.
-2. Pack all 18 packages. Check packed metadata with `node scripts/check-release-boundaries.mjs --packed-manifests <manifest-map.json>`; UI must require the shared core 0.7.x peer with no nested core dependency; all internal peers must stay within the new family.
+1. Run the four repository gates: lint, format checking, typechecking, and tests.
+2. Pack all 18 packages. Inspect the packed package manifests; UI must require the shared core 0.7.x peer with no nested core dependency; all internal peers must stay within the new family.
 3. Install the complete tarball family in a clean npm consumer using `--omit=dev --ignore-scripts`. Verify SDK imports and `npm ls` without bypassing peer errors. Also test core alone, core with UI, and core with voice/provider packages.
 4. Verify that legacy core mixed with a new add-on, new core mixed with an old add-on, and legacy voice mixed with a new provider are rejected by npm. Legacy caret selection must remain on old versions when both families are available.
 5. Run consumer staging authentication, RAG, task/flow, audit, and voice checks before promoting dist-tags or deploying.

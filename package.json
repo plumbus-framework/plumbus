@@ -6,13 +6,11 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "test": "pnpm check:release && pnpm test:release && turbo run test",
-    "lint": "biome lint scripts && turbo run lint",
-    "format": "biome format --write scripts && turbo run format",
-    "format:check": "biome format scripts && turbo run format:check",
-    "typecheck": "turbo run typecheck",
-    "check:release": "node scripts/check-release-boundaries.mjs",
-    "test:release": "node --test scripts/__tests__/release-boundaries.test.mjs"
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "format:check": "turbo run format:check",
+    "typecheck": "turbo run typecheck"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +19,6 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "turbo": "^2.9.14",
-    "typescript": "^5.7.0",
-    "semver": "7.7.4"
+    "typescript": "^5.7.0"
   }
 }

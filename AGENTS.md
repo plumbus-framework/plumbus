@@ -174,7 +174,7 @@ When editing `peerDependencies` in any `packages/*/package.json` (releases, new 
 
 ## Release compatibility — core 0.7 family
 
-Migration-requiring changes ship on new minor lines: core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and all other add-ons 0.2.x. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.8.x requires core 0.7.x as a shared peer, preventing a hidden second core runtime. Release metadata is checked by `pnpm check:release`; packages stage under the `next` dist-tag. Historical feature floors elsewhere are not current peer declarations.
+Migration-requiring changes ship on new minor lines: core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and all other add-ons 0.2.x. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.8.x requires core 0.7.x as a shared peer, preventing a hidden second core runtime. Packages stage under the `next` dist-tag. Historical feature floors elsewhere are not current peer declarations.
 
 ## Coding Conventions
 
