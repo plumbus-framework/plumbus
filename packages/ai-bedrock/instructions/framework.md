@@ -1,5 +1,11 @@
 # @plumbus/ai-bedrock — framework boundary
 
+## Security release guidance (0.1.1)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.6.20** for the complete security fixes; existing canonical peer literals and earlier feature-specific floors are unchanged. Run `plumbus init --patch` after installation to refresh agent wiring to **v15**.
+
+Pricing-file base/cache/global rates must be finite and nonnegative. Explicit zero rates remain valid. Unknown pricing must not be turned into a fake free rate to bypass budgets. Register the package adapter; keep business logic on Plumbus prompts and `ctx.ai`.
+
 **Exact path in a consumer app:** `node_modules/@plumbus/ai-bedrock/instructions/framework.md`
 
 Index: `node_modules/@plumbus/ai-bedrock/instructions/README.md`  

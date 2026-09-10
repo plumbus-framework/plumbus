@@ -69,8 +69,8 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     | undefined;
   try {
     const mcp = await import('@plumbus/mcp');
-    onMcpJobComplete = mcp.createMcpJobCompletionSync((tenantId) => {
-      const auth = { ...systemAuth, tenantId };
+    onMcpJobComplete = async (jobId, result, payload, error, tenantId) => {
+      const auth = { ...systemAuth, tenantId: tenantId ?? undefined };
       const audit = createAuditService({ db, auth });
       // Tenantless completion is scoped by trusted job ID and an explicit task-tenant check.
       const data = entities.createDataService({
@@ -80,8 +80,16 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
         encryptionKey,
         bypassTenantScope: !tenantId,
       });
-      return { auth, data, audit, logger, config: config as unknown as Record<string, unknown> };
-    });
+      // Pass the original deps-object API so rolling upgrades also work with MCP 0.5.1.
+      const sync = mcp.createMcpJobCompletionSync({
+        auth,
+        data,
+        audit,
+        logger,
+        config: config as unknown as Record<string, unknown>,
+      });
+      await sync(jobId, result, payload, error, tenantId);
+    };
   } catch {
     /* @plumbus/mcp not installed */
   }

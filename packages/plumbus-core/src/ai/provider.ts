@@ -4,7 +4,11 @@
 import { createRequire } from 'node:module';
 import type { AIProviderSlotConfig } from '../types/config.js';
 import type { AIReasoningConfig, ReasoningEffort, ReasoningLevel } from '../types/prompt.js';
-import { allKnownModels, calculateModelCost, type Kind } from './model-pricing.js';
+import {
+  allKnownModels,
+  estimateModelCost as calculateModelCost,
+  type Kind,
+} from './model-pricing.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──

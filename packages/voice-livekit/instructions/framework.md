@@ -1,5 +1,11 @@
 # @plumbus/voice-livekit — Framework
 
+## Security release guidance (0.1.5)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.6.20** for the complete security fixes; existing canonical peer literals and earlier feature-specific floors are unchanged. Run `plumbus init --patch` after installation to refresh agent wiring to **v15**.
+
+Deploy with voice 0.4.6 for automatic tenant propagation. Default room names include tenant identity; use returned room names. Explicit shared rooms/resolvers remain app-authorized choices. Do not import vendor SDKs to recreate a parallel voice runtime.
+
 **Exact path in a consumer app:** `node_modules/@plumbus/voice-livekit/instructions/framework.md`
 
 Index: `node_modules/@plumbus/voice-livekit/instructions/README.md`

@@ -1,5 +1,11 @@
 # @plumbus/mcp — Framework
 
+## Security release guidance (0.5.2)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.6.20** for the complete security fixes; existing canonical peer literals and earlier feature-specific floors are unchanged. Run `plumbus init --patch` after installation to refresh agent wiring to **v15**.
+
+Send explicit credentials on every HTTP transport request, including initialization/listing. Public discovery remains separate. Invalid headers never fall back to `PLUMBUS_MCP_TOKEN`. Validate input through the capability contract and preserve per-call task ownership/tenant boundaries; do not bypass them in custom handlers.
+
 `@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.5.x || 0.6.x`).
 
 **`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.

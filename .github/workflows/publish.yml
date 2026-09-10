@@ -31,6 +31,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
       - run: pnpm test
 
       # Publish @plumbus/mcp BEFORE @plumbus/core so the optional peer

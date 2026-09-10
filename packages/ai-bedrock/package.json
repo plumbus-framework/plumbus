@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/ai-bedrock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Amazon Bedrock AI provider adapter for @plumbus/core (Converse chat + embeddings).",
   "type": "module",
   "main": "./dist/index.js",

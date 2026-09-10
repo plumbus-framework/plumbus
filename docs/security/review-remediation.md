@@ -20,7 +20,7 @@ This records the resolution of `general-desc/security-review`, using its re-tria
 | M5, error-handler portion | Safe Fastify error handling is unconditional; observability hooks are optional and isolated. |
 | M6, JWKS portion | Concurrent JWKS refreshes share one request; unknown-key floods share a refresh cooldown, and fetches have timeouts. |
 | M7 | SAML subject confirmation binds recipient and request ID, validity windows are finite/strict, and assertion IDs are consumed once. Unsolicited/bearer mode requires explicit opt-in. |
-| M8 | JWT expiration is required, nbf/iat and maximum lifetime are checked, and signing rejects reserved additional claims. Issuer/audience checks remain configurable; configure them for multiple token purposes and isolate signing keys across applications. |
+| M8 | JWT expiration is required, nbf/iat and an explicitly configured maximum lifetime are checked, and signing rejects reserved additional claims. Issuer/audience checks remain configurable; configure them for multiple token purposes and isolate signing keys across applications. |
 | M9 | Extract/classify apply configured input security; explainability records redacted inputs. Nested classified objects no longer recurse into an already-redacted value. |
 | M10 | Accounting rejects invalid numeric usage and budget values, preserves unknown versus zero cost, retains small positive costs, rejects invalid Bedrock rates, and correctly retains/counts Anthropic input/cache usage. |
 | M11 | Audit writes retry with stable IDs and database deduplication. Permanent failures propagate instead of returning ordinary capability success. Outcomes are validated and framework outcomes cannot be overwritten by extra metadata. Missing audit wiring fails explicitly. Opt-outs, post-commit limitations, and integrity assumptions are documented. |
@@ -28,7 +28,7 @@ This records the resolution of `general-desc/security-review`, using its re-tria
 | M13, export/runtime portion | Query API-key schemes are flagged by manifest validation and rejected by OpenAPI export because the runtime does not read them. |
 | L1, parser portion | Duplicate cookie names are discarded rather than resolved using an ambiguous first/last winner. |
 | L2 | Generated paths are contained in their output directory; existing symlinks are rejected. Protected scaffold creation uses exclusive file creation. Translation/MCP filename segments are validated. |
-| L3, hardening | Explicit voice token secrets are length-checked, and handshake token lifetimes are bounded to 1–300 seconds. |
+| L3, hardening | Explicit voice token secrets are length-checked, and handshake token lifetimes are validated as finite positive whole seconds while preserving configured lifetimes. |
 | L6, envelope hardening | Redis envelopes are schema-validated before subscriber dispatch; malformed envelopes are discarded with a diagnostic. |
 | L7, hardening | Default LiveKit rooms include tenant identity. Explicit shared rooms remain app-owned policy. Reference synthesis participates in the configured AI budget/ledger, including failed attempts; deployments without a ledger remain supported. |
 | L8, timeout portion | Billing/usage API calls have a bounded timeout so synchronization cannot hang indefinitely. |
@@ -53,3 +53,7 @@ The review's reclassified features are retained: explicit cross-tenant capabilit
 ## Validation
 
 All four required checks passed on the final source changes: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, and `pnpm test`. The standard test run completed successfully across all 18 packages, including 2,144 core tests. Opt-in live-provider/database tests retain their existing skip requirements. Turborepo still prints the pre-existing workspace dependency-cycle warning; Biome lint and format checks are clean.
+
+## Release preparation follow-up
+
+See [Security release upgrade guide](../upgrading-security-release.md) for package versions, source-compatibility adjustments, migration-sensitive behavior, and deployment checks. Legacy numeric cost APIs are preserved with explicit availability flags; framework ledgers and budgets retain unknown-cost enforcement. JWT maximum lifetime is opt-in, voice token lifetimes preserve valid configured values, and core invokes the original MCP dependency-object API for rolling-upgrade compatibility.

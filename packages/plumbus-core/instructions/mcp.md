@@ -15,6 +15,9 @@ Plumbus capabilities can be exposed to external AI agents as MCP tools. **Contra
 - **`kind: 'query'` and `kind: 'action'`** — standard MCP tools via `tools/call`.
 - **`kind: 'job'`** — exposed via MCP Tasks (`tools/call` + `_meta.taskMetadata`); see Tasks section in `@plumbus/mcp/instructions/README.md` and [tasks-and-jobs.md](../../../docs/mcp/tasks-and-jobs.md). **`kind: 'eventHandler'`** cannot be MCP-exposed.
 - **`plumbus generate`** — MCP manifest + skill files (no `@plumbus/mcp` install required).
-- **`plumbus mcp serve` / `list-tools` / `mcp generate`** — CLI entry points; `mcp.agents` in `plumbus.config.ts`.
+- **`plumbus mcp serve` / `list-tools` / `mcp generate`** — CLI entry points. The current CLI loads environment config, not `plumbus.config.*`; use `AUTH_SECRET` for CLI JWT authentication, or application-owned runtime wiring for `mcp.agents`.
 
 Install the runtime when serving agents: `pnpm add @plumbus/mcp` (optional peer of `@plumbus/core`, version-locked `0.5.x || 0.6.x`).
+
+
+Core 0.6.20 + MCP 0.5.2 require explicit authentication on every HTTP transport request. Discovery remains separately configurable. Environment-token fallback is for map-based stdio calls without an explicit header; an invalid header never falls back. Read [the security release checklist](./upgrading-security-release.md).

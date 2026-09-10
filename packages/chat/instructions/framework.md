@@ -1,5 +1,11 @@
 # @plumbus/chat — Framework Instructions for AI Agents
 
+## Security release guidance (0.1.13)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.6.20** for the complete security fixes; existing canonical peer literals and earlier feature-specific floors are unchanged. Run `plumbus init --patch` after installation to refresh agent wiring to **v15**.
+
+Built-in prompts use the system role for instructions and untrusted-data envelopes for context/tool output. Preserve runtime framing in custom integrations. Ground through context sources and `ctx.ai`; do not bypass tenant binding or action authorization. Rendered context items are capped at 32,000 characters.
+
 This package is the chat primitive for Plumbus apps. Use it when the user wants a multi-turn conversational surface (help bot, support chat, in-product Q&A) with scope guards, budgets, citations, and a streaming UI.
 
 **`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`. Never use `^0.x` caret ranges.

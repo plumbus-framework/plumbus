@@ -92,4 +92,4 @@ WebSocket input is capped before conversion or resampling: 64 KiB per audio mess
 
 Default LiveKit room names include the authenticated tenant when present. Explicit room names and app-owned room resolvers remain application-authorized sharing mechanisms; a resolver now receives `tenantId` as well as user/session identity. Redis event envelopes are schema-validated before delivery, and malformed envelopes are discarded with a diagnostic rather than repeatedly requeued.
 
-Voice handshake JWT lifetimes must be 1–300 seconds (default 90); established session duration remains a separate session-budget/lifecycle setting.
+Voice handshake JWT lifetimes must be finite positive whole seconds (default 90, with existing configured lifetimes preserved); established session duration remains a separate session-budget/lifecycle setting.

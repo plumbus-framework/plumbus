@@ -89,7 +89,9 @@ export interface RAGPipelineConfig {
     operation: 'ingest' | 'retrieve';
     model: string;
     totalTokens: number;
-    cost?: number;
+    cost: number;
+    /** False means this legacy numeric zero represents unknown pricing. */
+    costAvailable?: boolean;
   }) => void | Promise<void>;
 }
 
@@ -116,7 +118,8 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
             operation: 'ingest',
             model: embeddingResponse.model,
             totalTokens: embeddingResponse.usage.totalTokens,
-            cost: embeddingResponse.cost,
+            cost: embeddingResponse.cost ?? 0,
+            costAvailable: embeddingResponse.cost != null,
           });
         }
 
@@ -159,7 +162,8 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
           operation: 'retrieve',
           model: embeddingResponse.model,
           totalTokens: embeddingResponse.usage.totalTokens,
-          cost: embeddingResponse.cost,
+          cost: embeddingResponse.cost ?? 0,
+          costAvailable: embeddingResponse.cost != null,
         });
       }
 

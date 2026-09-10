@@ -208,3 +208,24 @@ it('uses Sol alias long-context pricing consistently in results and the budget l
   expect(tracker.getRecords()[0]?.cost).toBe(1.81);
   await expect(service.generate({ prompt: 'x', input: {} })).rejects.toThrow('AI budget exceeded');
 });
+
+it('keeps legacy numeric results without counting unknown cost as free in budgets', async () => {
+  const tracker = createCostTracker({ dailyCostLimit: 1 });
+  const provider = mockProvider({
+    async complete() {
+      return {
+        content: 'local',
+        model: 'unpriced',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        finishReason: 'stop',
+      };
+    },
+  });
+  const service = createAIService(singleProviderConfig(provider, { costTracker: tracker }));
+  const result = await service.generateWithUsage({ prompt: 'hello', input: {} });
+  expect(result).toMatchObject({ cost: 0, costAvailable: false });
+  expect(tracker.getRecords()[0]?.cost).toBeNull();
+  await expect(service.generate({ prompt: 'again', input: {} })).rejects.toThrow(
+    'AI budget exceeded',
+  );
+});

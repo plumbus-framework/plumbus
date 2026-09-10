@@ -206,6 +206,16 @@ function hasLongContextPremium(model: string): boolean {
   return withoutDate !== model && LONG_CONTEXT_PREMIUM_MODELS.has(withoutDate);
 }
 
+/** Legacy numeric cost helper. Use estimateModelCost when unknown must differ from free. */
+export function calculateModelCost(
+  inputTokens: number,
+  outputTokens: number,
+  model: string,
+  options?: { cachedInputTokens?: number; cacheWriteTokens?: number },
+): number {
+  return estimateModelCost(inputTokens, outputTokens, model, options) ?? 0;
+}
+
 /**
  * Calculate the USD cost for a single AI request based on published per-token rates.
  *
@@ -217,7 +227,7 @@ function hasLongContextPremium(model: string): boolean {
  *
  * Returns undefined for unknown/unsupported models; explicitly free adapters may report zero.
  */
-export function calculateModelCost(
+export function estimateModelCost(
   inputTokens: number,
   outputTokens: number,
   model: string,

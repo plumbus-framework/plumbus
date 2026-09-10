@@ -23,7 +23,7 @@ export interface JwtAdapterConfig {
   issuer?: string;
   /** Expected audience (aud claim) */
   audience?: string;
-  /** Maximum accepted token lifetime in seconds (default: 86400). */
+  /** Optional maximum accepted token lifetime in seconds; omitted preserves issuer-selected finite lifetimes. */
   maxTokenLifetimeSeconds?: number;
   /**
    * Map JWT claims to AuthContext fields.
@@ -60,11 +60,8 @@ export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
   }
 
   if (
-    !z
-      .number()
-      .finite()
-      .positive()
-      .safeParse(config.maxTokenLifetimeSeconds ?? 86400).success
+    config.maxTokenLifetimeSeconds != null &&
+    !z.number().finite().positive().safeParse(config.maxTokenLifetimeSeconds).success
   )
     throw createErrorService().validation('Invalid JWT maximum lifetime');
   const mapping = { ...defaultClaimMapping, ...config.claimMapping };
@@ -105,7 +102,11 @@ export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
       if (!times.success) return null;
       const { exp, iat, nbf } = times.data;
       if (exp <= now || (nbf != null && nbf > now) || (iat != null && iat > now)) return null;
-      if (exp - (iat ?? now) > (config.maxTokenLifetimeSeconds ?? 86400)) return null;
+      if (
+        config.maxTokenLifetimeSeconds != null &&
+        exp - (iat ?? now) > config.maxTokenLifetimeSeconds
+      )
+        return null;
       if (!z.string().min(1).safeParse(payload[mapping.userId]).success) return null;
 
       // Map claims to AuthContext

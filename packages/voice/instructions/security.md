@@ -33,3 +33,10 @@ Read this before exposing any voice routes.
 ## Deeper reference
 
 - `/docs/voice/security.md`
+
+
+## Enforced transport limits (0.4.6)
+
+Audio messages are capped at 64 KiB, JSON control messages at 16 KiB, and pending input at 256 KiB. Split client audio before sending; do not remove limits to accept large buffers. Callbacks are serialized and frames are delivered once. Missing budgets warn but do not create implicit media caps: configure `sessionBudget` explicitly where needed. Token secrets require at least 32 non-padding characters. Token lifetimes must be finite positive whole seconds; retain an app's valid configured lifetime rather than inventing a 300-second maximum.
+
+Follow `node_modules/@plumbus/core/instructions/upgrading-security-release.md` for credentials, audit, and coordinated versions.

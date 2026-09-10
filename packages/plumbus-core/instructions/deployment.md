@@ -139,7 +139,7 @@ Use `plumbus start` for production:
 | Default host | `localhost` | `0.0.0.0` |
 | Log level | `debug` | `info` |
 | DB SSL | off | on |
-| `AUTH_SECRET` | optional (uses default) | **required** (throws on startup) |
+| `AUTH_SECRET` | optional (anonymous; no default signing key) | **required** (throws on startup) |
 | Cookies | `secure: false` | `secure: true` |
 
 ```bash
@@ -652,3 +652,6 @@ readinessProbe:
 - [ ] `API_BASE_URL` set to Docker service name (e.g., `http://backend:3000`)
 - [ ] `NEXT_PUBLIC_API_BASE_URL` set to empty string `""` (for server-side proxy)
 - [ ] `AUTH_COOKIE_SECURE` set to `"true"` (or `"false"` only for HTTP-only — security trade-off)
+
+
+Before deploying core 0.6.20, follow [the packaged security release checklist](./upgrading-security-release.md). Update API/worker dependency sets together, verify audit storage and active flow snapshots, and run `plumbus init --patch` for wiring v15. Do not interpret an absent development secret as enabling JWT authentication.

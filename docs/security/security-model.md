@@ -102,7 +102,7 @@ See [MCP agent authentication](../mcp/agent-authentication.md).
 
 ### JWT Adapter
 
-JWT verification requires a finite, future `exp`, checks `nbf` and `iat` when present, and limits lifetime to 24 hours by default (`maxTokenLifetimeSeconds` configures the bound). Tokens without expiration are rejected. `signJwt` rejects reserved claims in `claims`; pass subject, roles, scopes, tenant, issuer, audience, and expiration through their named options. Issuer/audience checks remain configurable for a single trust domain; configure both whenever a signing key serves multiple token purposes, and use separate keys across applications.
+JWT verification requires a finite, future `exp`, checks `nbf` and `iat` when present, and optionally enforces an explicit `maxTokenLifetimeSeconds` bound (otherwise finite lifetimes remain issuer-controlled). Tokens without expiration are rejected. `signJwt` rejects reserved claims in `claims`; pass subject, roles, scopes, tenant, issuer, audience, and expiration through their named options. Issuer/audience checks remain configurable for a single trust domain; configure both whenever a signing key serves multiple token purposes, and use separate keys across applications.
 
 No bootstrap injects a public development signing key. Without configured credentials, development HTTP/MCP/voice traffic remains anonymous; outside development startup fails unless a custom authenticator or authentication runtime is supplied where supported. JWT adapters reject known development placeholders and secrets shorter than 32 non-padding characters in every environment. Length checks are not entropy measurements: generate a random secret and store it outside source control.
 

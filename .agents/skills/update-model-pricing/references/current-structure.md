@@ -56,7 +56,7 @@ Applies:
 - **Cache writes**: 1.25× base input rate (Anthropic 5-min cache)
 - **Long context premium**: 2× input / 1.5× output for eligible models over 200K input
 
-Returns `undefined` for unknown models; explicitly free rates remain zero.
+The legacy `calculateModelCost()` returns numeric zero for unknown models. `estimateModelCost()` returns `undefined`; framework ledger/budget code uses this unknown-aware path. Explicitly free rates remain zero.
 
 ## Test File
 

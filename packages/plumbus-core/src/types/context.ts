@@ -288,6 +288,7 @@ export interface AIStreamEvent {
   provider?: string;
   /** Estimated cost in USD (for done events) */
   cost?: number;
+  costAvailable?: boolean;
   /**
    * Provider-reported termination reason (for done events). Typical values:
    * 'stop' (natural completion), 'length' (hit max_tokens — output was
@@ -345,8 +346,10 @@ export interface AIFinalGenerateResult<T = Record<string, any>> {
   usage: AITokenUsage;
   model: string;
   provider: string;
-  /** USD cost when known; zero for explicitly free usage, omitted when unpriced. */
-  cost?: number;
+  /** USD cost when known; legacy zero when unpriced. Check costAvailable before treating zero as free. */
+  cost: number;
+  /** False means cost is unknown; numeric zero is retained for compatibility. */
+  costAvailable?: boolean;
 }
 
 /** C1: tool-call branch — never carries `.data`. */
@@ -359,7 +362,9 @@ export interface AIToolCallsGenerateResult {
   usage: AITokenUsage;
   model: string;
   provider: string;
-  cost?: number;
+  cost: number;
+  /** False means cost is unknown; numeric zero is retained for compatibility. */
+  costAvailable?: boolean;
 }
 
 /** C1: only tool-enabled config returns this discriminated union (keyed on finishReason). */

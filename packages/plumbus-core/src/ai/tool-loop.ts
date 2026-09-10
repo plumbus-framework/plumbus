@@ -66,7 +66,8 @@ export interface RunToolLoopResult<T = Record<string, unknown>> {
   messages: ChatMessage[];
   rounds: number;
   aggregatedUsage: AITokenUsage;
-  aggregatedCost?: number;
+  aggregatedCost: number;
+  aggregatedCostAvailable?: boolean;
 }
 
 /** UTF-8 byte length of a string. */
@@ -212,7 +213,8 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
   // Copy the caller's history — the loop never mutates the input array.
   const messages: ChatMessage[] = params.messages ? [...params.messages] : [];
   const aggregatedUsage: AITokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  let aggregatedCost: number | undefined = 0;
+  let aggregatedCost = 0;
+  let aggregatedCostAvailable = true;
 
   for (let round = 1; round <= maxRounds; round++) {
     const result = await ai.generateWithUsage<T>({
@@ -228,11 +230,19 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
       seed: params.seed,
     });
     addUsage(aggregatedUsage, result.usage);
-    aggregatedCost =
-      aggregatedCost != null && result.cost != null ? aggregatedCost + result.cost : undefined;
+    aggregatedCost += result.cost ?? 0;
+    aggregatedCostAvailable =
+      aggregatedCostAvailable && result.costAvailable !== false && result.cost != null;
 
     if (result.finishReason !== 'tool_calls') {
-      return { final: result, messages, rounds: round, aggregatedUsage, aggregatedCost };
+      return {
+        final: result,
+        messages,
+        rounds: round,
+        aggregatedUsage,
+        aggregatedCost,
+        aggregatedCostAvailable,
+      };
     }
 
     // Append the assistant turn carrying the tool calls, then one tool
@@ -284,8 +294,16 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
     seed: params.seed,
   });
   addUsage(aggregatedUsage, final.usage);
-  aggregatedCost =
-    aggregatedCost != null && final.cost != null ? aggregatedCost + final.cost : undefined;
+  aggregatedCost += final.cost ?? 0;
+  aggregatedCostAvailable =
+    aggregatedCostAvailable && final.costAvailable !== false && final.cost != null;
 
-  return { final, messages, rounds: maxRounds, aggregatedUsage, aggregatedCost };
+  return {
+    final,
+    messages,
+    rounds: maxRounds,
+    aggregatedUsage,
+    aggregatedCost,
+    aggregatedCostAvailable,
+  };
 }

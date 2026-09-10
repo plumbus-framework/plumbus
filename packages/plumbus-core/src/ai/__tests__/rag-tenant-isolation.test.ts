@@ -78,7 +78,7 @@ describe('RAG tenant isolation', () => {
   });
 });
 
-it('preserves unknown embedding costs instead of claiming zero spend', async () => {
+it('marks unknown embedding costs while retaining the numeric callback contract', async () => {
   const onEmbeddingCost = vi.fn();
   const rag = createRAGPipeline({
     provider,
@@ -86,5 +86,5 @@ it('preserves unknown embedding costs instead of claiming zero spend', async () 
     onEmbeddingCost,
   });
   await rag.ingest({ documentId: 'x', source: 'local', content: 'text' });
-  expect(onEmbeddingCost.mock.calls[0]?.[0].cost).toBeUndefined();
+  expect(onEmbeddingCost.mock.calls[0]?.[0]).toMatchObject({ cost: 0, costAvailable: false });
 });

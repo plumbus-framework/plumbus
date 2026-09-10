@@ -1,5 +1,16 @@
 # @plumbus/ai-bedrock
 
+## 0.1.1 — 2026-09-10
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+
+### Security
+
+- Validate base, cache, and global pricing-file rates as finite nonnegative values before accepting the file. Explicit zero rates remain supported.
+- API and peer ranges are unchanged. Install core 0.6.20 for the accompanying framework budget/accounting fixes. [Migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.1.0 — 2026-08-12 — initial release
 
 ### Added

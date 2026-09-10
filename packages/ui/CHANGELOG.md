@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.4 — 2026-09-10
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+
+### Changed
+
+- The packed UI dependency now resolves `@plumbus/core` 0.6.20, carrying the coordinated security release. Frontend APIs are unchanged.
+- See [security release migration](../../docs/upgrading-security-release.md) for backend authentication and audit requirements.
+
 ## 0.7.3
 
 ### Fixed

@@ -1,5 +1,31 @@
 # @plumbus/core changelog
 
+## 0.6.20 — 2026-09-10 — security hardening and fixed pricing
+
+### Agent instructions
+
+- Bump `AGENT_WIRING_VERSION` from 14 to **15**. Every generated agent format now points to the packaged security release checklist, including inline mode. `plumbus init --patch` upgrades existing managed blocks while retaining app-owned instructions.
+- Update packaged auth, audit, RAG, cost, MCP, flow, and deployment guidance to match this release. No automatic pricing or promotion handling is introduced.
+
+### Fixed
+
+- Bind AI retrieval and accounting to each execution identity; enforce exact RAG tenant namespaces and fail closed on invalid flow auth snapshots.
+- Record successful/retried AI spend, reject malformed numeric accounting, and enforce configured budgets when prior prices are unknown. Preserve provider-supplied zero costs and local providers without dollar caps.
+- Apply configured redaction to extraction/classification and explainability; substitute prompt values once. Refresh the fixed OpenAI/Anthropic catalog and cache rates, with Sol alias/long-context support. No automatic pricing refresh or promotion lifecycle logic.
+- Reject shared development signing keys, non-expiring JWTs, SAML replay/correlation failures, ambiguous cookies, unsafe scaffold paths, and malformed queue envelopes. Bound JWKS refreshes and billing fetches.
+- Make safe HTTP errors unconditional and audit writes idempotent across retries. Keep MCP worker completion compatible with the dependency-object API during rolling upgrades.
+
+### Compatibility
+
+- Preserve the released numeric contracts of `calculateModelCost`, generation results, tool-loop totals, and RAG embedding callbacks. Added `estimateModelCost`, `costAvailable`, and `aggregatedCostAvailable` distinguish unknown prices. Framework ledgers still record unknown prices as `null`; configured dollar budgets reject them. Custom ledgers must honor availability flags.
+- Finite JWT lifetimes remain issuer-controlled unless `maxTokenLifetimeSeconds` is explicitly configured. `signJwt` still defaults to 24 hours.
+
+### Security migration notes
+
+- This is not a universal drop-in upgrade: configure real authentication credentials; regenerate JWTs without expiry; supply SAML request correlation or explicitly opt into unsolicited assertions; restart/review snapshot-less flows; and ensure audit persistence works. Generic 403/5xx responses no longer disclose private diagnostics.
+- No new database schema is introduced. Existing audit/flow/task tables must already be migrated for the current framework line.
+- Deploy the updated versions of any installed MCP/chat/voice/API add-ons with core. See [the release migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.6.19 — 2026-09-01 — OpenAI reasoning tool-call transport
 
 ### Fixed

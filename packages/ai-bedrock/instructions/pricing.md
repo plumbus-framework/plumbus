@@ -4,6 +4,8 @@
 
 Prescriptive recipe for operators and agents. Read this before wiring `AI_BEDROCK_PRICING_FILE` or debugging `$0` costs.
 
+From 0.1.1, every base/cache/global rate in a normalized file must be finite and nonnegative. Zero is valid; NaN, infinity, and negative values are rejected. Preserve unknown pricing instead of inventing zero.
+
 ## 60-second answer
 
 1. Bedrock APIs return **tokens only** — never USD.

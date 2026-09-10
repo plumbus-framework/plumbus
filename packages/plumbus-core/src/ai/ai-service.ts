@@ -18,7 +18,7 @@ import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../ty
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import { normalizeCost, validateTokenUsage } from './usage-validation.js';
-import { calculateModelCost, findModelRate } from './model-pricing.js';
+import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import {
   type AIProviderAdapter,
@@ -644,7 +644,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         usage: totalUsage,
         model: resolvedModel,
         provider: activeProvider.name,
-        cost,
+        cost: cost ?? 0,
+        costAvailable: cost != null,
       };
     }
 
@@ -659,7 +660,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       usage: totalUsage,
       model: resolvedModel,
       provider: activeProvider.name,
-      cost,
+      cost: cost ?? 0,
+      costAvailable: cost != null,
     };
   }
 
@@ -952,6 +954,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         model: resolvedModel,
         provider: activeProvider.name,
         cost: streamCost,
+        costAvailable: streamCost != null,
         finishReason: providerFinishReason,
       };
 
@@ -1180,6 +1183,7 @@ export function createAIService(config: AIServiceConfig): AIService {
           ...doneBase,
           usage: successUsage,
           cost: successCost,
+          costAvailable: successCost != null,
           validationFallbackFired: validationFellBackToNonStreaming,
         };
       } else {

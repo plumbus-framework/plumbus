@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { allKnownModels, calculateModelCost, findModelRate } from '../model-pricing.js';
+import {
+  allKnownModels,
+  calculateModelCost,
+  estimateModelCost,
+  findModelRate,
+} from '../model-pricing.js';
 
 describe('calculateModelCost', () => {
-  it('returns undefined for unknown models', () => {
-    expect(calculateModelCost(1000, 500, 'gpt-oss:20b')).toBeUndefined();
-    expect(calculateModelCost(1000, 500, 'llama-3')).toBeUndefined();
+  it('preserves numeric compatibility and exposes an unknown-aware estimator', () => {
+    expect(calculateModelCost(1000, 500, 'gpt-oss:20b')).toBe(0);
+    expect(estimateModelCost(1000, 500, 'gpt-oss:20b')).toBeUndefined();
+    expect(calculateModelCost(1000, 500, 'llama-3')).toBe(0);
   });
 
   it('calculates standard cost for known models', () => {
@@ -235,7 +241,8 @@ it.each([
 
 it('retains free moderation and unknown local-provider pricing semantics', () => {
   expect(calculateModelCost(1000, 0, 'omni-moderation-latest')).toBe(0);
-  expect(calculateModelCost(1000, 0, 'local-unpriced-model')).toBeUndefined();
+  expect(calculateModelCost(1000, 0, 'local-unpriced-model')).toBe(0);
+  expect(estimateModelCost(1000, 0, 'local-unpriced-model')).toBeUndefined();
 });
 
 it.each([

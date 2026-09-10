@@ -78,3 +78,8 @@ See also: `.agents/skills/bump-version/SKILL.md` (core **minor** bump checklist)
 - `deployment.md` Rule 7 — backend `proddeps` uses `npm install --omit=dev`
 - `.agents/skills/new-package-instructions/SKILL.md` — new package `package.json` peers
 - `packages/mcp/package.json` / `packages/api/package.json` / `packages/voice/package.json` — canonical examples
+
+
+## Security release baseline
+
+For the complete security remediation, install core **0.6.20** and the relevant updated add-ons listed in [upgrading-security-release.md](./upgrading-security-release.md). This baseline does not change the canonical peer literals or the historical feature-specific floors above. Refresh consumer agent wiring with `plumbus init --patch` (**v15**).

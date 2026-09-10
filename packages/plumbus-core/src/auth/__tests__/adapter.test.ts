@@ -276,8 +276,8 @@ describe('JWT security boundaries', () => {
       await adapter.authenticate(`Bearer ${signedJwt(TEST_SECRET, { sub: 'user', exp })}`),
     ).toBeNull();
   });
-  it('rejects premature and overlong tokens', async () => {
-    const adapter = createJwtAdapter({ secret: TEST_SECRET });
+  it('rejects premature tokens and enforces an explicitly configured lifetime cap', async () => {
+    const adapter = createJwtAdapter({ secret: TEST_SECRET, maxTokenLifetimeSeconds: 86400 });
     const now = Math.floor(Date.now() / 1000);
     for (const claims of [
       { exp: now + 60, nbf: now + 30 },
@@ -311,4 +311,10 @@ describe('JWT security boundaries', () => {
   ])('rejects insecure keys in every environment: %s', (secret) => {
     expect(() => createJwtAdapter({ secret })).toThrow('JWT secret');
   });
+});
+
+it('preserves valid issuer-selected lifetimes when no maximum is configured', async () => {
+  const adapter = createJwtAdapter({ secret: TEST_SECRET });
+  const token = signJwt({ secret: TEST_SECRET, sub: 'user', expiresIn: 7 * 86400 });
+  expect(await adapter.authenticate(`Bearer ${token}`)).toMatchObject({ userId: 'user' });
 });

@@ -1,5 +1,11 @@
 # @plumbus/ui — UI Code Generation Framework
 
+## Security release guidance (0.7.4)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.6.20** for the complete security fixes; existing canonical peer literals and earlier feature-specific floors are unchanged. Run `plumbus init --patch` after installation to refresh agent wiring to **v15**.
+
+The packed dependency uses core 0.6.20. Consume stable error codes instead of private role/scope messages. Do not label a zero cost as free when `costAvailable` is false. Keep frontend business actions on generated capability clients and framework auth helpers.
+
 `@plumbus/ui` is the frontend source-code generation layer for Plumbus. Its purpose is to project backend Plumbus contracts into frontend source files without turning Plumbus into a visual UI framework.
 
 The package reads Plumbus-facing inputs such as capability contracts, flow trigger descriptors, auth configuration, capability input schemas, Next.js template configuration, and translation definitions. It produces TypeScript/TSX source strings or generated file descriptors that an application or CLI wrapper can write to disk.

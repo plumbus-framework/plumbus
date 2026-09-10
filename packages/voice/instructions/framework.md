@@ -1,5 +1,11 @@
 # @plumbus/voice — Framework Instructions for AI Agents
 
+## Security release guidance (0.4.6)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.6.20** for the complete security fixes; existing canonical peer literals and earlier feature-specific floors are unchanged. Run `plumbus init --patch` after installation to refresh agent wiring to **v15**.
+
+Configure session budgets for production and preserve inbound message limits: audio ≤64 KiB, control ≤16 KiB, pending input ≤256 KiB. Session-token secrets need at least 32 non-padding characters. Finite positive configured lifetimes remain supported (default 90 seconds). Keep minting, access checks, and accounting on framework routes/`ctx.*`.
+
 **Exact path in a consumer app:** `node_modules/@plumbus/voice/instructions/framework.md`
 
 Index (open first): `node_modules/@plumbus/voice/instructions/README.md`

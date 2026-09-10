@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.5 — 2026-09-10
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).
+
+### Security
+
+- Include tenant identity in default room names when supplied by the voice runtime. Room resolvers receive optional tenant identity.
+
+### Compatibility
+
+- Explicitly configured room names remain unchanged; callers without a tenant keep their previous naming behavior. Clients should use returned room names, not reconstruct them. App-authorized shared rooms remain supported.
+- Deploy with voice 0.4.6 and core 0.6.20 for automatic tenant propagation and the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.1.4
 
 ### Fixed

@@ -90,7 +90,7 @@ Flow steps are **not** subject to a parent capability's `effects.capabilities` �
 
 **Breaking:** user-triggered flows no longer auto-inject the `system` role on every step.
 
-When a flow starts, the framework stores the caller's full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step. Step capabilities must allow the **original caller's** roles/scopes (or `public`) — not rely on implicit `system` elevation.
+When a flow starts, the framework stores the caller's auth snapshot in `flow_executions.auth_snapshot_json` and restores it on each step. Step capabilities must allow the **original caller's** roles/scopes (or `public`) — not rely on implicit `system` elevation.
 
 ```ts
 // Fix access policies on capabilities called from user-triggered flows
@@ -179,3 +179,6 @@ Work through this list when upgrading an existing Plumbus app to 0.5.x:
 | Security model (auth snapshot) | `node_modules/@plumbus/core/instructions/security.md` |
 | Production deploy + workers | `node_modules/@plumbus/core/instructions/deployment.md` |
 | MCP exposure | `node_modules/@plumbus/core/instructions/mcp.md` |
+
+
+When upgrading through core 0.6.20, also read [upgrading-security-release.md](./upgrading-security-release.md). Missing/corrupt snapshots no longer inherit worker privileges, and new snapshots omit session IDs/authentication timestamps. Recover only with a verified initiating identity.

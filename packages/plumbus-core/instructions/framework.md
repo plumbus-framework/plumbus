@@ -2,6 +2,8 @@
 
 Plumbus is an AI-native, contract-driven TypeScript application framework. You build applications by composing six primitives — **Capabilities**, **Entities**, **Events**, **Flows**, **Prompts**, and **Translations** — through a controlled execution context (`ctx`). Optional add-on packages extend the surface when installed explicitly: `@plumbus/api` (partner HTTP API), `@plumbus/mcp` (AI agent tools), `@plumbus/chat` (+ `@plumbus/chat-ui`), `@plumbus/voice`, `@plumbus/knowledge-base`, `@plumbus/ui` (web UI generation), and `@plumbus/browser-extension`.
 
+For core **0.6.20** upgrades, read [the security release checklist](./upgrading-security-release.md), then run `plumbus init --patch` to refresh agent wiring to **v15**.
+
 ## Non-Negotiable Guardrails
 
 - Plumbus primitives are the application architecture, not optional helpers.

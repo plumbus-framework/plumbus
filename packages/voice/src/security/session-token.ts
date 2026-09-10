@@ -31,14 +31,14 @@ export function mintVoiceSessionToken(args: MintVoiceSessionTokenArgs): string {
   if (
     !z
       .number()
+      .finite()
       .int()
       .positive()
-      .max(300)
       .safeParse(args.expiresInSeconds ?? DEFAULT_EXPIRES_IN_SECONDS).success
   )
     throw new PlumbusError(
       ErrorCode.Validation,
-      'Voice handshake token lifetime must be between 1 and 300 seconds',
+      'Voice handshake token lifetime must be a finite positive number of whole seconds',
     );
   return signJwt({
     secret: args.secret,

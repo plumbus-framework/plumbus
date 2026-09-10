@@ -39,25 +39,31 @@ export const getRefund = defineCapability({
 
 ## 2. Configure agent tokens
 
-Edit `plumbus.config.ts`:
+Configure an agent map in application-owned MCP bootstrap and pass its adapter to `createMcpServer` / the transport configuration:
 
 ```ts
-export default {
-  mcp: {
-    agents: {
-      "sk-billing-agent-7c2f9": {                   // map key IS the bearer token verbatim
-        serviceAccountId: "billing-agent",
-        scopes: ["billing:read"],
-        tenantId: "tenant-1",                       // optional
-      },
+import { createErrorService } from "@plumbus/core";
+import { createMcpAuthAdapter } from "@plumbus/mcp";
+
+const token = process.env["MCP_AGENT_TOKEN"];
+if (!token) throw createErrorService().validation("MCP_AGENT_TOKEN is required");
+
+export const authAdapter = createMcpAuthAdapter({
+  agents: {
+    [token]: {
+      serviceAccountId: "billing-agent",
+      scopes: ["billing:read"],
+      tenantId: "tenant-1",
     },
   },
-};
+  envToken: process.env["PLUMBUS_MCP_TOKEN"],
+});
 ```
 
-- **The map key IS the bearer token.** There is no separate "secret" field. Pick a high-entropy string and treat it like an API key.
-- Successful authentication yields `AuthContext` with `provider: "mcp"`, `userId: serviceAccountId`, `scopes`, optional `tenantId`.
-- Capability `access.serviceAccounts` further restricts which agents may call a given tool. Deny-by-default holds.
+- The map key is the bearer token. Load a high-entropy value from secret configuration; never commit real tokens.
+- Successful authentication yields `provider: "mcp"`, `userId: serviceAccountId`, scopes, and the configured tenant.
+- The current CLI does **not** import `plumbus.config.*`. Use an app-owned runner for this opaque-token map, or configure `AUTH_SECRET` for CLI Bearer JWT authentication. CLI stdio JWT callers must forward Authorization metadata; map-based stdio runners can use `PLUMBUS_MCP_TOKEN`.
+- An explicit invalid Authorization header never falls back to the environment token. HTTP transport calls always require explicit credentials. Capability access policies still govern every call.
 
 ## 3. Generate manifest + skill files
 
@@ -72,7 +78,7 @@ plumbus generate
 ## 4. Run an MCP server
 
 ```bash
-plumbus mcp serve --stdio                # Claude Desktop, Cursor, local agents
+plumbus mcp serve --stdio                # JWT Authorization metadata, or anonymous development
 plumbus mcp serve --http --port 3001     # remote agents over Streamable HTTP
 plumbus mcp list-tools                   # debug: print tool names + descriptions
 ```
@@ -87,9 +93,9 @@ If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @p
 - **Never combine `access.public: true` with `exposeAs: ['mcp']`.** `plumbus doctor` fails on any MCP-exposed capability with `access.public: true`, regardless of kind.
 - **Tenant-scoped capabilities** require the agent's configured `tenantId` to match the request context. Cross-tenant calls are denied at the access pipeline.
 
-## Anonymous fallback
+## Startup authentication
 
-When `mcp.agents` is **empty or unset**, `plumbus mcp serve` falls back to the JWT adapter (with a startup warning). Calls without a JWT then resolve to an anonymous `AuthContext` (`provider: 'anonymous'`, no scopes). Only `access.public: true` tools execute under that identity. **Never ship that configuration in production** — `plumbus doctor` warns when `mcp.agents` is empty and `@plumbus/mcp` is installed.
+Without an agent map, an explicit valid `AUTH_SECRET` selects JWT authentication. Development without credentials is anonymous and never verifies a placeholder-signed token; outside development missing credentials stop startup. HTTP transport authentication is mandatory even for initialization/listing. Public discovery remains separately configurable. Do not restore the old development signing key or unauthenticated transport route as a workaround.
 
 ## Tool names (canonical)
 
@@ -99,7 +105,7 @@ MCP tool names use the **canonical** `<domain>.<capabilityName>` form (e.g. `bil
 
 - **`tools/list`** — every capability with `exposeAs: ['mcp']`. Each tool: `name` (canonical), `description` (`mcp.description` overrides `description`), `inputSchema` (JSON Schema from Zod input), `annotations` (`destructiveHint`, `readOnlyHint`).
 - **`tools/call`** — full Plumbus pipeline runs: Zod input validation → access policy → handler → Zod output validation → audit.
-- **Errors** map to `{ isError: true, content: [{ type: 'text', text: JSON.stringify(error) }] }` preserving the `PlumbusError` code.
+- **Errors** map to `{ isError: true, content: [{ type: 'text', text: JSON.stringify(safeError) }] }` preserving the error code while filtering metadata and using generic internal/denial messages. Detailed diagnostics belong in server-side hooks.
 
 ## Observability
 

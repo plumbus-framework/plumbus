@@ -672,8 +672,8 @@ Return     Retry with error context
 Every AI call is metered. Cost resolution:
 
 1. If the adapter returns `cost` on the provider / stream response (**Bedrock** via `@plumbus/ai-bedrock`), that USD value wins.
-2. Otherwise `calculateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
-3. Unknown models (e.g. local Ollama) → no catalog price (`undefined` in results, `null` in ledger rows); explicitly free providers may report `cost: 0`.
+2. Otherwise `estimateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
+3. Unknown models (e.g. local Ollama) → no catalog price (`cost: 0, costAvailable: false` in legacy numeric results; `null` in ledger rows); explicitly free providers may report `cost: 0`.
 
 Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusaibedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
 
@@ -689,7 +689,7 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `calculateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
 
 The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol is $4/$20 per million input/output tokens. Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
@@ -1034,12 +1034,16 @@ const result = await ctx.ai.generate({
 
 `mockAI` keys responses by operation (`generate`, `extract`, `classify`, `retrieve`), not by prompt name.
 
-Provider accounting rejects negative/nonfinite token usage and invalid budget estimates. Invalid monetary values become unknown cost rather than poisoning totals. `calculateModelCost()` and generation results omit cost for models absent from the pricing catalog; this is distinct from a free adapter's explicit zero. Anthropic stream accounting retains initial input/cache usage through the final output-token event. These checks establish numeric validity, not proof that a custom provider reports honest usage.
+Provider accounting rejects negative/nonfinite token usage and invalid budget estimates. Invalid monetary values become unknown cost rather than poisoning totals. `estimateModelCost()` returns undefined for models absent from the pricing catalog; legacy `calculateModelCost()` and generation results retain numeric zero, with results marked `costAvailable: false`; this is distinct from a free adapter's explicit zero. Anthropic stream accounting retains initial input/cache usage through the final output-token event. These checks establish numeric validity, not proof that a custom provider reports honest usage.
 
 Billing/usage API fetches default to a 10-second timeout (`UsageClientConfig.timeoutMs` overrides it), so a stalled billing endpoint does not indefinitely block `syncCosts()`.
 
-A stream that provides neither usage nor price records unknown cost, not zero. RAG `onEmbeddingCost` likewise leaves `cost` undefined when the embedding adapter has no price; callbacks should preserve that distinction when recording a ledger row. Positive sub-microdollar catalog charges retain precision so repeated small paid calls do not appear free.
+A stream that provides neither usage nor price records unknown cost, not zero. RAG `onEmbeddingCost` retains numeric `cost: 0` with `costAvailable: false` when the embedding adapter has no price; callbacks should preserve that distinction when recording a ledger row. Positive sub-microdollar catalog charges retain precision so repeated small paid calls do not appear free.
 
 ### Fixed pricing catalog
 
 Prices are fixed in the bundled catalog and change only through an explicit manual update. There is no automatic refresh, promotion-window metadata, review reminder, or scheduled price change. GPT-5.6 Sol and its `gpt-5.6` alias retain the configured $4/$20 input/output rates per million tokens, with the existing context-length and cache calculations. Free/local-provider behavior is unchanged.
+
+### Numeric cost compatibility
+
+`calculateModelCost()` keeps its published `number` return type and legacy zero for an unknown model. Use `estimateModelCost()` when callers must distinguish missing pricing from explicit free usage. `generateWithUsage().cost` and `runToolLoop().aggregatedCost` also remain numeric; check `costAvailable` / `aggregatedCostAvailable` before treating those totals as fully priced. The RAG embedding-cost callback exposes `costAvailable` with its existing numeric `cost`. Custom ledgers should store null when availability is false. Framework accounting already uses the unknown-aware path internally, so numeric compatibility values never silently bypass its configured dollar budgets.
