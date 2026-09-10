@@ -31,7 +31,7 @@ Implement app business logic through Plumbus capabilities, flows, entities, even
 
 This is an explicit migration across minor lines, not a caret-compatible patch. Update every Plumbus package the app already uses to this family in one dependency change. Do not install unused add-ons. Core peers must be `0.7.x`, voice-provider peers `0.5.x`; copy all literals from [peer-dependencies.md](./peer-dependencies.md). Never bypass mixed-family errors with `--force` or `--legacy-peer-deps`.
 
-Packages stage under `next`. Select explicit versions from this table after they are available and review the checks below before deploying. Legacy caret ranges remain on old versions, which do not include these security fixes. Preserve the existing lockfile until the app is ready to migrate, then regenerate it intentionally and use frozen installs in production. Wildcards and broad `^0` ranges do not provide the same protection.
+Packages publish normally to `latest`. Select explicit versions from this table after they are available and review the checks below before deploying. Legacy caret ranges remain on old versions, which do not include these security fixes. Preserve the existing lockfile until the app is ready to migrate, then regenerate it intentionally and use frozen installs in production. Wildcards and broad `^0` ranges do not provide the same protection.
 
 After installing the release, run these commands from the app root:
 

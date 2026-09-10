@@ -31,8 +31,8 @@ All 18 packages move outside their previous caret range. Some add-ons have only 
 
 ## Publication and dependency resolution
 
-- Every package stages under **`next`**, both in `publishConfig` and the publish workflow. No publication or dist-tag promotion is performed by this guide. Promote to `latest` only after all packages and application staging checks pass.
-- The publish workflow runs when a new `v*` Git tag is pushed. Repository release tags are numbered independently from package versions; never move or reuse an existing release tag.
+- The publish workflow uses npm’s default **`latest`** dist-tag. There is no `next` staging or separate promotion step for new publications. Local configuration changes do not retag versions that were already published under `next`.
+- The publish workflow runs when a new `v*` Git tag is pushed and keeps its original install, build, test, and publish steps. Lint, formatting, and typechecking run in the separate pull-request CI workflow. Repository release tags are numbered independently from package versions; never move or reuse an existing release tag.
 - `^0.6.19`, `~0.6.19`, and `0.6.x` stay on the legacy core line; existing lockfiles remain reproducible with `npm ci` / `pnpm install --frozen-lockfile`. Wildcards, `^0`, `latest`, `next`, and explicit new versions are not protected by that minor-line boundary. Dist-tags do not override semver ranges: the version boundary is the protection for old carets.
 - Upgrade only the optional packages the app uses, but upgrade every installed Plumbus package to the matching family in one dependency change. For example, select `@plumbus/core@0.7.0`, `@plumbus/voice@0.5.0`, and `@plumbus/voice-livekit@0.2.0` together. Do not use `--force` or `--legacy-peer-deps` to hide mixed-family errors.
 - Update application lockfiles, stage the migration, and deploy API/worker processes from the same dependency set. Staying on old versions avoids automatic behavior changes but does not deliver these security fixes.
@@ -85,6 +85,6 @@ Before deploying an application:
 2. Pack all 18 packages. Inspect the packed package manifests; UI must require the shared core 0.7.x peer with no nested core dependency; all internal peers must stay within the new family.
 3. Install the complete tarball family in a clean npm consumer using `--omit=dev --ignore-scripts`. Verify SDK imports and `npm ls` without bypassing peer errors. Also test core alone, core with UI, and core with voice/provider packages.
 4. Verify that legacy core mixed with a new add-on, new core mixed with an old add-on, and legacy voice mixed with a new provider are rejected by npm. Legacy caret selection must remain on old versions when both families are available.
-5. Run consumer staging authentication, RAG, task/flow, audit, and voice checks before promoting dist-tags or deploying.
+5. Run consumer staging authentication, RAG, task/flow, audit, and voice checks before deploying.
 
 These checks do not constitute a production migration. Application-specific credentials, databases, identity providers, and voice integrations still need staging validation.

@@ -1,10 +1,5 @@
 # @plumbus/chat-ui
 
-## Release family 0.2.0
-
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/chat` `0.2.x`, `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
-
-
 > **React UI for [`@plumbus/chat`](../chat/).** Drop in a working AI chat surface in 5 lines — message stream, input, source citations, refusal notices, cooldowns, and confirmation slot — all wired to the framework's `ChatEvent` protocol.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat-ui.svg)](https://www.npmjs.com/package/@plumbus/chat-ui)
