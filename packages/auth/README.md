@@ -1,10 +1,5 @@
 # @plumbus/auth
 
-## Release family 0.2.0
-
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
-
-
 OIDC relying-party runtime for Plumbus applications: hosted login redirect, authorization code + PKCE callback, opaque **`__Host-plumbus_session`** cookies, CSRF for mutating requests, and protected session/transaction stores (memory or PostgreSQL).
 
 Peer: `@plumbus/core` at **`0.7.x`**.

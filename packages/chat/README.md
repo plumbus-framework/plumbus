@@ -1,10 +1,5 @@
 # @plumbus/chat
 
-## Release family 0.2.0
-
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`, `@plumbus/knowledge-base` `0.2.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
-
-
 > **Policy-first conversation runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Declare a chat, plug in context sources, set guards — get a fully-governed AI conversation with cited sources, budgets, refusals, and an event-streamed UI.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat.svg)](https://www.npmjs.com/package/@plumbus/chat)

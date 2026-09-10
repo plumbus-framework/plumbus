@@ -1,10 +1,5 @@
 # @plumbus/voice-deepdub
 
-## Release family 0.2.0
-
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
-
-
 > **Deepdub TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `tts.provider: 'deepdub'` for streaming synthesis with full delivery-tone support and strong Hebrew quality via `@deepdub/node`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-deepdub.svg)](https://www.npmjs.com/package/@plumbus/voice-deepdub)

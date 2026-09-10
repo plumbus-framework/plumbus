@@ -31,7 +31,7 @@ Voice does not peer on vendor add-ons. Apps explicitly install only providers th
 - New-family packages require the new family. Do not publish narrowed peers or migration-requiring behavior as a patch on an old line: an existing caret could select that patch.
 - `pnpm install` passing in this workspace does not prove npm consumer compatibility. Validate packed tarballs with npm; production installs use npm.
 - Keep all manifests, READMEs, package instructions, changelogs, and AGENTS/CLAUDE in sync.
-- Packages stage under the **next** npm dist-tag. Promoting to latest is a separate operator decision after the entire family and consumer staging checks pass.
+- Packages publish normally to npm’s **latest** dist-tag; there is no separate release-staging or promotion step.
 
 ## Future releases
 

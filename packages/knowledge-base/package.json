@@ -36,8 +36,7 @@
     "directory": "packages/knowledge-base"
   },
   "publishConfig": {
-    "access": "public",
-    "tag": "next"
+    "access": "public"
   },
   "engines": {
     "node": ">=20.6.0"

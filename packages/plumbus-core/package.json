@@ -66,8 +66,7 @@
     "directory": "packages/plumbus-core"
   },
   "publishConfig": {
-    "access": "public",
-    "tag": "next"
+    "access": "public"
   },
   "engines": {
     "node": ">=20.6.0"

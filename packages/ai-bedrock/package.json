@@ -40,8 +40,7 @@
     "directory": "packages/ai-bedrock"
   },
   "publishConfig": {
-    "access": "public",
-    "tag": "next"
+    "access": "public"
   },
   "engines": {
     "node": ">=20.6.0"

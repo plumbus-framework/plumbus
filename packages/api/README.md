@@ -1,10 +1,5 @@
 # @plumbus/api
 
-## Release family 0.2.0
-
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
-
-
 > **Partner-grade external API contracts for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Mark capabilities with `exposeAs: ['api']`, maintain an `api.yaml` manifest, and serve a versioned partner surface — with **the same validation, access policies, audit pipeline, and Zod schemas** as your default HTTP routes.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/api.svg)](https://www.npmjs.com/package/@plumbus/api)
