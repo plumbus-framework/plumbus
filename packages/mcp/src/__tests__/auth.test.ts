@@ -171,3 +171,13 @@ describe('MCP tools/call with createMcpAuthAdapter', () => {
     expect(allowed.isError).toBeFalsy();
   });
 });
+
+it('does not fall back to the environment token after an explicit invalid credential', async () => {
+  const adapter = createMcpAuthAdapter({
+    agents: { valid: { serviceAccountId: 'worker', scopes: [] } },
+    envToken: 'valid',
+  });
+  expect(await adapter.authenticate(undefined)).toMatchObject({ userId: 'worker' });
+  expect(await adapter.authenticate('Bearer invalid')).toBeNull();
+  expect(await adapter.authenticate('Basic invalid')).toBeNull();
+});

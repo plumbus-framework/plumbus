@@ -65,7 +65,7 @@ function createDbStub(): any {
   const stub = {
     execute: async () => [],
     select: () => ({ from: () => ({ where: async () => [] }) }),
-    insert: () => ({ values: async () => undefined }),
+    insert: () => ({ values: () => ({ onConflictDoNothing: async () => undefined }) }),
     transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(stub),
   };
   return stub;

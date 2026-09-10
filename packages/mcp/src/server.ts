@@ -1,3 +1,4 @@
+import { errorToHttpResponse } from '@plumbus/core/errors';
 import { createRequire } from 'node:module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
@@ -14,6 +15,7 @@ import {
 import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import {
   JobExecutionSource,
+  evaluateAccess,
   createExecutionContext,
   dispatchQueuedJob,
   executeCapability,
@@ -83,7 +85,7 @@ function capabilityResultToToolResponse(result: Awaited<ReturnType<typeof execut
     };
   }
   return {
-    content: [{ type: 'text', text: JSON.stringify(result.error) }],
+    content: [{ type: 'text', text: JSON.stringify(errorToHttpResponse(result.error).body.error) }],
     isError: true,
   };
 }
@@ -97,7 +99,7 @@ type McpExtra = {
 async function resolveCtx(
   config: McpServerConfig,
   extra: McpExtra,
-  options: { bypassTenantScope?: boolean } = {},
+  options: { bypassTenantScope?: boolean; taskAccess?: boolean } = {},
 ): Promise<{ ctx: ExecutionContext; authContext: AuthContext }> {
   const headerValue = getHeaderValue(extra.requestInfo?.headers, 'authorization');
   const rawToken = extra.authInfo?.token ?? headerValue;
@@ -109,7 +111,11 @@ async function resolveCtx(
     scopes: [],
     provider: 'anonymous',
   };
-  const deps = config.createDependencies(authContext, options);
+  if (options.taskAccess && !authContext.userId)
+    throw new McpError(ErrorCode.InvalidRequest, 'task.unauthorized');
+  const deps = config.createDependencies(authContext, {
+    bypassTenantScope: options.bypassTenantScope ?? (options.taskAccess && !authContext.tenantId),
+  });
   const userAgent = getHeaderValue(extra.requestInfo?.headers, 'user-agent');
   if (userAgent !== undefined) deps.request = { userAgent };
   const ctx = createExecutionContext(deps);
@@ -135,7 +141,10 @@ function taskRowToWire(task: McpTaskRow): {
 }
 
 function assertTaskOwnership(task: McpTaskRow, auth: AuthContext): void {
-  if (task.userId !== auth.userId) {
+  if (
+    task.userId !== auth.userId ||
+    (task.tenantId ?? undefined) !== (auth.tenantId ?? undefined)
+  ) {
     throw new McpError(ErrorCode.InvalidRequest, 'task.forbidden: task belongs to another user');
   }
 }
@@ -208,11 +217,28 @@ export function createMcpServer(
           isError: true,
         };
       }
+      const parsedInput = cap.input.safeParse(request.params.arguments ?? {});
+      const access = evaluateAccess(cap.access, authContext);
+      if (!parsedInput.success || !access.allowed) {
+        const error = !parsedInput.success
+          ? ctx.errors.validation('Invalid input')
+          : ctx.errors.forbidden('Access denied');
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify(errorToHttpResponse(error).body.error) },
+          ],
+          isError: true,
+        };
+      }
+      // Task storage is always owner/tenant scoped, independent of the tool's data bypass.
+      const taskCtx = createExecutionContext(
+        config.createDependencies(authContext, { bypassTenantScope: !authContext.tenantId }),
+      );
       const taskId = crypto.randomUUID();
       const abortController = new AbortController();
       taskAbortRegistry.set(taskId, abortController);
 
-      const task = await createTask(ctx, {
+      const task = await createTask(taskCtx, {
         id: taskId,
         userId: authContext.userId,
         capabilityName: getCanonicalCapabilityName(cap),
@@ -226,7 +252,7 @@ export function createMcpServer(
             db: config.db,
             jobQueue: config.jobQueue,
             capability: cap as CapabilityContract,
-            input: (request.params.arguments ?? {}) as Record<string, unknown>,
+            input: parsedInput.data as Record<string, unknown>,
             auth: authContext,
             jobId: taskId,
             source: JobExecutionSource.Mcp,
@@ -236,10 +262,11 @@ export function createMcpServer(
             content: [{ type: 'text', text: JSON.stringify(taskRowToWire(task)) }],
           };
         } catch (err) {
-          await markStatus(ctx, taskId, 'failed', {
+          ctx.logger.error('MCP job dispatch failed', { error: err });
+          await markStatus(taskCtx, taskId, 'failed', {
             errorJson: {
               code: 'dispatch_failed',
-              message: err instanceof Error ? err.message : String(err),
+              message: 'An internal error occurred',
             },
           }).catch(() => {});
           return {
@@ -248,7 +275,7 @@ export function createMcpServer(
                 type: 'text',
                 text: JSON.stringify({
                   code: 'dispatch_failed',
-                  message: err instanceof Error ? err.message : String(err),
+                  message: 'An internal error occurred',
                 }),
               },
             ],
@@ -262,7 +289,7 @@ export function createMcpServer(
       bgCtx.signal = abortController.signal;
       bgCtx.progress = {
         report: (opts) => {
-          void recordProgress(bgCtx, taskId, opts).catch(() => {});
+          void recordProgress(taskCtx, taskId, opts).catch(() => {});
           if (progressToken !== undefined) {
             void server
               .notification({
@@ -295,20 +322,23 @@ export function createMcpServer(
             return;
           }
           if (result.success) {
-            await markStatus(bgCtx, taskId, 'completed', { payloadJson: result.data });
+            await markStatus(taskCtx, taskId, 'completed', { payloadJson: result.data });
           } else {
             finalStatus = 'error';
             finalErrorCode = result.error.code;
-            await markStatus(bgCtx, taskId, 'failed', { errorJson: result.error });
+            await markStatus(taskCtx, taskId, 'failed', {
+              errorJson: errorToHttpResponse(result.error).body.error,
+            });
           }
         } catch (err) {
+          ctx.logger.error('MCP task failed', { error: err });
           finalStatus = 'error';
           finalErrorCode = 'internal';
           try {
-            await markStatus(bgCtx, taskId, 'failed', {
+            await markStatus(taskCtx, taskId, 'failed', {
               errorJson: {
                 code: 'internal',
-                message: err instanceof Error ? err.message : String(err),
+                message: 'An internal error occurred',
               },
             });
           } catch {
@@ -333,7 +363,7 @@ export function createMcpServer(
             });
           }
           try {
-            const finalTask = await getByIdScoped(bgCtx, taskId);
+            const finalTask = await getByIdScoped(taskCtx, taskId);
             if (finalTask) {
               await server
                 .notification({
@@ -422,7 +452,7 @@ export function createMcpServer(
   });
 
   server.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
-    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
     const task = await getByIdScoped(ctx, request.params.taskId);
     if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
     assertTaskOwnership(task, authContext);
@@ -430,7 +460,7 @@ export function createMcpServer(
   });
 
   server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
-    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
     const task = await getByIdScoped(ctx, request.params.taskId);
     if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
     assertTaskOwnership(task, authContext);
@@ -441,7 +471,7 @@ export function createMcpServer(
   });
 
   server.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
-    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
     const task = await getByIdScoped(ctx, request.params.taskId);
     if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
     assertTaskOwnership(task, authContext);
@@ -455,7 +485,7 @@ export function createMcpServer(
   });
 
   server.setRequestHandler(ListTasksRequestSchema, async (_request, extra) => {
-    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra);
+    const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
     const mcpTaskData = ctx.data as Record<
       string,
       { findMany: (q?: Record<string, unknown>, o?: { limit?: number }) => Promise<unknown[]> }
@@ -465,11 +495,13 @@ export function createMcpServer(
       throw new McpError(ErrorCode.InvalidRequest, 'McpTask entity not registered');
     }
     const rows = (await mcpTask.findMany(
-      { userId: authContext.userId },
+      { userId: authContext.userId, tenantId: authContext.tenantId ?? null },
       { limit: 100 },
     )) as McpTaskRow[];
     return {
-      tasks: rows.map(taskRowToWire),
+      tasks: rows
+        .filter((row) => (row.tenantId ?? undefined) === (authContext.tenantId ?? undefined))
+        .map(taskRowToWire),
     };
   });
 

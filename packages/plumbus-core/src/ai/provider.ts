@@ -639,9 +639,16 @@ function anthropicUsageToTokenUsage(usage: {
   cache_read_input_tokens?: number;
 }): TokenUsage {
   return {
-    inputTokens: usage.input_tokens,
+    inputTokens:
+      usage.input_tokens +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0),
     outputTokens: usage.output_tokens,
-    totalTokens: usage.input_tokens + usage.output_tokens,
+    totalTokens:
+      usage.input_tokens +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0) +
+      usage.output_tokens,
     cachedInputTokens: usage.cache_read_input_tokens ?? 0,
     cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
   };
@@ -1667,7 +1674,18 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         return;
       }
 
-      yield* parseSSEStream(resp, parseAnthropicSSEChunk);
+      let initialUsage: TokenUsage | undefined;
+      for await (const event of parseSSEStream(resp, parseAnthropicSSEChunk)) {
+        if (event.type === 'usage' && event.usage) initialUsage = event.usage;
+        if (event.type === 'done' && event.usage && initialUsage) {
+          event.usage = {
+            ...initialUsage,
+            outputTokens: event.usage.outputTokens,
+            totalTokens: initialUsage.inputTokens + event.usage.outputTokens,
+          };
+        }
+        yield event;
+      }
     },
 
     async embed(): Promise<EmbeddingResponse> {
@@ -1877,16 +1895,19 @@ function parseAnthropicSSEChunk(eventType: string, data: string): ProviderStream
       }
       case 'message_start': {
         const message = parsed.message as
-          | { usage?: { input_tokens: number; output_tokens: number } }
+          | {
+              usage?: {
+                input_tokens: number;
+                output_tokens: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+              };
+            }
           | undefined;
         if (message?.usage) {
           return {
             type: 'usage',
-            usage: {
-              inputTokens: message.usage.input_tokens,
-              outputTokens: message.usage.output_tokens,
-              totalTokens: message.usage.input_tokens + message.usage.output_tokens,
-            },
+            usage: anthropicUsageToTokenUsage(message.usage),
           };
         }
         return null;

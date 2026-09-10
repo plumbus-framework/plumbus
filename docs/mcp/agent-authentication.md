@@ -67,9 +67,20 @@ mcp: {
 },
 ```
 
-Loaded via `loadConfig()` like database and auth settings. v1 is a **static map**; no runtime agent registration API.
+v1 is a **static map**; no runtime agent registration API. The MCP runtime accepts this map through `createMcpAuthAdapter({ agents, envToken })`. The current CLI `loadConfig()` reads environment variables and does not import `plumbus.config.ts` / `plumbus.config.json`; for CLI authentication, configure `AUTH_SECRET` and send signed JWTs as Bearer tokens. An agent map must be supplied through application-owned runtime wiring.
 
 `plumbus mcp serve` builds `createMcpAuthAdapter({ agents: config.mcp?.agents ?? {}, envToken: process.env.PLUMBUS_MCP_TOKEN })` when `mcp.agents` is non-empty.
+
+### CLI environment and credentials
+
+Both `plumbus mcp serve --http` and `--stdio` resolve the environment from `PLUMBUS_ENV`, then `NODE_ENV`, defaulting to `development`. The CLI does not force development mode.
+
+- A non-empty `mcp.agents` map takes precedence over JWT authentication.
+- Without an agent map, an explicit `AUTH_SECRET` enables HS256 Bearer JWT authentication, including configured `AUTH_ISSUER` / `AUTH_AUDIENCE` checks. The secret must contain at least 32 characters after trimming surrounding whitespace and must not be a known development placeholder.
+- Outside development, missing or invalid credentials stop startup before resource discovery or database/queue connections. This applies to both transports.
+- In development, an absent secret selects an anonymous adapter that rejects every token. It never verifies JWTs against the public placeholder. Other invalid explicit secrets stop startup.
+
+`PLUMBUS_MCP_TOKEN` is used only with the agent-map adapter; the JWT adapter requires an Authorization header. Existing CLI deployments using the old placeholder must configure credentials for authenticated access.
 
 ## Token resolution
 
@@ -97,10 +108,12 @@ Behavior depends on which adapter is in effect and which transport is serving th
 
 | Scenario | Adapter resolved by `plumbus mcp serve` | Null-auth behavior |
 |---|---|---|
-| `config.mcp.agents` has at least one entry | `createMcpAuthAdapter({ agents, envToken })` | `null` → HTTP transport returns 401 at the tool call; stdio transport surfaces a tool error. Access evaluation never runs. |
-| `config.mcp.agents` is empty or unset | Falls back to the **JWT adapter** and `plumbus mcp serve` prints an "anonymous-only" warning at startup. | `null` → the MCP server substitutes an anonymous `AuthContext` (`provider: 'anonymous'`, empty roles/scopes). Only `access.public: true` tools execute. |
+| `config.mcp.agents` has at least one entry | `createMcpAuthAdapter({ agents, envToken })` | Invalid tokens do not authenticate. The tool handler substitutes an anonymous identity; only `access.public: true` tools can execute anonymously. |
+| `config.mcp.agents` is empty or unset, with a valid explicit `AUTH_SECRET` | JWT adapter; startup identifies JWT authentication. | Missing or invalid JWTs do not authenticate. Only `access.public: true` tools can execute anonymously. |
+| Development with no agent map and an absent secret | Anonymous adapter; startup prints an anonymous-only warning. | All tokens resolve to `null`. Only `access.public: true` tools can execute anonymously. |
+| Outside development with no agent map and a missing/invalid secret | Startup fails. | No MCP server starts. |
 
-**Deploy with `mcp.agents` configured for any production-shaped surface.** The anonymous JWT fallback is for local dev only. `plumbus doctor` **fails** on any capability with both `exposeAs: ['mcp']` and `access.public: true` — including read-only tools.
+**Deploy with explicit credentials for any production-shaped surface.** Anonymous startup is for local development only. `plumbus doctor` **fails** on any capability with both `exposeAs: ['mcp']` and `access.public: true` — including read-only tools.
 
 ## Audit
 
@@ -133,3 +146,5 @@ Do not reuse one `ExecutionContext` across concurrent tool calls. The shared `db
 - Per-tenant agent registration UI
 - Agent-specific rate limits
 - Scope-filtered `tools/list` (listing is full manifest; access enforced at `tools/call`)
+
+An explicitly supplied invalid Authorization header never falls back to `PLUMBUS_MCP_TOKEN`. Environment-token fallback is for stdio calls with no header. HTTP transport requests must carry explicit credentials even when the server process has an environment token configured.

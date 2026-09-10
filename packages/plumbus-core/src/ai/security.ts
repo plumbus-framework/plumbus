@@ -142,6 +142,7 @@ export function checkPromptSecurity(
         if (level >= redactLevel) {
           redactTarget[key] = '[REDACTED]';
           needsRedaction = true;
+          continue;
         }
       }
 

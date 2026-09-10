@@ -495,8 +495,11 @@ describe('Server Bootstrap', () => {
       expect(server).toBeDefined();
     });
 
-    it('sanitizes 5xx messages in Fastify error handler when onProcessError is set', async () => {
-      const onProcessError = vi.fn(async () => {});
+    it.each([
+      true,
+      false,
+    ])('sanitizes 5xx messages with onProcessError configured=%s', async (configured) => {
+      const onProcessError = configured ? vi.fn(async () => {}) : undefined;
       const server = createServer(makeServerConfig({ onProcessError }));
       const handler = (server.app as { _errorHandler?: AnyFn })._errorHandler;
       expect(handler).toBeDefined();

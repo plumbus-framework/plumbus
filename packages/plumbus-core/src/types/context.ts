@@ -345,8 +345,8 @@ export interface AIFinalGenerateResult<T = Record<string, any>> {
   usage: AITokenUsage;
   model: string;
   provider: string;
-  /** Estimated cost in USD based on published per-token rates. 0 for unknown models. */
-  cost: number;
+  /** USD cost when known; zero for explicitly free usage, omitted when unpriced. */
+  cost?: number;
 }
 
 /** C1: tool-call branch — never carries `.data`. */
@@ -359,7 +359,7 @@ export interface AIToolCallsGenerateResult {
   usage: AITokenUsage;
   model: string;
   provider: string;
-  cost: number;
+  cost?: number;
 }
 
 /** C1: only tool-enabled config returns this discriminated union (keyed on finishReason). */
@@ -427,6 +427,9 @@ export interface AICostContext {
 
 // ── AI Service ──
 export interface AIService {
+  /** Bind a fresh service to the executing identity without mutating shared configuration. */
+  withContext?(identity: { tenantId?: string; actor?: string }): AIService;
+
   /** Optional runtime feature flags for cross-version integrations. */
   readonly features?: {
     /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */

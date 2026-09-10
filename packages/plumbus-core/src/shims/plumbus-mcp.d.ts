@@ -62,12 +62,13 @@ export interface McpServerConfig {
 }
 
 export declare function createMcpJobCompletionSync(
-  deps: ContextDependencies,
+  deps: ContextDependencies | ((tenantId?: string) => ContextDependencies),
 ): (
   jobId: string,
   result: 'completed' | 'failed',
   payload?: unknown,
   error?: unknown,
+  tenantId?: string | null,
 ) => Promise<void>;
 
 export interface CreateMcpServerOptions {

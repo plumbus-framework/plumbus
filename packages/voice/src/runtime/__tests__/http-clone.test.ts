@@ -1,3 +1,4 @@
+import { mockAI } from '@plumbus/core/testing';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { createProviderRegistry, registerVoiceCloneRoutes } from '../../index.js';
@@ -391,4 +392,74 @@ describe('registerVoiceCloneRoutes', () => {
     expect(res.statusCode).toBe(404);
     await app.close();
   });
+});
+
+it.each([
+  true,
+  false,
+])('attributes reference synthesis when a ledger is configured=%s', async (withLedger) => {
+  const app = Fastify();
+  app.decorateRequest('file', async () => ({
+    filename: 'sample.wav',
+    mimetype: 'audio/wav',
+    fields: { text: { value: 'Hello' }, model: { value: 'local-model' } },
+    file: (async function* () {
+      yield Buffer.from('audio');
+    })(),
+  }));
+  const recordProviderCost = vi.fn(async () => {});
+  const registry = createProviderRegistry({
+    includeBuiltins: false,
+    tts: { 'fake-clone': buildRegistration({} as VoiceCloneProvider) },
+  });
+  registerVoiceCloneRoutes(
+    app,
+    {
+      db: {} as never,
+      authAdapter: {
+        authenticate: async () => ({
+          userId: 'user',
+          tenantId: 'tenant',
+          roles: [],
+          scopes: [],
+          provider: 'test',
+        }),
+      },
+      createDependencies: (auth) => ({
+        auth,
+        data: {},
+        ...(withLedger ? { ai: { ...mockAI(), recordProviderCost } } : {}),
+      }),
+    },
+    {
+      providers: { providers: {} },
+      registry,
+      access: { public: true },
+      referenceAccess: { public: true },
+      resolveCloneOwner: async () => 'user',
+      afterCloneCreate: async () => {},
+      listOwnedClones: async () => [],
+    },
+  );
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/voice/providers/fake-clone/synthesize-reference',
+      headers: { authorization: 'Bearer token' },
+    });
+    expect(response.statusCode).toBe(200);
+    if (withLedger)
+      expect(recordProviderCost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'synthesize',
+          model: 'local-model',
+          mediaUsage: { characters: 5 },
+          cost: null,
+        }),
+        expect.objectContaining({ operationName: 'synthesize-reference' }),
+      );
+    else expect(recordProviderCost).not.toHaveBeenCalled();
+  } finally {
+    await app.close();
+  }
 });

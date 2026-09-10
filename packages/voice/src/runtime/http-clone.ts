@@ -1,4 +1,16 @@
-import { evaluateAccess, ErrorCode, PlumbusError, type RouteGeneratorConfig } from '@plumbus/core';
+import {
+  recordVoiceCost,
+  resolveTtsCostModelKey,
+  lookupVoicePricing,
+  calculateVoiceCost,
+} from '../cost/index.js';
+import {
+  createExecutionContext,
+  evaluateAccess,
+  ErrorCode,
+  PlumbusError,
+  type RouteGeneratorConfig,
+} from '@plumbus/core';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   assertCloneSampleWithinLimit,
@@ -261,8 +273,26 @@ export function registerVoiceCloneRoutes(
           throw error;
         }
       }
+      const dependencies = routeConfig.createDependencies(authResult.auth);
+      const costCtx = dependencies.ai ? createExecutionContext(dependencies) : undefined;
+      const costModel =
+        resolveTtsCostModelKey(
+          { provider: providerId, model },
+          registration?.descriptor.knownModels,
+        ) ??
+        model ??
+        providerId;
+      const mediaUsage = { characters: text.length };
+      if (costCtx)
+        costCtx.ai.checkProviderCostBudget({
+          estimatedCostUsd: lookupVoicePricing(costModel)
+            ? calculateVoiceCost(costModel, mediaUsage)
+            : undefined,
+        });
+      const started = performance.now();
+      let audio: Uint8Array;
       try {
-        const audio = await synthesizeWithVoiceReference({
+        audio = await synthesizeWithVoiceReference({
           providerId,
           providers: opts.providers,
           registry,
@@ -274,10 +304,30 @@ export function registerVoiceCloneRoutes(
             ...(model ? { model } : {}),
           },
         });
-        return reply.header('content-type', 'application/octet-stream').send(Buffer.from(audio));
       } catch (error) {
+        if (costCtx)
+          await recordVoiceCost(costCtx, {
+            operation: 'synthesize',
+            provider: providerId,
+            model: costModel,
+            mediaUsage,
+            latencyMs: performance.now() - started,
+            status: 'failed',
+            costContext: { serviceArea: 'voice', operationName: 'synthesize-reference' },
+          });
         return reply.status(mapVendorErrorStatus(error)).send(mapVendorErrorBody(error));
       }
+      if (costCtx)
+        await recordVoiceCost(costCtx, {
+          operation: 'synthesize',
+          provider: providerId,
+          model: costModel,
+          mediaUsage,
+          latencyMs: performance.now() - started,
+          status: 'success',
+          costContext: { serviceArea: 'voice', operationName: 'synthesize-reference' },
+        });
+      return reply.header('content-type', 'application/octet-stream').send(Buffer.from(audio));
     });
   }
 }

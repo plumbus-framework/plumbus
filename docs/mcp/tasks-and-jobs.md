@@ -154,3 +154,5 @@ Task rows live in the `mcp_task` table. `ttlMs` is reserved for future cleanup; 
 - [Overview](./overview.md) — feature matrix
 - [Expose a capability](./expose-a-capability.md) — including `kind: 'job'` examples
 - [Agent authentication](./agent-authentication.md) — task ownership scoping
+
+Task-mode calls validate capability input and access before creating task rows or enqueueing jobs. Workers now supply a dependency factory to `createMcpJobCompletionSync` so each completion binds its repositories to the job's tenant; changing `ctx.auth` alone cannot rebind a repository. Tenantless completions use a worker-only bypass with an exact task-tenant check. Task reads/lists/cancellation require an authenticated owner and an exact tenant match, including the tenantless namespace.

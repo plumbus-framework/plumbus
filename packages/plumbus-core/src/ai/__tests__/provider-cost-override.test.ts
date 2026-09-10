@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { createCostTracker } from '../cost-tracker.js';
 import { createAIService, singleProviderConfig } from '../ai-service.js';
 import type { AIProviderAdapter, ProviderResponse, ProviderStreamEvent } from '../provider.js';
 
@@ -79,4 +81,130 @@ describe('provider-supplied cost', () => {
     // gpt-4o-mini catalog: 0.15/0.6 per MTok → 1000*0.15 + 500*0.6 = 0.00015+0.0003 = 0.00045
     expect(result.cost).toBe(0.00045);
   });
+});
+
+describe('recorded spend and budget enforcement', () => {
+  it.each([
+    'generate',
+    'stream',
+    'extract',
+    'classify',
+  ] as const)('records %s provider cost and blocks the next call at the daily limit', async (operation) => {
+    const tracker = createCostTracker({ dailyCostLimit: 1 });
+    const hook = vi.fn();
+    const provider = mockProvider({
+      async complete() {
+        return {
+          content: operation === 'classify' ? '["ok"]' : '{"ok":true}',
+          model: 'custom-model',
+          usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          cost: 1.23,
+          finishReason: 'stop',
+        };
+      },
+    });
+    const service = createAIService(
+      singleProviderConfig(provider, { costTracker: tracker, onAICostRecorded: hook }),
+    );
+    const run = async () => {
+      if (operation === 'stream') {
+        for await (const event of service.streamGenerate({ prompt: 'x', input: {} })) {
+          expect(event.type).toBeDefined();
+        }
+      } else if (operation === 'extract') {
+        await service.extract({ text: 'x', schema: z.object({ ok: z.boolean() }) });
+      } else if (operation === 'classify') {
+        await service.classify({ text: 'x', labels: ['ok'] });
+      } else {
+        await service.generate({ prompt: 'x', input: {} });
+      }
+    };
+    await run();
+    expect(tracker.getDailyUsage().totalCost).toBe(operation === 'stream' ? 4.56 : 1.23);
+    expect(hook.mock.calls[0]?.[0].cost).toBe(tracker.getDailyUsage().totalCost);
+    await expect(run()).rejects.toThrow('AI budget exceeded');
+    expect(tracker.getRecords()).toHaveLength(1);
+  });
+
+  it('allows free providers with a dollar budget and unpriced local providers without one', async () => {
+    for (const cost of [0, undefined]) {
+      const tracker = createCostTracker(cost === 0 ? { dailyCostLimit: 1 } : undefined);
+      const provider = mockProvider({
+        async complete() {
+          return {
+            content: 'local answer',
+            model: 'local',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            cost,
+            finishReason: 'stop',
+          };
+        },
+      });
+      const service = createAIService(singleProviderConfig(provider, { costTracker: tracker }));
+      await service.generate({ prompt: 'x', input: {} });
+      await service.generate({ prompt: 'x', input: {} });
+      expect(tracker.getRecords()[0]?.cost).toBe(cost ?? null);
+    }
+  });
+
+  it('checks token estimates before contacting the provider', async () => {
+    const complete = vi.fn(mockProvider().complete);
+    const service = createAIService(
+      singleProviderConfig(mockProvider({ complete }), {
+        costTracker: createCostTracker({ maxTokensPerRequest: 10 }),
+      }),
+    );
+    await expect(service.generate({ prompt: 'x'.repeat(1000), input: {} })).rejects.toThrow(
+      'AI budget exceeded',
+    );
+    expect(complete).not.toHaveBeenCalled();
+  });
+});
+
+it('does not treat a stream without usage or pricing as free', async () => {
+  const tracker = createCostTracker({ dailyCostLimit: 1 });
+  const service = createAIService(
+    singleProviderConfig(
+      mockProvider({
+        async *stream() {
+          yield { type: 'content_delta', delta: 'ok' };
+          yield { type: 'done' };
+        },
+      }),
+      { defaultModel: 'gpt-4o-mini', costTracker: tracker },
+    ),
+  );
+  for await (const event of service.streamGenerate({ prompt: 'x', input: {} }))
+    expect(event.type).toBeDefined();
+  expect(tracker.getRecords()[0]?.cost).toBeNull();
+  expect(tracker.checkBudget({}).allowed).toBe(false);
+});
+
+it('uses Sol alias long-context pricing consistently in results and the budget ledger', async () => {
+  const tracker = createCostTracker({ dailyCostLimit: 1 });
+  const service = createAIService(
+    singleProviderConfig(
+      mockProvider({
+        async complete() {
+          return {
+            content: 'answer',
+            model: 'gpt-5.6-sol',
+            finishReason: 'stop',
+            usage: {
+              inputTokens: 300_000,
+              outputTokens: 1000,
+              totalTokens: 301_000,
+              cachedInputTokens: 100_000,
+              cacheWriteTokens: 50_000,
+            },
+          };
+        },
+      }),
+      { defaultModel: 'gpt-5.6', costTracker: tracker },
+    ),
+  );
+  const result = await service.generateWithUsage({ prompt: 'x', input: {} });
+  expect(result.cost).toBe(1.81);
+  expect(tracker.getRecords()[0]?.cost).toBe(1.81);
+  await expect(service.generate({ prompt: 'x', input: {} })).rejects.toThrow('AI budget exceeded');
 });

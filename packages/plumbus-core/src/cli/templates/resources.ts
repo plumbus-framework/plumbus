@@ -1,9 +1,11 @@
+import { assertScaffoldName } from '../scaffold-validation.js';
 // ── Resource Templates ──
 // Code templates for scaffolding new resources
 
 import { toCamelCase, toKebabCase, toPascalCase } from '../utils.js';
 
 export function capabilityTemplate(name: string, kind: string, domain: string): string {
+  assertScaffoldName(name);
   const pascal = toPascalCase(name);
   return `import { defineCapability } from "@plumbus/core";
 import { z } from "@plumbus/core/zod";
@@ -61,6 +63,7 @@ export const ${toCamelCase(name)} = defineCapability({
 }
 
 export function capabilityTestTemplate(name: string, _domain: string): string {
+  assertScaffoldName(name);
   return `import { describe, it, expect } from "vitest";
 // import { ${toCamelCase(name)} } from "../capability.js";
 
@@ -74,6 +77,7 @@ describe("${toPascalCase(name)}", () => {
 }
 
 export function entityTemplate(name: string): string {
+  assertScaffoldName(name);
   const pascal = toPascalCase(name);
   return `import { defineEntity, field } from "@plumbus/core";
 
@@ -94,6 +98,7 @@ export const ${toCamelCase(name)}Entity = defineEntity({
 }
 
 export function flowTemplate(name: string, domain: string): string {
+  assertScaffoldName(name);
   return `import { defineFlow } from "@plumbus/core";
 import { z } from "@plumbus/core/zod";
 
@@ -117,6 +122,7 @@ export const ${toCamelCase(name)}Flow = defineFlow({
 }
 
 export function flowTestTemplate(name: string, _domain: string): string {
+  assertScaffoldName(name);
   return `import { describe, it, expect } from "vitest";
 import { simulateFlow } from "@plumbus/core/testing";
 import { ${toCamelCase(name)}Flow } from "../flow.js";
@@ -145,6 +151,7 @@ describe("${toPascalCase(name)} Flow", () => {
 }
 
 export function eventTemplate(name: string): string {
+  assertScaffoldName(name);
   return `import { defineEvent } from "@plumbus/core";
 import { z } from "@plumbus/core/zod";
 
@@ -159,6 +166,7 @@ export const ${toCamelCase(name)}Event = defineEvent({
 }
 
 export function promptTemplate(name: string): string {
+  assertScaffoldName(name);
   return `import { definePrompt } from "@plumbus/core";
 import { z } from "@plumbus/core/zod";
 
@@ -182,6 +190,7 @@ export const ${toCamelCase(name)}Prompt = definePrompt({
 }
 
 export function translationTemplate(name: string): string {
+  assertScaffoldName(name);
   return `import { defineTranslation } from "@plumbus/core";
 
 export const ${toCamelCase(name)}Translation = defineTranslation({
@@ -206,6 +215,7 @@ export function localeMessagesTemplate(): string {
 }
 
 export function localeFolderTranslationTemplate(name: string): string {
+  assertScaffoldName(name);
   const kebab = toKebabCase(name);
   const camel = toCamelCase(name);
   return `import { defineTranslation } from "@plumbus/core";

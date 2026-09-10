@@ -1,3 +1,6 @@
+import { z } from 'zod';
+import { createErrorService } from '../errors/index.js';
+import { isValidJwtSecret } from './jwt-policy.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { AuthContext } from '../types/security.js';
 
@@ -20,6 +23,8 @@ export interface JwtAdapterConfig {
   issuer?: string;
   /** Expected audience (aud claim) */
   audience?: string;
+  /** Maximum accepted token lifetime in seconds (default: 86400). */
+  maxTokenLifetimeSeconds?: number;
   /**
    * Map JWT claims to AuthContext fields.
    * Defaults: sub→userId, roles→roles, scope→scopes, tenant_id→tenantId
@@ -48,12 +53,20 @@ const defaultClaimMapping: JwtClaimMapping = {
 const MIN_JWT_SECRET_LENGTH = 32;
 
 export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
-  if (config.secret.length < MIN_JWT_SECRET_LENGTH) {
-    throw new Error(
-      `JWT secret must be at least ${MIN_JWT_SECRET_LENGTH} characters for HS256 verification`,
+  if (!isValidJwtSecret(config.secret)) {
+    throw createErrorService().validation(
+      `JWT secret must be at least ${MIN_JWT_SECRET_LENGTH} non-padding characters and must not be a development placeholder`,
     );
   }
 
+  if (
+    !z
+      .number()
+      .finite()
+      .positive()
+      .safeParse(config.maxTokenLifetimeSeconds ?? 86400).success
+  )
+    throw createErrorService().validation('Invalid JWT maximum lifetime');
   const mapping = { ...defaultClaimMapping, ...config.claimMapping };
 
   return {
@@ -81,11 +94,19 @@ export function createJwtAdapter(config: JwtAdapterConfig): AuthAdapter {
         }
       }
 
-      // Check expiration
-      const exp = payload.exp;
-      if (typeof exp === 'number' && exp * 1000 < Date.now()) {
-        return null;
-      }
+      const now = Date.now() / 1000;
+      const times = z
+        .object({
+          exp: z.number().finite(),
+          iat: z.number().finite().optional(),
+          nbf: z.number().finite().optional(),
+        })
+        .safeParse(payload);
+      if (!times.success) return null;
+      const { exp, iat, nbf } = times.data;
+      if (exp <= now || (nbf != null && nbf > now) || (iat != null && iat > now)) return null;
+      if (exp - (iat ?? now) > (config.maxTokenLifetimeSeconds ?? 86400)) return null;
+      if (!z.string().min(1).safeParse(payload[mapping.userId]).success) return null;
 
       // Map claims to AuthContext
       const rawRoles = payload[mapping.roles];
@@ -186,7 +207,9 @@ export interface SignJwtOptions {
   expiresIn?: number;
   /** Issuer */
   issuer?: string;
-  /** Additional claims */
+  /** Expected token audience */
+  audience?: string;
+  /** Additional claims (reserved authentication claims are rejected) */
   claims?: Record<string, unknown>;
 }
 
@@ -195,6 +218,19 @@ export interface SignJwtOptions {
  * Returns the signed token string (header.payload.signature).
  */
 export function signJwt(options: SignJwtOptions): string {
+  const reserved = ['sub', 'iat', 'exp', 'nbf', 'iss', 'aud', 'roles', 'scope', 'tenant_id'];
+  if (reserved.some((claim) => Object.hasOwn(options.claims ?? {}, claim)))
+    throw createErrorService().validation(
+      'JWT additional claims must not override reserved authentication claims',
+    );
+  if (
+    !z
+      .number()
+      .finite()
+      .positive()
+      .safeParse(options.expiresIn ?? 86400).success
+  )
+    throw createErrorService().validation('Invalid JWT expiration');
   const now = Math.floor(Date.now() / 1000);
   const exp = now + (options.expiresIn ?? 86400);
 
@@ -210,6 +246,7 @@ export function signJwt(options: SignJwtOptions): string {
   if (options.scopes?.length) payload.scope = options.scopes.join(' ');
   if (options.tenantId) payload.tenant_id = options.tenantId;
   if (options.issuer) payload.iss = options.issuer;
+  if (options.audience) payload.aud = options.audience;
 
   const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url');
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');

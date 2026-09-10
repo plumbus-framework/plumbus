@@ -3,7 +3,8 @@ export function parseCookieHeader(header: string | undefined): Record<string, st
     return {};
   }
 
-  const cookies: Record<string, string> = {};
+  const cookies: Record<string, string> = Object.create(null);
+  const duplicates = new Set<string>();
 
   for (const part of header.split(';')) {
     const trimmed = part.trim();
@@ -17,7 +18,10 @@ export function parseCookieHeader(header: string | undefined): Record<string, st
       continue;
     }
 
-    if (cookies[name] !== undefined) {
+    if (duplicates.has(name)) continue;
+    if (Object.hasOwn(cookies, name)) {
+      delete cookies[name];
+      duplicates.add(name);
       continue;
     }
 

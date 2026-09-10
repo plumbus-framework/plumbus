@@ -64,18 +64,23 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
         result: 'completed' | 'failed',
         payload?: unknown,
         error?: unknown,
+        tenantId?: string | null,
       ) => Promise<void>)
     | undefined;
   try {
     const mcp = await import('@plumbus/mcp');
-    const audit = createAuditService({ db, auth: systemAuth });
-    const data = entities.createDataService({ db, auth: systemAuth, audit, encryptionKey });
-    onMcpJobComplete = mcp.createMcpJobCompletionSync({
-      auth: systemAuth,
-      data,
-      audit,
-      logger,
-      config: config as unknown as Record<string, unknown>,
+    onMcpJobComplete = mcp.createMcpJobCompletionSync((tenantId) => {
+      const auth = { ...systemAuth, tenantId };
+      const audit = createAuditService({ db, auth });
+      // Tenantless completion is scoped by trusted job ID and an explicit task-tenant check.
+      const data = entities.createDataService({
+        db,
+        auth,
+        audit,
+        encryptionKey,
+        bypassTenantScope: !tenantId,
+      });
+      return { auth, data, audit, logger, config: config as unknown as Record<string, unknown> };
     });
   } catch {
     /* @plumbus/mcp not installed */

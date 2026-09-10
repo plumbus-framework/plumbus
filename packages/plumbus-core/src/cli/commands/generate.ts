@@ -1,3 +1,4 @@
+import { assertPathSegment, resolveGeneratedPath } from '../scaffold-validation.js';
 // ── plumbus generate ──
 // Auto-generate derived artifacts from contracts
 
@@ -654,8 +655,13 @@ export function generateAll(
   generated.push('mcp-manifest.json');
 
   for (const cap of capabilities.filter(isMcpExposed)) {
+    assertPathSegment(cap.domain);
+    assertPathSegment(cap.name);
     const skillDir = path.join(outputDir, 'skills', cap.domain);
-    const skillPath = path.join(skillDir, `${toKebabCase(cap.name)}.md`);
+    const skillPath = resolveGeneratedPath(
+      outputDir,
+      path.relative(outputDir, path.join(skillDir, `${toKebabCase(cap.name)}.md`)),
+    );
     writeFile(skillPath, renderSkillFile(cap));
     generated.push(path.join('skills', cap.domain, `${toKebabCase(cap.name)}.md`));
   }

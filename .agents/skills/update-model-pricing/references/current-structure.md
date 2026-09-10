@@ -7,7 +7,7 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 | Symbol | Kind | Description |
 |--------|------|-------------|
 | `Kind` | type | `'text' \| 'embedding' \| 'moderation' \| 'image' \| 'audio'` |
-| `ModelRate` | interface | `{ inputPerMTok: number; outputPerMTok: number; kind?: Kind }` — USD per 1M tokens |
+| `ModelRate` | interface | `{ inputPerMTok; outputPerMTok; cachedInputPerMTok?; longContextThreshold?; kind? }` — USD per 1M tokens |
 | `findModelRate()` | function | Looks up a model's rate, with date-suffix fallback |
 | `allKnownModels()` | function | All `[id, rate]` pairs, for `listModels()` joins |
 | `calculateModelCost()` | function | Computes USD cost for a single AI request |
@@ -31,7 +31,7 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 
 Add new entries under the matching section comment. Use the model's API identifier as the key (e.g. `'gpt-5.4'`, `'claude-opus-4-6'`). Every entry populates `kind`.
 
-**Only standard-tier rates are recorded.** For models the page prices by context length, use the *short* (base) context columns — the long-context columns are a separate rate the cost calculator does not model for OpenAI.
+**Only standard-tier rates are recorded.** For models the page prices by context length, use the *short* (base) context columns — the long-context columns are a separate rate the cost calculator models for GPT-5.6 Sol via its explicit 272,000-token threshold. Other OpenAI models still use base rates.
 
 ### `LONG_CONTEXT_PREMIUM_MODELS`
 
@@ -52,11 +52,11 @@ Checks `LONG_CONTEXT_PREMIUM_MODELS` with the same date-stripping logic.
 ### `calculateModelCost(inputTokens, outputTokens, model, options?)`
 
 Applies:
-- **Cached input**: 0.1× base input rate
+- **Cached input**: published `cachedInputPerMTok`, defaulting to 0.1× input
 - **Cache writes**: 1.25× base input rate (Anthropic 5-min cache)
 - **Long context premium**: 2× input / 1.5× output for eligible models over 200K input
 
-Returns `0` for unknown models.
+Returns `undefined` for unknown models; explicitly free rates remain zero.
 
 ## Test File
 
@@ -75,6 +75,10 @@ Both pages are markdown tables. The script walks each linearly, tracking the sec
 
 **OpenAI** — bare section labels (`Flagship models`, `Specialized models`, `Tools`, …) and bare tier labels (`Standard`, `Batch`, `Flex`, `Fast mode`) precede `### … data` headings, each followed by a table. Only the standard tier is read. Kinds come from the section label, or from the row's `Category` cell in the Specialized table — never from model-name patterns. Flagship tables split pricing into `Short context input`/`Short context output` and `Long context …` columns; the short-context pair is what feeds the catalog.
 
-**Anthropic** — one 6-column table (`Model | Base Input | 5m Cache Write | 1h Cache Write | Cache Hits | Output`). Narrower Batch and Fast-mode tables further down must not be picked up. Model names carry qualifiers the script strips: `(limited availability)`, `(retired, except on …)`, `through August 31, 2026`. A row whose qualifier reads `starting <Month> <day>` is a scheduled future price — it is reported on stderr and excluded, so today's rate is what lands in the catalog.
+**Anthropic** — one 6-column table (`Model | Base Input | 5m Cache Write | 1h Cache Write | Cache Hits | Output`). Narrower Batch and Fast-mode tables further down must not be picked up. Model names carry qualifiers the script strips: `(limited availability)`, `(retired, except on …)`, `through August 31, 2026`. Dated `starting` rows activate on their effective date; `through`/`until` rows expire after that UTC day. Future rows are reported and skipped; active dated replacements take precedence regardless of row order.
 
 If a run reports `OpenAI models found: 0` (or an implausibly low Anthropic count), the page layout changed and the parser needs updating — **do not** treat the resulting empty diff as "pricing is current."
+
+## Fixed rates and aliases
+
+`gpt-5.6` resolves to the canonical Sol entry, including dated suffixes. Keep the numeric rates and long-context threshold synchronized in `CURRENT_PRICING`. The runtime uses fixed bundled prices; changes require an explicit manual update. There is no automatic refresh or promotion-specific lifecycle handling.

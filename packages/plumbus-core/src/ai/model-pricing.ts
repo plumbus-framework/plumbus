@@ -1,16 +1,17 @@
+import { validateTokenUsage } from './usage-validation.js';
+
 // ── Model Pricing Table ──
 // Published per-token rates for OpenAI and Anthropic models.
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-08-06
+// Last updated: 2026-09-10
 //
-// Unknown models (Ollama, custom endpoints) return cost $0.
+// Unknown models (Ollama, custom endpoints) have no catalog cost.
 //
 // Only standard-tier rates are tracked (not batch, flex, or fast mode), and for
 // models with split short/long context pricing the short-context (base) rate is
-// the one recorded. `claude-sonnet-5` carries introductory pricing through
-// 2026-08-31; it rises to $3/$15 per MTok on 2026-09-01.
+// recorded, with an explicit long-context threshold for GPT-5.6 Sol. Sonnet 5 remains $2/$10 (the scheduled increase was cancelled).
 //
 // `kind` is derived from the pricing page's section structure, not from name
 // patterns — see `.agents/skills/update-model-pricing/scripts/fetch-pricing.ts`.
@@ -32,6 +33,10 @@ export interface ModelRate {
   inputPerMTok: number;
   /** USD per 1M output tokens (0 for embedding / moderation / free models) */
   outputPerMTok: number;
+  /** Published cache-read USD per MTok; defaults to 0.1× input when omitted. */
+  cachedInputPerMTok?: number;
+  /** Above this inclusive input-token boundary, charge 2× input/cache and 1.5× output. */
+  longContextThreshold?: number;
   /**
    * Capability classification. Optional on the type for backward compat —
    * existing consumers that destructure only the rate fields keep working —
@@ -42,7 +47,13 @@ export interface ModelRate {
 
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
-  'gpt-5.6-sol': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
+  'gpt-6-astra': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'gpt-5.6-sol': {
+    kind: 'text',
+    inputPerMTok: 4,
+    outputPerMTok: 20,
+    longContextThreshold: 272_000,
+  },
   'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
   'gpt-5.6-luna': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.2 },
   'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
@@ -58,20 +69,30 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'gpt-5-mini': { kind: 'text', inputPerMTok: 0.25, outputPerMTok: 2 },
   'gpt-5-nano': { kind: 'text', inputPerMTok: 0.05, outputPerMTok: 0.4 },
   'gpt-5-pro': { kind: 'text', inputPerMTok: 15, outputPerMTok: 120 },
-  'gpt-4.1': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
-  'gpt-4.1-mini': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 1.6 },
-  'gpt-4.1-nano': { kind: 'text', inputPerMTok: 0.1, outputPerMTok: 0.4 },
-  'gpt-4o': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 10 },
+  'gpt-4.1': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8, cachedInputPerMTok: 0.5 },
+  'gpt-4.1-mini': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 1.6, cachedInputPerMTok: 0.1 },
+  'gpt-4.1-nano': {
+    kind: 'text',
+    inputPerMTok: 0.1,
+    outputPerMTok: 0.4,
+    cachedInputPerMTok: 0.025,
+  },
+  'gpt-4o': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 10, cachedInputPerMTok: 1.25 },
   'gpt-4o-2024-05-13': { kind: 'text', inputPerMTok: 5, outputPerMTok: 15 },
-  'gpt-4o-mini': { kind: 'text', inputPerMTok: 0.15, outputPerMTok: 0.6 },
+  'gpt-4o-mini': {
+    kind: 'text',
+    inputPerMTok: 0.15,
+    outputPerMTok: 0.6,
+    cachedInputPerMTok: 0.075,
+  },
   // ── OpenAI: Reasoning ──
-  o1: { kind: 'text', inputPerMTok: 15, outputPerMTok: 60 },
+  o1: { kind: 'text', inputPerMTok: 15, outputPerMTok: 60, cachedInputPerMTok: 7.5 },
   'o1-pro': { kind: 'text', inputPerMTok: 150, outputPerMTok: 600 },
   'o1-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4 },
-  o3: { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
+  o3: { kind: 'text', inputPerMTok: 2, outputPerMTok: 8, cachedInputPerMTok: 0.5 },
   'o3-pro': { kind: 'text', inputPerMTok: 20, outputPerMTok: 80 },
-  'o3-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4 },
-  'o4-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4 },
+  'o3-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4, cachedInputPerMTok: 0.55 },
+  'o4-mini': { kind: 'text', inputPerMTok: 1.1, outputPerMTok: 4.4, cachedInputPerMTok: 0.275 },
   // ── OpenAI: Specialized / Deep research / Computer use ──
   'o3-deep-research': { kind: 'text', inputPerMTok: 10, outputPerMTok: 40 },
   'o4-mini-deep-research': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
@@ -81,6 +102,7 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'gpt-5.3-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.2-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+  'gpt-5.6-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
   'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
   'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
   // ── OpenAI: Embeddings ──
@@ -111,7 +133,19 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'babbage-002': { kind: 'text', inputPerMTok: 0.4, outputPerMTok: 0.4 },
 
   // ── Anthropic: Claude (all text — no embedding API) ──
+  'claude-fable-5-1': {
+    kind: 'text',
+    inputPerMTok: 10,
+    outputPerMTok: 50,
+    cachedInputPerMTok: 0.25,
+  },
   'claude-fable-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'claude-mythos-5-1': {
+    kind: 'text',
+    inputPerMTok: 10,
+    outputPerMTok: 50,
+    cachedInputPerMTok: 0.25,
+  },
   'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
   'claude-opus-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
@@ -139,14 +173,15 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
  * Returns null for unknown/unsupported models (Ollama, custom).
  */
 export function findModelRate(model: string): ModelRate | null {
-  const exact = MODEL_PRICING[model];
-  if (exact) return exact;
+  const canonical = model === 'gpt-5.6' ? 'gpt-5.6-sol' : model;
+  if (Object.hasOwn(MODEL_PRICING, canonical)) return MODEL_PRICING[canonical] ?? null;
 
   // Strip trailing date suffix (e.g. "-20250514")
   const withoutDate = model.replace(/-\d{8}$/, '');
   if (withoutDate !== model) {
-    const stripped = MODEL_PRICING[withoutDate];
-    if (stripped) return stripped;
+    const canonicalWithoutDate = withoutDate === 'gpt-5.6' ? 'gpt-5.6-sol' : withoutDate;
+    if (Object.hasOwn(MODEL_PRICING, canonicalWithoutDate))
+      return MODEL_PRICING[canonicalWithoutDate] ?? null;
   }
 
   return null;
@@ -175,12 +210,12 @@ function hasLongContextPremium(model: string): boolean {
  * Calculate the USD cost for a single AI request based on published per-token rates.
  *
  * Pricing adjustments applied:
- * - **Cached input tokens**: charged at 0.1× the base input rate (both providers).
+ * - **Cached input tokens**: published per-model rate, defaulting to 0.1× input.
  * - **Cache write tokens**: charged at 1.25× the base input rate (Anthropic 5-min cache).
  * - **Long context premium**: for Claude Sonnet 4 / 4.5, when total input exceeds
- *   200K tokens the entire request is charged at 2× input / 1.5× output.
+ *   200K tokens, or GPT-5.6 Sol over 272K, charge 2× input/cache and 1.5× output.
  *
- * Returns 0 for unknown/unsupported models (Ollama, custom endpoints).
+ * Returns undefined for unknown/unsupported models; explicitly free adapters may report zero.
  */
 export function calculateModelCost(
   inputTokens: number,
@@ -190,20 +225,30 @@ export function calculateModelCost(
     cachedInputTokens?: number;
     cacheWriteTokens?: number;
   },
-): number {
+): number | undefined {
+  validateTokenUsage({
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    ...options,
+  });
   const rate = findModelRate(model);
-  if (!rate) return 0;
+  if (!rate) return undefined;
 
   const cached = options?.cachedInputTokens ?? 0;
   const cacheWrites = options?.cacheWriteTokens ?? 0;
 
   let inputRate = rate.inputPerMTok;
   let outputRate = rate.outputPerMTok;
+  let cachedInputRate = rate.cachedInputPerMTok ?? rate.inputPerMTok * 0.1;
 
-  // Long context premium: Sonnet 4/4.5 with >200K total input tokens
-  const totalInput = inputTokens + cached + cacheWrites;
-  if (hasLongContextPremium(model) && totalInput > 200_000) {
+  // Model-specific long context premium; input includes cache reads and writes.
+  const totalInput = inputTokens; // Normalized input already includes cache reads and writes.
+  const longContextThreshold =
+    rate.longContextThreshold ?? (hasLongContextPremium(model) ? 200_000 : undefined);
+  if (longContextThreshold != null && totalInput > longContextThreshold) {
     inputRate *= 2;
+    cachedInputRate *= 2;
     outputRate *= 1.5;
   }
 
@@ -211,15 +256,15 @@ export function calculateModelCost(
   const standardInput = inputTokens - cached - cacheWrites;
   const standardInputCost = Math.max(0, standardInput) * inputRate;
 
-  // Cached reads: 0.1× base input rate
-  const cachedCost = cached * inputRate * 0.1;
+  // Use the published cache-read rate where it differs from the default.
+  const cachedCost = cached * cachedInputRate;
 
-  // Cache writes: 1.25× base input rate (Anthropic); OpenAI doesn't report these
+  // Cache writes: 1.25× base input rate (five-minute cache pricing).
   const cacheWriteCost = cacheWrites * inputRate * 1.25;
 
   // Output tokens at standard (or long-context-premium) rate
   const outputCost = outputTokens * outputRate;
 
   const cost = (standardInputCost + cachedCost + cacheWriteCost + outputCost) / 1_000_000;
-  return Number(cost.toFixed(6));
+  return Number(cost.toPrecision(15));
 }

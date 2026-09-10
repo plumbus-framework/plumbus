@@ -673,7 +673,7 @@ Every AI call is metered. Cost resolution:
 
 1. If the adapter returns `cost` on the provider / stream response (**Bedrock** via `@plumbus/ai-bedrock`), that USD value wins.
 2. Otherwise `calculateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
-3. Unknown models (e.g. local Ollama) → `$0`.
+3. Unknown models (e.g. local Ollama) → no catalog price (`undefined` in results, `null` in ledger rows); explicitly free providers may report `cost: 0`.
 
 Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusaibedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
 
@@ -689,13 +689,15 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `calculateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. For models the provider prices by context length, the short-context (base) rate is used. Rates were last synced on 2026-08-06; run the `update-model-pricing` skill to refresh them.
+For OpenAI/Anthropic, cost comes from `calculateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
+
+The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol is $4/$20 per million input/output tokens. Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) are charged at **0.1x** the base input rate
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
 - **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate
 - Standard (non-cached) input tokens are charged at the full base rate
 
@@ -710,9 +712,13 @@ For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when tota
 - Input rate: **2x** standard
 - Output rate: **1.5x** standard
 
-The framework detects this automatically based on the model name and total input token count.
+The framework detects this automatically based on the model name and total input token count. Normalized input already includes cache reads/writes, which are counted once when checking the long-context threshold.
 
 ### Budget Enforcement
+
+Successful generation (including streaming and validation fallback), extraction, and classification record adapter-supplied USD cost, falling back to catalog estimates for known models. Both stream and fallback usage/cost are included in the final streaming result and ledger row. Explicit zero cost is valid for free/local providers. Unpriced providers record `null` and remain usable without dollar caps; an adapter for a known-free provider can report `cost: 0` to participate in a shared dollar budget.
+
+When a dollar cap is configured, any prior unpriced row in its scope prevents further requests, including when other rows have known costs. A fresh budget starts at zero; a zero-dollar cap blocks calls. Token pre-checks estimate input from UTF-8 request bytes divided by four plus the requested output cap, including validation retries. These are estimates, not tokenizer-exact bounds. In-memory budgets are process-local pre-checks, not atomic spend reservations across concurrent workers; persist and coordinate a ledger for a deployment-wide hard cap.
 
 ```typescript
 import { createCostTracker } from "@plumbus/core";
@@ -917,6 +923,8 @@ Documents are split into overlapping **character**-sized chunks:
 
 ### Retrieval
 
+`createExecutionContext` binds framework AI services to the executing `auth.tenantId` and `auth.userId` for retrieval, budgets, and ledger attribution, using a fresh service rather than mutating shared state. Custom AI service wrappers must preserve `withContext` if they wrap a framework service. Caller-supplied metadata filters cannot override the tenant namespace. The shipped vector store and pipeline both enforce exact tenant matching; a missing tenant retrieves only documents ingested without a tenant, never all tenants. Tag tenant-owned documents at ingest (`tenantId` or CLI `--tenant-id`). No production pgvector search adapter is shipped; custom stores must apply the same predicate before ranking/limiting results, and the pipeline rechecks returned chunks.
+
 ```typescript
 const results = await ctx.ai.retrieve({
   query: "How to configure authentication?",
@@ -952,6 +960,8 @@ Each AI invocation records:
 - Timestamp and caller identity
 
 ## Security Controls
+
+`generate`, `streamGenerate`, `extract`, and `classify` apply the same configured prompt-security policy before provider calls. Extract/classify expose their source as the `text` input field; classify labels remain application-owned vocabulary. Explainability stores the redacted input, not the original. Redaction is based on registered field classifications, including nested fields, not automatic detection of PII inside arbitrary free text: classify a `text` field for blanket protection or sanitize free text through an application capability before calling AI.
 
 | Control | Description |
 |---------|-------------|
@@ -1023,3 +1033,13 @@ const result = await ctx.ai.generate({
 ```
 
 `mockAI` keys responses by operation (`generate`, `extract`, `classify`, `retrieve`), not by prompt name.
+
+Provider accounting rejects negative/nonfinite token usage and invalid budget estimates. Invalid monetary values become unknown cost rather than poisoning totals. `calculateModelCost()` and generation results omit cost for models absent from the pricing catalog; this is distinct from a free adapter's explicit zero. Anthropic stream accounting retains initial input/cache usage through the final output-token event. These checks establish numeric validity, not proof that a custom provider reports honest usage.
+
+Billing/usage API fetches default to a 10-second timeout (`UsageClientConfig.timeoutMs` overrides it), so a stalled billing endpoint does not indefinitely block `syncCosts()`.
+
+A stream that provides neither usage nor price records unknown cost, not zero. RAG `onEmbeddingCost` likewise leaves `cost` undefined when the embedding adapter has no price; callbacks should preserve that distinction when recording a ledger row. Positive sub-microdollar catalog charges retain precision so repeated small paid calls do not appear free.
+
+### Fixed pricing catalog
+
+Prices are fixed in the bundled catalog and change only through an explicit manual update. There is no automatic refresh, promotion-window metadata, review reminder, or scheduled price change. GPT-5.6 Sol and its `gpt-5.6` alias retain the configured $4/$20 input/output rates per million tokens, with the existing context-length and cache calculations. Free/local-provider behavior is unchanged.

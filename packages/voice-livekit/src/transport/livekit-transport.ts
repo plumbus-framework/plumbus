@@ -46,6 +46,7 @@ const DEFAULT_AGENT_AUDIO_TRACK_NAME = 'agent-voice';
 const DEFAULT_ROOM_USER = 'voiceUser';
 
 export interface MintLiveKitSessionArgs {
+  tenantId?: string;
   voiceName: string;
   userId?: string;
   sessionId?: string;
@@ -57,6 +58,7 @@ export interface MintLiveKitSessionArgs {
 }
 
 export type LiveKitRoomResolver = (args: {
+  tenantId?: string;
   voiceName: string;
   userId?: string;
   sessionId: string;
@@ -112,6 +114,7 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
     const serializedMetadata = serializeMetadata(args.metadata);
     const metadata = await this.createSessionMetadata(args.voiceName, args.userId, {
       room: args.roomName,
+      tenantId: args.tenantId,
       identity: args.identity,
       ttlSeconds: args.tokenTtlSeconds,
       metadata: serializedMetadata,
@@ -243,6 +246,7 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
       identity?: string;
       token?: string;
       ttlSeconds?: number;
+      tenantId?: string;
       participantName?: string;
       metadata?: string;
       attributes?: Record<string, string>;
@@ -257,7 +261,9 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
     const apiSecret = requireString(this.credentials.apiSecret, 'LiveKit apiSecret');
     const sessionId =
       overrides.sessionId ?? `livekit:${voiceName}:${userId ?? 'anonymous'}:${randomUUID()}`;
-    const room = overrides.room ?? resolveRoomName(this.voiceSlice, voiceName, userId, sessionId);
+    const room =
+      overrides.room ??
+      resolveRoomName(this.voiceSlice, voiceName, userId, sessionId, overrides.tenantId);
     const identity = overrides.identity ?? resolveIdentity(voiceName, userId);
     const audioFormat = normalizeAudioFormat(this.voiceSlice.audioFormat);
     const audioTrackName =
@@ -368,12 +374,14 @@ function resolveRoomName(
   voiceName: string,
   userId: string | undefined,
   sessionId: string,
+  tenantId?: string,
 ): string {
   const resolver = voiceSlice.options?.roomResolver;
   if (typeof resolver === 'function') {
     return (resolver as LiveKitRoomResolver)({
       voiceName,
       userId: userId ?? DEFAULT_ROOM_USER,
+      tenantId,
       sessionId,
     });
   }
@@ -382,7 +390,9 @@ function resolveRoomName(
   if (typeof configuredRoom === 'string' && configuredRoom.length > 0) {
     return configuredRoom;
   }
-  return `${voiceName}-${userId ?? DEFAULT_ROOM_USER}`;
+  return tenantId
+    ? `${encodeURIComponent(tenantId)}:${encodeURIComponent(voiceName)}:${encodeURIComponent(userId ?? DEFAULT_ROOM_USER)}`
+    : `${voiceName}-${userId ?? DEFAULT_ROOM_USER}`;
 }
 
 function resolveIdentity(voiceName: string, userId?: string): string {

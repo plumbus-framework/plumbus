@@ -26,7 +26,7 @@ describe('parseCookieHeader', () => {
     expect(parseCookieHeader('token=%ZZ')).toEqual({ token: '%ZZ' });
   });
 
-  it('uses first occurrence when duplicate names appear', () => {
-    expect(parseCookieHeader('a=first; a=second')).toEqual({ a: 'first' });
+  it('discards ambiguous duplicate cookie names', () => {
+    expect(parseCookieHeader('a=first; a=second; a=third; b=safe')).toEqual({ b: 'safe' });
   });
 });

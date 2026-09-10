@@ -1,3 +1,4 @@
+import { createErrorService } from '@plumbus/core';
 import { isApiExposed, type CapabilityContract } from '@plumbus/core';
 import { apiVersionFromManifest } from '../manifest/api-version.js';
 import { resolveExposure } from '../manifest/resolve.js';
@@ -77,6 +78,10 @@ function securitySchemeToOpenApi(scheme: SecurityScheme): Record<string, unknown
         ...(scheme.bearerFormat ? { bearerFormat: scheme.bearerFormat } : {}),
       };
     case 'apiKey':
+      if (scheme.in === 'query')
+        throw createErrorService().validation(
+          'Query-string API keys are not supported by the partner API runtime',
+        );
       return {
         type: 'apiKey',
         in: scheme.in,

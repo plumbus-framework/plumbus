@@ -568,3 +568,7 @@ If you need to read or change the chat package, here's where things live:
 | Pure UI helpers | [`packages/chat-ui/src/hooks/useChat-helpers.ts`](../../packages/chat-ui/src/hooks/useChat-helpers.ts) |
 | SSE parser | [`packages/chat-ui/src/client/event-stream.ts`](../../packages/chat-ui/src/client/event-stream.ts) |
 | `<ChatPanel>` + sub-components | [`packages/chat-ui/src/components/`](../../packages/chat-ui/src/components/) |
+
+## Retrieved context and tool-result trust
+
+Built-in chat prompts put application instructions in the provider system role. Retrieved context, conversation summaries, and staged tool observations are encoded as JSON `untrusted_context` / `untrusted_tool_result` envelopes with an explicit instruction to treat their contents as data. Context items are capped at 32,000 characters before encoding. Core prompt substitution uses a single pass, so placeholders and replacement metacharacters in supplied values remain literal. These boundaries reduce indirect prompt injection; capability authorization and action confirmation remain the enforcement points, since model compliance alone is not a security boundary.

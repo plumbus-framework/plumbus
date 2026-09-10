@@ -261,3 +261,54 @@ describe('signJwt', () => {
     expect(auth?.tenantId).toBe('tenant-1');
   });
 });
+
+describe('JWT security boundaries', () => {
+  it.each([
+    undefined,
+    null,
+    'never',
+    NaN,
+    Infinity,
+    0,
+  ])('rejects missing or invalid expiry %s', async (exp) => {
+    const adapter = createJwtAdapter({ secret: TEST_SECRET });
+    expect(
+      await adapter.authenticate(`Bearer ${signedJwt(TEST_SECRET, { sub: 'user', exp })}`),
+    ).toBeNull();
+  });
+  it('rejects premature and overlong tokens', async () => {
+    const adapter = createJwtAdapter({ secret: TEST_SECRET });
+    const now = Math.floor(Date.now() / 1000);
+    for (const claims of [
+      { exp: now + 60, nbf: now + 30 },
+      { exp: now + 60, iat: now + 30 },
+      { exp: now + 90000 },
+    ]) {
+      expect(
+        await adapter.authenticate(`Bearer ${signedJwt(TEST_SECRET, { sub: 'user', ...claims })}`),
+      ).toBeNull();
+    }
+  });
+  it.each([
+    'exp',
+    'iat',
+    'sub',
+    'roles',
+    'scope',
+    'tenant_id',
+    'iss',
+    'aud',
+  ])('rejects reserved additional claim %s', (key) => {
+    expect(() =>
+      signJwt({ secret: TEST_SECRET, sub: 'user', claims: { [key]: 'injected' } }),
+    ).toThrow('reserved authentication claims');
+  });
+  it.each([
+    'development-secret-placeholder-32chars-min',
+    'development-secret',
+    ' '.repeat(40),
+    'short'.padEnd(40),
+  ])('rejects insecure keys in every environment: %s', (secret) => {
+    expect(() => createJwtAdapter({ secret })).toThrow('JWT secret');
+  });
+});

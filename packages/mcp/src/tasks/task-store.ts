@@ -18,6 +18,7 @@ function mcpTaskRepo(ctx: ExecutionContext): McpTaskRepository {
 export type McpTaskStatus = 'working' | 'input_required' | 'completed' | 'failed' | 'cancelled';
 
 export interface McpTaskRow {
+  tenantId?: string | null;
   id: string;
   userId: string;
   capabilityName: string;
@@ -47,6 +48,7 @@ export async function createTask(
   const now = new Date();
   const row = (await mcpTaskRepo(ctx).create({
     ...input,
+    tenantId: ctx.auth.tenantId,
     status: 'working' as const,
     createdAt: now,
     updatedAt: now,

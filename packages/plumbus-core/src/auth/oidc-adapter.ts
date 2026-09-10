@@ -57,13 +57,15 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
   const fetchFn = config.fetchFn ?? globalThis.fetch;
 
   let jwksCache: JwksCache | null = null;
+  let lastRefreshAt = -Infinity;
+  let refreshPromise: Promise<JsonWebKey[]> | undefined;
   let discoveredJwksUri: string | null = config.jwksUri ?? null;
 
   async function discoverJwksUri(): Promise<string> {
     if (discoveredJwksUri) return discoveredJwksUri;
 
     const discoveryUrl = `${config.issuer.replace(/\/$/, '')}/.well-known/openid-configuration`;
-    const response = await fetchFn(discoveryUrl);
+    const response = await fetchFn(discoveryUrl, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) {
       throw new Error(`OIDC discovery failed: ${response.status}`);
     }
@@ -75,21 +77,26 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
     return discoveredJwksUri;
   }
 
-  async function fetchJwks(): Promise<JsonWebKey[]> {
-    if (jwksCache && jwksCache.expiresAt > Date.now()) {
-      return jwksCache.keys;
+  async function fetchJwks(force = false): Promise<JsonWebKey[]> {
+    if (!force && jwksCache && jwksCache.expiresAt > Date.now()) return jwksCache.keys;
+    if (refreshPromise) return refreshPromise;
+    // One bounded cooldown covers all unknown kids, including random-kid floods.
+    if (Date.now() - lastRefreshAt < 30_000) return jwksCache?.keys ?? [];
+    lastRefreshAt = Date.now();
+    refreshPromise = (async () => {
+      const jwksUri = await discoverJwksUri();
+      const response = await fetchFn(jwksUri, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) throw new Error(`JWKS fetch failed: ${response.status}`);
+      const jwks = (await response.json()) as { keys?: JsonWebKey[] };
+      const keys = jwks.keys ?? [];
+      jwksCache = { keys, expiresAt: Date.now() + cacheTtl };
+      return keys;
+    })();
+    try {
+      return await refreshPromise;
+    } finally {
+      refreshPromise = undefined;
     }
-
-    const jwksUri = await discoverJwksUri();
-    const response = await fetchFn(jwksUri);
-    if (!response.ok) {
-      throw new Error(`JWKS fetch failed: ${response.status}`);
-    }
-    const jwks = (await response.json()) as { keys?: JsonWebKey[] };
-    const keys = jwks.keys ?? [];
-
-    jwksCache = { keys, expiresAt: Date.now() + cacheTtl };
-    return keys;
   }
 
   function findKey(kid: string | undefined, keys: JsonWebKey[]): JsonWebKey | undefined {
@@ -138,9 +145,8 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
       const jwk = findKey(header.kid, keys);
       if (!jwk) {
         // Key not found — try refreshing cache in case of rotation
-        jwksCache = null;
         try {
-          keys = await fetchJwks();
+          keys = await fetchJwks(true);
         } catch {
           return null;
         }
@@ -182,6 +188,13 @@ function verifyAndMap(
   config: OidcAdapterConfig,
   mapping: JwtClaimMapping,
 ): AuthContext | null {
+  if (
+    (jwk.alg && jwk.alg !== alg) ||
+    (alg === 'RS256' && jwk.kty !== 'RSA') ||
+    (alg === 'ES256' && (jwk.kty !== 'EC' || jwk.crv !== 'P-256'))
+  )
+    return null;
+
   // Verify signature
   try {
     const publicKey = createPublicKey({ key: jwk as JsonWebKeyInput, format: 'jwk' });

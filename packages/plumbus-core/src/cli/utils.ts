@@ -1,6 +1,7 @@
 // ── CLI Utilities ──
 // Shared helpers for CLI commands
 
+import { assertNoSymlinkPath } from './scaffold-validation.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -21,12 +22,24 @@ export function readJson<T = unknown>(filePath: string): T {
 }
 
 /** Write content to a file, creating directories if needed */
-export function writeFile(filePath: string, content: string): void {
+export function writeFile(filePath: string, content: string, exclusive = false): void {
+  assertNoSymlinkPath(filePath);
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(filePath, content, 'utf-8');
+  const descriptor = fs.openSync(
+    filePath,
+    fs.constants.O_WRONLY |
+      fs.constants.O_CREAT |
+      fs.constants.O_NOFOLLOW |
+      (exclusive ? fs.constants.O_EXCL : fs.constants.O_TRUNC),
+  );
+  try {
+    fs.writeFileSync(descriptor, content, 'utf-8');
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 /** Convert a string to kebab-case */

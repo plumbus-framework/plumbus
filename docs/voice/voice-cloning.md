@@ -130,3 +130,5 @@ Create returns immediately (**no** blocking wait). Clients poll get/wait.
 ## Out of scope
 
 Manuscript chaptering/stitching, MiniMax/ElevenLabs/OpenAI clone-create, browser-held vendor keys, and reworking `runVoiceTurn` / LiveKit for audiobook jobs.
+
+Reference synthesis participates in the execution context's AI budget and cost ledger when an AI service is wired. Each attempt records provider/model, character usage, status, and the authenticated actor/tenant under `operationName: synthesize-reference`. Unknown pricing remains unknown; a voice-only/local deployment without an AI ledger can still synthesize. Ownership and `referenceAccess` policies remain mandatory independently of billing.

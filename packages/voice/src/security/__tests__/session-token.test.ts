@@ -54,3 +54,14 @@ describe('voice session token', () => {
     await expect(verifyVoiceSessionToken({ token, secret: SECRET })).resolves.toBeNull();
   });
 });
+
+it('rejects overlong handshake token lifetimes', () => {
+  expect(() =>
+    mintVoiceSessionToken({
+      secret: 'voice-secret-for-tests-at-least-32-characters',
+      auth: { userId: 'u', roles: [], scopes: [], provider: 'test' },
+      claims: { voiceName: 'v', sessionId: 's', transport: 'websocket' },
+      expiresInSeconds: 301,
+    }),
+  ).toThrow('between 1 and 300 seconds');
+});
