@@ -2,6 +2,12 @@
 
 ## 0.1.5 — 2026-09-10
 
+### Fixed
+
+- Room-session shutdown is idempotent: concurrent or repeated `stop()` calls share one cleanup and one cost-recording attempt. Resources are released before awaiting accounting, including when accounting rejects or stalls.
+- Failed room connection, track publication, or initial hello releases acquired resources while preserving the startup error. Native transport cleanup attempts every resource even when another close fails.
+- The simulated worker integration now runs without credentials in the default suite; added lifecycle failure and concurrency regression tests. Public APIs and pricing remain unchanged.
+
 ### Agent instructions
 
 - Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v15).

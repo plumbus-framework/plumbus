@@ -45,6 +45,20 @@ const MAX_SESSION_TTL_SECONDS = 7200;
 const DEFAULT_AGENT_AUDIO_TRACK_NAME = 'agent-voice';
 const DEFAULT_ROOM_USER = 'voiceUser';
 
+async function closeConnection(connection: {
+  room: Room;
+  audioSource?: AudioSource;
+  localTrack?: LocalAudioTrack;
+}): Promise<void> {
+  const results = await Promise.allSettled([
+    Promise.resolve().then(() => connection.localTrack?.close()),
+    Promise.resolve().then(() => connection.audioSource?.close()),
+    Promise.resolve().then(() => connection.room.disconnect()),
+  ]);
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
+}
+
 export interface MintLiveKitSessionArgs {
   tenantId?: string;
   voiceName: string;
@@ -95,6 +109,7 @@ export async function mintLiveKitParticipantToken(
 }
 
 export class LiveKitTransportProvider implements LiveKitTransportProviderContract {
+  private disconnectPromise?: Promise<void>;
   private activeConnection?: {
     room: Room;
     audioSource: AudioSource;
@@ -150,12 +165,18 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
     });
 
     const room = new Room();
-    await room.connect(metadata.url, metadata.token);
-
-    const audioSource = createAudioSource(metadata.audioFormat);
-    const localTrack = LocalAudioTrack.createAudioTrack(metadata.audioTrackName, audioSource);
-    const publishOptions = new TrackPublishOptions();
-    await room.localParticipant?.publishTrack(localTrack, publishOptions);
+    let audioSource: AudioSource | undefined;
+    let localTrack: LocalAudioTrack | undefined;
+    try {
+      await room.connect(metadata.url, metadata.token);
+      audioSource = createAudioSource(metadata.audioFormat);
+      localTrack = LocalAudioTrack.createAudioTrack(metadata.audioTrackName, audioSource);
+      const publishOptions = new TrackPublishOptions();
+      await room.localParticipant?.publishTrack(localTrack, publishOptions);
+    } catch (error) {
+      await closeConnection({ room, audioSource, localTrack }).catch(() => {});
+      throw error;
+    }
 
     const activeConnection = {
       room,
@@ -164,6 +185,7 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
       dataTopic: args.dataTopic ?? DEFAULT_DATA_TOPIC,
       onAudio: args.onAudio,
     };
+    this.disconnectPromise = undefined;
     this.activeConnection = activeConnection;
 
     if (args.signal) {
@@ -228,14 +250,14 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
     });
   }
 
-  async disconnect(): Promise<void> {
+  disconnect(): Promise<void> {
+    if (this.disconnectPromise) return this.disconnectPromise;
     const connection = this.activeConnection;
     this.activeConnection = undefined;
 
-    if (!connection) return;
-    await connection.localTrack.close();
-    await connection.audioSource.close();
-    await connection.room.disconnect();
+    if (!connection) return Promise.resolve();
+    this.disconnectPromise = closeConnection(connection);
+    return this.disconnectPromise;
   }
 
   private async createSessionMetadata(
