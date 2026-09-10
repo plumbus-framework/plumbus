@@ -288,6 +288,7 @@ export interface AIStreamEvent {
   provider?: string;
   /** Estimated cost in USD (for done events) */
   cost?: number;
+  costAvailable?: boolean;
   /**
    * Provider-reported termination reason (for done events). Typical values:
    * 'stop' (natural completion), 'length' (hit max_tokens — output was
@@ -345,8 +346,10 @@ export interface AIFinalGenerateResult<T = Record<string, any>> {
   usage: AITokenUsage;
   model: string;
   provider: string;
-  /** Estimated cost in USD based on published per-token rates. 0 for unknown models. */
+  /** USD cost when known; legacy zero when unpriced. Check costAvailable before treating zero as free. */
   cost: number;
+  /** False means cost is unknown; numeric zero is retained for compatibility. */
+  costAvailable?: boolean;
 }
 
 /** C1: tool-call branch — never carries `.data`. */
@@ -360,6 +363,8 @@ export interface AIToolCallsGenerateResult {
   model: string;
   provider: string;
   cost: number;
+  /** False means cost is unknown; numeric zero is retained for compatibility. */
+  costAvailable?: boolean;
 }
 
 /** C1: only tool-enabled config returns this discriminated union (keyed on finishReason). */
@@ -427,6 +432,9 @@ export interface AICostContext {
 
 // ── AI Service ──
 export interface AIService {
+  /** Bind a fresh service to the executing identity without mutating shared configuration. */
+  withContext?(identity: { tenantId?: string; actor?: string }): AIService;
+
   /** Optional runtime feature flags for cross-version integrations. */
   readonly features?: {
     /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */

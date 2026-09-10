@@ -1,7 +1,10 @@
 // ── AI Cost Tracking & Budget Enforcement ──
 // Records per-request token usage and enforces limits.
-// Actual cost data comes from provider usage APIs — no hardcoded rates.
+// Costs are supplied by adapters or estimated from the model pricing catalog.
 
+import { normalizeCost, validateTokenUsage } from './usage-validation.js';
+import { z } from 'zod';
+import { createErrorService } from '../errors/index.js';
 import type { TokenUsage } from './provider.js';
 import type { UsageAPIClient, UsageData } from './usage-client.js';
 import { UsageAPIError } from './usage-client.js';
@@ -41,7 +44,7 @@ export interface AICostRecord {
     connectionMinutes?: number;
     participantMinutes?: number;
   };
-  /** Actual cost from provider API, or null if API unavailable */
+  /** Provider-reported or catalog-estimated USD cost; null when unknown. */
   cost: number | null;
   latencyMs: number;
   tenantId?: string;
@@ -72,8 +75,9 @@ export interface BudgetConfig {
  * optional so pre-0.3.0 call sites keep compiling; the tracker defaults
  * `status` to `'success'` internally.
  */
-export type AICostRecordInput = Omit<AICostRecord, 'id' | 'timestamp' | 'status'> & {
+export type AICostRecordInput = Omit<AICostRecord, 'id' | 'timestamp' | 'status' | 'cost'> & {
   status?: AICostRecord['status'];
+  cost?: number | null;
 };
 
 // ── Cost Tracker ──
@@ -90,7 +94,7 @@ export interface CostTracker {
   }): BudgetCheckResult;
   getDailyUsage(tenantId?: string): DailyUsage;
   getRecords(): AICostRecord[];
-  /** Fetch actual costs from provider usage APIs and update records */
+  /** Fetch provider totals for reconciliation; does not infer per-request prices from aggregates. */
   syncCosts?(): Promise<UsageSyncResult>;
 }
 
@@ -117,6 +121,13 @@ export function createCostTracker(
   budget?: BudgetConfig,
   usageClients?: UsageAPIClient[],
 ): CostTracker {
+  const budgetSchema = z.object({
+    maxTokensPerRequest: z.number().finite().nonnegative().optional(),
+    dailyCostLimit: z.number().finite().nonnegative().optional(),
+    perTenantDailyLimit: z.number().finite().nonnegative().optional(),
+  });
+  if (!budgetSchema.safeParse(budget ?? {}).success)
+    throw createErrorService().validation('Invalid AI budget configuration');
   const records: AICostRecord[] = [];
 
   function getTodayRecords(tenantId?: string): AICostRecord[] {
@@ -131,11 +142,10 @@ export function createCostTracker(
 
   function sumCost(recs: AICostRecord[]): { total: number; available: boolean } {
     let total = 0;
-    let available = false;
+    const available = recs.length > 0 && recs.every((record) => record.cost != null);
     for (const r of recs) {
       if (r.cost != null) {
         total += r.cost;
-        available = true;
       }
     }
     return { total, available };
@@ -145,6 +155,8 @@ export function createCostTracker(
     record(entry) {
       records.push({
         ...entry,
+        cost: normalizeCost(entry.cost),
+        usage: validateTokenUsage(entry.usage),
         status: entry.status ?? 'success',
         id: crypto.randomUUID(),
         timestamp: new Date(),
@@ -152,7 +164,14 @@ export function createCostTracker(
     },
 
     checkBudget(config) {
-      if (budget?.maxTokensPerRequest && config.estimatedTokens) {
+      const estimate = z
+        .object({
+          estimatedTokens: z.number().finite().nonnegative().optional(),
+          estimatedCostUsd: z.number().finite().nonnegative().optional(),
+        })
+        .safeParse(config);
+      if (!estimate.success) return { allowed: false, reason: 'Invalid budget estimate' };
+      if (budget?.maxTokensPerRequest != null && config.estimatedTokens != null) {
         if (config.estimatedTokens > budget.maxTokensPerRequest) {
           return {
             allowed: false,
@@ -161,15 +180,14 @@ export function createCostTracker(
         }
       }
 
-      if (budget?.dailyCostLimit) {
+      if (budget?.dailyCostLimit != null) {
         const daily = getTodayRecords();
-        const { total, available } = sumCost(daily);
+        const { total } = sumCost(daily);
         const projectedTotal = total + (config.estimatedCostUsd ?? 0);
-        if (!available && config.estimatedCostUsd == null) {
+        if (daily.some((record) => record.cost == null)) {
           return {
-            allowed: true,
-            reason:
-              'Cost data unavailable — usage API not configured. Dollar-based budget cannot be enforced.',
+            allowed: false,
+            reason: 'Cost data unavailable for prior requests — daily budget cannot be enforced.',
           };
         }
         if (projectedTotal >= budget.dailyCostLimit) {
@@ -180,15 +198,14 @@ export function createCostTracker(
         }
       }
 
-      if (budget?.perTenantDailyLimit && config.tenantId) {
+      if (budget?.perTenantDailyLimit != null && config.tenantId) {
         const tenantDaily = getTodayRecords(config.tenantId);
-        const { total, available } = sumCost(tenantDaily);
+        const { total } = sumCost(tenantDaily);
         const projectedTotal = total + (config.estimatedCostUsd ?? 0);
-        if (!available && config.estimatedCostUsd == null) {
+        if (tenantDaily.some((record) => record.cost == null)) {
           return {
-            allowed: true,
-            reason:
-              'Cost data unavailable — usage API not configured. Tenant budget cannot be enforced.',
+            allowed: false,
+            reason: 'Cost data unavailable for prior requests — tenant budget cannot be enforced.',
           };
         }
         if (projectedTotal >= budget.perTenantDailyLimit) {

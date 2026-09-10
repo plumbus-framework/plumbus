@@ -704,3 +704,21 @@ describe('createPricingStore', () => {
     release?.();
   });
 });
+
+it.each([-1, NaN, Infinity])('rejects nonfinite and negative base or optional rates: %s', (bad) => {
+  for (const field of [
+    'inputPerMTok',
+    'outputPerMTok',
+    'cacheReadPerMTok',
+    'cacheWritePerMTok',
+    'globalInputPerMTok',
+    'globalOutputPerMTok',
+  ]) {
+    expect(() =>
+      parsePricingFile({
+        version: 1,
+        models: { custom: { inputPerMTok: 0, outputPerMTok: 0, [field]: bad } },
+      }),
+    ).toThrow('Invalid rate');
+  }
+});

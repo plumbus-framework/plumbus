@@ -365,3 +365,25 @@ describe('runToolLoop', () => {
     expect(result.messages.length).toBeGreaterThan(initialMessages.length);
   });
 });
+
+it('preserves numeric loop totals while flagging any unknown-priced round', async () => {
+  const ai = {
+    generateWithUsage: vi.fn(async () => ({
+      finishReason: 'stop' as const,
+      data: { content: 'ok' },
+      model: 'local',
+      provider: 'local',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      cost: 0,
+      costAvailable: false,
+    })),
+  } as unknown as AIService;
+  const result = await runToolLoop(ai, {
+    prompt: 'test',
+    input: {},
+    tools: [],
+    execute: async () => ({}),
+  });
+  expect(result.aggregatedCost).toBe(0);
+  expect(result.aggregatedCostAvailable).toBe(false);
+});

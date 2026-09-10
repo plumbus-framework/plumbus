@@ -2,11 +2,12 @@
 // Builds registries, DB, auth, and RouteGeneratorConfig-compatible deps for MCP runtime.
 
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import { PromptRegistry } from '../ai/prompt-registry.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
-import type { AuthAdapter } from '../auth/adapter.js';
-import { createJwtAdapter } from '../auth/adapter.js';
-import { loadConfig } from '../config/loader.js';
+import { type AuthAdapter, createJwtAdapter } from '../auth/index.js';
+import { loadConfig } from '../config/index.js';
+import { createErrorService } from '../errors/index.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../data/connection.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import { EntityRegistry } from '../data/registry.js';
@@ -51,18 +52,42 @@ async function resolveMcpServeAuthAdapter(config: PlumbusConfig): Promise<AuthAd
       envToken: process.env.PLUMBUS_MCP_TOKEN,
     });
   }
+  const secret = config.auth.secret;
+  const isDevelopmentPlaceholder = [
+    'development-secret',
+    'development-secret-placeholder-32chars-min',
+  ].includes(secret?.trim() ?? '');
+  if (config.environment === 'development' && !secret) {
+    warn(
+      'MCP authentication is not configured — development requests will be anonymous and only `access.public: true` capabilities will be callable. Configure mcp.agents or AUTH_SECRET for authenticated access. See docs/mcp/agent-authentication.md.',
+    );
+    return { authenticate: async () => null };
+  }
+
+  const validatedSecret = z
+    .string()
+    .refine((value) => value.trim().length >= 32 && !isDevelopmentPlaceholder)
+    .safeParse(secret);
+  if (!validatedSecret.success) {
+    throw createErrorService().validation(
+      'MCP serve requires mcp.agents or an explicit AUTH_SECRET of at least 32 non-padding characters; development placeholder secrets are not accepted. Anonymous access is available only in development.',
+    );
+  }
+
   warn(
-    'plumbus.config.mcp.agents is not configured — MCP requests will be anonymous and only `access.public: true` capabilities will be callable. See docs/mcp/agent-authentication.md.',
+    'mcp.agents is not configured — MCP Bearer tokens will be verified using auth.secret (AUTH_SECRET). See docs/mcp/agent-authentication.md.',
   );
   return createJwtAdapter({
-    secret: config.auth.secret ?? 'development-secret-placeholder-32chars-min',
+    secret: validatedSecret.data,
     issuer: config.auth.issuer,
     audience: config.auth.audience,
   });
 }
 
 export async function buildMcpServeContext(): Promise<McpServeContext> {
-  const config = loadConfig({ environment: 'development' });
+  const config = loadConfig();
+  // Reject unsafe auth configuration before discovery or opening DB/queue connections.
+  const authAdapter = await resolveMcpServeAuthAdapter(config);
   const resources = await discoverResources();
 
   const capabilities = new CapabilityRegistry();
@@ -95,7 +120,6 @@ export async function buildMcpServeContext(): Promise<McpServeContext> {
   const maskKeys = entities.getMaskedFieldNames();
   const encryptionKey = resolveEncryptionKey();
 
-  const authAdapter = await resolveMcpServeAuthAdapter(config);
   const extensions = await loadServerExtensions();
 
   const aiService = buildWorkerAiService({

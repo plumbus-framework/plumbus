@@ -728,7 +728,7 @@ export async function* runChatTurn(
           ) {
             userPayload = {
               ...userPayload,
-              systemPrompt: `${userPayload.systemPrompt}\n\n## Tool results\nThe following tools ran for this turn. Ground your answer ONLY in these results.\n${toolPhase.observationsForAnswer}`,
+              systemPrompt: `${userPayload.systemPrompt}\n\n## Tool results\nThe following tools ran for this turn. Ground your answer ONLY in these results.\n${JSON.stringify({ type: 'untrusted_tool_result', content: toolPhase.observationsForAnswer })}`,
             };
           }
         }

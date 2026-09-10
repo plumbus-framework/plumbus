@@ -1,5 +1,26 @@
 # @plumbus/mcp changelog
 
+## 0.6.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Security
+
+- Require explicit HTTP transport credentials before SDK dispatch; invalid headers never fall back to a server environment token. The separate discovery route retains its configured public default.
+- Sanitize capability/task errors, validate task arguments/access before storage or dispatch, and enforce task owner/tenant boundaries, including tenantless jobs.
+- Recreate repository bindings per worker completion. `createMcpJobCompletionSync` retains its original dependency-object form and adds a dependency-factory form.
+
+### Compatibility
+
+- HTTP clients must now authenticate initialization/listing as well as calls. Tool names and task payloads are unchanged; error details are intentionally reduced.
+- Deploy core 0.7.0 for the coordinated security fixes. Plumbus peers now require the new release family; do not mix these packages with legacy core. [Migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.5.1
 
 ### Changed

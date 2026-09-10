@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/browser-extension",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Plumbus browser-extension scaffolder — emit wxt Chrome/Firefox extensions wired to capabilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -40,13 +40,14 @@
     "directory": "packages/browser-extension"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "next"
   },
   "engines": {
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.5.x || 0.6.x"
+    "@plumbus/core": "0.7.x"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",

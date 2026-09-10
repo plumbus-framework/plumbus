@@ -1,5 +1,16 @@
 # @plumbus/voice-livekit — Framework
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
+## Security release guidance (0.2.0)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+
+Deploy with voice 0.5.0 for automatic tenant propagation. Default room names include tenant identity; use returned room names. Explicit shared rooms/resolvers remain app-authorized choices. Do not import vendor SDKs to recreate a parallel voice runtime.
+
 **Exact path in a consumer app:** `node_modules/@plumbus/voice-livekit/instructions/framework.md`
 
 Index: `node_modules/@plumbus/voice-livekit/instructions/README.md`
@@ -15,8 +26,8 @@ Index: `node_modules/@plumbus/voice-livekit/instructions/README.md`
 **Peers (copy literals):**
 
 ```json
-"@plumbus/core": "0.6.x",
-"@plumbus/voice": "0.4.x"
+"@plumbus/core": "0.7.x",
+"@plumbus/voice": "0.5.x"
 ```
 
 Optional peers: `livekit-client` `^2.0.0` (browser), `@livekit/krisp-noise-filter` `^0.4.0` (client Krisp), `fastify` `^5.0.0`.

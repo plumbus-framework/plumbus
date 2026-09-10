@@ -110,3 +110,6 @@ Run in CI before release. Breaking changes should bump API version or follow you
 ## Governance
 
 Advisory API rules also run in `plumbus verify` when capabilities expose the API surface. Warnings only — never hard blocks. Run `plumbus verify` or `plumbus api validate` to see rule codes and messages.
+
+
+In API 0.1.5, query-string `apiKey` security schemes are unsupported: validation reports the mismatch and OpenAPI export refuses them. Choose authentication implemented by the configured framework runtime. Do not invent middleware to hide the mismatch while publishing inaccurate contracts.

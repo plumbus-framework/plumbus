@@ -230,10 +230,15 @@ describe('createOidcAdapter', () => {
     });
 
     const token = signRsaJwt(validPayload());
+    expect(await adapter.authenticate(`Bearer ${token}`)).toBeNull();
+    expect(callCount).toBe(1);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 30_001);
     const result = await adapter.authenticate(`Bearer ${token}`);
 
     expect(result?.userId).toBe('user-42');
-    expect(callCount).toBe(2); // Fetched twice due to cache miss + refresh
+    expect(callCount).toBe(2); // Refresh allowed after cooldown
+    clock.mockRestore();
   });
 
   it('supports custom claim mapping', async () => {
@@ -297,4 +302,21 @@ describe('createOidcAdapter', () => {
     const result = await adapter.authenticate(`Bearer ${token}`);
     expect(result?.userId).toBe('user-42');
   });
+});
+
+it('bounds concurrent random-kid misses to one JWKS fetch', async () => {
+  const fetchFn = mockFetch();
+  const adapter = createOidcAdapter({
+    issuer: ISSUER,
+    audience: AUDIENCE,
+    jwksUri: `${ISSUER}/jwks.json`,
+    fetchFn,
+  });
+  const results = await Promise.all(
+    Array.from({ length: 40 }, (_, i) =>
+      adapter.authenticate(`Bearer ${signRsaJwt(validPayload(), `unknown-${i}`)}`),
+    ),
+  );
+  expect(results.every((result) => result === null)).toBe(true);
+  expect(fetchFn).toHaveBeenCalledTimes(1);
 });

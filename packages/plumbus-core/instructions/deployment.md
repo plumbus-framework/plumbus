@@ -70,7 +70,7 @@ These rules are critical. Violating any one causes build failures or bloated ima
 - **DO**: Create a separate `proddeps` stage that removes `@plumbus/ui` from `package.json` before `npm install --omit=dev`.
 - **DO NOT**: Copy the full `node_modules` (including `@plumbus/ui`) into the backend runner.
 - **Why**: `@plumbus/ui` pulls in `next`, `react`, `react-dom`, `tailwindcss`, `lucide-react` (~300 MB). The backend only needs `@plumbus/core` at runtime.
-- **Peer deps**: npm enforces `peerDependencies` strictly in this stage. Add-on packages must declare npm-safe `@plumbus/core` peers (`0.5.x || 0.6.x` for most add-ons). See `peer-dependencies.md` in this folder — `pnpm install` passing locally does not prove Docker will build.
+- **Peer deps**: npm enforces `peerDependencies` strictly in this stage. Add-on packages must declare npm-safe `@plumbus/core` peers (`0.7.x` for the new release family). See `peer-dependencies.md` in this folder — `pnpm install` passing locally does not prove Docker will build.
 - **Target image size**: Backend should be ~500-700 MB, not 1.5 GB+.
 
 ### Rule 8: Use `ENV PATH` instead of `npx` for frontend builds
@@ -139,7 +139,7 @@ Use `plumbus start` for production:
 | Default host | `localhost` | `0.0.0.0` |
 | Log level | `debug` | `info` |
 | DB SSL | off | on |
-| `AUTH_SECRET` | optional (uses default) | **required** (throws on startup) |
+| `AUTH_SECRET` | optional (anonymous; no default signing key) | **required** (throws on startup) |
 | Cookies | `secure: false` | `secure: true` |
 
 ```bash
@@ -652,3 +652,6 @@ readinessProbe:
 - [ ] `API_BASE_URL` set to Docker service name (e.g., `http://backend:3000`)
 - [ ] `NEXT_PUBLIC_API_BASE_URL` set to empty string `""` (for server-side proxy)
 - [ ] `AUTH_COOKIE_SECURE` set to `"true"` (or `"false"` only for HTTP-only — security trade-off)
+
+
+Before deploying core 0.7.0, follow [the packaged security release checklist](./upgrading-security-release.md). Update API/worker dependency sets together, verify audit storage and active flow snapshots, and run `plumbus init --patch` for wiring v16. Do not interpret an absent development secret as enabling JWT authentication.

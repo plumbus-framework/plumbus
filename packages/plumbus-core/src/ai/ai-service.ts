@@ -17,7 +17,8 @@ import type {
 import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../types/prompt.js';
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
-import { calculateModelCost } from './model-pricing.js';
+import { normalizeCost, validateTokenUsage } from './usage-validation.js';
+import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import {
   type AIProviderAdapter,
@@ -137,7 +138,35 @@ export function createAIService(config: AIServiceConfig): AIService {
       const available = Object.keys(providers).join(', ');
       throw new Error(`AI provider "${name}" not configured. Available: ${available}`);
     }
-    return adapter;
+    // Every provider attempt, including validation retries, checks the budget.
+    const checkRequest = (request: ProviderRequest): void => {
+      const input = JSON.stringify({
+        system: request.system,
+        prompt: request.prompt,
+        messages: request.messages,
+        tools: request.tools,
+        responseSchema: request.responseSchema,
+      });
+      checkBudget(Math.ceil(Buffer.byteLength(input, 'utf8') / 4) + (request.maxTokens ?? 0));
+    };
+    return {
+      ...adapter,
+      name: adapter.name,
+      embed: (request) => adapter.embed(request),
+      async complete(request) {
+        checkRequest(request);
+        const response = await adapter.complete(request);
+        validateTokenUsage(response.usage);
+        return { ...response, cost: normalizeCost(response.cost) ?? undefined };
+      },
+      async *stream(request) {
+        checkRequest(request);
+        for await (const event of adapter.stream(request)) {
+          if (event.usage) validateTokenUsage(event.usage);
+          yield { ...event, cost: normalizeCost(event.cost) ?? undefined };
+        }
+      },
+    };
   }
 
   function getSingleTextFieldName(schema: z.ZodTypeAny): string | undefined {
@@ -213,12 +242,26 @@ export function createAIService(config: AIServiceConfig): AIService {
     entry: AICostRecordInput,
     costContext: AICostContext | undefined,
   ): Promise<void> {
+    entry = {
+      ...entry,
+      tenantId: config.budget ? config.budget.tenantId : entry.tenantId,
+      actor: config.budget ? config.budget.actor : entry.actor,
+      cost:
+        (entry.cost == null ? undefined : normalizeCost(entry.cost)) ??
+        (entry.cost == null && entry.usage.totalTokens > 0 && findModelRate(entry.model)
+          ? calculateModelCost(entry.usage.inputTokens, entry.usage.outputTokens, entry.model, {
+              cachedInputTokens: entry.usage.cachedInputTokens,
+              cacheWriteTokens: entry.usage.cacheWriteTokens,
+            })
+          : null),
+    };
     if (costTracker) {
       costTracker.record(entry);
     }
     if (onAICostRecorded) {
       const finalEntry: AICostRecord = {
         ...entry,
+        cost: normalizeCost(entry.cost),
         status: entry.status ?? 'success',
         id: crypto.randomUUID(),
         timestamp: new Date(),
@@ -289,15 +332,11 @@ export function createAIService(config: AIServiceConfig): AIService {
     // Simple template resolution: replace top-level {{key}} placeholders.
     const substitutedKeys = new Set<string>();
     const renderTemplate = (template: string): string => {
-      let text = template;
-      for (const [key, value] of Object.entries(input)) {
-        const placeholder = `{{${key}}}`;
-        if (text.includes(placeholder)) {
-          substitutedKeys.add(key);
-          text = text.replaceAll(placeholder, String(value));
-        }
-      }
-      return text;
+      return template.replace(/\{\{([^{}]+)\}\}/g, (placeholder, key: string) => {
+        if (!Object.hasOwn(input, key)) return placeholder;
+        substitutedKeys.add(key);
+        return String(input[key]);
+      });
     };
     const system = def.system ? renderTemplate(def.system) : undefined;
     const text = renderTemplate(def.description ?? promptName);
@@ -547,6 +586,13 @@ export function createAIService(config: AIServiceConfig): AIService {
 
     const latencyMs = performance.now() - start;
 
+    const cost =
+      providerCost ??
+      calculateModelCost(totalUsage.inputTokens, totalUsage.outputTokens, resolvedModel, {
+        cachedInputTokens: totalUsage.cachedInputTokens,
+        cacheWriteTokens: totalUsage.cacheWriteTokens,
+      });
+
     // Track cost (success path)
     await recordProviderCost(
       {
@@ -555,7 +601,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         promptName: hasPromptDef ? params.prompt : undefined,
         operation: 'generate',
         usage: totalUsage,
-        cost: null,
+        cost: cost ?? null,
         latencyMs,
         tenantId: config.budget?.tenantId,
         actor: config.budget?.actor,
@@ -571,7 +617,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         promptName: hasPromptDef ? params.prompt : undefined,
         model: promptInfo.model ?? config.defaultModel,
         provider: activeProvider.name,
-        input: params.input,
+        input: inputForAI,
         output: result,
         usage: totalUsage,
         validation: {
@@ -584,13 +630,6 @@ export function createAIService(config: AIServiceConfig): AIService {
         latencyMs,
       });
     }
-
-    const cost =
-      providerCost ??
-      calculateModelCost(totalUsage.inputTokens, totalUsage.outputTokens, resolvedModel, {
-        cachedInputTokens: totalUsage.cachedInputTokens,
-        cacheWriteTokens: totalUsage.cacheWriteTokens,
-      });
 
     if (
       toolsEnabled &&
@@ -605,7 +644,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         usage: totalUsage,
         model: resolvedModel,
         provider: activeProvider.name,
-        cost,
+        cost: cost ?? 0,
+        costAvailable: cost != null,
       };
     }
 
@@ -620,7 +660,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       usage: totalUsage,
       model: resolvedModel,
       provider: activeProvider.name,
-      cost,
+      cost: cost ?? 0,
+      costAvailable: cost != null,
     };
   }
 
@@ -649,6 +690,9 @@ export function createAIService(config: AIServiceConfig): AIService {
   }
 
   return {
+    withContext(identity) {
+      return createAIService({ ...config, budget: { ...identity } });
+    },
     features: { perCallProviderModelReasoning: true },
     recordProviderCost,
 
@@ -898,18 +942,19 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Compute cost and model info for the done event
       const streamCost =
         streamProviderCost ??
-        (streamUsage
+        (streamUsage && findModelRate(resolvedModel)
           ? calculateModelCost(streamUsage.inputTokens, streamUsage.outputTokens, resolvedModel, {
               cachedInputTokens: streamUsage.cachedInputTokens,
               cacheWriteTokens: streamUsage.cacheWriteTokens,
             })
-          : 0);
+          : undefined);
 
       const doneBase = {
         usage: streamUsage,
         model: resolvedModel,
         provider: activeProvider.name,
         cost: streamCost,
+        costAvailable: streamCost != null,
         finishReason: providerFinishReason,
       };
 
@@ -925,7 +970,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
             usage: failureUsage,
-            cost: null,
+            cost: streamCost ?? null,
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -953,7 +998,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
             usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-            cost: null,
+            cost: streamCost ?? null,
             latencyMs: performance.now() - streamStart,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -967,7 +1012,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             model: resolvedModel,
             provider: activeProvider.name,
-            input: params.input,
+            input: inputForAI,
             output: singleTextField
               ? { [singleTextField]: fullText.trim() }
               : { text: fullText.trim() },
@@ -990,6 +1035,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         let validatedData: unknown;
         let validationFellBackToNonStreaming = false;
         let fallbackUsage: TokenUsage | undefined;
+        let fallbackCost: number | undefined;
         try {
           const parsed = JSON.parse(fullText);
           validatedData = promptDef.output.parse(parsed);
@@ -1054,6 +1100,14 @@ export function createAIService(config: AIServiceConfig): AIService {
             );
             validatedData = validated.data;
             fallbackUsage = validated.usage;
+            fallbackCost =
+              validated.cost ??
+              calculateModelCost(
+                validated.usage.inputTokens,
+                validated.usage.outputTokens,
+                resolvedModel,
+                validated.usage,
+              );
           } catch (fallbackErr) {
             // Bill the caller for the combined streamUsage + whatever the
             // fallback provider ate before giving up (AIValidationError
@@ -1102,6 +1156,11 @@ export function createAIService(config: AIServiceConfig): AIService {
         const successUsage = validationFellBackToNonStreaming
           ? sumUsage(streamUsage, fallbackUsage)
           : (streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+        const successCost = validationFellBackToNonStreaming
+          ? streamCost != null && fallbackCost != null
+            ? streamCost + fallbackCost
+            : undefined
+          : streamCost;
         await recordProviderCost(
           {
             model: resolvedModel,
@@ -1110,7 +1169,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             operation: 'generate',
             fallbackUsed: validationFellBackToNonStreaming || undefined,
             usage: successUsage,
-            cost: null,
+            cost: successCost ?? null,
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1122,6 +1181,9 @@ export function createAIService(config: AIServiceConfig): AIService {
           type: 'done',
           data: validatedData as Record<string, any>,
           ...doneBase,
+          usage: successUsage,
+          cost: successCost,
+          costAvailable: successCost != null,
           validationFallbackFired: validationFellBackToNonStreaming,
         };
       } else {
@@ -1132,7 +1194,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
             usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-            cost: null,
+            cost: streamCost ?? null,
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1151,6 +1213,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       costContext?: AICostContext;
     }): Promise<Record<string, any>> {
       const start = performance.now();
+      const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
+      const textForAI = String(inputForAI.text);
 
       checkBudget();
 
@@ -1162,7 +1226,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         'Extract structured data from the following text. Return valid JSON matching the required schema.';
       const request: ProviderRequest = {
         system: systemPrompt,
-        prompt: params.text,
+        prompt: textForAI,
         model: config.defaultModel,
         responseFormat: 'json',
         responseSchema: config.enableStrictStructuredOutputs
@@ -1210,7 +1274,15 @@ export function createAIService(config: AIServiceConfig): AIService {
           provider: activeProvider.name,
           operation: 'extract',
           usage: validated.usage,
-          cost: null,
+          cost:
+            validated.cost ??
+            calculateModelCost(
+              validated.usage.inputTokens,
+              validated.usage.outputTokens,
+              resolvedModel,
+              validated.usage,
+            ) ??
+            null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -1224,7 +1296,8 @@ export function createAIService(config: AIServiceConfig): AIService {
           operation: 'extract',
           model: config.defaultModel,
           provider: activeProvider.name,
-          input: { text: params.text },
+          input: inputForAI,
+          securityWarnings: securityResult?.warnings.map((warning) => warning.message),
           output: validated.data,
           usage: validated.usage,
           validation: { passed: validated.attempts === 1, attempts: validated.attempts },
@@ -1244,6 +1317,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       costContext?: AICostContext;
     }): Promise<string[]> {
       const start = performance.now();
+      const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
+      const textForAI = String(inputForAI.text);
 
       checkBudget();
 
@@ -1255,7 +1330,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
       const request: ProviderRequest = {
         system: systemPrompt,
-        prompt: `Labels: ${JSON.stringify(params.labels)}\n\nText: ${params.text}`,
+        prompt: `Labels: ${JSON.stringify(params.labels)}\n\nText: ${textForAI}`,
         model: config.defaultModel,
         responseFormat: 'json',
         responseSchema: config.enableStrictStructuredOutputs
@@ -1307,7 +1382,15 @@ export function createAIService(config: AIServiceConfig): AIService {
           provider: activeProvider.name,
           operation: 'classify',
           usage: validated.usage,
-          cost: null,
+          cost:
+            validated.cost ??
+            calculateModelCost(
+              validated.usage.inputTokens,
+              validated.usage.outputTokens,
+              resolvedModel,
+              validated.usage,
+            ) ??
+            null,
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -1321,7 +1404,8 @@ export function createAIService(config: AIServiceConfig): AIService {
           operation: 'classify',
           model: config.defaultModel,
           provider: activeProvider.name,
-          input: { labels: params.labels, text: params.text },
+          input: { labels: params.labels, ...inputForAI },
+          securityWarnings: securityResult?.warnings.map((warning) => warning.message),
           output: result,
           usage: validated.usage,
           validation: { passed: validated.attempts === 1, attempts: validated.attempts },

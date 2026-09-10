@@ -58,6 +58,7 @@ function makeMockConfig() {
         tenantId: 'tenant-1',
       },
       data: {},
+      audit: { record: vi.fn(async () => {}) },
     }),
   };
 }
@@ -184,6 +185,7 @@ describe('job capability with jobQueue', () => {
       createDependencies: vi.fn().mockReturnValue({
         auth: authContext,
         data: {},
+        audit: { record: vi.fn(async () => {}) },
       }),
     };
     const cap = makeCapability({
@@ -270,6 +272,7 @@ describe('registerStreamingRoute', () => {
       createDependencies: vi.fn().mockReturnValue({
         auth: authContext,
         data: {},
+        audit: { record: vi.fn(async () => {}) },
       }),
     };
     const cap = makeCapability({
@@ -353,6 +356,7 @@ describe('HTTP correlation ID propagation', () => {
         tenantId: 'tenant-1',
       },
       data: {},
+      audit: { record: vi.fn(async () => {}) },
     };
     const createDependencies = vi.fn().mockReturnValue(deps);
     const config = { ...makeMockConfig(), createDependencies };

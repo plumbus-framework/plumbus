@@ -38,11 +38,17 @@ export function errorToHttpResponse(error: PlumbusErrorLike): {
   statusCode: number;
   body: { error: { code: string; message: string; metadata?: Record<string, unknown> } };
 } {
-  const safeMetadata = pickSafeMetadata(error.metadata);
-  const message = error.code === 'internal' ? GENERIC_INTERNAL_MESSAGE : error.message;
+  const statusCode = errorToHttpStatus(error);
+  const safeMetadata = statusCode === 403 ? undefined : pickSafeMetadata(error.metadata);
+  const message =
+    statusCode >= 500
+      ? GENERIC_INTERNAL_MESSAGE
+      : statusCode === 403
+        ? 'Access denied'
+        : error.message;
 
   return {
-    statusCode: errorToHttpStatus(error),
+    statusCode,
     body: {
       error: {
         code: error.code,

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Security
+
+- Place built-in instructions in the system role; encode context, summaries, and staged tool observations as untrusted data. Bound rendered context items to 32,000 characters.
+- Public chat protocol and configuration interfaces are unchanged. Model behavior can change because instruction roles and context framing are corrected. Deploy with core 0.7.0 for request-scoped RAG and prompt-substitution fixes. [Migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.1.12 — 2026-08-31 — agent-orchestrated provider tools
 
 ### Added

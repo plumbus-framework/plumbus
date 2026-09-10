@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { createErrorService } from '../errors/index.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService, AuditWriter } from '../types/audit.js';
 import type { AuthContext } from '../types/security.js';
@@ -20,7 +22,11 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
 
   return {
     async record(eventType: string, metadata?: Record<string, unknown>): Promise<void> {
-      const outcome = (metadata?.outcome as 'success' | 'failure' | 'denied') ?? 'success';
+      const parsedOutcome = z
+        .enum(['success', 'failure', 'denied'])
+        .safeParse(metadata?.outcome ?? 'success');
+      if (!parsedOutcome.success) throw createErrorService().validation('Invalid audit outcome');
+      const outcome = parsedOutcome.data;
       const maskedFields = (metadata?._maskedFields as string[]) ?? undefined;
 
       const storedMetadata = metadata ? { ...metadata } : undefined;
@@ -28,7 +34,8 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
         delete storedMetadata._maskedFields;
       }
 
-      await writer.write({
+      const event = {
+        id: crypto.randomUUID(),
         actor: auth.userId ?? 'anonymous',
         tenantId: auth.tenantId,
         component,
@@ -37,7 +44,16 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
         timestamp: new Date(),
         metadata: storedMetadata,
         maskedFields,
-      });
+      };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await writer.write(event);
+          return;
+        } catch (error) {
+          if (attempt === 2)
+            throw createErrorService().internal('Audit persistence failed', { cause: error });
+        }
+      }
     },
   };
 }

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { EventEnvelope } from '../types/event.js';
 
 /**
@@ -217,11 +218,32 @@ return wrapped
       }
 
       const envelopeJson = unwrapEnvelope(raw);
-      const envelope = JSON.parse(envelopeJson) as EventEnvelope;
-      // Restore Date object
-      if (typeof envelope.occurredAt === 'string') {
-        envelope.occurredAt = new Date(envelope.occurredAt);
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(envelopeJson);
+      } catch {
+        decoded = undefined;
       }
+      const parsed = z
+        .object({
+          id: z.string().min(1),
+          eventType: z.string().min(1),
+          version: z.string().min(1),
+          occurredAt: z.coerce.date(),
+          actor: z.string().min(1),
+          tenantId: z.string().optional(),
+          correlationId: z.string(),
+          causationId: z.string().optional(),
+          payload: z.unknown(),
+          metadata: z.record(z.unknown()).optional(),
+        })
+        .safeParse(decoded);
+      if (!parsed.success) {
+        console.error('[plumbus:queue] Discarding invalid event envelope');
+        await client.lrem(processingKey, 1, raw);
+        return;
+      }
+      const envelope: EventEnvelope = { ...parsed.data, payload: parsed.data.payload };
 
       // Deliver to all subscribers
       const results = await Promise.allSettled(subscribers.map((handler) => handler(envelope)));

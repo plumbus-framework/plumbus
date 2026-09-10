@@ -1,5 +1,71 @@
 # @plumbus/core changelog
 
+## 0.7.0 — 2026-09-10 — security hardening and fixed pricing
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
+
+### Agent instructions
+
+- Bump `AGENT_WIRING_VERSION` from 14 to **16**. Every generated agent format now points to the packaged security release checklist, including inline mode. `plumbus init --patch` upgrades existing managed blocks while retaining app-owned instructions.
+- Update packaged auth, audit, RAG, cost, MCP, flow, and deployment guidance to match this release. Sol uses a bundled date-based price window; no runtime price fetching is introduced.
+
+### Fixed
+
+- Bind AI retrieval and accounting to each execution identity; enforce exact RAG tenant namespaces and fail closed on invalid flow auth snapshots.
+- Record successful/retried AI spend, reject malformed numeric accounting, and enforce configured budgets when prior prices are unknown. Preserve provider-supplied zero costs and local providers without dollar caps.
+- Apply configured redaction to extraction/classification and explainability; substitute prompt values once.
+- Reject shared development signing keys, non-expiring JWTs, SAML replay/correlation failures, ambiguous cookies, unsafe scaffold paths, and malformed queue envelopes. Bound JWKS refreshes and billing fetches.
+- Make safe HTTP errors unconditional and audit writes idempotent across retries. Keep MCP worker completion compatible with the dependency-object API during rolling upgrades.
+
+### AI pricing and accounting
+
+The fixed OpenAI/Anthropic catalog was refreshed on September 10. The following are changes to the framework's standard-tier estimates; all rates below are **USD per 1 million tokens**, with input/output listed in that order.
+
+| Model | Previous catalog | 0.7.0 catalog |
+| --- | --- | --- |
+| `gpt-5.6-sol` | $5 / $30 | $4 / $20 before November 22 UTC; $5 / $30 from the cutoff |
+| `gpt-6-astra` | Not cataloged | $10 / $50 |
+| `gpt-5.6-cyber` | Not cataloged | $12.50 / $75 |
+| `claude-fable-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
+| `claude-mythos-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
+
+- **Static Sol price window:** use $4 input, $0.40 cached input, and $20 output per MTok before `2026-11-22T00:00:00.000Z`; at and after the cutoff use the retained regular $5 / $0.50 / $30 rates. All values and the cutoff are bundled in code; lookups switch using the clock without fetching prices, scheduling jobs, or restarting. The `gpt-5.6` alias and supported dated names share the same window. Existing ledger rows are not repriced.
+- **Cutoff interpretation:** [OpenAI documents](https://developers.openai.com/api/docs/models/gpt-5.6-sol) availability at least through November 21, 2026, not a guaranteed expiry. November 22 UTC is this framework's fallback policy. If OpenAI extends the promotion, estimates after that point can be higher until the bundled window is explicitly updated.
+- **GPT-5.6 alias and long context:** `gpt-5.6` now resolves to Sol, including supported date-suffixed names. Above 272,000 input tokens, Sol uses 2× input/cache-read rates and 1.5× output rates ($8 / $0.80 / $30 during the special window; $10 / $1 / $45 afterward, for input/cache/output per MTok). The base rates apply at exactly 272,000 tokens. Cyber remains a separate catalog entry.
+- **Sonnet 5 stays unchanged at $2 / $10.** Sonnet pricing has no date switch. No runtime pricing fetch is performed. Batch, Flex, and Fast mode pricing are not modeled.
+- **Model-specific cache-read rates:** replace the blanket 10%-of-input assumption for the models below. Their base input/output rates are unchanged.
+
+| Model | Previous cache-read estimate / MTok | 0.7.0 cache-read estimate / MTok |
+| --- | --- | --- |
+| `gpt-4.1` | $0.20 | $0.50 |
+| `gpt-4.1-mini` | $0.04 | $0.10 |
+| `gpt-4.1-nano` | $0.01 | $0.025 |
+| `gpt-4o` | $0.25 | $1.25 |
+| `gpt-4o-mini` | $0.015 | $0.075 |
+| `o1` | $1.50 | $7.50 |
+| `o3` | $0.20 | $0.50 |
+| `o3-mini` | $0.11 | $0.55 |
+| `o4-mini` | $0.11 | $0.275 |
+
+- **Anthropic usage accounting:** normalized input includes cache-read and cache-write tokens, and streamed final usage retains them. Long-context threshold checks count cached tokens once rather than adding them twice. Preserve positive sub-microdollar estimates instead of rounding them to zero.
+- **Manual update tooling:** parse standard/base-context tables, cache rates and footnotes, and effective-dated Anthropic rows; ignore missing prices and non-token units. It reads the effective bundled catalog directly, including Sol's active window, instead of maintaining a duplicate rate snapshot. Legacy entries absent from pricing pages are retained.
+- **Free versus unknown:** provider-supplied zero costs remain supported, including with dollar budgets. Unpriced local providers still work without dollar caps; internal ledgers keep unknown costs as `null`, and configured dollar budgets reject unknown prior spend. Released numeric cost APIs remain compatible through the availability flags described below.
+
+See [AI cost tracking and pricing](../../docs/ai/ai-integration.md) for provider overrides, usage normalization, and budget behavior. Bedrock pricing-file validation is documented separately in the [`@plumbus/ai-bedrock` 0.1.1 changelog](../ai-bedrock/CHANGELOG.md).
+
+### Compatibility
+
+- Preserve the released numeric contracts of `calculateModelCost`, generation results, tool-loop totals, and RAG embedding callbacks. Added `estimateModelCost`, `costAvailable`, and `aggregatedCostAvailable` distinguish unknown prices. Framework ledgers still record unknown prices as `null`; configured dollar budgets reject them. Custom ledgers must honor availability flags.
+- Finite JWT lifetimes remain issuer-controlled unless `maxTokenLifetimeSeconds` is explicitly configured. `signJwt` still defaults to 24 hours.
+
+### Security migration notes
+
+- This is not a universal drop-in upgrade: configure real authentication credentials; regenerate JWTs without expiry; supply SAML request correlation or explicitly opt into unsolicited assertions; restart/review snapshot-less flows; and ensure audit persistence works. Generic 403/5xx responses no longer disclose private diagnostics.
+- No new database schema is introduced. Existing audit/flow/task tables must already be migrated for the current framework line.
+- Deploy the updated versions of any installed MCP/chat/voice/API add-ons with core. See [the release migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.6.19 — 2026-09-01 — OpenAI reasoning tool-call transport
 
 ### Fixed

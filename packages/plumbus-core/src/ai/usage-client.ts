@@ -28,6 +28,8 @@ export interface UsageClientConfig {
   apiKey: string;
   baseUrl?: string;
   organizationId?: string;
+  /** Billing endpoint timeout in milliseconds (default 10000). */
+  timeoutMs?: number;
 }
 
 // ── OpenAI Usage API Client ──
@@ -50,6 +52,7 @@ function createOpenAIUsageClient(config: UsageClientConfig): UsageAPIClient {
       }
 
       const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(config.timeoutMs ?? 10_000),
         headers: {
           Authorization: `Bearer ${config.apiKey}`,
           'Content-Type': 'application/json',
@@ -104,6 +107,7 @@ function createAnthropicUsageClient(config: UsageClientConfig): UsageAPIClient {
       url.searchParams.set('end_date', endDate ?? '');
 
       const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(config.timeoutMs ?? 10_000),
         headers: {
           'x-api-key': config.apiKey,
           'Content-Type': 'application/json',

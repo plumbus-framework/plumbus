@@ -1,3 +1,5 @@
+import { z } from '@plumbus/core/zod';
+import { createErrorService } from '@plumbus/core';
 import { readFile } from 'node:fs/promises';
 import type { BedrockModelRate, BedrockPricingFileV1 } from './types.js';
 
@@ -393,7 +395,23 @@ export function parsePricingFile(raw: unknown): Map<string, BedrockModelRate> {
   }
   const rates = new Map<string, BedrockModelRate>();
   for (const [id, rate] of Object.entries(doc.models)) {
-    if (rate == null || typeof rate !== 'object') continue;
+    const finiteRate = z.number().finite().nonnegative();
+    if (
+      !z
+        .object({
+          inputPerMTok: finiteRate,
+          outputPerMTok: finiteRate,
+          cacheReadPerMTok: finiteRate.optional(),
+          cacheWritePerMTok: finiteRate.optional(),
+          globalInputPerMTok: finiteRate.optional(),
+          globalOutputPerMTok: finiteRate.optional(),
+        })
+        .safeParse(rate).success
+    ) {
+      throw createErrorService().validation(
+        `Invalid rate for model "${id}": rates must be finite nonnegative numbers`,
+      );
+    }
     if (typeof rate.inputPerMTok !== 'number' || typeof rate.outputPerMTok !== 'number') {
       throw new Error(
         `Invalid rate for model "${id}": inputPerMTok and outputPerMTok are required numbers`,

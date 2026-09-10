@@ -4,7 +4,8 @@ import { z } from '@plumbus/core/zod';
 export const chatTurnPrompt = definePrompt({
   name: 'chat.turn',
   domain: 'chat',
-  description: '{{systemPrompt}}\n\n{{userMessage}}',
+  system: '{{systemPrompt}}',
+  description: '{{userMessage}}',
   input: z.object({
     systemPrompt: z.string(),
     userMessage: z.string(),

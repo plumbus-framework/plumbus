@@ -395,3 +395,12 @@ describe('mapCoreError', () => {
     expect(body.error.message).toBe('An internal error occurred');
   });
 });
+
+it('refuses to advertise query API keys that the runtime does not read', () => {
+  expect(() =>
+    generateOpenApi([apiCap()], {
+      ...manifest,
+      securitySchemes: { key: { type: 'apiKey', in: 'query', name: 'api_key' } },
+    }),
+  ).toThrow('Query-string API keys');
+});

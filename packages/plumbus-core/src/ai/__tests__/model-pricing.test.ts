@@ -1,9 +1,21 @@
-import { describe, expect, it } from 'vitest';
-import { allKnownModels, calculateModelCost, findModelRate } from '../model-pricing.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  allKnownModels,
+  calculateModelCost,
+  estimateModelCost,
+  findModelRate,
+} from '../model-pricing.js';
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-22T00:00:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 
 describe('calculateModelCost', () => {
-  it('returns 0 for unknown models', () => {
+  it('preserves numeric compatibility and exposes an unknown-aware estimator', () => {
     expect(calculateModelCost(1000, 500, 'gpt-oss:20b')).toBe(0);
+    expect(estimateModelCost(1000, 500, 'gpt-oss:20b')).toBeUndefined();
     expect(calculateModelCost(1000, 500, 'llama-3')).toBe(0);
   });
 
@@ -65,8 +77,8 @@ describe('calculateModelCost', () => {
   });
 
   it('returns non-zero cost for newly added models', () => {
-    // gpt-5.6-sol: input $5/MTok, output $30/MTok
-    // 1000 × 5 + 500 × 30 = 5000 + 15000 = 20000 / 1M = 0.02
+    // gpt-5.6-sol: restored input $5/MTok, output $30/MTok
+    // 1000 × 5 + 500 × 30 = 20000 / 1M = 0.02
     expect(calculateModelCost(1000, 500, 'gpt-5.6-sol')).toBe(0.02);
     // gpt-5.5: input $5/MTok, output $30/MTok
     // 1000 × 5 + 500 × 30 = 5000 + 15000 = 20000 / 1M = 0.02
@@ -77,20 +89,20 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'claude-opus-4-8')).toBe(0.0175);
     // claude-opus-4-7: input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'claude-opus-4-7')).toBe(0.0175);
-    // claude-sonnet-5: introductory input $2/MTok, output $10/MTok (through Aug 2026)
+    // claude-sonnet-5: the $2/$10 launch rates are now standard
     expect(calculateModelCost(1000, 500, 'claude-sonnet-5')).toBe(0.007);
     // claude-opus-5: input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'claude-opus-5')).toBe(0.0175);
   });
 
-  it('prices the gpt-5.6 line at its reduced rates', () => {
+  it('prices the gpt-5.6 line at its configured fixed rates', () => {
     // gpt-5.6-luna: input $0.20/MTok, output $1.20/MTok
     // 1000 × 0.2 + 500 × 1.2 = 200 + 600 = 800 / 1M = 0.0008
     expect(calculateModelCost(1000, 500, 'gpt-5.6-luna')).toBe(0.0008);
     // gpt-5.6-terra: input $2/MTok, output $12/MTok
     // 1000 × 2 + 500 × 12 = 2000 + 6000 = 8000 / 1M = 0.008
     expect(calculateModelCost(1000, 500, 'gpt-5.6-terra')).toBe(0.008);
-    // luna is the cheapest of the three; sol is unchanged at $5/$30
+    // luna is the cheapest of the three; sol retains $5/$30
     expect(calculateModelCost(1000, 500, 'gpt-5.6-luna')).toBeLessThan(
       calculateModelCost(1000, 500, 'gpt-5.6-terra'),
     );
@@ -121,17 +133,17 @@ describe('calculateModelCost', () => {
   });
 
   describe('cached input tokens', () => {
-    it('charges cached tokens at 0.1× base input rate', () => {
+    it('uses the published GPT-4o cache rate', () => {
       // gpt-4o: input $2.5/MTok
       // 1000 total input, 600 cached, 400 standard
       // Standard: 400 × 2.5 = 1000
-      // Cached:   600 × 2.5 × 0.1 = 150
+      // Cached:   600 × 1.25 = 750
       // Output:   500 × 10 = 5000
-      // Total = 6150 / 1M = 0.00615
+      // Total = 6750 / 1M = 0.00675
       const cost = calculateModelCost(1000, 500, 'gpt-4o', {
         cachedInputTokens: 600,
       });
-      expect(cost).toBe(0.00615);
+      expect(cost).toBe(0.00675);
     });
 
     it('is cheaper than all-standard input', () => {
@@ -196,17 +208,114 @@ describe('calculateModelCost', () => {
       expect(cost).toBe(0.9);
     });
 
-    it('includes cached tokens in the 200K threshold calculation', () => {
-      // 150K standard + 60K cached = 210K total → triggers premium
-      // Premium rates: input $6/MTok, output $22.5/MTok
-      // Standard: (150000-60000) × 6 = 90000 × 6 = 540000
-      // Cached:   60000 × 6 × 0.1 = 36000
-      // Output:   1000 × 22.5 = 22500
-      // Total = 598500 / 1M = 0.5985
-      const cost = calculateModelCost(150_000, 1000, 'claude-sonnet-4', {
-        cachedInputTokens: 60_000,
-      });
-      expect(cost).toBe(0.5985);
+    it('counts cached tokens once in the 200K threshold calculation', () => {
+      // Input is inclusive of cached reads: 90K standard + 60K cached = 150K.
+      expect(
+        calculateModelCost(150_000, 1000, 'claude-sonnet-4', { cachedInputTokens: 60_000 }),
+      ).toBe(0.303);
+      // 150K standard + 60K cached = 210K, which does trigger the premium.
+      expect(
+        calculateModelCost(210_000, 1000, 'claude-sonnet-4', { cachedInputTokens: 60_000 }),
+      ).toBe(0.9585);
     });
   });
+});
+
+it('preserves positive sub-microdollar costs instead of rounding paid usage to free', () => {
+  expect(calculateModelCost(1, 0, 'gpt-4o-mini')).toBeGreaterThan(0);
+});
+
+it.each([
+  'gpt-6-astra',
+  'claude-fable-5-1',
+  'claude-mythos-5-1',
+])('prices newly published %s at standard input/output rates', (model) => {
+  expect(calculateModelCost(1000, 500, model)).toBe(0.035);
+});
+
+it('prices GPT-5.6 Cyber separately from Sol', () => {
+  expect(calculateModelCost(1000, 500, 'gpt-5.6-cyber')).toBe(0.05);
+});
+
+it.each([
+  'claude-fable-5-1',
+  'claude-mythos-5-1',
+  'claude-fable-5-1-20260901',
+])('uses the lower cache-read rate for %s without a long-context premium', (model) => {
+  expect(calculateModelCost(1_000_000, 0, model, { cachedInputTokens: 1_000_000 })).toBe(0.25);
+});
+
+it('retains free moderation and unknown local-provider pricing semantics', () => {
+  expect(calculateModelCost(1000, 0, 'omni-moderation-latest')).toBe(0);
+  expect(calculateModelCost(1000, 0, 'local-unpriced-model')).toBe(0);
+  expect(estimateModelCost(1000, 0, 'local-unpriced-model')).toBeUndefined();
+});
+
+it.each([
+  'gpt-5.6-sol',
+  'gpt-5.6',
+  'gpt-5.6-sol-20260910',
+  'gpt-5.6-20260910',
+])('applies fixed Sol pricing and the exact context boundary to %s', (model) => {
+  expect(findModelRate(model)).toMatchObject({ inputPerMTok: 5, outputPerMTok: 30 });
+  expect(calculateModelCost(1000, 500, model)).toBe(0.02);
+  expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0005);
+  expect(calculateModelCost(272_000, 0, model)).toBe(1.36);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(2.76501);
+  expect(
+    calculateModelCost(300_000, 1000, model, {
+      cachedInputTokens: 100_000,
+      cacheWriteTokens: 50_000,
+    }),
+  ).toBe(2.27);
+  expect(findModelRate(model)).not.toHaveProperty('promotionalPricing');
+});
+
+it('does not resolve inherited object properties as model rates', () => {
+  expect(findModelRate('constructor')).toBeNull();
+  expect(findModelRate('__proto__')).toBeNull();
+});
+
+it.each([
+  'gpt-5.6-sol',
+  'gpt-5.6',
+  'gpt-5.6-sol-20260910',
+  'gpt-5.6-20260910',
+])('switches %s from bundled special rates to regular rates at the UTC cutoff', (model) => {
+  vi.setSystemTime(new Date('2026-11-21T23:59:59.999Z'));
+  expect(findModelRate(model)).toMatchObject({
+    inputPerMTok: 4,
+    cachedInputPerMTok: 0.4,
+    outputPerMTok: 20,
+  });
+  expect(calculateModelCost(1000, 500, model)).toBe(0.014);
+  expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0004);
+  expect(calculateModelCost(272_000, 0, model)).toBe(1.088);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(2.206008);
+  expect(
+    calculateModelCost(300_000, 1000, model, {
+      cachedInputTokens: 100_000,
+      cacheWriteTokens: 50_000,
+    }),
+  ).toBe(1.81);
+  expect(new Map(allKnownModels()).get('gpt-5.6-sol')).toEqual(findModelRate(model));
+  vi.setSystemTime(new Date('2026-11-22T00:00:00.000Z'));
+  expect(findModelRate(model)).toMatchObject({
+    inputPerMTok: 5,
+    cachedInputPerMTok: 0.5,
+    outputPerMTok: 30,
+  });
+  expect(calculateModelCost(1000, 500, model)).toBe(0.02);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(2.76501);
+  expect(new Map(allKnownModels()).get('gpt-5.6-sol')).toEqual(findModelRate(model));
+  vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
+  expect(calculateModelCost(1000, 500, model)).toBe(0.02);
+});
+
+it('does not apply Sol special pricing to other models or free/local providers', () => {
+  vi.setSystemTime(new Date('2026-11-21T23:59:59Z'));
+  expect(calculateModelCost(1000, 500, 'gpt-5.6-cyber')).toBe(0.05);
+  expect(calculateModelCost(1000, 500, 'gpt-5.6-terra')).toBe(0.008);
+  expect(calculateModelCost(1000, 0, 'omni-moderation-latest')).toBe(0);
+  expect(estimateModelCost(1000, 0, 'local-unpriced')).toBeUndefined();
 });

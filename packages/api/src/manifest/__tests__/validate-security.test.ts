@@ -153,3 +153,19 @@ describe('validateSecurityConfig', () => {
     expect(findings).toHaveLength(0);
   });
 });
+
+it('flags query API-key schemes as unsupported', () => {
+  expect(
+    validateSecurityConfig({
+      ...baseManifest,
+      securitySchemes: { key: { type: 'apiKey', in: 'query', name: 'key' } },
+    }),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: 'manifest.security.unsupported-query-api-key',
+        severity: 'error',
+      }),
+    ]),
+  );
+});

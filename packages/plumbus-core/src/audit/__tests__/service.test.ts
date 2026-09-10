@@ -8,7 +8,7 @@ function makeMockDb() {
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockImplementation((row: unknown) => {
         inserted.push(row);
-        return Promise.resolve();
+        return { onConflictDoNothing: () => Promise.resolve() };
       }),
     }),
   };
@@ -145,4 +145,32 @@ describe('createAuditService', () => {
     );
     expect(db.insert).not.toHaveBeenCalled();
   });
+});
+
+it('retries transient writer failures with the same event identity and propagates permanent failures', async () => {
+  const write = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
+  const service = createAuditService({
+    db: {} as never,
+    auth: { userId: 'actor', roles: [], scopes: [], provider: 'test' },
+    writer: { write },
+  });
+  await service.record('event');
+  expect(write).toHaveBeenCalledTimes(2);
+  expect(write.mock.calls[0]?.[0].id).toBe(write.mock.calls[1]?.[0].id);
+  write.mockReset().mockRejectedValue(new Error('offline'));
+  await expect(service.record('event')).rejects.toThrow('Audit persistence failed');
+  expect(write).toHaveBeenCalledTimes(3);
+});
+
+it('rejects unsupported audit outcomes before writing', async () => {
+  const write = vi.fn();
+  const service = createAuditService({
+    db: {} as never,
+    auth: { roles: [], scopes: [], provider: 'test' },
+    writer: { write },
+  });
+  await expect(service.record('event', { outcome: 'forged' })).rejects.toThrow(
+    'Invalid audit outcome',
+  );
+  expect(write).not.toHaveBeenCalled();
 });

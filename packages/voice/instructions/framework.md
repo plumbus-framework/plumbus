@@ -1,14 +1,25 @@
 # @plumbus/voice — Framework Instructions for AI Agents
 
+## Release family 0.5.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
+## Security release guidance (0.5.0)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+
+Configure session budgets for production and preserve inbound message limits: audio ≤64 KiB, control ≤16 KiB, pending input ≤256 KiB. Session-token secrets need at least 32 non-padding characters. Finite positive configured lifetimes remain supported (default 90 seconds). Keep minting, access checks, and accounting on framework routes/`ctx.*`.
+
 **Exact path in a consumer app:** `node_modules/@plumbus/voice/instructions/framework.md`
 
 Index (open first): `node_modules/@plumbus/voice/instructions/README.md`
 
 This package is the voice primitive for Plumbus apps. Use it when the user wants realtime speech input/output around an existing app brain, with governed session routes, provider abstraction, and shared cost tracking.
 
-**`package.json` peer (framework releases):** `"@plumbus/core": "0.6.x"` — voice requires core 0.6+; copy from `packages/voice/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — voice requires core 0.6+; copy from `packages/voice/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
-**Provider add-ons (copy literals):** `@plumbus/voice-openai` / `-deepdub` / `-soniox` / `-elevenlabs` / `-minimax` / `-livekit` at `"0.1.x"`, peer `@plumbus/voice` `"0.4.x"`. Install only what the app uses, then pass each `*_REGISTRATION` into `createProviderRegistry()`. See [`docs/upgrading-voice-provider-packages.md`](../../../docs/upgrading-voice-provider-packages.md).
+**Provider add-ons (copy literals):** `@plumbus/voice-openai` / `-deepdub` / `-soniox` / `-elevenlabs` / `-minimax` / `-livekit` at `"0.2.x"`, peer `@plumbus/voice` `"0.5.x"`. Install only what the app uses, then pass each `*_REGISTRATION` into `createProviderRegistry()`. See [`docs/upgrading-voice-provider-packages.md`](../../../docs/upgrading-voice-provider-packages.md).
 
 **Do NOT use this package** for: normal text-only LLM calls (`ctx.ai.generate`), a multi-turn text chat UI (`@plumbus/chat` / `@plumbus/chat-ui`), or a clean-room speech agent architecture that bypasses Plumbus routes and `ctx.*`.
 

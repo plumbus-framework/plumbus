@@ -54,3 +54,26 @@ describe('voice session token', () => {
     await expect(verifyVoiceSessionToken({ token, secret: SECRET })).resolves.toBeNull();
   });
 });
+
+it('preserves explicitly configured valid handshake lifetimes', async () => {
+  const token = mintVoiceSessionToken({
+    secret: SECRET,
+    auth: { userId: 'u', roles: [], scopes: [], provider: 'test' },
+    claims: { voiceName: 'v', sessionId: 's', transport: 'websocket' },
+    expiresInSeconds: 600,
+  });
+  expect(await verifyVoiceSessionToken({ token, secret: SECRET })).toMatchObject({
+    auth: { userId: 'u' },
+  });
+});
+
+it.each([0, -1, Infinity, NaN])('rejects invalid handshake lifetime %s', (expiresInSeconds) => {
+  expect(() =>
+    mintVoiceSessionToken({
+      secret: SECRET,
+      auth: { userId: 'u', roles: [], scopes: [], provider: 'test' },
+      claims: { voiceName: 'v', sessionId: 's', transport: 'websocket' },
+      expiresInSeconds,
+    }),
+  ).toThrow('finite positive');
+});

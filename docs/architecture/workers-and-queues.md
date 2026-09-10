@@ -308,3 +308,5 @@ When `jobQueue` is omitted, MCP falls back to in-process execution (backward com
 - [Configuration → Queue](../sdk-reference/configuration.md#queue-configuration) — env vars
 - [Upgrading Workers](../upgrading-workers.md) — 0.5.0 migration notes
 - [Deployment instructions](../../packages/plumbus-core/instructions/deployment.md) — Docker and Kubernetes worker containers
+
+Redis event envelopes are schema-validated before subscribers receive them. Malformed JSON, invalid control fields, and invalid event timestamps are discarded from processing with a diagnostic, preventing recurring poison-envelope delivery. Payload contracts are still validated by the consuming primitive; Redis remains an operator-controlled trust boundary.

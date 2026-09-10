@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   createPostgresLoginTransactionStore,
   createPostgresSessionStore,
@@ -15,7 +15,7 @@ const pgEnabled = process.env.PLUMBUS_PG_TEST === '1';
 const databaseUrl = process.env.PLUMBUS_TEST_DATABASE_URL;
 
 describe.runIf(pgEnabled && Boolean(databaseUrl))('postgres auth stores', () => {
-  const sql = postgres(databaseUrl ?? '', { max: 1 });
+  const sql = postgres(databaseUrl ?? '', { max: 10 });
   const db = drizzle(sql);
   let sessionStore: ReturnType<typeof createPostgresSessionStore>;
   let transactionStore: ReturnType<typeof createPostgresLoginTransactionStore>;
@@ -27,9 +27,12 @@ describe.runIf(pgEnabled && Boolean(databaseUrl))('postgres auth stores', () => 
     );
     const ddl = readFileSync(migrationPath, 'utf8');
     await sql.unsafe(ddl);
-    await sql`TRUNCATE auth_sessions, auth_login_transactions`;
     sessionStore = createPostgresSessionStore(db);
     transactionStore = createPostgresLoginTransactionStore(db);
+  });
+
+  beforeEach(async () => {
+    await sql`TRUNCATE auth_sessions, auth_login_transactions`;
   });
 
   afterAll(async () => {
@@ -46,8 +49,11 @@ describe.runIf(pgEnabled && Boolean(databaseUrl))('postgres auth stores', () => 
 
   it('checkAuthSchemaCompatibility fails when a column is dropped', async () => {
     await sql`ALTER TABLE auth_sessions DROP COLUMN IF EXISTS csrf_hash`;
-    await expect(checkAuthSchemaCompatibility(db)).rejects.toThrow(/csrf_hash/);
-    await sql`ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS csrf_hash text NOT NULL DEFAULT ''`;
+    try {
+      await expect(checkAuthSchemaCompatibility(db)).rejects.toThrow(/csrf_hash/);
+    } finally {
+      await sql`ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS csrf_hash text NOT NULL DEFAULT ''`;
+    }
   });
 
   it('consume is single-winner under parallel contention', async () => {

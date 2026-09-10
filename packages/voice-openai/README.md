@@ -1,11 +1,16 @@
 # @plumbus/voice-openai
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 > **OpenAI Whisper / Realtime STT and OpenAI TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register the three `*_REGISTRATION` exports you need — OpenAI is **not** built into `@plumbus/voice`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-openai.svg)](https://www.npmjs.com/package/@plumbus/voice-openai)
 [![license](https://img.shields.io/npm/l/@plumbus/voice-openai.svg)](./LICENSE)
-[![peer: @plumbus/core 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/voice 0.4.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.4.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
+[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/voice 0.5.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.5.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
 
 ## What is this?
 
@@ -41,7 +46,7 @@ Use this package when you want Whisper (including a Whisper-compatible local `ba
 
 ## Status
 
-Optional add-on of `@plumbus/voice` `0.4.x` and `@plumbus/core` `0.6.x`. Implements Whisper batch STT, Realtime streaming STT, and OpenAI TTS with pace-only delivery tone. Install alone does not register any provider.
+Optional add-on of `@plumbus/voice` `0.5.x` and `@plumbus/core` `0.7.x`. Implements Whisper batch STT, Realtime streaming STT, and OpenAI TTS with pace-only delivery tone. Install alone does not register any provider.
 
 ## Install
 
@@ -49,7 +54,7 @@ Optional add-on of `@plumbus/voice` `0.4.x` and `@plumbus/core` `0.6.x`. Impleme
 pnpm add @plumbus/voice @plumbus/voice-openai
 ```
 
-Peers (copy literals): `@plumbus/core` `0.6.x`, `@plumbus/voice` `0.4.x`.
+Peers (copy literals): `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`.
 
 Env: `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`, default `https://api.openai.com/v1`). For Azure, LiteLLM, or a self-hosted OpenAI-compatible sidecar, set `baseUrl` / `OPENAI_BASE_URL` — passed as the SDK `baseURL` (Realtime also accepts `ws`/`wss` bases and normalizes them to HTTP(S)). Do not invent a parallel adapter.
 

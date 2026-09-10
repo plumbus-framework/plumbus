@@ -1,5 +1,10 @@
 # @plumbus/chat-ui
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/chat` `0.2.x`, `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 > **React UI for [`@plumbus/chat`](../chat/).** Drop in a working AI chat surface in 5 lines — message stream, input, source citations, refusal notices, cooldowns, and confirmation slot — all wired to the framework's `ChatEvent` protocol.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat-ui.svg)](https://www.npmjs.com/package/@plumbus/chat-ui)
@@ -50,7 +55,7 @@ The server owns policy, retrieval, audit; the UI just renders state derived from
 
 ## Status
 
-Peer-locked to `@plumbus/chat` `0.1.x`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
+Peer-locked to `@plumbus/chat` `0.2.x`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
 
 ## Install
 
@@ -59,8 +64,8 @@ pnpm add @plumbus/chat-ui
 ```
 
 Peers:
-- `@plumbus/chat` `0.1.x` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
-- `@plumbus/core` `0.5.x || 0.6.x` (**≥ 0.6.11** via chat 0.1.11)
+- `@plumbus/chat` `0.2.x` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
+- `@plumbus/core` `0.7.x` (**≥ 0.6.11** via chat 0.1.11)
 - `react` `>=19` — provided transitively by [`@plumbus/ui`](../ui/) in Plumbus apps; do not add React to your own `package.json`
 
 Prerequisites: a server-side `defineChat({...})` declaration and `registerChatRoutes(app, routeConfig, [chat])` from `@plumbus/chat`.

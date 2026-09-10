@@ -40,6 +40,7 @@ export {
 export {
   allKnownModels,
   calculateModelCost,
+  estimateModelCost,
   findModelRate,
   type Kind,
   type ModelRate,

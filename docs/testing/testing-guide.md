@@ -535,3 +535,5 @@ plumbus test --watch
 plumbus test --coverage
 ```
 
+
+Custom execution-context fixtures must inject an audit service when exercising audited capabilities; missing audit wiring now fails explicitly. The E2E helper's database stub supports the audit writer's idempotent insert chain, without persisting audit records to a real database. Use an actual database/audit writer when testing persistence guarantees.

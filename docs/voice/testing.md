@@ -23,6 +23,12 @@ Run `runVoiceTurn()` or `mockVoiceRuntime()` with mock providers:
 - client TTS (`browser-tts`)
 - cost-record assertions
 
+`@plumbus/voice-livekit` also runs a simulated worker integration in the default suite. It registers the LiveKit transport explicitly, injects a fake room connection, drives a turn, and checks transport cost recording and disconnect on shutdown. It requires no vendor credentials and does not verify a real LiveKit room connection.
+
+Lifecycle regressions cover concurrent/repeated shutdown, rejected and pending cost recorders, individual cleanup failures, initial hello failures, and partially initialized native connections. Assertions check that remaining resources are released and that accounting is attempted only once per session.
+
+Include delayed `onAssistantDelta` callbacks when testing real transports: a brain can emit deltas without awaiting them. The runtime must drain pending delivery before flushing/closing the TTS queue, preserve token order, and fail the turn if delivery rejects. Immediate in-memory callbacks alone do not cover this race.
+
 ### Tier 2 — HTTP smoke
 
 Fastify `inject()` tests for:
@@ -44,7 +50,7 @@ In-process websocket tests for:
 
 ### Tier 4 — optional live vendor checks
 
-Behind `VOICE_LIVE_TEST=1` (skipped in default CI). OpenAI / Soniox / Deepdub / LiveKit live smokes live in their add-on packages (`@plumbus/voice-openai`, `-soniox`, `-deepdub`, `-livekit`).
+Behind `VOICE_LIVE_TEST=1` (skipped in default CI). Soniox and Deepdub live smokes live in their add-on packages (`@plumbus/voice-soniox`, `-deepdub`) and require vendor credentials. The optional Whisper test also requires credentials and an audio fixture. A gated test that returns early for missing configuration does not establish live provider coverage.
 
 ## Where provider tests live
 

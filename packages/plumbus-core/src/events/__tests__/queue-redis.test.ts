@@ -90,3 +90,25 @@ describe('createRedisQueue visibility recovery', () => {
     await queue.close();
   });
 });
+
+it('discards malformed envelopes before subscriber dispatch', async () => {
+  const handler = vi.fn(async () => {});
+  const client: RedisClient = {
+    lpush: vi.fn(async () => 1),
+    rpoplpush: vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify({ id: { malicious: true } }))
+      .mockResolvedValue(null),
+    lrem: vi.fn(async () => 1),
+    lrange: vi.fn(async () => []),
+    quit: vi.fn(async () => {}),
+  };
+  const queue = createRedisQueue(client, { prefix: 'invalid', pollIntervalMs: 10 });
+  queue.subscribe(handler);
+  try {
+    await vi.waitFor(() => expect(client.lrem).toHaveBeenCalled());
+    expect(handler).not.toHaveBeenCalled();
+  } finally {
+    await queue.close();
+  }
+});

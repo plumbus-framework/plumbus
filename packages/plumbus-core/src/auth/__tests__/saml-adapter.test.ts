@@ -50,7 +50,7 @@ function buildSamlResponse(opts: {
   });
 
   if (opts.skipSignature) {
-    return `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+    return `<samlp:Response Destination="${SP_ENTITY_ID}" InResponseTo="_request" xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
 <saml:Assertion>${assertionBody}</saml:Assertion>
 </samlp:Response>`;
   }
@@ -66,7 +66,7 @@ function signSamlResponseWithKey(
 ): string {
   const id = opts.assertionId ?? `_${randomUUID().replace(/-/g, '')}`;
   const issueInstant = new Date().toISOString();
-  const unsignedXml = `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+  const unsignedXml = `<samlp:Response Destination="${SP_ENTITY_ID}" InResponseTo="_request" xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
 <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${id}" Version="2.0" IssueInstant="${issueInstant}">
 ${assertionBody}
 </saml:Assertion>
@@ -140,7 +140,7 @@ function buildAssertionBody(opts: {
 
   return `<saml:Issuer>${issuer}</saml:Issuer>
 ${conditions}
-<saml:Subject><saml:NameID>${nameId}</saml:NameID></saml:Subject>
+<saml:Subject><saml:NameID>${nameId}</saml:NameID><saml:SubjectConfirmation><saml:SubjectConfirmationData Recipient="${SP_ENTITY_ID}" InResponseTo="_request" NotOnOrAfter="${notOnOrAfter}" /></saml:SubjectConfirmation></saml:Subject>
 ${attributeStatements}`;
 }
 
@@ -150,6 +150,7 @@ function toBase64(xml: string): string {
 
 describe('createSamlAdapter', () => {
   const adapter = createSamlAdapter({
+    allowUnsolicited: true,
     idpCertificate: certForAdapter,
     issuer: IDP_ENTITY_ID,
     audience: SP_ENTITY_ID,
@@ -265,7 +266,7 @@ describe('createSamlAdapter', () => {
       });
       const wrapped = valid.replace(
         '<samlp:Response',
-        `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+        `<samlp:Response Destination="${SP_ENTITY_ID}" InResponseTo="_request" xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
 <saml:Assertion ID="_forged" Version="2.0">${forgedBody}</saml:Assertion>`,
       );
       expect(adapter.processSamlResponse(toBase64(wrapped))).toBeNull();
@@ -318,6 +319,7 @@ describe('createSamlAdapter', () => {
   describe('custom attribute mapping', () => {
     it('maps attributes using custom configuration', () => {
       const customAdapter = createSamlAdapter({
+        allowUnsolicited: true,
         idpCertificate: certForAdapter,
         issuer: IDP_ENTITY_ID,
         audience: SP_ENTITY_ID,
@@ -342,4 +344,34 @@ describe('createSamlAdapter', () => {
       expect(result?.tenantId).toBe('org-99');
     });
   });
+});
+
+it('requires request correlation by default and consumes assertions once', () => {
+  const adapter = createSamlAdapter({
+    idpCertificate: certForAdapter,
+    issuer: IDP_ENTITY_ID,
+    audience: SP_ENTITY_ID,
+  });
+  const encoded = toBase64(buildSamlResponse({}));
+  expect(adapter.processSamlResponse(encoded)).toBeNull();
+  expect(adapter.processSamlResponse(encoded, '_wrong')).toBeNull();
+  expect(adapter.processSamlResponse(encoded, '_request')).not.toBeNull();
+  expect(adapter.processSamlResponse(encoded, '_request')).toBeNull();
+});
+
+it('rejects malformed expiry and wrong recipient/destination', () => {
+  for (const xml of [
+    buildSamlResponse({ notOnOrAfter: 'invalid' }),
+    buildSamlResponse({}).replace(
+      'Destination="https://app.example.com"',
+      'Destination="https://evil.example.com"',
+    ),
+  ]) {
+    const adapter = createSamlAdapter({
+      idpCertificate: certForAdapter,
+      issuer: IDP_ENTITY_ID,
+      audience: SP_ENTITY_ID,
+    });
+    expect(adapter.processSamlResponse(toBase64(xml), '_request')).toBeNull();
+  }
 });

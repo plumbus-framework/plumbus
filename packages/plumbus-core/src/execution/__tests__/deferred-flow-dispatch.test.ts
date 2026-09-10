@@ -57,6 +57,7 @@ describe('deferred flow dispatch inside transactional handlers', () => {
     const registry = new CapabilityRegistry();
     registry.register(cap);
     const ctx = createExecutionContext({
+      audit: { record: vi.fn(async () => {}) },
       auth: { userId: 'u1', roles: ['admin'], scopes: [], provider: 'test', tenantId: 't1' },
       data: {},
       flows,

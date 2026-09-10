@@ -1,13 +1,24 @@
 # @plumbus/ai-bedrock — framework boundary
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
+## Security release guidance (0.2.0)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+
+Pricing-file base/cache/global rates must be finite and nonnegative. Explicit zero rates remain valid. Unknown pricing must not be turned into a fake free rate to bypass budgets. Register the package adapter; keep business logic on Plumbus prompts and `ctx.ai`.
+
 **Exact path in a consumer app:** `node_modules/@plumbus/ai-bedrock/instructions/framework.md`
 
 Index: `node_modules/@plumbus/ai-bedrock/instructions/README.md`  
 Pricing pull / k8s: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`
 
-`@plumbus/ai-bedrock` is the **Amazon Bedrock AI provider** for Plumbus. It implements `AIProviderAdapter` (Converse chat, Titan embeddings, package-owned pricing). It is an **optional peer** of `@plumbus/core` (version-locked **`0.6.x`**).
+`@plumbus/ai-bedrock` is the **Amazon Bedrock AI provider** for Plumbus. It implements `AIProviderAdapter` (Converse chat, Titan embeddings, package-owned pricing). It is an **optional peer** of `@plumbus/core` (version-locked **`0.7.x`**).
 
-**`package.json` peer:** `"@plumbus/core": "0.6.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer:** `"@plumbus/core": "0.7.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## When to use / when not
 
@@ -279,7 +290,7 @@ Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Con
 1. **Framework-first** — business logic in `definePrompt` / capabilities / `ctx.ai`; never call Bedrock SDK from app code for product features.
 2. **Do not** copy Anthropic `MODEL_PRICING` rows for Bedrock — rates diverge (e.g. Haiku 4.5 regional Bedrock ≠ Anthropic API).
 3. **Containers:** prefer `AI_BEDROCK_PRICING_FILE` ([pricing.md](./pricing.md)).
-4. **Peer literal** is `"0.6.x"` — never `^0.6.0`. Runtime floor **≥ 0.6.16**.
+4. **Peer literal** is `"0.7.x"` — never `^0.6.0`. Runtime floor **≥ 0.6.16**.
 5. Install the package explicitly; core only `createRequire`s it when the provider name is `bedrock`.
 6. **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; never invent a Bedrock-only tool API. `toolChoice: 'none'` omits tools.
 7. **Embeddings** — via `createRAGPipeline({ provider: bedrockAdapter })` + `ctx.ai.retrieve` / rag ingest — not Converse, not Mantle.

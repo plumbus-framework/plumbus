@@ -28,7 +28,7 @@ If any check fails → **403 Forbidden** with audit record.
 
 ## Flow auth snapshot (0.5+)
 
-Flow capability steps run under the **caller's stored auth snapshot**, not the worker's `system` identity. When a flow starts, the framework persists the full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step (with `actor` / `tenant_id` from the execution row).
+Flow capability steps run under the **caller's stored auth snapshot**, not the worker's `system` identity. When a flow starts, the framework persists the authorization fields of `AuthContext` in `flow_executions.auth_snapshot_json` and validates and restores them on each step against the execution row actor/tenant.
 
 - **User-triggered flows** (HTTP, API, manual `ctx.flows.start`) — steps enforce the original caller's roles and scopes. Capabilities must list those roles in `access.roles` (or `public: true`). There is no implicit `system` elevation on every step.
 - **Scheduled / worker-owned flows** — still run under explicit `system` auth from the scheduler or worker bootstrap.
@@ -100,3 +100,10 @@ import { hashPassword, verifyPassword } from "@plumbus/core";
 - `hashPassword(password)` stores credentials as `salt:hash` using Node.js `scrypt`
 - `verifyPassword(password, storedHash)` performs a timing-safe comparison
 - Store only the returned hash string in entity fields marked `classification: "highly_sensitive"`
+
+
+## Core 0.7.0 security migration
+
+Read [upgrading-security-release.md](./upgrading-security-release.md) before changing authentication or recovering stored flows. Never restore public development signing keys or fabricate system auth snapshots. JWTs require finite expiry; configured finite lifetimes are preserved unless an explicit maximum is set. SAML validates recipient/request correlation and consumes assertions once; unsolicited mode requires an intentional opt-in. Duplicate cookie names are discarded, and client-facing denials omit private policy details.
+
+Audit writes retry with a stable ID; permanent failures and missing audit wiring surface as errors. They do not undo committed or external effects. Preserve valid outcome values and use documented durable audit extension points when needed. Do not silence audit failures by replacing the service with a no-op.

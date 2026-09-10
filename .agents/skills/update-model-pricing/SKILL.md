@@ -65,7 +65,7 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 3. Check if `LONG_CONTEXT_PREMIUM_MODELS` needs updating (currently Claude Sonnet 4 and 4.5; Sonnet 4.6 and Opus models do NOT have long context premium)
 4. Update the `// Last updated:` comment at the top of the file to today's date
 
-Keep the `CURRENT_PRICING` snapshot inside `scripts/fetch-pricing.ts` in sync with the same edits — it is what the next run diffs against. Re-running the script should then report 0 added and 0 changed.
+The manual script reads `allKnownModels()` from the runtime catalog; there is no duplicate rate snapshot. Sol has a bundled special-rate window ending at the framework policy cutoff `2026-11-22T00:00:00.000Z`, after which the retained regular rates apply. OpenAI guarantees the discount at least through November 21, not a fixed expiry. Review any extension explicitly; never add runtime price fetching. Test the exact cutoff, aliases, cache multipliers, and result/ledger consistency whenever changing this window.
 
 See [current-structure.md](./references/current-structure.md) for the file's detailed layout and the pricing-page structure the script depends on.
 

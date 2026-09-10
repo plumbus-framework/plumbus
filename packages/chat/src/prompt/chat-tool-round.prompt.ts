@@ -5,8 +5,9 @@ import { z } from '@plumbus/core/zod';
 export const chatToolRoundPrompt = definePrompt({
   name: 'chat.toolRound',
   domain: 'chat',
+  system: '{{systemPrompt}}',
   description:
-    '{{systemPrompt}}\n\nUser message: {{userMessage}}\n\nYou may call the provided tools to gather information or perform allowed read actions. Call a tool when it helps answer the user. When you have gathered enough information, STOP calling tools and reply with a brief acknowledgement — a separate step composes the final answer.',
+    'User message: {{userMessage}}\n\nYou may call the provided tools to gather information or perform allowed read actions. Call a tool when it helps answer the user. When you have gathered enough information, STOP calling tools and reply with a brief acknowledgement — a separate step composes the final answer.',
   input: z.object({
     systemPrompt: z.string(),
     userMessage: z.string(),

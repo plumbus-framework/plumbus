@@ -200,7 +200,7 @@ All AI responses are validated against the prompt's output Zod schema. On failur
 
 Every AI invocation records: model used, input/output token counts, latency, and prompt name. Token counts come directly from provider responses.
 
-**Per-request cost** for OpenAI/Anthropic is computed from a built-in pricing table (`calculateModelCost`). Unknown models (Ollama, custom endpoints) return cost `$0`. Cached-token and long-context adjustments are applied when providers return cache metadata.
+**Per-request accounting** uses `estimateModelCost()` and the fixed pricing catalog. The legacy `calculateModelCost()` and generation `cost` remain numeric for compatibility, but an unknown model produces `costAvailable: false`; it must be recorded as `null` in a custom ledger. Use `aggregatedCostAvailable` for tool-loop totals and `costAvailable` for embedding callbacks. Explicit free costs remain zero/available. Cached-token and long-context adjustments use provider usage metadata. Sol's bundled window uses $4/$20 ($0.40 cached input) before `2026-11-22T00:00:00.000Z`, then $5/$30 ($0.50 cached input). This is a static accounting fallback after the minimum guaranteed promotional period, not a confirmed provider expiry. Do not add runtime pricing fetches.
 
 **Provider-supplied cost:** when an adapter sets `cost` on `ProviderResponse` / stream `done` (Amazon Bedrock via `@plumbus/ai-bedrock`), `createAIService` **prefers that value** over `MODEL_PRICING`. Bedrock never returns USD — the add-on multiplies usage × AWS Price List rates (auto-download or `AI_BEDROCK_PRICING_FILE`). Do not alias Bedrock rates to Anthropic catalog rows.
 
@@ -357,6 +357,14 @@ Entity definitions are merged from the registry when the `security` block is pre
 Also:
 
 - Tenant isolation is enforced — prompts cannot access cross-tenant data
-- All AI invocations are recorded in the audit trail
+- Cost and explainability hooks depend on configured services; do not assume audit durability or complete pricing without checking that wiring.
 
 See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.
+
+
+## Security release rules (core 0.7.0)
+
+- `ctx.ai` is bound to the executing actor/tenant. Keep `withContext` on wrappers; never reuse another caller's bound service. Missing-tenant retrieval returns only unscoped documents.
+- With security configured, generate/stream/extract/classify apply the field-classification policy. Extract/classify use the `text` field; arbitrary free-text PII is not automatically detected. Explainability stores redacted input.
+- Unknown prior spend rejects further requests when a dollar cap is configured. Local/unpriced providers still work without dollar caps; explicit free prices stay supported. Never supply fake zero costs to bypass budgets.
+- Read [the security release checklist](./upgrading-security-release.md) before upgrading custom cost hooks or AI wrappers.

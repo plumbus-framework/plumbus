@@ -454,7 +454,7 @@ For frontend-ready modules and scaffolds, use `plumbus ui`.
 
 ### plumbus mcp
 
-Expose MCP-exposed capabilities to AI agents. Requires `exposeAs: ['mcp']` on capabilities and `mcp.agents` in config for authentication. See [MCP overview](../mcp/overview.md).
+Expose MCP-exposed capabilities to AI agents. Requires `exposeAs: ['mcp']` on capabilities. The CLI reads environment configuration; use `AUTH_SECRET` for Bearer JWT authentication. Application-owned MCP runtime wiring can supply `mcp.agents` for opaque agent tokens. See [MCP overview](../mcp/overview.md).
 
 ```bash
 plumbus mcp serve [--stdio] [--http] [--port <port>] [--host <host>]
@@ -469,7 +469,9 @@ plumbus mcp list-tools
 | `generate` | Write `mcp-manifest.json` and skill files under `.plumbus/generated/` |
 | `list-tools` | Print MCP tool names and descriptions from current app contracts |
 
-stdio auth uses `PLUMBUS_MCP_TOKEN`; HTTP uses `Authorization: Bearer <token>`.
+HTTP auth uses `Authorization: Bearer <token>`. With an agent-map adapter, stdio auth uses `PLUMBUS_MCP_TOKEN`; JWT authentication requires an Authorization header.
+
+`serve` respects `PLUMBUS_ENV`, then `NODE_ENV` (default: `development`). Outside development, startup requires configured agents or an explicit `AUTH_SECRET` with at least 32 characters excluding surrounding whitespace; known development placeholders are rejected. In development, missing credentials allow anonymous calls only and never authenticate placeholder-signed JWTs. See [MCP authentication](../mcp/agent-authentication.md#cli-environment-and-credentials).
 
 ---
 
@@ -1003,3 +1005,6 @@ plumbus run nonexistent  # Shows available command names
 plumbus run setup-admin -- --email admin@company.com
 ```
 
+## Generated-file safety
+
+Project/resource scaffold names and provider/compliance identifiers reject executable syntax and path separators before generation. Translation export locale/namespace names and MCP skill names must be single safe path segments. Shared scaffold writers contain generated relative paths within their output root, reject traversal and existing symlinks (including dangling links), and create protected scaffold files exclusively to avoid overwriting a file created after an existence check. All shared CLI writes refuse symlink targets. Run code generation in a project tree controlled by the operator; concurrent hostile replacement of parent directories is outside the portable Node filesystem contract.

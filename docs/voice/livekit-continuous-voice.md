@@ -248,6 +248,16 @@ process — no app-local worker file required. The CLI dynamically imports
 `startVoiceAgentWorker()` calls LiveKit's `initializeLogger()` before
 constructing `AgentServer` (required by `@livekit/agents` 1.4.x).
 
+For `joinVoiceRoomSession()` and the legacy `startVoiceWorker()` wrapper, call
+`stop()` during shutdown. Concurrent or repeated calls share one cleanup and one
+transport cost-recording attempt, including when that attempt fails. Shutdown
+attempts all resource cleanup before awaiting accounting, so a rejected or hanging
+cost recorder cannot keep the room connected. The returned promise still waits
+for accounting and rejects on cleanup or accounting failure. A failed connection
+or initial session hello releases acquired resources and preserves the original
+startup error. Transport cleanup attempts track, audio source, and room teardown
+independently, even if one fails.
+
 ## Client
 
 ```ts

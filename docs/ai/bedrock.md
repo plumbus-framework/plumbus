@@ -599,3 +599,5 @@ Contributions that stay within the `AIProviderAdapter` contract are welcome; do 
 - Live smoke: [`examples/ai-bedrock-smoke`](../../examples/ai-bedrock-smoke)
 - Peer range policy: [`packages/plumbus-core/instructions/peer-dependencies.md`](../../packages/plumbus-core/instructions/peer-dependencies.md)
 - Monorepo packages table: [root README — Packages](../../README.md#packages)
+
+Normalized pricing files require finite nonnegative rates for base, cache, and global prices. Zero is valid for a free rate; negative values, NaN, and infinity are rejected before the pricing store accepts the file.

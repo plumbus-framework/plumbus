@@ -705,7 +705,7 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
-    it('returns cost=0 for an embedding model not in the pricing catalog', async () => {
+    it('omits cost for an embedding model not in the pricing catalog', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -719,7 +719,7 @@ describe('AI Provider Adapters', () => {
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
       const result = await adapter.embed({ texts: ['x'] });
 
-      expect(result.cost).toBe(0);
+      expect(result.cost).toBeUndefined();
 
       vi.unstubAllGlobals();
     });
@@ -809,7 +809,7 @@ describe('AI Provider Adapters', () => {
       const result = await adapter.complete({ prompt: 'Say hello' });
 
       expect(result.content).toBe('Hello from Claude');
-      expect(result.usage.totalTokens).toBe(18);
+      expect(result.usage.totalTokens).toBe(23);
       expect(result.usage.cachedInputTokens).toBe(3);
       expect(result.usage.cacheWriteTokens).toBe(2);
       expect(mockFetch).toHaveBeenCalledWith(

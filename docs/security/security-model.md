@@ -72,7 +72,7 @@ access: {
 
 ### Flow step auth (auth snapshot)
 
-Flow capability steps run under the **caller's stored auth snapshot**, not the worker's `system` identity. When a flow starts, the framework persists the full `AuthContext` in `flow_executions.auth_snapshot_json` and restores it on each step (with `actor` / `tenant_id` from the execution row).
+Flow capability steps run under the **caller's stored auth snapshot**, not the worker's `system` identity. When a flow starts, the framework persists the authorization fields of `AuthContext` in `flow_executions.auth_snapshot_json` and validates and restores them on each step against the execution row actor/tenant.
 
 - **User-triggered flows** (HTTP, API, `ctx.flows.start` from a capability) keep the original caller's `roles`, `scopes`, and `tenantId`. Capabilities invoked by flow steps must allow that identity — the engine does **not** auto-inject `system` on user flows.
 - **Scheduled and worker-owned flows** still run under explicit `system` auth from the scheduler or worker bootstrap.
@@ -84,6 +84,8 @@ See [Flows → Capability Step](../core-concepts/flows.md#capability-step) and [
 ## MCP agent authentication
 
 External AI agents use MCP (`plumbus mcp serve`) with the same deny-by-default access model as HTTP. Agents authenticate via opaque tokens configured in `plumbus.config.ts` → `mcp.agents`, resolved by `createMcpAuthAdapter` in `@plumbus/mcp`.
+
+Application-owned MCP runtime wiring must supply the agent map; the current CLI loads environment variables rather than importing project config files. CLI callers can authenticate with Bearer JWTs using an explicit `AUTH_SECRET`. `mcp serve` respects `PLUMBUS_ENV` / `NODE_ENV` and refuses to start outside development without configured credentials. Development without credentials is anonymous; the public development secret never authenticates MCP requests. See [CLI environment and credentials](../mcp/agent-authentication.md#cli-environment-and-credentials).
 
 | Transport | Token |
 |-----------|--------|
@@ -99,6 +101,10 @@ See [MCP agent authentication](../mcp/agent-authentication.md).
 ## Auth Adapters
 
 ### JWT Adapter
+
+JWT verification requires a finite, future `exp`, checks `nbf` and `iat` when present, and optionally enforces an explicit `maxTokenLifetimeSeconds` bound (otherwise finite lifetimes remain issuer-controlled). Tokens without expiration are rejected. `signJwt` rejects reserved claims in `claims`; pass subject, roles, scopes, tenant, issuer, audience, and expiration through their named options. Issuer/audience checks remain configurable for a single trust domain; configure both whenever a signing key serves multiple token purposes, and use separate keys across applications.
+
+No bootstrap injects a public development signing key. Without configured credentials, development HTTP/MCP/voice traffic remains anonymous; outside development startup fails unless a custom authenticator or authentication runtime is supplied where supported. JWT adapters reject known development placeholders and secrets shorter than 32 non-padding characters in every environment. Length checks are not entropy measurements: generate a random secret and store it outside source control.
 
 The JWT adapter verifies HMAC-SHA256 signatures using timing-safe comparison before trusting any token payload. Tokens with invalid, forged, or missing signatures are rejected.
 
@@ -158,6 +164,8 @@ const adapter = createOidcAdapter({
 });
 ```
 
+Unknown JWKS key IDs share a 30-second refresh cooldown; concurrent lookups share one refresh. Discovery/JWKS requests have a 10-second timeout. Key rotation can take up to the cooldown to become visible.
+
 The adapter:
 - Fetches the OIDC discovery document from `{issuer}/.well-known/openid-configuration`
 - Retrieves JWKS public keys from the provider's `jwks_uri`
@@ -184,6 +192,10 @@ With `authenticationRuntime` supplied, **`auth.secret` is not required** in Plum
 See [docs/auth/README.md](../auth/README.md) for wiring, Cognito, and migration from JWT/localStorage scaffolding.
 
 ### SAML Adapter
+
+`processSamlResponse(encoded, expectedRequestId)` requires an application-owned outstanding request ID by default. Consume that login transaction when handling the callback. The adapter verifies signed assertion `SubjectConfirmationData.InResponseTo`, `Recipient`, and expiration, plus response `Destination` / `InResponseTo`. Set `recipient` to the ACS endpoint when it differs from the audience. Conditions use strict finite timestamps without the old five-minute grace.
+
+Assertion IDs are consumed once per adapter instance (bounded to 10,000 unexpired entries, rejecting new assertions when full). Keep the adapter long-lived. For multiple processes/restarts, provide `consumeAssertion` backed by an atomic shared replay store through your integration, or use a dedicated SAML broker with durable replay protection. This callback is synchronous because `processSamlResponse` is synchronous. Bearer or IdP-initiated assertions require explicit `allowUnsolicited: true` and still undergo recipient, expiry, and replay validation; exchange the assertion once for an application session, rather than reusing it on API calls.
 
 The SAML adapter validates SAML 2.0 assertions from enterprise identity providers. It verifies XML signatures using the IdP's X.509 certificate.
 
@@ -402,3 +414,10 @@ await assertTenantIsolation(getOrders, {}, "tenant-1", {
 });
 ```
 
+## Failure disclosure and legacy state
+
+HTTP, SSE, and MCP capability failures use generic internal-error messages and generic 403 denials; role/scope details stay in server-side diagnostics. The Fastify safe handler is installed even without `onProcessError`, and hook failures cannot replace the client response. Duplicate cookie names are discarded entirely, avoiding first/last-wins ambiguity; unrelated cookies remain available.
+
+Flows with missing, malformed, or actor/tenant-inconsistent auth snapshots fail before a step executes. They must be restarted from a verified caller context; there is no automatic migration to worker/system privileges. New snapshots keep authorization fields and omit session identifiers/timestamps. AI services are rebound to that stored identity for each flow step.
+
+See [Security review remediation](review-remediation.md) for the finding-by-finding resolution and compatibility notes.

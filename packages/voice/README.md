@@ -1,10 +1,15 @@
 # @plumbus/voice
 
+## Release family 0.5.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 > **Real-time voice runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Define a voice once, pick a transport + STT + TTS stack, and mount governed session routes with shared cost tracking — your brain stays in normal Plumbus primitives.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice.svg)](https://www.npmjs.com/package/@plumbus/voice)
 [![license](https://img.shields.io/npm/l/@plumbus/voice.svg)](./LICENSE)
-[![peer: @plumbus/core 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -54,7 +59,7 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Optional add-on of `@plumbus/core` (version-locked `0.6.x`). Ships `defineVoice`, `registerVoiceRoutes`, the provider registry, built-in websocket / web-speech / browser-tts adapters, cost helpers, client Web Speech wrappers, and the testing surface. Cloud/vendor adapters are **not** bundled — install `@plumbus/voice-*` and register each `*_REGISTRATION` explicitly.
+Optional add-on of `@plumbus/core` (version-locked `0.7.x`). Ships `defineVoice`, `registerVoiceRoutes`, the provider registry, built-in websocket / web-speech / browser-tts adapters, cost helpers, client Web Speech wrappers, and the testing surface. Cloud/vendor adapters are **not** bundled — install `@plumbus/voice-*` and register each `*_REGISTRATION` explicitly.
 
 ## Install
 
@@ -63,7 +68,7 @@ pnpm add @plumbus/voice
 # plus any optional provider add-ons you actually use
 ```
 
-Required peer: `@plumbus/core` `0.6.x` (copy the literal from `package.json` — do not invent caret ranges). `@plumbus/voice` does **not** peer-depend on the `@plumbus/voice-*` add-ons.
+Required peer: `@plumbus/core` `0.7.x` (copy the literal from `package.json` — do not invent caret ranges). `@plumbus/voice` does **not** peer-depend on the `@plumbus/voice-*` add-ons.
 
 ### Optional provider add-ons
 
@@ -220,7 +225,7 @@ There is no `createRegistryForVoices`, no `VOICE_ADDON_PACKAGES` soft-load, and 
   - [`defining-voices.md`](../../docs/voice/defining-voices.md) — `defineVoice`, routes, worker wiring
   - [`configuration.md`](../../docs/voice/configuration.md) — credential shapes, config loading, catalog endpoints
   - [`providers.md`](../../docs/voice/providers.md) — built-ins, provider add-ons, catalog API, custom registration
-  - [`upgrading-voice-provider-packages.md`](../../docs/upgrading-voice-provider-packages.md) — 0.3.x → 0.4.x provider add-on migration
+  - [`upgrading-voice-provider-packages.md`](../../docs/upgrading-voice-provider-packages.md) — 0.3.x → 0.5.x provider add-on migration
   - [`transports.md`](../../docs/voice/transports.md) — LiveKit vs raw WebSocket
   - [`livekit-continuous-voice.md`](../../docs/voice/livekit-continuous-voice.md) — continuous LiveKit voice stacks
   - [`client-stt.md`](../../docs/voice/client-stt.md) — Web Speech trust boundary + wire protocol

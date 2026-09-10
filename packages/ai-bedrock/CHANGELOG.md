@@ -1,5 +1,20 @@
 # @plumbus/ai-bedrock
 
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Security
+
+- Validate base, cache, and global pricing-file rates as finite nonnegative values before accepting the file. Explicit zero rates remain supported.
+- Runtime APIs are unchanged; Plumbus peers now require the new release family. Install core 0.7.0 for the accompanying framework budget/accounting fixes. [Migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.1.0 — 2026-08-12 — initial release
 
 ### Added

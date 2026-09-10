@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages stage under the `next` dist-tag.
+
+### Agent instructions
+
+- Updated packaged guidance for the security release and linked the core upgrade checklist. Refresh generated app instructions with `plumbus init --patch` (wiring v16).
+
+### Security
+
+- Return generic permission-denied responses instead of exposing required roles/scopes, and sanitize internal errors with 5xx metadata statuses.
+- Flag query-string API-key schemes in manifest validation and reject them during OpenAPI export because the runtime does not read them.
+
+### Compatibility
+
+- Runtime route and payload interfaces are unchanged. Manifests advertising query API keys must use implemented authentication before export. Deploy with core 0.7.0 for the complete security release. [Migration guide](../../docs/upgrading-security-release.md).
+
 ## 0.1.4 — 2026-08-10 — partner routes honor session auth
 
 **Runtime floor: `@plumbus/core` ≥ 0.6.9.** This release imports `buildAuthenticationRequest` from `@plumbus/core`, which first shipped in core **0.6.9**. On older cores the package fails to load. Declared peer stays `0.5.x || 0.6.x`; the floor applies at runtime.

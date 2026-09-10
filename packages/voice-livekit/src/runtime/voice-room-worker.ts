@@ -163,24 +163,53 @@ export async function joinVoiceRoomSession(
     },
   };
 
-  const connection = options.connectLiveKitWorker
-    ? await options.connectLiveKitWorker(transport, workerArgs)
-    : await transport.connectWorker(workerArgs);
+  async function dispose(connection?: LiveKitWorkerConnection): Promise<void> {
+    // Attempt every cleanup even if a provider rejects or stalls. The transport
+    // owns native resources; an injected connection can own additional ones.
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => controller.dispose()),
+      Promise.resolve().then(() => transport.disconnect?.()),
+      Promise.resolve().then(() => connection?.disconnect()),
+    ]);
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
 
-  await controller.hello();
+  let connection: LiveKitWorkerConnection;
+  try {
+    connection = options.connectLiveKitWorker
+      ? await options.connectLiveKitWorker(transport, workerArgs)
+      : await transport.connectWorker(workerArgs);
+  } catch (error) {
+    await dispose().catch(() => {});
+    throw error;
+  }
+
+  try {
+    await controller.hello();
+  } catch (error) {
+    await dispose(connection).catch(() => {});
+    throw error;
+  }
+
+  let stopPromise: Promise<void> | undefined;
 
   return {
     sessionId,
     controller,
-    async stop() {
-      const disconnectedAt = new Date();
-      await recordLiveKitTransportCost(ctx, {
-        sessionId,
-        connectedAt,
-        disconnectedAt,
+    stop() {
+      stopPromise ??= Promise.resolve().then(async () => {
+        const disconnectedAt = new Date();
+        const cleanup = await Promise.allSettled([dispose(connection)]);
+        // Release the room before awaiting accounting, which may reject or hang.
+        // A cleanup error must not prevent the single accounting attempt either.
+        const accounting = await Promise.allSettled([
+          recordLiveKitTransportCost(ctx, { sessionId, connectedAt, disconnectedAt }),
+        ]);
+        const failure = [...cleanup, ...accounting].find((result) => result.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
       });
-      await controller.dispose();
-      await connection.disconnect();
+      return stopPromise;
     },
   };
 }

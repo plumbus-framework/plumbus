@@ -153,7 +153,7 @@ describe('Cost Tracker', () => {
       expect(result.reason).toContain('Daily cost limit');
     });
 
-    it('allows but warns when cost data unavailable for daily budget', () => {
+    it('denies when prior cost data is unavailable for a configured daily budget', () => {
       const budget: BudgetConfig = { dailyCostLimit: 0.01 };
       const tracker = createCostTracker(budget);
 
@@ -167,7 +167,7 @@ describe('Cost Tracker', () => {
       });
 
       const result = tracker.checkBudget({});
-      expect(result.allowed).toBe(true);
+      expect(result.allowed).toBe(false);
       expect(result.reason).toContain('Cost data unavailable');
     });
 

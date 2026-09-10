@@ -1,5 +1,10 @@
 # @plumbus/ui
 
+## Release family 0.8.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x` (required shared peer). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 UI source-code generation for the Plumbus framework.
 
 `@plumbus/ui` turns Plumbus capability contracts, flow trigger descriptors, auth configuration, capability input schemas, Next.js template configuration, and translation definitions into frontend source files. The package is primarily a generator package: it does not provide a visual component library, application shell runtime, or production UI kit.

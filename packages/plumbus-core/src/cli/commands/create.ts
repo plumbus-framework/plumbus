@@ -1,6 +1,9 @@
 // ── plumbus create <app-name> ──
 // Interactive project scaffolding
 
+import { z } from 'zod';
+import { createErrorService } from '../../errors/index.js';
+import { assertScaffoldName } from '../scaffold-validation.js';
 import type { Command } from 'commander';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
@@ -16,11 +19,31 @@ export interface CreateOptions {
   monorepo?: boolean;
 }
 
+function validateCreateInputs(appName: string, options: CreateOptions): void {
+  assertScaffoldName(appName);
+  const identifier = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/);
+  if (
+    !z
+      .object({
+        database: identifier.optional(),
+        auth: identifier.optional(),
+        ai: identifier.optional(),
+      })
+      .safeParse(options).success ||
+    (options.compliance != null &&
+      !z.array(identifier).safeParse(options.compliance.split(',').map((value) => value.trim()))
+        .success)
+  ) {
+    throw createErrorService().validation('Invalid scaffold provider or compliance identifier');
+  }
+}
+
 /** Generate the repository directory structure for a new Plumbus app */
 export function generateProjectStructure(
   appName: string,
   options: CreateOptions,
 ): Map<string, string> {
+  validateCreateInputs(appName, options);
   if (options.monorepo) {
     return generateMonorepoStructure(appName, options);
   }
@@ -563,6 +586,7 @@ export function registerCreateCommand(program: Command): void {
     .option('--git', 'Initialize a git repository')
     .option('--skip-install', 'Skip dependency installation')
     .action(async (appName: string, opts: CreateOptions) => {
+      validateCreateInputs(appName, opts);
       const targetDir = path.resolve(process.cwd(), toKebabCase(appName));
 
       if (exists(targetDir)) {

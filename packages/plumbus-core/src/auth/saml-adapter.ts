@@ -20,6 +20,12 @@ export interface SamlAdapterConfig {
   issuer: string;
   /** Expected audience (SP entity ID / ACS URL) */
   audience: string;
+  /** Assertion consumer endpoint; defaults to audience for compatibility. */
+  recipient?: string;
+  /** Explicit opt-in to IdP-initiated / bearer assertions without a request ID. */
+  allowUnsolicited?: boolean;
+  /** Optional atomic replay check for an application-owned synchronous shared store. */
+  consumeAssertion?: (id: string, expiresAt: Date) => boolean;
   /** Attribute mapping for SAML claim extraction */
   attributeMapping?: Partial<SamlAttributeMapping>;
 }
@@ -66,12 +72,14 @@ function asDomNode(node: XmlDocument | XmlElement): Node {
  * 2. `processSamlResponse(samlResponse)` — directly validates a SAML
  *    Response from the IdP (used in SSO callback handlers).
  */
-export function createSamlAdapter(
-  config: SamlAdapterConfig,
-): AuthAdapter & { processSamlResponse(samlResponseB64: string): SamlAuthResult | null } {
+export function createSamlAdapter(config: SamlAdapterConfig): AuthAdapter & {
+  processSamlResponse(samlResponseB64: string, expectedRequestId?: string): SamlAuthResult | null;
+} {
   const mapping = { ...defaultAttributeMapping, ...config.attributeMapping };
+  const consumed = new Map<string, number>();
+  const recipient = config.recipient ?? config.audience;
 
-  function parseAssertion(xml: string): SamlAuthResult | null {
+  function parseAssertion(xml: string, expectedRequestId?: string): SamlAuthResult | null {
     let verifiedAssertion: XmlDocument | null;
     try {
       verifiedAssertion = verifySignedAssertion(xml, config.idpCertificate);
@@ -84,6 +92,45 @@ export function createSamlAdapter(
     if (!issuer || issuer !== config.issuer) return null;
 
     if (!validateConditions(verifiedAssertion, config.audience)) return null;
+    if (!expectedRequestId && !config.allowUnsolicited) return null;
+    const assertion = (
+      xpath.select(ASSERTION_XPATH, asDomNode(verifiedAssertion)) as unknown as XmlElement[]
+    )[0];
+    const assertionId = assertion?.getAttribute('ID');
+    if (!assertionId) return null;
+    const confirmations = xpath.select(
+      "//*[local-name()='SubjectConfirmationData' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",
+      asDomNode(verifiedAssertion),
+    ) as unknown as XmlElement[];
+    if (confirmations.length !== 1) return null;
+    const confirmation = confirmations[0];
+    if (confirmation?.getAttribute('Recipient') !== recipient) return null;
+    if (expectedRequestId && confirmation.getAttribute('InResponseTo') !== expectedRequestId)
+      return null;
+    const confirmationExpiry = Date.parse(confirmation.getAttribute('NotOnOrAfter') ?? '');
+    if (!Number.isFinite(confirmationExpiry) || confirmationExpiry <= Date.now()) return null;
+    const rawDoc = new DOMParser().parseFromString(xml, 'text/xml');
+    const response = rawDoc.documentElement;
+    if (response?.localName === 'Response') {
+      if (response.getAttribute('Destination') !== recipient) return null;
+      if (expectedRequestId && response.getAttribute('InResponseTo') !== expectedRequestId)
+        return null;
+    }
+    const conditions = (
+      xpath.select(
+        "//*[local-name()='Conditions']",
+        asDomNode(verifiedAssertion),
+      ) as unknown as XmlElement[]
+    )[0];
+    const expiry = Math.min(
+      confirmationExpiry,
+      Date.parse(conditions?.getAttribute('NotOnOrAfter') ?? ''),
+    );
+    for (const [id, expiresAt] of consumed) if (expiresAt <= Date.now()) consumed.delete(id);
+    if (consumed.has(assertionId) || consumed.size >= 10_000) return null;
+    if (config.consumeAssertion && config.consumeAssertion(assertionId, new Date(expiry)) !== true)
+      return null;
+    consumed.set(assertionId, expiry);
 
     const nameId = readElementText(verifiedAssertion, 'NameID') ?? '';
     const attributes = extractAttributes(verifiedAssertion);
@@ -125,7 +172,10 @@ export function createSamlAdapter(
       return parseAssertion(xml);
     },
 
-    processSamlResponse(samlResponseB64: string): SamlAuthResult | null {
+    processSamlResponse(
+      samlResponseB64: string,
+      expectedRequestId?: string,
+    ): SamlAuthResult | null {
       let xml: string;
       try {
         xml = Buffer.from(samlResponseB64, 'base64').toString('utf-8');
@@ -133,7 +183,7 @@ export function createSamlAdapter(
         return null;
       }
 
-      return parseAssertion(xml);
+      return parseAssertion(xml, expectedRequestId);
     },
   };
 }
@@ -179,13 +229,13 @@ function validateConditions(assertionDoc: XmlDocument, audience: string): boolea
   const notBefore = conditions.getAttribute('NotBefore');
   if (notBefore) {
     const notBeforeMs = new Date(notBefore).getTime();
-    if (Date.now() < notBeforeMs - 5 * 60 * 1000) return false;
+    if (!Number.isFinite(notBeforeMs) || Date.now() < notBeforeMs) return false;
   }
 
   const notOnOrAfter = conditions.getAttribute('NotOnOrAfter');
   if (!notOnOrAfter) return false;
   const notOnOrAfterMs = new Date(notOnOrAfter).getTime();
-  if (Date.now() >= notOnOrAfterMs + 5 * 60 * 1000) return false;
+  if (!Number.isFinite(notOnOrAfterMs) || Date.now() >= notOnOrAfterMs) return false;
 
   const audienceNodes = xpath.select(
     "//*[local-name()='Audience' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",

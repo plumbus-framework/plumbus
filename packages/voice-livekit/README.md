@@ -1,11 +1,16 @@
 # @plumbus/voice-livekit
 
+## Release family 0.2.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Packages stage under `next`; read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
 > **LiveKit transport, agent worker, and browser session helpers for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `transport.provider: 'livekit'`, mint room tokens, join agent workers, and run continuous or push-to-talk sessions without pulling LiveKit into `@plumbus/voice` itself.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-livekit.svg)](https://www.npmjs.com/package/@plumbus/voice-livekit)
 [![license](https://img.shields.io/npm/l/@plumbus/voice-livekit.svg)](./LICENSE)
-[![peer: @plumbus/core 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/voice 0.4.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.4.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
+[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/voice 0.5.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.5.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
 
 ## What is this?
 
@@ -41,7 +46,7 @@ LiveKit (and its agent/noise-cancellation SDKs) are heavy. Keeping them out of `
 
 ## Status
 
-Optional add-on of `@plumbus/voice` `0.4.x` and `@plumbus/core` `0.6.x`. Implements LiveKit transport registration, agent worker bootstrap, browser session helpers, NC engines, and transport cost recording. WebSocket transport stays built into `@plumbus/voice`.
+Optional add-on of `@plumbus/voice` `0.5.x` and `@plumbus/core` `0.7.x`. Implements LiveKit transport registration, agent worker bootstrap, browser session helpers, NC engines, and transport cost recording. WebSocket transport stays built into `@plumbus/voice`.
 
 ## Install
 
@@ -51,8 +56,8 @@ pnpm add @plumbus/voice @plumbus/voice-livekit
 
 Peers (copy literals):
 
-- `@plumbus/core` `0.6.x` — required
-- `@plumbus/voice` `0.4.x` — required
+- `@plumbus/core` `0.7.x` — required
+- `@plumbus/voice` `0.5.x` — required
 - `livekit-client` `^2.0.0` — optional; needed for browser sessions
 - `@livekit/krisp-noise-filter` `^0.4.0` — optional; client Krisp NC
 - `fastify` `^5.0.0` — optional peer (reserved for app servers)

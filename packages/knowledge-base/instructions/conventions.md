@@ -1,10 +1,12 @@
 # @plumbus/knowledge-base — Conventions for AI Agents
 
+Current release: **0.2.0**, with core **0.7.x** only. Upgrade all installed Plumbus packages together and follow `node_modules/@plumbus/core/instructions/upgrading-security-release.md`; legacy caret ranges intentionally exclude this family. Refresh managed agent instructions with `plumbus init --patch` (v16).
+
 > **Concepts** (three tiers, scope, rankers, registry freezing, result types): read `docs/knowledge-base/README.md` in the Plumbus monorepo — not this file.
 
 Use this package when the app needs **named, scoped knowledge sources** shared across chat, capabilities, tooltips, or search UIs — not for one-off `ctx.ai.retrieve` in a single script (use `@plumbus/chat` `ragContext` or core retrieve directly).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": "0.5.x || 0.6.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 **Do NOT** add vector ingest, chunking, or `plumbus knowledge ingest` — RAG ingest is **only** `plumbus rag ingest` in `@plumbus/core`. KB's `ragCorpus` calls `ctx.ai.retrieve` only.
 

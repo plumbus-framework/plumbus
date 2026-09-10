@@ -80,6 +80,7 @@ export {
   UsageAPIError,
   allKnownModels,
   calculateModelCost,
+  estimateModelCost,
   checkPromptSecurity,
   buildAISecurityConfig,
   chunkDocument,
