@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.8.0.
+
 ## 0.8.0 — 2026-09-10
 
 ### Upgrade boundary

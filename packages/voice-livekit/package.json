@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-livekit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "LiveKit transport, agent worker, and browser session helpers for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",

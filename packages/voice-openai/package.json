@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-openai",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenAI STT/TTS providers for @plumbus/voice (official openai SDK).",
   "type": "module",
   "main": "./dist/index.js",
