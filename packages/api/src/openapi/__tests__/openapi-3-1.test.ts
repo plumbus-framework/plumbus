@@ -324,9 +324,16 @@ function inlineRefs(doc: OpenApiDocument, node: unknown): unknown {
  * or `items: false`, which would reject a tuple with a rest element — a shape
  * 2020-12 allows and `z.tuple().rest()` legitimately produces.
  */
+// One shared instance: constructing Ajv compiles the 2020-12 meta-schema, which
+// dominated the per-schema cost and timed out on loaded CI runners. Each schema
+// is removed after compiling so the instance neither grows nor collides on ids.
+const ajv2020 = new Ajv2020({ strict: true, strictTuples: false, validateFormats: false });
 function compileAs2020(schema: unknown): void {
-  const ajv = new Ajv2020({ strict: true, strictTuples: false, validateFormats: false });
-  ajv.compile(schema as object);
+  try {
+    ajv2020.compile(schema as object);
+  } finally {
+    ajv2020.removeSchema(schema as object);
+  }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -592,7 +599,7 @@ describe('generated documents validate', () => {
     }
   });
 
-  it('compiles every 3.1 Schema Object as strict JSON Schema 2020-12', () => {
+  it('compiles every 3.1 Schema Object as strict JSON Schema 2020-12', { timeout: 30_000 }, () => {
     const doc = generate('3.1.0');
     const schemas = collectSchemas(doc);
     expect(schemas.length).toBeGreaterThan(0);
@@ -601,7 +608,9 @@ describe('generated documents validate', () => {
     }
   });
 
-  it('rejects the 3.0.3 Schema Objects as 2020-12, proving the check discriminates', () => {
+  it('rejects the 3.0.3 Schema Objects as 2020-12, proving the check discriminates', {
+    timeout: 30_000,
+  }, () => {
     const doc = generate('3.0.3');
     const rejected = collectSchemas(doc).filter((schema) => {
       try {
