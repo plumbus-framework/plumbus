@@ -4,7 +4,7 @@ Read this file before editing `peerDependencies` in any `packages/*/package.json
 
 ## Core 0.8 family (beta) — explicit upgrade required
 
-Core **0.8.x**, UI **0.9.x**, MCP **0.7.x**, voice **0.6.x**, and the remaining add-ons **0.3.x** form one coordinated release family. It is currently staged as **`-beta.N` prereleases under the `beta` dist-tag**; see [Upgrading to core 0.8](../../../docs/upgrading-core-0.8.md). This is an intentional migration boundary: legacy caret ranges must not install these packages, and new packages must not accept legacy Plumbus peers. Do not widen these ranges to admit old core/voice lines just to make an installation pass.
+Core **0.8.x**, UI **0.9.x**, MCP **0.7.x**, voice **0.6.x**, and the remaining add-ons **0.3.x** form one coordinated release family. It is currently staged as **`-beta.N` prereleases under a branch-named dist-tag (`plumbus-next`)**; see [Upgrading to core 0.8](../../../docs/upgrading-core-0.8.md). This is an intentional migration boundary: legacy caret ranges must not install these packages, and new packages must not accept legacy Plumbus peers. Do not widen these ranges to admit old core/voice lines just to make an installation pass.
 
 The previous family remains on core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and add-ons 0.2.x (the security release). Historical feature floors are not peer contracts for the new release.
 
@@ -33,7 +33,7 @@ Voice does not peer on vendor add-ons. Apps explicitly install only providers th
 - New-family packages require the new family. Do not publish narrowed peers or migration-requiring behavior as a patch on an old line: an existing caret could select that patch.
 - `pnpm install` passing in this workspace does not prove npm consumer compatibility. Validate packed tarballs with npm; production installs use npm.
 - Keep all manifests, READMEs, package instructions, changelogs, and AGENTS/CLAUDE in sync.
-- Packages publish normally to npm’s **latest** dist-tag; there is no separate release-staging or promotion step.
+- The publish workflow picks the npm dist-tag from the branch that contains the tagged commit: `latest` when the commit is on `main`, otherwise the branch name (this beta, tagged from `plumbus-next`, publishes as `plumbus-next`). Promoting to latest is a separate operator decision after the entire family and consumer staging checks pass.
 
 ## Future releases
 

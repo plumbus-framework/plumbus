@@ -1,6 +1,6 @@
 # Upgrading to core 0.8 (beta)
 
-Core 0.8 is the next coordinated release family after the 0.7 security release. It carries breaking changes, so every package moves to a new minor line and the family is first published as **`-beta.N` prereleases under the npm `beta` dist-tag**. `latest` keeps pointing at the 0.7 family until the beta is promoted.
+Core 0.8 is the next coordinated release family after the 0.7 security release. It carries breaking changes, so every package moves to a new minor line and the family is first published as **`-beta.N` prereleases under a branch-named npm dist-tag** (`plumbus-next` while it is tagged from that branch). `latest` keeps pointing at the 0.7 family until the beta is promoted.
 
 ## Packages to publish
 
@@ -36,7 +36,7 @@ Semver ranges such as `0.8.x` do not match `0.8.0-beta.0`. During the beta every
 Select the beta family explicitly for every installed Plumbus package in one dependency change:
 
 ```bash
-npm install @plumbus/core@beta @plumbus/ui@beta @plumbus/voice@beta @plumbus/voice-livekit@beta
+npm install @plumbus/core@plumbus-next @plumbus/ui@plumbus-next @plumbus/voice@plumbus-next @plumbus/voice-livekit@plumbus-next
 ```
 
 Do not mix beta packages with the 0.7 family, and do not use `--force` or `--legacy-peer-deps` to hide a mixed-family error. Existing lockfiles that pin `^0.7.x` are unaffected.
@@ -57,5 +57,5 @@ No database schema changes are introduced by this family beyond the tenant data-
 ## Publication
 
 - The publish workflow runs when a `v*` Git tag is pushed. Repository release tags are numbered independently from package versions; never move or reuse an existing release tag.
-- The workflow publishes any version containing `-` under the `beta` dist-tag and everything else under `latest`. Promoting a beta to `latest` is a separate operator decision after the whole family and consumer staging checks pass.
+- The workflow derives the dist-tag from the branch containing the tagged commit: `latest` for `main`, otherwise the branch name. Push the branch before the tag; a tag whose commit is on no branch fails the run. Promoting a beta to `latest` is a separate operator decision after the whole family and consumer staging checks pass.
 - Run the four repository gates (lint, format check, typecheck, tests) and the packed npm consumer install from the [security release runbook](./upgrading-security-release.md#release-preparation-checks) before tagging.

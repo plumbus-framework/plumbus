@@ -174,7 +174,7 @@ When editing `peerDependencies` in any `packages/*/package.json` (releases, new 
 
 ## Release compatibility — core 0.8 family (beta)
 
-Migration-requiring changes ship on new minor lines: core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, and all other add-ons 0.3.x. The family is staged as `-beta.N` prereleases under the `beta` dist-tag (see `docs/upgrading-core-0.8.md`); the 0.7 security family stays on `latest` until promotion. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.9.x requires core 0.8.x as a shared peer, preventing a hidden second core runtime. Historical feature floors elsewhere are not current peer declarations.
+Migration-requiring changes ship on new minor lines: core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, and all other add-ons 0.3.x. The family is staged as `-beta.N` prereleases under a branch-named dist-tag (`plumbus-next`; see `docs/upgrading-core-0.8.md`). The publish workflow uses `latest` only for tags whose commit is on `main`; the 0.7 security family stays on `latest` until promotion. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.9.x requires core 0.8.x as a shared peer, preventing a hidden second core runtime. Historical feature floors elsewhere are not current peer declarations.
 
 ## Coding Conventions
 
