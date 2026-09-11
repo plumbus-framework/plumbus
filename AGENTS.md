@@ -71,7 +71,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/ai-bedrock`
 
-`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.2.x`; peer `@plumbus/core` `0.7.x`; **runtime floor ≥ 0.7.0**). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
+`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.2.x`; peer `@plumbus/core` `0.8.x`; **runtime floor ≥ 0.7.0**). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
 
 ```
 pnpm add @plumbus/ai-bedrock
@@ -83,7 +83,7 @@ Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `A
 
 ### Optional add-on: `@plumbus/browser-extension`
 
-`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.2.x`**; peer `@plumbus/core` at **`0.7.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.2.x`**; peer `@plumbus/core` at **`0.8.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
 
 ```
 pnpm add @plumbus/ui @plumbus/browser-extension
@@ -93,18 +93,18 @@ Then run `plumbus browser-extension scaffold`. The generated extension does not 
 
 ### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
 
-`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.7.x`; **runtime floor ≥ 0.7.0** for chat 0.2.x). Apps that want a chat surface install it explicitly:
+`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.8.x`; **runtime floor ≥ 0.7.0** for chat 0.2.x). Apps that want a chat surface install it explicitly:
 
 ```
 pnpm add @plumbus/chat
 pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 ```
 
-`@plumbus/chat-ui` peer-depends on `@plumbus/chat` (`0.2.x`, **≥ 0.2.0** for this UI line) and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
+`@plumbus/chat-ui` peer-depends on `@plumbus/chat` (`0.3.x`, **≥ 0.2.0** for this UI line) and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
 
 ### Optional add-on: `@plumbus/voice`
 
-`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, built-in websocket / web-speech / browser-tts providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.7.x`). Apps that want speech input/output install it explicitly:
+`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, built-in websocket / web-speech / browser-tts providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.8.x`). Apps that want speech input/output install it explicitly:
 
 ```
 pnpm add @plumbus/voice
@@ -114,7 +114,7 @@ Use it when the product needs speech I/O around an app-owned brain hook. It comp
 
 ### Optional add-ons: `@plumbus/voice-*` providers
 
-Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.5.x` (and `@plumbus/core` `0.7.x`). Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
+Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.6.x` (and `@plumbus/core` `0.8.x`). Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
 
 ```
 pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
@@ -129,7 +129,7 @@ pnpm add @plumbus/voice-minimax    # minimax TTS
 
 ### Optional add-on: `@plumbus/knowledge-base`
 
-`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It peer-depends on `@plumbus/core` (version-locked `0.7.x`). `@plumbus/chat` optionally peer-depends on `@plumbus/knowledge-base` (`0.2.x`) when using registry-backed context sources. Apps that want named, reusable knowledge sources install it explicitly:
+`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It peer-depends on `@plumbus/core` (version-locked `0.8.x`). `@plumbus/chat` optionally peer-depends on `@plumbus/knowledge-base` (`0.3.x`) when using registry-backed context sources. Apps that want named, reusable knowledge sources install it explicitly:
 
 ```
 pnpm add @plumbus/knowledge-base
@@ -139,14 +139,14 @@ Apps that only need a single direct RAG corpus in chat can use `ragContext` from
 
 ### Optional add-on: `@plumbus/auth` (+ `@plumbus/auth-cognito`)
 
-`@plumbus/auth` provides the OIDC relying-party runtime (`createAuthRuntime`, `/auth/*` routes, opaque server sessions, CSRF, protected PostgreSQL stores). It peer-depends on `@plumbus/core` (version-locked `0.7.x`). Apps that want federated browser login with HttpOnly session cookies install it explicitly:
+`@plumbus/auth` provides the OIDC relying-party runtime (`createAuthRuntime`, `/auth/*` routes, opaque server sessions, CSRF, protected PostgreSQL stores). It peer-depends on `@plumbus/core` (version-locked `0.8.x`). Apps that want federated browser login with HttpOnly session cookies install it explicitly:
 
 ```
 pnpm add @plumbus/auth
 pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers
 ```
 
-Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.2.x`). Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.3.x`). Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
 
 ### From `@plumbus/ui`
 
@@ -169,12 +169,12 @@ Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command reso
 When editing `peerDependencies` in any `packages/*/package.json` (releases, new add-ons, compatibility bumps):
 
 - Read `packages/plumbus-core/instructions/peer-dependencies.md` first.
-- **Copy literals — do not derive ranges.** Most add-ons use exactly `"0.7.x"` (see `packages/mcp/package.json`). Never use `^0.x` caret ranges on `@plumbus/core` peers.
+- **Copy literals — do not derive ranges.** During the 0.8 beta most add-ons use exactly `">=0.8.0-beta.0 <0.9.0"` (see `packages/mcp/package.json`); at stable that becomes `"0.8.x"`. Never use `^0.x` caret ranges on `@plumbus/core` peers.
 - **pnpm passing locally does not prove peers are correct.** Backend Docker installs with **npm**; wrong peers break production builds.
 
-## Release compatibility — core 0.7 family
+## Release compatibility — core 0.8 family (beta)
 
-Migration-requiring changes ship on new minor lines: core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and all other add-ons 0.2.x. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.8.x requires core 0.7.x as a shared peer, preventing a hidden second core runtime. Packages publish to npm’s default `latest` dist-tag. Historical feature floors elsewhere are not current peer declarations.
+Migration-requiring changes ship on new minor lines: core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, and all other add-ons 0.3.x. The family is staged as `-beta.N` prereleases under the `beta` dist-tag (see `docs/upgrading-core-0.8.md`); the 0.7 security family stays on `latest` until promotion. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.9.x requires core 0.8.x as a shared peer, preventing a hidden second core runtime. Historical feature floors elsewhere are not current peer declarations.
 
 ## Coding Conventions
 
@@ -250,6 +250,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/sdk-reference/` — define functions, execution context, data layer, configuration (worker observability)
 - `docs/cli/` — all CLI commands and options (incl. `browser-extension scaffold`)
 - `docs/security/` — security model, auth, tenant isolation
+- `docs/upgrading-core-0.8.md` — core 0.8 beta family: version table, breaking changes, beta dist-tag
 - `docs/upgrading-security-release.md` — coordinated security release, compatibility checks, and agent wiring v16
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment

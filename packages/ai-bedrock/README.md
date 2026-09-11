@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/ai-bedrock.svg)](https://www.npmjs.com/package/@plumbus/ai-bedrock)
 [![license](https://img.shields.io/npm/l/@plumbus/ai-bedrock.svg)](https://github.com/plumbus-framework/plumbus/blob/main/LICENSE)
-[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.8.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.8.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -46,7 +46,7 @@ An opt-in peer keeps core lean while giving AWS shops a first-class `provider: '
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked **`0.2.x`**; required peer `@plumbus/core` **`0.7.x`**). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** (Bedrock provider slot, env discovery, adapter-supplied `cost`, agent wiring v13). Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
+Optional peer of `@plumbus/core` (version-locked **`0.2.x`**; required peer `@plumbus/core` **`0.8.x`**). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** (Bedrock provider slot, env discovery, adapter-supplied `cost`, agent wiring v13). Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
 
 ## Install
 
@@ -54,7 +54,7 @@ Optional peer of `@plumbus/core` (version-locked **`0.2.x`**; required peer `@pl
 pnpm add @plumbus/ai-bedrock
 ```
 
-Peer (copy literally): `@plumbus/core` `0.7.x`. See `packages/plumbus-core/instructions/peer-dependencies.md`.
+Peer (copy literally): `@plumbus/core` `0.8.x`. See `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 If agent wiring predates Bedrock instructions, refresh:
 

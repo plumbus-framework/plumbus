@@ -4,8 +4,8 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-soniox.svg)](https://www.npmjs.com/package/@plumbus/voice-soniox)
 [![license](https://img.shields.io/npm/l/@plumbus/voice-soniox.svg)](./LICENSE)
-[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/voice 0.5.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.5.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
+[![peer: @plumbus/core 0.8.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.8.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/voice 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
 
 ## What is this?
 
@@ -29,7 +29,7 @@ Soniox's Node SDK and streaming protocols are vendor-specific. Shipping them as 
 
 ## Status
 
-Optional add-on of `@plumbus/voice` `0.5.x` and `@plumbus/core` `0.7.x`. Implements streaming Soniox STT + REST streaming TTS (`pcm_s16le` @ 16 kHz by default). Install alone does not register providers.
+Optional add-on of `@plumbus/voice` `0.6.x` and `@plumbus/core` `0.8.x`. Implements streaming Soniox STT + REST streaming TTS (`pcm_s16le` @ 16 kHz by default). Install alone does not register providers.
 
 ## Install
 
@@ -37,7 +37,7 @@ Optional add-on of `@plumbus/voice` `0.5.x` and `@plumbus/core` `0.7.x`. Impleme
 pnpm add @plumbus/voice @plumbus/voice-soniox
 ```
 
-Peers (copy literals): `@plumbus/core` `0.7.x`, `@plumbus/voice` `0.5.x`.
+Peers (copy literals): `@plumbus/core` `0.8.x`, `@plumbus/voice` `0.6.x`.
 
 Env: `SONIOX_API_KEY` (optional `SONIOX_BASE_URL`).
 

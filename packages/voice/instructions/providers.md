@@ -21,7 +21,7 @@ Only these ids work with `@plumbus/voice` alone: `websocket`, `web-speech`, `bro
 | `elevenlabs` | tts | `@plumbus/voice-elevenlabs` |
 | `minimax` | tts | `@plumbus/voice-minimax` |
 
-Add-ons peer `@plumbus/voice` `0.5.x` (and `@plumbus/core` `0.7.x`) — copy those literals. They must be **installed and registered** via `*_REGISTRATION` in `createProviderRegistry()`, then that registry passed to routes/workers (and exported from `app/voice/registry.ts` for CLI). Install alone does not register.
+Add-ons peer `@plumbus/voice` `0.6.x` (and `@plumbus/core` `0.8.x`) — copy those literals. They must be **installed and registered** via `*_REGISTRATION` in `createProviderRegistry()`, then that registry passed to routes/workers (and exported from `app/voice/registry.ts` for CLI). Install alone does not register.
 
 ## After install — open these exact paths (do not invent wiring)
 

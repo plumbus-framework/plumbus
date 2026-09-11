@@ -2,7 +2,7 @@
 
 ## Release family 0.2.0
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
 
 
 ## Security release guidance (0.2.0)
@@ -11,9 +11,9 @@ Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` bef
 
 Do not advertise query-string API-key schemes: the runtime does not read them and OpenAPI export rejects them. Use the configured framework authenticator and stable error codes. Keep partner business behavior in API-exposed capabilities, not custom routes.
 
-`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version-locked `0.2.x`; declared peer `@plumbus/core` `0.7.x`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`).
+`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version-locked `0.2.x`; declared peer `@plumbus/core` `0.8.x`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 

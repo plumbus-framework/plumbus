@@ -34,7 +34,7 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Declared peer: `@plumbus/core` `0.7.x`. **Ship with `@plumbus/core` ≥ 0.6.11** — 0.1.11 loads the provider tool protocol (`safeJsonStringify`, `AITool*`, unique entity indexes, `Repository.updateWhere`) from the turn pipeline, so older 0.5.x / early 0.7.x cores fail at import or first turn. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
+Declared peer: `@plumbus/core` `0.8.x`. **Ship with `@plumbus/core` ≥ 0.6.11** — 0.1.11 loads the provider tool protocol (`safeJsonStringify`, `AITool*`, unique entity indexes, `Repository.updateWhere`) from the turn pipeline, so older 0.5.x / early 0.7.x cores fail at import or first turn. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
 
 ## Install
 
@@ -42,7 +42,7 @@ Declared peer: `@plumbus/core` `0.7.x`. **Ship with `@plumbus/core` ≥ 0.6.11**
 pnpm add @plumbus/chat
 ```
 
-Required peer: `@plumbus/core` `0.7.x` (**runtime ≥ 0.6.11** for existing Chat behavior; **≥ 0.6.18** only when using `policy.toolCalling.ai` overrides). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
+Required peer: `@plumbus/core` `0.8.x` (**runtime ≥ 0.6.11** for existing Chat behavior; **≥ 0.6.18** only when using `policy.toolCalling.ai` overrides). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
 
 For the React UI, also install [`@plumbus/chat-ui`](../chat-ui/). For registry-backed knowledge sources, [`@plumbus/knowledge-base`](../knowledge-base/).
 

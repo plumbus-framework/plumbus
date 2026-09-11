@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/mcp",
-  "version": "0.6.1",
+  "version": "0.7.0-beta.0",
   "description": "Plumbus MCP runtime — expose capabilities to AI agents over Model Context Protocol",
   "type": "module",
   "main": "./dist/index.js",
@@ -49,7 +49,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.7.x"
+    "@plumbus/core": ">=0.8.0-beta.0 <0.9.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

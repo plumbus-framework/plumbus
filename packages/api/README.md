@@ -52,7 +52,7 @@ Plumbus already has typed capability contracts. This package projects them into 
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked `0.2.x`; declared peer `@plumbus/core` `0.7.x`). **Runtime floor:** 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (imports `buildAuthenticationRequest` for session auth on partner routes). Implements manifest validation, route registration, OpenAPI/docs generation, compatibility diff, test intent, and idempotency. OAuth gateways, rate limiting, and durable idempotency stores are app-owned — see [Key gotchas](#key-gotchas).
+Optional peer of `@plumbus/core` (version-locked `0.2.x`; declared peer `@plumbus/core` `0.8.x`). **Runtime floor:** 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (imports `buildAuthenticationRequest` for session auth on partner routes). Implements manifest validation, route registration, OpenAPI/docs generation, compatibility diff, test intent, and idempotency. OAuth gateways, rate limiting, and durable idempotency stores are app-owned — see [Key gotchas](#key-gotchas).
 
 ## Install
 
@@ -69,7 +69,7 @@ plumbus doctor                           # confirms wiring is current
 
 `@plumbus/core` works without `@plumbus/api` — default convention routes and `plumbus generate` still run. Install this package when you want a **published partner API** with manifest validation, OpenAPI export, and `registerApiRoutes()`. `plumbus api validate` prints an install hint when the package is missing.
 
-Peer: `@plumbus/core` `0.7.x` (**runtime floor ≥ 0.6.9** as of `@plumbus/api` 0.1.4). The framework provides Zod and Vitest transitively — do not add them to your own `package.json` for API work.
+Peer: `@plumbus/core` `0.8.x` (**runtime floor ≥ 0.6.9** as of `@plumbus/api` 0.1.4). The framework provides Zod and Vitest transitively — do not add them to your own `package.json` for API work.
 
 ## Quick start
 

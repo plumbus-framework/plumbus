@@ -13,6 +13,26 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
+    # The core suite includes *.pg.test.ts files that need a real Postgres
+    # (durable harness, tenant data planes). They fail, not skip, without one.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PLUMBUS_TEST_PG_HOST: 127.0.0.1
+      PLUMBUS_TEST_PG_PORT: "5432"
+      PLUMBUS_TEST_PG_USER: postgres
+      PLUMBUS_TEST_PG_PASSWORD: postgres
+
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +63,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       # Publish @plumbus/ai-bedrock BEFORE @plumbus/core (optional peer of core).
@@ -55,7 +78,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/core
@@ -66,10 +92,13 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
-      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.7.x).
+      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.8.x / >=0.8.0-beta.0).
       - name: Publish @plumbus/auth
         working-directory: packages/auth
         run: |
@@ -78,10 +107,13 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
-      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.2.x).
+      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.3.x / >=0.3.0-beta.0).
       - name: Publish @plumbus/auth-cognito
         working-directory: packages/auth-cognito
         run: |
@@ -90,7 +122,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/voice
@@ -101,10 +136,13 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
-      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.5.x).
+      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.6.x / >=0.6.0-beta.0).
       - name: Publish @plumbus/voice-openai
         working-directory: packages/voice-openai
         run: |
@@ -113,7 +151,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/voice-deepdub
@@ -124,7 +165,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/voice-soniox
@@ -135,7 +179,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/voice-elevenlabs
@@ -146,7 +193,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/voice-minimax
@@ -157,7 +207,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/voice-livekit
@@ -168,10 +221,13 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
-      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.7.x).
+      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.8.x / >=0.8.0-beta.0).
       - name: Publish @plumbus/api
         working-directory: packages/api
         run: |
@@ -180,7 +236,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/knowledge-base
@@ -191,7 +250,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/chat
@@ -202,7 +264,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/ui
@@ -213,7 +278,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/chat-ui
@@ -224,7 +292,10 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi
 
       - name: Publish @plumbus/browser-extension
@@ -235,5 +306,8 @@ jobs:
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version already published — skipping"
           else
-            pnpm publish --access public --no-git-checks
+            # Prereleases (any "-" in the version) stage under the beta dist-tag so
+            # `latest` keeps pointing at the current stable family.
+            case "$version" in *-*) tag=beta ;; *) tag=latest ;; esac
+            pnpm publish --access public --no-git-checks --tag "$tag"
           fi

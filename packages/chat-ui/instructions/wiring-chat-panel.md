@@ -14,7 +14,7 @@ The default path. Use this when the consumer wants a working chat surface and do
 pnpm add @plumbus/chat-ui
 ```
 
-Peers: `@plumbus/chat` `0.2.x`, `@plumbus/core` `0.7.x`, `react` `>=19` (provided by `@plumbus/ui` in Plumbus apps).
+Peers: `@plumbus/chat` `0.3.x`, `@plumbus/core` `0.8.x`, `react` `>=19` (provided by `@plumbus/ui` in Plumbus apps).
 
 ## 2. Mount the panel
 

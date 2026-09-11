@@ -1,15 +1,16 @@
 # @plumbus/core changelog
 
-### Schedule planes for the flow scheduler
+## 0.8.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
-- `FlowSchedule.plane` (`'spine' | 'tenants'`): where a scheduled flow's row lives and whose data plane its run gets.
-- `WorkerPoolConfig.schedulePlanes` and `app/server.ts` `export const schedulePlanes`: tenant planes for the scheduler alone, for hosts that route tenant data themselves; flows, events and the outbox keep the pool plane.
-- The scheduler syncs and polls the pool only when a registered flow is scheduled on the spine, tolerates a plane it cannot resolve or read, and reports the driver's cause.
+### Upgrade boundary
 
-## Unreleased
+- Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the npm `beta` dist-tag. Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
 
 ### Breaking
 
+- **Flow compensations never run with worker privileges.** When an execution's stored auth snapshot is missing or invalid, compensation steps are not executed as the worker; the engine records a failed `compensate` history entry and a `flow.compensation_skipped` audit event for operator review, matching the step path.
+- **`plumbus e2e --port`**, **`plumbus worker --health-port`**, and **`plumbus mcp serve --http --port`** require an explicit port (or `PLUMBUS_E2E_PORT` / `PLUMBUS_WORKER_HEALTH_PORT` / `PLUMBUS_MCP_PORT`). `createServer({ port })` is required to listen. No default 3000/3001 is assumed.
+- **`plumbus ui generate` requires `--out-dir` or a detected frontend.** It no longer writes to `.plumbus/generated/ui` as a last-resort default. Detection still uses a monorepo `frontend/` package, an existing `frontend/` directory, or `frontend`/`web`/`client`/`app` with `tsconfig.json`. Explicit `--out-dir .plumbus/generated/ui` still works.
 - **Action-risk vocabulary is now the four-tier canonical set** — `analytical`, `limited-reversible`, `consequential`, `prohibited`. `read-only` is retired (it was the analytical tier under its former name) and joins `RETIRED_ACTION_RISK_VALUES`; `defineCapability` rejects it like every other retired value. `ActionRiskTier.ReadOnly` is gone; use `ActionRiskTier.Analytical`. **`prohibited` is normative**: the approval gate refuses a prohibited capability outright (new gate code `prohibited-capability`) before any approval lookup, `ApprovalService.requestApproval` rejects `riskClass: 'prohibited'` (an approval must not make a prohibited action permissible), and `defineCapability` rejects `exposeAs` on a prohibited capability so it is never exposed as an MCP tool or API route. New helper: `isProhibitedRiskTier`.
 
 ### Added
@@ -29,10 +30,15 @@
 
 - **`plumbus generate` writes OpenAPI 3.1.0** for `.plumbus/generated/openapi.json`, with JSON Schema 2020-12 type-array nullables (`type: ["string", "null"]`) instead of OpenAPI 3.0 `nullable: true`. Conversion is the same pass `@plumbus/api` uses for `--openapi-version 3.1.0` (now owned by core so generate does not load the partner package). Partner `plumbus api generate openapi` remains 3.0.3 unless that flag is set.
 - **`plumbus generate` no longer writes leftover `clients/` fetch/hook files.** Re-running generate deletes `.plumbus/generated/clients/` if that tree is still present. Typed fetch clients and React hooks come from `plumbus ui generate`.
-- **`plumbus e2e --port`**, **`plumbus worker --health-port`**, and **`plumbus mcp serve --http --port`** require an explicit port (or `PLUMBUS_E2E_PORT` / `PLUMBUS_WORKER_HEALTH_PORT` / `PLUMBUS_MCP_PORT`). `createServer({ port })` is required to listen. No default 3000/3001 is assumed.
 - **`plumbus migrate` connections** go through `openDataPlaneConnection` (bounded pool of 1, `application_name: plumbus-migrate`, empty passwords omitted). Connection failures surface the factory's redacted message.
-- **`plumbus ui generate` requires `--out-dir` or a detected frontend.** It no longer writes to `.plumbus/generated/ui` as a last-resort default. Detection still uses a monorepo `frontend/` package, an existing `frontend/` directory, or `frontend`/`web`/`client`/`app` with `tsconfig.json`. Explicit `--out-dir .plumbus/generated/ui` still works.
 - **`plumbus ui generate` emits fetch clients, React hooks, and form hints only for `exposeAs: ['api']` capabilities** (event handlers omitted). Operator-only capabilities are not given HTTP wrappers.
+
+### Schedule planes for the flow scheduler
+
+- `FlowSchedule.plane` (`'spine' | 'tenants'`): where a scheduled flow's row lives and whose data plane its run gets.
+- `WorkerPoolConfig.schedulePlanes` and `app/server.ts` `export const schedulePlanes`: tenant planes for the scheduler alone, for hosts that route tenant data themselves; flows, events and the outbox keep the pool plane.
+- The scheduler syncs and polls the pool only when a registered flow is scheduled on the spine, tolerates a plane it cannot resolve or read, and reports the driver's cause.
+
 ## 0.7.1 — 2026-09-10
 
 ### Fixed

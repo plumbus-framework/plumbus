@@ -9,6 +9,26 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
 
+    # The core suite includes *.pg.test.ts files that need a real Postgres
+    # (durable harness, tenant data planes). They fail, not skip, without one.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PLUMBUS_TEST_PG_HOST: 127.0.0.1
+      PLUMBUS_TEST_PG_PORT: "5432"
+      PLUMBUS_TEST_PG_USER: postgres
+      PLUMBUS_TEST_PG_PASSWORD: postgres
+
     steps:
       - uses: actions/checkout@v4
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
+
+### Upgrade boundary
+
+- Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the npm `beta` dist-tag. Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed
@@ -24,7 +30,6 @@
 ### Added
 
 - **`language_hints_strict`** — sent to Soniox automatically when exactly one language is hinted (the vendor's top documented accuracy recommendation: single-language restriction beats hints alone). Apps can override either way with `stt.options.languageHintsStrict`. Combined with the per-session language narrowing in the LiveKit worker, single-language sessions now run fully restricted.
-
 
 ## 0.1.2
 

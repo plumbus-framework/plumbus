@@ -2,7 +2,7 @@
 
 ## Release family 0.7.0
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/api` `0.2.x`, `@plumbus/ai-bedrock` `0.2.x`, `@plumbus/mcp` `0.6.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/api` `0.3.x`, `@plumbus/ai-bedrock` `0.3.x`, `@plumbus/mcp` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
 
 
 Plumbus is an AI-native, contract-driven TypeScript application framework. You build applications by composing six primitives — **Capabilities**, **Entities**, **Events**, **Flows**, **Prompts**, and **Translations** — through a controlled execution context (`ctx`). Optional add-on packages extend the surface when installed explicitly: `@plumbus/api` (partner HTTP API), `@plumbus/mcp` (AI agent tools), `@plumbus/chat` (+ `@plumbus/chat-ui`), `@plumbus/voice`, `@plumbus/knowledge-base`, `@plumbus/ui` (web UI generation), and `@plumbus/browser-extension`.

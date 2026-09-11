@@ -6,7 +6,7 @@ Current release: **0.2.0**, with core **0.7.x** only. Upgrade all installed Plum
 
 Use this package when the app needs **named, scoped knowledge sources** shared across chat, capabilities, tooltips, or search UIs — not for one-off `ctx.ai.retrieve` in a single script (use `@plumbus/chat` `ragContext` or core retrieve directly).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` — copy from `packages/mcp/package.json`; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 **Do NOT** add vector ingest, chunking, or `plumbus knowledge ingest` — RAG ingest is **only** `plumbus rag ingest` in `@plumbus/core`. KB's `ragCorpus` calls `ctx.ai.retrieve` only.
 

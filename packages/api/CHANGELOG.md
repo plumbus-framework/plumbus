@@ -1,10 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
+
+### Upgrade boundary
+
+- Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the npm `beta` dist-tag. Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
 
 ### Changed
 
 - **OpenAPI 3.1 conversion lives in `@plumbus/core`.** `toJsonSchema2020` / `toOpenApi31Document` are implemented there so `plumbus generate` and `plumbus api generate openapi --openapi-version 3.1.0` share one rewrite. This package re-exports them with the partner `OpenApiDocument` type. Behaviour of the partner generator is unchanged (3.0.3 default).
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

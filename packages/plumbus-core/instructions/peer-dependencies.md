@@ -2,26 +2,28 @@
 
 Read this file before editing `peerDependencies` in any `packages/*/package.json`.
 
-## Security release family — explicit upgrade required
+## Core 0.8 family (beta) — explicit upgrade required
 
-Core **0.7.x**, UI **0.8.x**, MCP **0.6.x**, voice **0.5.x**, and the remaining add-ons **0.2.x** form one coordinated release family. This is an intentional migration boundary: legacy caret ranges must not install these packages, and new packages must not accept legacy Plumbus peers. Do not widen these ranges to admit old core/voice lines just to make an installation pass.
+Core **0.8.x**, UI **0.9.x**, MCP **0.7.x**, voice **0.6.x**, and the remaining add-ons **0.3.x** form one coordinated release family. It is currently staged as **`-beta.N` prereleases under the `beta` dist-tag**; see [Upgrading to core 0.8](../../../docs/upgrading-core-0.8.md). This is an intentional migration boundary: legacy caret ranges must not install these packages, and new packages must not accept legacy Plumbus peers. Do not widen these ranges to admit old core/voice lines just to make an installation pass.
 
-The previous family remains on core 0.6.x, UI 0.7.x, MCP 0.5.x, voice 0.4.x, and add-ons 0.1.x. Historical feature floors are not peer contracts for the new release.
+The previous family remains on core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and add-ons 0.2.x (the security release). Historical feature floors are not peer contracts for the new release.
+
+**Prerelease literal.** Semver excludes prereleases from `0.8.x`, so while the family is in beta every peer uses the closed range `>=0.8.0-beta.0 <0.9.0` (same shape for the other lines). It admits `0.8.0-beta.N` and every stable `0.8.N`, and still rejects 0.7.x. When the family goes stable, replace each literal with the plain `0.8.x` form in the same commit that drops the `-beta` suffixes.
 
 ## Canonical literals — copy exactly
 
 | Declaring package | Peer target | Literal |
 | --- | --- | --- |
-| Every add-on that peers on core | `@plumbus/core` | `"0.7.x"` |
-| `@plumbus/core` | `@plumbus/mcp` | `"0.6.x"` (optional) |
-| `@plumbus/core` | `@plumbus/api` | `"0.2.x"` (optional) |
-| `@plumbus/core` | `@plumbus/ai-bedrock` | `"0.2.x"` (optional) |
-| `@plumbus/chat` | `@plumbus/knowledge-base` | `"0.2.x"` (optional) |
-| `@plumbus/chat-ui` | `@plumbus/chat` | `"0.2.x"` |
-| `@plumbus/auth-cognito` | `@plumbus/auth` | `"0.2.x"` |
-| Every `@plumbus/voice-*` provider | `@plumbus/voice` | `"0.5.x"` |
+| Every add-on that peers on core | `@plumbus/core` | `">=0.8.0-beta.0 <0.9.0"` (stable: `"0.8.x"`) |
+| `@plumbus/core` | `@plumbus/mcp` | `">=0.7.0-beta.0 <0.8.0"` (optional; stable: `"0.7.x"`) |
+| `@plumbus/core` | `@plumbus/api` | `">=0.3.0-beta.0 <0.4.0"` (optional; stable: `"0.3.x"`) |
+| `@plumbus/core` | `@plumbus/ai-bedrock` | `">=0.3.0-beta.0 <0.4.0"` (optional; stable: `"0.3.x"`) |
+| `@plumbus/chat` | `@plumbus/knowledge-base` | `">=0.3.0-beta.0 <0.4.0"` (optional; stable: `"0.3.x"`) |
+| `@plumbus/chat-ui` | `@plumbus/chat` | `">=0.3.0-beta.0 <0.4.0"` (stable: `"0.3.x"`) |
+| `@plumbus/auth-cognito` | `@plumbus/auth` | `">=0.3.0-beta.0 <0.4.0"` (stable: `"0.3.x"`) |
+| Every `@plumbus/voice-*` provider | `@plumbus/voice` | `">=0.6.0-beta.0 <0.7.0"` (stable: `"0.6.x"`) |
 
-UI 0.8.0 replaces its direct core dependency with the required peer `"@plumbus/core": "0.7.x"` and uses `workspace:*` only for development. This prevents npm from accepting old application core plus a hidden new core nested inside UI. Install core and UI together. All Plumbus packages share the application runtime through peers.
+UI 0.9.x keeps the required core peer (no direct core dependency) and uses `workspace:*` only for development. This prevents npm from accepting old application core plus a hidden new core nested inside UI. Install core and UI together. All Plumbus packages share the application runtime through peers.
 
 Voice does not peer on vendor add-ons. Apps explicitly install only providers they use, register their `*_REGISTRATION` through `createProviderRegistry()`, and pass that registry to routes/workers.
 
@@ -41,4 +43,4 @@ Run lint, format checking, typechecking, tests, and packed npm install checks be
 
 ## Consumer upgrade
 
-Read [upgrading-security-release.md](./upgrading-security-release.md), explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch` for agent wiring **v16**. Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.
+Read [upgrading-security-release.md](./upgrading-security-release.md) and the 0.8 notes in the root docs, explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch` for agent wiring **v16**. Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.

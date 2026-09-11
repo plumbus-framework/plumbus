@@ -2,7 +2,7 @@
 
 ## Release family 0.8.0
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x` (required shared peer). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x` (required shared peer). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
 
 
 ## Security release guidance (0.8.0)

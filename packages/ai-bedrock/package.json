@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/ai-bedrock",
-  "version": "0.2.1",
+  "version": "0.3.0-beta.0",
   "description": "Amazon Bedrock AI provider adapter for @plumbus/core (Converse chat + embeddings).",
   "type": "module",
   "main": "./dist/index.js",
@@ -46,7 +46,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.7.x"
+    "@plumbus/core": ">=0.8.0-beta.0 <0.9.0"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.848.0",

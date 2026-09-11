@@ -41,7 +41,7 @@ Example:
 
 ### Step 3: Coordinated migration releases — mandatory
 
-For the core 0.7 security family, follow the version table in `docs/upgrading-security-release.md` and read `packages/plumbus-core/instructions/peer-dependencies.md` before editing manifests. All 18 packages move outside their previous caret ranges, even add-ons with only peer changes. Copy the new-family-only peer literals; do not widen them to legacy core or voice lines. UI 0.8.x requires core 0.7.x as a shared peer; never restore a direct nested core dependency to bypass the upgrade boundary.
+For the core 0.8 family, follow the version table in `docs/upgrading-core-0.8.md` (and `docs/upgrading-security-release.md` for the 0.7 precedent) and read `packages/plumbus-core/instructions/peer-dependencies.md` before editing manifests. All 18 packages move outside their previous caret ranges, even add-ons with only peer changes. Copy the new-family-only peer literals; do not widen them to legacy core or voice lines. UI 0.8.x requires core 0.7.x as a shared peer; never restore a direct nested core dependency to bypass the upgrade boundary.
 
 The generic bump script changes only core, UI, and voice. It is not sufficient to prepare a coordinated release: update every package in the plan, its changelog, packaged guidance, lockfile, and root agent instructions. Publish normally to `latest`. Run the four repository checks and packed npm consumer checks before publication. Never tag, publish, promote dist-tags, or mutate git without the authorization required by repository instructions.
 

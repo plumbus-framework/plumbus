@@ -2,12 +2,12 @@
 
 ## Release family 0.2.0
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
 
 
-`@plumbus/auth` is the **OIDC relying-party runtime** for Plumbus browser applications: hosted login redirect, authorization code + PKCE callback, opaque server sessions, CSRF, and protected PostgreSQL or memory stores. It is an **optional add-on** peer of `@plumbus/core` (version-locked **`0.7.x`**).
+`@plumbus/auth` is the **OIDC relying-party runtime** for Plumbus browser applications: hosted login redirect, authorization code + PKCE callback, opaque server sessions, CSRF, and protected PostgreSQL or memory stores. It is an **optional add-on** peer of `@plumbus/core` (version-locked **`0.8.x`**).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 

@@ -50,7 +50,7 @@ The server owns policy, retrieval, audit; the UI just renders state derived from
 
 ## Status
 
-Peer-locked to `@plumbus/chat` `0.2.x`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
+Peer-locked to `@plumbus/chat` `0.3.x`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
 
 ## Install
 
@@ -59,8 +59,8 @@ pnpm add @plumbus/chat-ui
 ```
 
 Peers:
-- `@plumbus/chat` `0.2.x` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
-- `@plumbus/core` `0.7.x` (**≥ 0.6.11** via chat 0.1.11)
+- `@plumbus/chat` `0.3.x` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
+- `@plumbus/core` `0.8.x` (**≥ 0.6.11** via chat 0.1.11)
 - `react` `>=19` — provided transitively by [`@plumbus/ui`](../ui/) in Plumbus apps; do not add React to your own `package.json`
 
 Prerequisites: a server-side `defineChat({...})` declaration and `registerChatRoutes(app, routeConfig, [chat])` from `@plumbus/chat`.
