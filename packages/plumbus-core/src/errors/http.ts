@@ -34,12 +34,24 @@ export function errorToHttpStatus(error: PlumbusErrorLike): number {
 
 export const GENERIC_INTERNAL_MESSAGE = 'An internal error occurred';
 
+function pickRefusalReason(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const reason = metadata?.reason;
+  return typeof reason === 'string' && reason.length > 0 ? { reason } : undefined;
+}
+
 export function errorToHttpResponse(error: PlumbusErrorLike): {
   statusCode: number;
   body: { error: { code: string; message: string; metadata?: Record<string, unknown> } };
 } {
   const statusCode = errorToHttpStatus(error);
-  const safeMetadata = statusCode === 403 ? undefined : pickSafeMetadata(error.metadata);
+  // A 403 says nothing about *why* beyond what the application chose to say: the message is
+  // replaced and every metadata key but `reason` is dropped. `reason` is the application's own
+  // operational code (`session-revoked`, `tenant-suspended`), set deliberately at the throw
+  // site, and it is what a client turns into "sign in again" rather than "you may not".
+  const safeMetadata =
+    statusCode === 403 ? pickRefusalReason(error.metadata) : pickSafeMetadata(error.metadata);
   const message =
     statusCode >= 500
       ? GENERIC_INTERNAL_MESSAGE

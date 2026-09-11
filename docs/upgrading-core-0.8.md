@@ -6,7 +6,7 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
-| `@plumbus/core` | 0.7.1 | 0.8.0-beta.0 |
+| `@plumbus/core` | 0.7.1 | 0.8.0-beta.1 |
 | `@plumbus/ui` | 0.8.1 | 0.9.0-beta.0 |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
 | `@plumbus/voice` | 0.5.1 | 0.6.0-beta.0 |
@@ -50,6 +50,8 @@ Do not mix beta packages with the 0.7 family, and do not use `--force` or `--leg
 | `plumbus ui generate` | Projects without a detected frontend | Pass `--out-dir`; `.plumbus/generated/ui` is no longer a silent default. Fetch clients, hooks, and form hints are emitted only for `exposeAs: ['api']` capabilities. |
 | `plumbus generate` | Tooling that parsed the generated OpenAPI 3.0 document | `.plumbus/generated/openapi.json` is OpenAPI 3.1.0 with JSON Schema 2020-12 nullables. Leftover `.plumbus/generated/clients/` trees are deleted on the next run. |
 | Flow compensations | Executions whose stored auth snapshot is missing or invalid | Compensations run as the verified initiating identity, never as the worker. An invalid snapshot records a failed `compensate` history entry and a `flow.compensation_skipped` audit event for operator review. |
+| 403 error bodies | Clients that read a refusal reason from a 403 | The message is always `Access denied` and every metadata key is dropped except `reason`. Put the operational code the client may act on in `metadata.reason` at the throw site; nothing else about a 403 reaches the caller. |
+| Audit writer refusals | Custom `AuditWriter` implementations | A writer that throws a `PlumbusError` is refusing the record: `AuditService.record` rethrows it as is, with no retry and no `Audit persistence failed` wrapper. Any other error is still retried three times and then wrapped. |
 | Reasoning configuration | Apps that used the widened legacy `reasoningEffort` values | Use the provider-neutral `reasoning` config from the 0.7 family. `REASONING_EFFORTS` / `ReasoningEffortOption` remain the vocabulary of `ProviderModel.reasoningEfforts` metadata. |
 
 No database schema changes are introduced by this family beyond the tenant data-plane helpers, which are opt-in.

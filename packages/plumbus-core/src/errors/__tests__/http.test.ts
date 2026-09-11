@@ -71,4 +71,25 @@ describe('errorToHttpResponse', () => {
       hint: 'Use AI_OPENAI_BASE_URL for local Ollama',
     });
   });
+
+  it('answers a 403 with the generic message and only the application reason', () => {
+    const errors = createErrorService();
+    const refusal = errors.forbidden('this session is not usable', {
+      reason: 'session-revoked',
+      hint: 'not for a 403',
+      capability: 'identity.describeSession',
+      sessionRef: 'secret',
+    });
+    const response = errorToHttpResponse(refusal);
+    expect(response.statusCode).toBe(403);
+    expect(response.body.error).toEqual({
+      code: 'forbidden',
+      message: 'Access denied',
+      metadata: { reason: 'session-revoked' },
+    });
+
+    const bare = errorToHttpResponse(errors.forbidden('denied', { capability: 'x', reason: 7 }));
+    expect(bare.body.error.metadata).toBeUndefined();
+    expect(bare.body.error.message).toBe('Access denied');
+  });
 });

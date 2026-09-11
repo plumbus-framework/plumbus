@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createErrorService } from '../errors/index.js';
+import { createErrorService, isPlumbusError } from '../errors/index.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService, AuditWriter } from '../types/audit.js';
 import type { AuthContext } from '../types/security.js';
@@ -50,6 +50,10 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
           await writer.write(event);
           return;
         } catch (error) {
+          // A writer that *refuses* the record throws a PlumbusError (`validation` for a payload
+          // it may not hold). That is the caller's record being wrong, not the store being
+          // unavailable: it is neither retried nor relabelled as a persistence failure.
+          if (isPlumbusError(error)) throw error;
           if (attempt === 2)
             throw createErrorService().internal('Audit persistence failed', { cause: error });
         }

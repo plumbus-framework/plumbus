@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAuditService } from '../service.js';
+import { PlumbusError } from '../../errors/index.js';
+import { ErrorCode } from '../../types/enums.js';
 
 function makeMockDb() {
   const inserted: unknown[] = [];
@@ -160,6 +162,24 @@ it('retries transient writer failures with the same event identity and propagate
   write.mockReset().mockRejectedValue(new Error('offline'));
   await expect(service.record('event')).rejects.toThrow('Audit persistence failed');
   expect(write).toHaveBeenCalledTimes(3);
+});
+
+it('surfaces a writer refusal as thrown, without retrying or relabelling it', async () => {
+  const refusal = new PlumbusError(
+    ErrorCode.Validation,
+    'audit payload rejected at "metadata.recipient"',
+    {
+      path: 'metadata.recipient',
+    },
+  );
+  const write = vi.fn().mockRejectedValue(refusal);
+  const service = createAuditService({
+    db: {} as never,
+    auth: { userId: 'actor', roles: [], scopes: [], provider: 'test' },
+    writer: { write },
+  });
+  await expect(service.record('event', { recipient: 'dean@college.test' })).rejects.toBe(refusal);
+  expect(write).toHaveBeenCalledTimes(1);
 });
 
 it('rejects unsupported audit outcomes before writing', async () => {

@@ -1,5 +1,15 @@
 # @plumbus/core changelog
 
+## 0.8.0-beta.1 — 2026-09-11
+
+### Changed
+
+- **403 responses keep `metadata.reason`.** `errorToHttpResponse` still replaces the message with `Access denied` and drops every other metadata key, but a string `reason` set at the throw site (`session-revoked`, `tenant-suspended`) now reaches the client so it can act on the refusal without learning anything else about it.
+
+### Fixed
+
+- **Audit writer refusals are surfaced, not relabelled.** A custom `AuditWriter` that throws a `PlumbusError` is refusing the record (for example a validation error about the payload). `AuditService.record` now rethrows it unchanged on the first attempt instead of retrying three times and wrapping it as `Audit persistence failed`. Non-Plumbus errors keep the retry-and-wrap behaviour.
+
 ## 0.8.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary
