@@ -74,8 +74,10 @@ vi.mock('../../execution/context-factory.js', () => ({
 }));
 
 import { EntityRegistry } from '../../data/registry.js';
+import { wireContextDependencies } from '../../execution/context-deps.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { createOutboxDispatcher } from '../../events/dispatcher.js';
+import { createFlowEngine } from '../../flows/engine.js';
 import { createEventWorker } from '../../events/worker.js';
 import { EventRegistry } from '../../events/registry.js';
 import { createFlowScheduler } from '../../flows/scheduler.js';
@@ -220,6 +222,56 @@ describe('worker per-unit data-plane routing', () => {
     expect(markFailedFromRunner).not.toHaveBeenCalled();
   });
 
+  it('wires a tenant unit’s context with the row’s tenant on its auth, and an untenanted one without', async () => {
+    claimNext.mockResolvedValueOnce([
+      { id: 'exec-a', tenant_id: 'tenant-a' },
+      { id: 'exec-untenanted', tenant_id: null },
+    ]);
+
+    await runOneCycle(
+      makePoolConfig({ dataPlaneResolver: makeResolver(), untenantedDataPlane: 'control-plane' }),
+      2,
+    );
+
+    const wired = vi
+      .mocked(wireContextDependencies)
+      .mock.calls.map(([options]) => options as { auth: { tenantId?: string }; db: unknown });
+    expect(wired.map((options) => [options.auth.tenantId, options.db])).toEqual([
+      ['tenant-a', tenantADb],
+      [undefined, poolDb],
+    ]);
+  });
+
+  it('keeps a tenant unit’s repositories on the pool database under unitDataPlane control-plane, with the tenant still on its auth', async () => {
+    claimNext.mockResolvedValueOnce([
+      { id: 'exec-a', tenant_id: 'tenant-a' },
+      { id: 'exec-untenanted', tenant_id: null },
+    ]);
+
+    await runOneCycle(
+      makePoolConfig({
+        dataPlaneResolver: makeResolver(),
+        untenantedDataPlane: 'control-plane',
+        unitDataPlane: 'control-plane',
+      }),
+      2,
+    );
+
+    const wired = vi
+      .mocked(wireContextDependencies)
+      .mock.calls.map(
+        ([options]) =>
+          options as { auth: { tenantId?: string }; db: unknown; durableDispatch?: unknown },
+      );
+    expect(
+      wired.map((options) => [options.auth.tenantId, options.db, options.durableDispatch]),
+    ).toEqual([
+      ['tenant-a', poolDb, undefined],
+      [undefined, poolDb, undefined],
+    ]);
+    expect(runNextDatabases()).toEqual({ 'exec-a': poolDb, 'exec-untenanted': poolDb });
+  });
+
   it('reads the tenant from the camel-cased column spelling too', async () => {
     claimNext.mockResolvedValueOnce([{ id: 'exec-a', tenantId: 'tenant-a' }]);
 
@@ -262,6 +314,26 @@ describe('worker per-unit data-plane routing', () => {
 
     expect(runNextDatabases()).toEqual({ 'exec-untenanted': poolDb });
     expect(markFailedFromRunner).not.toHaveBeenCalled();
+  });
+
+  it('builds the engine with spine dispatch carrying the untenanted policy, so control-plane rows are claimed beside the hints', () => {
+    const resolver = makeResolver();
+    createWorkerPool(
+      makePoolConfig({ dataPlaneResolver: resolver, untenantedDataPlane: 'control-plane' }),
+    );
+    expect(createFlowEngine).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        spineDispatch: { db: poolDb, resolver, untenanted: 'control-plane' },
+      }),
+    );
+    createWorkerPool(makePoolConfig({ dataPlaneResolver: resolver }));
+    expect(createFlowEngine).toHaveBeenLastCalledWith(
+      expect.objectContaining({ spineDispatch: { db: poolDb, resolver, untenanted: 'refuse' } }),
+    );
+    createWorkerPool(makePoolConfig({}));
+    expect(createFlowEngine).toHaveBeenLastCalledWith(
+      expect.objectContaining({ spineDispatch: undefined }),
+    );
   });
 
   it('points the outbox dispatcher at the resolver and spine db', () => {

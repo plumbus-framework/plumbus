@@ -43,7 +43,7 @@ import {
   type CompiledFlowRegistry,
   resolveCompiledFlowRegistry,
 } from '../flows/compiled-registry.js';
-import { createFlowEngine } from '../flows/engine.js';
+import { createFlowEngine, type FlowSpineDispatchConfig } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import { createJobDispatchService } from '../jobs/job-dispatch-service.js';
@@ -221,6 +221,12 @@ export interface ServerConfig {
     costContext: AICostContext | undefined,
     db: PostgresJsDatabase,
   ) => void | Promise<void>;
+  /** Immediate per-tenant/provider/package admission for outbound AI calls. */
+  aiProviderConcurrency?: import('../ai/ai-service.js').AIProviderConcurrencyConfig;
+  /** Trusted outbound propagation headers for each provider attempt. */
+  resolveAIProviderHeaders?: import('../ai/ai-service.js').AIServiceConfig['resolveProviderHeaders'];
+  /** Best-effort provider client span exporter. */
+  onAIProviderSpan?: import('../ai/ai-service.js').AIServiceConfig['onProviderSpan'];
   /** Enable provider-side constrained decoding for registered prompt output schemas. */
   enableStrictStructuredOutputs?: boolean;
   /**
@@ -239,6 +245,19 @@ export interface ServerConfig {
   dataPlaneResolver?: DataPlaneResolver;
   /** Policy for requests carrying no tenant reference. Default: `'refuse'`. */
   untenantedDataPlane?: UntenantedDataPlanePolicy;
+  /**
+   * What `dataPlaneResolver` resolves for a request.
+   *
+   * `'resolved'` (the default) is the full mode described above: repositories, events,
+   * audit, transactions, job dispatch and the flows a request starts all go to the resolved
+   * plane. `'control-plane'` keeps every request's repositories on `db` — for a host that
+   * routes tenant data itself, through its own connections — and still places the **flows**
+   * a request starts on the tenant plane the resolver names, with the spine holding only the
+   * opaque dispatch hint. Either way a capability that declared `tenantScoped: false` runs
+   * against `db`: control-plane work reads control-plane tables whatever tenant the request
+   * was bound to.
+   */
+  requestDataPlane?: 'resolved' | 'control-plane';
   /**
    * Map an auth context to the reference `dataPlaneResolver` is keyed by.
    * Defaults to `auth.tenantId`. Override when the resolver is keyed by
@@ -412,6 +431,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         ? { ...config.aiProviders.promptOverrides }
         : undefined,
       onAICostRecorded: onAICostRecordedAdapter,
+      providerConcurrency: serverConfig.aiProviderConcurrency,
+      resolveProviderHeaders: serverConfig.resolveAIProviderHeaders,
+      onProviderSpan: serverConfig.onAIProviderSpan,
       enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
       security: buildAISecurityConfig(entities.getAllEntities(), config.aiProviders.security),
     };
@@ -442,6 +464,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         costTracker,
         promptRegistry: serverConfig.promptRegistry,
         onAICostRecorded: onAICostRecordedAdapter,
+        providerConcurrency: serverConfig.aiProviderConcurrency,
+        resolveProviderHeaders: serverConfig.resolveAIProviderHeaders,
+        onProviderSpan: serverConfig.onAIProviderSpan,
         enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
       }),
     );
@@ -470,11 +495,24 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     compiledRegistry: serverConfig.compiledRegistry,
     compiledFlowsDirectory: serverConfig.compiledFlowsDirectory,
   });
+  /**
+   * Flows a request starts are placed where the resolver says the tenant's state lives
+   * (`spineDispatch`): the execution row on the tenant plane, an opaque hint on `db`, the
+   * spine. Without a resolver an engine writes its own `db`, as it always has.
+   */
+  const requestSpineDispatch: FlowSpineDispatchConfig | undefined = serverConfig.dataPlaneResolver
+    ? {
+        db,
+        resolver: serverConfig.dataPlaneResolver,
+        untenanted: serverConfig.untenantedDataPlane ?? 'refuse',
+      }
+    : undefined;
   const requestFlowEngine = createFlowEngine({
     db,
     registry: flows,
     stepDeps: httpFlowStepDeps,
     compiledRegistry,
+    spineDispatch: requestSpineDispatch,
   });
 
   /**
@@ -497,6 +535,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       registry: flows,
       stepDeps: httpFlowStepDeps,
       compiledRegistry,
+      spineDispatch: requestSpineDispatch,
     });
     flowEnginesByDataPlane.set(dataPlaneDb, engine);
     return engine;
@@ -558,6 +597,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const dataPlaneResolver = serverConfig.dataPlaneResolver;
   const untenantedDataPlane = serverConfig.untenantedDataPlane ?? 'refuse';
   const resolveTenantRef = serverConfig.resolveTenantRef ?? ((auth: AuthContext) => auth.tenantId);
+  const requestDataPlane = serverConfig.requestDataPlane ?? 'resolved';
 
   async function resolveRequestDb(
     resolver: DataPlaneResolver,
@@ -586,10 +626,15 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     supportedLocales: resolvedSupportedLocales,
     createDependencies: (auth: AuthContext, options?): ContextDependencies =>
       buildRequestDependencies(db, auth, options),
-    ...(dataPlaneResolver
+    ...(dataPlaneResolver && requestDataPlane === 'resolved'
       ? {
           resolveDependencies: async (auth: AuthContext, options?) => {
-            const requestDb = await resolveRequestDb(dataPlaneResolver, auth);
+            // `bypassTenantScope` is the route generator's word for a capability that declared
+            // `tenantScoped: false`: control-plane work, which reads control-plane tables
+            // whatever tenant the request happens to be bound to.
+            const requestDb = options?.bypassTenantScope
+              ? db
+              : await resolveRequestDb(dataPlaneResolver, auth);
             return {
               dependencies: buildRequestDependencies(requestDb, auth, options),
               db: requestDb,
@@ -671,7 +716,9 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
   if (dataPlaneResolver) {
     logger.info(
-      `Per-request data-plane resolution enabled (untenanted requests: ${untenantedDataPlane})`,
+      requestDataPlane === 'resolved'
+        ? `Per-request data-plane resolution enabled (untenanted requests: ${untenantedDataPlane})`
+        : `Flows started by requests are placed on tenant planes; repositories stay on the control plane (untenanted flows: ${untenantedDataPlane})`,
     );
   }
 

@@ -31,6 +31,20 @@ Prompts should NOT hardcode `provider` or model `name` unless you have a deliber
 
 ## `ctx.ai` Operations
 
+## Provider admission and trace propagation
+
+Hosts can export `aiProviderConcurrency`, `resolveAIProviderHeaders`, and `onAIProviderSpan`
+from `app/server.ts`. The concurrency ceiling is shared by every identity-bound AI service and
+defaults to a scope of provider + tenant + `costContext.serviceArea`; saturation throws the
+structured `ai-provider-concurrency-exhausted` refusal immediately rather than waiting. Override
+`resolveScope` only when the host has another non-private package/workload key.
+
+`resolveAIProviderHeaders` is called for every real provider attempt, including validation retries
+and streams. Use it for W3C `traceparent`/`tracestate`; credential and content-type headers are
+reserved and refused. `onAIProviderSpan` receives the completed client span and is best effort:
+exporter failures never change the model-call result. Flow workers receive the persisted flow
+correlation id in the same hook, so a host can preserve one trace across request → flow → provider.
+
 ### Generate
 
 Invoke a named prompt with typed input, get validated output:

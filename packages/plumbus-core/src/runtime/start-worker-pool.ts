@@ -9,6 +9,7 @@ import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { PlumbusConfig } from '../types/config.js';
+import type { AuthContext } from '../types/security.js';
 import type { WorkerPool } from '../worker/bootstrap.js';
 import { createWorkerPool } from '../worker/bootstrap.js';
 import { buildStepDeps, buildWorkerAiService, type ServerExtensions } from './bootstrap.js';
@@ -102,6 +103,9 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     onAICostRecorded: extensions?.onAICostRecorded,
     resolveAiOverrides: extensions?.resolveAiOverrides,
     enableStrictStructuredOutputs: extensions?.enableStrictStructuredOutputs,
+    aiProviderConcurrency: extensions?.aiProviderConcurrency,
+    resolveAIProviderHeaders: extensions?.resolveAIProviderHeaders,
+    onAIProviderSpan: extensions?.onAIProviderSpan,
   });
 
   const pool = createWorkerPool({
@@ -128,21 +132,36 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     flows,
     stepDeps,
     aiService,
-    ...(extensions?.schedulePlanes ? { schedulePlanes: extensions.schedulePlanes } : {}),
-    createDataService: (auth) => {
-      const effectiveAuth = auth ?? {
-        userId: 'system-flow-runner',
-        roles: ['system'],
-        scopes: [],
-        provider: 'worker',
-      };
-      return entities.createDataService({
-        db,
-        auth: effectiveAuth,
-        bypassTenantScope: false,
-        encryptionKey,
-      });
-    },
+    // With a host resolver the pool resolves each claimed unit's data plane and wires
+    // repositories from `entities` against it; a caller-built data service would pin every
+    // unit to the pool's own database, which is the one thing the resolver exists to avoid.
+    ...(extensions?.dataPlaneResolver
+      ? {
+          dataPlaneResolver: extensions.dataPlaneResolver,
+          ...(extensions.listTenantRefs ? { listTenantRefs: extensions.listTenantRefs } : {}),
+          ...(extensions.untenantedDataPlane
+            ? { untenantedDataPlane: extensions.untenantedDataPlane }
+            : {}),
+          ...(extensions.resolveTenantRef ? { resolveTenantRef: extensions.resolveTenantRef } : {}),
+          ...(extensions.workerDataPlane ? { unitDataPlane: extensions.workerDataPlane } : {}),
+        }
+      : {
+          ...(extensions?.schedulePlanes ? { schedulePlanes: extensions.schedulePlanes } : {}),
+          createDataService: (auth: AuthContext | undefined) => {
+            const effectiveAuth = auth ?? {
+              userId: 'system-flow-runner',
+              roles: ['system'],
+              scopes: [],
+              provider: 'worker',
+            };
+            return entities.createDataService({
+              db,
+              auth: effectiveAuth,
+              bypassTenantScope: false,
+              encryptionKey,
+            });
+          },
+        }),
     eventRegistry: events,
     onFlowError: extensions?.onFlowError,
     logger,

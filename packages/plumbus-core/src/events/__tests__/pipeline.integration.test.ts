@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { ConsumerRegistry } from '../consumer-registry.js';
+import { createAuditService } from '../../audit/service.js';
 import { createOutboxDispatcher } from '../dispatcher.js';
 import { createInMemoryQueue } from '../queue.js';
 import { createEventWorker } from '../worker.js';
@@ -99,6 +100,139 @@ describe('event pipeline integration', () => {
     );
 
     worker.stop();
+  });
+
+  it('records its audit through the real audit service, whose outcome vocabulary it must respect', async () => {
+    // `createAuditService` refuses any outcome outside success | failure | denied; the events
+    // path used to write `pending`, `retry`, `dead_lettered` and `skipped`, which made every
+    // dispatch attempt throw — and a rejected poll escaping the timer took the worker down.
+    const queue = createInMemoryQueue();
+    const consumers = new ConsumerRegistry();
+    const handled: string[] = [];
+    consumers.register({
+      id: 'strict-consumer',
+      eventTypes: ['order.placed'],
+      maxRetries: 1,
+      handler: async (envelope) => {
+        handled.push(envelope.id);
+        if (envelope.id === 'evt-201') throw new Error('consumer refuses');
+      },
+    });
+    const rows = ['evt-200', 'evt-201'].map((id) => ({
+      id,
+      eventType: 'order.placed',
+      version: '1',
+      payload: { orderId: id },
+      actor: 'user-1',
+      tenantId: 'tenant-1',
+      correlationId: `corr-${id}`,
+      causationId: null,
+      occurredAt: new Date(),
+      status: 'pending',
+      retryCount: '0',
+      dispatchedAt: null,
+      lastError: null,
+    }));
+    const selectChain = (found: unknown[]) => ({
+      from: () => ({ where: () => ({ limit: () => ({ orderBy: () => Promise.resolve(found) }) }) }),
+    });
+    // The claim reads `.returning()`; the status update is awaited as is — one thenable serves both.
+    const updateResult = {
+      returning: async () => [{ id: 'claimed' }],
+      then: (resolve: (value: unknown) => void) => resolve({ rowCount: 1 }),
+    };
+    const db = {
+      select: vi.fn().mockReturnValueOnce(selectChain(rows)).mockReturnValue(selectChain([])),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue(updateResult) }),
+      }),
+      insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+      delete: vi.fn(),
+      execute: vi.fn(),
+    } as never;
+    const written: Array<{ action: string; outcome: string }> = [];
+    const audit = createAuditService({
+      db,
+      auth: { userId: 'system-worker', roles: ['system'], scopes: [], provider: 'worker' },
+      writer: {
+        write: async (event) => {
+          written.push({ action: event.action, outcome: event.outcome });
+        },
+      },
+    });
+    const idempotency = {
+      isProcessed: vi.fn().mockResolvedValue(false),
+      markProcessed: vi.fn().mockResolvedValue(undefined),
+    };
+    const dispatcher = createOutboxDispatcher({ db, queue, audit });
+    const worker = createEventWorker({
+      db,
+      queue,
+      consumers,
+      idempotency: idempotency as never,
+      audit,
+    });
+
+    worker.start();
+    expect(await dispatcher.poll()).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    worker.stop();
+
+    expect(handled).toEqual(['evt-200', 'evt-201']);
+    const byType = (action: string) => written.filter((row) => row.action === action);
+    expect(byType('event.dispatch.attempt')).toHaveLength(2);
+    expect(byType('event.dispatch.dispatched').map((row) => row.outcome)).toEqual([
+      'success',
+      'success',
+    ]);
+    expect(byType('event.consumer.attempt')).toHaveLength(2);
+    expect(byType('event.consumer.delivered').map((row) => row.outcome)).toEqual(['success']);
+    expect(byType('event.consumer.dead_lettered').map((row) => row.outcome)).toEqual(['failure']);
+    expect(written.every((row) => ['success', 'failure', 'denied'].includes(row.outcome))).toBe(
+      true,
+    );
+  });
+
+  it('keeps polling the other planes, and the timer alive, when one plane fails', async () => {
+    const queue = createInMemoryQueue();
+    const failing = {
+      select: vi.fn(() => {
+        throw new Error('plane down');
+      }),
+    } as never;
+    const healthy = {
+      select: vi.fn().mockReturnValue({
+        from: () => ({ where: () => ({ limit: () => ({ orderBy: () => Promise.resolve([]) }) }) }),
+      }),
+      execute: vi.fn().mockResolvedValue([]),
+    } as never;
+    const resolver = {
+      resolve: vi.fn(async (tenantRef: string) => ({
+        db: tenantRef === 'broken' ? failing : healthy,
+        coreSchema: 'core_plumbus',
+        packageSchemaPrefix: 'pkg_',
+        tenantRef,
+      })),
+    };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const dispatcher = createOutboxDispatcher({
+        db: healthy,
+        queue,
+        resolver: resolver as never,
+        spineDb: healthy,
+        listTenantRefs: () => ['broken', 'fine'],
+      });
+      await expect(dispatcher.poll()).resolves.toBe(0);
+      expect(resolver.resolve).toHaveBeenCalledTimes(2);
+      expect((healthy as { execute: ReturnType<typeof vi.fn> }).execute).toHaveBeenCalled();
+      expect(spy).toHaveBeenCalledWith(
+        '[plumbus] outbox poll failed for one plane',
+        expect.objectContaining({ tenantRef: 'broken', error: 'plane down' }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

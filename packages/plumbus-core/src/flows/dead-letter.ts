@@ -1,5 +1,11 @@
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
+import {
+  insertDispatchOutbox,
+  publishOutboxToSpine,
+  reopenExecutionState,
+} from '../durable/index.js';
 import { flowDeadLetterTable, flowExecutionsTable } from './schema.js';
 import { FlowStatus } from './state-machine.js';
 
@@ -13,6 +19,24 @@ export interface OperatorRetryResult {
   flowName: string;
   retriedBy: string;
   retriedAt: string;
+  /**
+   * Under spine dispatch: whether a fresh dispatch hint was published for the reopened
+   * execution. False when the plane holds no durable state for it (a row started before
+   * tenant placement, or a control-plane flow the worker claims from its own table).
+   */
+  republished?: boolean;
+}
+
+/**
+ * Where a tenant-placed execution's hints go (#137). A row on a tenant plane is only ever
+ * run when the spine holds a ready hint for it; a terminal execution has none, so an operator
+ * retry must publish a fresh one or the reset row sits `created` forever.
+ */
+export interface OperatorRetryPlacement {
+  /** The spine's connection, where `opaque_dispatch` lives. */
+  spineDb: PostgresJsDatabase;
+  /** The plane's framework schema (`core_plumbus` by default). */
+  coreSchema?: string;
 }
 
 /**
@@ -90,6 +114,7 @@ export async function retryDeadLetteredFlow(
   db: PostgresJsDatabase,
   executionId: string,
   opts: OperatorRetryOptions,
+  placement?: OperatorRetryPlacement,
 ): Promise<OperatorRetryResult> {
   if (!opts.actor?.trim()) {
     throw new Error('Operator retry requires an actor');
@@ -155,10 +180,42 @@ export async function retryDeadLetteredFlow(
     })
     .where(eq(flowDeadLetterTable.executionId, executionId));
 
+  let republished = false;
+  if (placement) {
+    // Reopen the durable state and hand the spine a fresh hint, so a worker claims the
+    // reset row again. A plane without state for this execution has nothing to reopen: the
+    // row is claimed from its own table as before.
+    const schemaName = placement.coreSchema ?? FRAMEWORK_SCHEMA;
+    const reopened = await reopenExecutionState(
+      db,
+      { executionId, stepId: row.currentStep ?? '', nowIso: retriedAt },
+      schemaName,
+    );
+    if (reopened) {
+      const outbox = await insertDispatchOutbox(
+        db,
+        reopened,
+        reopened.currentStepId,
+        retriedAt,
+        schemaName,
+      );
+      await publishOutboxToSpine(
+        db,
+        placement.spineDb,
+        outbox,
+        `disp:${executionId}:${reopened.revision}`,
+        retriedAt,
+        schemaName,
+      );
+      republished = true;
+    }
+  }
+
   return {
     executionId,
     flowName: row.flowName,
     retriedBy: opts.actor,
     retriedAt,
+    republished,
   };
 }

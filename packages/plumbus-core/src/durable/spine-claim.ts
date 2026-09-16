@@ -94,6 +94,26 @@ export async function claimSpineDispatch(
   return asRows(result).map(spineRowFromSql);
 }
 
+/**
+ * The tenant route the spine last dispatched an execution for, whatever the hint's state.
+ * A request-side engine that never claimed the execution uses this to find the plane its row
+ * lives on before it reads, cancels or resumes it. Undefined when the spine holds no hint.
+ */
+export async function findSpineDispatchTenantRoute(
+  db: PostgresJsDatabase,
+  executionId: string,
+): Promise<string | undefined> {
+  const result = await db.execute(sql`
+    SELECT tenant_route_id
+    FROM opaque_dispatch
+    WHERE execution_id = ${executionId}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+  const row = asRows(result)[0];
+  return row?.tenant_route_id == null ? undefined : String(row.tenant_route_id);
+}
+
 export async function ackSpineDispatch(
   db: PostgresJsDatabase,
   dispatchId: string,
@@ -106,6 +126,29 @@ export async function ackSpineDispatch(
         updated_at = now()
     WHERE dispatch_id = ${dispatchId}
       AND delivery_state <> ${SpineDeliveryState.Acknowledged}
+  `);
+  return getRowsAffected(result) > 0;
+}
+
+/**
+ * Parks a hint no claim can act on — its tenant route cannot be resolved claim after claim —
+ * so it stops being re-leased on every poll. Left for an operator; never claimed again.
+ */
+export async function deadLetterSpineDispatch(
+  db: PostgresJsDatabase,
+  dispatchId: string,
+  failureCategoryId: string,
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE opaque_dispatch
+    SET delivery_state = ${SpineDeliveryState.DeadLettered},
+        lease_ref_id = NULL,
+        lease_expires_at = NULL,
+        privacy_safe_failure_category_id = ${failureCategoryId},
+        updated_at = now()
+    WHERE dispatch_id = ${dispatchId}
+      AND delivery_state <> ${SpineDeliveryState.Acknowledged}
+      AND delivery_state <> ${SpineDeliveryState.DeadLettered}
   `);
   return getRowsAffected(result) > 0;
 }
@@ -138,8 +181,8 @@ export async function upsertSpineDispatch(
       tenant_epoch = EXCLUDED.tenant_epoch,
       not_before = EXCLUDED.not_before,
       updated_at = EXCLUDED.updated_at,
-      lease_ref_id = NULL,
-      lease_expires_at = NULL
+      lease_ref_id = EXCLUDED.lease_ref_id,
+      lease_expires_at = EXCLUDED.lease_expires_at
     RETURNING *
   `);
   const row = asRows(result)[0];

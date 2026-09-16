@@ -36,6 +36,10 @@ export function createFlowService(
       return engine.cancel(executionId);
     },
 
+    async terminate(executionId: string): Promise<void> {
+      return engine.terminate(executionId);
+    },
+
     async status(executionId: string): Promise<FlowExecution> {
       return engine.status(executionId);
     },

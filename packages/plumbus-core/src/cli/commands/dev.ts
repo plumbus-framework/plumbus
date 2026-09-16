@@ -211,6 +211,10 @@ export async function startDevServer(
     enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
     credentials: extensions.credentials,
     ...(extensions.bodyLimit != null && { bodyLimit: extensions.bodyLimit }),
+    ...(extensions.dataPlaneResolver && { dataPlaneResolver: extensions.dataPlaneResolver }),
+    ...(extensions.untenantedDataPlane && { untenantedDataPlane: extensions.untenantedDataPlane }),
+    ...(extensions.resolveTenantRef && { resolveTenantRef: extensions.resolveTenantRef }),
+    ...(extensions.requestDataPlane && { requestDataPlane: extensions.requestDataPlane }),
     jobQueue: jobQueueNeeded ? queues.jobs : undefined,
     metrics,
     ...(process.env.TRUST_PROXY && {

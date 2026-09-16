@@ -43,6 +43,13 @@ export function createDeferredFlowService(
       }
       return flows.cancel(executionId);
     },
+    async terminate(executionId) {
+      if (pending.has(executionId)) {
+        pending.delete(executionId);
+        return;
+      }
+      return flows.terminate(executionId);
+    },
     async status(executionId) {
       const pendingMeta = pending.get(executionId);
       if (pendingMeta) {

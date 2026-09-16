@@ -895,6 +895,39 @@ createServer({
 
 Hook errors are caught and logged; they never propagate to the AI caller.
 
+### Provider admission and trace propagation
+
+Three optional hooks on `ServerConfig` (or `app/server.ts` exports — `plumbus dev` / `start` / `worker` pass them to the request AI service and to the worker pool) wrap every real provider attempt, including validation retries and streams. `createAIService` accepts the same three as `providerConcurrency`, `resolveProviderHeaders` and `onProviderSpan`.
+
+```typescript
+// app/server.ts
+import type { ServerConfig } from "@plumbus/core";
+
+// Immediate per-scope ceiling shared by every identity-bound AI service. The default
+// scope is provider + tenant + costContext.serviceArea; override resolveScope only when
+// the host has another non-private package/workload key. Saturation refuses at once —
+// a PlumbusError('conflict') with failureCode / reason `ai-provider-concurrency-exhausted`
+// and `retryAfterSeconds: 1` — it never queues or hangs.
+export const aiProviderConcurrency: NonNullable<ServerConfig['aiProviderConcurrency']> = {
+  maxConcurrentCalls: 8,
+};
+
+// Trusted propagation headers for each attempt. They reach the adapter as
+// `ProviderRequest.transportHeaders`. authorization, proxy-authorization, x-api-key,
+// api-key and content-type are reserved and refused.
+export const resolveAIProviderHeaders: NonNullable<ServerConfig['resolveAIProviderHeaders']> = (context) =>
+  context.correlationId ? { traceparent: `00-${context.correlationId}-${spanId()}-01` } : {};
+
+// Completed client span: provider, operation, tenantId, actor, correlationId, costContext,
+// startedAt, durationMs, status ('ok' | 'error'), traceparent, errorType. Best effort —
+// a throwing exporter never changes the model-call result.
+export const onAIProviderSpan: NonNullable<ServerConfig['onAIProviderSpan']> = async (span) => {
+  await exporter.export(span);
+};
+```
+
+`AIService.withContext({ tenantId, actor, correlationId })` binds the correlation id the hooks see; flow workers bind the persisted flow correlation id automatically, so a host can keep one trace across request → flow → provider. Types: `AIProviderCallContext`, `AIProviderConcurrencyConfig`, `AIProviderOperation`, `AIProviderSpan`.
+
 ### Voice / Media Costs
 
 Voice integrations should write into the same ledger as text AI calls instead of maintaining a separate cost path. Use `ctx.ai.recordProviderCost(...)` when the provider interaction did not flow through `generate*`, `extract`, or `classify`:

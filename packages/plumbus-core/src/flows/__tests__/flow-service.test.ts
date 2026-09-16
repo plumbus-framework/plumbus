@@ -10,6 +10,7 @@ describe('FlowService', () => {
       start: vi.fn().mockResolvedValue({ id: 'exec-1', flowName: 'test-flow', status: 'created' }),
       resume: vi.fn().mockResolvedValue(undefined),
       cancel: vi.fn().mockResolvedValue(undefined),
+      terminate: vi.fn().mockResolvedValue(undefined),
       status: vi.fn().mockResolvedValue({ id: 'exec-1', flowName: 'test-flow', status: 'running' }),
       runNext: vi.fn(),
     };
@@ -46,6 +47,15 @@ describe('FlowService', () => {
 
     await svc.cancel('exec-1');
     expect(engine.cancel).toHaveBeenCalledWith('exec-1');
+  });
+
+  it('terminate() delegates to the engine without substituting cancel()', async () => {
+    const engine = mockEngine();
+    const svc = createFlowService(engine as any, auth);
+
+    await svc.terminate('exec-1');
+    expect(engine.terminate).toHaveBeenCalledWith('exec-1');
+    expect(engine.cancel).not.toHaveBeenCalled();
   });
 
   it('status() delegates to engine', async () => {

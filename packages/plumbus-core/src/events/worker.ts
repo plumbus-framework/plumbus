@@ -99,7 +99,6 @@ export function createEventWorker(config: WorkerConfig) {
           capabilityVersion: consumer.capabilityVersion,
           tenantId: envelope.tenantId,
           reason: subscription.reason,
-          outcome: 'skipped',
         });
         continue;
       }
@@ -123,7 +122,6 @@ export function createEventWorker(config: WorkerConfig) {
             consumerId: consumer.id,
             attempt,
             tenantId: envelope.tenantId,
-            outcome: 'pending',
           });
           await consumer.handler(envelope);
           succeeded = true;
@@ -162,7 +160,7 @@ export function createEventWorker(config: WorkerConfig) {
           tenantId: envelope.tenantId,
           lastError,
           attempts: attempt,
-          outcome: 'dead_lettered',
+          outcome: 'failure',
         });
         // Dead-letter
         await plane.db.insert(deadLetterTable).values({

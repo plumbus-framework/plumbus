@@ -32,6 +32,7 @@ describe('deferred flow dispatch inside transactional handlers', () => {
       }),
       resume: vi.fn(),
       cancel: vi.fn(),
+      terminate: vi.fn(),
       status: vi.fn(),
       heartbeat: vi.fn(),
     };

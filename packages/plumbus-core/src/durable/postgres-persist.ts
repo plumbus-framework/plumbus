@@ -197,6 +197,62 @@ export async function casAdvanceExecution(
   return 'ok';
 }
 
+/**
+ * Closes a tenant execution's durable state without a claimed hint — an operator cancel, or
+ * any terminal transition taken outside the run loop. The spine hint, if one is still ready,
+ * is dropped by the next claim that sees the state terminal. No-op when the state is already
+ * terminal or absent.
+ */
+export async function markExecutionStateTerminal(
+  db: PostgresJsDatabase,
+  input: {
+    executionId: string;
+    status: Extract<DurableExecutionStatus, 'succeeded' | 'failed' | 'cancelled'>;
+    nowIso: string;
+  },
+  schemaName: string = FRAMEWORK_SCHEMA,
+): Promise<boolean> {
+  const executionTable = qualifyTable(schemaName, 'execution_state');
+  const result = await db.execute(sql`
+    UPDATE ${sql.raw(executionTable)}
+    SET revision = revision + 1,
+        status = ${input.status},
+        terminal = true,
+        updated_at = ${input.nowIso}::timestamptz,
+        wake_at = NULL
+    WHERE execution_id = ${input.executionId}
+      AND terminal = false
+    RETURNING execution_id
+  `);
+  return asRows(result).length > 0;
+}
+
+/**
+ * Reopens a terminal tenant execution for an operator retry: a fresh revision, `created`,
+ * pointed at the step to run again. The caller publishes the outbox row this makes
+ * necessary. Undefined when the plane holds no durable state for the execution (a row
+ * started before tenant placement, or a control-plane flow).
+ */
+export async function reopenExecutionState(
+  db: PostgresJsDatabase,
+  input: { executionId: string; stepId: string; nowIso: string },
+  schemaName: string = FRAMEWORK_SCHEMA,
+): Promise<TenantExecutionState | undefined> {
+  const executionTable = qualifyTable(schemaName, 'execution_state');
+  await db.execute(sql`
+    UPDATE ${sql.raw(executionTable)}
+    SET revision = revision + 1,
+        status = ${DurableExecutionStatus.Created},
+        current_step_id = ${input.stepId},
+        attempt = 0,
+        terminal = false,
+        updated_at = ${input.nowIso}::timestamptz,
+        wake_at = NULL
+    WHERE execution_id = ${input.executionId}
+  `);
+  return loadExecutionState(db, input.executionId, schemaName);
+}
+
 export async function insertDispatchOutbox(
   db: PostgresJsDatabase,
   execution: TenantExecutionState,
@@ -226,13 +282,18 @@ export async function insertDispatchOutbox(
   return mapOutbox(row);
 }
 
+/**
+ * Outbox rows the spine has not been told about. A row that was published is the spine's
+ * until it is acknowledged — republishing it would reset a hint another worker holds the
+ * lease on; the reconciliation sweep, not the pump, is what re-examines published rows.
+ */
 export async function listUnpublishedOutbox(
   db: PostgresJsDatabase,
   schemaName: string = FRAMEWORK_SCHEMA,
 ): Promise<DispatchOutboxRow[]> {
   const outboxTable = qualifyTable(schemaName, 'dispatch_outbox');
   const result = await db.execute(
-    sql`SELECT * FROM ${sql.raw(outboxTable)} WHERE superseded = false AND spine_acked_at IS NULL`,
+    sql`SELECT * FROM ${sql.raw(outboxTable)} WHERE superseded = false AND spine_acked_at IS NULL AND published_at IS NULL`,
   );
   return asRows(result).map(mapOutbox);
 }
@@ -266,6 +327,27 @@ export async function markOutboxAcked(
   `);
 }
 
+/** Closes the outbox row behind an acknowledged spine hint, by the spine row it was published as. */
+export async function markOutboxAckedBySpineRow(
+  db: PostgresJsDatabase,
+  spineRowId: string,
+  nowIso: string,
+  schemaName: string = FRAMEWORK_SCHEMA,
+): Promise<void> {
+  const outboxTable = qualifyTable(schemaName, 'dispatch_outbox');
+  await db.execute(sql`
+    UPDATE ${sql.raw(outboxTable)}
+    SET spine_acked_at = ${nowIso}::timestamptz
+    WHERE spine_row_id = ${spineRowId}
+      AND spine_acked_at IS NULL
+  `);
+}
+
+/**
+ * Publishes an outbox row as a spine hint. With `lease`, the hint is born leased by that
+ * worker — the one that will run the step in the same drain without a claim in between —
+ * so no other worker claims it meanwhile; the lease lapses like any other if the worker dies.
+ */
 export async function publishOutboxToSpine(
   tenantDb: PostgresJsDatabase,
   spineDb: PostgresJsDatabase,
@@ -273,6 +355,7 @@ export async function publishOutboxToSpine(
   dispatchId: string,
   nowIso: string,
   schemaName: string = FRAMEWORK_SCHEMA,
+  lease?: { workerId: string; leaseExpiresAt: string },
 ): Promise<OpaqueDispatchRecord> {
   const record = createOpaqueDispatchRecord({
     dispatchId,
@@ -286,9 +369,10 @@ export async function publishOutboxToSpine(
     tenantEpoch: outbox.tenantEpoch,
     workClassId: outbox.workClassId,
     priorityClassId: outbox.priorityClassId,
-    deliveryState: SpineDeliveryState.Ready,
-    attempt: 0,
+    deliveryState: lease ? SpineDeliveryState.Leased : SpineDeliveryState.Ready,
+    attempt: lease ? 1 : 0,
     notBefore: outbox.notBefore,
+    ...(lease ? { leaseRefId: lease.workerId, leaseExpiresAt: lease.leaseExpiresAt } : {}),
     correlationId: outbox.correlationId,
     createdAt: nowIso,
     updatedAt: nowIso,

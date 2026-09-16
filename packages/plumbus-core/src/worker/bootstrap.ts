@@ -270,6 +270,14 @@ export interface WorkerPoolConfig {
   /** Policy for claimed work carrying no tenant reference. Default: `'refuse'`. */
   untenantedDataPlane?: UntenantedDataPlanePolicy;
   /**
+   * Where a claimed unit's repositories, events and audit are wired when `dataPlaneResolver`
+   * is set. `'resolved'` (default): against the unit's tenant plane. `'control-plane'`: against
+   * the pool's own database, for a host that routes tenant data itself and reaches the plane
+   * from its handlers — the flows are still placed on the tenant plane and claimed from the
+   * spine either way.
+   */
+  unitDataPlane?: 'resolved' | 'control-plane';
+  /**
    * Tenant planes for the flow scheduler alone: one schedule row per tenant for flows
    * scheduled on `tenants`, started with that tenant on auth. Flows, events and the outbox keep
    * the pool's data plane — for a host that routes tenant data itself and has no
@@ -365,6 +373,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   const dataPlaneResolver = poolConfig.dataPlaneResolver;
   const untenantedDataPlane = poolConfig.untenantedDataPlane ?? 'refuse';
+  const unitsOnControlPlane = poolConfig.unitDataPlane === 'control-plane';
   const resolveTenantRef = poolConfig.resolveTenantRef ?? ((auth: AuthContext) => auth.tenantId);
 
   if (dataPlaneResolver && poolConfig.createDataService) {
@@ -377,7 +386,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   }
 
   if (dataPlaneResolver) {
-    logger.info(`Per-unit data-plane resolution enabled (untenanted work: ${untenantedDataPlane})`);
+    logger.info(
+      `Per-unit data-plane resolution enabled (untenanted work: ${untenantedDataPlane}; unit repositories: ${unitsOnControlPlane ? 'control-plane' : 'resolved'})`,
+    );
   }
 
   /**
@@ -399,7 +410,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   /** Resolve (and remember) the data plane a unit of work runs against. */
   async function resolveUnitDataPlane(tenantRef: string | undefined): Promise<PostgresJsDatabase> {
-    if (!dataPlaneResolver) return db;
+    if (!dataPlaneResolver || unitsOnControlPlane) return db;
     if (!tenantRef) {
       if (untenantedDataPlane === 'control-plane') return db;
       throw untenantedWorkError();
@@ -416,7 +427,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
    * was resolved just before it started.
    */
   function dataPlaneForAuth(auth: AuthContext): PostgresJsDatabase {
-    if (!dataPlaneResolver) return db;
+    if (!dataPlaneResolver || unitsOnControlPlane) return db;
     const tenantRef = resolveTenantRef(auth);
     if (!tenantRef) {
       if (untenantedDataPlane === 'control-plane') return db;
@@ -519,7 +530,12 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             });
           }
         : undefined,
-    spineDispatch: dataPlaneResolver ? { db, resolver: dataPlaneResolver } : undefined,
+    // The engine claims tenant hints from the spine and, under `'control-plane'`, the spine's
+    // own rows for untenanted flows beside them — the same policy the pool applies to a
+    // claimed unit with no tenant.
+    spineDispatch: dataPlaneResolver
+      ? { db, resolver: dataPlaneResolver, untenanted: untenantedDataPlane }
+      : undefined,
     compiledRegistry: resolveCompiledFlowRegistry({
       compiledRegistry: poolConfig.compiledRegistry,
       compiledFlowsDirectory: poolConfig.compiledFlowsDirectory,
@@ -618,14 +634,15 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           // Resolving inside the per-row try means an unknown or absent tenant
           // fails this execution the same way a failing step does, instead of
           // aborting the cycle for every other tenant in the batch.
+          // The unit's auth carries the row's tenant, so the repositories, audit and durable
+          // schema the context is wired with are the resolved plane's — not the pool's.
+          const unitTenantRef = resolveTenantRef({
+            ...systemAuth,
+            tenantId: claimedTenantRef(row),
+          });
+          const unitAuth = unitTenantRef ? { ...systemAuth, tenantId: unitTenantRef } : systemAuth;
           const ctx =
-            baseCtx ??
-            buildFlowRunnerContext(
-              systemAuth,
-              await resolveUnitDataPlane(
-                resolveTenantRef({ ...systemAuth, tenantId: claimedTenantRef(row) }),
-              ),
-            );
+            baseCtx ?? buildFlowRunnerContext(unitAuth, await resolveUnitDataPlane(unitTenantRef));
           // Drain consecutive in-flow steps in a single tick.
           //
           // Why: claimNext() acquires a lease (status='running',
@@ -721,7 +738,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             entities: poolConfig.entities,
             events: eventRegistry,
             encryptionKey: resolveEncryptionKey(),
-            durableDispatch: dataPlaneResolver ? { schemaName: durableSchema } : undefined,
+            durableDispatch:
+              dataPlaneResolver && !unitsOnControlPlane ? { schemaName: durableSchema } : undefined,
           },
           {
             flows: createFlowService(flowEngine, systemAuth, flows),

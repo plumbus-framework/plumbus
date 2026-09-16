@@ -180,6 +180,27 @@ describe('CLI start command', () => {
     expect(serverConfig.credentials).toBe(credentials);
   });
 
+  it('passes the data-plane resolver family from server extensions to createServer', async () => {
+    const dataPlaneResolver = { resolve: vi.fn() };
+    vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+      dataPlaneResolver,
+      untenantedDataPlane: 'control-plane',
+      requestDataPlane: 'control-plane',
+    } as never);
+    await startConfigured({ db: {} as never });
+    const serverConfig = (createServer as any).mock.calls[0][0];
+    expect(serverConfig.dataPlaneResolver).toBe(dataPlaneResolver);
+    expect(serverConfig.untenantedDataPlane).toBe('control-plane');
+    expect(serverConfig.requestDataPlane).toBe('control-plane');
+  });
+
+  it('leaves the resolver family off createServer when the host exports none', async () => {
+    await startConfigured({ db: {} as never });
+    const serverConfig = (createServer as any).mock.calls[0][0];
+    expect('dataPlaneResolver' in serverConfig).toBe(false);
+    expect('requestDataPlane' in serverConfig).toBe(false);
+  });
+
   it('uses provided db when given', async () => {
     const mockDb = { execute: vi.fn() };
     await startConfigured({ db: mockDb as never });

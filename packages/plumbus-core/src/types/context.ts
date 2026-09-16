@@ -282,6 +282,8 @@ export interface FlowService {
   ): Promise<FlowExecution>;
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
+  /** Stop an execution without running declared compensations. */
+  terminate(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. Throws LeaseLostError if the lease has been lost. */
   heartbeat(): Promise<void>;
@@ -473,7 +475,7 @@ export interface AICostContext {
 // ── AI Service ──
 export interface AIService {
   /** Bind a fresh service to the executing identity without mutating shared configuration. */
-  withContext?(identity: { tenantId?: string; actor?: string }): AIService;
+  withContext?(identity: { tenantId?: string; actor?: string; correlationId?: string }): AIService;
 
   /** Optional runtime feature flags for cross-version integrations. */
   readonly features?: {

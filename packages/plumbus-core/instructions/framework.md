@@ -153,6 +153,9 @@ The optional `app/server.ts` file exports hooks that customize server behavior. 
 | `onProcessError` | On uncaught exceptions, unhandled rejections, and Fastify-level errors | Logging process-level crashes that bypass capability/flow hooks |
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
 | `onAICostRecorded` | After each AI cost record is written | Custom cost analytics or billing hooks |
+| `aiProviderConcurrency` | Around each provider attempt | Immediate per-tenant/provider/package concurrency admission |
+| `resolveAIProviderHeaders` | Before each provider attempt | Trusted W3C propagation headers |
+| `onAIProviderSpan` | After each provider attempt | Export provider client spans |
 | `enableStrictStructuredOutputs` | Server bootstrap | Global toggle for strict structured-output mode |
 | `credentials` | Server bootstrap | Optional host credential catalog (`export const credentials`). Passed to `createServer({ credentials })`. Names, types, refs, and public labels only — secrets stay in the host resolver. |
 

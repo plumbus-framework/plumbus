@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-errors.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
 import type {
   AICostContext,
   AIDocument,
@@ -59,6 +60,37 @@ export type OnAICostRecorded = (
   costContext?: AICostContext,
 ) => Promise<void> | void;
 
+export type AIProviderOperation = 'generate' | 'stream' | 'extract' | 'classify';
+
+/** Privacy-sensitive call context visible only to trusted server extension hooks. */
+export interface AIProviderCallContext {
+  readonly provider: string;
+  readonly operation: AIProviderOperation;
+  readonly tenantId?: string;
+  readonly actor?: string;
+  readonly correlationId?: string;
+  readonly costContext?: AICostContext;
+}
+
+export interface AIProviderSpan extends AIProviderCallContext {
+  readonly startedAt: string;
+  readonly durationMs: number;
+  readonly status: 'ok' | 'error';
+  readonly traceparent?: string;
+  readonly errorType?: string;
+}
+
+export interface AIProviderConcurrencyConfig {
+  /** Immediate per-scope ceiling. Saturation refuses; it never queues or hangs. */
+  readonly maxConcurrentCalls: number;
+  /** Defaults to provider + tenant + costContext.serviceArea (the package/service boundary). */
+  readonly resolveScope?: (context: AIProviderCallContext) => string;
+}
+
+interface AIProviderConcurrencyState {
+  readonly active: Map<string, number>;
+}
+
 // ── AI Service Config ──
 export interface AIServiceConfig {
   /** Multiple provider adapters keyed by name (e.g. "openai", "anthropic") */
@@ -97,6 +129,7 @@ export interface AIServiceConfig {
   budget?: {
     tenantId?: string;
     actor?: string;
+    correlationId?: string;
   };
   /**
    * Optional framework hook fired after every AI call completes and the
@@ -105,6 +138,16 @@ export interface AIServiceConfig {
    * in the hook are caught and logged to stderr but never propagate.
    */
   onAICostRecorded?: OnAICostRecorded;
+  /** Per-tenant/provider/package admission applied around each real provider attempt. */
+  providerConcurrency?: AIProviderConcurrencyConfig;
+  /** Trusted propagation headers, resolved once per provider attempt. */
+  resolveProviderHeaders?: (
+    context: AIProviderCallContext,
+  ) => Readonly<Record<string, string>> | Promise<Readonly<Record<string, string>>>;
+  /** Best-effort provider client span export hook. Hook failures never fail the model call. */
+  onProviderSpan?: (span: AIProviderSpan) => void | Promise<void>;
+  /** @internal Shared by services rebound with `withContext`. */
+  _providerConcurrencyState?: AIProviderConcurrencyState;
 }
 
 /** Convenience: create config from a single provider (backward compat) */
@@ -150,14 +193,122 @@ export function createAIService(config: AIServiceConfig): AIService {
         })()
       : configuredPromptRegistry;
   const responseSchemaCache = new WeakMap<z.ZodTypeAny, Record<string, unknown>>();
+  const concurrencyState = config._providerConcurrencyState ?? {
+    active: new Map<string, number>(),
+  };
+  // Dynamic-override wrappers retain the original config object; attach the runtime so every
+  // identity-bound service created from it competes for the same slots.
+  config._providerConcurrencyState = concurrencyState;
 
-  function resolveProvider(providerName?: string): AIProviderAdapter {
+  function callContext(
+    provider: string,
+    operation: AIProviderOperation,
+    costContext?: AICostContext,
+  ): AIProviderCallContext {
+    return {
+      provider,
+      operation,
+      ...(config.budget?.tenantId ? { tenantId: config.budget.tenantId } : {}),
+      ...(config.budget?.actor ? { actor: config.budget.actor } : {}),
+      ...(config.budget?.correlationId ? { correlationId: config.budget.correlationId } : {}),
+      ...(costContext ? { costContext } : {}),
+    };
+  }
+
+  function acquireProviderSlot(context: AIProviderCallContext): () => void {
+    const policy = config.providerConcurrency;
+    if (!policy) return () => undefined;
+    if (!Number.isSafeInteger(policy.maxConcurrentCalls) || policy.maxConcurrentCalls < 1) {
+      throw new Error('AI provider concurrency maxConcurrentCalls must be a positive integer');
+    }
+    const scope =
+      policy.resolveScope?.(context) ??
+      [
+        context.provider,
+        context.tenantId ?? 'platform',
+        context.costContext?.serviceArea ?? 'default',
+      ].join(':');
+    const active = concurrencyState.active.get(scope) ?? 0;
+    if (active >= policy.maxConcurrentCalls) {
+      throw new PlumbusError(
+        'conflict',
+        'AI provider concurrency is exhausted for this tenant and package',
+        {
+          failureCode: 'ai-provider-concurrency-exhausted',
+          reason: 'ai-provider-concurrency-exhausted',
+          provider: context.provider,
+          limit: policy.maxConcurrentCalls,
+          retryAfterSeconds: 1,
+        },
+      );
+    }
+    concurrencyState.active.set(scope, active + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (concurrencyState.active.get(scope) ?? 1) - 1;
+      if (remaining <= 0) concurrencyState.active.delete(scope);
+      else concurrencyState.active.set(scope, remaining);
+    };
+  }
+
+  async function trustedProviderHeaders(
+    context: AIProviderCallContext,
+  ): Promise<Readonly<Record<string, string>>> {
+    const headers = (await config.resolveProviderHeaders?.(context)) ?? {};
+    const projected: Record<string, string> = {};
+    for (const [name, value] of Object.entries(headers)) {
+      const lower = name.toLowerCase();
+      if (
+        ['authorization', 'proxy-authorization', 'x-api-key', 'api-key', 'content-type'].includes(
+          lower,
+        )
+      ) {
+        throw new Error(`AI provider propagation header "${name}" is reserved`);
+      }
+      projected[lower] = String(value);
+    }
+    return projected;
+  }
+
+  async function reportProviderSpan(
+    context: AIProviderCallContext,
+    startedAt: Date,
+    durationMs: number,
+    status: 'ok' | 'error',
+    traceparent: string | undefined,
+    error?: unknown,
+  ): Promise<void> {
+    if (!config.onProviderSpan) return;
+    try {
+      await config.onProviderSpan({
+        ...context,
+        startedAt: startedAt.toISOString(),
+        durationMs,
+        status,
+        ...(traceparent ? { traceparent } : {}),
+        ...(status === 'error'
+          ? { errorType: error instanceof Error ? error.name : 'UnknownError' }
+          : {}),
+      });
+    } catch {
+      // Observability must never turn a provider answer into an application failure.
+    }
+  }
+
+  function resolveProvider(
+    providerName: string | undefined,
+    operation: AIProviderOperation,
+    costContext?: AICostContext,
+  ): AIProviderAdapter {
     const name = providerName ?? defaultProvider;
     const adapter = providers[name];
     if (!adapter) {
       const available = Object.keys(providers).join(', ');
       throw new Error(`AI provider "${name}" not configured. Available: ${available}`);
     }
+    const context = callContext(adapter.name, operation, costContext);
     // Every provider attempt, including validation retries, checks the budget.
     const checkRequest = (request: ProviderRequest): void => {
       const input = JSON.stringify({
@@ -175,15 +326,67 @@ export function createAIService(config: AIServiceConfig): AIService {
       embed: (request) => adapter.embed(request),
       async complete(request) {
         checkRequest(request);
-        const response = await adapter.complete(request);
-        validateTokenUsage(response.usage);
-        return { ...response, cost: normalizeCost(response.cost) ?? undefined };
+        const release = acquireProviderSlot(context);
+        const startedAt = new Date();
+        let traceparent: string | undefined;
+        try {
+          const transportHeaders = await trustedProviderHeaders(context);
+          traceparent = transportHeaders.traceparent;
+          const response = await adapter.complete({ ...request, transportHeaders });
+          validateTokenUsage(response.usage);
+          await reportProviderSpan(
+            context,
+            startedAt,
+            Date.now() - startedAt.getTime(),
+            'ok',
+            traceparent,
+          );
+          return { ...response, cost: normalizeCost(response.cost) ?? undefined };
+        } catch (error) {
+          await reportProviderSpan(
+            context,
+            startedAt,
+            Date.now() - startedAt.getTime(),
+            'error',
+            traceparent,
+            error,
+          );
+          throw error;
+        } finally {
+          release();
+        }
       },
       async *stream(request) {
         checkRequest(request);
-        for await (const event of adapter.stream(request)) {
-          if (event.usage) validateTokenUsage(event.usage);
-          yield { ...event, cost: normalizeCost(event.cost) ?? undefined };
+        const release = acquireProviderSlot(context);
+        const startedAt = new Date();
+        let traceparent: string | undefined;
+        try {
+          const transportHeaders = await trustedProviderHeaders(context);
+          traceparent = transportHeaders.traceparent;
+          for await (const event of adapter.stream({ ...request, transportHeaders })) {
+            if (event.usage) validateTokenUsage(event.usage);
+            yield { ...event, cost: normalizeCost(event.cost) ?? undefined };
+          }
+          await reportProviderSpan(
+            context,
+            startedAt,
+            Date.now() - startedAt.getTime(),
+            'ok',
+            traceparent,
+          );
+        } catch (error) {
+          await reportProviderSpan(
+            context,
+            startedAt,
+            Date.now() - startedAt.getTime(),
+            'error',
+            traceparent,
+            error,
+          );
+          throw error;
+        } finally {
+          release();
         }
       },
     };
@@ -461,6 +664,8 @@ export function createAIService(config: AIServiceConfig): AIService {
     // Resolve provider: per-call > prompt-level > default
     const activeProvider = resolveProvider(
       params.provider ?? ('provider' in promptInfo ? promptInfo.provider : undefined),
+      'generate',
+      params.costContext,
     );
 
     // Check if we have a schema to validate against
@@ -710,7 +915,11 @@ export function createAIService(config: AIServiceConfig): AIService {
 
   return {
     withContext(identity) {
-      return createAIService({ ...config, budget: { ...identity } });
+      return createAIService({
+        ...config,
+        budget: { ...identity },
+        _providerConcurrencyState: concurrencyState,
+      });
     },
     features: { perCallProviderModelReasoning: true },
     recordProviderCost,
@@ -785,6 +994,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       // Resolve provider
       const activeProvider = resolveProvider(
         params.provider ?? ('provider' in promptInfo ? promptInfo.provider : undefined),
+        'stream',
+        params.costContext,
       );
 
       // Detect if the output schema is a simple single-string-field object
@@ -1238,7 +1449,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       checkBudget();
 
       // extract uses default provider (no prompt-level routing)
-      const activeProvider = resolveProvider();
+      const activeProvider = resolveProvider(undefined, 'extract', params.costContext);
       const resolvedModel = config.defaultModel ?? activeProvider.name;
 
       const systemPrompt =
@@ -1342,7 +1553,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       checkBudget();
 
       // classify uses default provider (no prompt-level routing)
-      const activeProvider = resolveProvider();
+      const activeProvider = resolveProvider(undefined, 'classify', params.costContext);
       const resolvedModel = config.defaultModel ?? activeProvider.name;
 
       const systemPrompt =

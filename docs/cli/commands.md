@@ -231,7 +231,7 @@ Behavior:
 
 - Loads `plumbus.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `bodyLimit`, `schedulePlanes`, and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
 - Exposes `GET /health` and `GET /ready`.
@@ -369,7 +369,11 @@ Human output includes `synced=false` for flows registered in code but not yet sy
 
 #### `plumbus flow dead-letter retry <executionId>`
 
-Re-enqueue the next flow step for a failed execution after an operator fix.
+Re-enqueue the next flow step for a failed execution after an operator fix. The command works
+on the boot database only; an execution placed on a tenant plane (a host exporting
+`dataPlaneResolver`) is retried from the host's own operator capability with
+`retryDeadLetteredFlow(planeDb, id, opts, { spineDb })`, which also publishes the spine hint
+the worker needs — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md).
 
 ---
 

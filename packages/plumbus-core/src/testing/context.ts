@@ -133,6 +133,7 @@ export function mockFlows(options?: MockFlowsOptions): MockFlowService {
     },
     async resume() {},
     async cancel() {},
+    async terminate() {},
     async status(executionId) {
       return (
         options?.statuses?.[executionId] ?? {

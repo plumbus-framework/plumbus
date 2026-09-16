@@ -30,8 +30,12 @@ import {
   ackSpineDispatch,
   casAdvanceExecution,
   claimSpineDispatch,
+  deadLetterSpineDispatch,
+  findSpineDispatchTenantRoute,
   insertDispatchOutbox,
   loadExecutionState,
+  markExecutionStateTerminal,
+  markOutboxAckedBySpineRow,
   persistAcceptanceOnDb,
   publishOutboxToSpine,
 } from '../durable/index.js';
@@ -149,6 +153,21 @@ export interface FlowSpineDispatchConfig {
   resolver: DataPlaneResolver;
   /** Schema holding tenant durable tables. Default `core_plumbus`. */
   coreSchema?: string;
+  /**
+   * What a flow started with no tenant reference does. `'refuse'` (the default) is the
+   * fail-closed choice a single-tenant-per-plane deployment wants. `'control-plane'` places
+   * such a flow on `db` — the spine — exactly as an engine without spine dispatch would, and
+   * claims it from there beside the tenant hints: control-plane work (a fleet sweep, a
+   * platform procedure an operator started) has no tenant plane to live on and no private
+   * state to keep off the spine.
+   */
+  untenanted?: 'refuse' | 'control-plane';
+  /**
+   * How many claims a hint survives without its tenant plane resolving before it is parked
+   * as dead-lettered instead of being re-leased on every poll — a tenant whose plane is gone
+   * (closed, dropped) leaves hints behind. Default 10.
+   */
+  maxClaimAttempts?: number;
 }
 
 interface FlowExecutionRow {
@@ -245,6 +264,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
   const onFlowStepEnqueue = config.onFlowStepEnqueue;
   const spineDispatch = config.spineDispatch;
   const durableSchema = spineDispatch?.coreSchema ?? FRAMEWORK_SCHEMA;
+  const maxClaimAttempts = spineDispatch?.maxClaimAttempts ?? 10;
+  const untenantedOnControlPlane = spineDispatch?.untenanted === 'control-plane';
   const executionStores = new Map<string, PostgresJsDatabase>();
   const claimedHints = new Map<string, OpaqueDispatchRecord>();
   const executionPins = new Map<
@@ -308,6 +329,35 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
   function storeFor(executionId: string): PostgresJsDatabase {
     return executionStores.get(executionId) ?? db;
+  }
+
+  /**
+   * Finds the plane an execution's row lives on when this engine did not start or claim it —
+   * a request-side engine reading, cancelling or resuming a flow another process placed on a
+   * tenant plane. The spine's dispatch hint names the tenant route; the resolver names the
+   * plane. Without a hint the execution is the engine's own (control-plane) row, or unknown,
+   * and `db` answers as before.
+   */
+  async function locateStore(executionId: string): Promise<PostgresJsDatabase> {
+    const cached = executionStores.get(executionId);
+    if (cached) return cached;
+    if (!spineDispatch) return db;
+    try {
+      const tenantRouteId = await findSpineDispatchTenantRoute(spineDispatch.db, executionId);
+      if (!tenantRouteId) return db;
+      const handle = await spineDispatch.resolver.resolve(tenantRouteId);
+      executionStores.set(executionId, handle.db);
+      return handle.db;
+    } catch (error) {
+      logger?.warn(
+        'could not locate the plane of a dispatched execution; using the engine database',
+        {
+          executionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return db;
+    }
   }
   const onFlowDelayedSchedule = config.onFlowDelayedSchedule;
 
@@ -382,15 +432,21 @@ export function createFlowEngine(config: FlowEngineConfig) {
     let writeDb = db;
     if (spineDispatch) {
       if (!auth.tenantId) {
-        throw new PlumbusError(
-          ErrorCode.Forbidden,
-          'spine dispatch requires a tenant reference on flow start',
-          { reason: 'untenanted-flow-start' },
-        );
+        if (!untenantedOnControlPlane) {
+          throw new PlumbusError(
+            ErrorCode.Forbidden,
+            'spine dispatch requires a tenant reference on flow start',
+            { reason: 'untenanted-flow-start' },
+          );
+        }
+        // A control-plane flow: the classic row on the spine, claimed from there.
+        writeDb = spineDispatch.db;
+        executionStores.set(executionId, writeDb);
+      } else {
+        const handle = await spineDispatch.resolver.resolve(auth.tenantId);
+        writeDb = handle.db;
+        executionStores.set(executionId, writeDb);
       }
-      const handle = await spineDispatch.resolver.resolve(auth.tenantId);
-      writeDb = handle.db;
-      executionStores.set(executionId, writeDb);
     }
 
     await writeDb.insert(flowExecutionsTable).values({
@@ -479,7 +535,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           tenantState.revision !== hint.expectedRevision ||
           tenantState.tenantEpoch !== hint.tenantEpoch
         ) {
-          await ackSpineDispatch(spineDispatch.db, hint.dispatchId);
+          await dropSpineHint(handle.db, hint.dispatchId);
           continue;
         }
         const execRows = await handle.db
@@ -488,8 +544,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
           .where(eq(flowExecutionsTable.id, hint.executionId))
           .limit(1);
         const row = execRows[0] as FlowExecutionRow | undefined;
-        if (!row) {
-          await ackSpineDispatch(spineDispatch.db, hint.dispatchId);
+        // A row cancelled or otherwise closed outside the run loop keeps no claim on the
+        // hint that was published for it: drop the hint rather than revive the row.
+        if (!row || isTerminal(row.status as FlowStatus)) {
+          await dropSpineHint(handle.db, hint.dispatchId);
+          continue;
+        }
+        // A row waiting for an event, or for a wake time that has not come, is not runnable
+        // whatever the hint says; leave the hint to lapse rather than run the wait step again.
+        if (
+          row.status === FlowStatus.Waiting &&
+          (row.waitingForEvent !== null || (row.wakeAt !== null && row.wakeAt > new Date()))
+        ) {
           continue;
         }
         executionStores.set(hint.executionId, handle.db);
@@ -512,8 +578,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
         logger?.error('spine claim failed closed for one dispatch', {
           dispatchId: hint.dispatchId,
           executionId: hint.executionId,
+          attempt: hint.attempt,
           error: error instanceof Error ? error.message : String(error),
         });
+        if (hint.attempt >= maxClaimAttempts) {
+          await deadLetterSpineDispatch(spineDispatch.db, hint.dispatchId, 'plane-unresolved');
+          logger?.warn('spine hint dead-lettered after repeated claim failures', {
+            dispatchId: hint.dispatchId,
+            executionId: hint.executionId,
+            tenantRouteId: hint.tenantRouteId,
+            attempt: hint.attempt,
+          });
+        }
       }
     }
     return rows;
@@ -521,8 +597,20 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
   async function claimNext(batchSize?: number): Promise<FlowExecutionRow[]> {
     if (spineDispatch) {
-      return claimNextFromSpine(batchSize);
+      const fromSpine = await claimNextFromSpine(batchSize);
+      if (!untenantedOnControlPlane) return fromSpine;
+      // Control-plane flows live on the spine's own `flow_executions`; claim what budget is
+      // left there, after the tenant hints.
+      const remaining = (batchSize ?? claimBatchSize) - fromSpine.length;
+      if (remaining <= 0) return fromSpine;
+      const fromControlPlane = await claimNextFromOwnDb(remaining);
+      for (const row of fromControlPlane) executionStores.set(row.id, spineDispatch.db);
+      return [...fromSpine, ...fromControlPlane];
     }
+    return claimNextFromOwnDb(batchSize);
+  }
+
+  async function claimNextFromOwnDb(batchSize?: number): Promise<FlowExecutionRow[]> {
     const limit = batchSize ?? claimBatchSize;
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
 
@@ -801,7 +889,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // pass it explicitly. An explicit `signal` in the call overrides the
     // step default. See AIService type for the per-method signal parameter.
     const scopedAi =
-      ctx.ai.withContext?.({ tenantId: flowAuth.tenantId, actor: flowAuth.userId }) ?? ctx.ai;
+      ctx.ai.withContext?.({
+        tenantId: flowAuth.tenantId,
+        actor: flowAuth.userId,
+        correlationId: row.correlationId ?? undefined,
+      }) ?? ctx.ai;
     const flowAi = wrapAiWithDefaultSignal(scopedAi, stepAc.signal);
 
     const flowCtx: ExecutionContext = {
@@ -1122,7 +1214,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Resume a waiting flow (e.g., after an event arrives or approval granted).
    */
   async function resume(executionId: string, signal?: unknown): Promise<void> {
-    const rows = await storeFor(executionId)
+    const rows = await (await locateStore(executionId))
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -1225,7 +1317,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     executionId: string,
     opts?: { actor?: string; skipCompensation?: boolean },
   ): Promise<void> {
-    const rows = await storeFor(executionId)
+    const rows = await (await locateStore(executionId))
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -1262,6 +1354,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       stepHistory: history,
       completedAt: new Date(),
     });
+    await closeSpineState(executionId, 'cancelled');
 
     if (audit) {
       await audit.record(`flow.cancelled.${row.flowName}`, {
@@ -1389,7 +1482,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Get the current status of a flow execution.
    */
   async function status(executionId: string): Promise<FlowExecution> {
-    const rows = await storeFor(executionId)
+    const rows = await (await locateStore(executionId))
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
@@ -1528,12 +1621,22 @@ export function createFlowEngine(config: FlowEngineConfig) {
         ),
       );
     const rowsAffected = getRowsAffected(result);
-    if (rowsAffected > 0 && audit) {
-      await audit.record('flow.runner.finalized', {
-        executionId,
-        workerId,
-        error: message,
-      });
+    if (rowsAffected > 0) {
+      await closeSpineState(executionId, 'failed');
+      // The run never reached its sync: the hint this worker holds is dropped here.
+      const hint = claimedHints.get(executionId);
+      const tenantDb = executionStores.get(executionId);
+      if (hint && tenantDb) {
+        await dropSpineHint(tenantDb, hint.dispatchId);
+        claimedHints.delete(executionId);
+      }
+      if (audit) {
+        await audit.record('flow.runner.finalized', {
+          executionId,
+          workerId,
+          error: message,
+        });
+      }
     }
     return rowsAffected > 0;
   }
@@ -1550,6 +1653,53 @@ export function createFlowEngine(config: FlowEngineConfig) {
       .where(and(eq(flowExecutionsTable.id, id), eq(flowExecutionsTable.leaseOwner, workerId)));
     const rowsAffected = getRowsAffected(result);
     return rowsAffected > 0;
+  }
+
+  /** Acknowledges a hint on the spine and closes the outbox row behind it on the plane. */
+  async function dropSpineHint(tenantDb: PostgresJsDatabase, dispatchId: string): Promise<void> {
+    if (!spineDispatch) return;
+    await ackSpineDispatch(spineDispatch.db, dispatchId);
+    try {
+      await markOutboxAckedBySpineRow(
+        tenantDb,
+        dispatchId,
+        new Date().toISOString(),
+        durableSchema,
+      );
+    } catch (error) {
+      logger?.warn('acknowledged spine hint left its outbox row open', {
+        dispatchId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * A terminal transition taken outside the run loop — an operator cancel, the runner
+   * finalising a run that threw — leaves the tenant's durable state open and, possibly, a
+   * hint on the spine. Close the state so the next claim drops the hint. Rows on the engine's
+   * own database (classic placement, control-plane flows) carry no durable state.
+   */
+  async function closeSpineState(
+    executionId: string,
+    status: 'cancelled' | 'failed',
+  ): Promise<void> {
+    if (!spineDispatch) return;
+    const store = await locateStore(executionId);
+    if (store === spineDispatch.db) return;
+    try {
+      await markExecutionStateTerminal(
+        store,
+        { executionId, status, nowIso: new Date().toISOString() },
+        durableSchema,
+      );
+    } catch (error) {
+      logger?.warn('could not close the durable state of a finished execution', {
+        executionId,
+        status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async function syncSpineAfterRun(executionId: string, result: FlowExecution): Promise<void> {
@@ -1590,21 +1740,26 @@ export function createFlowEngine(config: FlowEngineConfig) {
       },
       durableSchema,
     );
-    await ackSpineDispatch(spineDispatch.db, hint.dispatchId);
+    await dropSpineHint(tenantDb, hint.dispatchId);
     claimedHints.delete(executionId);
     if (cas !== 'ok' || terminal) return;
     const advanced = await loadExecutionState(tenantDb, executionId, durableSchema);
     if (!advanced || advanced.terminal || !flowRow?.currentStep) return;
     const nextStep = flowRow.currentStep;
     const outbox = await insertDispatchOutbox(tenantDb, advanced, nextStep, nowIso, durableSchema);
-    await publishOutboxToSpine(
+    // The worker that ran this step drains the next one without claiming again, so the hint
+    // for it is born under this worker's lease; a worker that dies mid-drain lets it lapse
+    // and another claims it. Keeping the hint lets the next sync advance the durable state.
+    const next = await publishOutboxToSpine(
       tenantDb,
       spineDispatch.db,
       outbox,
       `disp:${executionId}:${advanced.revision}`,
       nowIso,
       durableSchema,
+      { workerId, leaseExpiresAt: new Date(Date.now() + leaseDurationMs).toISOString() },
     );
+    claimedHints.set(executionId, next);
   }
 
   async function applyDefinitionStrategy(
@@ -1613,7 +1768,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   ): Promise<{ strategy: DefinitionInFlightStrategyName; applied: true }> {
     assertSupportedDefinitionStrategy(strategy);
 
-    const rows = await storeFor(executionId)
+    const rows = await (await locateStore(executionId))
       .select()
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))

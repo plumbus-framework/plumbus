@@ -133,6 +133,9 @@ export interface BuildWorkerAiServiceOptions {
   onAICostRecorded?: ServerConfig['onAICostRecorded'];
   resolveAiOverrides?: ServerConfig['resolveAiOverrides'];
   enableStrictStructuredOutputs?: ServerConfig['enableStrictStructuredOutputs'];
+  aiProviderConcurrency?: ServerConfig['aiProviderConcurrency'];
+  resolveAIProviderHeaders?: ServerConfig['resolveAIProviderHeaders'];
+  onAIProviderSpan?: ServerConfig['onAIProviderSpan'];
 }
 
 /** Build AI service for worker/flow execution (deduplicated from dev/start). */
@@ -145,6 +148,9 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     onAICostRecorded,
     resolveAiOverrides,
     enableStrictStructuredOutputs,
+    aiProviderConcurrency,
+    resolveAIProviderHeaders,
+    onAIProviderSpan,
   } = options;
 
   const workerOnAICostRecorded = onAICostRecorded
@@ -169,6 +175,9 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       promptRegistry,
       onAICostRecorded: workerOnAICostRecorded,
       enableStrictStructuredOutputs,
+      providerConcurrency: aiProviderConcurrency,
+      resolveProviderHeaders: resolveAIProviderHeaders,
+      onProviderSpan: onAIProviderSpan,
       security: buildAISecurityConfig(
         entities?.getAllEntities() ?? [],
         config.aiProviders.security,
@@ -198,6 +207,9 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
         promptRegistry,
         onAICostRecorded: workerOnAICostRecorded,
         enableStrictStructuredOutputs,
+        providerConcurrency: aiProviderConcurrency,
+        resolveProviderHeaders: resolveAIProviderHeaders,
+        onProviderSpan: onAIProviderSpan,
       }),
     );
   }
@@ -212,11 +224,30 @@ export type ServerExtensions = Pick<
   | 'onCapabilityError'
   | 'onProcessError'
   | 'onAICostRecorded'
+  | 'aiProviderConcurrency'
+  | 'resolveAIProviderHeaders'
+  | 'onAIProviderSpan'
   | 'enableStrictStructuredOutputs'
   | 'credentials'
   | 'bodyLimit'
+  | 'dataPlaneResolver'
+  | 'untenantedDataPlane'
+  | 'resolveTenantRef'
+  | 'requestDataPlane'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
   /** Tenant planes for the flow scheduler, from `app/server.ts` (`export const schedulePlanes`). */
   schedulePlanes?: WorkerPoolConfig['schedulePlanes'];
+  /**
+   * Tenant references the worker pool's outbox dispatcher and scheduler pump when the host
+   * exports a `dataPlaneResolver` (`export const listTenantRefs`). Tenants resolved for
+   * claimed work are pumped as well.
+   */
+  listTenantRefs?: WorkerPoolConfig['listTenantRefs'];
+  /**
+   * Where a claimed unit's repositories live under a host `dataPlaneResolver`
+   * (`export const workerDataPlane`): the resolved tenant plane, or the control plane for a
+   * host that routes tenant data itself. Flows are placed on the tenant plane either way.
+   */
+  workerDataPlane?: WorkerPoolConfig['unitDataPlane'];
 };

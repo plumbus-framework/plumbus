@@ -10,6 +10,10 @@ export {
   createAIService,
   singleProviderConfig,
   type AICostContext,
+  type AIProviderCallContext,
+  type AIProviderConcurrencyConfig,
+  type AIProviderOperation,
+  type AIProviderSpan,
   type AIServiceConfig,
   type OnAICostRecorded,
 } from './ai-service.js';

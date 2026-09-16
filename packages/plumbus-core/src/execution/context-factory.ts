@@ -49,6 +49,7 @@ const noopFlows: FlowService = {
   },
   async resume() {},
   async cancel() {},
+  async terminate() {},
   async status() {
     return { id: '', flowName: '', status: 'unknown' };
   },
@@ -249,7 +250,11 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     flows: deps.flows ?? noopFlows,
     jobs: deps.jobs ?? noopJobs,
     ai:
-      deps.ai?.withContext?.({ tenantId: deps.auth.tenantId, actor: deps.auth.userId }) ??
+      deps.ai?.withContext?.({
+        tenantId: deps.auth.tenantId,
+        actor: deps.auth.userId,
+        correlationId: deps.correlationId,
+      }) ??
       deps.ai ??
       noopAI,
     audit: deps.audit ?? noopAudit,

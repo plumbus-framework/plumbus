@@ -132,6 +132,8 @@ export interface ProviderRequest {
    * wins.
    */
   signal?: AbortSignal;
+  /** Trusted host-supplied propagation headers. Provider adapters never accept credential overrides. */
+  transportHeaders?: Readonly<Record<string, string>>;
   /**
    * Deterministic sampling seed. OpenAI-compatible providers (including xAI
    * Grok) honor this parameter: identical `{seed, temperature, model, prompt}`
@@ -1084,6 +1086,7 @@ async function completeOpenAIResponses(args: {
       fetch(`${args.baseUrl}/responses`, {
         method: 'POST',
         headers: {
+          ...request.transportHeaders,
           'Content-Type': 'application/json',
           Authorization: `Bearer ${args.apiKey}`,
         },
@@ -1295,6 +1298,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
+              ...request.transportHeaders,
               'Content-Type': 'application/json',
               Authorization: `Bearer ${config.apiKey}`,
             },
@@ -1415,6 +1419,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
             fetch(`${baseUrl}/chat/completions`, {
               method: 'POST',
               headers: {
+                ...request.transportHeaders,
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${config.apiKey}`,
               },
@@ -1582,6 +1587,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
           fetch(`${baseUrl}/messages`, {
             method: 'POST',
             headers: {
+              ...request.transportHeaders,
               'Content-Type': 'application/json',
               'x-api-key': config.apiKey,
               'anthropic-version': '2023-06-01',
@@ -1698,6 +1704,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
             fetch(`${baseUrl}/messages`, {
               method: 'POST',
               headers: {
+                ...request.transportHeaders,
                 'Content-Type': 'application/json',
                 'x-api-key': config.apiKey,
                 'anthropic-version': '2023-06-01',

@@ -114,6 +114,12 @@ retry: {
 
 Steps that fail with transient errors are retried. Permanent failures stop the flow and move it to the dead-letter queue.
 
+Operators can stop an open execution through the framework service. `ctx.flows.cancel(id)`
+aborts the active step and runs every declared compensation for completed steps;
+`ctx.flows.terminate(id)` aborts and closes the execution without compensation. Both leave the
+execution in the terminal `cancelled` state, never `completed`; applications should audit the
+operator, reason, and which action was chosen in their recovery capability.
+
 ## Compiled definitions
 
 Scheduled flows use `createFlowScheduler` and `flow_schedules`. Set `schedule.catchUpPolicy` to `catch-up` for bounded missed-tick catch-up; default is `skip`. Do not add a second scheduler.

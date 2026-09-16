@@ -149,11 +149,11 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
       };
 
       try {
+        // Audit outcomes are `success | failure | denied`; an attempt has none yet.
         await audit?.record('event.dispatch.attempt', {
           eventId: row.id,
           eventType: row.eventType,
           tenantId: row.tenantId,
-          outcome: 'pending',
         });
         await queue.publish(envelope);
         await targetDb
@@ -178,7 +178,8 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           tenantId: row.tenantId,
           retryCount,
           error: errorMsg,
-          outcome: retryCount >= maxRetries ? 'dead_lettered' : 'retry',
+          outcome: 'failure',
+          disposition: retryCount >= maxRetries ? 'dead_lettered' : 'retry',
         });
 
         if (retryCount >= maxRetries) {
@@ -254,10 +255,24 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
       const targets = await resolveTargets();
       let dispatched = 0;
       for (const target of targets) {
-        dispatched += await pollEventOutbox(target.db);
-        dispatched += await pumpDispatchOutbox(target);
+        // One plane's failure must neither stop the others nor escape the timer: an
+        // unhandled rejection here would take the worker process down.
+        try {
+          dispatched += await pollEventOutbox(target.db);
+          dispatched += await pumpDispatchOutbox(target);
+        } catch (err) {
+          console.error('[plumbus] outbox poll failed for one plane', {
+            tenantRef: target.tenantRef,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
       return dispatched;
+    } catch (err) {
+      console.error('[plumbus] outbox poll could not resolve its planes', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 0;
     } finally {
       polling = false;
     }

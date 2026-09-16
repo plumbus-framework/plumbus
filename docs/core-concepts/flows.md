@@ -386,8 +386,10 @@ See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the
 
 Inside a flow step handler, `ctx.signal` is an `AbortSignal` that fires when:
 
-- `ctx.flows.cancel(executionId)` is called (in this process or any peer worker), OR
+- `ctx.flows.cancel(executionId)` or `ctx.flows.terminate(executionId)` is called (in this process or any peer worker), OR
 - the worker loses its lease on the execution.
+
+`cancel` aborts the active step and runs every declared compensation for completed steps; `terminate` aborts and closes the execution without compensation. Both leave the execution in the terminal `cancelled` state, never `completed`. Audit the operator, reason, and which action was chosen in the recovery capability that calls them.
 
 Capability handlers can pass it to cancelable HTTP / AI calls so a cancel request stops in-flight work cooperatively, rather than letting a zombie step burn budget after the user gave up:
 

@@ -430,10 +430,17 @@ interface ServerConfig {
   onProcessError?: (info) => void | Promise<void>;
   resolveAiOverrides?: (db) => Promise<{ defaultModel?; defaultProvider?; promptOverrides? }>;
   onAICostRecorded?: (record, costContext, db) => void | Promise<void>;
+  aiProviderConcurrency?: AIProviderConcurrencyConfig;
+  resolveAIProviderHeaders?: (context) => Record<string, string> | Promise<Record<string, string>>;
+  onAIProviderSpan?: (span: AIProviderSpan) => void | Promise<void>;
   enableStrictStructuredOutputs?: boolean;
   credentials?: CredentialCatalog;
 }
 ```
+
+### AI provider admission and trace hooks
+
+`aiProviderConcurrency`, `resolveAIProviderHeaders` and `onAIProviderSpan` wrap every real provider attempt made through `ctx.ai` (validation retries and streams included). Export them from `app/server.ts` and `plumbus dev` / `start` / `worker` wire them into the request AI service and the worker pool alike; `createAIService` accepts the same three as `providerConcurrency`, `resolveProviderHeaders` and `onProviderSpan`. The concurrency ceiling is an immediate per-scope admission (provider + tenant + `costContext.serviceArea` unless `resolveScope` says otherwise) shared by every identity-bound service, and saturation throws `ai-provider-concurrency-exhausted` rather than queueing. Header resolution feeds `ProviderRequest.transportHeaders` and refuses credential and content-type headers. Span export is best effort: a throwing hook never changes the model-call result. See [AI integration](../ai/ai-integration.md#provider-admission-and-trace-propagation).
 
 ### `onCapabilityError` Hook
 
@@ -518,7 +525,7 @@ interface WorkerPoolConfig {
 }
 ```
 
-Additional hooks (`onQueuesClose`, `redisClient`, `flowsPrefix`, `refreshQueueDepths`, `onFlowStepEnqueue`) are available for durable split deployments — see `packages/plumbus-core/src/worker/bootstrap.ts`.
+Additional hooks (`onQueuesClose`, `redisClient`, `flowsPrefix`, `refreshQueueDepths`, `onFlowStepEnqueue`) are available for durable split deployments — see `packages/plumbus-core/src/worker/bootstrap.ts`. Per-unit data-plane resolution (`dataPlaneResolver`, `listTenantRefs`, `untenantedDataPlane`, `unitDataPlane`, `resolveTenantRef`) is documented in [Tenant Data Planes](tenant-data-planes.md); `plumbus start` / `dev` / `worker` take those from `app/server.ts` exports, and a host that supplies a resolver must not also supply `createDataService`.
 
 The pool auto-registers a `plumbus:flow-trigger` consumer that maps incoming events to flow starts via `createFlowTriggerHandler`.
 

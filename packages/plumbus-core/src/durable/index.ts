@@ -61,14 +61,19 @@ export {
   listSideEffects,
   listUnpublishedOutbox,
   loadExecutionState,
+  markExecutionStateTerminal,
   markOutboxAcked,
+  markOutboxAckedBySpineRow,
   markOutboxPublished,
   persistAcceptanceOnDb,
   publishOutboxToSpine,
+  reopenExecutionState,
 } from './postgres-persist.js';
 export {
   ackSpineDispatch,
   claimSpineDispatch,
+  deadLetterSpineDispatch,
+  findSpineDispatchTenantRoute,
   spineRowFromSql,
   upsertSpineDispatch,
 } from './spine-claim.js';

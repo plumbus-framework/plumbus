@@ -231,6 +231,20 @@ describe('CLI dev command', () => {
       expect(serverConfig.credentials).toBe(credentials);
     });
 
+    it('passes the data-plane resolver family from server extensions to createServer', async () => {
+      const dataPlaneResolver = { resolve: vi.fn() };
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+        dataPlaneResolver,
+        untenantedDataPlane: 'control-plane',
+        requestDataPlane: 'control-plane',
+      } as never);
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.dataPlaneResolver).toBe(dataPlaneResolver);
+      expect(serverConfig.untenantedDataPlane).toBe('control-plane');
+      expect(serverConfig.requestDataPlane).toBe('control-plane');
+    });
+
     it('passes the resolved port to createServer', async () => {
       await startDevServer({ db: {} as never, port: LISTEN_PORT });
       const serverConfig = (createServer as any).mock.calls[0][0];

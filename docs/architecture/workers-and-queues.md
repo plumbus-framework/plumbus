@@ -278,7 +278,7 @@ See [CLI → Commands](../cli/commands.md) for full option reference.
 
 ## Observability
 
-Worker processes expose Prometheus-style metrics at `GET /metrics` on the health port (`--health-port` / `PLUMBUS_WORKER_HEALTH_PORT`). Colocated `plumbus dev` / `plumbus start` (`role=all`) also expose `GET /metrics` on the API port when the worker pool runs. Gauges and histograms cover outbox pending depth, per-queue depth (Redis), event delivery duration, consumer failures, capability execution duration, and flow step duration. Event dispatch and consumer attempts are recorded in the audit log (`event.dispatch.*`, `event.consumer.*` with terminal `delivered` / `dead_lettered`). Wire metrics into your monitoring stack alongside `/health` and `/ready` (worker `/ready` pings Redis when durable).
+Worker processes expose Prometheus-style metrics at `GET /metrics` on the health port (`--health-port` / `PLUMBUS_WORKER_HEALTH_PORT`). Colocated `plumbus dev` / `plumbus start` (`role=all`) also expose `GET /metrics` on the API port when the worker pool runs. Gauges and histograms cover outbox pending depth, per-queue depth (Redis), event delivery duration, consumer failures, capability execution duration, and flow step duration. Event dispatch and consumer attempts are recorded in the audit log (`event.dispatch.*`, `event.consumer.*` with terminal `delivered` / `dead_lettered`; outcomes are the audit service's `success` / `failure`, and a failed dispatch names its `disposition`, `retry` or `dead_lettered`). Wire metrics into your monitoring stack alongside `/health` and `/ready` (worker `/ready` pings Redis when durable).
 
 ## MCP Job Queue Unification
 
