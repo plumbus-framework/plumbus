@@ -632,9 +632,30 @@ describe('Server Bootstrap', () => {
       const err = Object.assign(new Error('bad request detail'), { statusCode: 400 });
       await handler?.(err, { url: '/x', method: 'GET', ip: '127.0.0.1' }, reply);
 
+      // A transport-level 4xx is a client mistake: the code names the condition, not
+      // 'internal' (Quinovium #222).
       expect(reply.send).toHaveBeenCalledWith({
-        error: { code: 'internal', message: 'bad request detail' },
+        error: { code: 'validation', message: 'bad request detail' },
       });
+    });
+
+    it('names a 415 unsupported media type in the Fastify error handler', async () => {
+      const onProcessError = vi.fn(async () => {});
+      const server = createServer(makeServerConfig({ onProcessError }));
+      const handler = (server.app as { _errorHandler?: AnyFn })._errorHandler;
+
+      const reply = {
+        status: vi.fn().mockReturnThis(),
+        send: vi.fn(),
+      };
+      const err = Object.assign(new Error('Unsupported Media Type'), { statusCode: 415 });
+      await handler?.(err, { url: '/x', method: 'POST', ip: '127.0.0.1' }, reply);
+
+      expect(reply.send).toHaveBeenCalledWith({
+        error: { code: 'unsupported-media-type', message: 'Unsupported Media Type' },
+      });
+      // The process-error hook does not treat a client refusal as a server fault.
+      expect(onProcessError).not.toHaveBeenCalled();
     });
 
     it('calls resolver with DB before AI generate', async () => {

@@ -28,7 +28,7 @@ import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { logHookError } from '../errors/hook-log.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
-import { PlumbusError } from '../errors/plumbus-error.js';
+import { PlumbusError, isPlumbusError } from '../errors/index.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
@@ -686,6 +686,19 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         typeof (err as { statusCode?: unknown }).statusCode === 'number'
           ? (err as { statusCode: number }).statusCode
           : 500;
+      // Transport-level refusals are client mistakes, not server faults: Fastify names them
+      // with statusCode (415 unsupported media type, 400 malformed JSON body). Answering them
+      // as 'internal' hid a request-shape mistake behind an outage-looking answer and leaked
+      // the framework prose to the wire (Quinovium #222).
+      if (statusCode < 500 && !isPlumbusError(err)) {
+        reply.status(statusCode).send({
+          error: {
+            code: statusCode === 415 ? 'unsupported-media-type' : 'validation',
+            message,
+          },
+        });
+        return;
+      }
       logger.error(`Fastify error: ${message}`, {
         url: request.url,
         method: request.method,

@@ -368,13 +368,19 @@ Backoff strategies:
 - `fixed` — same delay between each retry.
 - `exponential` — delay doubles between retries.
 
+A failed step with retries remaining moves to `waiting`, clears its worker lease, and keeps the
+same `currentStep`. `wakeAt` is the computed backoff instant; polling workers and durable queue
+schedulers cannot claim it before then. In tenant-data-plane deployments the retry transition is
+persist-before-ack: `execution_state`, the retry `wait_state`, and a future-dated
+`dispatch_outbox` row commit together before the current spine hint is acknowledged.
+
 ## Multi-Worker Safety & Leasing
 
 Plumbus is built for horizontal scale: any number of worker processes can share one database without executing the same step twice. Safety is enforced at the row level — each flow execution is held by at most one worker at a time via a time-bounded lease.
 
 **How claims work.** Each poll cycle, `claimNext()` runs a single atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` against `flow_executions`. Postgres' `SKIP LOCKED` guarantees that concurrent workers never lock the same row, so each returned execution is owned by exactly the worker that claimed it. Expired leases (from a crashed worker) are picked up by the same query.
 
-**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each tick issues a `UPDATE … WHERE id = $1 AND lease_owner = $workerId`; if zero rows match, the lease has been stolen and the worker aborts the step. Transient infrastructure failures on extend (or best-effort audit writes) are logged and retried on the next tick — they do not abort the step or surface as unhandled rejections.
+**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each tick issues a guarded `UPDATE … WHERE id = $1 AND lease_owner = $workerId`; tenant-placed flows first extend the same worker's opaque spine hint, then the tenant row. If either guarded update matches zero rows, the lease has been stolen and the worker aborts the step. Transient infrastructure failures on extend (or best-effort audit writes) are logged and retried on the next tick — they do not abort the step or surface as unhandled rejections.
 
 **Manual heartbeat.** Long-running step handlers that span multiple lease intervals can call `ctx.flows.heartbeat()` to extend the lease explicitly. Outside of flow execution it's a no-op, so helper code that calls it stays portable.
 

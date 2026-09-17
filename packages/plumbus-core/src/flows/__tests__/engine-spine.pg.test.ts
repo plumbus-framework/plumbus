@@ -1,20 +1,20 @@
 import { sql } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../define/defineFlow.js';
 import { flowExecutionsDdl } from '../../durable/apply-ddl.js';
 import { createDurableTestHarness, type DurableTestHarness } from '../../durable/harness.js';
+import { createOpaqueDispatchRecord } from '../../durable/opaque-dispatch.js';
 import {
   listSideEffects,
   listUnpublishedOutbox,
   loadExecutionState,
 } from '../../durable/postgres-persist.js';
-import { createOpaqueDispatchRecord } from '../../durable/opaque-dispatch.js';
 import { upsertSpineDispatch } from '../../durable/spine-claim.js';
-import type { DataPlaneResolver } from '../../tenancy/types.js';
-import { deadLetterFlow, retryDeadLetteredFlow } from '../dead-letter.js';
 import { createSingleDataPlaneResolver } from '../../tenancy/data-plane-resolver.js';
+import type { DataPlaneResolver } from '../../tenancy/types.js';
 import { FlowStepType } from '../../types/enums.js';
+import { deadLetterFlow, retryDeadLetteredFlow } from '../dead-letter.js';
 import { createFlowEngine } from '../engine.js';
 import { FlowRegistry } from '../registry.js';
 import { FlowStatus } from '../state-machine.js';
@@ -30,6 +30,43 @@ function makeFlow() {
     ],
   });
 }
+
+function makeSingleStepFlow(retry?: { attempts: number; backoff: 'fixed' | 'exponential' }) {
+  return defineFlow({
+    name: 'durable-single',
+    domain: 'durable',
+    input: z.object({}),
+    ...(retry ? { retry } : {}),
+    steps: [{ name: 'only', type: FlowStepType.Capability, capability: 'durable.only' }],
+  });
+}
+
+const workerCtx = () =>
+  ({
+    auth: {
+      userId: 'system',
+      roles: ['system'],
+      scopes: [],
+      provider: 'worker',
+      tenantId: 'tenant-a',
+    },
+    data: {},
+    events: { emit: async () => undefined, emitMany: async () => undefined },
+    flows: {
+      start: async () => ({}),
+      resume: async () => undefined,
+      cancel: async () => undefined,
+      status: async () => ({}),
+    },
+    ai: {},
+    audit: { record: async () => undefined },
+    errors: {},
+    logger: { debug() {}, info() {}, warn() {}, error() {} },
+    time: { now: () => new Date() },
+    config: {},
+    security: {},
+    translations: { locale: 'en', t: (key: string) => key },
+  }) as never;
 
 describe('flow engine spine dispatch on two databases', () => {
   let harness: DurableTestHarness;
@@ -255,6 +292,146 @@ describe('flow engine spine dispatch with control-plane flows beside tenant flow
     });
     expect((await stranger.status(tenant.id)).status).toBe(FlowStatus.Completed);
     expect((await stranger.status(controlPlane.id)).status).toBe(FlowStatus.Completed);
+  });
+});
+
+describe('flow engine spine dispatch: heartbeats and retry backoff', () => {
+  let harness: DurableTestHarness;
+
+  afterEach(async () => {
+    await harness?.close();
+  });
+
+  it('extends the spine hint while a long tenant step is still running', async () => {
+    harness = await createDurableTestHarness();
+    const registry = new FlowRegistry();
+    registry.register(makeSingleStepFlow());
+    const resolver = createSingleDataPlaneResolver(harness.tenantDb, {
+      coreSchema: harness.coreSchema,
+    });
+    let entered!: () => void;
+    let finish!: () => void;
+    const stepEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const finishStep = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const stepDeps = {
+      executeCapability: async () => {
+        entered();
+        await finishStep;
+        return { success: true as const, data: {} };
+      },
+      evaluateCondition: () => true,
+    };
+    const engineA = createFlowEngine({
+      db: harness.spineDb,
+      registry,
+      stepDeps,
+      workerId: 'worker-a',
+      spineDispatch: { db: harness.spineDb, resolver, coreSchema: harness.coreSchema },
+      flowLeaseDurationMs: 60,
+      flowHeartbeatIntervalMs: 10,
+    });
+    const engineB = createFlowEngine({
+      db: harness.spineDb,
+      registry,
+      stepDeps,
+      workerId: 'worker-b',
+      spineDispatch: { db: harness.spineDb, resolver, coreSchema: harness.coreSchema },
+      flowLeaseDurationMs: 60,
+      flowHeartbeatIntervalMs: 10,
+    });
+    const started = await engineA.start(
+      'durable-single',
+      {},
+      { userId: 'tester', roles: ['system'], scopes: [], provider: 'test', tenantId: 'tenant-a' },
+    );
+    expect((await engineA.claimNext(1)).map((row) => row.id)).toEqual([started.id]);
+    const running = engineA.runNext(started.id, workerCtx());
+    await stepEntered;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    expect(await engineB.claimNext(1)).toEqual([]);
+    const hint = (await harness.spineDb.execute(
+      sql`SELECT attempt, lease_ref_id, lease_expires_at > now() AS live
+        FROM opaque_dispatch WHERE execution_id = ${started.id}`,
+    )) as unknown as Array<{ attempt: number; lease_ref_id: string | null; live: boolean }>;
+    expect(hint).toEqual([{ attempt: 1, lease_ref_id: 'worker-a', live: true }]);
+
+    finish();
+    expect((await running).status).toBe(FlowStatus.Completed);
+  });
+
+  it('persists a future retry hint and does not reclaim it before the backoff', async () => {
+    harness = await createDurableTestHarness();
+    const registry = new FlowRegistry();
+    registry.register(makeSingleStepFlow({ attempts: 1, backoff: 'fixed' }));
+    const resolver = createSingleDataPlaneResolver(harness.tenantDb, {
+      coreSchema: harness.coreSchema,
+    });
+    let calls = 0;
+    const stepDeps = {
+      executeCapability: async () => {
+        calls += 1;
+        return calls === 1
+          ? { success: false as const, error: 'provider busy' }
+          : { success: true as const, data: {} };
+      },
+      evaluateCondition: () => true,
+    };
+    const engineA = createFlowEngine({
+      db: harness.spineDb,
+      registry,
+      stepDeps,
+      workerId: 'worker-a',
+      spineDispatch: { db: harness.spineDb, resolver, coreSchema: harness.coreSchema },
+      flowLeaseDurationMs: 5_000,
+    });
+    const engineB = createFlowEngine({
+      db: harness.spineDb,
+      registry,
+      stepDeps,
+      workerId: 'worker-b',
+      spineDispatch: { db: harness.spineDb, resolver, coreSchema: harness.coreSchema },
+      flowLeaseDurationMs: 5_000,
+    });
+    const started = await engineA.start(
+      'durable-single',
+      {},
+      { userId: 'tester', roles: ['system'], scopes: [], provider: 'test', tenantId: 'tenant-a' },
+    );
+    await engineA.claimNext(1);
+    expect((await engineA.runNext(started.id, workerCtx())).status).toBe(FlowStatus.Waiting);
+    expect(calls).toBe(1);
+    expect(await engineB.claimNext(1)).toEqual([]);
+
+    const hints = (await harness.spineDb.execute(
+      sql`SELECT delivery_state, not_before, lease_ref_id FROM opaque_dispatch
+        WHERE execution_id = ${started.id} ORDER BY expected_revision`,
+    )) as unknown as Array<{
+      delivery_state: string;
+      not_before: Date;
+      lease_ref_id: string | null;
+    }>;
+    expect(hints.map((row) => row.delivery_state)).toEqual(['acknowledged', 'retry-scheduled']);
+    expect(hints[1]?.lease_ref_id).toBeNull();
+    const notBeforeMs = new Date(String(hints[1]?.not_before)).getTime();
+    const waitMs = Math.max(0, notBeforeMs - Date.now() + 50);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+    expect((await engineB.claimNext(1)).map((row) => row.id)).toEqual([started.id]);
+    expect((await engineB.runNext(started.id, workerCtx())).status).toBe(FlowStatus.Completed);
+    expect(calls).toBe(2);
+    const durable = await loadExecutionState(harness.tenantDb, started.id, harness.coreSchema);
+    expect(durable).toMatchObject({ status: 'succeeded', revision: 3, attempt: 1, terminal: true });
+    const waits = (await harness.tenantDb.execute(
+      sql.raw(
+        `SELECT kind, state FROM ${harness.coreSchema}.wait_state WHERE execution_id = '${started.id}'`,
+      ),
+    )) as unknown as Array<{ kind: string; state: string }>;
+    expect(waits).toEqual([{ kind: 'retry', state: 'waiting' }]);
   });
 });
 

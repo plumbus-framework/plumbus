@@ -149,6 +149,47 @@ describe('FlowEngine', () => {
     expect(db._inserts[0].flowName).toBe('order-processing');
   });
 
+  it('parks a failed step until its retry backoff instead of draining it immediately', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'retry-later',
+        domain: 'test',
+        input: z.object({}),
+        retry: { attempts: 1, backoff: 'fixed' },
+        steps: [{ name: 'only', type: FlowStepType.Capability }],
+      }),
+    );
+    const db = mockDb();
+    const schedule = vi.fn().mockResolvedValue(undefined);
+    const stepDeps = makeStepDeps(false);
+    const engine = createFlowEngine({
+      db,
+      registry,
+      stepDeps,
+      workerId: 'worker-retry',
+      onFlowDelayedSchedule: schedule,
+    });
+    const execution = await engine.start('retry-later', {}, makeAuth());
+    db._rows.get(execution.id).retryCount = 0;
+    const before = Date.now();
+    const result = await engine.runNext(execution.id, makeCtx());
+
+    expect(result.status).toBe(FlowStatus.Waiting);
+    expect(stepDeps.executeCapability).toHaveBeenCalledTimes(1);
+    const retryUpdate = db._updates.find((update: any) => update.retryCount === 1);
+    expect(retryUpdate).toMatchObject({
+      status: FlowStatus.Waiting,
+      retryCount: 1,
+      waitingForEvent: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    expect(retryUpdate?.wakeAt).toBeInstanceOf(Date);
+    expect(retryUpdate.wakeAt.getTime()).toBeGreaterThanOrEqual(before + 900);
+    expect(schedule).toHaveBeenCalledWith(execution.id, retryUpdate.wakeAt, execution.id);
+  });
+
   it('throws on unregistered flow', async () => {
     const registry = new FlowRegistry();
     const db = mockDb();

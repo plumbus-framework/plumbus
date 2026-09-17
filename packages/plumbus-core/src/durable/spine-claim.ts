@@ -4,7 +4,7 @@
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { createOpaqueDispatchRecord } from './opaque-dispatch.js';
-import { SpineDeliveryState, type OpaqueDispatchRecord } from './types.js';
+import { type OpaqueDispatchRecord, SpineDeliveryState } from './types.js';
 
 function getRowsAffected(result: unknown): number {
   const r = result as { rowCount?: unknown; count?: unknown; length?: unknown } | null | undefined;
@@ -59,6 +59,12 @@ export interface SpineClaimOptions {
   limit?: number;
 }
 
+export interface SpineLeaseOptions {
+  dispatchId: string;
+  workerId: string;
+  leaseDurationMs: number;
+}
+
 /**
  * Claim ready (or lease-expired) spine rows. Concurrent callers each get
  * different rows because of FOR UPDATE SKIP LOCKED.
@@ -95,6 +101,26 @@ export async function claimSpineDispatch(
 }
 
 /**
+ * Extend one leased spine hint only while the same worker still owns it.
+ * A zero-row result is lease loss, not a transient database failure.
+ */
+export async function extendSpineDispatchLease(
+  db: PostgresJsDatabase,
+  options: SpineLeaseOptions,
+): Promise<boolean> {
+  const leaseDurationInterval = `${options.leaseDurationMs} milliseconds`;
+  const result = await db.execute(sql`
+    UPDATE opaque_dispatch
+    SET lease_expires_at = now() + ${leaseDurationInterval}::interval,
+        updated_at = now()
+    WHERE dispatch_id = ${options.dispatchId}
+      AND delivery_state = ${SpineDeliveryState.Leased}
+      AND lease_ref_id = ${options.workerId}
+  `);
+  return getRowsAffected(result) > 0;
+}
+
+/**
  * The tenant route the spine last dispatched an execution for, whatever the hint's state.
  * A request-side engine that never claimed the execution uses this to find the plane its row
  * lives on before it reads, cancels or resumes it. Undefined when the spine holds no hint.
@@ -117,6 +143,7 @@ export async function findSpineDispatchTenantRoute(
 export async function ackSpineDispatch(
   db: PostgresJsDatabase,
   dispatchId: string,
+  workerId?: string,
 ): Promise<boolean> {
   const result = await db.execute(sql`
     UPDATE opaque_dispatch
@@ -126,6 +153,7 @@ export async function ackSpineDispatch(
         updated_at = now()
     WHERE dispatch_id = ${dispatchId}
       AND delivery_state <> ${SpineDeliveryState.Acknowledged}
+      ${workerId === undefined ? sql`` : sql`AND lease_ref_id = ${workerId}`}
   `);
   return getRowsAffected(result) > 0;
 }

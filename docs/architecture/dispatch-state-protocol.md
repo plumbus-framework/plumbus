@@ -74,6 +74,8 @@ caller may retry; accept is idempotent on `idempotencyKey`.
 3. **Claim spine row (worker liveness).**
    - `SELECT … FOR UPDATE SKIP LOCKED` on the spine dispatch table (in-memory claim skips an unexpired lease).
    - Acquire lease with expiry; lease lives on spine only.
+   - While execution is running, heartbeats extend that spine lease with a
+     `dispatchId + workerId + leased-state` guard. A stale worker cannot extend or ack it.
 
 4. **Reconcile and execute (tenant truth).**
    - Resolve tenant route via `DataPlaneResolver`.
@@ -87,6 +89,14 @@ caller may retry; accept is idempotent on `idempotencyKey`.
 
 Duplicate or delayed spine delivery is safe: step 4 no-ops when revision has advanced. Lost spine
 rows are repaired by the tenant-side orphan sweep.
+
+### Retry scheduling
+
+A retry is a fresh durable revision, not an immediate loop under the current lease. Before the
+inbound hint is acknowledged, one tenant transaction CAS-advances `execution_state` to
+`retry-scheduled`, appends a `wait_state(kind=retry)`, and inserts a `dispatch_outbox` row whose
+`notBefore` is the fixed/exponential backoff instant. The post-commit hint is
+`retry-scheduled`, carries no worker lease, and becomes claimable only after that instant.
 
 ## Tenant-local durable state placement
 

@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
-  extraHarnessConnection,
   createDurableTestHarness,
   type DurableTestHarness,
+  extraHarnessConnection,
 } from '../harness.js';
-import { ackSpineDispatch, claimSpineDispatch, upsertSpineDispatch } from '../spine-claim.js';
 import { createOpaqueDispatchRecord } from '../opaque-dispatch.js';
+import {
+  ackSpineDispatch,
+  claimSpineDispatch,
+  extendSpineDispatchLease,
+  upsertSpineDispatch,
+} from '../spine-claim.js';
 import { SpineDeliveryState } from '../types.js';
 
 function hint(overrides: Partial<Parameters<typeof createOpaqueDispatchRecord>[0]> = {}) {
@@ -78,7 +83,22 @@ describe('spine SKIP LOCKED claim on real Postgres', () => {
       expect(empty).toEqual([]);
 
       assert(a[0]);
-      expect(await ackSpineDispatch(harness.spineDb, a[0].dispatchId)).toBe(true);
+      expect(
+        await extendSpineDispatchLease(harness.spineDb, {
+          dispatchId: a[0].dispatchId,
+          workerId: 'worker-b',
+          leaseDurationMs: 60_000,
+        }),
+      ).toBe(false);
+      expect(
+        await extendSpineDispatchLease(harness.spineDb, {
+          dispatchId: a[0].dispatchId,
+          workerId: 'worker-a',
+          leaseDurationMs: 60_000,
+        }),
+      ).toBe(true);
+      expect(await ackSpineDispatch(harness.spineDb, a[0].dispatchId, 'worker-b')).toBe(false);
+      expect(await ackSpineDispatch(harness.spineDb, a[0].dispatchId, 'worker-a')).toBe(true);
     } finally {
       await second.close();
     }

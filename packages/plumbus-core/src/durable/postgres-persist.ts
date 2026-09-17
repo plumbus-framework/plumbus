@@ -2,21 +2,22 @@
 // pairing as persist-before-ack.ts; used by the flow engine when spineDispatch
 // is configured.
 
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { randomUUID } from 'node:crypto';
-import { PlumbusError } from '../errors/index.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
+import { PlumbusError } from '../errors/index.js';
 import { qualifyTable } from './apply-ddl.js';
 import { createOpaqueDispatchRecord } from './opaque-dispatch.js';
+import type { PersistStepResult, RetryScheduleInput } from './persist-before-ack.js';
 import { upsertSpineDispatch } from './spine-claim.js';
 import {
   DEFAULT_PRIORITY_CLASS_ID,
   DEFAULT_WORK_CLASS_ID,
-  DurableExecutionStatus,
-  SpineDeliveryState,
   type DispatchOutboxRow,
+  DurableExecutionStatus,
   type OpaqueDispatchRecord,
+  SpineDeliveryState,
   type TenantExecutionState,
 } from './types.js';
 
@@ -198,6 +199,94 @@ export async function casAdvanceExecution(
 }
 
 /**
+ * Persist a retry delay on the tenant plane before the current spine hint is acknowledged.
+ * The execution-state CAS, retry wait, and future-dated outbox row are one transaction.
+ */
+export async function persistRetryScheduleOnDb(
+  db: PostgresJsDatabase,
+  input: RetryScheduleInput,
+  nowIso: string,
+  schemaName: string = FRAMEWORK_SCHEMA,
+): Promise<PersistStepResult> {
+  const executionTable = qualifyTable(schemaName, 'execution_state');
+  const waitTable = qualifyTable(schemaName, 'wait_state');
+  const outboxTable = qualifyTable(schemaName, 'dispatch_outbox');
+
+  return db.transaction(async (tx) => {
+    const scoped = tx as unknown as PostgresJsDatabase;
+    const current = await loadExecutionState(scoped, input.executionId, schemaName);
+    if (!current) return { kind: 'missing' };
+    if (current.tenantEpoch !== input.tenantEpoch) return { kind: 'epoch-mismatch' };
+    if (current.revision !== input.expectedRevision || current.terminal) {
+      return { kind: 'stale', execution: current };
+    }
+
+    const updated = asRows(
+      await scoped.execute(sql`
+        UPDATE ${sql.raw(executionTable)}
+        SET revision = ${input.expectedRevision + 1},
+            status = ${DurableExecutionStatus.RetryScheduled},
+            current_step_id = ${input.stepId},
+            attempt = attempt + 1,
+            wake_at = ${input.notBefore}::timestamptz,
+            updated_at = ${nowIso}::timestamptz,
+            terminal = false
+        WHERE execution_id = ${input.executionId}
+          AND revision = ${input.expectedRevision}
+          AND tenant_epoch = ${input.tenantEpoch}
+          AND terminal = false
+        RETURNING *
+      `),
+    );
+    const nextRow = updated[0];
+    if (!nextRow) {
+      const latest = await loadExecutionState(scoped, input.executionId, schemaName);
+      return latest ? { kind: 'stale', execution: latest } : { kind: 'missing' };
+    }
+    const next = mapExecution(nextRow);
+    const waitStateId = `wait:${input.executionId}:${next.revision}`;
+    await scoped.execute(sql`
+      INSERT INTO ${sql.raw(waitTable)} (
+        wait_state_id, execution_id, step_id, kind, state,
+        created_at, updated_at, not_before
+      ) VALUES (
+        ${waitStateId}, ${input.executionId}, ${input.stepId}, 'retry', 'waiting',
+        ${nowIso}::timestamptz, ${nowIso}::timestamptz, ${input.notBefore}::timestamptz
+      )
+      ON CONFLICT (wait_state_id) DO NOTHING
+    `);
+
+    const outboxId = `outbox:${input.executionId}:${next.revision}:${randomUUID()}`;
+    const inserted = asRows(
+      await scoped.execute(sql`
+        INSERT INTO ${sql.raw(outboxTable)} (
+          outbox_id, execution_id, state_ref_id, expected_revision, tenant_epoch,
+          tenant_ref, step_id, definition_id, definition_version, correlation_id,
+          work_class_id, priority_class_id, not_before, created_at, superseded
+        ) VALUES (
+          ${outboxId}, ${next.executionId}, ${next.stateRefId}, ${next.revision},
+          ${next.tenantEpoch}, ${next.tenantRef}, ${input.stepId}, ${next.definitionId},
+          ${next.definitionVersion}, ${next.correlationId}, ${DEFAULT_WORK_CLASS_ID},
+          ${DEFAULT_PRIORITY_CLASS_ID}, ${input.notBefore}::timestamptz,
+          ${nowIso}::timestamptz, false
+        )
+        RETURNING *
+      `),
+    );
+    const outboxRow = inserted[0];
+    if (!outboxRow) {
+      throw new PlumbusError('internal', 'Retry schedule wrote no dispatch outbox row');
+    }
+    return {
+      kind: 'committed',
+      execution: next,
+      outbox: mapOutbox(outboxRow),
+      sideEffectApplied: false,
+    };
+  });
+}
+
+/**
  * Closes a tenant execution's durable state without a claimed hint — an operator cancel, or
  * any terminal transition taken outside the run loop. The spine hint, if one is still ready,
  * is dropped by the next claim that sees the state terminal. No-op when the state is already
@@ -355,8 +444,17 @@ export async function publishOutboxToSpine(
   dispatchId: string,
   nowIso: string,
   schemaName: string = FRAMEWORK_SCHEMA,
-  lease?: { workerId: string; leaseExpiresAt: string },
+  options?:
+    | { workerId: string; leaseExpiresAt: string }
+    | { deliveryState: typeof SpineDeliveryState.RetryScheduled },
 ): Promise<OpaqueDispatchRecord> {
+  const leased = options !== undefined && 'workerId' in options;
+  const deliveryState =
+    options !== undefined && 'deliveryState' in options
+      ? options.deliveryState
+      : leased
+        ? SpineDeliveryState.Leased
+        : SpineDeliveryState.Ready;
   const record = createOpaqueDispatchRecord({
     dispatchId,
     tenantRouteId: outbox.tenantRef,
@@ -369,10 +467,10 @@ export async function publishOutboxToSpine(
     tenantEpoch: outbox.tenantEpoch,
     workClassId: outbox.workClassId,
     priorityClassId: outbox.priorityClassId,
-    deliveryState: lease ? SpineDeliveryState.Leased : SpineDeliveryState.Ready,
-    attempt: lease ? 1 : 0,
+    deliveryState,
+    attempt: leased ? 1 : 0,
     notBefore: outbox.notBefore,
-    ...(lease ? { leaseRefId: lease.workerId, leaseExpiresAt: lease.leaseExpiresAt } : {}),
+    ...(leased ? { leaseRefId: options.workerId, leaseExpiresAt: options.leaseExpiresAt } : {}),
     correlationId: outbox.correlationId,
     createdAt: nowIso,
     updatedAt: nowIso,

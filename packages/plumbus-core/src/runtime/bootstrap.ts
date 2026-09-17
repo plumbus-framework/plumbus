@@ -229,6 +229,7 @@ export type ServerExtensions = Pick<
   | 'onAIProviderSpan'
   | 'enableStrictStructuredOutputs'
   | 'credentials'
+  | 'authenticationRuntime'
   | 'bodyLimit'
   | 'dataPlaneResolver'
   | 'untenantedDataPlane'

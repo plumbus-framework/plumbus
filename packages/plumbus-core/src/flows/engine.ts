@@ -1,18 +1,30 @@
-import { z } from 'zod';
-import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { parseDurationToMs } from '../config/duration.js';
-import { FlowCancelledError, LeaseLostError, PlumbusError } from '../errors/index.js';
-import {
-  BUDGET_EXHAUSTED,
-  consumeExecutionBudget,
-  createExecutionBudgetLedger,
-  writeExecutionBudget,
-} from './budget.js';
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import type { ApprovalService } from '../approvals/types.js';
+import { parseDurationToMs } from '../config/duration.js';
+import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
+import {
+  ackSpineDispatch,
+  casAdvanceExecution,
+  claimSpineDispatch,
+  deadLetterSpineDispatch,
+  extendSpineDispatchLease,
+  findSpineDispatchTenantRoute,
+  insertDispatchOutbox,
+  loadExecutionState,
+  markExecutionStateTerminal,
+  markOutboxAckedBySpineRow,
+  persistAcceptanceOnDb,
+  persistRetryScheduleOnDb,
+  publishOutboxToSpine,
+} from '../durable/index.js';
+import { type OpaqueDispatchRecord, SpineDeliveryState } from '../durable/types.js';
+import { FlowCancelledError, LeaseLostError, PlumbusError } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIService,
@@ -25,22 +37,12 @@ import type {
 import { BackoffStrategy, ErrorCode, FlowStepType } from '../types/enums.js';
 import type { CapabilityStep, FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
-import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import {
-  ackSpineDispatch,
-  casAdvanceExecution,
-  claimSpineDispatch,
-  deadLetterSpineDispatch,
-  findSpineDispatchTenantRoute,
-  insertDispatchOutbox,
-  loadExecutionState,
-  markExecutionStateTerminal,
-  markOutboxAckedBySpineRow,
-  persistAcceptanceOnDb,
-  publishOutboxToSpine,
-} from '../durable/index.js';
-import type { OpaqueDispatchRecord } from '../durable/types.js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
+  BUDGET_EXHAUSTED,
+  consumeExecutionBudget,
+  createExecutionBudgetLedger,
+  writeExecutionBudget,
+} from './budget.js';
 import { flowDefinitionId, hydrateCompiledFlow } from './compile-flow.js';
 import type { CompiledFlowRegistry } from './compiled-registry.js';
 import {
@@ -268,6 +270,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   const untenantedOnControlPlane = spineDispatch?.untenanted === 'control-plane';
   const executionStores = new Map<string, PostgresJsDatabase>();
   const claimedHints = new Map<string, OpaqueDispatchRecord>();
+  const scheduledRetries = new Map<string, { stepId: string; notBefore: string }>();
   const executionPins = new Map<
     string,
     { flowDefinitionId: string; definitionVersion: string; definitionDigest?: string }
@@ -706,6 +709,22 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * capability can cooperatively stop its in-flight AI / HTTP work.
    */
   async function extendLease(executionId: string): Promise<boolean> {
+    const hint = claimedHints.get(executionId);
+    if (spineDispatch && hint) {
+      const spineExtended = await extendSpineDispatchLease(spineDispatch.db, {
+        dispatchId: hint.dispatchId,
+        workerId,
+        leaseDurationMs,
+      });
+      if (!spineExtended) {
+        logger?.warn('extendSpineDispatchLease matched 0 rows', {
+          executionId,
+          dispatchId: hint.dispatchId,
+          expectedWorkerId: workerId,
+        });
+        return false;
+      }
+    }
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
     const result = await storeFor(executionId)
       .update(flowExecutionsTable)
@@ -1507,13 +1526,34 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const maxRetries = flow.retry?.attempts ?? 0;
 
     if (retryCount <= maxRetries) {
-      // Retry: keep current step, increment counter
-      await guardedUpdate(executionId, {
+      const delayMs = computeRetryDelay(retryCount, flow.retry?.backoff ?? BackoffStrategy.Fixed);
+      const wakeAt = new Date(Date.now() + delayMs);
+      const updated = await guardedUpdate(executionId, {
+        status: FlowStatus.Waiting,
         stepHistory: history,
         retryCount,
         lastError: error ?? null,
+        waitingForEvent: null,
+        wakeAt,
+        leaseOwner: null,
+        leaseExpiresAt: null,
       });
-      return { id: executionId, flowName: row.flowName, status: FlowStatus.Running };
+      if (!updated) {
+        throw new LeaseLostError(
+          `Lease lost scheduling retry for flow execution "${executionId}"`,
+          { executionId, workerId, step: row.currentStep },
+        );
+      }
+      if (spineDispatch && row.currentStep) {
+        scheduledRetries.set(executionId, {
+          stepId: row.currentStep,
+          notBefore: wakeAt.toISOString(),
+        });
+      }
+      if (onFlowDelayedSchedule) {
+        await onFlowDelayedSchedule(executionId, wakeAt, row.correlationId ?? executionId);
+      }
+      return { id: executionId, flowName: row.flowName, status: FlowStatus.Waiting };
     }
 
     // Exhausted retries — fail the flow
@@ -1656,9 +1696,10 @@ export function createFlowEngine(config: FlowEngineConfig) {
   }
 
   /** Acknowledges a hint on the spine and closes the outbox row behind it on the plane. */
-  async function dropSpineHint(tenantDb: PostgresJsDatabase, dispatchId: string): Promise<void> {
-    if (!spineDispatch) return;
-    await ackSpineDispatch(spineDispatch.db, dispatchId);
+  async function dropSpineHint(tenantDb: PostgresJsDatabase, dispatchId: string): Promise<boolean> {
+    if (!spineDispatch) return false;
+    const acknowledged = await ackSpineDispatch(spineDispatch.db, dispatchId, workerId);
+    if (!acknowledged) return false;
     try {
       await markOutboxAckedBySpineRow(
         tenantDb,
@@ -1672,6 +1713,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    return true;
   }
 
   /**
@@ -1708,6 +1750,38 @@ export function createFlowEngine(config: FlowEngineConfig) {
     const tenantDb = executionStores.get(executionId);
     if (!hint || !tenantDb) return;
     const nowIso = new Date().toISOString();
+    const retry = scheduledRetries.get(executionId);
+    if (retry) {
+      try {
+        const scheduled = await persistRetryScheduleOnDb(
+          tenantDb,
+          {
+            executionId,
+            expectedRevision: hint.expectedRevision,
+            tenantEpoch: hint.tenantEpoch,
+            stepId: retry.stepId,
+            notBefore: retry.notBefore,
+          },
+          nowIso,
+          durableSchema,
+        );
+        await dropSpineHint(tenantDb, hint.dispatchId);
+        claimedHints.delete(executionId);
+        if (scheduled.kind !== 'committed' || !scheduled.outbox) return;
+        await publishOutboxToSpine(
+          tenantDb,
+          spineDispatch.db,
+          scheduled.outbox,
+          `disp:${executionId}:${scheduled.execution.revision}`,
+          nowIso,
+          durableSchema,
+          { deliveryState: SpineDeliveryState.RetryScheduled },
+        );
+        return;
+      } finally {
+        scheduledRetries.delete(executionId);
+      }
+    }
     const flowRow = (
       await tenantDb
         .select({ currentStep: flowExecutionsTable.currentStep })

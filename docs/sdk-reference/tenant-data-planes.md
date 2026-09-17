@@ -157,7 +157,11 @@ has more steps the worker publishes the next hint *under its own lease* and drai
 step without claiming again, so no second worker runs the same step — a worker that dies
 mid-drain lets the lease lapse and another claims the hint. The outbox pump publishes only
 rows the spine has never seen; a published hint belongs to the spine until acknowledged.
-A hint whose row is `waiting` for an event or a wake time is left to lapse, never run. A hint
+A running step's automatic/manual heartbeat extends the worker-owned spine hint and its tenant
+execution row; a stale worker can extend or acknowledge neither. A retry commits
+`retry-scheduled` tenant state plus a future-dated outbox row before acknowledging its current
+hint, and its replacement hint cannot be claimed before `notBefore`. A hint whose row is
+`waiting` for an event or a wake time is left to lapse, never run. A hint
 whose tenant plane fails to resolve claim after claim (a closed or dropped tenant) is parked
 as `dead-lettered` after `FlowSpineDispatchConfig.maxClaimAttempts` (default 10) claims, with
 `privacy_safe_failure_category_id = 'plane-unresolved'`, instead of being re-leased forever.

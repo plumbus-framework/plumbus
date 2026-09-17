@@ -66,6 +66,7 @@ export {
   markOutboxAckedBySpineRow,
   markOutboxPublished,
   persistAcceptanceOnDb,
+  persistRetryScheduleOnDb,
   publishOutboxToSpine,
   reopenExecutionState,
 } from './postgres-persist.js';
@@ -73,6 +74,7 @@ export {
   ackSpineDispatch,
   claimSpineDispatch,
   deadLetterSpineDispatch,
+  extendSpineDispatchLease,
   findSpineDispatchTenantRoute,
   spineRowFromSql,
   upsertSpineDispatch,

@@ -210,6 +210,7 @@ export async function startDevServer(
     onAICostRecorded: extensions.onAICostRecorded,
     enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
     credentials: extensions.credentials,
+    authenticationRuntime: extensions.authenticationRuntime,
     ...(extensions.bodyLimit != null && { bodyLimit: extensions.bodyLimit }),
     ...(extensions.dataPlaneResolver && { dataPlaneResolver: extensions.dataPlaneResolver }),
     ...(extensions.untenantedDataPlane && { untenantedDataPlane: extensions.untenantedDataPlane }),

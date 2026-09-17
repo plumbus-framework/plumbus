@@ -89,6 +89,35 @@ describe('executeCapability', () => {
     }
   });
 
+  it('names the first failing field and its rule in the validation metadata (#186)', async () => {
+    const cap = makeCapability();
+    const { ctx } = makeCtx();
+
+    const result = await executeCapability(cap, ctx, { id: 123 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('validation');
+      const metadata = result.error.metadata as { field?: string };
+      // The caller can mark the input: the first issue's path is the field's name.
+      expect(metadata.field).toBe('id');
+    }
+  });
+
+  it('names the failing field for a missing required input (#186)', async () => {
+    const cap = makeCapability();
+    const { ctx } = makeCtx();
+
+    const result = await executeCapability(cap, ctx, {});
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('validation');
+      const metadata = result.error.metadata as { field?: string };
+      expect(metadata.field).toBe('id');
+    }
+  });
+
   it('rejects missing input fields', async () => {
     const cap = makeCapability();
     const { ctx } = makeCtx();
