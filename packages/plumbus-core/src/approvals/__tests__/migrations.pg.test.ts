@@ -14,7 +14,7 @@ describe('Stage 4 shipped human-task SQL', () => {
     }
   });
 
-  it('applies 0001 on a dedicated plumbus_durable_test_* DB with neutral naming', async () => {
+  it('applies approval migrations on a dedicated plumbus_durable_test_* DB', async () => {
     const tenant = await createDurableTestDatabase({ kind: 'htask', ddl: '' });
     closers.push(tenant.close);
 
@@ -24,7 +24,11 @@ describe('Stage 4 shipped human-task SQL', () => {
       db: tenant.db,
       migrationsFolder: FRAMEWORK_DURABLE_TENANT_MIGRATIONS,
     });
-    expect(first.tags).toEqual(['0000_durable_tenant', '0001_human_task']);
+    expect(first.tags).toEqual([
+      '0000_durable_tenant',
+      '0001_human_task',
+      '0002_approval_cancellation',
+    ]);
 
     const tables = await tenant.db.execute(sql`
       SELECT table_name FROM information_schema.tables
@@ -34,6 +38,16 @@ describe('Stage 4 shipped human-task SQL', () => {
     `);
     const names = (tables as unknown as Array<{ table_name: string }>).map((row) => row.table_name);
     expect(names).toEqual(['approval_decision', 'approval_request', 'human_task']);
+
+    const columns = await tenant.db.execute(sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'core_plumbus' AND table_name = 'approval_request'
+        AND column_name IN ('cancelled_by_account_id', 'cancellation_reason')
+      ORDER BY column_name
+    `);
+    expect(
+      (columns as unknown as Array<{ column_name: string }>).map((row) => row.column_name),
+    ).toEqual(['cancellation_reason', 'cancelled_by_account_id']);
 
     const again = await applyMigrations({
       db: tenant.db,

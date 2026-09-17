@@ -266,7 +266,11 @@ export {
   createMemoryApprovalStore,
   createSqlApprovalStore,
 } from './approvals/index.js';
-export type { ApprovalService, AuthorizationProvider } from './approvals/index.js';
+export type {
+  ApprovalService,
+  AuthorizationProvider,
+  CancelApprovalInput,
+} from './approvals/index.js';
 // ── Define Functions ──
 export { defineCapability } from './define/defineCapability.js';
 export { defineEntity } from './define/defineEntity.js';

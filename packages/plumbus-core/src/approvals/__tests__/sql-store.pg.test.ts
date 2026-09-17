@@ -90,5 +90,30 @@ describe('SQL approval store', () => {
       inputDigest: digestApprovalInput({ amount: 25 }),
     });
     expect(match?.approvalRequestId).toBe(request.approvalRequestId);
+
+    const cancellable = await service.requestApproval({
+      capabilityId: 'feedback.publish',
+      definitionVersion: '1.0.0',
+      input: { revision: 'r1' },
+      riskClass: ActionRiskTier.Consequential,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const cancellationTask = await service.createHumanTask({
+      kind: HumanTaskKind.Approval,
+      approvalRequestId: cancellable.approvalRequestId,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await service.cancel({
+      requestId: cancellable.approvalRequestId,
+      auth: humanAuth(),
+      reason: 'requester-withdrew',
+    });
+    expect(await reloaded.getRequest(cancellable.approvalRequestId)).toMatchObject({
+      state: 'cancelled',
+      cancelledByAccountId: 'approver-1',
+      cancellationReason: 'requester-withdrew',
+    });
+    expect((await reloaded.getTask(cancellationTask.humanTaskId))?.state).toBe('cancelled');
+    expect(await reloaded.listDecisions(cancellable.approvalRequestId)).toEqual([]);
   });
 });

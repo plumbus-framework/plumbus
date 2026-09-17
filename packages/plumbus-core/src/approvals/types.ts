@@ -28,6 +28,7 @@ export const ApprovalRequestState = {
   Approved: 'approved',
   Rejected: 'rejected',
   ChangesRequested: 'changes-requested',
+  Cancelled: 'cancelled',
   Expired: 'expired',
   Invalidated: 'invalidated',
 } as const;
@@ -61,6 +62,8 @@ export interface ApprovalRequestRecord {
   updatedAt: string;
   resolvedAt?: string;
   invalidatedReason?: string;
+  cancelledByAccountId?: string;
+  cancellationReason?: string;
 }
 
 export interface ApprovalDecisionRecord {
@@ -93,6 +96,8 @@ export interface ApprovalStore {
   listDecisions(requestId: string): Promise<ApprovalDecisionRecord[]>;
   putTask(row: HumanTaskRecord): Promise<void>;
   getTask(id: string): Promise<HumanTaskRecord | undefined>;
+  listTasksForApprovalRequest(requestId: string): Promise<HumanTaskRecord[]>;
+  cancelRequest(row: ApprovalRequestRecord): Promise<boolean>;
 }
 
 export interface AuthorizationRevalidateInput {
@@ -121,6 +126,12 @@ export interface DecideApprovalInput {
   auth: AuthContext;
 }
 
+export interface CancelApprovalInput {
+  requestId: string;
+  auth: AuthContext;
+  reason: string;
+}
+
 export interface CreateHumanTaskInput {
   kind: HumanTaskKind;
   expiresAt: Date | string;
@@ -131,6 +142,7 @@ export interface CreateHumanTaskInput {
 export interface ApprovalService {
   requestApproval(input: RequestApprovalInput): Promise<ApprovalRequestRecord>;
   decide(input: DecideApprovalInput): Promise<ApprovalRequestRecord>;
+  cancel(input: CancelApprovalInput): Promise<ApprovalRequestRecord>;
   findByExecutionId(executionId: string): Promise<ApprovalRequestRecord | undefined>;
   findMatchingApproval(binding: {
     capabilityId: string;

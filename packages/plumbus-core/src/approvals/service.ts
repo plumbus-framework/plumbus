@@ -12,6 +12,7 @@ import {
   type ApprovalService,
   type ApprovalStore,
   type AuthorizationProvider,
+  type CancelApprovalInput,
   type CreateHumanTaskInput,
   type DecideApprovalInput,
   type HumanTaskRecord,
@@ -192,6 +193,44 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
         updatedAt: decidedAt,
         resolvedAt: decidedAt,
       });
+    },
+
+    async cancel(input: CancelApprovalInput): Promise<ApprovalRequestRecord> {
+      requireHumanActor(input.auth, 'Approval cancellation');
+      const reason = input.reason.trim();
+      if (reason.length === 0 || reason.length > 500) {
+        throw new Error('Approval cancellation reason must contain 1 to 500 characters');
+      }
+      const now = nowFn();
+      const existing = await store.getRequest(input.requestId);
+      if (!existing) throw new Error(`Approval request "${input.requestId}" not found`);
+      const current = await expireIfNeeded(existing, now);
+      if (current.state !== ApprovalRequestState.Pending) {
+        throw new Error(`Approval request "${input.requestId}" is ${current.state}`);
+      }
+      const check = await authorization.revalidate({
+        auth: input.auth,
+        capabilityId: current.capabilityId,
+        request: current,
+      });
+      if (!check.allowed) throw new Error(check.reason ?? 'authorization revalidation denied');
+
+      const cancelledAt = now.toISOString();
+      const cancelled: ApprovalRequestRecord = {
+        ...current,
+        state: ApprovalRequestState.Cancelled,
+        updatedAt: cancelledAt,
+        resolvedAt: cancelledAt,
+        cancelledByAccountId: input.auth.userId as string,
+        cancellationReason: reason,
+      };
+      if (!(await store.cancelRequest(cancelled))) {
+        const winner = await store.getRequest(current.approvalRequestId);
+        throw new Error(
+          `Approval request "${input.requestId}" is ${winner?.state ?? 'no longer pending'}`,
+        );
+      }
+      return { ...cancelled };
     },
 
     async findByExecutionId(executionId: string) {

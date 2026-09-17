@@ -34,11 +34,22 @@ The gate fails closed if the host did not wire an approval service. Matching use
 
 ## Flow wait
 
-Use the existing Wait step with event `approval_pending` (`APPROVAL_PENDING_WAIT`). `createFlowEngine` already pauses on `waitEvent` and `resume`s when the event arrives. Decision outcomes (default set): `approved`, `rejected`, `changes-requested`, plus system `expired`.
+Use the existing Wait step with event `approval_pending` (`APPROVAL_PENDING_WAIT`). `createFlowEngine` already pauses on `waitEvent` and `resume`s when the event arrives. Decision outcomes (default set): `approved`, `rejected`, `changes-requested`; system terminal states include `expired`, `invalidated`, and `cancelled`.
+
+## Request cancellation
+
+`approvals.cancel({ requestId, auth, reason })` withdraws a pending request. It requires an
+authenticated human actor, revalidates that actor through the configured authorization provider,
+records the actor and a 1–500 character reason, and atomically moves linked open or claimed human
+tasks to `cancelled`. It creates no `approval_decision`: cancellation is withdrawal by an
+authorized actor, not an approver outcome. Missing, expired, decided, invalidated, or already
+cancelled requests refuse without changing state. Applications remain responsible for expressing
+their actor rule (for example, “only the stored originator may withdraw”) in the authorization
+provider or an application capability before calling the primitive.
 
 ## Tenant tables
 
-`human_task`, `approval_request`, and `approval_decision` are in `FRAMEWORK_TABLE_NAMES`. Shipped SQL is `packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql` (v1 field subset of `human-task.schema.json`). Apply on dedicated `plumbus_durable_test_*` harness DBs only. Do not apply to application tenant databases.
+`human_task`, `approval_request`, and `approval_decision` are in `FRAMEWORK_TABLE_NAMES`. Shipped SQL starts at `packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql`; `0002_approval_cancellation.sql` adds cancellation actor/reason evidence. Apply on dedicated `plumbus_durable_test_*` harness DBs only. Do not apply to application tenant databases.
 
 ## Wiring
 

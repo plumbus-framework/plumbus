@@ -50,6 +50,8 @@ export function createTenantApprovalTables(schemaName?: string) {
       updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
       resolvedAt: timestamp('resolved_at', { withTimezone: true }),
       invalidatedReason: text('invalidated_reason'),
+      cancelledByAccountId: text('cancelled_by_account_id'),
+      cancellationReason: text('cancellation_reason'),
     },
     (t) => [
       index('approval_request_capability_idx').on(t.capabilityId),

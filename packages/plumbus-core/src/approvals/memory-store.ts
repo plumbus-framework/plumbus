@@ -36,5 +36,28 @@ export function createMemoryApprovalStore(): ApprovalStore {
       const row = tasks.get(id);
       return row ? { ...row } : undefined;
     },
+    async listTasksForApprovalRequest(requestId) {
+      return [...tasks.values()]
+        .filter((row) => row.approvalRequestId === requestId)
+        .map((row) => ({ ...row }));
+    },
+    async cancelRequest(row) {
+      if (requests.get(row.approvalRequestId)?.state !== 'pending') return false;
+      requests.set(row.approvalRequestId, { ...row });
+      for (const [taskId, task] of tasks) {
+        if (
+          task.approvalRequestId === row.approvalRequestId &&
+          (task.state === 'open' || task.state === 'claimed')
+        ) {
+          tasks.set(taskId, {
+            ...task,
+            state: 'cancelled',
+            updatedAt: row.updatedAt,
+            resolvedAt: row.resolvedAt,
+          });
+        }
+      }
+      return true;
+    },
   };
 }

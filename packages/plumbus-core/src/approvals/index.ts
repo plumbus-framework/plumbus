@@ -40,6 +40,7 @@ export type {
   ApprovalStore,
   AuthorizationProvider,
   AuthorizationRevalidateInput,
+  CancelApprovalInput,
   CreateHumanTaskInput,
   DecideApprovalInput,
   HumanTaskRecord,

@@ -1,7 +1,7 @@
 // Tenant-local approval store against an existing Postgres handle.
 // Hosts pass the data-plane db (or a resolver that returns it). No new driver.
 
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import { isActionRiskTier } from './action-risk.js';
@@ -54,6 +54,8 @@ function mapRequest(row: {
   updatedAt: Date;
   resolvedAt: Date | null;
   invalidatedReason: string | null;
+  cancelledByAccountId: string | null;
+  cancellationReason: string | null;
 }): ApprovalRequestRecord {
   if (!isActionRiskTier(row.riskClass)) {
     throw new Error(`approval_request ${row.approvalRequestId} has unknown risk_class`);
@@ -73,6 +75,8 @@ function mapRequest(row: {
     updatedAt: toIso(row.updatedAt),
     resolvedAt: toIso(row.resolvedAt),
     invalidatedReason: row.invalidatedReason ?? undefined,
+    cancelledByAccountId: row.cancelledByAccountId ?? undefined,
+    cancellationReason: row.cancellationReason ?? undefined,
   };
 }
 
@@ -142,6 +146,8 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
         updatedAt: toDate(row.updatedAt),
         resolvedAt: row.resolvedAt ? toDate(row.resolvedAt) : null,
         invalidatedReason: row.invalidatedReason ?? null,
+        cancelledByAccountId: row.cancelledByAccountId ?? null,
+        cancellationReason: row.cancellationReason ?? null,
       };
       await db
         .insert(tables.approvalRequest)
@@ -160,6 +166,8 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
             updatedAt: values.updatedAt,
             resolvedAt: values.resolvedAt,
             invalidatedReason: values.invalidatedReason,
+            cancelledByAccountId: values.cancelledByAccountId,
+            cancellationReason: values.cancellationReason,
           },
         });
     },
@@ -239,6 +247,52 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
         .from(tables.humanTask)
         .where(eq(tables.humanTask.humanTaskId, id));
       return rows[0] ? mapTask(rows[0]) : undefined;
+    },
+
+    async listTasksForApprovalRequest(requestId) {
+      const db = await resolveDb();
+      const rows = await db
+        .select()
+        .from(tables.humanTask)
+        .where(eq(tables.humanTask.approvalRequestId, requestId));
+      return rows.map(mapTask);
+    },
+
+    async cancelRequest(row) {
+      const db = await resolveDb();
+      return db.transaction(async (tx) => {
+        const updated = await tx
+          .update(tables.approvalRequest)
+          .set({
+            state: row.state,
+            updatedAt: toDate(row.updatedAt),
+            resolvedAt: row.resolvedAt ? toDate(row.resolvedAt) : null,
+            cancelledByAccountId: row.cancelledByAccountId ?? null,
+            cancellationReason: row.cancellationReason ?? null,
+          })
+          .where(
+            and(
+              eq(tables.approvalRequest.approvalRequestId, row.approvalRequestId),
+              eq(tables.approvalRequest.state, 'pending'),
+            ),
+          )
+          .returning({ approvalRequestId: tables.approvalRequest.approvalRequestId });
+        if (updated.length === 0) return false;
+        await tx
+          .update(tables.humanTask)
+          .set({
+            state: 'cancelled',
+            updatedAt: toDate(row.updatedAt),
+            resolvedAt: toDate(row.updatedAt),
+          })
+          .where(
+            and(
+              eq(tables.humanTask.approvalRequestId, row.approvalRequestId),
+              inArray(tables.humanTask.state, ['open', 'claimed']),
+            ),
+          );
+        return true;
+      });
     },
   };
 }
