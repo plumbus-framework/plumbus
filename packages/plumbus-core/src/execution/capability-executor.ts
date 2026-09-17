@@ -202,8 +202,12 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
       // 'field' and 'reason'): the caller marks the input and moves on instead of receiving a
       // bare 'Invalid input' it cannot map anywhere (Quinovium #186). Custom messages ride
       // along in `reason` when a check set one.
-      field: zodIssueField(inputResult.error.issues as unknown as readonly { path: PropertyKey[] }[]),
-      reason: zodIssueReason(inputResult.error.issues as unknown as readonly { params?: { reason?: string } }[]),
+      field: zodIssueField(
+        inputResult.error.issues as unknown as readonly { path: PropertyKey[] }[],
+      ),
+      reason: zodIssueReason(
+        inputResult.error.issues as unknown as readonly { params?: { reason?: string } }[],
+      ),
     });
     await recordAudit(ctx, capability, canonicalName, 'failure', { error });
     return { success: false, error };
@@ -313,7 +317,9 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
  * refusal reaches the caller with something a form can mark — a bare 'Invalid input' left
  * 2 600 probes unable to name anything (Quinovium #186).
  */
-function zodIssueField(issues: readonly { path: PropertyKey[]; params?: { reason?: string } }[]): string | undefined {
+function zodIssueField(
+  issues: readonly { path: PropertyKey[]; params?: { reason?: string } }[],
+): string | undefined {
   const first = issues[0];
   if (!first) return undefined;
   const path = first.path ?? [];

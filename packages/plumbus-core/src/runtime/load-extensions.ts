@@ -72,8 +72,7 @@ export async function loadServerExtensions(cwd = process.cwd()): Promise<ServerE
       if (requestDataPlane === 'resolved' || requestDataPlane === 'control-plane') {
         extensions.requestDataPlane = requestDataPlane;
       }
-      const authenticationRuntime =
-        mod.authenticationRuntime ?? mod.default?.authenticationRuntime;
+      const authenticationRuntime = mod.authenticationRuntime ?? mod.default?.authenticationRuntime;
       if (authenticationRuntime !== undefined) {
         extensions.authenticationRuntime = authenticationRuntime;
       }
