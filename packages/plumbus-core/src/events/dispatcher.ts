@@ -1,6 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
+import { resolveFrameworkSchema } from '../data/schema-generator.js';
+import { DEFAULT_CORE_SCHEMA } from '../tenancy/data-plane-resolver.js';
 import type { AuditService } from '../types/audit.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
@@ -79,7 +81,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
 
   async function resolveTargets(): Promise<PumpTarget[]> {
     if (!resolver || !listTenantRefs) {
-      return [{ db, tenantRef: 'default', coreSchema: 'public' }];
+      return [{ db, tenantRef: 'default', coreSchema: resolveFrameworkSchema() ?? DEFAULT_CORE_SCHEMA }];
     }
     const refs = [...(await listTenantRefs())];
     const targets: PumpTarget[] = [];
@@ -88,7 +90,9 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
       targets.push({
         db: handle.db,
         tenantRef: handle.tenantRef,
-        coreSchema: handle.coreSchema,
+        // A handle that still carries the default (public) qualifies nothing — the framework
+      // schema is where the host actually put the durable tables, so prefer it (Quinovium #202).
+      coreSchema: handle.coreSchema === DEFAULT_CORE_SCHEMA ? (resolveFrameworkSchema() ?? handle.coreSchema) : handle.coreSchema,
       });
     }
     return targets;

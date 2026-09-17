@@ -34,6 +34,24 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
         delete storedMetadata._maskedFields;
       }
 
+      // A NUL byte (U+0000) anywhere in a metadata string reaches the jsonb writer and
+      // answers 'unsupported Unicode escape sequence' — the record is lost and the
+      // capability it was recording answers 500 with no audit row (Quinovium #208).
+      // Postgres's jsonb parser refuses \u0000 outright, so the value cannot survive as-is;
+      // the byte is named, not dropped silently.
+      const sanitizeAuditMetadata = (value: unknown): unknown =>
+        typeof value === 'string'
+          ? value.split(String.fromCharCode(0)).join('<NUL>')
+          : Array.isArray(value)
+            ? value.map(sanitizeAuditMetadata)
+            : value && typeof value === 'object'
+              ? Object.fromEntries(
+                  Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+                    k,
+                    sanitizeAuditMetadata(v),
+                  ]),
+                )
+              : value;
       const event = {
         id: crypto.randomUUID(),
         actor: auth.userId ?? 'anonymous',
@@ -42,7 +60,7 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
         action: eventType,
         outcome,
         timestamp: new Date(),
-        metadata: storedMetadata,
+        metadata: sanitizeAuditMetadata(storedMetadata) as Record<string, unknown> | undefined,
         maskedFields,
       };
       for (let attempt = 0; attempt < 3; attempt++) {

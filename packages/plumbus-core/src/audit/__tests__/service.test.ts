@@ -102,6 +102,28 @@ describe('createAuditService', () => {
     expect(row.metadata).toBeNull();
   });
 
+  it('names a NUL byte in metadata instead of persisting it — jsonb refuses the escape', async () => {
+    const db = makeMockDb();
+    const service = createAuditService({
+      db: db as any,
+      auth: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
+    });
+
+    await service.record('probe.event', {
+      outcome: 'failure',
+      message: 'echo: bad\u0000raw',
+      nested: { deep: 'still\u0000here' },
+      list: ['a\u0000b', 'clean'],
+    });
+
+    const row = db.inserted[0] as { metadata?: Record<string, unknown> };
+    const metadata = row.metadata as Record<string, unknown>;
+    expect(metadata.message).toBe('echo: bad<NUL>raw');
+    expect((metadata.nested as Record<string, unknown>).deep).toBe('still<NUL>here');
+    expect(metadata.list).toEqual(['a<NUL>b', 'clean']);
+    expect(JSON.stringify(metadata)).not.toContain('\\u0000');
+  });
+
   it('passes tenantId as null when not in auth', async () => {
     const db = makeMockDb();
     const service = createAuditService({

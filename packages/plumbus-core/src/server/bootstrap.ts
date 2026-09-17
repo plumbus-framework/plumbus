@@ -5,6 +5,7 @@ import type { AIReasoningConfig, ReasoningEffort } from '../types/prompt.js';
 // config loading, database, queue, registries, routes, auth, audit, health check.
 
 import { sql } from 'drizzle-orm';
+import { resolveFrameworkSchema } from '../data/schema-generator.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
@@ -258,6 +259,8 @@ export interface ServerConfig {
    * was bound to.
    */
   requestDataPlane?: 'resolved' | 'control-plane';
+  /** The framework schema tenant planes carry (PLUMBUS_FRAMEWORK_SCHEMA). Default: resolveFrameworkSchema(). Drives the flow engine's durable-dispatch qualification and the outbox dispatcher's pump. */
+  frameworkSchema?: string;
   /**
    * Map an auth context to the reference `dataPlaneResolver` is keyed by.
    * Defaults to `auth.tenantId`. Override when the resolver is keyed by
@@ -505,6 +508,13 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         db,
         resolver: serverConfig.dataPlaneResolver,
         untenanted: serverConfig.untenantedDataPlane ?? 'refuse',
+        // The host's framework schema (PLUMBUS_FRAMEWORK_SCHEMA): the flow engine qualifies
+        // the tenant's durable tables (execution_state, dispatch_outbox) with it, and the
+        // outbox dispatcher's pump reads the same tables. A host that provisions tenant
+        // planes with a named core schema must have this name reach both, or the pump
+        // resolves the tables against 'public' and answers 'relation "dispatch_outbox"
+        // does not exist' on every poll (Quinovium #202).
+        coreSchema: serverConfig.frameworkSchema ?? resolveFrameworkSchema(),
       }
     : undefined;
   const requestFlowEngine = createFlowEngine({

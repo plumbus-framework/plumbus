@@ -143,6 +143,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
             ? { untenantedDataPlane: extensions.untenantedDataPlane }
             : {}),
           ...(extensions.resolveTenantRef ? { resolveTenantRef: extensions.resolveTenantRef } : {}),
+          ...(extensions.frameworkSchema ? { frameworkSchema: extensions.frameworkSchema } : {}),
           ...(extensions.workerDataPlane ? { unitDataPlane: extensions.workerDataPlane } : {}),
         }
       : {

@@ -6,7 +6,7 @@
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
-import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
+import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import { createAuditService } from '../audit/service.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import { ErrorCode } from '../types/enums.js';
@@ -220,6 +220,8 @@ export interface WorkerPoolConfig {
   enableScheduler?: boolean;
   /** Whether to run flow execution worker loop (default: true) */
   enableFlowRunner?: boolean;
+  /** The framework schema tenant planes carry (PLUMBUS_FRAMEWORK_SCHEMA). Read by the flow engine when it qualifies the tenant durable tables, and by the outbox dispatcher. Default: resolveFrameworkSchema(). */
+  frameworkSchema?: string;
   /** Optional AI service for capability steps that use AI */
   aiService?: AIService;
   /** Optional data service factory for capability steps that access data */
@@ -349,6 +351,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     outboxPollIntervalMs = 1000,
     schedulerPollIntervalMs = 60_000,
     flowPollIntervalMs: flowPollIntervalMsConfig = 1000,
+    frameworkSchema,
     enableDispatcher = true,
     enableEventWorker = true,
     enableScheduler = true,
@@ -534,7 +537,16 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     // own rows for untenanted flows beside them — the same policy the pool applies to a
     // claimed unit with no tenant.
     spineDispatch: dataPlaneResolver
-      ? { db, resolver: dataPlaneResolver, untenanted: untenantedDataPlane }
+      ? {
+          db,
+          resolver: dataPlaneResolver,
+          untenanted: untenantedDataPlane,
+          // The host's framework schema (PLUMBUS_FRAMEWORK_SCHEMA): the engine qualifies the
+          // tenant's durable tables with it when it writes dispatch acceptance and outbox
+          // rows. Without it the engine falls back to the compiled-in default, which drifts
+          // from a host that provisioned its planes under another schema name (Quinovium #202).
+          coreSchema: frameworkSchema ?? resolveFrameworkSchema(),
+        }
       : undefined,
     compiledRegistry: resolveCompiledFlowRegistry({
       compiledRegistry: poolConfig.compiledRegistry,

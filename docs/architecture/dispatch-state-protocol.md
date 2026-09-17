@@ -98,6 +98,16 @@ rows are repaired by the tenant-side orphan sweep.
 | `event_outbox` | Commit-coupled cross-boundary events (existing table; not moved this milestone) |
 | `idempotency` | Protected side-effect deduplication |
 
+### Where the tenant durable tables are qualified
+
+The pump, the flow engine's acceptance write and the worker's durable dispatch resolve these
+tables against the plane handle's `coreSchema`. A handle that still carries the default
+(`public`) falls back to `PLUMBUS_FRAMEWORK_SCHEMA` when the host set it: a host that
+provisions planes under a named schema must have that name reach both, or the pump answers
+`relation "dispatch_outbox" does not exist` for every tenant on every poll while the tables sit
+one schema away (Quinovium #202). Hosts pass the name through the `frameworkSchema`
+server/worker extension (`app/server.ts` exports it from `PLUMBUS_FRAMEWORK_SCHEMA`).
+
 v1 omits contract fields that cannot be populated honestly: per-step
 `authorizationDecisionRefId`, required `domainOutcomeId` on infrastructure-failure terminals,
 budget/evidence/provenance refs, human-task and approval refs. These are documented

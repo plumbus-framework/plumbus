@@ -234,6 +234,7 @@ export type ServerExtensions = Pick<
   | 'untenantedDataPlane'
   | 'resolveTenantRef'
   | 'requestDataPlane'
+  | 'frameworkSchema'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
   /** Tenant planes for the flow scheduler, from `app/server.ts` (`export const schedulePlanes`). */

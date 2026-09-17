@@ -76,6 +76,10 @@ export async function loadServerExtensions(cwd = process.cwd()): Promise<ServerE
       if (workerDataPlane === 'resolved' || workerDataPlane === 'control-plane') {
         extensions.workerDataPlane = workerDataPlane;
       }
+      const frameworkSchema = mod.frameworkSchema ?? mod.default?.frameworkSchema;
+      if (typeof frameworkSchema === 'string' && frameworkSchema.trim() !== '') {
+        extensions.frameworkSchema = frameworkSchema;
+      }
     } catch {
       // caller may log
     }
