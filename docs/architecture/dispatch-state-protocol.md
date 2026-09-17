@@ -100,13 +100,16 @@ rows are repaired by the tenant-side orphan sweep.
 
 ### Where the tenant durable tables are qualified
 
-The pump, the flow engine's acceptance write and the worker's durable dispatch resolve these
-tables against the plane handle's `coreSchema`. A handle that still carries the default
-(`public`) falls back to `PLUMBUS_FRAMEWORK_SCHEMA` when the host set it: a host that
-provisions planes under a named schema must have that name reach both, or the pump answers
-`relation "dispatch_outbox" does not exist` for every tenant on every poll while the tables sit
-one schema away (Quinovium #202). Hosts pass the name through the `frameworkSchema`
-server/worker extension (`app/server.ts` exports it from `PLUMBUS_FRAMEWORK_SCHEMA`).
+The flow engine's acceptance write, the worker's durable dispatch and the outbox pump all
+resolve `dispatch_outbox` / `execution_state` the same way: the host's `frameworkSchema`
+extension, else `PLUMBUS_FRAMEWORK_SCHEMA`, else the framework default (`core_plumbus`) — the
+schema `tenantDurableDdl` provisions. None of them reads the plane handle's `coreSchema`: that
+is the namespace of the tenant's own entity tables, which a host may keep in `public` while the
+durable tables sit in the framework schema. The pump used to qualify by the handle, and answered
+`relation "dispatch_outbox" does not exist` for every tenant on every poll while the tables sat
+one schema away (Quinovium #202); the retry path for an acceptance persisted but never published
+never ran. A host that wants a different schema names it once, through `frameworkSchema`, and
+writer and reader move together (`dispatcher-core-schema.pg.test.ts`).
 
 v1 omits contract fields that cannot be populated honestly: per-step
 `authorizationDecisionRefId`, required `domainOutcomeId` on infrastructure-failure terminals,

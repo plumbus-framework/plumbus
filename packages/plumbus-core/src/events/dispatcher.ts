@@ -1,8 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
-import { resolveFrameworkSchema } from '../data/schema-generator.js';
-import { DEFAULT_CORE_SCHEMA } from '../tenancy/data-plane-resolver.js';
+import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import type { AuditService } from '../types/audit.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
@@ -38,12 +37,22 @@ export interface DispatcherConfig {
    * the dispatcher only drains `event_outbox` (historical behavior).
    */
   spineDb?: PostgresJsDatabase;
+  /**
+   * The schema every plane's durable `dispatch_outbox` lives in — the same one the flow
+   * engine writes it under (`spineDispatch.coreSchema`, else `PLUMBUS_FRAMEWORK_SCHEMA`,
+   * else the framework default). Defaults the same way, so a host that configures nothing
+   * reads where it wrote. This is deliberately *not* the plane handle's `coreSchema`: that
+   * names the tenant's own entity tables, which a host may keep in `public` while the
+   * durable tables sit in the framework schema — reading `dispatch_outbox` from the
+   * handle's schema answered `relation "dispatch_outbox" does not exist` for every tenant
+   * on every poll (Quinovium #202).
+   */
+  frameworkSchema?: string;
 }
 
 interface PumpTarget {
   db: PostgresJsDatabase;
   tenantRef: string;
-  coreSchema: string;
 }
 
 /**
@@ -79,21 +88,18 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     return Math.min(backoffBaseMs * 2 ** attempt, backoffMaxMs);
   }
 
+  // Where `dispatch_outbox` is, on every plane: the engine's own resolution, mirrored.
+  const durableSchema = config.frameworkSchema ?? resolveFrameworkSchema() ?? FRAMEWORK_SCHEMA;
+
   async function resolveTargets(): Promise<PumpTarget[]> {
     if (!resolver || !listTenantRefs) {
-      return [{ db, tenantRef: 'default', coreSchema: resolveFrameworkSchema() ?? DEFAULT_CORE_SCHEMA }];
+      return [{ db, tenantRef: 'default' }];
     }
     const refs = [...(await listTenantRefs())];
     const targets: PumpTarget[] = [];
     for (const tenantRef of refs) {
       const handle = await resolver.resolve(tenantRef);
-      targets.push({
-        db: handle.db,
-        tenantRef: handle.tenantRef,
-        // A handle that still carries the default (public) qualifies nothing — the framework
-      // schema is where the host actually put the durable tables, so prefer it (Quinovium #202).
-      coreSchema: handle.coreSchema === DEFAULT_CORE_SCHEMA ? (resolveFrameworkSchema() ?? handle.coreSchema) : handle.coreSchema,
-      });
+      targets.push({ db: handle.db, tenantRef: handle.tenantRef });
     }
     return targets;
   }
@@ -226,7 +232,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     const { listUnpublishedOutbox, publishOutboxToSpine } = await import(
       '../durable/postgres-persist.js'
     );
-    const unpublished = await listUnpublishedOutbox(target.db, target.coreSchema);
+    const unpublished = await listUnpublishedOutbox(target.db, durableSchema);
     let published = 0;
     for (const row of unpublished) {
       try {
@@ -237,7 +243,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           row,
           dispatchId,
           new Date().toISOString(),
-          target.coreSchema,
+          durableSchema,
         );
         published += 1;
       } catch (err) {

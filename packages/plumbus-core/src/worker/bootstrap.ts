@@ -220,7 +220,7 @@ export interface WorkerPoolConfig {
   enableScheduler?: boolean;
   /** Whether to run flow execution worker loop (default: true) */
   enableFlowRunner?: boolean;
-  /** The framework schema tenant planes carry (PLUMBUS_FRAMEWORK_SCHEMA). Read by the flow engine when it qualifies the tenant durable tables, and by the outbox dispatcher. Default: resolveFrameworkSchema(). */
+  /** The schema the tenant durable tables (execution_state, dispatch_outbox) live in. Read by the flow engine when it writes them and by the outbox dispatcher when it reads them. Default: PLUMBUS_FRAMEWORK_SCHEMA, else the framework default (core_plumbus). */
   frameworkSchema?: string;
   /** Optional AI service for capability steps that use AI */
   aiService?: AIService;
@@ -477,6 +477,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           resolver: dataPlaneResolver,
           spineDb: db,
           listTenantRefs: listedTenantRefs,
+          // The pump reads `dispatch_outbox` where the engine below writes it (Quinovium #202).
+          ...(frameworkSchema ? { frameworkSchema } : {}),
         }
       : {}),
   };
@@ -545,7 +547,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           // tenant's durable tables with it when it writes dispatch acceptance and outbox
           // rows. Without it the engine falls back to the compiled-in default, which drifts
           // from a host that provisioned its planes under another schema name (Quinovium #202).
-          coreSchema: frameworkSchema ?? resolveFrameworkSchema(),
+          coreSchema: frameworkSchema ?? resolveFrameworkSchema() ?? FRAMEWORK_SCHEMA,
         }
       : undefined,
     compiledRegistry: resolveCompiledFlowRegistry({

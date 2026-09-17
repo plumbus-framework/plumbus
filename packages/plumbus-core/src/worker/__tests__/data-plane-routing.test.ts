@@ -321,14 +321,31 @@ describe('worker per-unit data-plane routing', () => {
     createWorkerPool(
       makePoolConfig({ dataPlaneResolver: resolver, untenantedDataPlane: 'control-plane' }),
     );
+    // The durable schema rides on the dispatch descriptor: the host's name, else the
+    // framework default — the same resolution the outbox pump reads with (Quinovium #202).
     expect(createFlowEngine).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        spineDispatch: { db: poolDb, resolver, untenanted: 'control-plane' },
+        spineDispatch: {
+          db: poolDb,
+          resolver,
+          untenanted: 'control-plane',
+          coreSchema: 'core_plumbus',
+        },
       }),
     );
     createWorkerPool(makePoolConfig({ dataPlaneResolver: resolver }));
     expect(createFlowEngine).toHaveBeenLastCalledWith(
-      expect.objectContaining({ spineDispatch: { db: poolDb, resolver, untenanted: 'refuse' } }),
+      expect.objectContaining({
+        spineDispatch: { db: poolDb, resolver, untenanted: 'refuse', coreSchema: 'core_plumbus' },
+      }),
+    );
+    createWorkerPool(
+      makePoolConfig({ dataPlaneResolver: resolver, frameworkSchema: 'core_named' }),
+    );
+    expect(createFlowEngine).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        spineDispatch: { db: poolDb, resolver, untenanted: 'refuse', coreSchema: 'core_named' },
+      }),
     );
     createWorkerPool(makePoolConfig({}));
     expect(createFlowEngine).toHaveBeenLastCalledWith(
@@ -351,6 +368,18 @@ describe('worker per-unit data-plane routing', () => {
         spineDb: poolDb,
         listTenantRefs: expect.any(Function),
       }),
+    );
+    // The host's durable schema reaches the pump exactly as it reaches the engine.
+    createWorkerPool(
+      makePoolConfig({
+        dataPlaneResolver: resolver,
+        listTenantRefs: async () => ['tenant-a'],
+        enableDispatcher: true,
+        frameworkSchema: 'core_named',
+      }),
+    );
+    expect(createOutboxDispatcher).toHaveBeenLastCalledWith(
+      expect.objectContaining({ resolver, spineDb: poolDb, frameworkSchema: 'core_named' }),
     );
   });
 
