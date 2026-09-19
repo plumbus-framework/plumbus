@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-09-20
+
+### Fixed
+
+- Flow descriptors accept an explicit served `startPath`, matching UI client generation. Core scaffolding filters background registry and popup inputs to the same HTTP surface; unexposed capabilities and internal flows no longer leave nonexistent client exports.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

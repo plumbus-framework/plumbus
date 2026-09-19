@@ -45,6 +45,35 @@ function makeCtx(authOverrides: Partial<AuthContext> = {}) {
 }
 
 describe('executeCapability', () => {
+  it('denies static access before parsing or exposing validation details', async () => {
+    const parse = vi.fn(() => true);
+    const authorize = vi.fn();
+    const handler = vi.fn();
+    const cap = makeCapability({
+      input: z.object({ id: z.string().refine(parse) }),
+      authorize,
+      handler,
+    });
+    const { ctx, audit } = makeCtx({ roles: ['viewer'] });
+    for (const input of [{}, { id: 'secret' }]) {
+      const result = await executeCapability(cap, ctx, input);
+      expect(result).toMatchObject({ success: false, error: { code: 'forbidden' } });
+    }
+    expect(parse).not.toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledTimes(2);
+    for (const [, details] of audit.record.mock.calls) expect(details.outcome).toBe('denied');
+  });
+
+  it('gives input-aware authorization transformed input only after static access', async () => {
+    const authorize = vi.fn();
+    const cap = makeCapability({ input: z.object({ id: z.string().trim() }), authorize });
+    const { ctx } = makeCtx();
+    expect((await executeCapability(cap, ctx, { id: '  u1  ' })).success).toBe(true);
+    expect(authorize).toHaveBeenCalledWith(expect.anything(), { id: 'u1' });
+  });
+
   it('checks input-aware authorization before executing and audits denial', async () => {
     const handler = vi.fn(async () => ({ id: 'u1', name: 'Test' }));
     const cap = makeCapability({

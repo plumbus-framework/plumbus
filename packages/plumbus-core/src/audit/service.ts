@@ -36,7 +36,7 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
 
       // A NUL byte (U+0000) anywhere in a metadata string reaches the jsonb writer and
       // answers 'unsupported Unicode escape sequence' — the record is lost and the
-      // capability it was recording answers 500 with no audit row (Quinovium #208).
+      // capability it was recording answers 500 with no audit row.
       // Postgres's jsonb parser refuses \u0000 outright, so the value cannot survive as-is;
       // the byte is named, not dropped silently.
       const sanitizeAuditMetadata = (value: unknown): unknown =>

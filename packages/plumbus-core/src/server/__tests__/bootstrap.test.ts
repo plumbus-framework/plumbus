@@ -633,7 +633,7 @@ describe('Server Bootstrap', () => {
       await handler?.(err, { url: '/x', method: 'GET', ip: '127.0.0.1' }, reply);
 
       // A transport-level 4xx is a client mistake: the code names the condition, not
-      // 'internal' (Quinovium #222).
+      // 'internal'.
       expect(reply.send).toHaveBeenCalledWith({
         error: { code: 'validation', message: 'bad request detail' },
       });

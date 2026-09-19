@@ -519,7 +519,7 @@ plumbus ui generate [options]
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
-- `lib/client.ts` — typed fetch clients and flow triggers for capabilities with `exposeAs: ['api']` (event handlers omitted)
+- `lib/client.ts` — typed fetch clients for capabilities with `exposeAs: ['api']` (event handlers and unexposed flow triggers omitted)
 - `hooks/hooks.ts` — React hooks for those same HTTP-exposed capabilities
 - `lib/auth.ts` — frontend auth helpers
 - `lib/form-hints.ts` — extracted form metadata from those HTTP-exposed capability schemas
@@ -782,7 +782,7 @@ If you see a drift error, you have two options:
 
 **Statement-level diagnostics:**
 
-When `migrate apply` fails during SQL execution, the error message includes the migration tag, statement index, and a SQL preview to pinpoint the exact failing statement.
+When `migrate apply` fails during SQL execution, the error message includes the migration tag, statement index, and a SQL preview to pinpoint the exact failing statement. SQL failure, schema-drift refusal, invalid database selection, connection failure, and database-creation failure set a nonzero process exit status in both text and `--json` modes. Open connections are closed before exit, so shell scripts can stop on failure. A missing `drizzle/` directory remains a successful no-op with a warning.
 
 **Rollback is history-only:**
 

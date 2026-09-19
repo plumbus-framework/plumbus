@@ -20,7 +20,7 @@ Plumbus definitions                         Generated frontend source
 Capability contracts  ───────────────────▶   lib/client.ts
                                              hooks/hooks.ts
 
-Flow trigger inputs  ────────────────────▶   start{FlowName}(...)
+Flow inputs + explicit HTTP startPath ──▶   start{FlowName}(...)
 
 Auth configuration   ────────────────────▶   lib/auth.ts
 
@@ -148,7 +148,7 @@ function generateClientModule(
 ): string;
 ```
 
-The generated client file starts with shared Plumbus API error helpers, then emits `{PascalName}Input` and `{PascalName}Output` aliases for each HTTP-exposed capability (`exposeAs: ['api']`; event handlers are omitted). After the types, it emits one fetch function per those capabilities and one trigger function per flow descriptor. Capabilities without `exposeAs: ['api']` are not given fetch wrappers.
+The generated client file starts with shared Plumbus API error helpers, then emits `{PascalName}Input` and `{PascalName}Output` aliases for each HTTP-exposed capability (`exposeAs: ['api']`; event handlers are omitted). After the types, it emits one fetch function per those capabilities and one trigger function per flow descriptor that declares `startPath`. Discovered flows without an HTTP start path emit neither a trigger function nor a flow-input alias. Capabilities without `exposeAs: ['api']` are not given fetch wrappers.
 
 For a query capability named `getUser` in domain `users`, the generated client function is named `getUser` and sends a `GET` request to `/api/users/get-user`. Inputs are serialized through `URLSearchParams`. Action and job capabilities use `POST` and send `JSON.stringify(input)` in the request body.
 
@@ -164,7 +164,7 @@ await getUser(
 );
 ```
 
-Flow trigger generation is intentionally narrow. A flow descriptor produces a function named `start{PascalFlowName}` that posts to `/api/{domain}/{kebab-flow-name}/start` and returns `{ executionId: string; status: string }`. The package does not yet generate flow-status polling, timelines, approvals, wait/resume controls, or retry controls.
+Flow trigger generation is intentionally narrow. A flow descriptor with an explicit `startPath` produces a function named `start{PascalFlowName}` that posts to that path and returns `{ executionId: string; status: string }`. For example, `{ name: "refund", startPath: "/api/billing/request-refund" }` targets a route the host actually serves. Definitions discovered by `plumbus ui generate` do not imply HTTP exposure: flows are started through an API-exposed capability using `ctx.flows.start`, and its ordinary typed capability client is the supported entry point. The generator no longer invents `/api/{domain}/{flow}/start` routes. Existing consumers should regenerate their clients; programmatic users of `generateFlowTrigger` must supply a served path (the function returns an empty string otherwise). The package does not yet generate flow-status polling, timelines, approvals, wait/resume controls, or retry controls.
 
 ### Auth module specifier
 

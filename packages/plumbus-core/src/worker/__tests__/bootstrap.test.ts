@@ -14,6 +14,7 @@ import type { LoggerService } from '../../types/context.js';
 const mockDispatcher = { start: vi.fn(), stop: vi.fn(), poll: vi.fn(), isRunning: false };
 const mockEventWorker = { start: vi.fn(), stop: vi.fn(), deliver: vi.fn(), isRunning: false };
 const mockFlowEngine = {
+  claimNext: vi.fn(async () => []),
   start: vi.fn(async () => ({})),
   runNext: vi.fn(async () => ({})),
   listRunnable: vi.fn(async () => []),

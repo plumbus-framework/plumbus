@@ -37,6 +37,12 @@ Incoming Request
   Handler
 ```
 
+## Authorization and validation ordering
+
+Static capability access is evaluated before Zod input validation. Unauthorized callers do not receive field names or schema errors from a capability they cannot access; capability execution audits these attempts as `denied`. Input-aware authorization remains after successful parsing so hooks see the declared, transformed input shape, never unvalidated request data. Public or statically admitted callers still receive normal validation refusals. The HTTP job enqueue path follows the same static-access ordering.
+
+See [execution lifecycle](../architecture/execution-lifecycle.md).
+
 ## Access Policies
 
 Every capability declares an access policy:
@@ -481,3 +487,7 @@ HTTP, SSE, and MCP capability failures use generic internal-error messages and g
 Flows with missing, malformed, or actor/tenant-inconsistent auth snapshots fail before a step executes. They must be restarted from a verified caller context; there is no automatic migration to worker/system privileges. New snapshots keep authorization fields and omit session identifiers/timestamps. AI services are rebound to that stored identity for each flow step.
 
 See [Security review remediation](review-remediation.md) for the finding-by-finding resolution and compatibility notes.
+
+## Application-neutral framework source
+
+`pnpm check:no-app-vocabulary` checks framework source for application-specific identifiers, including comments. Runtime fixes and their regressions use generic capability, tenant, data-plane and schema vocabulary. Run its own fixtures with `pnpm check:no-app-vocabulary:test`; application policies and business concepts belong in consuming apps.

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mocks ──
 
@@ -159,7 +159,13 @@ function createTestProgram() {
 }
 
 describe('plumbus migrate', () => {
+  let previousExitCode: typeof process.exitCode;
+  afterEach(() => {
+    process.exitCode = previousExitCode;
+  });
   beforeEach(() => {
+    previousExitCode = process.exitCode;
+    process.exitCode = undefined;
     vi.clearAllMocks();
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -219,11 +225,42 @@ describe('plumbus migrate', () => {
   });
 
   describe('migrate apply', () => {
+    it.each([
+      false,
+      true,
+    ])('sets a failing exit status and closes the connection on SQL errors (json=%s)', async (json) => {
+      mockExistsSync.mockReturnValue(true);
+      vi.mocked(applyMigrations).mockRejectedValueOnce(new Error('statement 2/3 failed'));
+      await createTestProgram().parseAsync([
+        'node',
+        'plumbus',
+        'migrate',
+        'apply',
+        ...(json ? ['--json'] : []),
+      ]);
+      expect(process.exitCode).toBe(1);
+      expect(vi.mocked(postgres).mock.results.at(-1)?.value.end).toHaveBeenCalled();
+      const output = [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls]
+        .flat()
+        .join(' ');
+      expect(output).toContain('statement 2/3 failed');
+    });
+
+    it('sets a failing exit status when the database cannot be reached', async () => {
+      vi.mocked(postgres).mockImplementationOnce(() => {
+        throw new Error('connection refused');
+      });
+      await createTestProgram().parseAsync(['node', 'plumbus', 'migrate', 'apply', '--json']);
+      expect(process.exitCode).toBe(1);
+      expect(applyMigrations).not.toHaveBeenCalled();
+    });
+
     it('applies pending migrations', async () => {
       mockExistsSync.mockReturnValue(true);
       const program = createTestProgram();
       await program.parseAsync(['node', 'plumbus', 'migrate', 'apply']);
       expect(applyMigrations).toHaveBeenCalled();
+      expect(process.exitCode).toBeUndefined();
       expect(postgres).toHaveBeenCalledWith(
         expect.objectContaining({
           database: 'test_db',
@@ -318,6 +355,7 @@ describe('plumbus migrate', () => {
       const parsed = JSON.parse(output?.[0] as string);
       expect(parsed.status).toBe('drift');
       expect(parsed.conflictingTables).toContain('event_outbox');
+      expect(process.exitCode).toBe(1);
       expect(parsed.error).toContain('plumbus migrate reconcile');
     });
   });

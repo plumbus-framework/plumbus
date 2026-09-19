@@ -5,12 +5,15 @@ import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isApiExposed } from '../../api/index.js';
+import type { CapabilityContract } from '../../types/capability.js';
 import type { FlowDefinition } from '../../types/flow.js';
 import { discoverResources } from '../discover.js';
 import { type GeneratedFile, writeGeneratedFiles, writeScaffoldFiles } from '../scaffold-write.js';
 import { findGitRoot, info, resolvePath, success, warn } from '../utils.js';
 
 interface FlowTriggerInput {
+  startPath?: string;
   name: string;
   domain: string;
   description: string | undefined;
@@ -65,6 +68,19 @@ function toFlowTriggers(flows: FlowDefinition[]): FlowTriggerInput[] {
     domain: flow.domain,
     description: flow.description,
   }));
+}
+
+/** Match the generated client surface before naming background registry entries or samples. */
+export function browserExtensionHttpResources(resources: {
+  capabilities: CapabilityContract[];
+  flows: FlowTriggerInput[];
+}): { capabilities: CapabilityContract[]; flows: FlowTriggerInput[] } {
+  return {
+    capabilities: resources.capabilities.filter(
+      (cap) => isApiExposed(cap) && cap.kind !== 'eventHandler',
+    ),
+    flows: resources.flows.filter((flow) => flow.startPath),
+  };
 }
 
 function parseBrowsers(value: string | undefined): ('chrome' | 'firefox')[] {
@@ -240,11 +256,14 @@ export function registerBrowserExtensionCommand(program: Command): void {
         info('Discovering capabilities and flows...');
       }
       const resources = await discoverResources();
-      const flows = toFlowTriggers(resources.flows);
+      const { capabilities, flows } = browserExtensionHttpResources({
+        capabilities: resources.capabilities,
+        flows: toFlowTriggers(resources.flows),
+      });
       const browsers = parseBrowsers(opts.browser);
 
       const registryEntries = [
-        ...resources.capabilities.map((cap) => {
+        ...capabilities.map((cap) => {
           const exportName = ui.capabilityClientFnName(cap);
           browserExtension.assertValidClientExportName(exportName, `capability "${cap.name}"`);
           return { messageKey: exportName, exportName };
@@ -256,7 +275,7 @@ export function registerBrowserExtensionCommand(program: Command): void {
         }),
       ];
 
-      const sampleSel = browserExtension.selectSampleCapability(resources.capabilities);
+      const sampleSel = browserExtension.selectSampleCapability(capabilities);
       const sampleMessageKey =
         sampleSel.mode === 'zero-input' && sampleSel.capability
           ? ui.capabilityClientFnName(sampleSel.capability)
@@ -266,7 +285,7 @@ export function registerBrowserExtensionCommand(program: Command): void {
       // file extensions on relative imports.
       const clientContent =
         CLIENT_HEADER +
-        ui.generateClientModule(resources.capabilities, flows, {
+        ui.generateClientModule(capabilities, flows, {
           baseUrl: apiBaseUrl,
           authModuleImport: './auth.js',
         });
@@ -280,7 +299,7 @@ export function registerBrowserExtensionCommand(program: Command): void {
           registryEntries,
           sampleMessageKey,
         },
-        capabilities: resources.capabilities,
+        capabilities,
         flows,
       });
 

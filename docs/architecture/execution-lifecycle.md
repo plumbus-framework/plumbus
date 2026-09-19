@@ -4,6 +4,9 @@ This document traces the complete lifecycle of a request through the Plumbus fra
 
 ## Capability Execution Flow
 
+Static access policy (roles, scopes, tenant and principal) is checked before the input schema is parsed. A caller denied by that policy receives a forbidden response for both well-formed and malformed input; the audit outcome is `denied`, without schema issues. After static admission, input is validated and transformed, and the optional input-aware `authorize(ctx, input)` hook receives that parsed value. Approval gates and handler execution follow. HTTP queued jobs also check static access before their enqueue-time schema parse. See [security model](../security/security-model.md).
+
+
 ```
                             ┌──────────────────┐
                             │   HTTP Request    │
@@ -33,13 +36,13 @@ This document traces the complete lifecycle of a request through the Plumbus fra
                        │    └────────┬─────────┘
                        │             │
                        │    ┌────────▼─────────┐     ┌───────────┐
-                       │    │ Validate Input    │────▶│  400      │
-                       │    │ (Zod schema)      │ err │ Validation│
+                       │    │ Evaluate Access   │────▶│  403      │
+                       │    │ (access policy)   │ no  │ Forbidden │
                        │    └────────┬─────────┘     └───────────┘
                        │             │ ok
                        │    ┌────────▼─────────┐     ┌───────────┐
-                       │    │ Evaluate Access   │────▶│  403      │
-                       │    │ Policy            │ no  │ Forbidden │
+                       │    │ Validate Input    │────▶│  400      │
+                       │    │ (Zod schema)      │ err │ Validation│
                        │    └────────┬─────────┘     └───────────┘
                        │             │ yes
                        │    ┌────────▼─────────┐     ┌───────────┐

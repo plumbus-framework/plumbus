@@ -1,6 +1,8 @@
 import type { CapabilityContract } from '@plumbus/core';
 
 export interface FlowTriggerInput {
+  /** Explicit served HTTP route; omitted flows have no generated client trigger. */
+  startPath?: string;
   name: string;
   domain?: string;
   description?: string;

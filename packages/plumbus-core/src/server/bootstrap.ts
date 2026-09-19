@@ -512,7 +512,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         // the tenant's durable tables (execution_state, dispatch_outbox) with it, and the
         // outbox dispatcher's pump reads the same tables. One resolution for every writer
         // and reader — the host's name, else PLUMBUS_FRAMEWORK_SCHEMA, else the framework
-        // default — or the pump reads a schema the engine never wrote (Quinovium #202).
+        // default — or the pump reads a schema the engine never wrote.
         coreSchema: serverConfig.frameworkSchema ?? resolveFrameworkSchema() ?? FRAMEWORK_SCHEMA,
       }
     : undefined;
@@ -689,7 +689,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       // Transport-level refusals are client mistakes, not server faults: Fastify names them
       // with statusCode (415 unsupported media type, 400 malformed JSON body). Answering them
       // as 'internal' hid a request-shape mistake behind an outage-looking answer and leaked
-      // the framework prose to the wire (Quinovium #222).
+      // the framework prose to the wire.
       if (statusCode < 500 && !isPlumbusError(err)) {
         reply.status(statusCode).send({
           error: {

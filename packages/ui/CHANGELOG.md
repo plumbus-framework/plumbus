@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0-beta.1 — 2026-09-20
+
+### Fixed
+
+- Generated flow clients require an explicit `FlowTriggerInput.startPath`. Automatic flow discovery emits no phantom HTTP routes; expose an authorized start capability and regenerate the client instead. Programmatic trigger descriptors without a served path are omitted.
+
 ## 0.9.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

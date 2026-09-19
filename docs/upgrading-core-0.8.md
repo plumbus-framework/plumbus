@@ -6,15 +6,15 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
-| `@plumbus/core` | 0.7.1 | 0.8.0-beta.4 (beta.2 + approval cancellation, spine hint heartbeat/retry backoff, framework-schema outbox) |
-| `@plumbus/ui` | 0.8.1 | 0.9.0-beta.0 |
+| `@plumbus/core` | 0.7.1 | 0.8.0-beta.5 (beta.4 + one-lease-at-a-time flow polling, static access before input parsing, `migrate apply` exit status) |
+| `@plumbus/ui` | 0.8.1 | 0.9.0-beta.1 (beta.0 + flow triggers only for descriptors with an explicit `startPath`) |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
 | `@plumbus/voice` | 0.5.1 | 0.6.0-beta.0 |
 | `@plumbus/ai-bedrock` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/api` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/auth` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/auth-cognito` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/browser-extension` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/browser-extension` | 0.2.1 | 0.3.0-beta.1 (beta.0 + scaffolding filtered to the served HTTP surface) |
 | `@plumbus/chat` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/chat-ui` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/knowledge-base` | 0.2.1 | 0.3.0-beta.0 |
@@ -47,12 +47,13 @@ Do not mix beta packages with the 0.7 family, and do not use `--force` or `--leg
 | --- | --- | --- |
 | Action-risk vocabulary | Capabilities declaring `actionRisk: 'read-only'` | Use `analytical`. `read-only` is a retired value and `defineCapability` rejects it. `prohibited` is normative: the approval gate refuses prohibited capabilities outright and they cannot be exposed as MCP tools or API routes. |
 | Listen ports | Apps relying on default ports 3000/3001 | `plumbus e2e --port`, `plumbus worker --health-port`, `plumbus mcp serve --http --port`, `createServer({ port })`, and `startHttpServer({ port })` require an explicit port (or the matching `PLUMBUS_*_PORT` variable). |
-| `plumbus ui generate` | Projects without a detected frontend | Pass `--out-dir`; `.plumbus/generated/ui` is no longer a silent default. Fetch clients, hooks, and form hints are emitted only for `exposeAs: ['api']` capabilities. |
+| `plumbus ui generate` | Projects without a detected frontend, and frontends that called a generated `start{Flow}` function | Pass `--out-dir`; `.plumbus/generated/ui` is no longer a silent default. Fetch clients, hooks, and form hints are emitted only for `exposeAs: ['api']` capabilities. Since ui 0.9.0-beta.1 a `start{Flow}` trigger is emitted only for a flow descriptor with an explicit `startPath`; discovered flows no longer get a phantom `/api/{domain}/{flow}/start` client. Start flows through an API-exposed capability (`ctx.flows.start`) and call its ordinary client. The browser-extension scaffold (0.3.0-beta.1) applies the same filter to its background registry and popup. |
 | `plumbus generate` | Tooling that parsed the generated OpenAPI 3.0 document | `.plumbus/generated/openapi.json` is OpenAPI 3.1.0 with JSON Schema 2020-12 nullables. Leftover `.plumbus/generated/clients/` trees are deleted on the next run. |
 | Flow compensations | Executions whose stored auth snapshot is missing or invalid | Compensations run as the verified initiating identity, never as the worker. An invalid snapshot records a failed `compensate` history entry and a `flow.compensation_skipped` audit event for operator review. |
 | 403 error bodies | Clients that read a refusal reason from a 403 | The message is always `Access denied` and every metadata key is dropped except `reason`. Put the operational code the client may act on in `metadata.reason` at the throw site; nothing else about a 403 reaches the caller. |
 | Audit writer refusals | Custom `AuditWriter` implementations | A writer that throws a `PlumbusError` is refusing the record: `AuditService.record` rethrows it as is, with no retry and no `Audit persistence failed` wrapper. Any other error is still retried three times and then wrapped. |
 | Reasoning configuration | Apps that used the widened legacy `reasoningEffort` values | Use the provider-neutral `reasoning` config from the 0.7 family. `REASONING_EFFORTS` / `ReasoningEffortOption` remain the vocabulary of `ProviderModel.reasoningEfforts` metadata. |
+| Access before input parsing | Clients and tests that expected `400` for malformed input from a caller the capability's static policy rejects | Since core 0.8.0-beta.5 roles, scopes, tenant and principal checks run before the Zod input parse, for capability execution and HTTP queued jobs alike: a statically denied caller gets `403` (audit outcome `denied`, no schema issues) whether or not the input is well-formed. The input-aware `authorize(ctx, input)` hook still runs after parsing and still sees the transformed input. See [security model](security/security-model.md#authorization-and-validation-ordering). |
 
 ### Additive in this family
 

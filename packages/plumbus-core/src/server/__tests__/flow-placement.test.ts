@@ -132,7 +132,7 @@ describe('request flow placement under a data-plane resolver', () => {
       db: controlPlaneDb,
       resolver,
       untenanted: 'control-plane',
-      // The host's framework schema reaches the engine's durable dispatch (Quinovium #202).
+      // The host's framework schema reaches the engine's durable dispatch.
       coreSchema: 'core_plumbus',
     });
   });

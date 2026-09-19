@@ -310,3 +310,9 @@ When `jobQueue` is omitted, MCP falls back to in-process execution (backward com
 - [Deployment instructions](../../packages/plumbus-core/instructions/deployment.md) — Docker and Kubernetes worker containers
 
 Redis event envelopes are schema-validated before subscribers receive them. Malformed JSON, invalid control fields, and invalid event timestamps are discarded from processing with a diagnostic, preventing recurring poison-envelope delivery. Payload contracts are still validated by the consuming primitive; Redis remains an operator-controlled trust boundary.
+
+## Flow polling and lease ownership
+
+A polling worker claims one execution immediately before running it. It drains at most `flowClaimBatchSize` executions per cycle (default 50), acquiring each next lease only after the prior execution has completed its drain. Poll ticks do not overlap an active cycle, and shutdown prevents claiming further work. Thus a slow step cannot consume the lease time of rows prefetched behind it. Other workers can claim those still-pending rows normally; active-step heartbeats continue extending both tenant execution leases and authoritative spine hints. The engine's explicit `claimNext(batchSize)` API remains available to hosts that manage their own concurrency/lease lifecycle.
+
+See [flow lifecycle](execution-lifecycle.md) and [tenant data planes](../sdk-reference/tenant-data-planes.md). The worker integration regression uses two real polling pools and checks that queued work remains pending beyond multiple lease periods, a peer executes it once, and both hints retain attempt 1.

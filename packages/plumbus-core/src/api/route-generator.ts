@@ -254,17 +254,17 @@ export function registerCapabilityRoute(
 
     // 4. Execute capability (jobs dispatched async via queue if available)
     if (capability.kind === 'job' && config.jobQueue) {
-      const parsed = capability.input.safeParse(input);
-      if (!parsed.success) {
-        const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
-        const { statusCode, body } = errorToHttpResponse(err);
-        return reply.status(statusCode).send(body);
-      }
       const authz = evaluateAccess(capability.access, ctx.auth);
       if (!authz.allowed) {
         const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
           capability: canonicalName,
         });
+        const { statusCode, body } = errorToHttpResponse(err);
+        return reply.status(statusCode).send(body);
+      }
+      const parsed = capability.input.safeParse(input);
+      if (!parsed.success) {
+        const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
         const { statusCode, body } = errorToHttpResponse(err);
         return reply.status(statusCode).send(body);
       }

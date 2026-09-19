@@ -32,6 +32,21 @@ export interface ExecutionFailure {
 
 export type CapabilityResult<T = unknown> = ExecutionResult<T> | ExecutionFailure;
 
+/** Static access is independent of input and must precede schema parsing. */
+async function authorizeAccessPolicy(
+  capability: CapabilityContract,
+  ctx: ExecutionContext,
+): Promise<CapabilityResult<void>> {
+  const access = evaluateAccess(capability.access, ctx.auth);
+  if (access.allowed) return { success: true, data: undefined };
+  const canonicalName = getCanonicalCapabilityName(capability);
+  const error = ctx.errors.forbidden(access.reason ?? 'Access denied', {
+    capability: canonicalName,
+  });
+  await recordAudit(ctx, capability, canonicalName, 'denied', { error });
+  return { success: false, error };
+}
+
 /** Check current access without invoking a mutation or consuming an approval. */
 export async function authorizeCapability<TInput extends z.ZodTypeAny>(
   capability: CapabilityContract<TInput>,
@@ -40,11 +55,9 @@ export async function authorizeCapability<TInput extends z.ZodTypeAny>(
 ): Promise<CapabilityResult<void>> {
   const canonicalName = getCanonicalCapabilityName(capability);
   const contract = capability as unknown as CapabilityContract;
-  const access = evaluateAccess(capability.access, ctx.auth);
+  const access = await authorizeAccessPolicy(contract, ctx);
+  if (!access.success) return access;
   try {
-    if (!access.allowed) {
-      throw ctx.errors.forbidden(access.reason ?? 'Access denied', { capability: canonicalName });
-    }
     // Authorization is a read-only phase, with no capability invocation runtime exposed.
     await capability.authorize?.(buildHandlerContext(ctx, contract, undefined), input);
     return { success: true, data: undefined };
@@ -178,8 +191,8 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
 
 /**
  * Execute a capability through the full pipeline:
- * 1. Validate input
- * 2. Evaluate access policy
+ * 1. Evaluate static access policy
+ * 2. Validate input and run input-aware authorization
  * 3. Approval gate (consequential risk tier)
  * 4. Execute handler (with scoped ctx.capabilities)
  * 5. Validate output
@@ -192,7 +205,10 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
   const canonicalName = getCanonicalCapabilityName(capability);
 
-  // 1. Validate input against schema
+  const access = await authorizeAccessPolicy(capability as unknown as CapabilityContract, ctx);
+  if (!access.success) return access;
+
+  // Parse only after static access has been granted. Input-aware hooks receive parsed input.
   const inputResult = capability.input.safeParse(rawInput);
   if (!inputResult.success) {
     const error = ctx.errors.validation('Invalid input', {
@@ -200,7 +216,7 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
       issues: inputResult.error.issues,
       // The first failing field, as the wire exposes it (SAFE_ERROR_METADATA_KEYS carries
       // 'field' and 'reason'): the caller marks the input and moves on instead of receiving a
-      // bare 'Invalid input' it cannot map anywhere (Quinovium #186). Custom messages ride
+      // bare 'Invalid input' it cannot map anywhere. Custom messages ride
       // along in `reason` when a check set one.
       field: zodIssueField(
         inputResult.error.issues as unknown as readonly { path: PropertyKey[] }[],
@@ -315,7 +331,7 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
  * The input boundary's answer to "where and why": the first issue's path as a dotted field
  * name and its rule. Keys match the safe-metadata allow-list (`field`, `reason`), so the
  * refusal reaches the caller with something a form can mark — a bare 'Invalid input' left
- * 2 600 probes unable to name anything (Quinovium #186).
+ * validation refusals unable to identify the affected field.
  */
 function zodIssueField(
   issues: readonly { path: PropertyKey[]; params?: { reason?: string } }[],

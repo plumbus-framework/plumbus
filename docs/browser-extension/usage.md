@@ -34,6 +34,8 @@ plumbus browser-extension scaffold ./extension \
 - `extension/` — WXT project (popup, background, content script, auth store, typed client)
 - `.plumbus/generated/browser-extension/src/client/api.ts` — cached copy of the generated typed client (same content as `extension/src/client/api.ts`)
 
+The background registry and popup sample contain only API-exposed capabilities, excluding event handlers. Automatically discovered flows add no client or registry entry because they do not expose HTTP routes. Start flows through an authorized API capability. Programmatic flow descriptors may supply an explicit served `startPath`, matching the [UI client generator](../ui/ui-generation.md#client-module-generation).
+
 Re-run scaffold after capability changes. `src/client/api.ts` is **always** regenerated; other shell files are skipped unless `--force`.
 
 ## Build and load

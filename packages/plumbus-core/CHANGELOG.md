@@ -1,5 +1,13 @@
 # @plumbus/core changelog
 
+## 0.8.0-beta.5 — 2026-09-20
+
+### Fixed
+
+- Polling flow workers acquire one lease at a time, bound each cycle by the configured batch limit, and prevent overlapping polls from reclaiming waiting work.
+- Static capability and HTTP queued-job access checks precede input parsing, preventing unauthorized schema disclosures. Input-aware hooks still receive parsed input.
+- `migrate apply` exits unsuccessfully on migration, preflight, database-selection, creation, and connection errors while preserving connection cleanup and JSON diagnostics.
+
 ## 0.8.0-beta.4 — 2026-09-17
 
 Repository tag `v0.8.0-beta.3` already pointed at the format-only commit and no `0.8.0-beta.3` package was published, so this increment is `beta.4`.

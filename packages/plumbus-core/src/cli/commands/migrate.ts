@@ -517,6 +517,7 @@ export function registerMigrateCommand(program: Command): void {
         } else {
           logError(msg);
         }
+        process.exitCode = 1;
         return;
       }
 
@@ -536,6 +537,7 @@ export function registerMigrateCommand(program: Command): void {
           } else {
             logError(msg);
           }
+          process.exitCode = 1;
           return;
         }
       }
@@ -564,6 +566,7 @@ export function registerMigrateCommand(program: Command): void {
           logError(msg);
           info('Hint: Use --create-db to auto-create the database.');
         }
+        process.exitCode = 1;
         return;
       }
 
@@ -618,6 +621,7 @@ export function registerMigrateCommand(program: Command): void {
               } else {
                 logError(msg);
               }
+              process.exitCode = 1;
               return;
             }
           }
@@ -652,6 +656,7 @@ export function registerMigrateCommand(program: Command): void {
         } else {
           logError(`Migration failed: ${msg}`);
         }
+        process.exitCode = 1;
       } finally {
         await conn.close();
       }

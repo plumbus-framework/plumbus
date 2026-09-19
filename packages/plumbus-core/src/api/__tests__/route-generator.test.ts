@@ -84,6 +84,28 @@ function makeMockReply() {
 // ── Tests ──
 
 describe('registerCapabilityRoute', () => {
+  it.each([
+    'action',
+    'job',
+  ] as const)('refuses unauthorized %s input before schema parsing', async (kind) => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const input = z.object({ id: z.string() });
+    const parse = vi.spyOn(input, 'safeParse');
+    const cap = makeCapability({ kind, input, access: { roles: ['operator'] } });
+    const publish = vi.fn();
+    registerCapabilityRoute(app as any, cap, {
+      ...config,
+      ...(kind === 'job' ? { jobQueue: { publish } as any } : {}),
+    });
+    const handler = app.post.mock.calls[0]?.[1];
+    const reply = makeMockReply();
+    await handler(makeMockRequest({}, {}), reply);
+    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(parse).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('registers a GET route for query capabilities', () => {
     const app = makeMockApp();
     const config = makeMockConfig();

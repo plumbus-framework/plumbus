@@ -16,7 +16,7 @@ import type { DataPlaneResolver } from '../../tenancy/types.js';
 
 // ── Mocks ──
 
-const claimNext = vi.fn(async () => [] as Record<string, unknown>[]);
+const claimNext = vi.fn(async (_limit?: number) => [] as Record<string, unknown>[]);
 const runNext = vi.fn(async (_id: string, _ctx: unknown) => ({ status: 'completed' }));
 const markFailedFromRunner = vi.fn(async () => {});
 
@@ -193,6 +193,57 @@ async function runOneCycle(config: WorkerPoolConfig, expectedRuns: number): Prom
 // ── Tests ──
 
 describe('worker per-unit data-plane routing', () => {
+  it('does not preclaim waiting work or overlap poll cycles while a step is blocked', async () => {
+    vi.useFakeTimers();
+    let release = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    claimNext.mockResolvedValueOnce([{ id: 'slow', tenantId: 'tenant-a' }]);
+    claimNext.mockResolvedValueOnce([{ id: 'next', tenantId: 'tenant-a' }]);
+    runNext.mockImplementationOnce(async () => {
+      await blocked;
+      return { status: 'completed' };
+    });
+    const pool = createWorkerPool(
+      makePoolConfig({ flowPollIntervalMs: 10, flowLeaseDurationMs: 30 }),
+    );
+    try {
+      await pool.start();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(claimNext).toHaveBeenCalledTimes(1);
+      expect(claimNext).toHaveBeenCalledWith(1);
+      expect(runNext).toHaveBeenCalledTimes(1);
+      release();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runNext.mock.calls.map(([id]) => id)).toEqual(['slow', 'next']);
+      expect(claimNext.mock.calls.every((args) => args[0] === 1)).toBe(true);
+    } finally {
+      release();
+      await pool.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not claim the next flow after shutdown while the current step finishes', async () => {
+    let release = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    claimNext.mockResolvedValueOnce([{ id: 'slow', tenantId: 'tenant-a' }]);
+    runNext.mockImplementationOnce(async () => {
+      await blocked;
+      return { status: 'completed' };
+    });
+    const pool = createWorkerPool(makePoolConfig());
+    await pool.start();
+    await vi.waitFor(() => expect(runNext).toHaveBeenCalledTimes(1));
+    await pool.stop();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(claimNext).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     claimNext.mockResolvedValue([]);
@@ -322,7 +373,7 @@ describe('worker per-unit data-plane routing', () => {
       makePoolConfig({ dataPlaneResolver: resolver, untenantedDataPlane: 'control-plane' }),
     );
     // The durable schema rides on the dispatch descriptor: the host's name, else the
-    // framework default — the same resolution the outbox pump reads with (Quinovium #202).
+    // framework default — the same resolution the outbox pump reads with.
     expect(createFlowEngine).toHaveBeenLastCalledWith(
       expect.objectContaining({
         spineDispatch: {

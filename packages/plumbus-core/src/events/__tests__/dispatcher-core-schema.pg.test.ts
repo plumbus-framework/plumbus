@@ -1,6 +1,6 @@
 /**
  * The outbox dispatcher must read each plane's `dispatch_outbox` from the schema the flow
- * engine writes it under — never from the plane handle's `coreSchema` (Quinovium #202).
+ * engine writes it under — never from the plane handle's `coreSchema`.
  *
  * The engine persists an acceptance under `spineDispatch.coreSchema ?? PLUMBUS_FRAMEWORK_SCHEMA
  * ?? core_plumbus`. A handle's `coreSchema` is a different thing: the schema of the tenant's
@@ -50,7 +50,7 @@ describe('the pump reads dispatch_outbox where the engine writes it', () => {
 
   it('drains a plane whose handle says `public` while the durable tables sit in the framework default schema', async () => {
     // A host that configures nothing: the harness provisions under the framework default, the
-    // engine writes there, and the handle — as Quinovium's resolver builds it — says `public`.
+    // engine writes there, and the host resolver's handle says `public`.
     harness = await createDurableTestHarness({ includeEventOutbox: true });
     await persistOne('exec-default-schema', harness.coreSchema);
 

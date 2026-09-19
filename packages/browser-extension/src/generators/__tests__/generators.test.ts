@@ -194,8 +194,11 @@ describe('registry ↔ client cross-file resolution', () => {
       makeCap(),
       makeCap({ name: 'get-item', kind: 'query', input: z.object({ id: z.string() }) }),
     ];
-    const flows = [{ name: 'sync', domain: 'flows' }];
-    const clientCode = generateClientModule(caps, flows, { baseUrl: 'https://api.example.com' });
+    const flows = [{ name: 'sync', domain: 'flows', startPath: '/api/sync/request-sync' }];
+    const clientCode = generateClientModule(caps, [...flows, { name: 'internalOnly' }], {
+      baseUrl: 'https://api.example.com',
+    });
+    expect(clientCode).not.toContain('startInternalOnly');
 
     const registryEntries = [
       ...caps.map((c) => ({

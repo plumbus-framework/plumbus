@@ -45,7 +45,7 @@ export interface DispatcherConfig {
    * names the tenant's own entity tables, which a host may keep in `public` while the
    * durable tables sit in the framework schema — reading `dispatch_outbox` from the
    * handle's schema answered `relation "dispatch_outbox" does not exist` for every tenant
-   * on every poll (Quinovium #202).
+   * on every poll.
    */
   frameworkSchema?: string;
 }
