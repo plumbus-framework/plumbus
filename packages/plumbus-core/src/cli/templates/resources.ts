@@ -1,0 +1,232 @@
+import { assertScaffoldName } from '../scaffold-validation.js';
+// ── Resource Templates ──
+// Code templates for scaffolding new resources
+
+import { toCamelCase, toKebabCase, toPascalCase } from '../utils.js';
+
+export function capabilityTemplate(name: string, kind: string, domain: string): string {
+  assertScaffoldName(name);
+  const pascal = toPascalCase(name);
+  return `import { defineCapability } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
+
+export const ${toCamelCase(name)} = defineCapability({
+  name: "${name}",
+  kind: "${kind}",
+  domain: "${domain}",
+
+  // Uncomment to expose this capability to AI agents over MCP.
+  // Requires \`pnpm add @plumbus/mcp\` and \`plumbus mcp serve\`.
+  // See node_modules/@plumbus/core/instructions/mcp.md
+  // exposeAs: ["mcp"],
+  // mcp: { description: "Agent-facing description of ${name}" },
+
+  // Uncomment to expose this capability on the partner HTTP API.
+  // Requires \`pnpm add @plumbus/api\` and \`registerApiRoutes()\` in app bootstrap.
+  // See node_modules/@plumbus/core/instructions/api.md
+  // exposeAs: ["api"],
+  // api: { path: "/v1/${domain}/${name}", method: "GET" },
+
+  input: z.object({
+    // TODO: define input schema
+  }),
+
+  output: z.object({
+    // TODO: define output schema
+  }),
+
+  access: {
+    roles: ["system"],
+    scopes: [],
+  },
+
+  effects: {
+    data: [],
+    events: [],
+    external: [],
+    ai: false,
+  },
+
+  handler: async (ctx, input) => {
+    // TODO: implement ${pascal}
+    return {};
+  },${
+    kind === 'eventHandler'
+      ? `
+
+  // Optional: auto-register this handler on the events queue when workers run.
+  // trigger: { event: "your.domain.event" },`
+      : ''
+  }
+});
+`;
+}
+
+export function capabilityTestTemplate(name: string, _domain: string): string {
+  assertScaffoldName(name);
+  return `import { describe, it, expect } from "vitest";
+// import { ${toCamelCase(name)} } from "../capability.js";
+
+describe("${toPascalCase(name)}", () => {
+  it("should execute successfully", async () => {
+    // TODO: implement test using runCapability() or createTestContext()
+    expect(true).toBe(true);
+  });
+});
+`;
+}
+
+export function entityTemplate(name: string): string {
+  assertScaffoldName(name);
+  const pascal = toPascalCase(name);
+  return `import { defineEntity, field } from "@plumbus/core";
+
+export const ${toCamelCase(name)}Entity = defineEntity({
+  name: "${pascal}",
+  tenantScoped: true,
+
+  fields: {
+    id: field.id(),
+    // TODO: add fields
+    createdAt: field.timestamp({ required: true }),
+    updatedAt: field.timestamp({ required: true }),
+  },
+
+  indexes: [],
+});
+`;
+}
+
+export function flowTemplate(name: string, domain: string): string {
+  assertScaffoldName(name);
+  return `import { defineFlow } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
+
+export const ${toCamelCase(name)}Flow = defineFlow({
+  name: "${name}",
+  domain: "${domain}",
+
+  input: z.object({
+    // TODO: define flow input
+  }),
+
+  steps: [
+    {
+      name: "step1",
+      type: "capability",
+      capability: "${domain}.stepName",
+    },
+  ],
+});
+`;
+}
+
+export function flowTestTemplate(name: string, _domain: string): string {
+  assertScaffoldName(name);
+  return `import { describe, it, expect } from "vitest";
+import { simulateFlow } from "@plumbus/core/testing";
+import { ${toCamelCase(name)}Flow } from "../flow.js";
+
+describe("${toPascalCase(name)} Flow", () => {
+  it("completes all steps successfully", async () => {
+    const result = await simulateFlow(${toCamelCase(name)}Flow, {
+      // TODO: provide valid flow input
+    });
+    expect(result.status).toBe("completed");
+    expect(result.history.length).toBeGreaterThan(0);
+  });
+
+  it("handles step failure", async () => {
+    const result = await simulateFlow(${toCamelCase(name)}Flow, {
+      // TODO: provide valid flow input
+    }, {
+      capabilityResults: {
+        // TODO: map step name → failure
+      },
+    });
+    expect(result.status).toBe("failed");
+  });
+});
+`;
+}
+
+export function eventTemplate(name: string): string {
+  assertScaffoldName(name);
+  return `import { defineEvent } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
+
+export const ${toCamelCase(name)}Event = defineEvent({
+  name: "${name}",
+
+  payload: z.object({
+    // TODO: define event payload
+  }),
+});
+`;
+}
+
+export function promptTemplate(name: string): string {
+  assertScaffoldName(name);
+  return `import { definePrompt } from "@plumbus/core";
+import { z } from "@plumbus/core/zod";
+
+export const ${toCamelCase(name)}Prompt = definePrompt({
+  name: "${name}",
+
+  input: z.object({
+    // TODO: define prompt input variables
+  }),
+
+  output: z.object({
+    // TODO: define expected output schema
+  }),
+
+  model: {
+    name: "gpt-4o-mini",
+    temperature: 0.7,
+  },
+});
+`;
+}
+
+export function translationTemplate(name: string): string {
+  assertScaffoldName(name);
+  return `import { defineTranslation } from "@plumbus/core";
+
+export const ${toCamelCase(name)}Translation = defineTranslation({
+  name: "${name}",
+  defaultLocale: "en",
+  locales: ["en"],
+
+  messages: {
+    en: {
+      // TODO: add message keys
+    },
+  },
+});
+`;
+}
+
+export function localeMessagesTemplate(): string {
+  return `export const messages = {
+  // TODO: add message keys
+} as const satisfies Record<string, string>;
+`;
+}
+
+export function localeFolderTranslationTemplate(name: string): string {
+  assertScaffoldName(name);
+  const kebab = toKebabCase(name);
+  const camel = toCamelCase(name);
+  return `import { defineTranslation } from "@plumbus/core";
+import { messages as en } from "./en/${kebab}.messages.js";
+import { messages as he } from "./he/${kebab}.messages.js";
+
+export const ${camel}Translation = defineTranslation({
+  name: "${name}",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: { en, he },
+});
+`;
+}

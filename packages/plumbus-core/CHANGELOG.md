@@ -1,0 +1,635 @@
+# @plumbus/core changelog
+
+## 0.7.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.7.0.
+
+## 0.7.0 — 2026-09-10 — security hardening and fixed pricing
+
+### Upgrade boundary
+
+- This release is an explicit minor-line upgrade. Previous caret ranges exclude it; install the coordinated core 0.7.x family and follow the [migration checklist](../../docs/upgrading-security-release.md). Packages publish to npm’s default `latest` dist-tag.
+
+### Agent instructions
+
+- Bump `AGENT_WIRING_VERSION` from 14 to **16**. Every generated agent format now points to the packaged security release checklist, including inline mode. `plumbus init --patch` upgrades existing managed blocks while retaining app-owned instructions.
+- Update packaged auth, audit, RAG, cost, MCP, flow, and deployment guidance to match this release. Sol uses a bundled date-based price window; no runtime price fetching is introduced.
+
+### Fixed
+
+- Bind AI retrieval and accounting to each execution identity; enforce exact RAG tenant namespaces and fail closed on invalid flow auth snapshots.
+- Record successful/retried AI spend, reject malformed numeric accounting, and enforce configured budgets when prior prices are unknown. Preserve provider-supplied zero costs and local providers without dollar caps.
+- Apply configured redaction to extraction/classification and explainability; substitute prompt values once.
+- Reject shared development signing keys, non-expiring JWTs, SAML replay/correlation failures, ambiguous cookies, unsafe scaffold paths, and malformed queue envelopes. Bound JWKS refreshes and billing fetches.
+- Make safe HTTP errors unconditional and audit writes idempotent across retries. Keep MCP worker completion compatible with the dependency-object API during rolling upgrades.
+
+### AI pricing and accounting
+
+The fixed OpenAI/Anthropic catalog was refreshed on September 10. The following are changes to the framework's standard-tier estimates; all rates below are **USD per 1 million tokens**, with input/output listed in that order.
+
+| Model | Previous catalog | 0.7.0 catalog |
+| --- | --- | --- |
+| `gpt-5.6-sol` | $5 / $30 | $4 / $20 before November 22 UTC; $5 / $30 from the cutoff |
+| `gpt-6-astra` | Not cataloged | $10 / $50 |
+| `gpt-5.6-cyber` | Not cataloged | $12.50 / $75 |
+| `claude-fable-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
+| `claude-mythos-5-1` | Not cataloged | $10 / $50; cache reads $0.25 |
+
+- **Static Sol price window:** use $4 input, $0.40 cached input, and $20 output per MTok before `2026-11-22T00:00:00.000Z`; at and after the cutoff use the retained regular $5 / $0.50 / $30 rates. All values and the cutoff are bundled in code; lookups switch using the clock without fetching prices, scheduling jobs, or restarting. The `gpt-5.6` alias and supported dated names share the same window. Existing ledger rows are not repriced.
+- **Cutoff interpretation:** [OpenAI documents](https://developers.openai.com/api/docs/models/gpt-5.6-sol) availability at least through November 21, 2026, not a guaranteed expiry. November 22 UTC is this framework's fallback policy. If OpenAI extends the promotion, estimates after that point can be higher until the bundled window is explicitly updated.
+- **GPT-5.6 alias and long context:** `gpt-5.6` now resolves to Sol, including supported date-suffixed names. Above 272,000 input tokens, Sol uses 2× input/cache-read rates and 1.5× output rates ($8 / $0.80 / $30 during the special window; $10 / $1 / $45 afterward, for input/cache/output per MTok). The base rates apply at exactly 272,000 tokens. Cyber remains a separate catalog entry.
+- **Sonnet 5 stays unchanged at $2 / $10.** Sonnet pricing has no date switch. No runtime pricing fetch is performed. Batch, Flex, and Fast mode pricing are not modeled.
+- **Model-specific cache-read rates:** replace the blanket 10%-of-input assumption for the models below. Their base input/output rates are unchanged.
+
+| Model | Previous cache-read estimate / MTok | 0.7.0 cache-read estimate / MTok |
+| --- | --- | --- |
+| `gpt-4.1` | $0.20 | $0.50 |
+| `gpt-4.1-mini` | $0.04 | $0.10 |
+| `gpt-4.1-nano` | $0.01 | $0.025 |
+| `gpt-4o` | $0.25 | $1.25 |
+| `gpt-4o-mini` | $0.015 | $0.075 |
+| `o1` | $1.50 | $7.50 |
+| `o3` | $0.20 | $0.50 |
+| `o3-mini` | $0.11 | $0.55 |
+| `o4-mini` | $0.11 | $0.275 |
+
+- **Anthropic usage accounting:** normalized input includes cache-read and cache-write tokens, and streamed final usage retains them. Long-context threshold checks count cached tokens once rather than adding them twice. Preserve positive sub-microdollar estimates instead of rounding them to zero.
+- **Manual update tooling:** parse standard/base-context tables, cache rates and footnotes, and effective-dated Anthropic rows; ignore missing prices and non-token units. It reads the effective bundled catalog directly, including Sol's active window, instead of maintaining a duplicate rate snapshot. Legacy entries absent from pricing pages are retained.
+- **Free versus unknown:** provider-supplied zero costs remain supported, including with dollar budgets. Unpriced local providers still work without dollar caps; internal ledgers keep unknown costs as `null`, and configured dollar budgets reject unknown prior spend. Released numeric cost APIs remain compatible through the availability flags described below.
+
+See [AI cost tracking and pricing](../../docs/ai/ai-integration.md) for provider overrides, usage normalization, and budget behavior. Bedrock pricing-file validation is documented separately in the [`@plumbus/ai-bedrock` 0.1.1 changelog](../ai-bedrock/CHANGELOG.md).
+
+### Compatibility
+
+- Preserve the released numeric contracts of `calculateModelCost`, generation results, tool-loop totals, and RAG embedding callbacks. Added `estimateModelCost`, `costAvailable`, and `aggregatedCostAvailable` distinguish unknown prices. Framework ledgers still record unknown prices as `null`; configured dollar budgets reject them. Custom ledgers must honor availability flags.
+- Finite JWT lifetimes remain issuer-controlled unless `maxTokenLifetimeSeconds` is explicitly configured. `signJwt` still defaults to 24 hours.
+
+### Security migration notes
+
+- This is not a universal drop-in upgrade: configure real authentication credentials; regenerate JWTs without expiry; supply SAML request correlation or explicitly opt into unsolicited assertions; restart/review snapshot-less flows; and ensure audit persistence works. Generic 403/5xx responses no longer disclose private diagnostics.
+- No new database schema is introduced. Existing audit/flow/task tables must already be migrated for the current framework line.
+- Deploy the updated versions of any installed MCP/chat/voice/API add-ons with core. See [the release migration guide](../../docs/upgrading-security-release.md).
+
+## 0.6.19 — 2026-09-01 — OpenAI reasoning tool-call transport
+
+### Fixed
+
+- **OpenAI reasoning with function tools.** OpenAI caller-tool requests use the Responses API when reasoning is active, when a GPT-5.6 model uses its default reasoning, or when continuing an existing Responses tool round. Stateless continuations request and replay encrypted reasoning output. Explicit disabled reasoning and all compatible non-tool requests retain the existing Chat Completions transport.
+
+## 0.6.18 — 2026-09-01 — provider-aware tool-call AI configuration
+
+### Added
+
+- **Per-call AI provider/model override.** `generate`, `generateWithUsage`, and `streamGenerate` accept `provider` and `model` without changing the registered prompt or global default.
+- **Provider-neutral reasoning contract.** `AIReasoningConfig` expresses `disabled`, `effort`, or token `budget` intent. Built-in OpenAI and Anthropic adapters translate the intent to native fields and reject adapter-level incompatibilities with `AIInvalidRequestError`. Custom providers implement the same contract in their own `AIProviderAdapter`.
+- **Reasoning capability metadata.** Adapters can expose supported reasoning modes/efforts through `AIProviderCapabilities`.
+- **Provider tool continuation state.** Anthropic thinking/redacted-thinking blocks are carried opaquely across tool-result rounds so the Messages API receives the original assistant content unmodified.
+
+### Changed
+
+- Reasoning wire translation lives exclusively in provider adapters. Chat and application code pass intent and contain no provider payload fields or model-name compatibility branches.
+
+### Compatibility
+
+- The exported legacy `ReasoningEffort` remains exactly `'low' | 'medium' | 'high'` and keeps its OpenAI-only behavior. New levels, disabled mode, and Anthropic thinking require the new `reasoning` property.
+- Anthropic requests without the new `reasoning` property keep the previous `temperature: 0.7` default and continue to ignore legacy `reasoningEffort`.
+
+## 0.6.17 — 2026-08-16 — `plumbus e2e` server lifecycle hardening
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 14.** `plumbus init` references `@plumbus/voice/instructions/continuous-sessions.md` (talk-over re-queue, stitched transcripts, sentence chunker, opt-in backchannel). Pointers are inert when `@plumbus/voice` is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+
+### Fixed
+
+- **Empty provider API-key placeholders no longer crash worker boot.** A dotenv line like `AI_ANTHROPIC_API_KEY=` (present but empty, often left alongside a model var) used to produce a provider slot that 0.6.16's boot-time key validation then rejected — `AI provider "anthropic" requires apiKey` before the worker could start. Env discovery now treats an empty key as "slot not configured" and skips it, matching ≤0.6.15's effective behavior. Keyless Bedrock slots are unaffected (separate region-keyed reader).
+
+- **`plumbus e2e` can no longer orphan the frontend dev server on interruption.** The auto-started `next dev` runs as a detached process group, and cleanup previously lived only in a `finally` block — Ctrl-C/SIGTERM on the CLI (the detached group never receives the terminal's signal) or a SIGKILL/crash left an immortal dev server compiling and watching until reboot (reproduced 2026-08-16). Now: SIGINT/SIGTERM/SIGHUP handlers kill the server group before exiting; a tiny detached watchdog reaps the group if the CLI vanishes without cleanup (SIGTERM, then SIGKILL after a 5 s grace; it self-exits when the group is gone); and vitest runs via async `spawn` instead of `execFileSync` so a blocked event loop can't defer the handlers. Normal shutdown is unchanged and verified sufficient: the whole server tree stays in the spawn group and exits within ~3 s of the group SIGTERM.
+- **Port preflight** — the command fails fast with cleanup guidance when the target port is already in use (orphaned previous run or a concurrent checkout), instead of silently running the suite against a foreign server and reporting a bogus green (reproduced 2026-08-16 with two checkouts sharing one port).
+- **Dev-server heap cap** — the server spawns with `NODE_OPTIONS=--max-old-space-size=4096` (skipped when the caller already sets a cap) plus `NEXT_TELEMETRY_DISABLED=1`. A runaway compile now fails the run loudly instead of pushing the machine into memory-pressure thrash.
+
+## 0.6.16 — 2026-08-12 — Amazon Bedrock provider + agent wiring v13
+
+### Added
+
+- **Amazon Bedrock provider slot** — `createProviderAdapter('bedrock', …)` dynamically loads optional peer `@plumbus/ai-bedrock` (`0.1.x`). Env discovery: `AI_BEDROCK_REGION` (or `AI_BEDROCK_ENABLED` + `AWS_REGION`), `AI_BEDROCK_MODEL`, `AI_BEDROCK_EMBEDDING_MODEL`, `AI_BEDROCK_PRICING_FILE`, timeouts/limits.
+- **Provider-supplied AI cost** — optional `cost` on `ProviderResponse` and stream `done` / `usage` events. `createAIService` prefers adapter cost when set (Bedrock package-owned pricing); otherwise uses `calculateModelCost` against the OpenAI/Anthropic catalog.
+- **`AIProviderConfig`** — added `region`, `pricingFilePath`, `embeddingModel`, `pricingCacheTtlMs` for Bedrock-style providers. `apiKey` stays a required `string`, so `config.ai.apiKey` still assigns to `string` in existing app bootstrap.
+- **`AIProviderSlotConfig`** — new exported type accepted by `createProviderAdapter`: identical to `AIProviderConfig` but with optional `apiKey`, so keyless providers (Bedrock uses the AWS credential chain) need no placeholder key. An `AIProviderConfig` remains assignable to it, so existing calls are unaffected. Env discovery sets `apiKey: ''` on the Bedrock slot.
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 13.** `plumbus init` references `@plumbus/ai-bedrock/instructions/pricing.md` (AWS Price List URLs, curl, normalize, ConfigMap) alongside framework + README. Pointers are inert when the package is not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block.
+- **OpenAI SSE stream parser** — when a chunk carries both `content` and `finish_reason` (Bedrock Mantle / some OpenAI-compatible proxies), emit the content delta before `done` so streamed text is not dropped.
+
+## 0.6.15 — 2026-08-10 — migrate rollback hardening + model pricing sync
+
+### Fixed
+
+- **`plumbus migrate rollback` / `rollbackLastMigration`** — history-only rollback is now explicit and safer:
+  - Deletes the newest `__drizzle_migrations` row by **id** (not hash), so duplicate hashes cannot wipe unrelated history.
+  - Ensures the history table exists first, so an never-migrated database reports `no_migrations` instead of failing on a missing relation.
+  - Resolves the journal **tag** best-effort when the SQL file is still present; missing journal/files no longer fail the rollback.
+  - Return value is now `MigrationRollbackResult` (`rolledBack`, `hash`, `tag`, `status`). CLI `--json` also reports `"schemaReverted": false` — Drizzle has no down-migrations, so schema objects are not reverted.
+
+### Changed
+
+- **Model pricing catalog** refreshed (2026-08-06 sync): corrected `gpt-5.6-terra` / `gpt-5.6-luna` rates; added specialized OpenAI entries (`chat-latest`, `gpt-5.3-chat-latest`, `gpt-5.2-chat-latest`, `gpt-5.3-codex`, `gpt-5.5-cyber`, `gpt-5-search-api`) and `claude-opus-5`. Standard-tier / short-context rates only; `claude-sonnet-5` introductory pricing noted through 2026-08-31.
+
+## 0.6.14 — 2026-08-03 — AI reasoning, text-mode outputs, Claude agent wiring
+
+### Added
+
+- **`@plumbus/core/errors`** — browser-safe export of `PlumbusError`, `ErrorCode`, and related error helpers. Client packages (e.g. `@plumbus/voice-livekit/client`) must import from this subpath, not the package root — the root pulls the CLI (drizzle-kit / migrate) into the browser graph and breaks Next/Turbopack client builds.
+- **`ModelConfig.reasoningEffort`** (`'low' | 'medium' | 'high'`) — optional prompt / override / env-resolver field. OpenAI adapter sends `reasoning_effort` **only when set** (o-series / gpt-5 family); providers without an equivalent ignore it. Misconfigured models that reject the parameter fail loudly (HTTP 400) rather than silently degrading.
+- **Bare `z.string()` prompt outputs** — treated as text mode (same contract as single-string-field objects such as `z.object({ content: z.string() })`) for both `generate` and `streamGenerate`, so plain-text prompts do not force JSON / structured-output validation fallbacks.
+- **`plumbus init --agent claude`** — writes `CLAUDE.md` from the same generator as `AGENTS.md` (identical body; Claude-specific title and wiring marker). Default `plumbus init` / `--agent all` now includes `claude` alongside `copilot`, `cursor`, and `agents-md`. Claude Code reads `CLAUDE.md` natively and does not load `AGENTS.md`. `plumbus doctor` freshness checks cover generated `CLAUDE.md` the same way as `AGENTS.md`. Run `plumbus init` or `plumbus init --patch` on existing projects to create the file.
+
+### Fixed
+
+- **Flow lease heartbeat** — transient `extendLease` / audit failures during the heartbeat interval are logged and retried on the next tick instead of surfacing as unhandled rejections or incorrectly taking the lease-lost path.
+
+## 0.6.13 — 2026-07-26 — agent wiring version 11
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 11.** `plumbus init` now references the five optional voice provider add-on instruction files (`@plumbus/voice-deepdub`, `-soniox`, `-elevenlabs`, `-minimax`, `-livekit`). Pointers are inert when those packages are not installed. Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block. `plumbus doctor` reports files below version 11 as stale.
+- **`plumbus voice worker`** dynamically imports `@plumbus/voice-livekit` for agent-dispatch / join-room (no longer calls `loadVoiceAddons` / LiveKit helpers on `@plumbus/voice`).
+
+### Notes
+
+Pairs with `@plumbus/voice` **0.4.0** hard provider-package breakout (explicit `*_REGISTRATION`, transport-agnostic `/token`) — see `docs/upgrading-voice-provider-packages.md`.
+
+## 0.6.12 — 2026-07-26 — agent wiring version 10
+
+### Changed
+
+- **`AGENT_WIRING_VERSION` bumped to 10.** The `@plumbus/auth` instruction pointers generated by `plumbus init` now describe **invitation-only admission via `loginContext`** — so a coding agent asked "the invite flow needs user context, but an invite has no user yet" is routed to `node_modules/@plumbus/auth/instructions/resolvers.md` instead of inventing a workaround. The `configure-runtime.md` pointer mentions the optional `loginContext` step. Requires `@plumbus/auth` **0.1.1+** for the referenced sections; the pointers are inert when auth is not installed.
+- Run **`plumbus init --patch`** on existing projects to refresh the managed wiring block. `plumbus doctor` reports files below version 10 as stale and recommends the safest follow-up command.
+
+### Notes
+
+No runtime, API, or wire-format change — the bump only affects generated agent wiring files and the freshness check that reports them. Projects that skip the patch keep working; their agent wiring simply describes the auth resolver pointers as before.
+
+## 0.6.11 — 2026-07-26 — provider-native tool calling
+
+### Added
+
+- **Provider tool protocol** — `AITool`, `AIToolChoice`, `AIToolCall` (discriminated on `argumentsStatus`), `AIToolExecutionOptions`, and `AIProviderCapabilities`. `ChatMessage` is now a union (`user` | `assistant` with optional `toolCalls` | `tool`); the existing `user`/`assistant` construction forms are unchanged.
+- **Adapter caller tools** — `createOpenAIAdapter` and `createAnthropicAdapter` implement caller tools natively (OpenAI `tools`/`tool_calls`; Anthropic `tool_use`/`tool_result` + `input_schema`). `AIProviderAdapter.capabilities` is optional; an adapter that omits it is treated as declaring every capability `false`.
+- **`generateWithUsage` result overloads** — no-tool callers keep the flat `AIFinalGenerateResult<T>` with unconditional `.data`; tool-enabled config returns the discriminated `AIToolEnabledGenerateResult<T>` (keyed on `finishReason`). `AIGenerateResult` is preserved as a back-compat alias of the flat result; `finishReason` is an additive field existing consumers may ignore.
+- **`runToolLoop`** (`src/ai/tool-loop.ts`) — bounded request→tool→observe loop for capability authors. Default `maxRounds` 8, hard maximum 20; the exhausted-loop final request omits **both** `tools` and `toolChoice`. Invalid-argument calls are never executed and surface as a `tool_arguments_invalid` observation.
+- **`EntityIndexDefinition.unique`** — `indexes` accepts the legacy `string[][]` form or `{ columns, unique? }`. Additive; existing entity index declarations are unchanged.
+- **`FlowService.describe()`** — returns a `FlowDescription` (flow name, input JSON schema, input-schema hash) so callers such as `@plumbus/chat` can bind flows as provider-native tools without reaching into flow internals.
+- **`safeJsonStringify`** (exported) — best-effort JSON serialization that never throws (handles circular refs / non-serializable values), used for tool observations and structured logging. **`AIInvalidRequestError`** (exported) — structured `PlumbusError` subclass for provider-rejected/invalid AI requests; existing `catch` blocks are unaffected.
+- **`normalizeFinishReason`** — TIER-1 export that maps provider-specific finish reasons onto the framework's canonical set, so tool-loop callers can branch on one vocabulary across adapters.
+- **`Repository.updateWhere` (optional conditional/CAS update) + transaction-capable write path** — `Repository` gains the optional `updateWhere` method returning `ConditionalUpdateResult`, surfaced to `@plumbus/chat` for atomic lease-based session mutations. `updateWhere` is **optional** on the `Repository` interface, so pre-existing custom `Repository` implementations still compile; stores that lack it fail closed with `chat.storage_unsupported` — raised on the first turn or confirm that needs a conditional write, not at process start — rather than silently losing conditional semantics.
+
+### Notes
+
+All changes are additive and stay within the `0.6.x` line. Declared add-on peers remain satisfied (`@plumbus/chat` / `@plumbus/chat-ui` keep `0.5.x || 0.6.x`; `@plumbus/voice` keeps `0.6.x`). **`@plumbus/chat` 0.1.11 requires this core line in practice** (≥ 0.6.11) for the tool protocol and `updateWhere` path. No install-time or wire-format break for callers that stay on older chat.
+
+## 0.6.10
+
+### Fixed
+
+- **OpenAI `gpt-5.5+` temperature** — the OpenAI adapter no longer sends `temperature` for `gpt-5.5` and later models (including `-pro` and dated snapshots). Those models only accept the API default (`1`); sending Plumbus's `0.7` default (or any other value) caused HTTP 400 `unsupported_value`. Earlier `gpt-5` lines such as `gpt-5.4-mini` still receive the configured temperature. `max_completion_tokens` mapping for the broader `gpt-5*` / `o*` family is unchanged.
+
+## 0.6.9
+
+### Added (M5 — authentication contract)
+
+- **Request-authentication contract** — `AuthenticationRequest`, `AuthenticationResult`, `RequestAuthenticator`, `wrapAuthAdapter`, and `createCompositeRequestAuthenticator` with bearer-over-cookie precedence.
+- **`HttpAuthenticationRuntime`** — optional `createServer({ authenticationRuntime })` seam for session/OIDC packages.
+- **`AuthContext.providerId`** — configured provider registration id for multi-provider mechanisms.
+- **`AuditWriter`** — injectable audit sink with `createDatabaseAuditWriter`.
+- **`parseCookieHeader` and `parseDurationToMs`** — shared HTTP cookie parsing and duration normalization utilities.
+- **Migrate `app/schemas/` seam** — `discoverResources` collects extra Drizzle tables for migration generation.
+- **`unauthorized` error code** — `UnauthorizedError` maps to HTTP 401.
+
+### Added (M6 — auth packages, docs, agent wiring)
+
+- **`@plumbus/auth` and `@plumbus/auth-cognito` publish steps** — CI publishes both packages after `@plumbus/core`.
+- **`docs/auth/`** — full OIDC session runtime documentation (getting started, configuration, providers, CSRF, Cognito, security, testing, migration, deployment).
+- **Consumer AI guidance includes auth** — `plumbus init` wires `@plumbus/auth/instructions/*` and `@plumbus/auth-cognito/instructions/*`. `AGENT_WIRING_VERSION` bumped to **9**. Run `plumbus init --patch` on existing projects.
+
+### Changed
+
+- **`auth.secret` no longer required** when a custom `authAdapter` or `authenticationRuntime` is supplied (§22.4).
+
+## 0.6.8
+
+### Added
+
+- **`Repository.aggregate()`** — compute `SUM` / `AVG` / `MIN` / `MAX` / `COUNT` / `COUNT(DISTINCT)` in the database, optionally with `GROUP BY`, instead of loading rows to reduce in memory. Filtering reuses the exact `findMany`/`count` semantics (the `query` equality arg plus `dateFilters`/`search`/`in`/`notEq`), and tenant scoping, soft-delete, and encrypted-field guards all apply. Without `groupBy` it returns one grand-total row (even over an empty scope, where `SUM` is `0`); with `groupBy`, one row per matching group. `orderBy` accepts group columns or aggregate aliases (e.g. `sum_cost`); `limit` is clamped to 1–1000. New public types: `AggregateOptions`, `AggregateRow`, `AggregateValue`. The in-memory test repository (`createInMemoryRepository` / `createTestContext`) mirrors the semantics exactly, so `aggregate()` is unit-testable without a database. Additive and backward compatible — existing repository callers are unaffected, and the release stays within the `0.6.x` line so `@plumbus/ui`/`chat`/`voice` peer ranges remain satisfied.
+
+## 0.6.7
+
+### Added
+
+- **Model pricing catalog** — `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `claude-fable-5`, `claude-mythos-5`, `claude-opus-4-8`, and `claude-sonnet-5` (introductory rate through August 2026).
+
+### Changed
+
+- **`update-model-pricing` fetch script** — parses OpenAI flagship tables with a five-column layout (`input`, `cached`, `cache writes`, `output`); diff output now says "not parsed from page" instead of implying models were removed.
+
+## 0.6.6
+
+### Breaking behavior changes
+
+- **`plumbus translation status` exit code** — exits non-zero when any locale is incomplete (including `--json`). Previously incomplete locales printed a warning but exited 0. Aligns with docs that already recommend wiring the command into CI; update scripts that assumed exit 0.
+
+### Added
+
+- **`computeStatus` / `formatTranslationStatus`** — shared translation coverage util (exported from `@plumbus/core`); used by `plumbus translation status` and `plumbus ui generate`.
+- **`plumbus ui generate --skip-locale-parity`** — by default, generate refuses incomplete locale coverage (`exit 1`); the flag warns and continues.
+
+### Changed
+
+- **`plumbus ui generate` / `ui nextjs`** — no longer mirror modules into `.plumbus/generated/ui` when writing to a real frontend out-dir. That path remains only the last-resort default when no frontend directory is detected (or when `--out-dir` points there explicitly).
+
+## 0.6.5
+
+### Breaking behavior changes
+
+Contract-first defaults — no framework-wide legacy mode. Escape hatches are per-app opt-outs; see [Migration stance](../../docs/upgrading-contract-alignment.md#migration-stance-locked).
+
+- **Transactional outbox default ON (A1)** — `action` and `eventHandler` capabilities now run handler + output validation inside a single database transaction so entity writes and `ctx.events.emit()` outbox rows commit or roll back together. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. Nested failures inside an active transaction re-throw to roll back the parent scope; `ctx.flows.start()` and `ctx.jobs.enqueue()` inside a transaction defer until commit (pre-allocated ids). Nested success capability audits defer until commit. Opt out globally with `execution.transactionalOutbox: false` (or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`), or per capability with `transactional: false`. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#1-transactional-outbox-default-on-a1).
+
+- **`plumbus api validate` governance signals are advisory** — the command exits 1 only on hard contract findings (manifest, policy, path params, fixtures). Governance rule signals are printed but no longer fail the command unless you pass `--fail-on-governance`. Aligns with the advisory-only governance model. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#2-plumbus-api-validate-and-governance-signals-a4).
+
+- **AI security `mode: 'block'`** — when `aiProviders.security` or `AI_SECURITY_*` env is configured and `mode` is `block`, classified fields at the warn threshold abort the AI call instead of being redacted. Without explicit security config, classified fields are not scanned. Migration: [Upgrading for contract alignment](../../docs/upgrading-contract-alignment.md#12-ai-security-mode-block-vs-redact-a2).
+
+### Added
+
+- **`aiProviders.security` (opt-in)** — `AISecurityConfig` on multi-provider AI config (`mode`, `warnThreshold`, `redactThreshold`, auto-populated `entities` from the entity registry when security is enabled). Wired through server, worker, and MCP bootstraps only when configured.
+
+- **Structured log masking (A18)** — `maskKeys` on `StructuredLoggerConfig`, exported `getMaskedFields` / `collectMaskedFieldsFromEntities`, and `withLogMasking()` wrapper. Bootstraps derive mask keys from entity field metadata (`maskedInLogs` and sensitive classifications). Redacted values use `***MASKED***` (deep/nested key walk).
+
+- **Consumer encryption key wiring** — API server, worker pool, flow-runner, and event/job consumer contexts pass `PLUMBUS_ENCRYPTION_KEY` into `wireContextDependencies` so `encrypted: true` fields decrypt in handlers.
+
+- **`ctx.jobs.enqueue`** — when `jobQueue` is configured on `createServer`, handlers can enqueue job capabilities via `ctx.jobs.enqueue(name, input)`; calls inside a transactional outbox defer until commit (same as `ctx.flows.start`). Returns a pre-allocated job id immediately so handlers can `await` without deadlocking the transaction; the queue write runs after commit.
+
+- **Structured data/AI errors** — repository tenant/RETURNING failures, encryption config/payload errors, job dispatch validation, and AI security/budget blocks now throw `PlumbusError` subclasses with stable `code` values.
+
+- **ServerConfig.logger** — custom loggers passed to `createServer()` are now used for per-request `ctx.logger` (with masking), not only bootstrap messages.
+
+- **Field encryption at rest (A3)** — AES-256-GCM via `PLUMBUS_ENCRYPTION_KEY`; repository encrypts/decrypts `encrypted: true` string fields with plaintext fallback for legacy rows.
+
+- **Per-request locale resolution (A17)** — `resolveRequestLocale()` in the route generator reads `plumbus-ui-locale` cookie then `Accept-Language`; resolved locale is passed on `DependencyOptions` into `ctx.translations`.
+
+### Behavior fixes
+
+- **Encrypted-field queries rejected** — when `PLUMBUS_ENCRYPTION_KEY` is set, `findMany`/`count` filters, `orderBy`, and `dateFilters` on `encrypted: true` fields throw `DataValidationError` instead of silently matching or sorting ciphertext.
+
+- **Deferred post-commit isolation** — post-commit flow/job/audit callbacks catch and log failures individually so a throwing deferred start does not fail the already-committed capability or skip remaining deferred work.
+
+- **Audit-record masking** — repository audit payloads use deep masking with token `***` (structured logs remain `***MASKED***`).
+
+- **Nested capability audits** — failure audits record immediately inside nested transactions; success audits defer until parent commit.
+
+- **Deferred flow ids** — `ctx.flows.start()` inside a transaction returns the same execution id created after commit.
+
+- **LLM inside open transaction** — first nested invoke of an `effects.ai: true` capability inside an active transaction emits a one-time `ctx.logger.warn` that the parent transaction is held open for the LLM call.
+
+- **HTTP event causation** — capability-triggered HTTP emits restore dynamic `causationId` from the executing capability.
+
+- **`plumbus mcp serve` logs** — capability request logs are structured JSON at `info` minimum level (debug suppressed).
+
+- **`maskedInLogs` in structured log metadata (A18)** — capability request loggers redact masked entity field names in metadata (token `***MASKED***`, nested objects included). Escape hatch: custom logger without `maskKeys`, or omit sensitive keys from metadata.
+
+- **`encryptFieldValue('')` round-trip** — empty plaintext no longer produces an undecryptable ciphertext blob.
+
+- **Invalid `AI_SECURITY_*_THRESHOLD` env values** — bogus thresholds are ignored with a startup warning instead of matching every classified field.
+
+## 0.6.4
+
+### Added
+
+- **`defineTranslation()` typecheck key consistency** — for literal / `as const` message catalogs, TypeScript now rejects locales that do not share the same key set (native diagnostics on the locale attribute). Runtime import-time validation is unchanged. Apps with existing key drift may start failing `tsc` even though they still throw at import time today.
+
+## 0.6.3
+
+### Added
+
+- **`QueryOptions.search`** — OR-of-ILIKE across named entity columns for free-text search (usable via `findMany`/`count`). LIKE metacharacters (`%`, `_`, `\`) in the term are escaped, so the term matches literally rather than as a wildcard pattern.
+- **`QueryOptions.in`** — SQL `IN` filter (empty arrays ignored).
+- **`QueryOptions.notEq`** — SQL `<>` filter. Under SQL three-valued logic, rows whose column is `NULL` are excluded (matching `<>` semantics); the in-memory test repository mirrors this.
+- **Multi-column `QueryOptions.orderBy`** — now accepts a `string` (unchanged) or an array of `{ column, dir? }` sort specs. A spec that omits `dir` falls back to the top-level `orderDir` (then defaults to `desc`).
+- **`count`** options widened to accept `search`/`in`/`notEq` so totals match filtered `findMany` queries.
+- **`createInMemoryRepository` parity** — the in-memory test double applies `search` (literal, case-insensitive), `in`, `notEq` (NULL-excluding), and multi-column `orderBy` with the same semantics as the SQL repository.
+- **`plumbus ui generate --server-locale-cookie`** — pass-through to `@plumbus/ui` for opt-in server-side locale resolution from the `plumbus-ui-locale` cookie.
+
+Additive and backward-compatible: no methods were added to or removed from the public `Repository` interface, and existing `findMany`/`count` behavior is identical for callers that do not pass the new option keys.
+
+## 0.6.1
+
+### Added
+
+- **`plumbus translation new --locale-folders`** — scaffold per-locale message files under `app/translations/en/` and `app/translations/he/` with a thin `defineTranslation()` assembler.
+- **`plumbus ui generate --split-locale-bundles`** — pass-through to `@plumbus/ui` to emit per-locale i18n bundles under `i18n/locales/`.
+
+## 0.6.0
+
+### Breaking
+
+- **`AICostRecord.operation` union widened** — the type now includes `transcribe`, `synthesize`, and `transport` in addition to `generate`, `extract`, `classify`, and `embed`. Update exhaustive `switch` statements, persisted filters, and dashboards that assume the previous four-value union.
+
+### Added
+
+- **Voice/media cost operations** — `AICostRecord.operation` now also supports `transcribe`, `synthesize`, and `transport`, and cost rows can carry optional `mediaUsage` (`audioInputSeconds`, `audioOutputSeconds`, `characters`, `connectionMinutes`, `participantMinutes`).
+- **`ctx.ai.recordProviderCost(entry, costContext?)`** — public AI service method for recording provider-side spend when a workload does not flow through `generate*`, `extract`, or `classify` (for example STT/TTS/realtime transport). It uses the same in-memory tracker and `onAICostRecorded` hook path as text AI calls.
+- **`ctx.ai.checkProviderCostBudget({ estimatedTokens?, estimatedCostUsd? })`** — pre-check shared daily/per-request budgets before voice/media provider work.
+- **Media-aware budget pre-checks** — `CostTracker.checkBudget()` now accepts `estimatedCostUsd` so voice/media layers can pre-check shared daily USD caps before opening a session or issuing a provider call.
+
+### Upgrading
+
+- Voice/media integrations should call `ctx.ai.recordProviderCost(...)` instead of importing AI-service internals or maintaining a separate ledger path.
+- See [`docs/ai/ai-integration.md`](../../docs/ai/ai-integration.md#upgrading-to-plumbuscore-060) for ledger and budget migration notes.
+
+## 0.5.0
+
+### Added
+
+- **Workers and queues runtime** — unified bootstrap with `PLUMBUS_RUNTIME_ROLE` (`all`, `api`, `worker`), three logical queues (`events`, `flows`, `jobs`), and `plumbus worker start` for split deployments.
+- **`job_executions` table** — durable job status, auth snapshot at dequeue, and `GET /api/jobs/:jobId` for polling completion.
+- **`eventHandler` auto-registration** — optional `trigger: { event, versionConstraint? }` on `defineCapability`; worker pool wires consumers when set. Manual `ConsumerRegistry` registrations still take precedence for the same id.
+- **Optional peer dependencies** — `redis` (durable queues) and `cron-parser` (scheduled flow triggers); in-memory fallbacks with startup warnings when missing.
+- **CLI** — `plumbus worker` (health/ready/metrics), `plumbus events` ops (replay, dead-letter), `plumbus flow dead-letter`.
+- **Runtime exports** — `resolveRuntimeQueues`, `registerCapabilityConsumers`, `dispatchQueuedJob`, `createJobService`, `registerJobStatusRoute`, `RuntimeRole`, and related helpers.
+- **Governance** — advisory rules for split deploy without worker, missing `trigger.event`, and job payload compatibility.
+- **`effects.capabilities` + `ctx.capabilities.invoke`** — sanctioned synchronous capability-to-capability composition with declared dependencies, cycle detection, and runtime `dependencyViolation` enforcement.
+- **Flow auth snapshot** — `flow_executions.auth_snapshot_json` stores the caller's `AuthContext` at start; step execution restores roles/scopes from the snapshot (not worker `system` auth).
+- **`dependencyViolation` error code** — undeclared invoke targets, cycles, missing capabilities, and synchronous job invoke attempts return structured `400` errors with actionable metadata.
+
+### Breaking
+
+- **Canonical capability names only** — registry keys, flow `step.capability`, `effects.capabilities`, `ctx.capabilities.invoke`, generated `RegisteredCapabilityName`, `capability-graph.md`, and MCP manifest tool names use `<domain>.<capabilityName>` (e.g. `billing.approveRefund`). Short local names (`approveRefund`) are no longer valid references outside `defineCapability({ name })`.
+- **Flow step auth** — user-triggered flows no longer auto-inject the `system` role on every step. Steps run under the stored auth snapshot; capabilities must list the caller's actual roles (or `public`) — not rely on implicit `system` elevation.
+- **Job blocking in flows and invoke** — `kind: 'job'` capabilities cannot run synchronously inside flow steps or via `ctx.capabilities.invoke`; use job dispatch, events, or async consumers instead.
+- **Handler `__runtime` invoker stripping** — `invokeCapability`, `resolveCapability`, and `invocationEmitScope` are no longer exposed on handler-visible `ctx.__runtime`; use `ctx.capabilities.invoke` only.
+
+### Changed
+
+- **Worker pool gating** — `plumbus dev` / `plumbus start` start background workers when the app defines events, `eventHandler` or `job` capabilities, or scheduled flows (not only event-triggered flows).
+- **HTTP `kind: 'job'`** — when the API wires `jobQueue` (any job capability on `plumbus dev` / `plumbus start`, including `PLUMBUS_RUNTIME_ROLE=api` without a worker), routes return **202** with `{ data: { jobId, status: "accepted" } }` and enqueue via the jobs queue (previously ran synchronously with **200** because `jobQueue` was not wired on the server).
+- **Job dispatch** — jobs publish to the dedicated **jobs** queue with a `JobQueuePayload` envelope, not the events queue.
+- **Event handler security** — dequeue uses tenant binding from `event_outbox` (fail-closed); trusted replay via `plumbus events` ops.
+
+### Upgrading
+
+See `docs/upgrading-workers.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Required steps for most apps:
+
+```bash
+plumbus migrate generate && plumbus migrate apply
+```
+
+Apps with `kind: 'job'` HTTP clients must poll `GET /api/jobs/:jobId` instead of expecting a synchronous **200** body. Split production deploys need Redis (`pnpm add redis`) and a `plumbus worker` process.
+
+For canonical capability names, `effects.capabilities`, and invoke policy, see `docs/upgrading-capability-names.md` in the Plumbus monorepo (not shipped in the npm `instructions/` bundle). Consumer apps also ship `instructions/upgrading-0.5-capabilities.md` (agent-facing checklist). Summary:
+
+1. Update flow `step.capability`, `effects.capabilities`, and `ctx.capabilities.invoke` strings to `<domain>.<name>`.
+2. Run `plumbus generate` to refresh `RegisteredCapabilityName`, `mcp-manifest.json`, and `capability-graph.md`.
+3. Run `plumbus verify` — `architecture.non-canonical-capability-reference` and related dependency rules flag stale references.
+4. Run `plumbus migrate generate && plumbus migrate apply` if upgrading to the `auth_snapshot_json` column for flow executions.
+
+### Developer experience
+
+- **Consumer AI guidance — 0.5 capability upgrade** — new `instructions/upgrading-0.5-capabilities.md` (canonical names, invoke policy, flow auth snapshot, migration checklist). `plumbus init` wires it into Copilot, Cursor, and AGENTS.md. `AGENT_WIRING_VERSION` bumped to **7**. Run `plumbus init --patch` on existing projects.
+
+### Non-breaking (default topology)
+
+- `plumbus dev` and `plumbus start` default to **`PLUMBUS_RUNTIME_ROLE=all`** — API and workers remain colocated.
+- In-memory queues remain the default when Redis is not configured.
+- `eventHandler` capabilities without `trigger.event` behave as before (manual registration only).
+- MCP job tasks without a durable Redis queue still execute in-process.
+
+## 0.4.2
+
+### Added
+
+- **Partner API exposure** — optional `exposeAs: ['api']` and inline `api` metadata on `defineCapability` (operationId, method, path, stability, auth scopes, idempotency, test intent).
+- **`@plumbus/api`** — optional peer dependency (version-locked `0.1.x`). Install with `pnpm add @plumbus/api` for manifest validation, OpenAPI/docs export, compatibility diff, test fixtures, and `registerApiRoutes()`.
+- **CLI `plumbus api`** — `validate`, `generate openapi`, `generate docs`, `diff`, `test-fixtures validate`. Commands lazy-load `@plumbus/api` and print an install hint when the package is missing.
+- **API governance** — advisory rules in `plumbus verify` for partner API surface (missing descriptions, public+test conflicts, etc.).
+- **Consumer AI guidance includes partner API** — `plumbus init` wires `@plumbus/api/instructions/*` and `instructions/api.md`. `AGENT_WIRING_VERSION` bumped to **6**.
+- **Flow docs** — convention for passing large payloads by reference through flow state (entity id, not inline blobs).
+- **Ecosystem READMEs** — sibling packages (`@plumbus/mcp`, `@plumbus/ui`, `@plumbus/chat`, `@plumbus/chat-ui`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`) patch-bumped so npm READMEs list `@plumbus/api`.
+
+### Upgrading existing projects
+
+After `pnpm add @plumbus/api`, refresh agent wiring if your project predates the current template:
+
+```bash
+plumbus init --patch --agent agents-md   # or: plumbus init --patch
+plumbus doctor
+```
+
+### Non-breaking
+
+- Capabilities without `exposeAs: ['api']` behave identically on convention routes and in tests.
+- Upgrading `@plumbus/core` does **not** install `@plumbus/api`; install it explicitly when you want a partner-facing API.
+
+## 0.4.0
+
+### Added
+
+- **MCP exposure** — optional `exposeAs: ['mcp']` and `mcp?: { description?, dangerous?, agentTags? }` on capabilities; validation when MCP-exposed; `isMcpExposed()` helper.
+- **`@plumbus/core/mcp`** — `buildMcpManifest`, `renderSkillFile`; `plumbus generate` writes `mcp-manifest.json` and `skills/<domain>/<kebab>.md`.
+- **`zodInputToJsonSchema()`** — exported from `@plumbus/core` for MCP/OpenAPI-style JSON Schema from Zod inputs.
+- **`@plumbus/mcp`** — separate, optional runtime package. Declared as an optional peer dependency of `@plumbus/core` (version-locked `0.4.x`). Install with `pnpm add @plumbus/mcp` when you want to serve capabilities to AI agents; `@plumbus/core` works without it.
+- **CLI `plumbus mcp`** — `serve` (stdio / HTTP), `generate`, `list-tools`. `serve` lazy-loads `@plumbus/mcp` and prints a friendly install hint if the package is missing.
+- **`PlumbusConfig.mcp.agents`** — static agent token map for MCP auth (see `docs/mcp/agent-authentication.md`).
+- **Governance** — advisory rule for MCP-exposed capabilities missing agent-facing descriptions.
+- **Consumer AI guidance includes MCP** — `plumbus init` now wires a new `instructions/mcp.md` reference into Copilot, Cursor, and AGENTS.md so coding agents in consumer projects discover `exposeAs: ['mcp']`, `plumbus mcp serve`, and agent auth. Scaffolded capabilities include a commented-out MCP block as a discoverable next step. `AGENT_WIRING_VERSION` bumped to 3.
+
+### Upgrading existing projects
+
+If you ran `plumbus init` on an earlier version, your `.cursor/rules/`, `.github/copilot-instructions.md`, and `AGENTS.md` files were generated against `AGENT_WIRING_VERSION` 2 and do not reference the new MCP instruction. To pick up the MCP guidance (and any future framework-managed additions), run:
+
+```bash
+plumbus init --patch       # replaces only the Plumbus-managed block; preserves your edits outside the markers
+# or
+plumbus agent sync          # same as --patch plus refreshes .plumbus/briefs/project.md
+```
+
+Use `--dry-run` to preview, or `--force` to replace the entire file.
+
+### Non-breaking
+
+- Capabilities without `exposeAs: ['mcp']` behave identically on HTTP and in tests.
+- Upgrading `@plumbus/core` does **not** install `@plumbus/mcp`; install it explicitly when you want MCP support.
+- `plumbus init --patch` only replaces content between the `plumbus:agent-wiring` markers — user-written content outside those markers is preserved.
+
+## Unreleased — security hardening
+
+### Security
+
+- **Flow conditions** use a sandboxed expression evaluator (`evaluateFlowCondition`) instead of `new Function` (no arbitrary JS).
+- **`auth.internal` removed as a god-mode bypass** — flow engine uses the `system` role; capabilities must list `system` in `access.roles` (included in scaffold).
+- **`define*()` outputs are deep-frozen** (nested plain objects/arrays); Zod schemas and handlers are not frozen.
+- **HTTP/SSE errors** expose only whitelisted `metadata` keys (`field`, `hint`, `reason`, `docUrl`, `httpStatus`, `retryAfter`, …); internal errors return a generic message.
+- **CLI `.env` load** only runs inside a Plumbus project (`config/app.config.ts` or `plumbus.config.*`).
+- **AI env providers** limited to `openai` and `anthropic` only; local Ollama uses `AI_OPENAI_BASE_URL` (no URL validation).
+- **`translation import`** rejects paths outside the project root.
+- **Workers** no longer set `bypassTenantScope` when `tenantId` is absent.
+- **JWT adapter** requires secrets ≥ 32 characters.
+- **Hook failures** (`onCapabilityError`, `onAICostRecorded`, process error hooks) are logged instead of swallowed.
+
+### Fixed
+
+- AI explainability `validation.passed` reflects whether validation succeeded on the first attempt.
+- `define*()` validation throws `PlumbusError` with `code: validation`.
+
+### Developer experience
+
+- **`AGENT_WIRING_VERSION` 4** — `plumbus init` references `@plumbus/knowledge-base/instructions/*` (conventions, defining-sources, providers, chat-integration, testing, README) alongside core, UI, and chat. Run `plumbus init --patch` to refresh existing agent wiring files.
+- Centralized `ErrorHints` / `ErrorDocUrls` for flow conditions, tenant denials, and CLI messages.
+- `DatabaseConnection` + `resolveDatabaseConnection()` used by `plumbus start` / `plumbus dev`.
+- Migration snapshot parsing covered by unit tests (`migrate-snapshot-schema`).
+
+### Migration notes
+
+| Change | Action |
+|--------|--------|
+| Flow `if` expressions | Use `state.field` comparisons (`state.amount > 100`). `ctx.state.*` is normalized automatically. No method calls or arbitrary JS. |
+| `AI_OLLAMA_*` / other `AI_*_API_KEY` | Use `AI_OPENAI_API_KEY` + `AI_OPENAI_BASE_URL=http://…/v1` |
+| Capabilities called from flows | Ensure `access.roles` includes `"system"` |
+| `auth.secret` shorter than 32 chars | Lengthen to ≥ 32 characters (HS256 key strength); `createJwtAdapter` now throws on shorter secrets |
+| Custom `AI_*` providers in env | Only `openai` and `anthropic` are registered |
+| Relying on missing `tenantId` + cross-tenant data in flows | Provide `tenantId` on flow execution or use `access.tenantScoped: false` for admin capabilities |
+
+## 0.3.0
+
+### Upgrade checklist
+
+Read this before bumping to 0.3.0 — there is one mandatory step.
+
+1. **Run migrations.** 0.3.0 adds `lease_owner` and `lease_expires_at` columns
+   (plus a `flow_exec_lease_idx` index) to `flow_executions` to support
+   lease-based claiming. Workers refuse to start until these exist; the
+   startup preflight emits an actionable error pointing at this checklist.
+
+       plumbus migrate generate
+       plumbus migrate apply
+
+2. **`AIIncompleteOutputError` is now thrown when a structured-output call
+   hits `finish_reason === 'length'` / `'max_tokens'`.** Free-text prompts
+   (no `responseSchema`, no `responseFormat: 'json'`) return the partial
+   content as before — no behavior change. If you catch this error and
+   re-issue with a higher `maxTokens`, no migration is needed.
+
+3. **`AICostRecord` now carries `status` (default `'success'`) and an
+   optional `fallbackUsed` boolean.** Reading code is unaffected. If you
+   construct `AICostRecord` literals (custom tracker, test fixture), set
+   `status` explicitly. The `operation` field keeps the original union —
+   `'generate' | 'extract' | 'classify' | 'embed'` — so exhaustive
+   `switch` statements continue to compile.
+
+4. **New typed errors exported**: `AIValidationError`,
+   `AIIncompleteOutputError`, `AIRefusalError`, `LeaseLostError`,
+   `FlowCancelledError`. All extend `Error`; existing `catch` blocks are
+   unaffected. The previous "AI output validation failed after N attempts"
+   `Error` is now this typed subclass.
+
+5. **Failed AI calls now count toward `dailyCostLimit`.** Sunk provider
+   spend on validation-retry loops is real spend; tight ceilings may deny
+   retries sooner on failure-heavy workloads. Set `dailyCostLimit` with
+   headroom, or install `onAICostRecorded` to persist a ledger and tune.
+
+6. **Default AI request timeout remains 120_000 ms.** Set
+   `AIProviderConfig.requestTimeout` if your prompts need longer.
+
+### Added
+
+- `AICostContext` type (in `@plumbus/core` ai module barrel) — optional
+  per-call billing metadata (`projectId`, `serviceArea`, `operationName`,
+  `relatedEntityType`, `relatedEntityId`) you can pass to every
+  `ctx.ai.generate*` / `ctx.ai.extract` / `ctx.ai.classify` /
+  `ctx.ai.streamGenerate` call.
+- `AIServiceConfig.onAICostRecorded` and
+  `ServerConfig.onAICostRecorded(record, costContext, db)` hooks — fired
+  after every AI call completes (success *or* failure) and the in-memory
+  cost tracker has been updated. Use this to persist a ledger row per
+  provider round-trip so sunk spend on retries is visible.
+- `AICostRecord.status: 'success' | 'failed' | 'refused' | 'incomplete'`
+  and `AICostRecord.errorMessage?: string` — new fields on cost records
+  so failures are distinguishable from successes.
+- `AICostRecord.fallbackUsed?: boolean` — set when the streaming call
+  fell back to a non-streaming retry after the streamed output failed
+  validation; both attempts are billed, so this flag is the signal for
+  duplicate-billing detection.
+- `AICostRecordInput` — explicit input type for `CostTracker.record`,
+  keeps `status` optional so pre-0.3.0 call sites keep compiling.
+- `AIValidationError` now carries `usage: TokenUsage`, `model: string`,
+  and `provider: string` so failure-path cost recording knows what the
+  provider actually billed across the retry loop.
+- **`ChatMessage` type** and optional **`messages`** on `ctx.ai.generate`,
+  `ctx.ai.generateWithUsage`, and **`ctx.ai.streamGenerate`**. When `messages`
+  is a non-empty array of `{ role: 'user' | 'assistant', content }` turns,
+  OpenAI and Anthropic adapters send the thread natively instead of folding
+  everything into a single user message built from `prompt`. The rendered
+  prompt description (`buildBasePrompt`) is merged into the provider **`system`**
+  instruction so per-turn template context is preserved; `prompt` is not used
+  as an extra user turn in that mode. Sub-agents and single-turn callers can
+  omit `messages` unchanged.
+- Lease-based flow claiming: workers atomically claim flow executions
+  with `FOR UPDATE SKIP LOCKED`, hold a lease for the duration of the
+  step, and recover crashed-worker rows via expired leases. New
+  `flow_executions.lease_owner` / `lease_expires_at` columns.
+- `FlowService.heartbeat()` — extends the current flow execution lease
+  from inside a long-running step handler.
+- `ExecutionContext.signal: AbortSignal` and `workerId: string` — set
+  inside flow step execution; cooperative cancellation now flows from
+  `flows.cancel()` (and lease loss) through to in-flight AI / HTTP calls.
+- Lease-column preflight: `createWorkerPool().start()` probes
+  `flow_executions` for the new columns and refuses to start with a
+  clear migration prompt when they're missing. Also exported as
+  `assertFlowLeaseColumns(db)` for direct use.
+
+### Changed
+
+- `costTracker.record(...)` now ALSO fires on the failure path when usage
+  is known (e.g. via `AIValidationError.usage`). Previously the in-memory
+  tracker only recorded successful calls, which under-counted sunk spend.
+  Consumers who configured `budget.dailyCostLimit` will see failed-call
+  tokens start contributing to the daily running total. Tight ceilings
+  may deny retries sooner on failure-heavy workloads.
+- `AIIncompleteOutputError` is thrown only when the request is in
+  structured-output mode (`responseFormat: 'json'` or a `responseSchema`
+  is set). Text-mode generations that hit `finish_reason === 'length'`
+  return the partial content as in 0.2.x.
+- `applyMigrations(config)` now returns `Promise<MigrationApplyResult>`
+  (`{ applied, tags }`) instead of `Promise<void>`. Existing callers
+  that ignore the return value are unaffected.
+
+### Migration
+
+For consumers upgrading from `0.2.x`:
+
+1. Run `plumbus migrate generate` then `plumbus migrate apply` (mandatory —
+   see Upgrade checklist item 1).
+2. Existing `costTracker.record({ model, provider, usage, cost, ... })`
+   calls without `status` keep compiling and default to `'success'`.
+3. Existing `catch (err) { ... }` blocks reading `err.attempts`,
+   `err.rawOutput`, or `err.validationMessage` from `AIValidationError`
+   are unaffected — the new fields are additive.
+4. Existing `ServerConfig` usages without `onAICostRecorded` are
+   unaffected — the hook is optional, no hook installed = no behavior
+   change.
+
+To opt into the new failure-ledger persistence:
+
+1. Pass `costContext: { projectId, ... }` on your `ctx.ai.*` calls.
+2. Install `onAICostRecorded` in `createServer({ ... })` and write the
+   `record` (with its `status`) to your persistent ledger.
+
+For chat-style prompts (optional):
+
+- Build `messages` from your transcript (roles `user` / `assistant` only)
+  and pass it alongside `input` for template substitution. Ensure the
+  **last** message is a `user` turn when the model should reply to the latest
+  subject input. No code changes required for consumers that never pass
+  `messages`.

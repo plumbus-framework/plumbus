@@ -1,0 +1,140 @@
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { randomUUID } from 'node:crypto';
+import type { AuditService } from '../types/audit.js';
+import type { EventService } from '../types/context.js';
+import type { EventEnvelope } from '../types/event.js';
+import type { AuthContext } from '../types/security.js';
+import { outboxTable } from './outbox.js';
+import type { EventRegistry } from './registry.js';
+
+export interface EventEmitterConfig {
+  db: PostgresJsDatabase;
+  auth: AuthContext;
+  registry: EventRegistry;
+  audit?: AuditService;
+  /** Optional correlation ID propagated from the triggering request/flow */
+  correlationId?: string;
+  /** Optional causation ID linking to the originating event */
+  causationId?: string;
+  /** Resolve causation at emit time (e.g. nested capability invocation caller). */
+  getCausationId?: () => string | undefined;
+}
+
+/**
+ * Create an EventService that validates payloads against registered schemas,
+ * writes events to the outbox table (so they can be dispatched transactionally),
+ * and records audit entries for each emission.
+ */
+export function createEventEmitter(config: EventEmitterConfig): EventService {
+  const { db, auth, registry, audit, correlationId, causationId, getCausationId } = config;
+
+  function resolveCausationId(): string | undefined {
+    return getCausationId?.() ?? causationId;
+  }
+
+  return {
+    async emit(eventName: string, payload: unknown): Promise<void> {
+      // 1. Look up event definition for schema validation
+      const eventDef = registry.get(eventName);
+      if (eventDef) {
+        const parseResult = eventDef.payload.safeParse(payload);
+        if (!parseResult.success) {
+          throw new Error(`Event "${eventName}": invalid payload — ${parseResult.error.message}`);
+        }
+      }
+
+      // 2. Build envelope metadata
+      const envelope: EventEnvelope = {
+        id: randomUUID(),
+        eventType: eventName,
+        version: eventDef?.version ?? '1',
+        occurredAt: new Date(),
+        actor: auth.userId ?? 'anonymous',
+        tenantId: auth.tenantId,
+        correlationId: correlationId ?? randomUUID(),
+        causationId: resolveCausationId(),
+        payload: payload as Record<string, unknown>,
+      };
+
+      // 3. Write to outbox table (pending for dispatcher pickup)
+      await db.insert(outboxTable).values({
+        id: envelope.id,
+        eventType: envelope.eventType,
+        version: envelope.version,
+        payload: envelope.payload as any,
+        actor: envelope.actor,
+        tenantId: envelope.tenantId ?? null,
+        correlationId: envelope.correlationId,
+        causationId: envelope.causationId ?? null,
+        occurredAt: envelope.occurredAt,
+        status: 'pending',
+      });
+
+      // 4. Record audit
+      if (audit) {
+        await audit.record(`event.emitted.${eventName}`, {
+          eventId: envelope.id,
+          eventType: eventName,
+          actor: envelope.actor,
+          tenantId: envelope.tenantId,
+          outcome: 'success',
+        });
+      }
+    },
+
+    async emitMany(events): Promise<void> {
+      if (events.length === 0) return;
+
+      // 1. Validate each payload and build envelopes
+      const envelopes: EventEnvelope[] = events.map(({ eventName, payload }) => {
+        const eventDef = registry.get(eventName);
+        if (eventDef) {
+          const parseResult = eventDef.payload.safeParse(payload);
+          if (!parseResult.success) {
+            throw new Error(`Event "${eventName}": invalid payload — ${parseResult.error.message}`);
+          }
+        }
+        return {
+          id: randomUUID(),
+          eventType: eventName,
+          version: eventDef?.version ?? '1',
+          occurredAt: new Date(),
+          actor: auth.userId ?? 'anonymous',
+          tenantId: auth.tenantId,
+          correlationId: correlationId ?? randomUUID(),
+          causationId: resolveCausationId(),
+          payload: payload as Record<string, unknown>,
+        };
+      });
+
+      // 2. Single bulk outbox INSERT
+      await db.insert(outboxTable).values(
+        envelopes.map((envelope) => ({
+          id: envelope.id,
+          eventType: envelope.eventType,
+          version: envelope.version,
+          payload: envelope.payload as any,
+          actor: envelope.actor,
+          tenantId: envelope.tenantId ?? null,
+          correlationId: envelope.correlationId,
+          causationId: envelope.causationId ?? null,
+          occurredAt: envelope.occurredAt,
+          status: 'pending' as const,
+        })),
+      );
+
+      // 3. Single summary audit row per batch
+      if (audit) {
+        const first = envelopes[0];
+        if (!first) return;
+        await audit.record('event.emitted.batch', {
+          count: envelopes.length,
+          eventType: first.eventType,
+          actor: first.actor,
+          tenantId: first.tenantId,
+          outcome: 'success',
+        });
+      }
+    },
+  };
+}

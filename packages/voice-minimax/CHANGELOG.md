@@ -1,0 +1,47 @@
+# Changelog
+
+## 0.2.1 — 2026-09-10
+
+### Fixed
+
+- Publish the corrected package README without the added “Release family” banner, using normal `latest` publication. Runtime behavior and peer dependencies are unchanged from 0.2.0.
+
+## 0.2.0 — 2026-09-10
+
+### Upgrade boundary
+
+- Join the coordinated core 0.7.x release family with updated Plumbus peer dependencies. This is a new minor line so legacy caret updates cannot silently select it. Runtime APIs in this package are unchanged.
+- Update all installed Plumbus packages together; packages publish to npm’s default `latest` dist-tag. Read the [security release migration checklist](../../docs/upgrading-security-release.md) and run `plumbus init --patch` for agent wiring v16.
+
+## 0.1.1
+
+### Fixed
+
+- Attach `MINIMAX_VOICE_PRICING` on `MINIMAX_TTS_REGISTRATION.pricing` for ledger USD via `createProviderRegistry()`.
+- Surface MiniMax API errors from `base_resp.status_code` (HTTP SSE, WebSocket, and `get_voice`) instead of treating HTTP 200 as success.
+- Honor WebSocket `task_failed` and `is_final` termination signals.
+- Include `voice_generation` voices from `POST /v1/get_voice` (`voice_type: all`) in `listVoices`.
+- Play only HTTP SSE chunks with `data.status === 1` (skip status-2 aggregated/metadata audio).
+- Prefer MiniMax `extra_info.usage_characters` for cost quantity when the final chunk provides it.
+- Include `trace_id` in MiniMax `PlumbusError` metadata when present.
+- Reject unsupported streaming `wav` audio format up front.
+- Append optional `GroupId` query param from `credentials.options.groupId` / `MINIMAX_GROUP_ID`.
+- Parse HTTP SSE with `eventsource-parser` (spec-complete framing; incomplete trailing frames without a blank line are dropped).
+- Map MiniMax `base_resp.status_code` to `Unauthorized` / `Validation` / rate-limit metadata (`category`).
+- Validate streaming `format`, `sampleRate`, `channel`, and mp3 `bitrate` against MiniMax enums before request.
+- Passthrough optional `tts.options.textNormalization`, `forceCbr`, and `voiceModify` (`pitch` / `intensity` / `timbre` / `soundEffects`).
+
+## 0.1.0
+
+### Added
+
+- Initial extraction of the MiniMax TTS provider from `@plumbus/voice` 0.3.0.
+- Export: `MINIMAX_TTS_REGISTRATION` (register via `*_REGISTRATION` passed to `createProviderRegistry()`).
+- Required env / credentials: `MINIMAX_API_KEY` (`apiKey`); optional `baseUrl` (default `https://api.minimax.io`).
+
+### Fixed
+
+- Warmth maps to integer MiniMax pitch semitones (`low→-2`, `medium→0`, `high→2`); pitch is clamped/rounded to `[-12, 12]`.
+- `whisper` / `fluent` emotions are only sent for `speech-2.6-*` models; speech-2.8 drops them.
+- `listVoices` uses `POST /v1/get_voice` with `{ "voice_type": "all" }` and concatenates `system_voice` + `voice_cloning` (maps `voice_name` → `displayName`).
+- Default `audio_setting` is mono `pcm` at 16 kHz (matches `@plumbus/voice` PCM pipeline / `pcm16-16k`); bitrate is omitted unless `format` is `mp3`.

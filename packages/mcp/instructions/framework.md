@@ -1,0 +1,92 @@
+# @plumbus/mcp — Framework
+
+## Release family 0.6.0
+
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+
+
+## Security release guidance (0.6.0)
+
+Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+
+Send explicit credentials on every HTTP transport request, including initialization/listing. Public discovery remains separate. Invalid headers never fall back to `PLUMBUS_MCP_TOKEN`. Validate input through the capability contract and preserve per-call task ownership/tenant boundaries; do not bypass them in custom handlers.
+
+`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.7.x`).
+
+**`package.json` peer (framework releases):** `"@plumbus/core": "0.7.x"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+
+## Package boundary
+
+| Concern | Owned by |
+|---|---|
+| `exposeAs` field on `defineCapability` | `@plumbus/core` |
+| `plumbus generate` MCP manifest + skill files | `@plumbus/core` |
+| `plumbus mcp serve` / `list-tools` / `mcp generate` CLI commands | `@plumbus/core` |
+| `createMcpServer` runtime, request handlers, transports | `@plumbus/mcp` |
+| `mcpTaskEntity` + task-store for `kind: 'job'` | `@plumbus/mcp` |
+| `createTestMcpServer` / `mockMcpClient` test helpers | `@plumbus/mcp/testing` |
+| `createMcpAuthAdapter` | `@plumbus/mcp` |
+
+This split lets apps generate the MCP manifest without installing the runtime, and lets the runtime stay swappable.
+
+## Public exports
+
+```ts
+// from '@plumbus/mcp'
+createMcpServer(config, options?)          // builds an MCP Server from a CapabilityRegistry
+McpServerConfig                            // { registry, db, authAdapter, createDependencies, jobQueue?, onCapabilityError?, onMcpToolCall?, requestTimeoutMs? }
+McpToolCallInfo                            // payload passed to onMcpToolCall
+CreateMcpServerOptions                     // { name?, version? }
+
+createMcpAuthAdapter({ agents, envToken })  // AuthAdapter that maps Bearer/env tokens to AuthContext
+resolveMcpAgentToken(header, agents, env)
+parseBearerToken(authorizationHeader)
+
+registerMcpOnFastify(app, config, opts?)   // mount MCP HTTP transport on an existing Fastify app
+startHttpServer(opts)                       // standalone Fastify + MCP HTTP server
+startStdioServer({ server })                // run an MCP server over stdio
+RegisterMcpOnFastifyOptions, StartHttpServerOptions
+
+mcpTaskEntity                               // register in app entity list when exposing kind:'job' via MCP
+createMcpJobCompletionSync                  // worker hook: mark MCP task complete after queued job finishes
+
+// from '@plumbus/mcp/testing'
+createTestMcpServer({ capabilities, entities?, auth?, onMcpToolCall?, ... })
+mockMcpClient()                             // pre-paired client + transport, unconnected
+```
+
+## File map (`src/`)
+
+```
+src/
+├── index.ts                    # public barrel
+├── server.ts                   # createMcpServer — registers ListTools/CallTool + 4 task handlers
+├── types.ts                    # McpServerConfig, McpToolCallInfo
+├── auth/
+│   ├── mcp-auth-adapter.ts     # createMcpAuthAdapter
+│   ├── parse-bearer.ts         # parseBearerToken
+│   └── resolve-agent-token.ts  # map-key lookup against mcp.agents
+├── transports/
+│   ├── http.ts                 # registerMcpOnFastify + startHttpServer + discovery route
+│   └── stdio.ts                # startStdioServer
+├── tasks/
+│   ├── mcp-task-entity.ts      # mcpTaskEntity (register in app entity list)
+│   ├── task-store.ts           # createTask, markStatus, recordProgress, getByIdScoped
+│   └── job-completion.ts       # createMcpJobCompletionSync (queued-worker path)
+└── testing/
+    ├── create-test-mcp-server.ts
+    └── mock-mcp-client.ts
+```
+
+## Critical rules
+
+1. **Capability runtime is unchanged.** Every MCP `tools/call` goes through the same `executeCapability` pipeline as HTTP — validation, access policy, audit. The MCP layer is a thin adapter; it never re-implements those.
+2. **Per-call `ExecutionContext`.** `createDependencies(auth, { bypassTenantScope })` is called once per request; the resulting `ctx` is not reused across concurrent calls.
+3. **`@plumbus/core` has no static imports from `@plumbus/mcp`.** Core loads the package only via guarded `import()` in `mcp-serve-context.ts` and `start-worker-pool.ts`. `plumbus doctor` MCP checks use the filesystem only (`node_modules/@plumbus/mcp/package.json`).
+4. **`access.public: true` + `exposeAs: ['mcp']` fails doctor.** Any MCP-exposed capability with `access.public: true` is flagged — not limited to destructive kinds.
+5. **`bypassTenantScope` mirrors HTTP.** When `access.tenantScoped === false`, the runtime calls `createDependencies(auth, { bypassTenantScope: true })`. Tenant-scoped capabilities (the default) still enforce tenant isolation.
+6. **Background task path is independent.** A task-augmented `tools/call` returns inline with `{ task: { taskId, status: 'working', ... } }`; the actual `executeCapability` runs in a separate background `ExecutionContext` with its own `ctx.signal` (the AbortController) and `ctx.progress`. State persists to the `mcp_task` row.
+
+## Where to look for more
+
+Conceptual reference and the full spec coverage matrix: `docs/mcp/` in the Plumbus monorepo (`overview.md`, `expose-a-capability.md`, `agent-authentication.md`, `transports.md`, `tasks-and-jobs.md`, `skill-files.md`).

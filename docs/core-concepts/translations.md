@@ -1,0 +1,342 @@
+# Translations
+
+Translations are **i18n message catalogs** that provide type-safe, locale-aware string resolution. Each translation definition declares a set of locales, a default locale, and message catalogs using ICU MessageFormat syntax.
+
+## Defining a Translation
+
+```typescript
+import { defineTranslation } from "@plumbus/core";
+
+export const commonTranslation = defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: {
+      "nav.overview": "Overview",
+      "nav.project": "Project",
+      "nav.settings": "Settings",
+      "greeting": "Hello {name}",
+      "items": "{count, plural, one {# item} other {# items}}",
+    },
+    he: {
+      "nav.overview": "סקירה",
+      "nav.project": "פרויקט",
+      "nav.settings": "הגדרות",
+      "greeting": "שלום {name}",
+      "items": "{count, plural, one {פריט #} two {# פריטים} other {# פריטים}}",
+    },
+  },
+});
+```
+
+## Validation
+
+`defineTranslation()` validates key consistency at **typecheck** (for literal / `as const` catalogs) and again at **definition time**:
+
+- **Name required** — must be a non-empty string
+- **Default locale** — must be included in the `locales` array
+- **Key consistency** — all locales must have exactly the same keys. TypeScript rejects mismatched literal catalogs; at runtime, missing or extra keys still throw with the specific key names
+- **Value types** — all message values must be strings
+
+If runtime validation fails, `defineTranslation()` throws immediately, preventing the app from starting with incomplete translations.
+
+**Typecheck vs runtime on “extra” keys:** typecheck compares against the *union* of keys across all locales. If `he` has an extra key that `en` lacks, TypeScript typically errors on **`en`** (“missing key X”), while runtime validation (which uses the default locale as the reference) errors on **`he`** (“extra key X”). Both catch the drift; the blamed locale differs.
+
+### Dynamic catalogs (escape hatch)
+
+When a locale catalog is typed as `Record<string, string>` (not a literal / `as const` object), TypeScript cannot verify key parity at compile time — only runtime validation still applies:
+
+```ts
+const heMessages: Record<string, string> = loadHeFromCms(); // keys checked at import time only
+
+export const commonTranslation = defineTranslation({
+  name: "common",
+  defaultLocale: "en",
+  locales: ["en", "he"],
+  messages: {
+    en: {
+      greeting: "Hello {name}",
+      farewell: "Goodbye",
+    },
+    he: heMessages,
+  },
+});
+```
+
+## ICU MessageFormat
+
+Messages support ICU MessageFormat syntax for interpolation:
+
+### Simple Placeholders
+
+```
+"greeting": "Hello {name}"
+```
+
+### Plurals
+
+```
+"items": "{count, plural, zero {No items} one {# item} two {# items} other {# items}}"
+```
+
+Plural branches: `zero`, `one`, `two`, `few`, `many`, `other`. The `#` symbol is replaced with the numeric value.
+
+### Select
+
+```
+"welcome": "{gender, select, male {Welcome, Mr. {name}} female {Welcome, Ms. {name}} other {Welcome, {name}}}"
+```
+
+## Server-Side Usage
+
+### In Capability Handlers
+
+Access translations through the execution context:
+
+```typescript
+export const getProject = defineCapability({
+  // ...
+  handler: async (ctx, input) => {
+    const project = await ctx.data.Project.findById(input.projectId);
+    if (!project) {
+      throw ctx.errors.notFound(ctx.translations.t("errors.projectNotFound"));
+    }
+    return project;
+  },
+});
+```
+
+`ctx.translations.t(key, params?)` resolves strings using the **active locale for the current request**. On auto-generated HTTP and MCP capability routes, the route generator resolves locale per request: `plumbus-ui-locale` cookie first, then `Accept-Language`, then the app's default locale from translation definitions (`serverConfig.translations?.[0]?.defaultLocale`, falling back to `'en'`). The resolved locale is bound on `ctx.translations.locale` for that execution. UI-only Next.js server locale remains separate; capability routes resolve independently.
+
+### TranslationRegistry
+
+For lower-level usage, create a registry directly:
+
+```typescript
+import { TranslationRegistry, createTranslationResolver } from "@plumbus/core";
+
+const registry = new TranslationRegistry();
+registry.register(commonTranslation);
+registry.register(errorsTranslation);
+
+// Resolve a key
+const msg = registry.t("en", "common.greeting", { name: "Alice" });
+// → "Hello Alice"
+
+// Or create a resolver bound to definitions
+const resolver = createTranslationResolver([commonTranslation, errorsTranslation]);
+const msg2 = resolver.t("he", "common.nav.overview");
+// → "סקירה"
+```
+
+### Locale Fallback
+
+When a key is not found in the requested locale, the resolver falls back to the `defaultLocale` of that namespace. If the key is not found in any locale, the raw key string is returned.
+
+## Frontend Integration
+
+Translations are used in the frontend via `next-intl`, generated by `plumbus ui generate`.
+Import hooks from `@plumbus/ui/next-intl` (or the generated `i18n/index.ts` re-exports) — **never** import `next-intl` directly.
+
+### Generated Files
+
+When translation definitions exist, `plumbus ui generate` produces:
+
+| File | Purpose |
+|------|---------|
+| `generated/i18n/messages.ts` | Merged message catalog for all namespaces |
+| `generated/i18n/config.ts` | Locale list, default locale, RTL locale set |
+| `generated/i18n/keys.ts` | `Messages`, `Namespace`, `MessageKeyOf`, `MessageArgsOf`, `I18nKey` types derived from the catalog |
+| `generated/i18n/translated-text.ts` | Opaque `TranslatedText` brand + emit-only `brandTranslatedText` |
+| `generated/i18n/global.ts` | Official `declare module "next-intl"` `AppConfig` augmentation (server / direct next-intl imports); pulled in via `request.ts` side-effect import |
+| `generated/i18n/request.ts` | next-intl server configuration (`--server-locale-cookie` adds cookie-based locale resolution); imports `./global` so AppConfig is always typechecked |
+| `generated/i18n/provider.tsx` | `<TranslationProvider>` (optional `initialLocale`; cookie + localStorage persistence; missing-key fallback) |
+| `generated/i18n/index.ts` | Catalog-typed `useTranslations` (`t` / `markup` → `TranslatedText`), plus `useFormatter`, `useLocale`, key types, `TranslatedText` type |
+
+By default, all locales are merged into a single `i18n/messages.ts`. For large catalogs, pass `--split-locale-bundles` to `plumbus ui generate` to emit one bundle per locale under `i18n/locales/` plus a thin aggregator — the runtime API is unchanged.
+
+Before emitting i18n modules, `plumbus ui generate` runs the same coverage check as `plumbus translation status` (non-empty values vs default-locale key totals). Incomplete locales **fail the command** (`exit 1`). Pass `--skip-locale-parity` to warn and continue (not recommended for CI).
+
+### Using in Components
+
+```tsx
+"use client";
+import { useTranslations } from "../i18n";
+
+export function Sidebar() {
+  const t = useTranslations("common");
+  return (
+    <nav>
+      <a href="/overview">{t("nav.overview")}</a>
+      <a href="/project">{t("nav.project")}</a>
+      <a href="/settings">{t("nav.settings")}</a>
+    </nav>
+  );
+}
+```
+
+Import `useTranslations` from the generated `i18n` module (not from `@plumbus/ui/next-intl` directly). The generated wrapper types namespaces, keys, and ICU parameters from the catalog so `useTranslations("notCommon")`, `t("missingKey")`, and `t("items")` without `{ count }` fail at `tsc`. `t` / `markup` return branded `TranslatedText` (re-exported as a type from `i18n`) so apps can require provenance on JSX/user-facing attrs — plain string literals are not assignable. Catalog `Messages` / `AppConfig` stay nested plain strings; do not brand catalog leaves. Server `getTranslations` from `@plumbus/ui/next-intl-server` remains plain `string` in 0.7.0 — only the generated client wrapper is branded; RSC provenance gating is a follow-up if needed. `i18n/global.ts` also registers `AppConfig` for server helpers and any direct `next-intl` usage — that requires a single resolvable `next-intl` install (peer of `@plumbus/ui`). Generated `request.ts` side-effect-imports `./global`, so apps do not need a manual import. All namespaces must share one `defaultLocale` or `plumbus ui generate` / `generateTranslationModule` throws.
+
+```tsx
+const t = useTranslations("common");
+t("save"); // ok — no ICU args (passing a values object is a type error)
+t("items", { count: 2 }); // ok — plural requires count: number | bigint
+// t("items"); // error — missing count
+// t("items", { count: "2" }); // error — string not assignable
+// t("save", { count: 1 }); // error — this key takes no values
+```
+
+Use `I18nKey` for props that store a fully-qualified key id (`common.nav.overview`), and `MessageArgsOf<"common", "items">` when you need the values type alone.
+
+### Missing keys at runtime
+
+If a key is somehow missing at runtime, the generated provider and request config render a visible sentinel (`[missing: namespace.key]`) instead of throwing or blanking. Hard gates remain typecheck + generate coverage — do not rely on the sentinel in production.
+
+### RTL Support
+
+The `<TranslationProvider>` sets `dir="rtl"` and the `lang` attribute on `<html>` when a right-to-left locale is active (known RTL locales: `ar`, `he`, `fa`, `ur`, `ps`, `sd`, `yi`). For flash-free first paint, also set `lang`/`dir` server-side in the root layout — see "Server-Rendered Locale (No Flash)" below.
+
+### Server-Rendered Locale (No Flash)
+
+`<TranslationProvider>` accepts an optional `initialLocale`. When omitted it falls back to `defaultLocale` and adopts a stored client preference after hydration, which briefly flashes the default locale. To render the correct locale and direction on the first paint, persist the locale in the `plumbus-ui-locale` cookie (done automatically by `setLocale`) and read it in your root layout (a Server Component).
+
+To also resolve the same locale in Server Components that call `getTranslations()`, generate with `--server-locale-cookie`. That makes `generated/i18n/request.ts` read the `plumbus-ui-locale` cookie as a fallback after `requestLocale`. Reading the cookie uses a Next.js Dynamic API, so it opts affected routes into dynamic rendering (required to read a per-request cookie) and is **not** compatible with `output: 'export'`. Without the flag, the request config resolves locale from `requestLocale` only (statically renderable) — the root-layout example below still works because it reads the cookie directly in your own Server Component.
+
+```tsx
+import { cookies } from "next/headers";
+import {
+  defaultLocale,
+  isLocale,
+  localeDir,
+  localeSchema,
+  type Locale,
+} from "../i18n/config";
+import { TranslationProvider } from "../i18n/provider";
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookieLocale = (await cookies()).get("plumbus-ui-locale")?.value;
+  const locale: Locale =
+    cookieLocale !== undefined && isLocale(cookieLocale) ? cookieLocale : defaultLocale;
+  // Or: localeSchema.safeParse(cookieLocale).data ?? defaultLocale
+  return (
+    <html lang={locale} dir={localeDir(locale)} suppressHydrationWarning>
+      <body>
+        <TranslationProvider initialLocale={locale}>{children}</TranslationProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+`isLocale` wraps `localeSchema.safeParse` (type guard). `localeDir(locale)` returns `"rtl" | "ltr"` via `rtlLocaleSchema` when the app has RTL locales. Prefer `localeSchema.safeParse` / `.parse` when you want Zod's result object directly.
+
+## CLI Commands
+
+### Scaffold a New Translation
+
+```bash
+plumbus translation new common
+```
+
+Creates `app/translations/common.translation.ts` with a starter template.
+
+For larger catalogs, scaffold per-locale message files and a thin assembler:
+
+```bash
+plumbus translation new common --locale-folders
+```
+
+This creates `app/translations/en/common.messages.ts`, `app/translations/he/common.messages.ts`, and `app/translations/common.translation.ts` that imports both locales into `defineTranslation()`.
+
+### Export for Professional Translation
+
+```bash
+# JSON (flat dot-notation, compatible with Crowdin/Lokalise/Phrase)
+plumbus translation export --format json --out-dir ./translations
+
+# XLIFF 2.0 (ISO 21720:2017, compatible with Trados/MemoQ/Crowdin)
+plumbus translation export --format xliff --locale he --out-dir ./translations
+```
+
+### Import Translated Files
+
+```bash
+plumbus translation import --file ./translations/he.json
+plumbus translation import --dir ./translations/
+```
+
+### Check Translation Status
+
+```bash
+plumbus translation status
+# common: en 40/40 (100%) | he 38/40 (95%)
+# errors: en 60/60 (100%) | he 60/60 (100%)
+
+# JSON output for CI
+plumbus translation status --json
+```
+
+## Adding a New Locale
+
+1. Add the locale code to each `defineTranslation()` `locales` array
+2. Add the message catalog for the new locale
+3. Run `plumbus translation status` to verify 100% coverage
+4. Run `plumbus ui generate` to regenerate frontend i18n files
+
+## Translation Sync Enforcement
+
+`defineTranslation()` rejects mismatched keys at typecheck for literal catalogs, and throws at import time otherwise. This means:
+
+- `tsc` / the editor catch key drift before runtime
+- Tests fail if translations are incomplete
+- The dev server won't start with missing translations
+- CI catches translation drift automatically
+
+For CI integration:
+
+```bash
+plumbus translation status --json | jq '.incomplete == 0'
+```
+
+## HTTP request locale (capabilities)
+
+On HTTP and MCP capability routes, the framework resolves locale **per request** before building `ctx.translations`:
+
+1. `plumbus-ui-locale` cookie (same key as `@plumbus/ui`)
+2. `Accept-Language` header (quality-sorted, matched against registered translation locales)
+3. Default locale from your first `defineTranslation()` definition
+
+```typescript
+defineCapability({
+  name: "greet",
+  kind: "query",
+  handler: async (ctx) => ({
+    message: ctx.translations.t("common.greeting"),
+    locale: ctx.translations.locale,
+  }),
+});
+```
+
+Use `resolveRequestLocale()` from `@plumbus/core` in custom route wiring. Browser clients should call `setLocale()` from `@plumbus/ui` so the cookie stays in sync with the UI.
+
+## File Organization
+
+Translation files live in `app/translations/`:
+
+```
+app/translations/
+├── common.translation.ts     # Nav, buttons, status labels
+├── auth.translation.ts       # Login/signup forms
+├── errors.translation.ts     # Error messages
+├── settings.translation.ts   # Settings page
+└── ...
+```
+
+Each file exports a single `defineTranslation()` result. The `name` field serves as the namespace for key resolution (e.g., `common.nav.overview`).
+
+---
+
+## SDK reference
+
+For every `defineTranslation` option and the full `TranslationResolver` / `TranslationRegistry` API, see [SDK Reference → defineTranslation](../sdk-reference/define-functions.md#definetranslation). This page covers the common case; the reference is exhaustive.

@@ -1,0 +1,95 @@
+# Voice Security
+
+Real-time voice adds attack surface that text chat does not: websocket upgrades, session tokens, browser-originated transcripts, and transport-provider secrets. This document captures the v1 threat model for `@plumbus/voice`.
+
+## Threat model (S1-S10)
+
+| ID | Risk | Requirement |
+|---|---|---|
+| S1 | WebSocket upgrade auth + origin | Validate `Origin` against an app-supplied allowlist and authenticate before accepting the realtime session. Prefer session tokens in `Sec-WebSocket-Protocol`, not query strings. |
+| S2 | Cookie-auth CSRF | Prefer explicit Bearer/session-token auth for the voice handshake. If cookies are used, require `SameSite` policy plus origin checks. |
+| S3 | Client transcript trust (`web-speech`) | Treat browser transcript text as untrusted `client-stt` input. Apply content/length guards and never treat it as authoritative or billable STT evidence. |
+| S4 | Session token replay / expiry | Mint short-lived scoped tokens (handshake-oriented TTL). Include `voiceName`, `sessionId`, transport, and other bounded claims. |
+| S5 | LiveKit JWT scoping | Sign LiveKit grants with LiveKit credentials only. Scope grants to the specific room + participant identity. |
+| S6 | Per-session cost / DoS caps | Apply voice session caps for duration, concurrency, and media usage in addition to generic AI budgets. |
+| S7 | Secrets leaking to browser | Session and token routes return only short-lived tokens and public URLs. They must never include `apiKey`, `apiSecret`, `voicePromptId`, or raw provider payloads. |
+| S8 | PII in transcripts / logs | Do not log raw transcript text or raw audio. Treat transcripts as highly sensitive and document retention decisions explicitly. |
+| S9 | Catalog topology exposure | Guard `/api/voice/catalog*` behind admin access. These routes expose provider/model/topology information. |
+| S10 | Budget bypass in ephemeral mode | If a deployment uses ephemeral or client-derived state, document that client-derived caps are advisory. Durable enforcement requires server session state. |
+
+## Framework-owned protections
+
+`@plumbus/voice` owns:
+
+- session-token minting and verification helpers
+- websocket origin-policy hook-up
+- deny-by-default access evaluation on session/token/health routes
+- admin guard on catalog routes
+- secret-stripping expectations for session payloads
+- transcript trust tagging (`client-stt` vs `server-stt`)
+
+## App-owned responsibilities
+
+The package does **not** replace normal app security work. The app still must:
+
+1. register CORS with an explicit origin policy
+2. decide Bearer vs cookie auth for the handshake
+3. set cookie `SameSite` policy if cookies are used
+4. configure `trustProxy` correctly behind proxies/load balancers
+5. choose retention policy for transcripts or audio
+6. enforce any durable rate limits at the deployment edge or app layer
+
+## Session token guidance
+
+The `plumbus voice` CLI shares its base runtime bootstrap with `plumbus mcp serve`. It resolves `PLUMBUS_ENV`, then `NODE_ENV`, defaulting to `development`; outside development it requires configured authentication before opening database or queue connections. For CLI JWT authentication, set an explicit `AUTH_SECRET` of at least 32 characters excluding surrounding whitespace. Known development placeholders are rejected in every environment. These credentials are separate from voice session-token and provider secrets. See [CLI authentication](../mcp/agent-authentication.md#cli-environment-and-credentials).
+
+- Keep TTL short: handshake-oriented, not session-long.
+- Scope claims to the voice name + session id.
+- Avoid putting the token in the URL.
+- Rotate rather than reusing long-lived browser-visible secrets.
+
+## `web-speech` trust rule
+
+`web-speech` is attractive because it removes vendor keys, but it is still a trust downgrade compared to server STT. Use it when speed and simplicity matter more than transcript authority.
+
+Production rule of thumb:
+
+- prototypes and low-risk browser flows => `web-speech` may be fine
+- billing/compliance/authoritative transcripts => use server STT
+
+## Voice cloning
+
+`registerVoiceCloneRoutes` adds ownership-aware clone HTTP. See [voice-cloning.md](./voice-cloning.md).
+
+- Reference audio is PII — never log raw samples.
+- Every per-id route must pass `resolveCloneOwner` (framework compares to `auth.userId`).
+- `GET /clones` uses app `listOwnedClones` only — never dump the shared API-key vendor bank.
+- Create → `afterCloneCreate` failure triggers best-effort vendor `delete` (no orphan unowned voices).
+- `POST .../synthesize-reference` is a spoofing surface — require `referenceAccess` (stricter than self-clone), consent, and rate limits.
+- Shared vendor API keys share one voice bank; true tenant isolation needs per-tenant vendor projects/keys.
+- Upload size is capped by `min(opts.maxSampleBytes, capabilities.maxSampleBytes)`.
+- S7 still applies: session/token payloads must never include vendor secrets or raw clone samples.
+
+## Testing expectations
+
+At minimum, test:
+
+- unauthorized session minting => `401`
+- denied access => `403`
+- catalog routes reject non-admin callers
+- session/token payloads do not contain secrets
+- websocket rejects bad/expired session tokens
+- clone routes: 401/403 access, 403 ownership, create-persist rollback delete, listOwnedClones-only list
+
+## Related docs
+
+- [client-stt.md](./client-stt.md)
+- [testing.md](./testing.md)
+- [configuration.md](./configuration.md)
+- [voice-cloning.md](./voice-cloning.md)
+
+WebSocket input is capped before conversion or resampling: 64 KiB per audio message, 16 KiB per control message, and 256 KiB pending input per connection. Oversized input closes with 1009. Input callbacks are serialized and each audio frame is delivered once. The WebSocket plugin also has a 64 KiB `maxPayload`. An omitted/empty session budget emits a startup warning: duration/media caps are optional, not silently assumed. Configured budgets and usage must be finite and nonnegative. Explicit session-token secrets require at least 32 non-padding characters.
+
+Default LiveKit room names include the authenticated tenant when present. Explicit room names and app-owned room resolvers remain application-authorized sharing mechanisms; a resolver now receives `tenantId` as well as user/session identity. Redis event envelopes are schema-validated before delivery, and malformed envelopes are discarded with a diagnostic rather than repeatedly requeued.
+
+Voice handshake JWT lifetimes must be finite positive whole seconds (default 90, with existing configured lifetimes preserved); established session duration remains a separate session-budget/lifecycle setting.

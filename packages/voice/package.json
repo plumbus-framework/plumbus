@@ -1,0 +1,81 @@
+{
+  "name": "@plumbus/voice",
+  "version": "0.5.1",
+  "description": "Plumbus realtime voice runtime — defineVoice, provider registry, session routes, and cost ledger integration.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./noise-cancellation": {
+      "types": "./dist/types/noise-cancellation.d.ts",
+      "default": "./dist/types/noise-cancellation.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
+    },
+    "./provider-kit": {
+      "types": "./dist/provider-kit/index.d.ts",
+      "default": "./dist/provider-kit/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "typecheck": "tsc --noEmit",
+    "smoke": "pnpm build && node --import tsx scripts/voice-smoke.ts",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/voice"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "0.7.x",
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "fastify": "^5.0.0",
+    "tsx": "^4.21.0",
+    "vitest": "^3.2.4"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/websocket": "^11.2.0",
+    "ws": "^8.21.0"
+  }
+}
