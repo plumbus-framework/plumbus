@@ -81,6 +81,20 @@ Then set `AI_BEDROCK_REGION` (and optionally `AI_BEDROCK_PRICING_FILE` for conta
 
 Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `AWS_BEARER_TOKEN_BEDROCK`). Cost USD comes from AWS Price List rates (auto-download or a mounted normalized JSON) — Bedrock responses return token usage only. Guide: `docs/ai/bedrock.md`. Price List URLs, curl, normalize, and ConfigMap: `packages/ai-bedrock/instructions/pricing.md` (in apps: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`).
 
+### Optional add-on: `@plumbus/ai-typesafe`
+
+`@plumbus/ai-typesafe` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.1.x`; peer `@plumbus/core` `0.7.x`). Apps that want typed decisions — TypeSafe's Jev model behind `ctx.ai.decide()` — install it explicitly:
+
+```
+pnpm add @plumbus/ai-typesafe
+```
+
+Then set `AI_TYPESAFE_API_KEY` and `AI_DECISION_PROVIDER=typesafe`, or call `createTypeSafeDecisionAdapter()` and register it under `createAIService({ decisionProviders: { typesafe } })`. `createDecisionAdapter('typesafe')` prints an install hint when the package is missing.
+
+Jev is a **decision model, not a chat model**: it answers typed noul / choice / score questions about a `state` with calibrated probabilities and generates no text. Decision providers occupy a **separate slot** from chat providers, so leave `AI_DEFAULT_PROVIDER` pointing at OpenAI / Anthropic / Bedrock — setting it to `typesafe` makes `ctx.ai.generate()` throw. The package also implements core's optional `AIProviderAdapter.classify` hook, so `ctx.ai.classify()` can run on Jev when it *is* the default provider.
+
+Reusable question sets belong in `app/decisions/` as `defineDecision()` contracts with a `state` Zod schema; they are auto-discovered like prompts. Cost USD comes from package-owned rates (input tokens only — output is free). Guides: `docs/ai/decisions.md` (the primitive) and `docs/ai/typesafe.md` (this package). Question design and confidence gating: `packages/ai-typesafe/instructions/decisions.md` (in apps: `node_modules/@plumbus/ai-typesafe/instructions/decisions.md`).
+
 ### Optional add-on: `@plumbus/browser-extension`
 
 `@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.2.x`**; peer `@plumbus/core` at **`0.7.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:

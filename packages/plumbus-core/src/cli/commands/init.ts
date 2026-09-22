@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 16;
+export const AGENT_WIRING_VERSION = 17;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -122,6 +122,7 @@ const CORE_INSTRUCTION_TOPICS = [
   'entities',
   'events',
   'ai',
+  'decisions',
   'security',
   'upgrading-security-release',
   'governance',
@@ -432,6 +433,25 @@ const AI_BEDROCK_INSTRUCTION_REFERENCES = [
   },
 ] as const;
 
+const AI_TYPESAFE_INSTRUCTION_REFERENCES = [
+  {
+    area: 'TypeSafe Jev decision provider (@plumbus/ai-typesafe) — decision vs chat provider slots, env, limits, pricing, errors',
+    path: 'node_modules/@plumbus/ai-typesafe/instructions/framework.md',
+  },
+  {
+    area: 'writing typed decisions — noul/choice/score question design, criteria, defineDecision contracts, confidence gating, question fan-out',
+    path: 'node_modules/@plumbus/ai-typesafe/instructions/decisions.md',
+  },
+  {
+    area: 'testing ctx.ai.decide offline — mockAI, createStubDecisionAdapter, stub SDK clients, low-confidence branches',
+    path: 'node_modules/@plumbus/ai-typesafe/instructions/testing.md',
+  },
+  {
+    area: 'TypeSafe instruction index and reading order',
+    path: 'node_modules/@plumbus/ai-typesafe/instructions/README.md',
+  },
+] as const;
+
 const API_INSTRUCTION_REFERENCES = [
   {
     area: 'partner API runtime overview, package boundary (core vs @plumbus/api), public exports, critical rules',
@@ -535,7 +555,7 @@ const UPGRADE_INSTRUCTION_REFERENCES = [
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, auth, auth-cognito, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, ai-typesafe, auth, auth-cognito, and browser-extension) for full SDK documentation.',
       'After installing any optional package, open `node_modules/@plumbus/<package>/instructions/README.md` first — that index lists the exact recipe files to read.',
     );
     return;
@@ -600,6 +620,10 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of AI_BEDROCK_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of AI_TYPESAFE_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 
