@@ -28,10 +28,7 @@ import type { TokenUsage } from './provider.js';
  * }
  * ```
  */
-export type DecisionInstructions =
-  | string
-  | Readonly<Record<string, unknown>>
-  | ReadonlyArray<unknown>;
+export type DecisionInstructions = string | Readonly<Record<string, unknown>> | readonly unknown[];
 
 // ── Question Types ──
 

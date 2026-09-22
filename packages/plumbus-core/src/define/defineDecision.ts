@@ -1,8 +1,5 @@
 import type { z } from 'zod';
-import {
-  type DecisionQuestions,
-  validateDecisionQuestions,
-} from '../ai/decision.js';
+import { type DecisionQuestions, validateDecisionQuestions } from '../ai/decision.js';
 import type { DecisionDefinition, DecisionModelConfig } from '../types/decision.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { throwDefineValidationError } from './validation-error.js';

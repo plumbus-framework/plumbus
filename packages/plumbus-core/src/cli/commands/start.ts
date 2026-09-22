@@ -97,7 +97,7 @@ export async function startProductionServer(
   }
 
   const decisionRegistry = new DecisionRegistry();
-  for (const decision of resources.decisions) {
+  for (const decision of resources.decisions ?? []) {
     decisionRegistry.register(decision);
   }
 

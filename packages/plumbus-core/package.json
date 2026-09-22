@@ -119,6 +119,7 @@
     "@biomejs/biome": "^2.4.6",
     "@plumbus/api": "workspace:*",
     "@plumbus/ai-bedrock": "workspace:*",
+    "@plumbus/ai-typesafe": "workspace:*",
     "@plumbus/mcp": "workspace:*",
     "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",

@@ -22,7 +22,12 @@ export interface DiscoveredResources {
   flows: FlowDefinition[];
   events: EventDefinition[];
   prompts: PromptDefinition[];
-  decisions: DecisionDefinition[];
+  /**
+   * Decision contracts from `app/decisions`. Optional so callers that built a
+   * `DiscoveredResources` before decisions existed still satisfy the type;
+   * `discoverResources` always populates it.
+   */
+  decisions?: DecisionDefinition[];
   translations: TranslationDefinition[];
   schemas: Record<string, unknown>;
 }
