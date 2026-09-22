@@ -15,6 +15,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [flows.md](./flows.md) | `defineFlow()`, steps, triggers, retries. |
 | [prompts.md](./prompts.md) | `definePrompt()`, `system`/`description`, model resolution. |
 | [ai.md](./ai.md) | `ctx.ai` operations (incl. provider-native tool calling + `runToolLoop`), cost tracking, env-based provider config. |
+| [decisions.md](./decisions.md) | `defineDecision()`, `ctx.ai.decide()`, noul/choice/score question design, confidence gating. Read before prompting a model for JSON. |
 | [translations.md](./translations.md) | `defineTranslation()`, `ctx.translations`. |
 | [security.md](./security.md) | Access policies, tenant isolation, auth adapters. |
 | [governance.md](./governance.md) | Advisory rules, `plumbus verify`, compliance profiles. |

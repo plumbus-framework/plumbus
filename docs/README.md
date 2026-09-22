@@ -50,9 +50,11 @@ docs/
 │   ├── testing.md
 │   ├── migration.md
 │   └── deployment.md
-├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
+├── ai/                        Prompts, RAG, typed decisions, cost tracking, governance
 │   ├── ai-integration.md
-│   └── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
+│   ├── decisions.md           ctx.ai.decide, defineDecision, confidence routing
+│   ├── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
+│   └── typesafe.md            Optional @plumbus/ai-typesafe — TypeSafe Jev (detailed guide)
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding
@@ -153,4 +155,7 @@ docs/
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
+| Make a typed decision instead of parsing model text | [AI → Typed Decisions](ai/decisions.md) |
+| Use TypeSafe / Jev (optional decision provider) | [AI → TypeSafe / Jev](ai/typesafe.md) (detailed) · [AI Integration § TypeSafe](ai/ai-integration.md#typesafe--jev-plumbusaitypesafe) |
+| Route on model confidence instead of just the answer | [AI → Typed Decisions § Confidence](ai/decisions.md#confidence-and-routing) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

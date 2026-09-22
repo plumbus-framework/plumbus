@@ -187,6 +187,33 @@ await ctx.ai.generate({
 });
 ```
 
+### Decide (typed decisions)
+
+When the output space is **closed** — a yes/no, one of a known set, a level on a rubric — do not prompt for JSON. Ask typed questions and get calibrated probabilities:
+
+```ts
+import { choice, noul } from "@plumbus/core";
+
+const { answers } = await ctx.ai.decide({
+  state: { subject: ticket.subject, body: ticket.body },
+  questions: {
+    isUrgent: noul("Does this convey urgency?", {
+      true: "Explicitly time-sensitive",
+      false: "No urgency expressed",
+    }),
+    department: choice("Which team should handle this?", {
+      billing: "Payments, invoicing, refunds",
+      technical: "Bugs, outages, integrations",
+    }),
+  },
+});
+
+if (answers.department.confidence < 0.7) return sendToHumanReview();
+await route(answers.department.choice);
+```
+
+`decide()` needs a registered decision provider, which is a **separate slot** from `providers` — set `AI_DECISION_PROVIDER` and install the add-on (`pnpm add @plumbus/ai-typesafe`), leaving `AI_DEFAULT_PROVIDER` on a text provider. Reusable question sets go in `app/decisions/` via `defineDecision()`. Full rules: `decisions.md`.
+
 ### Cost helpers
 
 - `ctx.ai.checkProviderCostBudget()` — pre-flight budget check before provider calls
@@ -235,7 +262,9 @@ AI_MODEL=gpt-4o-mini
 
 ### Multi-Provider
 
-Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`** (region-based; no API key). Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically through `createAIService` and a custom `AIProviderAdapter`.
+Set `AI_DEFAULT_PROVIDER` to enable multi-provider mode. Env-based discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, **`AI_BEDROCK_*`** (region-based; no API key), and **`AI_TYPESAFE_*`**. Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire additional providers programmatically through `createAIService` and a custom `AIProviderAdapter`.
+
+Decision providers for `ctx.ai.decide()` are a separate slot: set **`AI_DECISION_PROVIDER`** (and optionally `AI_DECISION_MODEL`, plus per-decision `DECISION_{NAME}_{PROVIDER,MODEL}`). Do not point `AI_DEFAULT_PROVIDER` at a decision provider in an app that also generates text — see `decisions.md`.
 
 A present-but-empty API-key slot is treated as unset — the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key. Do not invent a placeholder key to “satisfy” validation.
 

@@ -32,6 +32,7 @@ Instead of writing loosely organized code, you define your system using six comp
 | **Flow** | Multi-step workflows orchestrating capabilities | `defineFlow()` |
 | **Event** | Domain facts emitted by capabilities | `defineEvent()` |
 | **Prompt** | Structured AI interactions with typed I/O | `definePrompt()` |
+| **Decision** | Typed questions answered with calibrated probabilities | `defineDecision()` |
 | **Translation** | Type-safe i18n message catalogs with ICU MessageFormat | `defineTranslation()` |
 
 The framework provides:
@@ -243,7 +244,7 @@ ctx.auth       → Authenticated identity (userId, roles, scopes, tenantId)
 ctx.data       → Entity repositories (ctx.data.User.findById(id))
 ctx.events     → Event emission (ctx.events.emit("order.placed", payload))
 ctx.flows      → Flow orchestration (ctx.flows.start("processRefund", input))
-ctx.ai         → AI operations (generate, extract, classify, retrieve)
+ctx.ai         → AI operations (generate, extract, classify, retrieve, decide)
 ctx.audit      → Audit logging (ctx.audit.record("user.updated", meta))
 ctx.security   → Security helpers (hasRole, hasScope, requireRole, requireScope)
 ctx.errors     → Structured errors (validation, notFound, forbidden, conflict)
@@ -274,8 +275,10 @@ my-app/
 │   │           └── flow.ts
 │   ├── events/              # Domain events (defineEvent)
 │   │   └── order-placed.event.ts
-│   └── prompts/             # AI prompts (definePrompt)
-│       └── classify-ticket.prompt.ts
+│   ├── prompts/             # AI prompts (definePrompt)
+│   │   └── classify-ticket.prompt.ts
+│   └── decisions/           # Typed decisions (defineDecision)
+│       └── triage-ticket.decision.ts
 │   └── translations/        # i18n catalogs (defineTranslation)
 │       └── common.translation.ts
 ├── config/
@@ -405,6 +408,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.1.x`) |
 | [`@plumbus/api`](packages/api/) | Optional peer `0.1.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
 | [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.1.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.6.x` (**runtime ≥ 0.6.16**). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
+| [`@plumbus/ai-typesafe`](packages/ai-typesafe/) | Optional peer `0.1.x` — TypeSafe **Jev** decision model behind `ctx.ai.decide()` (typed noul / choice / score questions with calibrated probabilities) plus a Jev-backed `ctx.ai.classify()`; package-owned input-token pricing; peer `@plumbus/core` `0.7.x`. See [`docs/ai/decisions.md`](docs/ai/decisions.md) |
 | [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.5.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |

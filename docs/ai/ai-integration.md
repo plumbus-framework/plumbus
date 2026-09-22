@@ -244,6 +244,38 @@ const labels = await ctx.ai.classify({
 // → ["billing"]
 ```
 
+`classify()` normally synthesizes a prompt and parses a JSON array out of the
+default provider's completion. An adapter that declares
+`capabilities.nativeClassify` and implements the optional
+`AIProviderAdapter.classify` hook handles it natively instead, and
+`createAIService` routes there automatically. Security scanning, budget checks,
+cost recording, and explainability stay in the AI service either way, so the
+caller-visible behavior is identical. `@plumbus/ai-typesafe` implements the
+hook — see [TypeSafe § Native classify](./typesafe.md#native-classify).
+
+### Decide (Typed Decisions)
+
+```typescript
+const { answers } = await ctx.ai.decide({
+  state: "Help! My payouts have been failing for 3 days.",
+  questions: {
+    isUrgent: noul("Does this convey urgency?"),
+    department: choice("Which team should handle this?", {
+      billing: "Payments, invoicing, refunds",
+      technical: "Bugs, outages, integrations",
+    }),
+  },
+});
+// → answers.isUrgent.noul === 0.95
+// → answers.department.choice === "billing", confidence 0.81
+```
+
+`decide()` sends a `state` plus typed questions and returns one typed answer per
+question with calibrated probabilities — nothing to parse and nothing to repair.
+It needs a registered decision provider, which is a separate slot from
+`providers`; see [Typed Decisions](./decisions.md) for the primitive and
+[TypeSafe / Jev](./typesafe.md) for the provider that serves it.
+
 ### Retrieve (RAG)
 
 ```typescript
@@ -330,13 +362,16 @@ The `extract()` and `classify()` convenience methods always use the default prov
 | Variable | Purpose |
 |----------|---------|
 | `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` | Single-provider mode |
-| `AI_DEFAULT_PROVIDER` | Multi-provider default (`openai`, `anthropic`, `bedrock` via env) |
+| `AI_DEFAULT_PROVIDER` | Multi-provider default (`openai`, `anthropic`, `bedrock`, `typesafe` via env) |
 | `AI_OPENAI_*` / `AI_ANTHROPIC_*` | Per-provider API keys, base URLs, and default models |
 | `AI_BEDROCK_REGION` / `AI_BEDROCK_MODEL` / `AI_BEDROCK_PRICING_FILE` | Bedrock (IAM auth; optional mounted pricing JSON — recommended in containers) |
+| `AI_TYPESAFE_API_KEY` / `AI_TYPESAFE_MODEL` / `AI_TYPESAFE_BASE_URL` | TypeSafe (also accepts the SDK-native `TYPESAFE_API_KEY`) |
+| `AI_DECISION_PROVIDER` / `AI_DECISION_MODEL` | Decision provider and model for `ctx.ai.decide()` — a separate slot from `AI_DEFAULT_PROVIDER` |
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
 | `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
+| `DECISION_{NAME}_{FIELD}` | Per-decision overrides (`PROVIDER`, `MODEL` only — decisions have no temperature) |
 
-Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
+Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, `AI_BEDROCK_*`, and `AI_TYPESAFE_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`; TypeSafe requires `pnpm add @plumbus/ai-typesafe`.
 
 A present-but-empty OpenAI or Anthropic API-key slot is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
 
@@ -487,6 +522,77 @@ Business logic still uses `definePrompt`, `ctx.ai.generateWithUsage`, chat, and 
 | Bedrock Mantle (OpenAI-compatible `bedrock-mantle.*.api.aws`) | Console `OPENAI_API_KEY` + `OPENAI_BASE_URL` | `@plumbus/core` → `createOpenAIAdapter` | `mantle` |
 
 A console export that sets `OPENAI_API_KEY=bedrock-api-key-…` and `OPENAI_BASE_URL=https://bedrock-mantle.<region>.api.aws/v1` is **Mantle**, not `@plumbus/ai-bedrock`.
+
+### TypeSafe / Jev (`@plumbus/ai-typesafe`)
+
+> **Full guides:** [Typed Decisions (`docs/ai/decisions.md`)](./decisions.md) — the `ctx.ai.decide` primitive, question types, confidence routing. [TypeSafe / Jev (`docs/ai/typesafe.md`)](./typesafe.md) — install, env, limits, pricing, errors, production checklist.
+
+TypeSafe's Jev is a **decision model**, not a chat model. It takes a `state` plus typed questions and returns calibrated probabilities; it generates no text. That does not fit `AIProviderAdapter`, so it registers in a separate slot and is reached through `ctx.ai.decide()`.
+
+#### Why a separate slot (not just another provider)
+
+| | `AIProviderAdapter` (`providers`) | `DecisionProviderAdapter` (`decisionProviders`) |
+|---|---|---|
+| Operations | `complete`, `stream`, `embed`, optional `classify` | `decide`, optional `listModels` |
+| Output | Sampled text you validate | One typed answer per question, with probabilities |
+| Reached by | `ctx.ai.generate` / `streamGenerate` / `extract` / `classify` / `retrieve` | `ctx.ai.decide` |
+| Default env var | `AI_DEFAULT_PROVIDER` | `AI_DECISION_PROVIDER` |
+| Members today | `openai`, `anthropic`, `bedrock`, `typesafe` (classify only) | `typesafe` |
+
+Running OpenAI for `generate()` and TypeSafe for `decide()` at the same time is the normal configuration.
+
+#### Install and wire
+
+```bash
+pnpm add @plumbus/ai-typesafe
+```
+
+```bash
+AI_DEFAULT_PROVIDER=openai
+AI_OPENAI_API_KEY=sk-...
+
+AI_TYPESAFE_API_KEY=ts-...
+AI_DECISION_PROVIDER=typesafe
+AI_DECISION_MODEL=jev-latest
+```
+
+Or programmatically:
+
+```typescript
+import { createAIService, createProviderAdapter } from "@plumbus/core";
+import { createTypeSafeDecisionAdapter } from "@plumbus/ai-typesafe";
+
+createAIService({
+  providers: { openai: createProviderAdapter("openai", { apiKey: process.env.AI_OPENAI_API_KEY! }) },
+  defaultProvider: "openai",
+  decisionProviders: {
+    typesafe: createTypeSafeDecisionAdapter({ apiKey: process.env.AI_TYPESAFE_API_KEY! }),
+  },
+  defaultDecisionProvider: "typesafe",
+});
+```
+
+`createDecisionAdapter('typesafe', …)` in core dynamically loads `@plumbus/ai-typesafe` and prints `pnpm add @plumbus/ai-typesafe` if it is missing — the same optional-peer mechanism as Bedrock.
+
+**Auth:** one API key. The slot accepts `AI_TYPESAFE_API_KEY` or the SDK-native `TYPESAFE_API_KEY`.
+**Env discovery:** `AI_TYPESAFE_API_KEY` / `_MODEL` / `_BASE_URL` / `_REQUEST_TIMEOUT` / `_DAILY_COST_LIMIT`, plus `AI_DECISION_PROVIDER` / `AI_DECISION_MODEL` and per-decision `DECISION_{NAME}_{PROVIDER,MODEL}`.
+**Reusable contracts:** `defineDecision()` in `app/decisions/`, auto-discovered and registered like prompts.
+
+#### Pricing (input tokens only)
+
+Jev is charged at **$42 per Btok of input** — $0.042/MTok — and **output tokens are free**. As with Bedrock, the rates are package-owned: the adapter sets `cost` on the response and `createAIService` prefers it over core's catalog. Core also carries `jev-*` rows so budget estimation works without the add-on installed.
+
+Ledger rows land under operation `decide`, carrying the **versioned** model id that answered (an alias like `jev-latest` resolves to e.g. `jev-1.13.0`) and the decision name in `promptName`.
+
+Because the state is billed once no matter how many questions ride along, batching questions into one call is dramatically cheaper than asking them one at a time.
+
+#### What stays the same for app code
+
+Security scanning of the state, budget pre-checks, the cost ledger, `onAICostRecorded`, and explainability all work exactly as they do for `generate()`. You do **not** call the TypeSafe SDK from app code — only register the adapter.
+
+**Live smoke (monorepo):** [`examples/ai-typesafe-smoke`](../../examples/ai-typesafe-smoke) — real calls gated on `TYPESAFE_API_KEY` in a local `.env` (never commit it).
+
+**One thing to get right:** `AI_DEFAULT_PROVIDER=typesafe` makes `ctx.ai.generate()` throw, because Jev has no text surface. Set `AI_DECISION_PROVIDER=typesafe` and leave `AI_DEFAULT_PROVIDER` pointing at a text provider unless the app is decisions-only.
 
 ### Transient Provider Failures
 

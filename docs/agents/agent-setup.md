@@ -57,6 +57,7 @@ plumbus init
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
 │ node_modules/@plumbus/ai-bedrock/instructions/              │
+│ node_modules/@plumbus/ai-typesafe/instructions/             │
 │ node_modules/@plumbus/auth/instructions/                    │
 │ node_modules/@plumbus/auth-cognito/instructions/            │
 │ node_modules/@plumbus/browser-extension/instructions/       │
@@ -83,6 +84,8 @@ plumbus init
 │                     testing (when @plumbus/api installed)   │
 │  ai-bedrock/*.md    ← Bedrock Converse, pricing file /      │
 │                     Price List pull (when installed)        │
+│  ai-typesafe/*.md   ← ctx.ai.decide question design,        │
+│                     confidence gating (when installed)      │
 │  auth/*.md          ← OIDC runtime, sessions, CSRF, Cognito │
 │                     (when @plumbus/auth installed)          │
 └───────────────────────────┬─────────────────────────────────┘
@@ -298,6 +301,10 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/ai-bedrock/instructions/README.md` | Amazon Bedrock AI provider instruction index |
 | `node_modules/@plumbus/ai-bedrock/instructions/framework.md` | Bedrock Converse/embeddings, pricing file vs auto-download, IAM |
 | `node_modules/@plumbus/ai-bedrock/instructions/pricing.md` | AWS Price List URLs, curl, normalize, ConfigMap, troubleshooting |
+| `node_modules/@plumbus/ai-typesafe/instructions/README.md` | TypeSafe Jev decision provider instruction index |
+| `node_modules/@plumbus/ai-typesafe/instructions/framework.md` | Decision vs chat provider slots, `AI_TYPESAFE_*` env, Jev limits, pricing, errors |
+| `node_modules/@plumbus/ai-typesafe/instructions/decisions.md` | Writing noul/choice/score questions, `defineDecision`, confidence gating, fan-out |
+| `node_modules/@plumbus/ai-typesafe/instructions/testing.md` | Testing `ctx.ai.decide` offline — `mockAI`, `createStubDecisionAdapter` |
 | `node_modules/@plumbus/api/instructions/README.md` | Partner API instruction index (optional package) |
 | `node_modules/@plumbus/api/instructions/framework.md` | API package boundary, public exports, critical rules |
 | `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |
@@ -385,3 +392,9 @@ This refreshes the Plumbus-managed wiring sections with the latest instructions 
 Core 0.7.0 generates wiring version **15**. All root agent formats (reference and inline, flat and monorepo) and the Cursor capability rule point at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. The checklist ships in the npm package and covers coordinated versions, credentials/SAML, legacy flow recovery, unknown-cost flags, audit behavior, and voice limits. The framework-first guardrails remain mandatory.
 
 After updating the app's packages, run `plumbus init --patch`, then `plumbus doctor`. Patching updates only managed wiring blocks and retains custom text outside them. See [the release migration guide](../upgrading-security-release.md).
+
+## Typed decisions wiring v17
+
+Wiring version **17** adds the four `@plumbus/ai-typesafe` instruction paths, so agents working on `ctx.ai.decide()` find question-design and confidence-gating guidance instead of inventing their own. Nothing else about v16 changes.
+
+After installing `@plumbus/ai-typesafe`, run `plumbus init --patch`, then `plumbus doctor`. Agents that see stale wiring will not know decisions exist and will reach for `definePrompt` with a JSON schema instead. See [Typed Decisions](../ai/decisions.md).
