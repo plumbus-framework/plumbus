@@ -4,6 +4,7 @@
 import { createRequire } from 'node:module';
 import type { AIProviderSlotConfig } from '../types/config.js';
 import type { AIReasoningConfig, ReasoningEffort, ReasoningLevel } from '../types/prompt.js';
+import type { DecisionProviderAdapter } from './decision.js';
 import {
   allKnownModels,
   estimateModelCost as calculateModelCost,
@@ -58,6 +59,13 @@ export interface AIProviderCapabilities {
     modes: readonly AIReasoningConfig['mode'][];
     efforts?: readonly ReasoningLevel[];
   };
+  /**
+   * The adapter implements {@link AIProviderAdapter.classify} natively, so
+   * `ctx.ai.classify()` routes there instead of synthesizing a prompt and
+   * parsing a JSON array out of `complete()`. Adapters that omit this keep
+   * the prompt-based path.
+   */
+  nativeClassify?: boolean;
 }
 
 /** Opaque assistant content that a provider requires on the next tool round. */
@@ -262,6 +270,29 @@ export interface ListModelsFilter {
   kind?: Kind | Kind[];
 }
 
+// ── Native Classification ──
+
+/**
+ * A multi-label classification request, as passed to the optional
+ * {@link AIProviderAdapter.classify} hook. Text arrives already
+ * security-scanned and redacted by the AI service.
+ */
+export interface ProviderClassifyRequest {
+  /** Candidate labels. The adapter must only ever return values from this list. */
+  labels: string[];
+  text: string;
+  model?: string;
+  signal?: AbortSignal;
+}
+
+export interface ProviderClassifyResponse {
+  /** The subset of the requested labels that apply. May be empty. */
+  labels: string[];
+  usage: TokenUsage;
+  /** Adapter-computed USD cost, preferred over the pricing catalog when set. */
+  cost?: number;
+}
+
 // ── AI Provider Adapter ──
 export interface AIProviderAdapter {
   readonly name: string;
@@ -297,6 +328,20 @@ export interface AIProviderAdapter {
    * one `console.warn`; does not throw.
    */
   listModels?(filter?: ListModelsFilter): Promise<ProviderModel[]>;
+
+  /**
+   * Classify text against a caller-supplied label set natively, instead of
+   * letting the AI service synthesize a prompt and parse a JSON array out of
+   * `complete()`.
+   *
+   * Optional. Adapters that implement it MUST also declare
+   * `capabilities.nativeClassify = true`; `createAIService` routes
+   * `ctx.ai.classify()` here only when both are present, and falls back to
+   * the prompt-based path otherwise. Security scanning, budget checks, cost
+   * recording, and explainability stay in the service, so the caller-visible
+   * behavior of `ctx.ai.classify()` is unchanged either way.
+   */
+  classify?(request: ProviderClassifyRequest): Promise<ProviderClassifyResponse>;
 }
 
 /**
@@ -1964,11 +2009,101 @@ export function createProviderAdapter(
     case 'bedrock': {
       return createBedrockAdapterFromPeer(providerConfig);
     }
+    case 'typesafe': {
+      return createTypeSafeAdapterFromPeer(providerConfig);
+    }
     default:
       throw new Error(
-        `Unsupported AI provider "${name}". Supported: "openai", "anthropic", "bedrock".`,
+        `Unsupported AI provider "${name}". Supported: "openai", "anthropic", "bedrock", "typesafe".`,
       );
   }
+}
+
+/**
+ * Create a decision provider adapter by name from a provider config entry.
+ *
+ * Decision providers are a separate slot from chat providers: they answer
+ * typed questions about a state rather than generating text, so they are
+ * registered through `AIServiceConfig.decisionProviders` and reached with
+ * `ctx.ai.decide()`. See `docs/ai/decisions.md`.
+ */
+export function createDecisionAdapter(
+  name: string,
+  providerConfig: AIProviderSlotConfig,
+): DecisionProviderAdapter {
+  switch (name) {
+    case 'typesafe': {
+      return createTypeSafeDecisionAdapterFromPeer(providerConfig);
+    }
+    default:
+      throw new Error(`Unsupported decision provider "${name}". Supported: "typesafe".`);
+  }
+}
+
+interface TypeSafePeerModule {
+  createTypeSafeAdapter: (config: TypeSafePeerConfig) => AIProviderAdapter;
+  createTypeSafeDecisionAdapter: (config: TypeSafePeerConfig) => DecisionProviderAdapter;
+}
+
+interface TypeSafePeerConfig {
+  apiKey: string;
+  defaultModel?: string;
+  baseUrl?: string;
+  requestTimeout?: number;
+}
+
+/**
+ * TypeSafe reads `TYPESAFE_API_KEY` itself, so the framework slot accepts
+ * either `AI_TYPESAFE_API_KEY` (normalized into the slot by the config
+ * loader) or that SDK-native variable.
+ */
+function resolveTypeSafeApiKey(providerConfig: AIProviderSlotConfig): string {
+  const key =
+    providerConfig.apiKey != null && providerConfig.apiKey !== ''
+      ? providerConfig.apiKey
+      : process.env.TYPESAFE_API_KEY;
+  if (key == null || key === '') {
+    throw new Error(
+      'AI provider "typesafe" requires apiKey (set AI_TYPESAFE_API_KEY or TYPESAFE_API_KEY).',
+    );
+  }
+  return key;
+}
+
+function loadTypeSafePeer(): TypeSafePeerModule {
+  try {
+    // Sync resolve — mirrors optional @plumbus/ai-bedrock peer loading.
+    const require = createRequire(import.meta.url);
+    return require('@plumbus/ai-typesafe') as TypeSafePeerModule;
+  } catch {
+    throw new Error(
+      'AI provider "typesafe" requires @plumbus/ai-typesafe. Run: pnpm add @plumbus/ai-typesafe',
+    );
+  }
+}
+
+function createTypeSafeAdapterFromPeer(providerConfig: AIProviderSlotConfig): AIProviderAdapter {
+  const apiKey = resolveTypeSafeApiKey(providerConfig);
+  const mod = loadTypeSafePeer();
+  return mod.createTypeSafeAdapter({
+    apiKey,
+    defaultModel: providerConfig.model,
+    baseUrl: providerConfig.baseUrl,
+    requestTimeout: providerConfig.requestTimeout,
+  });
+}
+
+function createTypeSafeDecisionAdapterFromPeer(
+  providerConfig: AIProviderSlotConfig,
+): DecisionProviderAdapter {
+  const apiKey = resolveTypeSafeApiKey(providerConfig);
+  const mod = loadTypeSafePeer();
+  return mod.createTypeSafeDecisionAdapter({
+    apiKey,
+    defaultModel: providerConfig.model,
+    baseUrl: providerConfig.baseUrl,
+    requestTimeout: providerConfig.requestTimeout,
+  });
 }
 
 function createBedrockAdapterFromPeer(providerConfig: AIProviderSlotConfig): AIProviderAdapter {

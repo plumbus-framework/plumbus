@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-errors.js';
 import type {
   AICostContext,
+  AIDecideConfig,
+  AIDecideResult,
   AIDocument,
   AIFinalGenerateResult,
   AIGenerateWithUsageConfig,
@@ -14,6 +16,14 @@ import type {
   AIToolCallsGenerateResult,
   AIToolEnabledGenerateResult,
 } from '../types/context.js';
+import type { DecisionModelOverride } from '../types/decision.js';
+import {
+  type AnswersFor,
+  type DecisionProviderAdapter,
+  type DecisionQuestions,
+  validateDecisionQuestions,
+} from './decision.js';
+import type { DecisionRegistry } from './decision-registry.js';
 import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../types/prompt.js';
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
@@ -28,6 +38,7 @@ import {
   type AIToolExecutionOptions,
   type ChatMessage,
   normalizeFinishReason,
+  type ProviderClassifyResponse,
   type ProviderRequest,
   type ProviderAssistantState,
   type TokenUsage,
@@ -63,6 +74,20 @@ export interface AIServiceConfig {
   providers: Record<string, AIProviderAdapter>;
   /** Which provider to use when a prompt doesn't specify one */
   defaultProvider: string;
+  /**
+   * Decision provider adapters keyed by name (e.g. "typesafe"). A separate
+   * slot from `providers`: decision models answer typed questions about a
+   * state rather than generating text. Leave unset in apps that never call
+   * `ctx.ai.decide()`.
+   */
+  decisionProviders?: Record<string, DecisionProviderAdapter>;
+  /** Which decision provider `decide()` uses when the call doesn't name one. */
+  defaultDecisionProvider?: string;
+  /** Default model for `decide()` when neither the call nor the contract pins one. */
+  defaultDecisionModel?: string;
+  decisionRegistry?: DecisionRegistry;
+  /** Per-decision provider/model overrides from config/env, keyed by decision name. */
+  decisionOverrides?: Record<string, DecisionModelOverride>;
   promptRegistry?: PromptRegistry;
   costTracker?: CostTracker;
   ragPipeline?: RAGPipeline;
@@ -110,6 +135,12 @@ export function singleProviderConfig(
   };
 }
 
+function throwMissingDecisionRegistry(name: string): never {
+  throw new Error(
+    `ai.decide(): cannot resolve decision "${name}" — no decision registry configured. Pass the defineDecision() object instead, or wire decisionRegistry into createAIService.`,
+  );
+}
+
 function resolveReasoningOverride(
   reasoning: AIReasoningConfig | null | undefined,
   inherited: AIReasoningConfig | undefined,
@@ -122,6 +153,9 @@ export function createAIService(config: AIServiceConfig): AIService {
   const {
     providers,
     defaultProvider,
+    decisionProviders,
+    defaultDecisionProvider,
+    decisionRegistry,
     promptRegistry,
     costTracker,
     ragPipeline,
@@ -167,6 +201,122 @@ export function createAIService(config: AIServiceConfig): AIService {
         }
       },
     };
+  }
+
+  function resolveDecisionProvider(providerName?: string): DecisionProviderAdapter {
+    const name = providerName ?? defaultDecisionProvider;
+    if (name == null || name === '') {
+      throw new Error(
+        'ai.decide(): no decision provider configured. Set AI_DECISION_PROVIDER (and install its add-on, e.g. pnpm add @plumbus/ai-typesafe) or pass decisionProviders/defaultDecisionProvider to createAIService.',
+      );
+    }
+    const adapter = decisionProviders?.[name];
+    if (!adapter) {
+      const available = Object.keys(decisionProviders ?? {}).join(', ') || '(none)';
+      throw new Error(`Decision provider "${name}" not configured. Available: ${available}`);
+    }
+    return adapter;
+  }
+
+  /**
+   * `ctx.ai.classify()` against an adapter that implements the native
+   * `classify` hook. Mirrors the prompt-based branch's cost recording and
+   * explainability so both paths are indistinguishable to the caller, minus
+   * the validation-attempt metadata, which has no meaning without a parse
+   * step.
+   */
+  async function classifyNatively(args: {
+    adapter: AIProviderAdapter;
+    labels: string[];
+    text: string;
+    model: string | undefined;
+    resolvedModel: string;
+    signal: AbortSignal | undefined;
+    costContext: AICostContext | undefined;
+    inputForAI: Record<string, unknown>;
+    securityResult?: ReturnType<typeof checkPromptSecurity>;
+    start: number;
+  }): Promise<string[]> {
+    const nativeClassify = args.adapter.classify;
+    if (!nativeClassify) {
+      throw new Error(
+        `AI provider "${args.adapter.name}" declares nativeClassify but does not implement classify()`,
+      );
+    }
+
+    let response: ProviderClassifyResponse;
+    try {
+      response = await nativeClassify.call(args.adapter, {
+        labels: args.labels,
+        text: args.text,
+        ...(args.model != null ? { model: args.model } : {}),
+        ...(args.signal ? { signal: args.signal } : {}),
+      });
+    } catch (err) {
+      await recordProviderCost(
+        {
+          model: args.resolvedModel,
+          provider: args.adapter.name,
+          operation: 'classify',
+          usage: getTypedAIErrorUsage(err) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          cost: null,
+          latencyMs: performance.now() - args.start,
+          tenantId: config.budget?.tenantId,
+          actor: config.budget?.actor,
+          status: getTypedAIErrorStatus(err),
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+        args.costContext,
+      );
+      throw err;
+    }
+
+    validateTokenUsage(response.usage);
+    const latencyMs = performance.now() - args.start;
+
+    // Same defensive filter as the prompt path: never return a label the
+    // caller did not ask for.
+    const result = response.labels.filter((label) => args.labels.includes(label));
+
+    await recordProviderCost(
+      {
+        model: args.resolvedModel,
+        provider: args.adapter.name,
+        operation: 'classify',
+        usage: response.usage,
+        cost:
+          normalizeCost(response.cost) ??
+          calculateModelCost(
+            response.usage.inputTokens,
+            response.usage.outputTokens,
+            args.resolvedModel,
+            response.usage,
+          ) ??
+          null,
+        latencyMs,
+        tenantId: config.budget?.tenantId,
+        actor: config.budget?.actor,
+        status: 'success',
+      },
+      args.costContext,
+    );
+
+    if (explainability) {
+      explainability.record({
+        operation: 'classify',
+        model: args.model,
+        provider: args.adapter.name,
+        input: { labels: args.labels, ...args.inputForAI },
+        securityWarnings: args.securityResult?.warnings.map((warning) => warning.message),
+        output: result,
+        usage: response.usage,
+        actor: config.budget?.actor,
+        tenantId: config.budget?.tenantId,
+        latencyMs,
+      });
+    }
+
+    return result;
   }
 
   function getSingleTextFieldName(schema: z.ZodTypeAny): string | undefined {
@@ -693,7 +843,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     withContext(identity) {
       return createAIService({ ...config, budget: { ...identity } });
     },
-    features: { perCallProviderModelReasoning: true },
+    features: { perCallProviderModelReasoning: true, typedDecisions: true },
     recordProviderCost,
 
     checkProviderCostBudget(config = {}) {
@@ -1326,6 +1476,25 @@ export function createAIService(config: AIServiceConfig): AIService {
       const activeProvider = resolveProvider();
       const resolvedModel = config.defaultModel ?? activeProvider.name;
 
+      // Adapters that classify natively (e.g. a decision model asking one
+      // yes/no question per label) skip prompt synthesis and JSON parsing
+      // entirely. Everything else — security, budget, cost, explainability —
+      // stays here so caller-visible behavior does not change.
+      if (activeProvider.capabilities?.nativeClassify && activeProvider.classify) {
+        return await classifyNatively({
+          adapter: activeProvider,
+          labels: params.labels,
+          text: textForAI,
+          model: config.defaultModel,
+          resolvedModel,
+          signal: params.signal,
+          costContext: params.costContext,
+          inputForAI,
+          securityResult,
+          start,
+        });
+      }
+
       const systemPrompt =
         'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
       const request: ProviderRequest = {
@@ -1416,6 +1585,141 @@ export function createAIService(config: AIServiceConfig): AIService {
       }
 
       return result;
+    },
+
+    async decide<TQuestions extends DecisionQuestions>(
+      params: AIDecideConfig<TQuestions>,
+    ): Promise<AIDecideResult<TQuestions>> {
+      const start = performance.now();
+
+      // Resolve the contract first: an unknown decision name or a state that
+      // does not match its schema should fail before any provider work.
+      const definition =
+        typeof params.decision === 'string'
+          ? (decisionRegistry ?? throwMissingDecisionRegistry(params.decision)).get(params.decision)
+          : params.decision;
+
+      if (definition && params.questions) {
+        throw new Error(
+          'ai.decide(): pass either `decision` or `questions`, not both — the contract already owns its questions.',
+        );
+      }
+
+      const questions = (definition?.questions ?? params.questions) as TQuestions | undefined;
+      if (!questions) {
+        throw new Error('ai.decide(): one of `decision` or `questions` is required');
+      }
+
+      const state = definition?.state ? definition.state.parse(params.state) : params.state;
+
+      // Security scanning applies to the state, the only caller-supplied
+      // content in the request. Questions are developer-authored contracts.
+      const { inputForAI, securityResult } = applyPromptSecurity({ state });
+      const stateForAI = inputForAI.state;
+
+      const overrideKey = definition?.name.toLowerCase().replaceAll('.', '_');
+      const override =
+        overrideKey != null
+          ? (config.decisionOverrides?.[overrideKey] ??
+            (definition ? config.decisionOverrides?.[definition.name] : undefined))
+          : undefined;
+
+      const activeProvider = resolveDecisionProvider(
+        params.provider ?? override?.provider ?? definition?.model?.provider,
+      );
+
+      validateDecisionQuestions(questions, activeProvider.capabilities);
+
+      const requestedModel =
+        params.model ?? override?.model ?? definition?.model?.name ?? config.defaultDecisionModel;
+
+      // A decision is one round trip with no validation retries, so the
+      // pre-check uses the serialized request as its token estimate.
+      const estimatedTokens = Math.ceil(
+        Buffer.byteLength(JSON.stringify({ state: stateForAI, questions }), 'utf8') / 4,
+      );
+      checkBudget(estimatedTokens);
+
+      const operation = 'decide';
+      let response: Awaited<ReturnType<DecisionProviderAdapter['decide']>>;
+      try {
+        response = await activeProvider.decide({
+          state: stateForAI,
+          questions,
+          ...(requestedModel != null ? { model: requestedModel } : {}),
+          ...(params.signal ? { signal: params.signal } : {}),
+        });
+      } catch (err) {
+        await recordProviderCost(
+          {
+            model: requestedModel ?? activeProvider.name,
+            provider: activeProvider.name,
+            promptName: definition?.name,
+            operation,
+            usage: getTypedAIErrorUsage(err) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            cost: null,
+            latencyMs: performance.now() - start,
+            tenantId: config.budget?.tenantId,
+            actor: config.budget?.actor,
+            status: getTypedAIErrorStatus(err),
+            errorMessage: err instanceof Error ? err.message : String(err),
+          },
+          params.costContext,
+        );
+        throw err;
+      }
+
+      validateTokenUsage(response.usage);
+      const latencyMs = performance.now() - start;
+
+      const cost =
+        normalizeCost(response.cost) ??
+        calculateModelCost(
+          response.usage.inputTokens,
+          response.usage.outputTokens,
+          response.model,
+          response.usage,
+        ) ??
+        null;
+
+      await recordProviderCost(
+        {
+          model: response.model,
+          provider: activeProvider.name,
+          promptName: definition?.name,
+          operation,
+          usage: response.usage,
+          cost,
+          latencyMs,
+          tenantId: config.budget?.tenantId,
+          actor: config.budget?.actor,
+          status: 'success',
+        },
+        params.costContext,
+      );
+
+      if (explainability) {
+        explainability.record({
+          operation,
+          model: response.model,
+          provider: activeProvider.name,
+          promptName: definition?.name,
+          input: inputForAI,
+          securityWarnings: securityResult?.warnings.map((warning) => warning.message),
+          output: response.answers,
+          usage: response.usage,
+          actor: config.budget?.actor,
+          tenantId: config.budget?.tenantId,
+          latencyMs,
+        });
+      }
+
+      return {
+        model: response.model,
+        answers: response.answers as AnswersFor<TQuestions>,
+        usage: response.usage,
+        cost,
+      };
     },
 
     async retrieve(params: {

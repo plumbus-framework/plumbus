@@ -1,9 +1,10 @@
 // ── AI Module ──
-// AI runtime: provider adapters (OpenAI, Anthropic), prompt registry, output
-// validation, cost tracking, security scanning, explainability, and RAG pipeline.
-// Used by ctx.ai in capability handlers.
+// AI runtime: provider adapters (OpenAI, Anthropic), decision providers,
+// prompt registry, output validation, cost tracking, security scanning,
+// explainability, and RAG pipeline. Used by ctx.ai in capability handlers.
 //
-// Key exports: createAIService, createRAGPipeline, PromptRegistry, checkPromptSecurity
+// Key exports: createAIService, createRAGPipeline, PromptRegistry,
+// checkPromptSecurity, noul/choice/score
 
 // AI Service
 export {
@@ -29,6 +30,33 @@ export {
   type DerivedLedgerUsage,
   type LedgerUsageKind,
 } from './derive-ledger-usage.js';
+// Decision primitive (ctx.ai.decide)
+export {
+  choice,
+  noul,
+  score,
+  validateDecisionQuestions,
+  DECISION_LIMITS,
+  type AnswerFor,
+  type AnswersFor,
+  type ChoiceAnswer,
+  type ChoiceQuestion,
+  type DecisionAnswer,
+  type DecisionInstructions,
+  type DecisionModel,
+  type DecisionProviderAdapter,
+  type DecisionProviderCapabilities,
+  type DecisionQuestion,
+  type DecisionQuestions,
+  type DecisionRequest,
+  type DecisionResponse,
+  type NoulAnswer,
+  type NoulCriteria,
+  type NoulQuestion,
+  type ScoreAnswer,
+  type ScoreQuestion,
+} from './decision.js';
+export { DecisionRegistry } from './decision-registry.js';
 // Explainability
 export {
   createExplainabilityTracker,
@@ -50,12 +78,15 @@ export { PromptRegistry } from './prompt-registry.js';
 // Provider adapters
 export {
   createAnthropicAdapter,
+  createDecisionAdapter,
   createOpenAIAdapter,
   createProviderAdapter,
   joinAndFilterModels,
   normalizeFinishReason,
   type AIProviderAdapter,
   type AIProviderCapabilities,
+  type ProviderClassifyRequest,
+  type ProviderClassifyResponse,
   type AITool,
   type AIToolCall,
   type AIToolChoice,

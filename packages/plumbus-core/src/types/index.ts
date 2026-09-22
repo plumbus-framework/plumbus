@@ -38,6 +38,8 @@ export type {
 } from './config.js';
 // ── Context ──
 export type {
+  AIDecideConfig,
+  AIDecideResult,
   AIDocument,
   AIFinalGenerateResult,
   AIGenerateConfig,
@@ -118,6 +120,12 @@ export type {
   PolicyReport,
   RuleEvaluation,
 } from './governance.js';
+// ── Decision ──
+export type {
+  DecisionDefinition,
+  DecisionModelConfig,
+  DecisionModelOverride,
+} from './decision.js';
 // ── Prompt ──
 export { ReasoningEffortValues, ReasoningLevelValues } from './prompt.js';
 export type {

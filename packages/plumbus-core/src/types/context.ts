@@ -10,6 +10,9 @@ import type {
   ProviderAssistantState,
 } from '../ai/provider.js';
 
+import type { AnswersFor, DecisionQuestions } from '../ai/decision.js';
+import type { DecisionDefinition } from './decision.js';
+
 // Re-export the provider tool-calling protocol types on the context surface.
 export type {
   AITool,
@@ -439,6 +442,8 @@ export interface AIService {
   readonly features?: {
     /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */
     perCallProviderModelReasoning?: true;
+    /** Supports `decide()` against registered decision providers. */
+    typedDecisions?: true;
   };
 
   /**
@@ -546,6 +551,70 @@ export interface AIService {
     minScore?: number;
     signal?: AbortSignal;
   }): Promise<AIDocument[]>;
+
+  /**
+   * Evaluate a `state` against typed questions and get one typed answer per
+   * question. Answers carry calibrated probabilities, so your code decides
+   * what to do — `decide()` never returns free text to parse.
+   *
+   * Pass either an inline `questions` map or a `decision` contract built with
+   * `defineDecision()`. With a contract, its `state` schema is parsed and its
+   * `model` config resolved before any network I/O.
+   *
+   * Requires a registered decision provider (`AIServiceConfig.decisionProviders`).
+   * Optional on the interface so test doubles and older runtimes still satisfy
+   * `AIService`; check `features.typedDecisions` when writing version-tolerant
+   * add-ons.
+   *
+   * ```ts
+   * const { answers } = await ctx.ai.decide({
+   *   state: ticket.message,
+   *   questions: {
+   *     isUrgent: noul('Does this convey urgency?'),
+   *     department: choice('Which team should handle this?', {
+   *       billing: 'Payments, invoicing, refunds',
+   *       technical: 'Bugs, outages, integrations',
+   *     }),
+   *   },
+   * });
+   *
+   * if (answers.isUrgent.noul > 0.9) await ctx.events.emit('ticket.escalated', { … });
+   * ```
+   */
+  decide?<TQuestions extends DecisionQuestions>(
+    config: AIDecideConfig<TQuestions>,
+  ): Promise<AIDecideResult<TQuestions>>;
+}
+
+// ── Decide ──
+export interface AIDecideConfig<TQuestions extends DecisionQuestions = DecisionQuestions> {
+  /**
+   * The content to evaluate. A plain string for text, or structured data for
+   * chat logs, records, or application state.
+   */
+  state: unknown;
+  /** Inline questions. Mutually exclusive with `decision`. */
+  questions?: TQuestions;
+  /** A contract from `defineDecision()`. Mutually exclusive with `questions`. */
+  decision?: DecisionDefinition<TQuestions> | string;
+  /** Per-call decision provider override. */
+  provider?: string;
+  /** Per-call model override (e.g. pin `"jev-1.13.0"` instead of an alias). */
+  model?: string;
+  /** Abort the in-flight request. Defaults to `ctx.signal` inside flow steps. */
+  signal?: AbortSignal;
+  /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
+  costContext?: AICostContext;
+}
+
+export interface AIDecideResult<TQuestions extends DecisionQuestions = DecisionQuestions> {
+  /** The versioned model id that answered (aliases resolve to a version here). */
+  model: string;
+  /** One answer per question, under the same keys the questions used. */
+  answers: AnswersFor<TQuestions>;
+  usage: AITokenUsage;
+  /** USD cost for this call, or `null` when no rate is known. */
+  cost: number | null;
 }
 
 // ── Logger Service ──

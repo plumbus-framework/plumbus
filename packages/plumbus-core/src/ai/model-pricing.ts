@@ -25,8 +25,9 @@ import { validateTokenUsage } from './usage-validation.js';
  * - `moderation`: content-moderation classifiers
  * - `image`:      image generation
  * - `audio`:      speech-to-text / text-to-speech / realtime audio
+ * - `decision`:   System One decision models (called via `decide`)
  */
-export type Kind = 'text' | 'embedding' | 'moderation' | 'image' | 'audio';
+export type Kind = 'text' | 'embedding' | 'moderation' | 'image' | 'audio' | 'decision';
 
 export interface ModelRate {
   /** USD per 1M input tokens */
@@ -165,6 +166,18 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'claude-3-5-haiku': { kind: 'text', inputPerMTok: 0.8, outputPerMTok: 4 },
   'claude-3-opus': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
   'claude-3-haiku': { kind: 'text', inputPerMTok: 0.25, outputPerMTok: 1.25 },
+
+  // ── TypeSafe: Jev (decision models — no chat, no embedding API) ──
+  // Published as $42 per Btok (billion tokens) of input, which is
+  // $0.042 per MTok. Output tokens are free.
+  // Source: https://docs.typesafe.ai/models
+  // `@plumbus/ai-typesafe` also returns an explicit `cost`, which wins over
+  // these rates; they exist so budget estimation and `listModels` still work
+  // without the add-on installed.
+  'jev-1.13.0': { kind: 'decision', inputPerMTok: 0.042, outputPerMTok: 0 },
+  'jev-1.13': { kind: 'decision', inputPerMTok: 0.042, outputPerMTok: 0 },
+  'jev-latest': { kind: 'decision', inputPerMTok: 0.042, outputPerMTok: 0 },
+  'jev-preview': { kind: 'decision', inputPerMTok: 0.042, outputPerMTok: 0 },
 };
 
 // OpenAI guarantees the special price at least through November 21, 2026.

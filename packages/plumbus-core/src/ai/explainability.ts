@@ -10,7 +10,8 @@ import type { TokenUsage } from './provider.js';
 export interface AIInvocationRecord {
   id: string;
   timestamp: Date;
-  operation: 'generate' | 'extract' | 'classify' | 'retrieve';
+  operation: 'generate' | 'extract' | 'classify' | 'retrieve' | 'decide';
+  /** Prompt name, or decision name for `decide` invocations. */
   promptName?: string;
   model?: string;
   provider?: string;

@@ -20,6 +20,7 @@ export interface AICostRecord {
     | 'generate'
     | 'extract'
     | 'classify'
+    | 'decide'
     | 'embed'
     | 'transcribe'
     | 'synthesize'
