@@ -115,12 +115,12 @@ This is the configuration most apps want: OpenAI (or Anthropic, or Bedrock) for 
 ### Programmatic
 
 ```typescript
-import { createAIService, createProviderAdapter } from '@plumbus/core';
+import { createAIService, createOpenAIAdapter } from '@plumbus/core';
 import { createTypeSafeDecisionAdapter } from '@plumbus/ai-typesafe';
 
 const ai = createAIService({
   providers: {
-    openai: createProviderAdapter('openai', { apiKey: process.env.AI_OPENAI_API_KEY! }),
+    openai: createOpenAIAdapter({ apiKey: process.env.AI_OPENAI_API_KEY! }),
   },
   defaultProvider: 'openai',
 
@@ -157,6 +157,28 @@ The decision provider becomes the default so the AI service still boots. Anythin
 | `retry` | SDK defaults | Partial `RetryPolicy` override |
 | `client` | — | Pre-built `TypeSafeClient`; ignores every other connection field. For tests and custom transport |
 | `labelThreshold` | `0.5` | Classify only: minimum probability for a label to be returned |
+
+---
+
+## Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `AI_TYPESAFE_API_KEY` | Credentials. `TYPESAFE_API_KEY` is also accepted; the `AI_`-prefixed name wins when both are set. |
+| `AI_TYPESAFE_MODEL` | Default model for the slot, used by both `decide()` and native `classify()`. |
+| `AI_TYPESAFE_BASE_URL` | API root override. |
+| `AI_TYPESAFE_REQUEST_TIMEOUT` | Timeout **per attempt**, in milliseconds. |
+| `AI_TYPESAFE_DAILY_COST_LIMIT` | Daily USD cap fed into the cost tracker. |
+| `AI_DECISION_PROVIDER` | Which decision provider serves `ctx.ai.decide()`. Set to `typesafe` to enable the decision slot. |
+| `AI_DECISION_MODEL` | Default decision model. Falls back to `AI_TYPESAFE_MODEL`. |
+| `DECISION_{NAME}_PROVIDER` | Per-decision provider override. Dots in the decision name become underscores, uppercased. |
+| `DECISION_{NAME}_MODEL` | Per-decision model override. |
+
+So a decision named `support.triageTicket` is overridden by `DECISION_SUPPORT_TRIAGETICKET_MODEL`.
+
+`AI_DEFAULT_PROVIDER=typesafe` is also valid — it registers the classify-only provider adapter as the chat default. Only do that in an app with no text surface; see [Native classify](#native-classify).
+
+A decision provider set with no credentials logs a warning naming `AI_TYPESAFE_API_KEY` and leaves `ctx.ai.decide()` unavailable, rather than failing the boot. Check startup logs when `decide()` reports "not configured".
 
 ---
 

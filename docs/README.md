@@ -154,8 +154,8 @@ docs/
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
-| Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
+| Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusai-bedrock) |
 | Make a typed decision instead of parsing model text | [AI → Typed Decisions](ai/decisions.md) |
-| Use TypeSafe / Jev (optional decision provider) | [AI → TypeSafe / Jev](ai/typesafe.md) (detailed) · [AI Integration § TypeSafe](ai/ai-integration.md#typesafe--jev-plumbusaitypesafe) |
+| Use TypeSafe / Jev (optional decision provider) | [AI → TypeSafe / Jev](ai/typesafe.md) (detailed) · [AI Integration § TypeSafe](ai/ai-integration.md#typesafe--jev-plumbusai-typesafe) |
 | Route on model confidence instead of just the answer | [AI → Typed Decisions § Confidence](ai/decisions.md#confidence-and-routing) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

@@ -71,12 +71,12 @@ plumbus doctor
 ## Quick start
 
 ```typescript
-import { createAIService, createProviderAdapter } from '@plumbus/core';
+import { createAIService, createOpenAIAdapter } from '@plumbus/core';
 import { createTypeSafeDecisionAdapter } from '@plumbus/ai-typesafe';
 
 const ai = createAIService({
   // Text generation stays on a text provider.
-  providers: { openai: createProviderAdapter('openai', { apiKey: process.env.AI_OPENAI_API_KEY! }) },
+  providers: { openai: createOpenAIAdapter({ apiKey: process.env.AI_OPENAI_API_KEY! }) },
   defaultProvider: 'openai',
 
   // Typed decisions go to Jev.

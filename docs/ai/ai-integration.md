@@ -559,11 +559,11 @@ AI_DECISION_MODEL=jev-latest
 Or programmatically:
 
 ```typescript
-import { createAIService, createProviderAdapter } from "@plumbus/core";
+import { createAIService, createOpenAIAdapter } from "@plumbus/core";
 import { createTypeSafeDecisionAdapter } from "@plumbus/ai-typesafe";
 
 createAIService({
-  providers: { openai: createProviderAdapter("openai", { apiKey: process.env.AI_OPENAI_API_KEY! }) },
+  providers: { openai: createOpenAIAdapter({ apiKey: process.env.AI_OPENAI_API_KEY! }) },
   defaultProvider: "openai",
   decisionProviders: {
     typesafe: createTypeSafeDecisionAdapter({ apiKey: process.env.AI_TYPESAFE_API_KEY! }),
@@ -781,7 +781,7 @@ Every AI call is metered. Cost resolution:
 2. Otherwise `estimateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
 3. Unknown models (e.g. local Ollama) → no catalog price (`cost: 0, costAvailable: false` in legacy numeric results; `null` in ledger rows); explicitly free providers may report `cost: 0`.
 
-Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusaibedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
+Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusai-bedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
 
 ### Automatic Per-Request Cost
 

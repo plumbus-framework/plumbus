@@ -18,12 +18,14 @@
 `ctx.ai.decide` is mocked for you. Stub the answers you assert on; anything omitted gets a deliberately **undecided** default for its question type — noul `0.5`, the first option of a choice, the middle level of a score, each with a uniform distribution and low confidence.
 
 ```typescript
-import { createTestContext, describe, expect, it } from '@plumbus/core/testing';
+import { createTestContext, describe, expect, it, mockEvents } from '@plumbus/core/testing';
 import { triageTicket } from '../app/capabilities/triageTicket.js';
 
 describe('triageTicket', () => {
   it('escalates an urgent, angry ticket', async () => {
+    const events = mockEvents();
     const ctx = createTestContext({
+      events,
       ai: {
         decide: {
           isUrgent: { type: 'noul', noul: 0.97 },
@@ -42,14 +44,16 @@ describe('triageTicket', () => {
           },
         },
       },
-      data: { tickets: [{ id: 'ticket-1', subject: 'Payouts failing', body: 'Third day now.' }] },
+      data: { Ticket: [{ id: 'ticket-1', subject: 'Payouts failing', body: 'Third day now.' }] },
     });
 
-    await triageTicket.handler(ctx, { ticketId: 'ticket-1' });
+    const result = await triageTicket.handler(ctx, { ticketId: 'ticket-1' });
 
-    expect(ctx.events.emitted).toContainEqual(
-      expect.objectContaining({ name: 'ticket.escalated' }),
-    );
+    expect(result.escalated).toBe(true);
+    expect(events.emitted).toContainEqual({
+      eventName: 'ticket.escalated',
+      payload: expect.objectContaining({ ticketId: 'ticket-1' }),
+    });
   });
 });
 ```
@@ -73,12 +77,12 @@ it('sends a low-confidence routing decision to human review', async () => {
         },
       },
     },
-    data: { tickets: [{ id: 'ticket-1', subject: 'Hmm', body: 'Something is off.' }] },
+    data: { Ticket: [{ id: 'ticket-1', subject: 'Hmm', body: 'Something is off.' }] },
   });
 
   await triageTicket.handler(ctx, { ticketId: 'ticket-1' });
 
-  const ticket = await ctx.data.tickets.findById('ticket-1');
+  const ticket = await ctx.data.Ticket.findById('ticket-1');
   expect(ticket.status).toBe('needs_human_review');
 });
 ```
@@ -184,7 +188,7 @@ The monorepo ships one: `examples/ai-typesafe-smoke`.
 
 ## Governance tests
 
-The decision rules ship in `aiRules` and read `inventory.decisions`:
+The decision rules ship in `aiRules` and read `inventory.decisions`. They are **not** in `plumbus verify`'s built-in rule set — like the existing prompt rules, you register them yourself, which is what makes a governance test the right home for them:
 
 ```typescript
 import { aiRules } from '@plumbus/core';
@@ -214,4 +218,4 @@ assertNoGovernanceSignal(result, [
 - [ ] Assertions are on ranges and structure, not exact probabilities
 - [ ] Failure-path tests cover a throwing provider, not just the happy path
 - [ ] Live calls live in a `describe.skipIf(!hasKey)` smoke script outside the unit suite
-- [ ] `plumbus verify` is clean of decision governance signals you did not consciously accept
+- [ ] A governance test registers `aiRules` over your decisions (see above) and is clean of signals you did not consciously accept

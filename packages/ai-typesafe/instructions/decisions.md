@@ -161,7 +161,7 @@ An 80/20 split and a 45/42/13 split can both put `billing` on top. Only the seco
 const { choice: department, confidence } = answers.department;
 
 if (confidence < 0.7) {
-  await ctx.data.tickets.update(ticket.id, { status: 'needs_human_review' });
+  await ctx.data.Ticket.update(ticket.id, { status: 'needs_human_review' });
   await ctx.events.emit('ticket.reviewRequested', { ticketId: ticket.id, department, confidence });
   return;
 }
@@ -243,7 +243,7 @@ defineCapability({
   name: 'triageTicket',
   domain: 'support',
   kind: 'action',
-  effects: { ai: true, data: true, events: true },
+  effects: { data: ['Ticket'], events: ['ticket.escalated'], external: [], ai: true },
   explanation: { enabled: true },
   // …
 });

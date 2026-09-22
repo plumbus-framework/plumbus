@@ -76,7 +76,7 @@ function toDecisionAnswers(result: SystemOneResult<Questions>): Record<string, D
  * import { createTypeSafeDecisionAdapter } from "@plumbus/ai-typesafe";
  *
  * createAIService({
- *   providers: { openai: createProviderAdapter("openai", { apiKey }) },
+ *   providers: { openai: createOpenAIAdapter({ apiKey }) },
  *   defaultProvider: "openai",
  *   decisionProviders: { typesafe: createTypeSafeDecisionAdapter({ apiKey }) },
  *   defaultDecisionProvider: "typesafe",

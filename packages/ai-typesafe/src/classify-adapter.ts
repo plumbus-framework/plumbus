@@ -85,7 +85,7 @@ function buildLabelQuestions(labels: string[]): { questions: Questions; keyToLab
  * ```ts
  * createAIService({
  *   providers: {
- *     openai: createProviderAdapter("openai", { apiKey: process.env.AI_OPENAI_API_KEY! }),
+ *     openai: createOpenAIAdapter({ apiKey: process.env.AI_OPENAI_API_KEY! }),
  *     typesafe: createTypeSafeAdapter({ apiKey: process.env.AI_TYPESAFE_API_KEY! }),
  *   },
  *   defaultProvider: "openai",

@@ -81,11 +81,11 @@ AI_DECISION_PROVIDER=typesafe
 ## Programmatic wiring
 
 ```typescript
-import { createAIService, createProviderAdapter } from '@plumbus/core';
+import { createAIService, createOpenAIAdapter } from '@plumbus/core';
 import { createTypeSafeDecisionAdapter } from '@plumbus/ai-typesafe';
 
 const ai = createAIService({
-  providers: { openai: createProviderAdapter('openai', { apiKey: process.env.AI_OPENAI_API_KEY! }) },
+  providers: { openai: createOpenAIAdapter({ apiKey: process.env.AI_OPENAI_API_KEY! }) },
   defaultProvider: 'openai',
   decisionProviders: {
     typesafe: createTypeSafeDecisionAdapter({ apiKey: process.env.AI_TYPESAFE_API_KEY! }),
@@ -185,7 +185,7 @@ The catch: `ctx.ai.classify()` always uses the **default** provider and takes no
 Decision contracts, thresholds, and routing belong in Plumbus primitives:
 
 - `defineDecision()` in `app/decisions/` for reusable question sets, with a `state` Zod schema.
-- `defineCapability()` with `effects: { ai: true }` and `explanation: { enabled: true }`.
+- `defineCapability()` with `ai: true` in `effects` and `explanation: { enabled: true }`.
 - `ctx.ai.decide()` for the call; plain TypeScript for the branching.
 
 Do **not** import `@typesafe-ai/sdk`, hand-roll an HTTP client, or reimplement retries, cost tracking, or budget checks in app code. This package is an adapter, not a parallel AI runtime.

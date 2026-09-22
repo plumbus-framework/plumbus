@@ -90,11 +90,11 @@ AI_DECISION_MODEL=jev-latest
 Or wire it programmatically:
 
 ```typescript
-import { createAIService, createProviderAdapter } from '@plumbus/core';
+import { createAIService, createOpenAIAdapter } from '@plumbus/core';
 import { createTypeSafeDecisionAdapter } from '@plumbus/ai-typesafe';
 
 const ai = createAIService({
-  providers: { openai: createProviderAdapter('openai', { apiKey: process.env.AI_OPENAI_API_KEY! }) },
+  providers: { openai: createOpenAIAdapter({ apiKey: process.env.AI_OPENAI_API_KEY! }) },
   defaultProvider: 'openai',
   decisionProviders: {
     typesafe: createTypeSafeDecisionAdapter({ apiKey: process.env.AI_TYPESAFE_API_KEY! }),
@@ -202,13 +202,20 @@ import { z } from 'zod';
 
 export const triageTicket = defineCapability({
   name: 'triageTicket',
-  domain: 'support',
   kind: 'action',
+  domain: 'support',
+  description: 'Route an inbound support ticket and gauge its temperature',
+
   input: z.object({ ticketId: z.string().uuid() }),
-  effects: { ai: true, data: true, events: true },
+  output: z.object({ department: z.string(), escalated: z.boolean() }),
+
+  access: { roles: ['agent'], tenantScoped: true },
+  effects: { data: ['Ticket'], events: ['ticket.escalated'], external: [], ai: true },
   explanation: { enabled: true },
-  async handler(ctx, input) {
-    const ticket = await ctx.data.tickets.findById(input.ticketId);
+
+  handler: async (ctx, input) => {
+    const ticket = await ctx.data.Ticket.findById(input.ticketId);
+    if (!ticket) throw ctx.errors.notFound('Ticket not found');
 
     const { answers, usage, cost } = await ctx.ai.decide({
       state: { subject: ticket.subject, body: ticket.body },
@@ -231,16 +238,19 @@ export const triageTicket = defineCapability({
     });
 
     // Plain code from here. No parsing, no schema repair.
-    if (answers.isUrgent.noul > 0.9 && answers.frustration.score > 1.5) {
+    const escalated = answers.isUrgent.noul > 0.9 && answers.frustration.score > 1.5;
+    if (escalated) {
       await ctx.events.emit('ticket.escalated', { ticketId: ticket.id });
     }
 
-    await ctx.data.tickets.update(ticket.id, {
+    await ctx.data.Ticket.update(ticket.id, {
       department: answers.department.choice,
       urgencyScore: answers.isUrgent.noul,
     });
 
     ctx.logger.info('Triaged ticket', { tokens: usage.inputTokens, cost });
+
+    return { department: answers.department.choice, escalated };
   },
 });
 ```
@@ -367,7 +377,7 @@ const { answers } = await ctx.ai.decide({ decision: triageTicket, state });
 const { choice: department, confidence } = answers.department;
 
 if (confidence < 0.7) {
-  await ctx.data.tickets.update(ticket.id, { status: 'needs_human_review' });
+  await ctx.data.Ticket.update(ticket.id, { status: 'needs_human_review' });
   await ctx.events.emit('ticket.reviewRequested', { ticketId: ticket.id, department, confidence });
   return;
 }
@@ -478,7 +488,7 @@ That last part is the reason to enable it. When someone asks six months later wh
 ```typescript
 defineCapability({
   // …
-  effects: { ai: true },
+  effects: { data: ['Ticket'], events: [], external: [], ai: true },
   explanation: { enabled: true },
 });
 ```
@@ -489,7 +499,17 @@ Prompt security applies to the `state`, which is the only caller-supplied conten
 
 ## Governance rules
 
-Three rules ship in `aiRules` and evaluate `inventory.decisions`:
+Three rules ship in `aiRules` and evaluate `inventory.decisions`. Like the existing prompt rules, they are **not** part of `plumbus verify`'s built-in rule set — register them yourself, normally in a governance test:
+
+```typescript
+import { aiRules } from '@plumbus/core';
+import { assertNoGovernanceSignal, emptyInventory, evaluateGovernance } from '@plumbus/core/testing';
+import { triageTicket } from '../app/decisions/triage.js';
+
+const result = evaluateGovernance(aiRules, emptyInventory({ decisions: [triageTicket] }));
+assertNoGovernanceSignal(result, ['ai.decision-missing-state-schema']);
+```
+
 
 | Rule | Severity | Fires when |
 |---|---|---|
@@ -548,11 +568,14 @@ const tags = Object.entries(answers)
 `createTestContext` gives you a `ctx.ai.decide` that needs no network and no key. Stub the answers you assert on; anything you leave out gets a deliberately undecided default for its question type (noul `0.5`, the first option of a choice, the middle level of a score, each with a uniform distribution).
 
 ```typescript
-import { createTestContext, describe, expect, it } from '@plumbus/core/testing';
+import { createTestContext, expect, it, mockEvents } from '@plumbus/core/testing';
 import { triageTicket } from '../app/capabilities/triageTicket.js';
 
 it('escalates an urgent, angry ticket', async () => {
+  const events = mockEvents();
   const ctx = createTestContext({
+    events,
+    data: { Ticket: [{ id: 'ticket-1', subject: 'Payouts failing', body: 'Third day now.' }] },
     ai: {
       decide: {
         isUrgent: { type: 'noul', noul: 0.97 },
@@ -573,11 +596,13 @@ it('escalates an urgent, angry ticket', async () => {
     },
   });
 
-  await triageTicket.handler(ctx, { ticketId: 'ticket-1' });
+  const result = await triageTicket.handler(ctx, { ticketId: 'ticket-1' });
 
-  expect(ctx.events.emitted).toContainEqual(
-    expect.objectContaining({ name: 'ticket.escalated' }),
-  );
+  expect(result.escalated).toBe(true);
+  expect(events.emitted).toContainEqual({
+    eventName: 'ticket.escalated',
+    payload: expect.objectContaining({ ticketId: 'ticket-1' }),
+  });
 });
 ```
 
@@ -677,7 +702,7 @@ Register it through `decisionProviders`. Env-driven construction (`createDecisio
 - [ ] `explanation: { enabled: true }` on capabilities that call `decide()`
 - [ ] Every path a low-confidence answer can take has a human-review or fallback branch
 - [ ] `AI_TYPESAFE_DAILY_COST_LIMIT` (or a tracker budget) set
-- [ ] `plumbus verify` clean of decision governance signals you did not consciously accept
+- [ ] A governance test registers `aiRules` over your decisions and is clean of signals you did not consciously accept
 - [ ] Unit tests use `mockAI` / `createStubDecisionAdapter`; live calls only in a key-gated smoke test
 
 ---
