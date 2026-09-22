@@ -561,10 +561,10 @@ export interface AIService {
    * `defineDecision()`. With a contract, its `state` schema is parsed and its
    * `model` config resolved before any network I/O.
    *
-   * Requires a registered decision provider (`AIServiceConfig.decisionProviders`).
-   * Optional on the interface so test doubles and older runtimes still satisfy
-   * `AIService`; check `features.typedDecisions` when writing version-tolerant
-   * add-ons.
+   * Requires a registered decision provider (`AIServiceConfig.decisionProviders`);
+   * without one this throws with the env var and install command in the
+   * message. Add-ons that must tolerate older core versions should check
+   * `features.typedDecisions` rather than the method's presence.
    *
    * ```ts
    * const { answers } = await ctx.ai.decide({
@@ -581,7 +581,7 @@ export interface AIService {
    * if (answers.isUrgent.noul > 0.9) await ctx.events.emit('ticket.escalated', { … });
    * ```
    */
-  decide?<TQuestions extends DecisionQuestions>(
+  decide<TQuestions extends DecisionQuestions>(
     config: AIDecideConfig<TQuestions>,
   ): Promise<AIDecideResult<TQuestions>>;
 }

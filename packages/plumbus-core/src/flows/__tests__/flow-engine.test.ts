@@ -771,6 +771,7 @@ describe('FlowEngine — cooperative cancellation (ctx.signal)', () => {
         streamGenerate: vi.fn(),
         extract: vi.fn(),
         classify: vi.fn(),
+        decide: vi.fn(),
         retrieve: vi.fn(),
       },
     });
@@ -799,6 +800,58 @@ describe('FlowEngine — cooperative cancellation (ctx.signal)', () => {
     const firstCall = generate.mock.calls[0];
     expect(firstCall).toBeDefined();
     const calledWith = firstCall?.[0] as { signal?: AbortSignal };
+    expect(calledWith.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('threads ctx.signal into ctx.ai.decide by default', async () => {
+    const registry = new FlowRegistry();
+    registry.register(makeTestFlow());
+
+    const db = mockDb();
+
+    const decide = vi.fn().mockResolvedValue({
+      model: 'mock-decision-1.0.0',
+      answers: { isUrgent: { type: 'noul', noul: 0.9 } },
+      usage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 },
+      cost: 0,
+    });
+    const ctxWithAi = makeCtx({
+      ai: {
+        generate: vi.fn(),
+        generateWithUsage: vi.fn(),
+        streamGenerate: vi.fn(),
+        extract: vi.fn(),
+        classify: vi.fn(),
+        decide,
+        retrieve: vi.fn(),
+      },
+    });
+
+    const stepDeps = {
+      executeCapability: vi.fn().mockImplementation(async (_name: string, stepCtx: any) => {
+        // Capability does NOT pass a signal — engine must default to ctx.signal.
+        await stepCtx.ai.decide({
+          state: 'x',
+          questions: { isUrgent: { type: 'noul', instructions: 'Urgent?' } },
+        });
+        return { success: true, data: {} };
+      }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+
+    const engine = createFlowEngine({
+      db,
+      registry,
+      stepDeps,
+      workerId: 'worker-ai-2',
+      flowHeartbeatIntervalMs: 60_000,
+    });
+
+    const exec = await engine.start('order-processing', { orderId: 'x' }, makeAuth());
+    await engine.runNext(exec.id, ctxWithAi);
+
+    expect(decide).toHaveBeenCalledTimes(1);
+    const calledWith = decide.mock.calls[0]?.[0] as { signal?: AbortSignal };
     expect(calledWith.signal).toBeInstanceOf(AbortSignal);
   });
 

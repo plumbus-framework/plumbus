@@ -77,6 +77,9 @@ const noopAI: AIService = {
   async classify() {
     throw new Error('AI service not configured');
   },
+  async decide() {
+    throw new Error('AI service not configured');
+  },
   async retrieve() {
     throw new Error('AI service not configured');
   },

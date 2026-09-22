@@ -1184,6 +1184,7 @@ function wrapAiWithDefaultSignal(ai: AIService, defaultSignal: AbortSignal): AIS
   });
 
   return {
+    features: ai.features,
     recordProviderCost: (entry, costContext) => ai.recordProviderCost(entry, costContext),
     checkProviderCostBudget: (config) => ai.checkProviderCostBudget(config),
     generate: (params) => ai.generate(withSignal(params)),
@@ -1192,6 +1193,8 @@ function wrapAiWithDefaultSignal(ai: AIService, defaultSignal: AbortSignal): AIS
     streamGenerate: (params) => ai.streamGenerate(withSignal(params)),
     extract: (params) => ai.extract(withSignal(params)),
     classify: (params) => ai.classify(withSignal(params)),
+    decide: ((config: Parameters<AIService['decide']>[0]) =>
+      ai.decide(withSignal(config))) as AIService['decide'],
     retrieve: (params) => ai.retrieve(withSignal(params)),
   };
 }

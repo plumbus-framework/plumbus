@@ -600,7 +600,9 @@ export function wrapAIServiceWithDynamicOverrides(
     },
     // Decisions carry no prompt overrides to refresh — provider and model come
     // from the decision contract, DECISION_* env, or the call itself.
-    decide: base.decide ? (params) => base.decide?.(params) as never : undefined,
+    decide(params) {
+      return base.decide(params);
+    },
     retrieve(params) {
       return base.retrieve(params);
     },

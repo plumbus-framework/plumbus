@@ -97,7 +97,7 @@ describe('ctx.ai.decide', () => {
   it('returns one answer per question, keyed by question id', async () => {
     const { service } = setupService();
 
-    const result = await service.decide?.({
+    const result = await service.decide({
       state: 'Help! My payouts have been failing for 3 days.',
       questions: {
         isUrgent: noul('Does this convey urgency?'),
@@ -106,10 +106,10 @@ describe('ctx.ai.decide', () => {
       },
     });
 
-    expect(result?.answers.isUrgent).toEqual({ type: 'noul', noul: 0.9 });
-    expect(result?.answers.department.choice).toBe('billing');
-    expect(result?.answers.frustration.score).toBe(1);
-    expect(result?.usage).toEqual({ inputTokens: 200, outputTokens: 10, totalTokens: 210 });
+    expect(result.answers.isUrgent).toEqual({ type: 'noul', noul: 0.9 });
+    expect(result.answers.department.choice).toBe('billing');
+    expect(result.answers.frustration.score).toBe(1);
+    expect(result.usage).toEqual({ inputTokens: 200, outputTokens: 10, totalTokens: 210 });
   });
 
   it('parses the state against a decision contract before calling the provider', async () => {
@@ -120,10 +120,10 @@ describe('ctx.ai.decide', () => {
     });
     const { service, requests } = setupService();
 
-    await expect(service.decide?.({ decision: triage, state: { message: 42 } })).rejects.toThrow();
+    await expect(service.decide({ decision: triage, state: { message: 42 } })).rejects.toThrow();
     expect(requests).toHaveLength(0);
 
-    await service.decide?.({ decision: triage, state: { message: 'hello' } });
+    await service.decide({ decision: triage, state: { message: 'hello' } });
     expect(requests[0]?.state).toEqual({ message: 'hello' });
   });
 
@@ -134,7 +134,7 @@ describe('ctx.ai.decide', () => {
     );
     const { service, requests } = setupService({ registry });
 
-    await service.decide?.({ decision: 'support.triage', state: 'x' });
+    await service.decide({ decision: 'support.triage', state: 'x' });
 
     expect(Object.keys(requests[0]?.questions ?? {})).toEqual(['isUrgent']);
   });
@@ -142,7 +142,7 @@ describe('ctx.ai.decide', () => {
   it('explains how to resolve a decision name without a registry', async () => {
     const { service } = setupService();
 
-    await expect(service.decide?.({ decision: 'support.triage', state: 'x' })).rejects.toThrow(
+    await expect(service.decide({ decision: 'support.triage', state: 'x' })).rejects.toThrow(
       /no decision registry configured/,
     );
   });
@@ -155,7 +155,7 @@ describe('ctx.ai.decide', () => {
     const { service } = setupService();
 
     await expect(
-      service.decide?.({
+      service.decide({
         decision: triage,
         state: 'x',
         questions: { other: noul('Something else?') },
@@ -166,7 +166,7 @@ describe('ctx.ai.decide', () => {
   it('requires at least one of decision or questions', async () => {
     const { service } = setupService();
 
-    await expect(service.decide?.({ state: 'x' })).rejects.toThrow(/is required/);
+    await expect(service.decide({ state: 'x' })).rejects.toThrow(/is required/);
   });
 
   it('resolves the model from the call, then the override, then the contract, then the default', async () => {
@@ -177,21 +177,21 @@ describe('ctx.ai.decide', () => {
     });
 
     const fromCall = setupService({ registry: new DecisionRegistry() });
-    await fromCall.service.decide?.({ decision: triage, state: 'x', model: 'call-model' });
+    await fromCall.service.decide({ decision: triage, state: 'x', model: 'call-model' });
     expect(fromCall.requests[0]?.model).toBe('call-model');
 
     const fromOverride = setupService({
       decisionOverrides: { support_triage: { model: 'override-model' } },
     });
-    await fromOverride.service.decide?.({ decision: triage, state: 'x' });
+    await fromOverride.service.decide({ decision: triage, state: 'x' });
     expect(fromOverride.requests[0]?.model).toBe('override-model');
 
     const fromContract = setupService();
-    await fromContract.service.decide?.({ decision: triage, state: 'x' });
+    await fromContract.service.decide({ decision: triage, state: 'x' });
     expect(fromContract.requests[0]?.model).toBe('contract-model');
 
     const fromDefault = setupService({ defaultDecisionModel: 'default-model' });
-    await fromDefault.service.decide?.({ state: 'x', questions: { a: noul('?') } });
+    await fromDefault.service.decide({ state: 'x', questions: { a: noul('?') } });
     expect(fromDefault.requests[0]?.model).toBe('default-model');
   });
 
@@ -199,7 +199,7 @@ describe('ctx.ai.decide', () => {
     const { service } = setupService({ omitDecisionProvider: true });
 
     await expect(
-      service.decide?.({ state: 'x', questions: { isUrgent: noul('Urgent?') } }),
+      service.decide({ state: 'x', questions: { isUrgent: noul('Urgent?') } }),
     ).rejects.toThrow(/AI_DECISION_PROVIDER/);
   });
 
@@ -209,7 +209,7 @@ describe('ctx.ai.decide', () => {
     });
 
     await expect(
-      service.decide?.({
+      service.decide({
         state: 'x',
         questions: { pick: choice('Pick one', { a: null, b: null, c: null }) },
       }),
@@ -220,7 +220,7 @@ describe('ctx.ai.decide', () => {
   it('records cost under the decide operation with the answering model', async () => {
     const { service, records } = setupService({ costTracker: true });
 
-    await service.decide?.({ state: 'x', questions: { isUrgent: noul('Urgent?') } });
+    await service.decide({ state: 'x', questions: { isUrgent: noul('Urgent?') } });
 
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
@@ -246,12 +246,12 @@ describe('ctx.ai.decide', () => {
       },
     });
 
-    const result = await service.decide?.({
+    const result = await service.decide({
       state: 'x',
       questions: { isUrgent: noul('Urgent?') },
     });
 
-    expect(result?.cost).toBe(1.23);
+    expect(result.cost).toBe(1.23);
   });
 
   it('falls back to the pricing catalog when the adapter reports no cost', async () => {
@@ -267,12 +267,12 @@ describe('ctx.ai.decide', () => {
       },
     });
 
-    const result = await service.decide?.({
+    const result = await service.decide({
       state: 'x',
       questions: { isUrgent: noul('Urgent?') },
     });
 
-    expect(result?.cost).toBeCloseTo(0.042, 6);
+    expect(result.cost).toBeCloseTo(0.042, 6);
   });
 
   it('records a failed row and rethrows when the provider fails', async () => {
@@ -286,7 +286,7 @@ describe('ctx.ai.decide', () => {
     });
 
     await expect(
-      service.decide?.({ state: 'x', questions: { isUrgent: noul('Urgent?') } }),
+      service.decide({ state: 'x', questions: { isUrgent: noul('Urgent?') } }),
     ).rejects.toThrow('provider exploded');
 
     expect(records[0]).toMatchObject({
@@ -304,7 +304,7 @@ describe('ctx.ai.decide', () => {
     });
     const { service, explainability } = setupService({ explainability: true });
 
-    await service.decide?.({ decision: triage, state: 'x' });
+    await service.decide({ decision: triage, state: 'x' });
 
     const records = explainability?.getRecords() ?? [];
     expect(records).toHaveLength(1);
@@ -321,7 +321,7 @@ describe('ctx.ai.decide', () => {
     const { service, requests } = setupService();
     const controller = new AbortController();
 
-    await service.decide?.({
+    await service.decide({
       state: 'x',
       questions: { isUrgent: noul('Urgent?') },
       signal: controller.signal,
