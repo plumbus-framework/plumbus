@@ -6,6 +6,7 @@
 
 export {
   loadConfig,
+  loadDecisionOverrides,
   loadMultiProviderConfig,
   loadPromptOverrides,
   validateConfig,

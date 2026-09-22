@@ -3,6 +3,7 @@
 // Each rule produces GovernanceSignals
 
 import type { CapabilityContract } from '../types/capability.js';
+import type { DecisionDefinition } from '../types/decision.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { GovernanceSeverity } from '../types/enums.js';
 import type { EventDefinition } from '../types/event.js';
@@ -20,6 +21,12 @@ export interface SystemInventory {
   flows: FlowDefinition[];
   events: EventDefinition[];
   prompts: PromptDefinition[];
+  /**
+   * Decision contracts from `defineDecision()`. Optional so inventories built
+   * before decisions existed still satisfy the type; decision rules treat a
+   * missing list as empty.
+   */
+  decisions?: DecisionDefinition[];
 }
 
 // ── Governance Rule ──

@@ -1,12 +1,13 @@
 // ── Resource Auto-Discovery ──
 // Scans app/ directories for defineCapability, defineEntity, defineFlow,
-// defineEvent, definePrompt exports and returns them.
+// defineEvent, definePrompt, defineDecision exports and returns them.
 
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CapabilityContract } from '../types/capability.js';
+import type { DecisionDefinition } from '../types/decision.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { EventDefinition } from '../types/event.js';
 import type { FlowDefinition } from '../types/flow.js';
@@ -21,6 +22,7 @@ export interface DiscoveredResources {
   flows: FlowDefinition[];
   events: EventDefinition[];
   prompts: PromptDefinition[];
+  decisions: DecisionDefinition[];
   translations: TranslationDefinition[];
   schemas: Record<string, unknown>;
 }
@@ -112,6 +114,18 @@ function isPrompt(v: unknown): v is PromptDefinition {
   );
 }
 
+function isDecision(v: unknown): v is DecisionDefinition {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'name' in v &&
+    'questions' in v &&
+    typeof (v as { questions: unknown }).questions === 'object' &&
+    !('handler' in v) &&
+    !('effects' in v)
+  );
+}
+
 function isTranslation(v: unknown): v is TranslationDefinition {
   return (
     typeof v === 'object' &&
@@ -191,6 +205,7 @@ export async function discoverResources(
       flowExports,
       eventExports,
       promptExports,
+      decisionExports,
       translationExports,
       schemaExports,
     ] = await Promise.all([
@@ -199,6 +214,7 @@ export async function discoverResources(
       scanDir(path.join(appDir, 'flows')),
       scanDir(path.join(appDir, 'events')),
       scanDir(path.join(appDir, 'prompts')),
+      scanDir(path.join(appDir, 'decisions')),
       scanDir(path.join(appDir, 'translations')),
       scanSchemaDir(path.join(appDir, 'schemas')),
     ]);
@@ -209,6 +225,7 @@ export async function discoverResources(
       flows: flowExports.filter(isFlow),
       events: eventExports.filter(isEvent),
       prompts: promptExports.filter(isPrompt),
+      decisions: decisionExports.filter(isDecision),
       translations: translationExports.filter(isTranslation),
       schemas: schemaExports,
     };

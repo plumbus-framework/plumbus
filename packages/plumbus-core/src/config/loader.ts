@@ -5,6 +5,7 @@
 import { isValidJwtSecret } from '../auth/index.js';
 import { ErrorDocUrls, ErrorHints } from '../errors/hints.js';
 import type {
+  AIDecisionProvidersConfig,
   AIProviderConfig,
   AIProvidersConfig,
   AuthAdapterConfig,
@@ -16,6 +17,7 @@ import type {
   QueueConfig,
 } from '../types/config.js';
 import type { AISecurityConfig } from '../ai/security.js';
+import type { DecisionModelOverride } from '../types/decision.js';
 import { FieldClassification } from '../types/enums.js';
 import type { FieldClassification as FieldClassificationType } from '../types/enums.js';
 
@@ -123,7 +125,10 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
 
 // ── Multi-Provider AI Config ──
 
-const SUPPORTED_AI_PROVIDERS = ['openai', 'anthropic', 'bedrock'] as const;
+const SUPPORTED_AI_PROVIDERS = ['openai', 'anthropic', 'bedrock', 'typesafe'] as const;
+
+/** Providers that can serve `ctx.ai.decide()`. */
+const SUPPORTED_DECISION_PROVIDERS: readonly SupportedAiProvider[] = ['typesafe'];
 
 type SupportedAiProvider = (typeof SUPPORTED_AI_PROVIDERS)[number];
 
@@ -190,19 +195,83 @@ function readBedrockConfig(env: Record<string, string | undefined>): AIProviderC
   };
 }
 
+function readTypeSafeConfig(env: Record<string, string | undefined>): AIProviderConfig | undefined {
+  // The TypeSafe SDK reads TYPESAFE_API_KEY itself, so accept either the
+  // framework-prefixed name or the SDK-native one.
+  const apiKey = env.AI_TYPESAFE_API_KEY ?? env.TYPESAFE_API_KEY;
+  if (apiKey == null || apiKey.trim() === '') {
+    return undefined;
+  }
+
+  const dailyCostRaw = env.AI_TYPESAFE_DAILY_COST_LIMIT;
+  const timeoutRaw = env.AI_TYPESAFE_REQUEST_TIMEOUT;
+
+  return {
+    provider: 'typesafe',
+    apiKey,
+    model: env.AI_TYPESAFE_MODEL ?? undefined,
+    baseUrl: env.AI_TYPESAFE_BASE_URL ?? undefined,
+    dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
+    requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
+  };
+}
+
 function readProviderConfig(
   env: Record<string, string | undefined>,
   name: SupportedAiProvider,
 ): AIProviderConfig | undefined {
   if (name === 'bedrock') return readBedrockConfig(env);
+  if (name === 'typesafe') return readTypeSafeConfig(env);
   return readOpenAiOrAnthropicConfig(env, name);
 }
 
-/** Load openai + anthropic + bedrock provider slots from env. */
+/**
+ * Build the decision-provider slot from env. Decision providers are a
+ * separate default from chat providers because they answer typed questions
+ * rather than generating text — an app commonly runs OpenAI for `generate()`
+ * and TypeSafe for `decide()` at the same time.
+ */
+function loadDecisionProvidersConfig(
+  env: Record<string, string | undefined>,
+  providers: Record<string, AIProviderConfig>,
+): AIDecisionProvidersConfig | undefined {
+  const defaultProvider = env.AI_DECISION_PROVIDER;
+  if (!defaultProvider) return undefined;
+
+  if (!(SUPPORTED_DECISION_PROVIDERS as readonly string[]).includes(defaultProvider)) {
+    console.warn(
+      `[plumbus] Ignoring AI_DECISION_PROVIDER="${defaultProvider}": not a decision provider. Supported: ${SUPPORTED_DECISION_PROVIDERS.join(', ')} (${ErrorDocUrls.aiIntegration})`,
+    );
+    return undefined;
+  }
+
+  // Decision providers reuse the credentials of their chat-side slot, so
+  // AI_TYPESAFE_API_KEY covers both `decide()` and native `classify()`.
+  const slot = providers[defaultProvider];
+  if (!slot) {
+    console.warn(
+      `[plumbus] AI_DECISION_PROVIDER="${defaultProvider}" is set but its credentials are missing — set AI_TYPESAFE_API_KEY. ctx.ai.decide() will be unavailable.`,
+    );
+    return undefined;
+  }
+
+  return {
+    defaultProvider,
+    defaultModel: env.AI_DECISION_MODEL ?? slot.model ?? undefined,
+    providers: { [defaultProvider]: slot },
+    decisionOverrides: loadDecisionOverrides(env),
+  };
+}
+
+/** Load openai + anthropic + bedrock + typesafe provider slots from env. */
 export function loadMultiProviderConfig(
   env: Record<string, string | undefined>,
 ): AIProvidersConfig | undefined {
-  const defaultProvider = env.AI_DEFAULT_PROVIDER;
+  // An app whose only AI use is typed decisions sets AI_DECISION_PROVIDER and
+  // no AI_DEFAULT_PROVIDER. Fall back to it so the service still boots; the
+  // adapter rejects generate/stream/embed with a named error if anything does
+  // reach for them.
+  const defaultProvider = env.AI_DEFAULT_PROVIDER ?? env.AI_DECISION_PROVIDER;
   if (!defaultProvider) return undefined;
 
   const providers: Record<string, AIProviderConfig> = {};
@@ -234,6 +303,7 @@ export function loadMultiProviderConfig(
     providers,
     promptOverrides: loadPromptOverrides(env),
     security: loadAiSecurityConfig(env),
+    decisions: loadDecisionProvidersConfig(env, providers),
   };
 }
 
@@ -310,6 +380,38 @@ export function loadPromptOverrides(
       model: env[`${prefix}MODEL`] ?? undefined,
       temperature: tempRaw != null ? parseFloat(tempRaw) : undefined,
       maxTokens: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
+    };
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
+
+// ── Decision Model Overrides ──
+
+/**
+ * Scan for DECISION_{NAME}_* env vars and build per-decision overrides.
+ * Only PROVIDER and MODEL apply — a decision model returns a calibrated
+ * distribution rather than sampled text, so there is no temperature or
+ * max-tokens knob to override.
+ */
+export function loadDecisionOverrides(
+  env: Record<string, string | undefined>,
+): Record<string, DecisionModelOverride> | undefined {
+  const overrides: Record<string, DecisionModelOverride> = {};
+
+  const decisionNames = new Set<string>();
+  for (const key of Object.keys(env)) {
+    const match = /^DECISION_([A-Z][A-Z0-9_]*)_(PROVIDER|MODEL)$/.exec(key);
+    if (match?.[1] != null) {
+      decisionNames.add(match[1].toLowerCase());
+    }
+  }
+
+  for (const name of decisionNames) {
+    const prefix = `DECISION_${name.toUpperCase()}_`;
+    overrides[name] = {
+      provider: env[`${prefix}PROVIDER`] ?? undefined,
+      model: env[`${prefix}MODEL`] ?? undefined,
     };
   }
 

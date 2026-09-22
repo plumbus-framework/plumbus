@@ -90,6 +90,7 @@
   "peerDependencies": {
     "@plumbus/api": "0.2.x",
     "@plumbus/ai-bedrock": "0.2.x",
+    "@plumbus/ai-typesafe": "0.1.x",
     "@plumbus/mcp": "0.6.x",
     "cron-parser": "^4.9.0",
     "redis": "^4.7.0"
@@ -99,6 +100,9 @@
       "optional": true
     },
     "@plumbus/ai-bedrock": {
+      "optional": true
+    },
+    "@plumbus/ai-typesafe": {
       "optional": true
     },
     "@plumbus/mcp": {

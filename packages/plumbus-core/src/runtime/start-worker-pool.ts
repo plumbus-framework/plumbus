@@ -1,5 +1,6 @@
 import { createAuditService } from '../audit/service.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { DecisionRegistry } from '../ai/decision-registry.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventRegistry } from '../events/registry.js';
@@ -25,6 +26,7 @@ export interface StartWorkerPoolOptions {
   flows: FlowRegistry;
   consumers: ConsumerRegistry;
   promptRegistry?: PromptRegistry;
+  decisionRegistry?: DecisionRegistry;
   extensions?: ServerExtensions;
   logger?: import('../types/context.js').LoggerService;
   metrics?: PlumbusMetrics;
@@ -45,6 +47,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     flows,
     consumers,
     promptRegistry,
+    decisionRegistry,
     extensions,
     logger,
     metrics,
@@ -98,6 +101,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     config,
     db,
     promptRegistry,
+    decisionRegistry,
     entities,
     onAICostRecorded: extensions?.onAICostRecorded,
     resolveAiOverrides: extensions?.resolveAiOverrides,

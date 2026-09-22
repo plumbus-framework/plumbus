@@ -10,6 +10,8 @@ import type { AuditService } from '../types/audit.js';
 import type {
   AggregateRow,
   AggregateValue,
+  AIDecideConfig,
+  AIDecideResult,
   AIDocument,
   AIService,
   AIToolEnabledGenerateResult,
@@ -24,6 +26,12 @@ import type {
   Repository,
   TimeService,
 } from '../types/context.js';
+import type {
+  AnswersFor,
+  DecisionAnswer,
+  DecisionQuestion,
+  DecisionQuestions,
+} from '../ai/decision.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
 import type { AuthContext } from '../types/security.js';
@@ -159,12 +167,59 @@ export interface AIResponse {
   extract?: unknown;
   classify?: string[];
   retrieve?: AIDocument[];
+  /**
+   * Answers for `ctx.ai.decide()`, keyed by question id. Ids you omit get a
+   * deliberately undecided default for their question type — noul `0.5`, the
+   * first option of a choice, the middle level of a score, each with a uniform
+   * distribution. Assert on the branch your code takes for a stubbed answer
+   * rather than on the default.
+   */
+  decide?: Record<string, DecisionAnswer>;
+}
+
+/**
+ * The answer a mock returns for a question the test did not stub. Uniform
+ * probabilities and low confidence, so a handler that forgets to gate on
+ * confidence fails the test instead of coasting on a fake certainty.
+ */
+function defaultDecisionAnswer(question: DecisionQuestion): DecisionAnswer {
+  if (question.type === 'noul') {
+    return { type: 'noul', noul: 0.5 };
+  }
+
+  if (question.type === 'choice') {
+    const options = Object.keys(question.criteria);
+    const first = options[0];
+    if (first == null) {
+      throw new Error('mockAI.decide(): a choice question needs at least one option');
+    }
+    const probability = 1 / options.length;
+    return {
+      type: 'choice',
+      choice: first,
+      probabilities: Object.fromEntries(options.map((option) => [option, probability])),
+      confidence: probability,
+    };
+  }
+
+  const levels = question.criteria;
+  if (levels.length === 0) {
+    throw new Error('mockAI.decide(): a score question needs at least one level');
+  }
+  const probability = 1 / levels.length;
+  return {
+    type: 'score',
+    score: (levels.length - 1) / 2,
+    legend: Object.fromEntries(levels.map((level, index) => [String(index), level])),
+    probabilities: Object.fromEntries(levels.map((_, index) => [String(index), probability])),
+    confidence: probability,
+  };
 }
 
 /** Create a mock AI service with configurable responses */
 export function mockAI(responses?: AIResponse): AIService {
   return {
-    features: { perCallProviderModelReasoning: true },
+    features: { perCallProviderModelReasoning: true, typedDecisions: true },
     async recordProviderCost() {},
     checkProviderCostBudget() {},
     async generate(_config) {
@@ -222,6 +277,29 @@ export function mockAI(responses?: AIResponse): AIService {
     async classify() {
       if (responses?.classify !== undefined) return responses.classify;
       return ['default'];
+    },
+    async decide<TQuestions extends DecisionQuestions>(
+      config: AIDecideConfig<TQuestions>,
+    ): Promise<AIDecideResult<TQuestions>> {
+      const questions =
+        config.questions ??
+        (typeof config.decision === 'object' ? config.decision.questions : undefined);
+      if (!questions) {
+        throw new Error('mockAI.decide(): one of `decision` or `questions` is required');
+      }
+
+      const answers: Record<string, DecisionAnswer> = {};
+      for (const [id, question] of Object.entries(questions)) {
+        answers[id] = responses?.decide?.[id] ?? defaultDecisionAnswer(question);
+      }
+
+      const inputTokens = Math.ceil(JSON.stringify(config).length / 4);
+      return {
+        model: 'mock-decision-model',
+        answers: answers as AnswersFor<TQuestions>,
+        usage: { inputTokens, outputTokens: 0, totalTokens: inputTokens },
+        cost: 0,
+      };
     },
     async retrieve() {
       if (responses?.retrieve !== undefined) return responses.retrieve;

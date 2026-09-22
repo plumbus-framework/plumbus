@@ -1,5 +1,6 @@
 import type { PolicyProfile } from './enums.js';
 import type { AISecurityConfig } from '../ai/security.js';
+import type { DecisionModelOverride } from './decision.js';
 import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 
 // ── Database Config ──
@@ -85,6 +86,24 @@ export interface AIProvidersConfig {
   promptOverrides?: Record<string, PromptModelOverride>;
   /** AI prompt security: entity field classification scanning (default mode: redact) */
   security?: AISecurityConfig;
+  /**
+   * Decision providers for `ctx.ai.decide()`. Present only when
+   * `AI_DECISION_PROVIDER` is set. A separate default from `defaultProvider`
+   * because decision and chat models are different kinds of model.
+   */
+  decisions?: AIDecisionProvidersConfig;
+}
+
+// ── Decision Provider Config ──
+export interface AIDecisionProvidersConfig {
+  /** Which decision provider `decide()` uses when the call doesn't name one. */
+  defaultProvider: string;
+  /** Default decision model (e.g. `"jev-latest"`). */
+  defaultModel?: string;
+  /** Decision provider slots keyed by name (currently `"typesafe"`). */
+  providers: Record<string, AIProviderConfig>;
+  /** Per-decision provider/model overrides — keyed by decision name. */
+  decisionOverrides?: Record<string, DecisionModelOverride>;
 }
 
 // ── Prompt Model Override ──

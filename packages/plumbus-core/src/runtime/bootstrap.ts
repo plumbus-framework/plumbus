@@ -7,8 +7,9 @@ import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
 import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
+import type { DecisionRegistry } from '../ai/decision-registry.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
-import { createProviderAdapter } from '../ai/provider.js';
+import { createDecisionAdapter, createProviderAdapter } from '../ai/provider.js';
 import type { DiscoveredResources } from '../cli/discover.js';
 import { discoverResources } from '../cli/discover.js';
 import type { EntityRegistry } from '../data/registry.js';
@@ -129,6 +130,7 @@ export interface BuildWorkerAiServiceOptions {
   config: PlumbusConfig;
   db: PostgresJsDatabase;
   promptRegistry?: PromptRegistry;
+  decisionRegistry?: DecisionRegistry;
   entities?: EntityRegistry;
   onAICostRecorded?: ServerConfig['onAICostRecorded'];
   resolveAiOverrides?: ServerConfig['resolveAiOverrides'];
@@ -141,6 +143,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     config,
     db,
     promptRegistry,
+    decisionRegistry,
     entities,
     onAICostRecorded,
     resolveAiOverrides,
@@ -161,10 +164,21 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
       dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
     });
+    const decisionAdapters: Record<string, ReturnType<typeof createDecisionAdapter>> = {};
+    for (const [name, provCfg] of Object.entries(config.aiProviders.decisions?.providers ?? {})) {
+      decisionAdapters[name] = createDecisionAdapter(name, provCfg);
+    }
     const workerAiServiceConfig: AIServiceConfig = {
       providers: providerAdapters,
       defaultProvider: config.aiProviders.defaultProvider,
       defaultModel: config.aiProviders.defaultModel,
+      decisionProviders: Object.keys(decisionAdapters).length > 0 ? decisionAdapters : undefined,
+      defaultDecisionProvider: config.aiProviders.decisions?.defaultProvider,
+      defaultDecisionModel: config.aiProviders.decisions?.defaultModel,
+      decisionRegistry,
+      decisionOverrides: config.aiProviders.decisions?.decisionOverrides
+        ? { ...config.aiProviders.decisions.decisionOverrides }
+        : undefined,
       costTracker,
       promptRegistry,
       onAICostRecorded: workerOnAICostRecorded,

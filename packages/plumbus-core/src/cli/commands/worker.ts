@@ -10,6 +10,7 @@ import {
   type DatabaseConnection,
 } from '../../data/connection.js';
 import { deadLetterTable, outboxTable } from '../../events/outbox.js';
+import { DecisionRegistry } from '../../ai/decision-registry.js';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
 import { loadConfig, validateConfig } from '../../config/loader.js';
 import { EntityRegistry } from '../../data/registry.js';
@@ -74,6 +75,11 @@ export async function startWorkerProcess(
     promptRegistry.register(prompt);
   }
 
+  const decisionRegistry = new DecisionRegistry();
+  for (const decision of resources.decisions) {
+    decisionRegistry.register(decision);
+  }
+
   const dbConnection = await resolveDatabaseConnection(config.database, options);
   const db = dbConnection.db;
   info('Database connected');
@@ -98,6 +104,7 @@ export async function startWorkerProcess(
     flows,
     consumers,
     promptRegistry,
+    decisionRegistry,
     extensions,
     metrics,
   });

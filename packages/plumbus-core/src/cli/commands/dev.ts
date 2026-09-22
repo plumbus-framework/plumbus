@@ -9,6 +9,7 @@ import {
   resolveDatabaseConnection,
   type DatabaseConnection,
 } from '../../data/connection.js';
+import { DecisionRegistry } from '../../ai/decision-registry.js';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
 import { loadConfig, validateConfig } from '../../config/loader.js';
 import { EntityRegistry } from '../../data/registry.js';
@@ -144,6 +145,11 @@ export async function startDevServer(
     promptRegistry.register(prompt);
   }
 
+  const decisionRegistry = new DecisionRegistry();
+  for (const decision of resources.decisions) {
+    decisionRegistry.register(decision);
+  }
+
   // Connect to database (caller can override via options.db or options.connection)
   let dbConnection: DatabaseConnection;
   try {
@@ -177,6 +183,7 @@ export async function startDevServer(
     flows,
     translations: resources.translations,
     promptRegistry,
+    decisionRegistry,
     host,
     port,
     onRoutesRegistered: extensions.onRoutesRegistered,
@@ -207,6 +214,7 @@ export async function startDevServer(
       flows,
       consumers,
       promptRegistry,
+      decisionRegistry,
       extensions,
       metrics,
     });

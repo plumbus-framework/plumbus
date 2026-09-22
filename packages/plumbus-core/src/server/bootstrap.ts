@@ -11,8 +11,9 @@ import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
 import type { AICostContext } from '../types/context.js';
+import type { DecisionRegistry } from '../ai/decision-registry.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
-import { createProviderAdapter } from '../ai/provider.js';
+import { createDecisionAdapter, createProviderAdapter } from '../ai/provider.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
@@ -72,6 +73,8 @@ export interface ServerConfig {
   translations?: TranslationDefinition[];
   /** Optional prompt registry for AI schema validation */
   promptRegistry?: PromptRegistry;
+  /** Optional decision registry, so `ctx.ai.decide({ decision: "name" })` resolves by name */
+  decisionRegistry?: DecisionRegistry;
   /** Optional custom auth adapter (default: JWT from config) */
   authAdapter?: AuthAdapter;
   /** Optional session/OIDC authentication runtime, e.g. from @plumbus/auth */
@@ -285,10 +288,22 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
       dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
     });
+    const decisionAdapters: Record<string, ReturnType<typeof createDecisionAdapter>> = {};
+    for (const [name, provCfg] of Object.entries(config.aiProviders.decisions?.providers ?? {})) {
+      decisionAdapters[name] = createDecisionAdapter(name, provCfg);
+    }
+
     const aiServiceConfig: import('../ai/ai-service.js').AIServiceConfig = {
       providers: providerAdapters,
       defaultProvider: config.aiProviders.defaultProvider,
       defaultModel: config.aiProviders.defaultModel,
+      decisionProviders: Object.keys(decisionAdapters).length > 0 ? decisionAdapters : undefined,
+      defaultDecisionProvider: config.aiProviders.decisions?.defaultProvider,
+      defaultDecisionModel: config.aiProviders.decisions?.defaultModel,
+      decisionRegistry: serverConfig.decisionRegistry,
+      decisionOverrides: config.aiProviders.decisions?.decisionOverrides
+        ? { ...config.aiProviders.decisions.decisionOverrides }
+        : undefined,
       costTracker,
       promptRegistry: serverConfig.promptRegistry,
       promptOverrides: config.aiProviders.promptOverrides
@@ -313,6 +328,15 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     logger.info(
       `AI service configured with ${Object.keys(providerAdapters).length} providers (default: ${config.aiProviders.defaultProvider})`,
     );
+    if (config.aiProviders.decisions) {
+      logger.info(
+        `AI decisions configured with provider: ${config.aiProviders.decisions.defaultProvider}${
+          config.aiProviders.decisions.defaultModel
+            ? ` (default model: ${config.aiProviders.decisions.defaultModel})`
+            : ''
+        }`,
+      );
+    }
   } else if (config.ai) {
     // Single-provider setup (legacy)
     const adapter = createProviderAdapter(config.ai.provider, config.ai);
@@ -547,6 +571,9 @@ export function wrapAIServiceWithDynamicOverrides(
         db,
       );
     },
+    // Forwarded so add-ons that feature-detect against ctx.ai still see the
+    // real runtime capabilities through the wrapper.
+    features: base.features,
     recordProviderCost(entry, costContext) {
       return base.recordProviderCost(entry, costContext);
     },
@@ -571,6 +598,9 @@ export function wrapAIServiceWithDynamicOverrides(
     classify(params) {
       return base.classify(params);
     },
+    // Decisions carry no prompt overrides to refresh — provider and model come
+    // from the decision contract, DECISION_* env, or the call itself.
+    decide: base.decide ? (params) => base.decide?.(params) as never : undefined,
     retrieve(params) {
       return base.retrieve(params);
     },

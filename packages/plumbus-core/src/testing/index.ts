@@ -35,6 +35,9 @@ export {
   mockFlows,
   mockLogger,
 } from './context.js';
+export type { StubDecisionAdapter, StubDecisionAdapterOptions } from './decisions.js';
+// ── Decision Test Helpers ──
+export { createStubDecisionAdapter } from './decisions.js';
 export type { E2EServerContext, E2EServerOptions } from './e2e.js';
 // ── E2E / Browser Test Utilities ──
 export { createE2EServer, createTestBearerHeader } from './e2e.js';

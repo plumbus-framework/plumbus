@@ -85,9 +85,76 @@ export const ruleExcessiveAIUsage: GovernanceRule = {
   },
 };
 
+/** Decisions without a state schema */
+export const ruleDecisionMissingStateSchema: GovernanceRule = {
+  id: 'ai.decision-missing-state-schema',
+  category: 'ai',
+  severity: GovernanceSeverity.Warning,
+  description: 'Decisions should declare the shape of the state they evaluate',
+  evaluate(inventory) {
+    return (inventory.decisions ?? [])
+      .filter((decision) => !decision.state)
+      .map((decision) => ({
+        severity: GovernanceSeverity.Warning,
+        rule: 'ai.decision-missing-state-schema',
+        description: `Decision "${decision.name}" has no state schema — a caller can pass any shape`,
+        affectedComponent: `decision:${decision.name}`,
+        remediation: 'Add a `state` Zod schema so the state is parsed before the provider call',
+      }));
+  },
+};
+
+/**
+ * Noul questions with no yes/no rubric. A bare yes/no question leaves the
+ * boundary between the two answers up to the model, which is the most common
+ * source of a miscalibrated probability.
+ */
+export const ruleDecisionNoulMissingCriteria: GovernanceRule = {
+  id: 'ai.decision-noul-missing-criteria',
+  category: 'ai',
+  severity: GovernanceSeverity.Info,
+  description: 'Noul questions should describe what a yes and a no mean',
+  evaluate(inventory) {
+    return (inventory.decisions ?? []).flatMap((decision) =>
+      Object.entries(decision.questions)
+        .filter(([, question]) => question.type === 'noul' && question.criteria == null)
+        .map(([id]) => ({
+          severity: GovernanceSeverity.Info,
+          rule: 'ai.decision-noul-missing-criteria',
+          description: `Decision "${decision.name}" question "${id}" is a noul with no criteria — the yes/no boundary is left to the model`,
+          affectedComponent: `decision:${decision.name}`,
+          remediation: 'Add `criteria: { true: "…", false: "…" }` to pin the boundary',
+        })),
+    );
+  },
+};
+
+/** Decisions without provider/model configuration */
+export const ruleDecisionMissingModelConfig: GovernanceRule = {
+  id: 'ai.decision-missing-model-config',
+  category: 'ai',
+  severity: GovernanceSeverity.Info,
+  description: 'Decisions should pin a model when confidence thresholds are tuned against it',
+  evaluate(inventory) {
+    return (inventory.decisions ?? [])
+      .filter((decision) => !decision.model?.name)
+      .map((decision) => ({
+        severity: GovernanceSeverity.Info,
+        rule: 'ai.decision-missing-model-config',
+        description: `Decision "${decision.name}" has no model configured — the default alias will be used, and an alias moves when a new version ships`,
+        affectedComponent: `decision:${decision.name}`,
+        remediation:
+          'Pin a versioned model id (e.g. `model: { name: "jev-1.13.0" }`) once thresholds are tuned',
+      }));
+  },
+};
+
 export const aiRules: GovernanceRule[] = [
   rulePromptMissingOutputSchema,
   rulePromptMissingModelConfig,
   ruleAIWithoutExplanation,
   ruleExcessiveAIUsage,
+  ruleDecisionMissingStateSchema,
+  ruleDecisionNoulMissingCriteria,
+  ruleDecisionMissingModelConfig,
 ];
