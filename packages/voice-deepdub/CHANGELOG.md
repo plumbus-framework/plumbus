@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Advance the recommended/default TTS model to dd-etts-3.3 after live Hebrew synthesis verification; retain explicit 3.2/3.0 options and existing contract pricing.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

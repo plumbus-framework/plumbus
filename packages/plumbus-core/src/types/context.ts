@@ -328,7 +328,7 @@ export interface AIGenerateConfig {
   tools?: AITool[];
   toolChoice?: AIToolChoice;
   toolExecution?: AIToolExecutionOptions;
-  /** Default 'prompt'. 'none' disables output-schema validation (Chat tool rounds set 'none'). */
+  /** Without tools, validates the prompt by default. With tools, explicit 'prompt' validates final answers once; omitted/'none' returns raw content. */
   outputValidation?: 'prompt' | 'none';
 }
 

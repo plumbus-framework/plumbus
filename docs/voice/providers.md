@@ -98,3 +98,7 @@ Do not move app business logic into provider classes. Add-on authors should impo
 - [design/providers.md](./design/providers.md)
 - [local-providers.md](./local-providers.md)
 - [upgrading-voice-provider-packages.md](../upgrading-voice-provider-packages.md)
+
+### Recognition context and model refresh (2026-09-22)
+
+Soniox accepts server-resolved `general`, `terms` and `text` context through `connect.context`, with the existing static `contextTerms` fallback. See [context configuration](./configuration.md#server-resolved-recognition-context) and [Soniox native context](https://soniox.com/docs/stt/concepts/context). This release keeps current real-time `stt-rt-v5`; Deepdub's default/catalog recommendation advances to `dd-etts-3.3`, verified by live Hebrew synthesis with an existing voice ID. Older explicit Deepdub model pins remain supported.

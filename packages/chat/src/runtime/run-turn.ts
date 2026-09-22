@@ -91,6 +91,9 @@ export interface RunChatTurnOpts {
    * provider spend without removing it from Chat's logical-turn budget total.
    */
   onNestedAiCall?: (call: ChatNestedAiCall) => void;
+  /** Server-only observer of the custom agent prompt's validated final output.
+   * Structured application metadata is not emitted to clients or rewritten. */
+  onAgentOutput?: (output: unknown) => void;
 }
 
 const defaultModelOutput = (): ChatTurnModelOutput => ({
@@ -534,6 +537,7 @@ export async function* runChatTurn(
             includeNestedAiUsage:
               policy.toolCalling?.includeNestedAiUsage ?? toolOrchestration === 'agent',
             onNestedAiCall: opts?.onNestedAiCall,
+            onAgentOutput: opts?.onAgentOutput,
             signal: turnCtx.signal,
             emit,
             persistToolArgs: persistence !== 'client',

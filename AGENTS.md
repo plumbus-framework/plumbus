@@ -81,6 +81,20 @@ Then set `AI_BEDROCK_REGION` (and optionally `AI_BEDROCK_PRICING_FILE` for conta
 
 Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `AWS_BEARER_TOKEN_BEDROCK`). Cost USD comes from AWS Price List rates (auto-download or a mounted normalized JSON) — Bedrock responses return token usage only. Guide: `docs/ai/bedrock.md`. Price List URLs, curl, normalize, and ConfigMap: `packages/ai-bedrock/instructions/pricing.md` (in apps: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`).
 
+### Optional add-ons: typed decision providers
+
+`@plumbus/ai-decision-typesafe` (Jev) and `@plumbus/ai-decision-laya` (self-hosted Laya)
+share `@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
+HTTP transport. All three start at `0.2.x` and peer on core `0.7.x`. Install only the
+provider you need; the shared package is a dependency. Laya ships a separate Python
+reference service; Python/model dependencies are not installed by pnpm.
+
+This is package-only support: use the adapter's `decide()` for infrastructure tests.
+Core `ctx.ai.decide()`, decision registration, automatic budget/audit integration,
+and CLI/agent discovery are deferred. Do not register these in the text-generation
+provider registry or bypass Plumbus primitives for application business logic.
+Guide and live environment: `docs/ai/decision-providers.md`.
+
 ### Optional add-on: `@plumbus/browser-extension`
 
 `@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.2.x`**; peer `@plumbus/core` at **`0.7.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:

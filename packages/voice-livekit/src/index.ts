@@ -1,3 +1,4 @@
+export { createPcmAudioPublisher } from './audio-output/index.js';
 export { recordLiveKitTransportCost } from './cost/record-livekit-transport.js';
 export { resolveCredentialsFromEnv } from './credentials.js';
 export { LIVEKIT_TRANSPORT_DESCRIPTOR } from './descriptor.js';
@@ -41,3 +42,9 @@ export type {
   StartVoiceAgentWorkerOptions,
   VoiceAgentWorkerHandle,
 } from './types.js';
+export {
+  createVoiceEventSender,
+  createVoiceEventReceiver,
+  VOICE_EVENT_STREAM_TOPIC,
+  type VoiceEventTextReader,
+} from './event-data/index.js';

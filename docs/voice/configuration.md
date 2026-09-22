@@ -175,3 +175,29 @@ Full lifecycle, ownership, and spoofing guidance: [voice-cloning.md](./voice-clo
 - [providers.md](./providers.md)
 - [security.md](./security.md)
 - [voice-cloning.md](./voice-cloning.md)
+
+## Per-utterance transcript limit
+
+`defineVoice({ transcript: { maxChars: 30_000 }, ... })` sets the maximum trimmed transcript length before the brain is invoked. The default stays 4,000. The value must be a finite positive safe integer; zero, negative, fractional and non-finite values are rejected at definition time. Length uses JavaScript UTF-16 code units, not tokens, bytes or audio duration.
+
+The same limit applies to supplied, provider-finalized and continuous server-STT transcripts. Client-STT input remains non-authoritative and non-billable. Session budgets and transport byte limits still apply independently; keep the configured limit within the app capability's input bound. Exceeding it emits `turn.failed` with `voice.transcript_invalid` before calling the brain.
+
+For LiveKit, update the agent and browser `@plumbus/voice-livekit` together: voice events exceeding 15 KiB now use native text streams on `voice.events.large`. Events are delivered in order across streams and ordinary packets. Assembled events are bounded at 256 KiB, with a 30-second read timeout and at most eight active readers. Existing small events keep their packet format.
+
+See [voice definition](./defining-voices.md), [security](./security.md), and [continuous sessions](./livekit-continuous-voice.md).
+
+## Complete-reply delivery
+
+`tts.responseMode: 'reply'` runs the brain once, forwards its visible text deltas, then calls `resolveTone` with `assistantText` and the original `brainResult`. It synthesizes the complete reply in one request after `preprocessForTts`; no sentence rewriting or extra model call is performed. Omitted or `'sentence'` retains the existing streaming sentence pipeline. Complete replies give a provider more prosodic context but delay first audio until the brain finishes. Provider text limits still apply. Aborting before synthesis prevents speech.
+
+`VoiceBrainRunArgs.transcriptConfidence` carries the STT confidence when available. It is a signal for an application's contextual decision, not an automatic classification.
+
+See [continuous-session recovery](./livekit-continuous-voice.md).
+
+## Server-resolved recognition context
+
+`defineVoice.resolveSttContext(ctx, { sessionId, input, language })` can return `{ general, terms, text }` before a server STT connection. The application must authorize the session/project and choose source-backed hints using `ctx.*`; the framework never infers their meaning. The controller resolves the hook once per connection, serializes overlapping connection attempts and passes the result to `STTProviderConnectArgs.context`. Supplied-transcript turns do not reconnect or rerun the hook.
+
+The schema caps context at 8,000 serialized characters, 10 general entries, 100 terms of up to 160 characters and 4,000 free-text characters. Hook/validation errors propagate before the provider connects. No context is accepted directly from client transcript text. Soniox forwards this context to its native configuration; a session context replaces static `contextTerms`. Providers without context support can ignore the optional field. This is recognition guidance, never output word replacement.
+
+Dvora's consumer verification uses Soniox `stt-rt-v5` (confirmed current in the [model catalog](https://soniox.com/docs/stt/models)). Deepdub `dd-etts-3.3` is now the catalog/default TTS model after successful authenticated same-voice synthesis; 3.2 and 3.0 remain explicit compatibility choices. Deepdub's public model documentation lags the live service. Contract-driven generated-audio pricing and speaker selection are unchanged.

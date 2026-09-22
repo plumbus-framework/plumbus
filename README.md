@@ -405,6 +405,9 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.1.x`) |
 | [`@plumbus/api`](packages/api/) | Optional peer `0.1.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
 | [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.1.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.6.x` (**runtime ≥ 0.6.16**). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
+| [`@plumbus/ai-decision`](packages/ai-decision/) | Shared typed decision contracts, validation and transport; core `0.7.x`; runtime integration deferred |
+| [`@plumbus/ai-decision-typesafe`](packages/ai-decision-typesafe/) | Optional TypeSafe/Jev decision adapter; choices, scores, probabilities and input pricing |
+| [`@plumbus/ai-decision-laya`](packages/ai-decision-laya/) | Optional self-hosted Laya decision adapter and Python reference service |
 | [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.5.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |

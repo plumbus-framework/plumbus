@@ -457,7 +457,9 @@ export function createAIService(config: AIServiceConfig): AIService {
 
     const toolsEnabled = params.tools !== undefined;
     const outputValidationNone = params.outputValidation === 'none';
-    const skipStructuredOutput = toolsEnabled || outputValidationNone;
+    const validateToolAnswer =
+      toolsEnabled && params.outputValidation === 'prompt' && Boolean(promptDef);
+    const skipStructuredOutput = (toolsEnabled && !validateToolAnswer) || outputValidationNone;
     const structuredResponseFormat = promptDef && !singleTextField ? 'json' : undefined;
     const resolvedReasoning = resolveReasoningOverride(
       params.reasoning,
@@ -506,10 +508,9 @@ export function createAIService(config: AIServiceConfig): AIService {
 
     try {
       if (toolsEnabled) {
-        // Tool-enabled generation: forward tools verbatim, skip Zod output
-        // validation entirely (honors outputValidation:'none'), and surface
-        // the provider tool calls when finishReason normalizes to 'tool_calls'.
-        // A non-tool final answer returns { content } as data.
+        // Default tool rounds remain raw. Explicit prompt validation constrains
+        // and validates final answers in this call; tool calls bypass the answer
+        // schema and never cause a validation retry or repeated tool action.
         const response = await activeProvider.complete(request);
         result = { content: response.content };
         totalUsage = response.usage;
@@ -517,6 +518,33 @@ export function createAIService(config: AIServiceConfig): AIService {
         toolCallsResult = response.toolCalls;
         toolProviderState = response.providerState;
         toolFinishNormalized = normalizeFinishReason(response.finishReason);
+        if (validateToolAnswer && promptDef && toolFinishNormalized !== 'tool_calls') {
+          try {
+            if (toolFinishNormalized !== 'stop') {
+              throw new AIIncompleteOutputError({
+                partialText: response.content,
+                finishReason: response.finishReason ?? 'other',
+                usage: response.usage,
+                model: resolvedModel,
+                provider: activeProvider.name,
+              });
+            }
+            const candidate = singleTextField
+              ? { [singleTextField]: response.content }
+              : JSON.parse(response.content);
+            result = promptDef.output.parse(candidate);
+          } catch (error) {
+            if (error instanceof AIIncompleteOutputError) throw error;
+            throw new AIValidationError({
+              attempts: 1,
+              rawOutput: response.content,
+              lastError: error instanceof Error ? error : null,
+              usage: response.usage,
+              model: resolvedModel,
+              provider: activeProvider.name,
+            });
+          }
+        }
       } else if (outputValidationNone) {
         // Explicit no-validation path (no tools): return raw content as data.
         const response = await activeProvider.complete(request);

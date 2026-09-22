@@ -110,10 +110,11 @@ function createScriptedAI(script: AIToolEnabledGenerateResult[]): {
 describe('runToolPhase', () => {
   it('uses a custom agent prompt as the final answer without a separate answer phase', async () => {
     const cap = makeCap('readThing');
+    const onAgentOutput = vi.fn();
     const { ai } = createScriptedAI([
       {
         finishReason: 'stop',
-        data: { content: 'Direct interviewer answer.' },
+        data: { content: 'Direct interviewer answer.', decision: { delivery: 'gentle' } },
         usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 },
         model: 'agent-model',
         provider: 'mock',
@@ -126,6 +127,7 @@ describe('runToolPhase', () => {
     const result = await runToolPhase({
       ctx,
       chatName: 'interview',
+      onAgentOutput,
       boundTools: bound,
       systemPrompt: 'unused generic system prompt',
       userMessage: 'A memoir answer',
@@ -144,11 +146,16 @@ describe('runToolPhase', () => {
     });
 
     expect(result.status).toBe('completed');
+    expect(onAgentOutput).toHaveBeenCalledExactlyOnceWith({
+      content: 'Direct interviewer answer.',
+      decision: { delivery: 'gentle' },
+    });
     expect(ai.generateWithUsage).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: 'anthropic',
         model: 'tool-model',
         reasoning: { mode: 'disabled' },
+        outputValidation: 'prompt',
       }),
     );
     if (result.status === 'completed') {

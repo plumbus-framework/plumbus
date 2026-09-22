@@ -114,6 +114,7 @@ describe('voice catalog smoke', () => {
         },
       },
       registry,
+      fetcher: vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ voices: [] }) })),
       ttlMs: 0,
     });
 

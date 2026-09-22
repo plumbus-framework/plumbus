@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Forward per-session recognition general/terms/text context, replacing static hints without modifying recognized words.
+
+- Report streaming connection/SDK failures through the STT error callback; allow retry after a rejected connection and ignore obsolete session callbacks.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

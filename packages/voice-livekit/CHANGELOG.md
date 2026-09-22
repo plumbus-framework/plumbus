@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Frame provider PCM into at most 20 ms native captures in both transports, preserving samples and stream boundaries; prevents complete-reply audio chunks from wedging the LiveKit capture queue.
+
+- Send voice events above 15 KiB through native LiveKit text streams, bounded to 256 KiB. Preserve ordering with regular data packets and cancel pending client readers on disconnect. Update the browser and agent together when enabling longer transcripts.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

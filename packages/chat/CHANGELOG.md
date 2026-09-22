@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Expose custom-agent structured output through optional server-only onAgentOutput while emitting only content. Custom-agent tool turns validate their prompt output.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

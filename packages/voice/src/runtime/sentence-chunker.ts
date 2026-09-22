@@ -14,7 +14,8 @@ export interface SentenceChunkerOptions {
   minChunkChars?: number;
 }
 
-const MAX_CHUNK_CHARS = 200;
+// A latency target, not permission to cut a word/Unicode sequence in half.
+const TARGET_CHUNK_CHARS = 200;
 const DEFAULT_MIN_CHUNK_CHARS = 8;
 const SENTENCE_BOUNDARY = /([.!?׃]|[。！？]+)(?=(?:\s|$))/u;
 const PARAGRAPH_BOUNDARY = /\n\n+/;
@@ -56,10 +57,14 @@ export function createSentenceChunker(options: SentenceChunkerOptions = {}): Sen
         continue;
       }
 
-      if (buffer.length >= MAX_CHUNK_CHARS) {
-        const forced = buffer.slice(0, MAX_CHUNK_CHARS).trim();
+      if (buffer.length >= TARGET_CHUNK_CHARS) {
+        const boundary = findWordBoundary(buffer);
+        // A streamed word may still be incomplete. Wait for its boundary or
+        // flush rather than synthesizing its prefix as a different word.
+        if (boundary === undefined) break;
+        const forced = buffer.slice(0, boundary).trim();
         if (forced) emit(chunks, forced);
-        buffer = buffer.slice(MAX_CHUNK_CHARS).trimStart();
+        buffer = buffer.slice(boundary).trimStart();
         continue;
       }
 
@@ -119,14 +124,27 @@ function splitAtSentence(text: string): { chunk: string; rest: string } | undefi
 function splitOversized(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
-  if (trimmed.length <= MAX_CHUNK_CHARS) return [trimmed];
+  if (trimmed.length <= TARGET_CHUNK_CHARS) return [trimmed];
 
   const chunks: string[] = [];
   let remaining = trimmed;
-  while (remaining.length > MAX_CHUNK_CHARS) {
-    chunks.push(remaining.slice(0, MAX_CHUNK_CHARS));
-    remaining = remaining.slice(MAX_CHUNK_CHARS).trimStart();
+  while (remaining.length > TARGET_CHUNK_CHARS) {
+    const boundary = findWordBoundary(remaining);
+    if (boundary === undefined) break;
+    chunks.push(remaining.slice(0, boundary).trimEnd());
+    remaining = remaining.slice(boundary).trimStart();
   }
   if (remaining) chunks.push(remaining);
   return chunks;
+}
+
+/** Whitespace parsing only: no vocabulary, semantic classification or rewriting. */
+function findWordBoundary(text: string): number | undefined {
+  let lastBoundary: number | undefined;
+  for (let index = 1; index < text.length; index += 1) {
+    if (!/\s/u.test(text.charAt(index))) continue;
+    if (index <= TARGET_CHUNK_CHARS) lastBoundary = index;
+    else return lastBoundary ?? index;
+  }
+  return lastBoundary;
 }

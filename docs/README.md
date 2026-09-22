@@ -52,7 +52,8 @@ docs/
 │   └── deployment.md
 ├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
 │   ├── ai-integration.md
-│   └── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
+│   ├── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
+│   └── decision-providers.md  Typed decision packages and live test environment
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding
@@ -151,6 +152,7 @@ docs/
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
+| Test Jev or self-hosted Laya decisions | [AI → Decision providers](ai/decision-providers.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

@@ -1058,3 +1058,9 @@ The same selection drives `findModelRate`, `allKnownModels`, cost estimates, and
 ### Numeric cost compatibility
 
 `calculateModelCost()` keeps its published `number` return type and legacy zero for an unknown model. Use `estimateModelCost()` when callers must distinguish missing pricing from explicit free usage. `generateWithUsage().cost` and `runToolLoop().aggregatedCost` also remain numeric; check `costAvailable` / `aggregatedCostAvailable` before treating those totals as fully priced. The RAG embedding-cost callback exposes `costAvailable` with its existing numeric `cost`. Custom ledgers should store null when availability is false. Framework accounting already uses the unknown-aware path internally, so numeric compatibility values never silently bypass its configured dollar budgets.
+
+## Structured answers with native tools
+
+For `generateWithUsage({ tools, outputValidation: 'prompt', ... })`, the prompt output schema also constrains a final answer. A `tool_calls` result bypasses answer validation. A final result is parsed and validated once, with failure usage recorded; malformed/truncated output is not retried automatically because retries could duplicate tool effects. Omitted validation or explicit `'none'` with tools retains raw `{ content }` behavior. Custom-agent Chat turns request prompt validation so server-only fields can be observed alongside spoken content. See [Chat tools](../chat/tool-calling.md).
+
+The OpenAI adapter forwards the final schema alongside native tools using Chat Completions `response_format` or Responses `text.format`. See the [official Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs). Tool-transport structured output remains mutually exclusive with caller tools.

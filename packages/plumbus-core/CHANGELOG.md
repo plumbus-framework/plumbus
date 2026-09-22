@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+- Support explicit same-call final-answer schema validation with native tools and forward the schema on OpenAI Chat Completions/Responses; malformed output is not retried.
+
 ## 0.7.1 — 2026-09-10
 
 ### Fixed

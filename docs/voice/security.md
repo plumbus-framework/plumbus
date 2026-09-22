@@ -93,3 +93,7 @@ WebSocket input is capped before conversion or resampling: 64 KiB per audio mess
 Default LiveKit room names include the authenticated tenant when present. Explicit room names and app-owned room resolvers remain application-authorized sharing mechanisms; a resolver now receives `tenantId` as well as user/session identity. Redis event envelopes are schema-validated before delivery, and malformed envelopes are discarded with a diagnostic rather than repeatedly requeued.
 
 Voice handshake JWT lifetimes must be finite positive whole seconds (default 90, with existing configured lifetimes preserved); established session duration remains a separate session-budget/lifecycle setting.
+
+### Configurable transcript bounds
+
+`transcript.maxChars` defaults to 4,000 and is validated by `defineVoice`. It changes the per-turn text bound only; client/server trust tags, cost/budget checks and inbound audio/control limits remain enforced. LiveKit's large-event text-stream path is outbound from the agent; it does not increase the client's control-message limit or grant client speech authoritative status. The browser bounds stream size/time and aborts readers on disconnect. See [configuration](./configuration.md).

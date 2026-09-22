@@ -88,6 +88,7 @@ function execCtxWithTrackedAi(
 }
 
 export interface RunToolPhaseArgs {
+  onAgentOutput?: (output: unknown) => void;
   ctx: ExecutionContext;
   chatName: string;
   boundTools: BoundChatTool[];
@@ -454,7 +455,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
       tools: providerTools,
       toolChoice: 'auto',
       toolExecution: { parallelToolCalls: false },
-      outputValidation: 'none',
+      outputValidation: args.agentPrompt ? 'prompt' : 'none',
       ...(args.ai?.provider ? { provider: args.ai.provider } : {}),
       ...(args.ai?.model ? { model: args.ai.model } : {}),
       ...(args.ai?.reasoning !== undefined ? { reasoning: args.ai.reasoning } : {}),
@@ -474,6 +475,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
     cost += res.cost ?? 0;
 
     if (res.finishReason !== 'tool_calls') {
+      if (args.agentPrompt) args.onAgentOutput?.(res.data);
       return {
         status: 'completed',
         toolsExecuted,
@@ -548,7 +550,8 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
       prompt: args.agentPrompt.name,
       input: args.agentPrompt.input,
       messages: [...baseThread, ...exchange],
-      outputValidation: 'none',
+      outputValidation: 'prompt',
+      validation: { maxRetries: 0 },
       ...(args.ai?.provider ? { provider: args.ai.provider } : {}),
       ...(args.ai?.model ? { model: args.ai.model } : {}),
       ...(args.ai?.reasoning !== undefined ? { reasoning: args.ai.reasoning } : {}),
@@ -564,6 +567,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
     usageIn += terminal.usage?.inputTokens ?? 0;
     usageOut += terminal.usage?.outputTokens ?? 0;
     cost += terminal.cost ?? 0;
+    args.onAgentOutput?.(terminal.data);
     return {
       status: 'completed',
       toolsExecuted,

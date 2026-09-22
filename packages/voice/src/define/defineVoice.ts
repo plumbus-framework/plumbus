@@ -33,7 +33,11 @@ const voiceConfigSchema = z.object({
     languages: z.array(z.string().min(1)).optional(),
     options: z.record(z.unknown()).optional(),
   }),
+  transcript: z
+    .object({ maxChars: z.number().finite().int().positive().safe().optional() })
+    .optional(),
   tts: z.object({
+    responseMode: z.enum(['sentence', 'reply']).optional(),
     provider: z.string().min(1),
     model: z.string().optional(),
     voiceId: z.string().optional(),
@@ -52,6 +56,11 @@ const voiceConfigSchema = z.object({
   ),
   instructions: z.array(z.string()).optional(),
   toneProfiles: z.record(deliveryToneSchema).optional(),
+  resolveSttContext: z
+    .custom((value: unknown) => value === undefined || typeof value === 'function', {
+      message: 'resolveSttContext must be a function',
+    })
+    .optional(),
   resolveTone: z
     .custom((value: unknown) => value === undefined || typeof value === 'function', {
       message: 'resolveTone must be a function',
