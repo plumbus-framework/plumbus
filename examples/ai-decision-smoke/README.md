@@ -84,7 +84,7 @@ and run with `pnpm test`. They use injected fetch responses and do not start Doc
 or download weights. Turbo includes the example's JavaScript files in that test
 task's cache inputs, while the private `.env` stays excluded.
 
-The capability now calls `ctx.ai.decide()` through core 0.7.3+, and the smoke suite
+The capability now calls `ctx.ai.decide()` through core 0.7.3+ (0.8.0-beta.6+), and the smoke suite
 checks that both inference calls produce tenant-scoped `decide` cost records.
 Laya-backed calls retain unknown cost as `null`; the returned `costs` array exposes
 the actual model and token usage without requiring a hosted TypeSafe account.

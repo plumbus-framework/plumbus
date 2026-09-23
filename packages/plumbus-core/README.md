@@ -1,6 +1,6 @@
 # @plumbus/core
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-classification.md).
+Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 **AI-native, contract-driven TypeScript application framework.**
 
@@ -167,7 +167,7 @@ node_modules/@plumbus/core/instructions/
 └── upgrading-0.5-capabilities.md  # 0.5.x capability invocation migration
 ```
 
-Wire them up with `plumbus init --agent all`. After upgrading to core 0.7.4+, run
+Wire them up with `plumbus init --agent all`. After upgrading to core 0.7.4+ (0.8.0-beta.6+ in the 0.8 family), run
 `plumbus init --patch --agent all` for wiring v17. For classification, provider/model
 selection, or TypeSafe/Jev and Laya, start with [the classification recipe](instructions/ai-classification.md).
 

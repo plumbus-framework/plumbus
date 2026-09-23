@@ -18,12 +18,12 @@ Validate choices, scores, probabilities, actual model/routing, usage and unknown
 cost handling. Measure live accuracy and calibration separately from connection
 success. Do not assert a universal confidence cutoff or guaranteed live label.
 
-For core 0.7.4+ classification, use `mockAI({ classify: ['billing'] })` and test
+For core 0.8.0-beta.6+ classification, use `mockAI({ classify: ['billing'] })` and test
 through `runCapability()` / `simulateFlow()`. Integration tests should assert
 provider/model forwarding, zero/multiple matches, inclusive thresholds, and one
 `classify` cost row. Use injected fetch; routine tests do not require live Laya.
 
-For core 0.7.3+ integration tests, configure `mockAI({ decide: result })` or a real
+For core 0.8.0-beta.6+ integration tests, configure `mockAI({ decide: result })` or a real
 `createAIService({ decisions, costTracker, onAICostRecorded })` with injected
 provider fetch. Assert exactly one cost row, identity, actual model/usage, unknown
 cost handling, billed validation failures, and budget rejection before dispatch.

@@ -1,6 +1,6 @@
 # AI Integration Guide
 
-Core **0.7.3+** also provides `ctx.ai.decide()` for typed decision providers. It
+Core **0.7.4+** (0.8 family: **0.8.0-beta.6+**) also provides `ctx.ai.decide()` for typed decision providers. It
 records `operation: 'decide'` through the existing cost tracker and
 `onAICostRecorded` hook, including billed validation failures and cancellations.
 See [decision registration, named contracts, and accounting](./decision-providers.md#application-integration-and-cost-recording).
@@ -257,7 +257,7 @@ const labels = await ctx.ai.classify({
 // → ["billing"]
 ```
 
-From core **0.7.4+**, classification supports per-call `provider` and `model`.
+From core **0.7.4+** (0.8 family: **0.8.0-beta.6+**), classification supports per-call `provider` and `model`.
 See the [packaged agent recipe](../../packages/plumbus-core/instructions/ai-classification.md).
 
 By default, classification uses the configured text provider. Set `provider` to a

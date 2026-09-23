@@ -15,7 +15,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [flows.md](./flows.md) | `defineFlow()`, steps, triggers, retries. |
 | [prompts.md](./prompts.md) | `definePrompt()`, `system`/`description`, model resolution. |
 | [ai.md](./ai.md) | `ctx.ai` operations (incl. provider-native tool calling + `runToolLoop`), cost tracking, env-based provider config. |
-| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev or Laya, `classify()` vs `decide()`** (core 0.7.4+). |
+| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev or Laya, `classify()` vs `decide()`** (core 0.7.4+ / 0.8.0-beta.6+). |
 | [translations.md](./translations.md) | `defineTranslation()`, `ctx.translations`. |
 | [security.md](./security.md) | Access policies, tenant isolation, auth adapters. |
 | [governance.md](./governance.md) | Advisory rules, `plumbus verify`, compliance profiles. |

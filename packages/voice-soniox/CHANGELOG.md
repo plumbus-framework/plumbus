@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-09-23
+
+Carries 0.2.2 from `main` into the beta family.
+
+- Forward per-session recognition context (general, terms, text), replacing static hints without modifying recognized words.
+- Report streaming connection and SDK failures through the STT error callback; a rejected connection can be retried and callbacks from an obsolete session are ignored. Server-resolved recognition context and runtime error recovery need `@plumbus/voice` 0.6.0-beta.1; static hints keep working.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

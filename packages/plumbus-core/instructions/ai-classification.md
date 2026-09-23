@@ -1,7 +1,7 @@
 # AI classification: provider and model selection
 
 Read this when implementing classification, categorization, label selection, or
-TypeSafe/Jev and Laya integration. Requires **@plumbus/core 0.7.4+** for the
+TypeSafe/Jev and Laya integration. Requires **@plumbus/core 0.7.4+** (0.8 family: **0.8.0-beta.6+**) for the
 `classify()` provider/model options. Use this recipe inside Plumbus capabilities
 and flows; preserve their access policies and declare `effects.ai: true`.
 
@@ -24,6 +24,7 @@ Install only the decision provider needed by the app:
 ```bash
 pnpm add @plumbus/core@~0.7.4 @plumbus/ai-decision-typesafe@~0.2.2
 # For self-hosted Laya, use @plumbus/ai-decision-laya@~0.2.2 instead.
+# 0.8 beta family: pnpm add @plumbus/core@plumbus-next @plumbus/ai-decision-typesafe@plumbus-next
 ```
 
 Export registration at the server boundary so API and workers share it:

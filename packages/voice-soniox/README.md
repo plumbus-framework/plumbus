@@ -1,6 +1,6 @@
 # @plumbus/voice-soniox
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 > **Soniox STT + TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register `stt.provider: 'soniox'` and/or `tts.provider: 'soniox'` via the official `@soniox/node` SDK — without bundling Soniox into `@plumbus/voice`.
 

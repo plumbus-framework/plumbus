@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-09-23
+
+Carries 0.2.2 from `main` into the beta family.
+
+- The recommended/default TTS model is now `dd-etts-3.3` (verified with live Hebrew synthesis). `dd-etts-3.2` and `dd-etts-3.0` stay selectable with their contract pricing; pin a model explicitly when its output must not change across upgrades.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

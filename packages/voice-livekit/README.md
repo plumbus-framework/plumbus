@@ -1,6 +1,6 @@
 # @plumbus/voice-livekit
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 > **LiveKit transport, agent worker, and browser session helpers for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `transport.provider: 'livekit'`, mint room tokens, join agent workers, and run continuous or push-to-talk sessions without pulling LiveKit into `@plumbus/voice` itself.
 

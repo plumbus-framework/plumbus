@@ -1,6 +1,6 @@
 # @plumbus/chat
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 > **Policy-first conversation runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Declare a chat, plug in context sources, set guards — get a fully-governed AI conversation with cited sources, budgets, refusals, and an event-streamed UI.
 

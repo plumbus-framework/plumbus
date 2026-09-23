@@ -6,26 +6,31 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
-| `@plumbus/core` | 0.7.1 | 0.8.0-beta.5 (beta.4 + one-lease-at-a-time flow polling, static access before input parsing, `migrate apply` exit status) |
+| `@plumbus/core` | 0.7.4 | 0.8.0-beta.6 (beta.5 + core 0.7.2/0.7.4 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing; generated OpenAPI documents a declared `api.method`) |
 | `@plumbus/ui` | 0.8.1 | 0.9.0-beta.1 (beta.0 + flow triggers only for descriptors with an explicit `startPath`) |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
-| `@plumbus/voice` | 0.5.1 | 0.6.0-beta.0 |
+| `@plumbus/voice` | 0.5.2 | 0.6.0-beta.1 (beta.0 + voice 0.5.2: `resolveSttContext`, `tts.responseMode: 'reply'`, STT error recovery, `transcript.maxChars`) |
 | `@plumbus/ai-bedrock` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/api` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/auth` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/auth-cognito` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/browser-extension` | 0.2.1 | 0.3.0-beta.1 (beta.0 + scaffolding filtered to the served HTTP surface) |
-| `@plumbus/chat` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/chat` | 0.2.2 | 0.3.0-beta.1 (beta.0 + chat 0.2.2: structured custom-agent output through `onAgentOutput`) |
 | `@plumbus/chat-ui` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/knowledge-base` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/voice-deepdub` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/voice-deepdub` | 0.2.2 | 0.3.0-beta.1 (beta.0 + default model `dd-etts-3.3`) |
 | `@plumbus/voice-elevenlabs` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/voice-livekit` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/voice-livekit` | 0.2.2 | 0.3.0-beta.1 (beta.0 + 20 ms PCM framing, text streams for events above 15 KiB) |
 | `@plumbus/voice-minimax` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/voice-openai` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/voice-soniox` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/voice-soniox` | 0.2.2 | 0.3.0-beta.1 (beta.0 + per-session recognition context, STT error callback) |
+| `@plumbus/ai-decision` | 0.2.2 | 0.3.0-beta.0 (joins the family with core 0.8.0-beta.6, which depends on it) |
+| `@plumbus/ai-decision-typesafe` | 0.2.2 | 0.3.0-beta.0 |
+| `@plumbus/ai-decision-laya` | 0.2.2 | 0.3.0-beta.0 |
 
-All 18 packages move outside their previous caret range, including add-ons whose only change is the peer literal: every add-on peers on core, and a `0.7.x` peer would reject core 0.8. Canonical peer literals are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
+All 21 packages move outside their previous caret range, including add-ons whose only change is the peer literal: every add-on peers on core, and a `0.7.x` peer would reject core 0.8. Canonical peer literals are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
+
+Since 0.8.0-beta.6 core has a regular dependency on `@plumbus/ai-decision` (`~0.3.0-beta.0`, the shared decision contracts). The publish workflow publishes that package before core; a core 0.8.0-beta.6 install cannot resolve until `@plumbus/ai-decision@0.3.0-beta.0` is on npm. The TypeSafe and Laya adapters stay optional installs.
 
 ## Prerelease peers
 
@@ -63,6 +68,7 @@ Do not mix beta packages with the 0.7 family, and do not use `--force` or `--leg
 | AI provider admission and trace propagation | Hosts that meter or trace outbound model calls | `app/server.ts` may export `aiProviderConcurrency` (immediate per-scope ceiling, default scope provider + tenant + `costContext.serviceArea`; saturation throws `ai-provider-concurrency-exhausted` with `retryAfterSeconds: 1`, never queues), `resolveAIProviderHeaders` (trusted W3C `traceparent` / `tracestate` for every provider attempt, reaching the adapter as `ProviderRequest.transportHeaders`; credential and content-type headers are refused) and `onAIProviderSpan` (best-effort client-span export). `createAIService` takes the same as `providerConcurrency` / `resolveProviderHeaders` / `onProviderSpan`; `withContext` accepts `correlationId` and flow workers bind the persisted flow correlation id. See [AI integration](ai/ai-integration.md#provider-admission-and-trace-propagation). |
 | `ctx.flows.terminate` | Operator recovery capabilities | `FlowService` exposes the engine's `terminate(executionId)`: abort and close as `cancelled` without compensations, beside `cancel`, which runs every declared compensation. See [Flows](core-concepts/flows.md#cancellation). |
 | Approval request cancellation | Hosts with human-approval workflows | `ApprovalService.cancel({ requestId, auth, reason })` withdraws a still-pending request after human-actor and host-authorization revalidation, records cancellation evidence, and atomically cancels linked open/claimed human tasks without writing an approval decision. Tenant durable migration `0002_approval_cancellation.sql` adds the evidence columns. See [Approvals](core-concepts/approvals.md). |
+| Typed decisions and classification | Apps that call TypeSafe/Jev or self-hosted Laya decision providers | Since core 0.8.0-beta.6, `ctx.ai.decide()` runs a decision adapter over the shared `@plumbus/ai-decision` contract with security checks, budgets, cancellation and per-call cost records through `onAICostRecorded`, and `ctx.ai.classify()` takes optional `provider` / `model` to route labels to a text provider or a decision adapter (labels at or above `threshold`, default 0.5). Register providers with `export const decisions = { providers, defaultProvider }` in `app/server.ts`; named definitions live under `app/decisions/`. Install the adapter packages (`0.3.0-beta.0`) explicitly. Run `plumbus init --patch --agent all` for agent wiring v17, which links the classification recipe. See [Decision providers](ai/decision-providers.md). |
 | Events audit vocabulary | Every host | The dispatcher and the event worker record their audit with the outcomes `createAuditService` accepts (`success` / `failure` / `denied`); `event.dispatch.attempt`, `event.consumer.attempt` and `event.consumer.skipped` carry no outcome, `event.dispatch.failed` and `event.consumer.dead_lettered` are `failure` (the former adds `disposition: retry \| dead_lettered`). Before, they wrote `pending` / `retry` / `dead_lettered` / `skipped`, which the audit service refused — so with the real audit service every dispatch attempt threw, and one plane's rejected poll escaped the timer and ended the worker process. The outbox poll now contains a failing plane and keeps polling the others. |
 
 No database schema changes are introduced by this family beyond the tenant data-plane helpers and the approval-cancellation evidence columns, which are opt-in — a host enabling spine dispatch needs the framework's `opaque_dispatch` table on its control plane (`migrations/spine/0000_opaque_dispatch.sql`) and the `core_plumbus` durable tables on each tenant plane (the generator already emits them). Hosts that store approval requests and want `ApprovalService.cancel` need `migrations/durable-tenant/0002_approval_cancellation.sql` on each tenant plane.

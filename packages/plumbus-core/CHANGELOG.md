@@ -1,5 +1,21 @@
 # @plumbus/core changelog
 
+## 0.8.0-beta.6 — 2026-09-23
+
+Carries core 0.7.2 and 0.7.4 from `main` into the beta family (0.7.4 absorbed the unpublished 0.7.3).
+
+### Added
+
+- **Typed decisions through `ctx.ai.decide()`.** Capabilities and flows call decision adapters over the shared `@plumbus/ai-decision` contract, with security checks over state and questions, request bounds, budgets, cancellation forwarding and per-call cost/usage records attributed to tenant and actor. Register providers with `export const decisions = { providers, defaultProvider }` in `app/server.ts` (API and worker processes share it); named definitions are discovered under `app/decisions/`. Successful and failed decision calls reach `onAICostRecorded`, keeping known billed metadata after an invalid provider answer and recording unknown cost as `null`. `mockAI({ decide })` returns decision results in tests. Core now depends on `@plumbus/ai-decision` `~0.3.0-beta.0`; the TypeSafe and Laya adapters stay optional installs. Docs: [Decision providers](../../docs/ai/decision-providers.md).
+- **`ctx.ai.classify()` selects a provider per call.** Optional `provider` and `model` pick a registered text provider or a TypeSafe/Laya decision adapter. Decision classification batches one probability question per label and returns the labels at or above `threshold` (default 0.5), with the same validation, security, budgets, cancellation and a single `classify` cost record; a name registered in both registries is refused. Calls without `provider` keep the default text provider and the `string[]` result. Text classification keeps provider admission and cost context. Recipe: `instructions/ai-classification.md`.
+- **Agent wiring v17.** `plumbus init` links the classification recipe and the decision provider instruction indexes from every agent format; refresh existing apps with `plumbus init --patch --agent all`.
+- **Structured final answers with native tools.** `generateWithUsage({ tools, outputValidation: 'prompt' })` validates a final answer against the prompt output schema once and records the usage of a failed validation; a malformed answer is not retried because a retry could repeat tool effects, and `tool_calls` results bypass validation. The OpenAI adapter forwards the schema beside native tools (Chat Completions `response_format`, Responses `text.format`). Pair with `@plumbus/chat` 0.3.0-beta.1 for structured custom-agent output. Docs: [AI integration](../../docs/ai/ai-integration.md#structured-answers-with-native-tools).
+- **Pricing.** `claude-opus-5-5`: $4 input, $0.20 cached input, $5 five-minute cache writes, $20 output per million tokens, no long-context surcharge. `gpt-6-sol` ($2 / $0.20 / $10) and `gpt-6-luna` ($0.10 / $0.01 / $0.50), including cache writes and the full-request long-context premium above 272K input tokens.
+
+### Fixed
+
+- **Generated OpenAPI documents a capability's declared `api.method`.** `plumbus generate` used the kind default (`get` for queries, `post` otherwise), so a capability the server routes as `PATCH` was documented as `post` and generated clients got a 404. The declared method now wins; the kind default applies only when none is declared.
+
 ## 0.8.0-beta.5 — 2026-09-20
 
 ### Fixed

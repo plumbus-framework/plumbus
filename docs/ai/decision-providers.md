@@ -1,7 +1,7 @@
 # Typed decision provider packages
 
-Core **0.7.3+** integrates typed decisions through `ctx.ai.decide()`. Use shared
-`@plumbus/ai-decision@0.2.1+` and the matching TypeSafe/Laya adapters for named
+Core **0.7.4+** (0.8 family: **0.8.0-beta.6+**) integrates typed decisions through `ctx.ai.decide()`. Use shared
+`@plumbus/ai-decision@0.2.2+` (0.8 family: `0.3.0-beta.0+`) and the matching TypeSafe/Laya adapters for named
 contracts, validation, security, budgets, cancellation, and per-call cost records.
 The decision packages still work independently for infrastructure tests. Register
 decision adapters separately from text-generation providers.
@@ -12,8 +12,9 @@ decision adapters separately from text-generation providers.
 | `@plumbus/ai-decision-typesafe` | TypeSafe/Jev System One adapter and model-specific input pricing |
 | `@plumbus/ai-decision-laya` | Laya HTTP adapter and a separately deployed Python reference service |
 
-The decision packages peer on core `0.7.x`. Core 0.7.4 and the 0.2.2 provider packages
-depend on shared contracts `~0.2.2`; neither provider depends on the other. Node.js 20.6+ is
+The decision packages peer on core `0.7.x`; their 0.8-family versions (`0.3.0-beta.N`)
+peer on `>=0.8.0-beta.0 <0.9.0`. Core 0.7.4 and the 0.2.2 provider packages depend on
+shared contracts `~0.2.2` (core 0.8.0-beta.6: `~0.3.0-beta.0`); neither provider depends on the other. Node.js 20.6+ is
 required. Only the Laya service needs Python/model dependencies. The TypeSafe
 adapter calls the documented HTTP endpoint directly, using the shared transport;
 consumer apps do not need a vendor SDK.
@@ -121,7 +122,7 @@ primitives; decision probabilities never authorize an action by themselves.
 
 ## Classification with decision models
 
-Requires core **0.7.4+**. Coding agents should start with the packaged
+Requires core **0.7.4+** (0.8 family: **0.8.0-beta.6+**). Coding agents should start with the packaged
 [classification recipe](../../packages/plumbus-core/instructions/ai-classification.md);
 see the [upgrade guide](../upgrading-classification.md) for wiring v17.
 

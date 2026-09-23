@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/chat",
-  "version": "0.3.0-beta.0",
+  "version": "0.3.0-beta.1",
   "description": "Plumbus chat primitive — policy, context sources, guards, budgets, evals.",
   "type": "module",
   "main": "./dist/index.js",

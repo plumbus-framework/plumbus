@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-09-23
+
+Carries 0.2.2 from `main` into the beta family.
+
+- Frame provider PCM into native captures of at most 20 ms in both transports, preserving samples and stream boundaries, so complete-reply audio chunks no longer wedge the LiveKit capture queue.
+- Send voice events above 15 KiB through native LiveKit text streams, bounded to 256 KiB, keeping their order with regular data packets and cancelling pending client readers on disconnect. Update the browser and the agent together; configurable transcript limits need `@plumbus/voice` 0.6.0-beta.1.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

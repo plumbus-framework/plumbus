@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/ai-decision",
-  "version": "0.2.2",
+  "version": "0.3.0-beta.0",
   "description": "Shared typed decision contracts, validation, and transport for Plumbus decision adapters.",
   "type": "module",
   "main": "./dist/index.js",
@@ -49,7 +49,7 @@
     "node": ">=20.6.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.7.x"
+    "@plumbus/core": ">=0.8.0-beta.0 <0.9.0"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",

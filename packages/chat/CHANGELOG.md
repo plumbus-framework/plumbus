@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-09-23
+
+Carries 0.2.2 from `main` into the beta family.
+
+- Expose custom-agent structured output through the optional server-only `onAgentOutput` while emitting only `content`. Custom-agent tool turns validate their prompt output without retrying malformed final answers. This needs `@plumbus/core` 0.8.0-beta.6 or later; upgrade core and chat together. The peer range is unchanged.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

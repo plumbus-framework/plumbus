@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0-beta.1 — 2026-09-23
+
+Carries 0.5.2 from `main` into the beta family.
+
+- Add authenticated server-side `resolveSttContext` with bounded native recognition hints, resolved once per connection with serialized connection attempts. Use `@plumbus/voice-soniox` 0.3.0-beta.1 for Soniox context and error forwarding.
+- Add opt-in `tts.responseMode: reply`: one brain call, response-aware tone metadata, one full-reply synthesis, ordered UI delivery and abort handling.
+- Forward STT confidence to the brain; add provider error callbacks and opt-in missing-endpoint recovery without forcing a transcript final. Batch TTS no longer forwards duplicate events.
+- Add validated `transcript.maxChars` on voice definitions (default stays 4,000 characters, with the normal trust and budget checks). The streaming TTS 200-character fallback splits at whitespace instead of inside words.
+
 ## 0.6.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

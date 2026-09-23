@@ -1,6 +1,6 @@
 # @plumbus/voice-deepdub
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 > **Deepdub TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `tts.provider: 'deepdub'` for streaming synthesis with full delivery-tone support and strong Hebrew quality via `@deepdub/node`.
 

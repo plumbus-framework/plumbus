@@ -1,16 +1,17 @@
 # @plumbus/ai-decision
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-classification.md).
+Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 Shared decision contracts, runtime validation, structured errors, and HTTP transport.
 
-Version `0.2.2`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
+Version `0.3.0-beta.0` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer
+`@plumbus/core` `>=0.8.0-beta.0 <0.9.0`; Node.js 20.6+.
 Install explicitly with `pnpm add @plumbus/ai-decision`. Provider packages install
 `@plumbus/ai-decision` transitively. There is no dependency on the other provider.
 
 ## Scope
 
-Core `0.7.3+` provides `ctx.ai.decide()` with shared validation, security, budgets,
+Core `0.8.0-beta.6+` provides `ctx.ai.decide()` with shared validation, security, budgets,
 and per-call cost recording. Define named contracts with `defineDecision` from
 `@plumbus/ai-decision`, and export explicit provider registration as `decisions`
 from `app/server.ts` for API and worker processes. See the
@@ -18,7 +19,7 @@ from `app/server.ts` for API and worker processes. See the
 Direct adapter calls remain useful for infrastructure tests and do not record costs
 in core. Keep these adapters separate from the text-generation provider registry.
 
-Core **0.7.4+** also supports `ctx.ai.classify({ text, labels, provider, model, threshold })`
+Core **0.8.0-beta.6+** also supports `ctx.ai.classify({ text, labels, provider, model, threshold })`
 for generative or decision models. Start with
 `node_modules/@plumbus/core/instructions/ai-classification.md` for registration,
 model defaults, multi-label semantics, and cost recording.
