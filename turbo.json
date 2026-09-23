@@ -10,7 +10,8 @@
       "persistent": true
     },
     "test": {
-      "dependsOn": ["^build", "build"]
+      "dependsOn": ["^build", "build"],
+      "env": ["VITEST_MAX_THREADS", "VITEST_MIN_THREADS", "VITEST_MAX_FORKS", "VITEST_MIN_FORKS"]
     },
     "lint": {},
     "format": {

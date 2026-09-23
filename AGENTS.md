@@ -35,6 +35,10 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | Browser tests | `cd packages/plumbus-core && pnpm test:browser` |
 | Translation status | `plumbus translation status` |
 
+Framework `pnpm test` defaults to two package tasks and two Vitest workers per
+package; Laya uses one worker with serial files. Live Laya inference is opt-in;
+one-off smoke runs stop servers they start. See `docs/testing/testing-guide.md`.
+
 ## Consumer App Dependency Policy
 
 The framework provides these packages to consumer apps. Consumers must **never** add them to their own `package.json`:

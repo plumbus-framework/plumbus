@@ -345,7 +345,9 @@ volume is pre-created with ownership suitable for the unprivileged container use
 Use `node examples/ai-decision-smoke/run.mjs smoke` to repeat the test, `status` or
 `logs` to inspect the server, and `stop` to stop it. To change the password, edit the
 example `.env` and run `restart`; the named model cache is retained. The example
-keeps the server running after the smoke test.
+stops a server that a one-off run created or started, including on failure.
+For repeated checks, use `start` followed by `smoke`, then `stop` when finished.
+Already-running servers are preserved; passwords and model caches stay on disk.
 
 ### Using an existing endpoint
 
@@ -420,7 +422,10 @@ and protocol compatibility; they do not establish accuracy or calibration.
 
 `pnpm test` runs protocol, transport, provider and Python service tests with fake
 backends. No credentials, model download or GPU are required; the Laya service
-contract tests require `python3` on PATH. Package typechecking also compiles test
+contract tests require `python3` on PATH. Laya runs its files serially with one
+Vitest worker so Python fixture processes do not overlap. The repository test
+runner defaults to two package tasks and two workers per other package; these
+limits do not start Docker or load model weights. Package typechecking also compiles test
 files and verifies inferred answer types. The Python subprocess has a 20-second
 deadline and its enclosing Vitest test allows 25 seconds, so parallel workspace
 load does not impose the default five-second limit on the entire Python suite.

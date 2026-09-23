@@ -40,8 +40,8 @@ function docker(args, { inherit = false, allowMissing = false } = {}) {
   });
 }
 
-async function ownedContainer() {
-  const json = await docker(['inspect', '--format', '{{json .Config.Labels}}', container], {
+async function ownedContainer(runDocker = docker) {
+  const json = await runDocker(['inspect', '--format', '{{json .Config.Labels}}', container], {
     allowMissing: true,
   });
   if (json === null) return false;
@@ -57,7 +57,7 @@ async function ownedContainer() {
   return true;
 }
 
-async function waitForReady(config) {
+async function waitForReady(config, runDocker = docker) {
   const started = Date.now();
   let lastNotice = 0;
   while (Date.now() - started < 15 * 60_000) {
@@ -72,7 +72,7 @@ async function waitForReady(config) {
     } catch {
       /* First boot downloads and loads weights before opening the socket. */
     }
-    const state = await docker(['inspect', '--format', '{{.State.Running}}', container]);
+    const state = await runDocker(['inspect', '--format', '{{.State.Running}}', container]);
     if (state !== 'true')
       throw createErrorService().internal(
         'Laya stopped during startup. Run: node examples/ai-decision-smoke/run.mjs logs',
@@ -90,7 +90,13 @@ async function waitForReady(config) {
   );
 }
 
-export async function runCommand(command, message) {
+/** External operations are injectable so lifecycle tests never start a real model. */
+export async function runCommand(command, message, dependencies = {}) {
+  const runDocker = dependencies.docker ?? docker;
+  const readConfig = dependencies.loadConfig ?? loadConfig;
+  const prepareConfig = dependencies.ensureEnvironment ?? ensureEnvironment;
+  const ready = dependencies.waitForReady ?? ((config) => waitForReady(config, runDocker));
+  const smoke = dependencies.runSmoke ?? runSmoke;
   if (
     !z.enum(['run', 'start', 'restart', 'smoke', 'status', 'logs', 'stop']).safeParse(command)
       .success
@@ -100,83 +106,101 @@ export async function runCommand(command, message) {
     );
   }
   if (['logs', 'stop', 'status'].includes(command)) {
-    if (!(await ownedContainer())) {
+    if (!(await ownedContainer(runDocker))) {
       console.log(
         'The example server has not been created yet. Run this script without arguments.',
       );
       return;
     }
-    if (command === 'logs') await docker(['logs', '--tail', '60', container], { inherit: true });
+    if (command === 'logs') await runDocker(['logs', '--tail', '60', container], { inherit: true });
     else if (command === 'stop') {
-      await docker(['stop', container]);
+      await runDocker(['stop', container]);
       console.log('Stopped Laya. Password and model cache retained.');
     } else {
       console.log(
-        `Container running: ${await docker(['inspect', '--format', '{{.State.Running}}', container])}`,
+        `Container running: ${await runDocker(['inspect', '--format', '{{.State.Running}}', container])}`,
       );
-      const config = await loadConfig();
-      const ready = await fetch(`${config.origin}/healthz`, { signal: AbortSignal.timeout(2000) })
+      const config = await readConfig();
+      const health = await fetch(`${config.origin}/healthz`, { signal: AbortSignal.timeout(2000) })
         .then((r) => r.json())
         .catch(() => ({ ready: false }));
-      console.log(JSON.stringify(ready));
+      console.log(JSON.stringify(health));
     }
     return;
   }
 
-  const config = command === 'smoke' ? await loadConfig() : await ensureEnvironment();
-  if (command !== 'smoke') {
-    const exists = await ownedContainer();
-    if (exists && command === 'restart') {
-      await docker(['stop', container]);
-      await docker(['rm', container]);
+  const config = command === 'smoke' ? await readConfig() : await prepareConfig();
+  let stopAfterRun = false;
+  try {
+    if (command !== 'smoke') {
+      const exists = await ownedContainer(runDocker);
+      const wasRunning =
+        exists &&
+        (await runDocker(['inspect', '--format', '{{.State.Running}}', container])) === 'true';
+      if (exists && command === 'restart') {
+        await runDocker(['stop', container]);
+        await runDocker(['rm', container]);
+      }
+      if (!exists || command === 'restart') {
+        console.log('Building the CPU server image (cached on later runs)…');
+        await runDocker(['build', '-t', image, 'packages/ai-decision-laya/service'], {
+          inherit: true,
+        });
+        await runDocker([
+          'run',
+          '-d',
+          '--name',
+          container,
+          '--label',
+          'com.plumbus.example=ai-decision-smoke',
+          '--label',
+          `com.plumbus.workspace=${repoRoot.replace(/\/$/, '')}`,
+          '--env-file',
+          config.envFile,
+          '--cpus=2',
+          '--memory=6g',
+          '--memory-swap=6g',
+          '-p',
+          `127.0.0.1:${config.port}:8080`,
+          '-v',
+          `${volume}:/home/laya/.cache/huggingface`,
+          image,
+        ]);
+        stopAfterRun = command === 'run';
+      } else if (!wasRunning) {
+        await runDocker(['start', container]);
+        stopAfterRun = command === 'run';
+      }
+      await ready(config);
+      console.log(`Laya ready: ${config.baseUrl} (${config.model}, CPU)`);
+      console.log(`Password is managed in ${config.envFile}; no manual password setup is needed.`);
     }
-    if (!exists || command === 'restart') {
-      console.log('Building the CPU server image (cached on later runs)…');
-      await docker(['build', '-t', image, 'packages/ai-decision-laya/service'], { inherit: true });
-      await docker([
-        'run',
-        '-d',
-        '--name',
-        container,
-        '--label',
-        'com.plumbus.example=ai-decision-smoke',
-        '--label',
-        `com.plumbus.workspace=${repoRoot.replace(/\/$/, '')}`,
-        '--env-file',
-        config.envFile,
-        '--cpus=2',
-        '--memory=6g',
-        '--memory-swap=6g',
-        '-p',
-        `127.0.0.1:${config.port}:8080`,
-        '-v',
-        `${volume}:/home/laya/.cache/huggingface`,
-        image,
-      ]);
-    } else {
-      await docker(['start', container]);
-    }
-    await waitForReady(config);
-    console.log(`Laya ready: ${config.baseUrl} (${config.model}, CPU)`);
-    console.log(`Password is managed in ${config.envFile}; no manual password setup is needed.`);
-  }
 
-  if (command === 'run' || command === 'smoke') {
-    const result = await runSmoke(config, { message });
-    console.table(
-      result.results.map((row) => ({
-        adapter: row.provider,
-        checkpoint: row.routing.model,
-        department: row.answers.department.choice,
-        refundProbability: row.answers.refund.probability,
-        tokens: row.usage.totalTokens,
-        latencyMs: Math.round(row.latencyMs),
-        cost: row.cost === null ? 'unknown (local model)' : row.cost,
-      })),
-    );
-    console.log(`PASS: ${result.checks.join('; ')}.`);
-    console.log(
-      'The server remains running. Stop it with: node examples/ai-decision-smoke/run.mjs stop',
-    );
+    if (command === 'run' || command === 'smoke') {
+      const result = await smoke(config, { message });
+      console.table(
+        result.results.map((row) => ({
+          adapter: row.provider,
+          checkpoint: row.routing.model,
+          department: row.answers.department.choice,
+          refundProbability: row.answers.refund.probability,
+          tokens: row.usage.totalTokens,
+          latencyMs: Math.round(row.latencyMs),
+          cost: row.cost === null ? 'unknown (local model)' : row.cost,
+        })),
+      );
+      console.log(`PASS: ${result.checks.join('; ')}.`);
+      if (!stopAfterRun)
+        console.log(
+          'The existing server remains running. Stop it with: node examples/ai-decision-smoke/run.mjs stop',
+        );
+    }
+  } finally {
+    if (stopAfterRun) {
+      await runDocker(['stop', container]);
+      console.log(
+        'Stopped the server started by this smoke run. Password and model cache retained.',
+      );
+    }
   }
 }
