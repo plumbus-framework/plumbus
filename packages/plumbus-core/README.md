@@ -1,6 +1,6 @@
 # @plumbus/core
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-classification.md).
 
 **AI-native, contract-driven TypeScript application framework.**
 
@@ -153,6 +153,7 @@ node_modules/@plumbus/core/instructions/
 ├── flows.md                       # Workflow steps and retry logic
 ├── prompts.md                     # Prompt content, system/description, model config
 ├── ai.md                          # ctx.ai operations, RAG, cost tracking
+├── ai-classification.md           # Provider/model selection, TypeSafe/Jev, Laya
 ├── translations.md                # i18n catalogs and ctx.translations
 ├── security.md                    # Access policies and tenant isolation
 ├── governance.md                  # Advisory rules and compliance
@@ -166,7 +167,9 @@ node_modules/@plumbus/core/instructions/
 └── upgrading-0.5-capabilities.md  # 0.5.x capability invocation migration
 ```
 
-Wire them up with `plumbus init --agent all`.
+Wire them up with `plumbus init --agent all`. After upgrading to core 0.7.4+, run
+`plumbus init --patch --agent all` for wiring v17. For classification, provider/model
+selection, or TypeSafe/Jev and Laya, start with [the classification recipe](instructions/ai-classification.md).
 
 ## Documentation
 

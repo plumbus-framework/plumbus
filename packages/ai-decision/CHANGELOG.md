@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.1 — Unreleased
+## 0.2.2 — Unreleased
+
+- Document core 0.7.4+ classification with per-call provider/model and probability threshold. Link the packaged classification recipe from agent instructions and correct stale package-only guidance. Core peer compatibility remains `0.7.x`.
 
 - Harden decision dispatch against mutable provider identity/questions, broken error metadata accessors, inconsistent selector normalization, hidden discovered definitions, and oversized requests before provider work.
 

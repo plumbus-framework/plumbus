@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 16;
+export const AGENT_WIRING_VERSION = 17;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -533,6 +533,13 @@ const UPGRADE_INSTRUCTION_REFERENCES = [
 ] as const;
 
 function addInstructionReferenceLines(lines: string[], inline: boolean): void {
+  lines.push(
+    '- For AI classification/categorization, provider and model selection, or choosing `ctx.ai.classify()` versus `ctx.ai.decide()`, read `node_modules/@plumbus/core/instructions/ai-classification.md` (core 0.7.4+).',
+    '- For shared typed decision contracts, read `node_modules/@plumbus/ai-decision/instructions/README.md`.',
+    '- When using TypeSafe/Jev, read `node_modules/@plumbus/ai-decision-typesafe/instructions/README.md` after installing that provider.',
+    '- When using self-hosted Laya, read `node_modules/@plumbus/ai-decision-laya/instructions/README.md` after installing that provider.',
+    '',
+  );
   if (inline) {
     lines.push(
       'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, auth, auth-cognito, and browser-extension) for full SDK documentation.',
@@ -816,6 +823,7 @@ When creating or modifying capabilities:
 - Use \`ctx.data\`, \`ctx.events\`, \`ctx.ai\` within handlers
 - To expose a capability to AI agents over MCP, add \`exposeAs: ["mcp"]\` and optional \`mcp: { description, dangerous, agentTags }\`. Only \`query\`, \`action\`, and \`job\` kinds are eligible.
 - To expose a capability on the partner HTTP API, add \`exposeAs: ["api"]\` and optional \`api: { path, method, auth, ... }\`. Only \`query\` and \`action\` kinds are eligible.
+- For AI classification, provider/model selection, and TypeSafe/Jev or Laya, read \`node_modules/@plumbus/core/instructions/ai-classification.md\`; call \`ctx.ai.classify()\` / \`ctx.ai.decide()\` inside the capability.
 - If the task appears to need a custom service, controller, route, or worker, stop and ask which Plumbus primitive should own it instead.
 - Never run destructive git commands such as file-overwriting \`git checkout\`, \`git restore\`, \`git reset\`, or \`git clean\` without explicit user approval.
 - Security release checklist: \`node_modules/@plumbus/core/instructions/upgrading-security-release.md\`

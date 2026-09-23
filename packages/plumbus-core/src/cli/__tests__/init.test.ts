@@ -479,7 +479,7 @@ describe('security release agent wiring', () => {
         generateClaudeMd,
       ]) {
         const content = generate(inline, monorepo);
-        expect(content).toContain('plumbus:agent-wiring version=16');
+        expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
         expect(content).toContain(recipe);
         expect(content).toContain('Plumbus primitives');
         expect(content).toContain('`ctx.*`');
@@ -493,7 +493,7 @@ describe('security release agent wiring', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'plumbus-wiring-v16-'));
     try {
       const old = generateAgentsMd(false)
-        .replace('version=16', 'version=15')
+        .replace(`version=${AGENT_WIRING_VERSION}`, 'version=15')
         .split('\n')
         .filter((line) => !line.includes('upgrading-security-release.md'))
         .join('\n');
@@ -501,8 +501,58 @@ describe('security release agent wiring', () => {
       const results = writeAgentFiles(root, ['agents-md'], false, false, false, 'patch');
       const updated = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
       expect(results[0]?.action).toBe('patched');
-      expect(updated).toContain('version=16');
+      expect(updated).toContain(`version=${AGENT_WIRING_VERSION}`);
       expect(updated).toContain(recipe);
+      expect(updated.startsWith('App-owned preface\n')).toBe(true);
+      expect(updated.endsWith('\nApp-owned footer\n')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('classification agent discovery', () => {
+  const recipe = 'node_modules/@plumbus/core/instructions/ai-classification.md';
+
+  it.each([false, true])('links the recipe and provider indexes in inline=%s mode', (inline) => {
+    for (const monorepo of [false, true]) {
+      for (const generate of [
+        generateCopilotInstructions,
+        generateCursorRule,
+        generateAgentsMd,
+        generateClaudeMd,
+      ]) {
+        const content = generate(inline, monorepo);
+        expect(content).toContain(recipe);
+        expect(content).toContain('ctx.ai.classify()');
+        expect(content).toContain('ctx.ai.decide()');
+        expect(content).toContain('provider and model selection');
+        for (const pkg of ['ai-decision', 'ai-decision-typesafe', 'ai-decision-laya']) {
+          expect(content).toContain(`node_modules/@plumbus/${pkg}/instructions/README.md`);
+        }
+        expect(content).toContain('Use `ctx.data`, `ctx.events`, `ctx.flows`, `ctx.ai`');
+      }
+    }
+    expect(generateCursorCapabilityRule()).toContain(recipe);
+  });
+
+  it('patches v16 instructions to include classification while preserving app text', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'plumbus-classification-wiring-'));
+    try {
+      const old = generateAgentsMd(false)
+        .replace(`version=${AGENT_WIRING_VERSION}`, 'version=16')
+        .split('\n')
+        .filter((line) => !line.includes('ai-classification') && !line.includes('ai-decision'))
+        .join('\n');
+      writeFileSync(path.join(root, 'AGENTS.md'), `App-owned preface\n${old}\nApp-owned footer\n`);
+      const results = writeAgentFiles(root, ['agents-md'], false, false, false, 'patch');
+      const updated = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+      expect(results[0]?.action).toBe('patched');
+      expect(updated).toContain(`version=${AGENT_WIRING_VERSION}`);
+      expect(updated).toContain(recipe);
+      expect(updated).toContain(
+        'node_modules/@plumbus/ai-decision-typesafe/instructions/README.md',
+      );
       expect(updated.startsWith('App-owned preface\n')).toBe(true);
       expect(updated.endsWith('\nApp-owned footer\n')).toBe(true);
     } finally {

@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.1 — Unreleased
+## 0.2.2 — Unreleased
+
+- Document core 0.7.4+ classification with per-call provider/model and probability threshold. Link the packaged classification recipe from agent instructions and correct stale package-only guidance. Core peer compatibility remains `0.7.x`.
 
 - Run offline Laya tests with one worker and serial files. One-off smoke runs now stop servers they start on both success and failure; explicit persistent servers and the model cache are preserved.
 

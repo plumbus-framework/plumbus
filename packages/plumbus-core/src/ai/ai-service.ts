@@ -9,6 +9,7 @@ import type {
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
 
 import { z } from 'zod';
+import { createErrorService } from '../errors/index.js';
 import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-errors.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import type {
@@ -473,6 +474,7 @@ export function createAIService(config: AIServiceConfig): AIService {
   async function recordProviderCost(
     entry: AICostRecordInput,
     costContext: AICostContext | undefined,
+    inferCatalogCost = true,
   ): Promise<void> {
     entry = {
       ...entry,
@@ -480,7 +482,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       actor: config.budget ? config.budget.actor : entry.actor,
       cost:
         (entry.cost == null ? undefined : normalizeCost(entry.cost)) ??
-        (entry.operation !== 'decide' &&
+        (inferCatalogCost &&
+        entry.operation !== 'decide' &&
         entry.cost == null &&
         entry.usage.totalTokens > 0 &&
         findModelRate(entry.model)
@@ -953,6 +956,57 @@ export function createAIService(config: AIServiceConfig): AIService {
     return _generateCore(config);
   }
 
+  async function executeDecision<const Q extends DecisionQuestions>(
+    params: AIDecideConfig<Q>,
+    operation: 'decide' | 'classify',
+    project: (result: DecisionResult<Q>) => unknown = (result) => result.answers,
+  ): Promise<DecisionResult<Q>> {
+    const costContext = params.costContext ? { ...params.costContext } : undefined;
+    // Runtime loading keeps the shared package's core error/Zod imports out of initialization.
+    const packageName = '@plumbus/ai-decision';
+    const runtime = (await import(packageName)) as DecisionRuntimeModule;
+    let securedInput: Record<string, unknown> = {};
+    let warnings: string[] | undefined;
+    let decisionName: string | undefined;
+    const result = await runtime.runDecision<Q>(params, config.decisions, {
+      secure(input) {
+        const checked = applyPromptSecurity(input);
+        securedInput = checked.inputForAI;
+        warnings = checked.securityResult?.warnings.map((warning) => warning.message);
+        return securedInput;
+      },
+      checkBudget,
+      async record(record) {
+        decisionName = record.decisionName;
+        await recordProviderCost(
+          {
+            ...record,
+            operation,
+            tenantId: config.budget?.tenantId,
+            actor: config.budget?.actor,
+          },
+          costContext,
+          // Native decision prices must not fall back to the text-model catalog.
+          false,
+        );
+      },
+    });
+    explainability?.record({
+      operation,
+      decisionName,
+      provider: result.provider,
+      model: result.model,
+      input: securedInput,
+      output: project(result),
+      usage: result.usage,
+      securityWarnings: warnings,
+      latencyMs: result.latencyMs,
+      tenantId: config.budget?.tenantId,
+      actor: config.budget?.actor,
+    });
+    return result;
+  }
+
   return {
     withContext(identity) {
       return createAIService({
@@ -968,51 +1022,10 @@ export function createAIService(config: AIServiceConfig): AIService {
       checkBudget(config.estimatedTokens, config.estimatedCostUsd);
     },
 
-    async decide<const Q extends DecisionQuestions>(
+    decide<const Q extends DecisionQuestions>(
       params: AIDecideConfig<Q>,
     ): Promise<DecisionResult<Q>> {
-      const costContext = params.costContext ? { ...params.costContext } : undefined;
-      // Runtime loading keeps the shared package's core error/Zod imports out of initialization.
-      const packageName = '@plumbus/ai-decision';
-      const runtime = (await import(packageName)) as DecisionRuntimeModule;
-      let securedInput: Record<string, unknown> = {};
-      let warnings: string[] | undefined;
-      let decisionName: string | undefined;
-      const result = await runtime.runDecision<Q>(params, config.decisions, {
-        secure(input) {
-          const checked = applyPromptSecurity(input);
-          securedInput = checked.inputForAI;
-          warnings = checked.securityResult?.warnings.map((warning) => warning.message);
-          return securedInput;
-        },
-        checkBudget,
-        async record(record) {
-          decisionName = record.decisionName;
-          await recordProviderCost(
-            {
-              ...record,
-              operation: 'decide',
-              tenantId: config.budget?.tenantId,
-              actor: config.budget?.actor,
-            },
-            costContext,
-          );
-        },
-      });
-      explainability?.record({
-        operation: 'decide',
-        decisionName,
-        provider: result.provider,
-        model: result.model,
-        input: securedInput,
-        output: result.answers,
-        usage: result.usage,
-        securityWarnings: warnings,
-        latencyMs: result.latencyMs,
-        tenantId: config.budget?.tenantId,
-        actor: config.budget?.actor,
-      });
-      return result;
+      return executeDecision<Q>(params, 'decide');
     },
 
     async generate(params: {
@@ -1627,28 +1640,83 @@ export function createAIService(config: AIServiceConfig): AIService {
       return validated.data;
     },
 
-    async classify(params: {
-      labels: string[];
-      text: string;
-      signal?: AbortSignal;
-      costContext?: AICostContext;
-    }): Promise<string[]> {
+    async classify(params: Parameters<AIService['classify']>[0]): Promise<string[]> {
+      const options = z
+        .object({
+          provider: z.string().trim().min(1).optional(),
+          model: z.string().trim().min(1).optional(),
+          threshold: z.number().finite().min(0).max(1).optional(),
+        })
+        .safeParse(params);
+      if (!options.success) throw createErrorService().validation('Invalid classification options');
+      const { provider, model, threshold } = options.data;
+      if (provider && config.decisions && Object.hasOwn(config.decisions.providers, provider)) {
+        if (Object.hasOwn(providers, provider))
+          throw createErrorService().validation(
+            'Classification provider is registered in both registries; use distinct names',
+          );
+        const input = z
+          .object({ labels: z.array(z.string().min(1)).min(1).max(256), text: z.string() })
+          .safeParse(params);
+        if (!input.success)
+          throw createErrorService().validation(
+            'Decision classification requires 1–256 nonempty labels and string text',
+          );
+        const { labels, text } = input.data;
+        const questions = Object.fromEntries(
+          labels.map(
+            (label, index) =>
+              [
+                `label_${index}`,
+                {
+                  type: 'probability' as const,
+                  instructions: { label, question: 'Does the label apply to the text?' },
+                },
+              ] as const,
+          ),
+        );
+        const select = (result: DecisionResult<typeof questions>) =>
+          labels.filter(
+            (_label, index) =>
+              (result.answers[`label_${index}`]?.probability ?? -1) >= (threshold ?? 0.5),
+          );
+        const result = await executeDecision<typeof questions>(
+          {
+            state: { text },
+            questions,
+            provider,
+            model,
+            signal: params.signal,
+            costContext: params.costContext,
+          },
+          'classify',
+          select,
+        );
+        return select(result);
+      }
+      if (provider && !Object.hasOwn(providers, provider))
+        throw createErrorService().validation('Classification provider is not registered');
+      if (threshold !== undefined)
+        throw createErrorService().validation(
+          'Classification threshold requires a decision provider',
+        );
       const start = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
       const textForAI = String(inputForAI.text);
 
       checkBudget();
 
-      // classify uses default provider (no prompt-level routing)
-      const activeProvider = resolveProvider(undefined, 'classify', params.costContext);
-      const resolvedModel = config.defaultModel ?? activeProvider.name;
+      // Text classification retains its existing path, with optional per-call routing.
+      const activeProvider = resolveProvider(provider, 'classify', params.costContext);
+      const requestedModel = model ?? config.defaultModel;
+      const resolvedModel = requestedModel ?? activeProvider.name;
 
       const systemPrompt =
         'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
       const request: ProviderRequest = {
         system: systemPrompt,
         prompt: `Labels: ${JSON.stringify(params.labels)}\n\nText: ${textForAI}`,
-        model: config.defaultModel,
+        model: requestedModel,
         responseFormat: 'json',
         responseSchema: config.enableStrictStructuredOutputs
           ? zodToProviderJsonSchema(z.array(z.string()), { promptName: 'classify' }).schema
@@ -1719,7 +1787,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (explainability) {
         explainability.record({
           operation: 'classify',
-          model: config.defaultModel,
+          model: requestedModel,
           provider: activeProvider.name,
           input: { labels: params.labels, ...inputForAI },
           securityWarnings: securityResult?.warnings.map((warning) => warning.message),

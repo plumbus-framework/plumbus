@@ -255,7 +255,9 @@ handler: async (ctx, input) => {
 
 ## ctx.ai
 
-AI operations — generate, extract, classify, and retrieve:
+AI operations — generate, extract, classify, decide, and retrieve. For classification
+provider/model selection and TypeSafe/Jev or Laya, start with the
+[classification recipe](../../packages/plumbus-core/instructions/ai-classification.md).
 
 ```typescript
 interface AIService {
@@ -266,7 +268,15 @@ interface AIService {
   generateWithUsage(config: GenerateConfig & { tools: AITool[] }): Promise<AIToolEnabledGenerateResult>;
   streamGenerate(config: StreamConfig): AsyncIterable<AIStreamEvent>;
   extract(config: ExtractConfig): Promise<unknown>;
-  classify(config: ClassifyConfig): Promise<string[]>;
+  classify(config: {
+    text: string;
+    labels: string[];
+    provider?: string; // registered text or decision provider (core 0.7.4+)
+    model?: string; // per-call model override
+    threshold?: number; // decision providers only, [0, 1], default 0.5
+    signal?: AbortSignal;
+    costContext?: AICostContext;
+  }): Promise<string[]>;
   retrieve(config: {
     query: string;
     corpus?: string;

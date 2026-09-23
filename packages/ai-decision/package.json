@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/ai-decision",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Shared typed decision contracts, validation, and transport for Plumbus decision adapters.",
   "type": "module",
   "main": "./dist/index.js",

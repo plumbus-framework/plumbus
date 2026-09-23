@@ -12,8 +12,8 @@ decision adapters separately from text-generation providers.
 | `@plumbus/ai-decision-typesafe` | TypeSafe/Jev System One adapter and model-specific input pricing |
 | `@plumbus/ai-decision-laya` | Laya HTTP adapter and a separately deployed Python reference service |
 
-The decision packages peer on core `0.7.x`. Core 0.7.3 and the provider packages
-depend on shared contracts `~0.2.1`; neither provider depends on the other. Node.js 20.6+ is
+The decision packages peer on core `0.7.x`. Core 0.7.4 and the 0.2.2 provider packages
+depend on shared contracts `~0.2.2`; neither provider depends on the other. Node.js 20.6+ is
 required. Only the Laya service needs Python/model dependencies. The TypeSafe
 adapter calls the documented HTTP endpoint directly, using the shared transport;
 consumer apps do not need a vendor SDK.
@@ -118,6 +118,40 @@ Successful calls also reach a configured explainability tracker.
 Tests can use `mockAI({ decide: result })` through `createTestContext` and
 `runCapability`/`simulateFlow`. Keep business logic and authorization in Plumbus
 primitives; decision probabilities never authorize an action by themselves.
+
+## Classification with decision models
+
+Requires core **0.7.4+**. Coding agents should start with the packaged
+[classification recipe](../../packages/plumbus-core/instructions/ai-classification.md);
+see the [upgrade guide](../upgrading-classification.md) for wiring v17.
+
+Use `classify()` when you only need matching labels; keep `decide()` for typed
+choices, scores, probabilities, or several different questions in one request.
+Inside a capability handler, select an adapter registered above:
+
+```ts
+const labels = await ctx.ai.classify({
+  text: 'I was charged twice. Please refund the duplicate charge.',
+  labels: ['billing', 'technical', 'refund'],
+  provider: 'typesafe', // registered map key
+  model: 'jev-1.13.0', // optional model supported by the endpoint
+  threshold: 0.5,
+});
+```
+
+Each label becomes an independent probability question in one provider request.
+The returned `string[]` contains labels meeting `threshold` (inclusive, default
+`0.5`) in input order, including zero or multiple matches. Supply 1–256 nonempty
+labels; `threshold` must be between 0 and 1. Optional `model` overrides the decision
+model default: per-call `model` → `decisions.defaultModel` → adapter default.
+For Laya automatic language routing, use `provider: 'laya', model: 'auto'`; explicit
+checkpoints must be configured on that server. Provider names must be distinct across text and decision registries.
+
+Classification reuses the decision execution path, including security, budgets,
+cancellation, and success/failure accounting. It records one `operation: 'classify'`
+row and preserves unknown native costs as `null`. Omitting `provider` retains the
+existing generative default; text providers also accept per-call `provider` and
+`model`, but reject `threshold`.
 
 ## Decision integration regression coverage
 
@@ -438,9 +472,9 @@ the core-dependent runtime is built. Core loads that runtime lazily.
 Core's test task explicitly waits for the shared runtime build, including on a
 fresh checkout without generated files.
 
-Native TypeSafe `classify()` routing, vendor model catalogs, automatic environment
-provider discovery, chat-specific decision helpers, and dedicated CLI commands are
-not introduced here. Existing `classify()` semantics remain unchanged.
+Vendor model catalogs, automatic environment provider discovery, chat-specific
+decision helpers, and dedicated CLI commands are not introduced here. Generative
+models are supported through `classify()`; `decide()` uses decision adapters.
 
 References: [TypeSafe API](https://docs.typesafe.ai/api),
 [confidence semantics](https://docs.typesafe.ai/confidence),
