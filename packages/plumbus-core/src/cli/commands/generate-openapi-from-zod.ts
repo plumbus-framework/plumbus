@@ -168,7 +168,16 @@ export function generateOpenApiPath(cap: CapabilityContract): Record<string, unk
   }
 
   const kind = cap.kind as CapabilityKind;
-  const method = kind === 'query' ? 'get' : 'post';
+  // The verb the server routes: a declared `api.method` first (the runtime router honours it,
+  // so a PATCH capability documented as `post` answered 404 to generated clients), else the
+  // kind's default.
+  const declared = (cap as { api?: { method?: unknown } }).api?.method;
+  const method =
+    typeof declared === 'string' && declared.length > 0
+      ? declared.toLowerCase()
+      : kind === 'query'
+        ? 'get'
+        : 'post';
   const urlPath = `/api/${cap.domain}/${toKebabCase(cap.name)}`;
   const pathParameters = buildGeneratePathParameters(cap.input, urlPath);
   const queryParameters = method === 'get' ? buildGenerateQueryParameters(cap.input, urlPath) : [];
