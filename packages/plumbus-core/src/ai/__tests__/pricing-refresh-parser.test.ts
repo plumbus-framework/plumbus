@@ -70,6 +70,29 @@ Standard
     ).toEqual([]);
     expect(parseAnthropicPricing('No pricing table')).toEqual([]);
   });
+
+  it('preserves the Opus 5.5 five-percent cache-read rate and excludes batch pricing', () => {
+    expect(
+      parseAnthropicPricing(`
+| Model | Base input tokens | 5m cache writes | 1h cache writes | Cache hits and refreshes | Output tokens |
+| --- | --- | --- | --- | --- | --- |
+| Claude Opus 5.5 | $4 / MTok | $5 / MTok | $8 / MTok | $0.20 / MTok<sup>2</sup> | $20 / MTok |
+| Claude Opus 5 | $5 / MTok | $6.25 / MTok | $10 / MTok | $0.50 / MTok | $25 / MTok |
+| Model | Batch input | Batch output |
+| --- | --- | --- |
+| Claude Opus 5.5 | $2 / MTok | $10 / MTok |
+`),
+    ).toEqual([
+      {
+        model: 'claude-opus-5-5',
+        kind: 'text',
+        inputPerMTok: 4,
+        outputPerMTok: 20,
+        cachedInputPerMTok: 0.2,
+      },
+      { model: 'claude-opus-5', kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
+    ]);
+  });
 });
 
 describe('manual pricing update dates', () => {

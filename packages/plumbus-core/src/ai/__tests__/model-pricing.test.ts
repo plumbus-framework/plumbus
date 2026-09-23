@@ -225,6 +225,55 @@ it('preserves positive sub-microdollar costs instead of rounding paid usage to f
   expect(calculateModelCost(1, 0, 'gpt-4o-mini')).toBeGreaterThan(0);
 });
 
+describe('Opus pricing', () => {
+  it('publishes Opus 5.5 standard and cache-read rates in model lookup and listing', () => {
+    const rate = { kind: 'text', inputPerMTok: 4, outputPerMTok: 20, cachedInputPerMTok: 0.2 };
+    expect(findModelRate('claude-opus-5-5')).toEqual(rate);
+    expect(new Map(allKnownModels()).get('claude-opus-5-5')).toEqual(rate);
+  });
+
+  it.each([
+    'claude-opus-5-5',
+    'claude-opus-5-5-20260922',
+  ])('prices %s input, output, cache reads and five-minute cache writes', (model) => {
+    expect(estimateModelCost(1000, 500, model)).toBe(0.014);
+    expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0002);
+    expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(0.005);
+    expect(calculateModelCost(1, 0, model, { cachedInputTokens: 1 })).toBe(0.0000002);
+    expect(
+      calculateModelCost(300_000, 1000, model, {
+        cachedInputTokens: 100_000,
+        cacheWriteTokens: 50_000,
+      }),
+    ).toBe(0.89);
+  });
+
+  it('keeps Opus 5.5 rates flat through the full context window', () => {
+    expect(calculateModelCost(200_000, 1000, 'claude-opus-5-5')).toBe(0.82);
+    expect(calculateModelCost(200_001, 1000, 'claude-opus-5-5')).toBe(0.820004);
+    expect(calculateModelCost(900_000, 1000, 'claude-opus-5-5')).toBe(3.62);
+    expect(
+      calculateModelCost(1_000_000, 0, 'claude-opus-5-5', { cachedInputTokens: 1_000_000 }),
+    ).toBe(0.2);
+  });
+
+  it.each([
+    'claude-opus-5',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-6',
+    'claude-opus-4-5',
+  ])('retains verified earlier pricing for %s', (model) => {
+    expect(calculateModelCost(1000, 500, model)).toBe(0.0175);
+    expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0005);
+  });
+
+  it.each(['claude-opus-4-1', 'claude-opus-4'])('retains legacy pricing for %s', (model) => {
+    expect(calculateModelCost(1000, 500, model)).toBe(0.0525);
+    expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0015);
+  });
+});
+
 it.each([
   'gpt-6-astra',
   'claude-fable-5-1',

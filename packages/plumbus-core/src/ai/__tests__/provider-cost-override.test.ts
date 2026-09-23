@@ -268,9 +268,10 @@ it('keeps legacy numeric results without counting unknown cost as free in budget
 });
 
 it.each([
-  ['gpt-6-sol', 0.905],
-  ['gpt-6-luna', 0.04525],
-] as const)('records %s cache/long-context pricing consistently for generation and streaming', async (model, expectedCost) => {
+  ['gpt-6-sol', 'openai', 0.905],
+  ['gpt-6-luna', 'openai', 0.04525],
+  ['claude-opus-5-5', 'anthropic', 0.89],
+] as const)('records %s cache/context pricing consistently for generation and streaming', async (model, providerName, expectedCost) => {
   const usage = {
     inputTokens: 300_000,
     outputTokens: 1000,
@@ -279,7 +280,7 @@ it.each([
     cacheWriteTokens: 50_000,
   };
   const provider = mockProvider({
-    name: 'openai',
+    name: providerName,
     async complete() {
       return { content: 'answer', model, usage, finishReason: 'stop' };
     },

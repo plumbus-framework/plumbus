@@ -5,7 +5,8 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-09-23 (GPT-6 Sol/Luna; other entries last synced 2026-09-10)
+// Last updated: 2026-09-23 (GPT-6 Sol/Luna and Anthropic Opus)
+// Other entries last synced 2026-09-10.
 //
 // Unknown models (Ollama, custom endpoints) have no catalog cost.
 //
@@ -163,6 +164,12 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
     cachedInputPerMTok: 0.25,
   },
   'claude-mythos-5': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'claude-opus-5-5': {
+    kind: 'text',
+    inputPerMTok: 4,
+    outputPerMTok: 20,
+    cachedInputPerMTok: 0.2,
+  },
   'claude-opus-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-8': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-7': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },

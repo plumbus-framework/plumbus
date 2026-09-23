@@ -689,7 +689,7 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias), GPT-6 Sol, and GPT-6 Luna apply their documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. GPT-6 Sol/Luna were verified on 2026-09-23; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias), GPT-6 Sol, and GPT-6 Luna apply their documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. GPT-6 Sol/Luna and Anthropic Opus rates were verified on 2026-09-23; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
 
 The GPT-6 additions use these USD rates per million tokens for requests with at most 272,000 input tokens:
 
@@ -704,12 +704,20 @@ The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and 
 
 The [core 0.7.0 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
 
+The September 23 Opus update adds `claude-opus-5-5` with these standard USD rates per million tokens:
+
+| Model | Input | Cached input | 5-minute cache writes | Output |
+| --- | --- | --- | --- | --- |
+| `claude-opus-5-5` | $4 | $0.20 | $5 | $20 |
+
+Opus 5.5 cache reads cost **0.05x** input, rather than the usual 0.1x. Its rates stay flat throughout the 1M-token context window. Opus 5 and 4.5–4.8 retain $5 input / $0.50 cached input / $25 output; legacy Opus 4/4.1 retain $15 / $1.50 / $75. The existing `-YYYYMMDD` pricing fallback also covers Opus 5.5; it does not introduce new API aliases. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Opus 5.5 model documentation](https://platform.claude.com/docs/en/models/opus-5-5/overview).
+
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
-- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 uses **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
+- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
 - Standard (non-cached) input tokens are charged at the full base rate
 
 The framework parses cache data from provider responses:
