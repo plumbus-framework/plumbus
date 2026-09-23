@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — Unreleased
+
+- Harden decision dispatch against mutable provider identity/questions, broken error metadata accessors, inconsistent selector normalization, hidden discovered definitions, and oversized requests before provider work.
+
+- Add named frozen decision contracts, a registry, normalized-result validation, and the shared runtime used by core 0.7.3 for security, budgets, cancellation, and cost recording. Publish a dependency-free type entry for core compilation.
+- Document native core registration and cost recording; existing core peer ranges remain unchanged.
+
 ## 0.2.0 — 2026-09-23
 
 - Initial shared package for typed choices, ordinal scores, and probabilities, with inferred answer types and runtime request/response validation.

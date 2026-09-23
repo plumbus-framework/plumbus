@@ -4,15 +4,19 @@ Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../doc
 
 Laya provider for self-hosted typed decision inference, with a persistent Python reference service.
 
-Version `0.2.0`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
+Version `0.2.1`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
 Install explicitly with `pnpm add @plumbus/ai-decision-laya`. Provider packages install
 `@plumbus/ai-decision` transitively. There is no dependency on the other provider.
 
 ## Scope
 
-This is the package-only foundation. Core `ctx.ai.decide()`, named definitions,
-provider registration, automatic budgets/auditing, and agent discovery are deferred.
-Do not put this adapter into core's text-generation `providers` registry.
+Core `0.7.3+` provides `ctx.ai.decide()` with shared validation, security, budgets,
+and per-call cost recording. Define named contracts with `defineDecision` from
+`@plumbus/ai-decision`, and export explicit provider registration as `decisions`
+from `app/server.ts` for API and worker processes. See the
+[decision integration guide](../../docs/ai/decision-providers.md#application-integration-and-cost-recording).
+Direct adapter calls remain useful for infrastructure tests and do not record costs
+in core. Keep these adapters separate from the text-generation provider registry.
 
 ## Quick start (infrastructure / smoke testing)
 

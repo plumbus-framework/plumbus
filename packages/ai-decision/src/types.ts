@@ -116,3 +116,74 @@ export interface DecisionHttpConfig {
   /** Dependency injection for tests or a custom HTTP stack. */
   fetch?: typeof globalThis.fetch;
 }
+
+/** Reusable decision contract. The schema is validated by defineDecision(). */
+export interface DecisionDefinition<Q extends DecisionQuestions = DecisionQuestions> {
+  readonly kind: 'decision';
+  readonly name: string;
+  readonly description?: string;
+  readonly domain?: string;
+  readonly questions: Q;
+  readonly state?: { parse(value: unknown): unknown };
+  readonly provider?: string;
+  readonly model?: string;
+}
+
+/** Application calls may use a named contract or inline questions. */
+export type DecisionCall<Q extends DecisionQuestions = DecisionQuestions> = Omit<
+  DecisionRequest<Q>,
+  'state' | 'questions'
+> & {
+  state: unknown;
+  provider?: string;
+} & (
+    | { questions: Q; decision?: never }
+    | { decision: DecisionDefinition<Q>; questions?: never }
+    | { decision: string; questions?: never }
+  );
+
+/** Explicit provider registration, shared by HTTP and worker bootstraps. */
+export interface DecisionRuntimeConfig {
+  providers: Readonly<Record<string, DecisionProviderAdapter>>;
+  defaultProvider?: string;
+  defaultModel?: string;
+  definitions?: readonly DecisionDefinition[];
+  registry?: { get(name: string): DecisionDefinition };
+  /** Shared AI budget; applies to text and decision calls in the same runtime. */
+  budget?: {
+    maxTokensPerRequest?: number;
+    dailyCostLimit?: number;
+    perTenantDailyLimit?: number;
+  };
+}
+
+/** Safe metadata for one completed provider invocation, including failed calls. */
+export interface DecisionCallRecord {
+  provider: string;
+  model: string;
+  decisionName?: string;
+  usage: DecisionUsage;
+  cost: number | null;
+  latencyMs: number;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+}
+
+/** Core supplies identity-bound security, budget, and ledger hooks. */
+export interface DecisionRuntimeHooks {
+  secure(input: Record<string, unknown>): Record<string, unknown>;
+  checkBudget(estimatedTokens: number): void;
+  record(record: DecisionCallRecord): Promise<void>;
+}
+
+/** Describes the lazy runtime entry without importing core-dependent implementation. */
+export interface DecisionRuntimeModule {
+  defineDecision<Q extends DecisionQuestions>(
+    input: Omit<DecisionDefinition<Q>, 'kind'>,
+  ): DecisionDefinition<Q>;
+  runDecision<Q extends DecisionQuestions>(
+    call: DecisionCall<Q>,
+    config: DecisionRuntimeConfig | undefined,
+    hooks: DecisionRuntimeHooks,
+  ): Promise<DecisionResult<Q>>;
+}

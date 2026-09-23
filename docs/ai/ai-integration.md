@@ -1,5 +1,11 @@
 # AI Integration Guide
 
+Core **0.7.3+** also provides `ctx.ai.decide()` for typed decision providers. It
+records `operation: 'decide'` through the existing cost tracker and
+`onAICostRecorded` hook, including billed validation failures and cancellations.
+See [decision registration, named contracts, and accounting](./decision-providers.md#application-integration-and-cost-recording).
+
+
 Plumbus provides a structured AI runtime with typed prompts, output validation, cost tracking, RAG, and security controls.
 
 ## Overview

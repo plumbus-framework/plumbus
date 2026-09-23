@@ -1,3 +1,4 @@
+import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 // ── Fastify Server Bootstrap ──
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
@@ -72,6 +73,8 @@ export interface ServerConfig {
   translations?: TranslationDefinition[];
   /** Optional prompt registry for AI schema validation */
   promptRegistry?: PromptRegistry;
+  /** Registered decision providers, named definitions, and optional shared AI budget. */
+  decisions?: DecisionRuntimeConfig;
   /** Optional custom auth adapter (default: JWT from config) */
   authAdapter?: AuthAdapter;
   /** Optional session/OIDC authentication runtime, e.g. from @plumbus/auth */
@@ -284,9 +287,11 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     const costTracker = createCostTracker({
       maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
       dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
+      ...serverConfig.decisions?.budget,
     });
     const aiServiceConfig: import('../ai/ai-service.js').AIServiceConfig = {
       providers: providerAdapters,
+      decisions: serverConfig.decisions,
       defaultProvider: config.aiProviders.defaultProvider,
       defaultModel: config.aiProviders.defaultModel,
       costTracker,
@@ -296,7 +301,10 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         : undefined,
       onAICostRecorded: onAICostRecordedAdapter,
       enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
-      security: buildAISecurityConfig(entities.getAllEntities(), config.aiProviders.security),
+      security: buildAISecurityConfig(
+        entities.getAllEntities(),
+        config.aiProviders.security ?? (serverConfig.decisions ? {} : undefined),
+      ),
     };
     aiService = createAIService(aiServiceConfig);
 
@@ -319,9 +327,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     const costTracker = createCostTracker({
       maxTokensPerRequest: config.ai.maxTokensPerRequest,
       dailyCostLimit: config.ai.dailyCostLimit,
+      ...serverConfig.decisions?.budget,
     });
     aiService = createAIService(
       singleProviderConfig(adapter, {
+        decisions: serverConfig.decisions,
+        security: serverConfig.decisions
+          ? buildAISecurityConfig(entities.getAllEntities(), {})
+          : undefined,
         costTracker,
         promptRegistry: serverConfig.promptRegistry,
         onAICostRecorded: onAICostRecordedAdapter,
@@ -329,6 +342,20 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       }),
     );
     logger.info(`AI service configured with single provider: ${config.ai.provider}`);
+  }
+
+  if (!aiService && serverConfig.decisions) {
+    aiService = createAIService({
+      providers: {},
+      defaultProvider: '',
+      decisions: serverConfig.decisions,
+      costTracker: createCostTracker(serverConfig.decisions.budget),
+      onAICostRecorded: onAICostRecordedAdapter,
+      security: buildAISecurityConfig(
+        entities.getAllEntities(),
+        config.aiProviders?.security ?? {},
+      ),
+    });
   }
 
   // Route generator config
@@ -547,6 +574,8 @@ export function wrapAIServiceWithDynamicOverrides(
         db,
       );
     },
+    features: base.features,
+    decide: (params) => base.decide(params),
     recordProviderCost(entry, costContext) {
       return base.recordProviderCost(entry, costContext);
     },

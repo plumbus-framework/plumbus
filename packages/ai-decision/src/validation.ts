@@ -69,7 +69,11 @@ export function validateDecisionRequest<Q extends DecisionQuestions>(
 ): DecisionRequest<Q> {
   try {
     const parsed = RequestSchema.safeParse(request);
-    if (parsed.success) return { ...parsed.data, signal: request.signal } as DecisionRequest<Q>;
+    if (parsed.success) {
+      const { signal: _signal, timeoutMs: _timeout, ...payload } = parsed.data;
+      if (Buffer.byteLength(JSON.stringify(payload), 'utf8') <= 2 * 1024 * 1024)
+        return { ...parsed.data, signal: request.signal } as DecisionRequest<Q>;
+    }
   } catch {
     // Cyclic/deep objects are not JSON. Never include caller state in errors.
   }
@@ -235,4 +239,120 @@ export function parseDecisionResponse<Q extends DecisionQuestions>(
     usage,
     ...(routing ? { routing } : {}),
   };
+}
+
+const UsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative().safe(),
+    outputTokens: z.number().int().nonnegative().safe(),
+    totalTokens: z.number().int().nonnegative().safe(),
+  })
+  .refine((usage) => usage.totalTokens === usage.inputTokens + usage.outputTokens);
+
+/** Preserves only valid billing metadata, including when the answers are malformed. */
+export const DecisionFailureMetadataSchema = z.object({
+  model: z.string().trim().min(1).max(512),
+  usage: UsageSchema,
+  cost: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+});
+
+/** A malformed cost must not discard separately valid model/token metadata. */
+export function readDecisionFailureMetadata(value: unknown): {
+  model?: string;
+  usage?: DecisionUsage;
+  cost?: number | null;
+} {
+  // Errors from custom SDKs may expose throwing accessors. A broken field must
+  // neither suppress the ledger row nor discard other valid billing metadata.
+  const read = (key: string): unknown => {
+    try {
+      const parsed = z.object({ [key]: z.unknown() }).safeParse(value);
+      return parsed.success ? parsed.data[key] : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const model = z.string().trim().min(1).max(512).safeParse(read('model'));
+  const usage = UsageSchema.safeParse(read('usage'));
+  const cost = z
+    .number()
+    .finite()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER)
+    .nullable()
+    .safeParse(read('cost'));
+  return {
+    ...(model.success ? { model: model.data } : {}),
+    ...(usage.success ? { usage: usage.data } : {}),
+    ...(cost.success ? { cost: read('costAvailable') === false ? null : cost.data } : {}),
+  };
+}
+
+const PublicResultSchema = DecisionFailureMetadataSchema.extend({
+  provider: z.string().min(1).max(256),
+  answers: jsonRecord(z.unknown()),
+  cost: z.number().finite().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
+  costAvailable: z.boolean(),
+  latencyMs: z.number().finite().nonnegative(),
+  routing: EnvelopeSchema.shape.routing,
+}).refine((result) => result.costAvailable === (result.cost !== null));
+
+const PublicProbabilitySchema = z.object({
+  type: z.literal('probability'),
+  probability: ProbabilitySchema,
+  confidence: ProbabilitySchema.optional(),
+});
+
+/** Validates normalized results from any adapter, including custom implementations. */
+export function validateDecisionResult<Q extends DecisionQuestions>(
+  value: unknown,
+  questions: Q,
+  provider: string,
+): DecisionResult<Q> {
+  const metadata = readDecisionFailureMetadata(value);
+  const invalid = () =>
+    new DecisionProviderError(
+      provider,
+      'invalid_response',
+      'Invalid normalized decision result',
+      metadata,
+    );
+  const parsed = PublicResultSchema.safeParse(value);
+  if (!parsed.success || parsed.data.provider !== provider) throw invalid();
+  const result = parsed.data;
+  const answers = Object.fromEntries(
+    Object.entries(result.answers).map(([id, answer]) => {
+      if (questions[id]?.type !== 'probability') return [id, answer];
+      const probability = PublicProbabilitySchema.safeParse(answer);
+      if (!probability.success) throw invalid();
+      return [
+        id,
+        {
+          type: 'noul',
+          noul: probability.data.probability,
+          confidence: probability.data.confidence,
+        },
+      ];
+    }),
+  );
+  try {
+    const normalized = parseDecisionResponse(
+      {
+        model: result.model,
+        usage: { input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens },
+        answers,
+        routing: result.routing,
+      },
+      questions,
+      provider,
+    );
+    return {
+      ...normalized,
+      cost: result.cost,
+      costAvailable: result.costAvailable,
+      latencyMs: result.latencyMs,
+    };
+  } catch {
+    throw invalid();
+  }
 }

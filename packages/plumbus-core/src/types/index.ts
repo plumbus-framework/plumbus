@@ -43,6 +43,8 @@ export type {
   AIGenerateConfig,
   AIGenerateResult,
   AIGenerateWithUsageConfig,
+  AIDecideConfig,
+  AIDecideResult,
   AIService,
   AIStreamEvent,
   AITokenUsage,

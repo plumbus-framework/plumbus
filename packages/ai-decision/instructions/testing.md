@@ -17,3 +17,8 @@ after building. Scripts are repository tools, not installed core CLI commands.
 Validate choices, scores, probabilities, actual model/routing, usage and unknown
 cost handling. Measure live accuracy and calibration separately from connection
 success. Do not assert a universal confidence cutoff or guaranteed live label.
+
+For core 0.7.3+ integration tests, configure `mockAI({ decide: result })` or a real
+`createAIService({ decisions, costTracker, onAICostRecorded })` with injected
+provider fetch. Assert exactly one cost row, identity, actual model/usage, unknown
+cost handling, billed validation failures, and budget rejection before dispatch.

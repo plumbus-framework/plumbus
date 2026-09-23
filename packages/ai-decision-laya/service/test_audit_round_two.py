@@ -93,6 +93,14 @@ class ServiceRoundTwo(unittest.TestCase):
             return original(body)
         backend.predict = wait
         server = create_server(("127.0.0.1", 0), backend, "test-key", max_connections=1)
+        released = threading.Event()
+        process_request_thread = server.process_request_thread
+        def observe_handler_exit(*args):
+            try:
+                process_request_thread(*args)
+            finally:
+                released.set()
+        server.process_request_thread = observe_handler_exit
         thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.01), daemon=True)
         results = []
         first = threading.Thread(target=lambda: results.append(self.send(address=server.server_address)[0]))
@@ -104,6 +112,8 @@ class ServiceRoundTwo(unittest.TestCase):
             finish.set()
             first.join(2)
             self.assertEqual(results, [200])
+            # Receiving the body can precede the server thread's semaphore release.
+            self.assertTrue(released.wait(2))
             self.assertEqual(self.send(address=server.server_address)[0], 200)
         finally:
             finish.set()

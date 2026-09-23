@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — Unreleased
+
+- Run offline Laya tests with one worker and serial files. One-off smoke runs now stop servers they start on both success and failure; explicit persistent servers and the model cache are preserved.
+
+- Preserve model, usage, and configured infrastructure cost on malformed-answer errors. Update the local smoke app to use ctx.ai.decide() and verify scoped ledger records.
+- Synchronize the connection-capacity regression test with server-handler cleanup before checking that a slot can be reused.
+- Document native core registration and cost recording; existing core peer ranges remain unchanged.
+
 ## 0.2.0 — 2026-09-23
 
 - Initial optional self-hosted Laya HTTP adapter for typed choices, scores, and probabilities, using `@plumbus/ai-decision` contracts and validation.

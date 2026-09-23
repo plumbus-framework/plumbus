@@ -63,7 +63,27 @@ export function createTypeSafeDecisionAdapter(
         },
         input,
       );
-      const result = parseDecisionResponse(wire, input.questions, 'typesafe');
+      let result: ReturnType<typeof parseDecisionResponse<typeof input.questions>>;
+      try {
+        result = parseDecisionResponse(wire, input.questions, 'typesafe');
+      } catch (error) {
+        if (error instanceof DecisionProviderError && error.model && error.usage) {
+          const rate = Object.hasOwn(rates, error.model) ? rates[error.model] : undefined;
+          const cost = rate === undefined ? null : (error.usage.inputTokens / 1_000_000) * rate;
+          const validCost =
+            cost !== null &&
+            Number.isFinite(cost) &&
+            (cost > 0 || error.usage.inputTokens === 0 || rate === 0)
+              ? cost
+              : null;
+          throw new DecisionProviderError('typesafe', error.kind, error.message, {
+            model: error.model,
+            usage: error.usage,
+            cost: validCost,
+          });
+        }
+        throw error;
+      }
       const rate = Object.hasOwn(rates, result.model) ? rates[result.model] : undefined;
       const cost = rate === undefined ? null : (result.usage.inputTokens / 1_000_000) * rate;
       if (

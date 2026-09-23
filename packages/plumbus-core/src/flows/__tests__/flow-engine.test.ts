@@ -802,6 +802,31 @@ describe('FlowEngine — cooperative cancellation (ctx.signal)', () => {
     expect(calledWith.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('forwards decision feature flags and the step cancellation signal', async () => {
+    const registry = new FlowRegistry();
+    registry.register(makeTestFlow());
+    const decide = vi.fn().mockResolvedValue({ answers: {} });
+    const ctx = makeCtx({ ai: { decide, features: { typedDecisions: true } } });
+    const engine = createFlowEngine({
+      db: mockDb(),
+      registry,
+      workerId: 'decision-worker',
+      flowHeartbeatIntervalMs: 60_000,
+      stepDeps: {
+        executeCapability: async (_name: string, stepCtx: any) => {
+          expect(stepCtx.ai.features.typedDecisions).toBe(true);
+          await stepCtx.ai.decide({ state: 'x', questions: {} });
+          expect(decide.mock.calls[0]?.[0].signal).toBe(stepCtx.signal);
+          return { success: true, data: {} };
+        },
+        evaluateCondition: () => true,
+      },
+    });
+    const execution = await engine.start('order-processing', { orderId: 'x' }, makeAuth());
+    await engine.runNext(execution.id, ctx);
+    expect(decide).toHaveBeenCalledTimes(1);
+  });
+
   describe('markFailedFromRunner (zombie recovery)', () => {
     it('finalizes the row as failed with lease cleared after LeaseLostError from runNext', async () => {
       const registry = new FlowRegistry();

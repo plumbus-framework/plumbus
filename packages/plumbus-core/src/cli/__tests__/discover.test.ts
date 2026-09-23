@@ -52,4 +52,26 @@ describe('discoverResources', () => {
     expect(result.capabilities).toEqual([]);
     expect(result.entities).toEqual([]);
   });
+  it('discovers nested decision definitions and snapshots their questions', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'decisions', 'billing');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'refund.js'),
+      `export default {kind: 'decision', name: 'billing.refund', questions: {refund: {type: 'probability', instructions: 'Refund?'}}};`,
+    );
+    const result = await discoverResources(root);
+    expect(result.decisions?.map((decision) => decision.name)).toEqual(['billing.refund']);
+    expect(Object.isFrozen(result.decisions?.[0])).toBe(true);
+  });
+
+  it('fails explicitly when a decision module cannot load', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'decisions');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'invalid.js'), 'throw new Error("secret contents");');
+    await expect(discoverResources(root)).rejects.toThrow(
+      'Unable to load decision module: invalid.js',
+    );
+  });
 });

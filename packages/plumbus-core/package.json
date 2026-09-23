@@ -1,7 +1,7 @@
 {
   "name": "@plumbus/core",
-  "version": "0.7.2",
-  "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
+  "version": "0.7.3",
+  "description": "Plumbus framework core \u2014 types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -85,7 +85,8 @@
     "xml-crypto": "^6.1.2",
     "xpath": "^0.0.34",
     "zod": "^3.24.0",
-    "zod-to-json-schema": "^3.25.2"
+    "zod-to-json-schema": "^3.25.2",
+    "@plumbus/ai-decision": "workspace:~"
   },
   "peerDependencies": {
     "@plumbus/api": "0.2.x",

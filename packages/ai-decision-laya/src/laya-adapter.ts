@@ -50,13 +50,29 @@ export function createLayaDecisionAdapter(
         },
         input,
       );
-      const result = parseDecisionResponse(wire, input.questions, 'laya');
+      let result: ReturnType<typeof parseDecisionResponse<typeof input.questions>>;
+      try {
+        result = parseDecisionResponse(wire, input.questions, 'laya');
+      } catch (error) {
+        if (error instanceof DecisionProviderError && error.usage && error.model) {
+          throw new DecisionProviderError('laya', error.kind, error.message, {
+            model: error.model,
+            usage: error.usage,
+            cost: settings.data.costPerRequestUsd ?? null,
+          });
+        }
+        throw error;
+      }
       if (!z.object({ routing: z.object({}) }).safeParse(result).success) {
         throw new DecisionProviderError(
           'laya',
           'invalid_response',
           'Laya response is missing checkpoint routing identity',
-          { model: result.model, usage: result.usage },
+          {
+            model: result.model,
+            usage: result.usage,
+            cost: settings.data.costPerRequestUsd ?? null,
+          },
         );
       }
       const cost = settings.data.costPerRequestUsd ?? null;
