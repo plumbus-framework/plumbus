@@ -319,3 +319,72 @@ it('does not apply Sol special pricing to other models or free/local providers',
   expect(calculateModelCost(1000, 0, 'omni-moderation-latest')).toBe(0);
   expect(estimateModelCost(1000, 0, 'local-unpriced')).toBeUndefined();
 });
+
+describe.each([
+  {
+    model: 'gpt-6-sol',
+    input: 2,
+    cached: 0.2,
+    output: 10,
+    shortCost: 0.007,
+    cacheCost: 0.0002,
+    writeCost: 0.0025,
+    boundaryCost: 0.554,
+    premiumCost: 1.103004,
+    mixedShortCost: 0.399,
+    mixedLongCost: 0.905,
+  },
+  {
+    model: 'gpt-6-luna',
+    input: 0.1,
+    cached: 0.01,
+    output: 0.5,
+    shortCost: 0.00035,
+    cacheCost: 0.00001,
+    writeCost: 0.000125,
+    boundaryCost: 0.0277,
+    premiumCost: 0.0551502,
+    mixedShortCost: 0.01995,
+    mixedLongCost: 0.04525,
+  },
+])('$model pricing', (expected) => {
+  it('publishes the verified standard rates through catalog lookup and model listing', () => {
+    const rate = {
+      kind: 'text',
+      inputPerMTok: expected.input,
+      cachedInputPerMTok: expected.cached,
+      outputPerMTok: expected.output,
+      longContextThreshold: 272_000,
+    };
+    expect(findModelRate(expected.model)).toEqual(rate);
+    expect(new Map(allKnownModels()).get(expected.model)).toEqual(rate);
+  });
+
+  it.each([
+    '',
+    '-20260922',
+  ])('prices normal input, cache reads and writes with the existing suffix fallback %s', (suffix) => {
+    const model = `${expected.model}${suffix}`;
+    expect(estimateModelCost(1000, 500, model)).toBe(expected.shortCost);
+    expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(
+      expected.cacheCost,
+    );
+    expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(expected.writeCost);
+    expect(calculateModelCost(1, 0, model)).toBeGreaterThan(0);
+    expect(calculateModelCost(272_000, 1000, model)).toBe(expected.boundaryCost);
+    expect(calculateModelCost(272_001, 1000, model)).toBe(expected.premiumCost);
+  });
+
+  it('counts cached input once at the boundary and applies the premium to all cost components', () => {
+    const cache = { cachedInputTokens: 100_000, cacheWriteTokens: 50_000 };
+    expect(calculateModelCost(272_000, 1000, expected.model, cache)).toBe(expected.mixedShortCost);
+    expect(calculateModelCost(300_000, 1000, expected.model, cache)).toBe(expected.mixedLongCost);
+  });
+
+  it('is independent of the older GPT-5.6 Sol promotion cutoff', () => {
+    for (const at of ['2026-09-23T00:00:00Z', '2026-11-21T23:59:59.999Z', '2026-11-22T00:00:00Z']) {
+      vi.setSystemTime(new Date(at));
+      expect(calculateModelCost(1000, 500, expected.model)).toBe(expected.shortCost);
+    }
+  });
+});

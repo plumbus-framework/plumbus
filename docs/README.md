@@ -53,7 +53,8 @@ docs/
 ├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
 │   ├── ai-integration.md
 │   ├── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
-│   └── decision-providers.md  Typed decision packages and live test environment
+│   ├── decision-providers.md  Typed decision packages and live test environment
+│   └── decision-provider-audit.md  First adversarial audit
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding

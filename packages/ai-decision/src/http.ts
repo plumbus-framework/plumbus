@@ -1,8 +1,9 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from '@plumbus/core/zod';
 import { DecisionProviderError } from './errors/index.js';
+import { DecisionJsonSchema, DecisionJsonTextSchema } from './json.js';
 import type { DecisionHttpConfig } from './types.js';
-import { DecisionTimeoutSchema } from './validation.js';
+import { DecisionSignalSchema, DecisionTimeoutSchema } from './validation.js';
 
 const MaxBodyBytes = 2 * 1024 * 1024;
 const RetryStatuses = new Set([429, 500, 502, 503, 504, 529]);
@@ -11,11 +12,49 @@ const HttpConfigSchema = z.object({
   apiKey: z
     .string()
     .min(1)
-    .refine((key) => key.trim() === key && !/[\r\n]/.test(key))
+    .regex(/^[\x21-\x7e]+$/)
     .optional(),
   timeoutMs: DecisionTimeoutSchema.default(30_000),
   maxRetries: z.number().int().min(0).max(5).default(2),
+  fetch: z.function().optional(),
 });
+
+/** Enforce our deadline even if an injected HTTP implementation ignores signal. */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => {
+      signal.removeEventListener('abort', aborted);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', aborted, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', aborted);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', aborted);
+        reject(error);
+      },
+    );
+    if (signal.aborted) aborted();
+  });
+}
+
+function dispose(body: ReadableStream<Uint8Array> | null): void {
+  // Cleanup must never replace an HTTP error or hold up the request deadline.
+  void body?.cancel().catch(() => undefined);
+}
+
+function retryDelay(headers: Headers, attempts: number): number {
+  const msHeader = headers.get('retry-after-ms')?.trim() ?? '';
+  if (/^\d+(?:\.\d+)?$/.test(msHeader)) return Math.min(Number(msHeader), 2_147_483_647);
+  const header = headers.get('retry-after')?.trim() ?? '';
+  if (/^\d+$/.test(header)) return Math.min(Number(header) * 1000, 2_147_483_647);
+  const date = /^[A-Za-z]{3}/.test(header) ? Date.parse(header) : Number.NaN;
+  const ms = Number.isFinite(date) ? date - Date.now() : Math.min(2000, 250 * 2 ** (attempts - 1));
+  return Math.min(Math.max(0, ms), 2_147_483_647);
+}
 
 /** Bounded JSON transport shared by the two System One protocol adapters. */
 export function createDecisionHttpTransport(provider: string, config: DecisionHttpConfig) {
@@ -41,7 +80,7 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
       'Use an HTTP(S) base URL without credentials, query, or fragment',
     );
   }
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/systemone`;
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/systemone`;
   const fetchImpl = config.fetch ?? globalThis.fetch;
 
   return async (
@@ -49,13 +88,33 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
     options: { signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<unknown> => {
     const timeoutMs = options.timeoutMs ?? settings.timeoutMs;
-    if (!DecisionTimeoutSchema.safeParse(timeoutMs).success)
+    if (
+      !DecisionTimeoutSchema.safeParse(timeoutMs).success ||
+      !DecisionSignalSchema.safeParse(options.signal).success
+    )
       throw new DecisionProviderError(provider, 'invalid_request', 'Invalid decision deadline');
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+    const deadline = new AbortController();
+    const deadlineReason = new DecisionProviderError(
+      provider,
+      'timeout',
+      'Decision request timed out',
+    );
+    const timer = setTimeout(() => deadline.abort(deadlineReason), timeoutMs);
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, deadline.signal])
+      : deadline.signal;
     let attempts = 0;
     try {
-      const serialized = JSON.stringify(body);
+      let serialized: string;
+      try {
+        serialized = z.string().parse(JSON.stringify(DecisionJsonSchema.parse(body)));
+      } catch {
+        throw new DecisionProviderError(
+          provider,
+          'invalid_request',
+          'Decision request is not serializable JSON',
+        );
+      }
       if (Buffer.byteLength(serialized) > MaxBodyBytes)
         throw new DecisionProviderError(
           provider,
@@ -65,28 +124,28 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
       for (;;) {
         signal.throwIfAborted();
         attempts += 1;
-        const response = await fetchImpl(url, {
-          method: 'POST',
-          redirect: 'error',
+        const response = await abortable(
+          fetchImpl(url, {
+            method: 'POST',
+            redirect: 'error',
+            signal,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}),
+            },
+            body: serialized,
+          }).then((response) => {
+            if (signal.aborted) dispose(response.body);
+            return response;
+          }),
           signal,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}),
-          },
-          body: serialized,
-        });
+        );
         if (!response.ok) {
-          await response.body?.cancel();
+          dispose(response.body);
           if (RetryStatuses.has(response.status) && attempts <= settings.maxRetries) {
-            const retryAfter = response.headers.get('retry-after');
-            const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
-            const date = retryAfter === null ? Number.NaN : Date.parse(retryAfter);
-            const retryMs = Number.isFinite(seconds)
-              ? seconds * 1000
-              : Number.isFinite(date)
-                ? date - Date.now()
-                : Math.min(2000, 250 * 2 ** (attempts - 1));
-            await delay(Math.min(Math.max(0, retryMs), 2_147_483_647), undefined, { signal });
+            await delay(retryDelay(response.headers, attempts), undefined, {
+              signal,
+            });
             continue;
           }
           throw new DecisionProviderError(
@@ -108,7 +167,7 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
         let bytes = 0;
         try {
           for (;;) {
-            const next = await reader.read();
+            const next = await abortable(reader.read(), signal);
             if (next.done) break;
             bytes += next.value.byteLength;
             if (bytes > MaxBodyBytes)
@@ -121,11 +180,13 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
             chunks.push(next.value);
           }
         } finally {
-          await reader.cancel().catch(() => undefined);
+          void reader.cancel().catch(() => undefined);
           reader.releaseLock();
         }
         try {
-          return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          return DecisionJsonTextSchema.parse(
+            new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)),
+          );
         } catch {
           throw new DecisionProviderError(
             provider,
@@ -139,14 +200,18 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
       if (signal.aborted)
         throw new DecisionProviderError(
           provider,
-          options.signal?.aborted ? 'cancelled' : 'timeout',
-          options.signal?.aborted ? 'Decision request cancelled' : 'Decision request timed out',
+          signal.reason === deadlineReason ? 'timeout' : 'cancelled',
+          signal.reason === deadlineReason
+            ? 'Decision request timed out'
+            : 'Decision request cancelled',
           { attempts },
         );
       if (error instanceof DecisionProviderError) throw error;
       throw new DecisionProviderError(provider, 'network', 'Decision provider request failed', {
         attempts,
       });
+    } finally {
+      clearTimeout(timer);
     }
   };
 }

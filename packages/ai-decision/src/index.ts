@@ -18,6 +18,7 @@ export type {
 } from './types.js';
 export { DecisionProviderError, type DecisionErrorKind } from './errors/index.js';
 export { createDecisionHttpTransport } from './http.js';
+export { DecisionJsonSchema } from './json.js';
 export {
   validateDecisionRequest,
   parseDecisionResponse,

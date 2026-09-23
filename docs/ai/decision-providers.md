@@ -17,6 +17,9 @@ required. Only the Laya service needs Python/model dependencies. The TypeSafe
 adapter calls the documented HTTP endpoint directly, using the shared transport;
 consumer apps do not need a vendor SDK.
 
+For the researched issue matrix, regressions and local HTTP end-to-end coverage,
+see the [58-scenario first audit](decision-provider-audit.md).
+
 ## Contract
 
 ```ts
@@ -72,6 +75,13 @@ sum tolerance accounts for Laya's four-decimal rounding. Provider action
 predictions are discarded. Choice/score confidence is retained separately from
 probabilities. Optional Laya probability confidence is preserved; missing
 TypeSafe confidence is not invented. Structured score legends are preserved.
+Ordinal scores must agree with their distributions within provider rounding
+tolerance. JSON objects must be plain or null-prototype records; class instances
+and `__proto__` fields are rejected rather than silently transformed.
+The public `DecisionJsonSchema` also validates configuration JSON: finite numbers,
+valid Unicode in keys and values, and at most 64 nested containers. Response JSON
+rejects duplicate keys, including escaped spellings of the same key. Score legends
+must reproduce the requested rubric; object key order does not matter.
 
 ## Configuration and failures
 
@@ -80,6 +90,8 @@ injected `fetch`. Base URLs include the API prefix, such as
 `https://api.typesafe.ai/v1` or `http://127.0.0.1:8080/v1`; the transport appends
 `/systemone`. URLs cannot contain embedded credentials, query strings or fragments.
 Redirects are disabled so bearer keys cannot follow an unexpected endpoint.
+Keys must be printable ASCII without whitespace; credentials are never trimmed.
+An explicitly null endpoint is invalid rather than selecting the default host.
 
 The default 30-second deadline covers dispatch, response reading and retry delays;
 per-request `timeoutMs` overrides it (maximum five minutes). Retries default to two
@@ -88,6 +100,17 @@ invalid responses and uncertain network delivery are not retried. Cancellation
 and timeouts are structured errors. An HTTP cancellation cannot interrupt a GPU
 kernel already running in the Python process. Repeated requests can still incur
 work/cost; this transport makes no exactly-once guarantee.
+
+`retry-after-ms` takes precedence over `Retry-After`, matching the TypeSafe SDK's
+header precedence. Invalid millisecond hints fall back to the standard header;
+huge numeric delays saturate to the timer limit and remain bounded by the request
+deadline. When deadline and caller cancellation race, the first signal determines
+the reported failure kind.
+
+Deadlines also bound an injected fetch/response reader that ignores cancellation;
+they cannot stop work inside that custom implementation. HTTP response cleanup is
+best-effort and never replaces the main error. Invalid UTF-8 is rejected instead
+of silently substituting replacement characters.
 
 `DecisionProviderError` extends core's `PlumbusError`. Its `kind` distinguishes
 configuration, invalid request/response, HTTP, network, timeout and cancellation
@@ -102,6 +125,9 @@ model**, not the alias. The bundled `jev-1.13.0` rate is $0.042/million input to
 with free output, verified against [TypeSafe's model documentation](https://docs.typesafe.ai/models)
 on 2026-09-22. Configure `inputRates: { 'model-id': rate }` to override input USD per
 million tokens. Unknown response models return `cost: null`; they are not free.
+Pricing overrides must be plain JSON records. A positive charge that underflows to
+numeric zero raises a configuration error with known usage/model instead of
+appearing free; explicit zero rates and zero input usage remain valid.
 
 Laya defaults to `cost: null`. `costPerRequestUsd` is an explicit operator estimate
 for infrastructure usage; zero is accepted only when deliberately configured.
@@ -124,6 +150,9 @@ languages, or a single checkpoint for dedicated workloads. Allowed names are
 precedence over language routing. A request cannot load a checkpoint outside the
 configured list. The TypeScript adapter's `model: 'auto'` omits the model override;
 `language` supplies the service's optional `lang` field.
+Routing metadata is required in Laya adapter responses so a generic model name
+cannot conceal which checkpoint answered. Custom compatible services must return
+`routing: { model, repo, reason }`.
 
 The service preflights the tokenizer's question/option/state budgets and rejects
 input that would be truncated with HTTP 422. This check is deliberately tied to
@@ -133,11 +162,49 @@ Only one inference runs per service process; busy devices return 503 with
 `Retry-After`. Deploy replicas for concurrency. Put the reference HTTP service
 behind your deployment's private networking/TLS proxy if accessed remotely.
 
+The service also limits active HTTP handlers (including slow request readers) to
+32 by default. Set `LAYA_MAX_CONNECTIONS` from 1 through 128, or pass
+`max_connections` to `create_server`, to change it. Capacity exhaustion returns
+503 before another handler thread starts. Client disconnects during headers or
+body writes are handled without escaping the request handler.
+
+Requests require one Content-Length and one Authorization header, UTF-8
+`application/json`, and identity Content-Encoding. Duplicate JSON keys,
+non-finite numbers, unpaired Unicode surrogates and nesting over 64 levels are
+rejected. Incomplete framing returns 400, unsupported content metadata 415, and
+invalid JSON/questions 422. Inference/serialization failures return 500; responses
+are capped at 2 MiB, matching the adapter.
+Duplicate Content-Encoding headers are rejected. The bearer authentication scheme
+is case-insensitive; the token itself remains case-sensitive.
+
 Package pinning does not pin Hugging Face weight revisions. Retain a tested model
 cache/snapshot for reproducible deployment; `HF_HUB_OFFLINE=1` can reuse a prepared
 cache. Routing metadata identifies the checkpoint but is not a weight digest.
 
 ## Providing a live test environment
+
+### One-command local server and smoke app
+
+From the repository root, run:
+
+```bash
+node examples/ai-decision-smoke/run.mjs
+```
+
+The [example app](../../examples/ai-decision-smoke/README.md) builds the packages,
+generates a password in `examples/ai-decision-smoke/.env`, starts a CPU Laya server
+on loopback, and runs both adapters through a Plumbus capability. The same password
+file configures server and clients automatically. It does not read the repository
+root `.env` or contact the hosted TypeSafe API. Node 22+, installed pnpm dependencies
+and Docker are required. The first run downloads a real checkpoint; the cache
+volume is pre-created with ownership suitable for the unprivileged container user.
+
+Use `node examples/ai-decision-smoke/run.mjs smoke` to repeat the test, `status` or
+`logs` to inspect the server, and `stop` to stop it. To change the password, edit the
+example `.env` and run `restart`; the named model cache is retained. The example
+keeps the server running after the smoke test.
+
+### Using an existing endpoint
 
 Keep keys in a local environment file **outside the repository**, readable by the
 account running the agent. Tell the agent its absolute path, never paste keys into

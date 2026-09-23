@@ -51,6 +51,14 @@ export function createLayaDecisionAdapter(
         input,
       );
       const result = parseDecisionResponse(wire, input.questions, 'laya');
+      if (!z.object({ routing: z.object({}) }).safeParse(result).success) {
+        throw new DecisionProviderError(
+          'laya',
+          'invalid_response',
+          'Laya response is missing checkpoint routing identity',
+          { model: result.model, usage: result.usage },
+        );
+      }
       const cost = settings.data.costPerRequestUsd ?? null;
       return {
         ...result,

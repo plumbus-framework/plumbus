@@ -5,13 +5,14 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-09-10
+// Last updated: 2026-09-23 (GPT-6 Sol/Luna; other entries last synced 2026-09-10)
 //
 // Unknown models (Ollama, custom endpoints) have no catalog cost.
 //
 // Only standard-tier rates are tracked (not batch, flex, or fast mode), and for
 // models with split short/long context pricing the short-context (base) rate is
-// recorded, with an explicit long-context threshold for GPT-5.6 Sol. Sonnet 5 remains $2/$10 (the scheduled increase was cancelled).
+// recorded, with explicit long-context thresholds for GPT-5.6 Sol and GPT-6 Sol/Luna.
+// Sonnet 5 remains $2/$10 (the scheduled increase was cancelled).
 //
 // `kind` is derived from the pricing page's section structure, not from name
 // patterns — see `.agents/skills/update-model-pricing/scripts/fetch-pricing.ts`.
@@ -48,6 +49,20 @@ export interface ModelRate {
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
   'gpt-6-astra': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'gpt-6-sol': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cachedInputPerMTok: 0.2,
+    longContextThreshold: 272_000,
+  },
+  'gpt-6-luna': {
+    kind: 'text',
+    inputPerMTok: 0.1,
+    outputPerMTok: 0.5,
+    cachedInputPerMTok: 0.01,
+    longContextThreshold: 272_000,
+  },
   'gpt-5.6-sol': {
     kind: 'text',
     inputPerMTok: 5,
@@ -240,9 +255,10 @@ export function calculateModelCost(
  *
  * Pricing adjustments applied:
  * - **Cached input tokens**: published per-model rate, defaulting to 0.1× input.
- * - **Cache write tokens**: charged at 1.25× the base input rate (Anthropic 5-min cache).
+ * - **Cache write tokens**: charged at 1.25× the base input rate.
  * - **Long context premium**: for Claude Sonnet 4 / 4.5, when total input exceeds
- *   200K tokens, or GPT-5.6 Sol over 272K, charge 2× input/cache and 1.5× output.
+ *   200K tokens, or GPT-5.6 Sol / GPT-6 Sol and Luna over 272K, charge 2× input/cache
+ *   and 1.5× output.
  *
  * Returns undefined for unknown/unsupported models; explicitly free adapters may report zero.
  */

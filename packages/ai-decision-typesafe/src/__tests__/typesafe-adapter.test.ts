@@ -23,10 +23,10 @@ describe('TypeSafe decision adapter', () => {
     expect(result).toMatchObject({
       provider: 'typesafe',
       model: 'jev-1.13.0',
-      cost: 0.000042,
       costAvailable: true,
       usage: { totalTokens: 1025 },
     });
+    expect(result.cost).toBeCloseTo(0.000042, 12);
     expect(result.answers.refund.probability).toBe(0.95);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
   });

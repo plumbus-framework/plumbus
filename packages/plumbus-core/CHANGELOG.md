@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add standard pricing for `gpt-6-sol` ($2 input / $0.20 cached input / $10 output per MTok) and `gpt-6-luna` ($0.10 / $0.01 / $0.50), including cache writes and the full-request long-context premium above 272K input tokens. Verified against OpenAI documentation on 2026-09-23.
+
 - Support explicit same-call final-answer schema validation with native tools and forward the schema on OpenAI Chat Completions/Responses; malformed output is not retried.
 
 ## 0.7.1 — 2026-09-10

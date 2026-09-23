@@ -1,6 +1,7 @@
 import {
   createDecisionHttpTransport,
   DecisionProviderError,
+  DecisionJsonSchema,
   parseDecisionResponse,
   toSystemOneQuestions,
   validateDecisionRequest,
@@ -28,9 +29,9 @@ export function createTypeSafeDecisionAdapter(
 ): DecisionProviderAdapter {
   const settings = z
     .object({
-      apiKey: z.string().trim().min(1),
+      apiKey: z.string().min(1),
       model: z.string().trim().min(1).max(256).default('jev-latest'),
-      inputRates: z.record(z.number().finite().nonnegative()).optional(),
+      inputRates: DecisionJsonSchema.pipe(z.record(z.number().finite().nonnegative())).optional(),
     })
     .safeParse(config);
   if (!settings.success)
@@ -46,7 +47,7 @@ export function createTypeSafeDecisionAdapter(
   const post = createDecisionHttpTransport('typesafe', {
     ...config,
     apiKey: settings.data.apiKey,
-    baseUrl: config.baseUrl ?? 'https://api.typesafe.ai/v1',
+    baseUrl: config.baseUrl === undefined ? 'https://api.typesafe.ai/v1' : config.baseUrl,
   });
 
   return {
@@ -64,12 +65,17 @@ export function createTypeSafeDecisionAdapter(
       );
       const result = parseDecisionResponse(wire, input.questions, 'typesafe');
       const rate = Object.hasOwn(rates, result.model) ? rates[result.model] : undefined;
-      const cost = rate === undefined ? null : (result.usage.inputTokens * rate) / 1_000_000;
-      if (cost !== null && !Number.isFinite(cost))
+      const cost = rate === undefined ? null : (result.usage.inputTokens / 1_000_000) * rate;
+      if (
+        cost !== null &&
+        (!Number.isFinite(cost) ||
+          (cost === 0 && result.usage.inputTokens > 0 && rate !== undefined && rate > 0))
+      )
         throw new DecisionProviderError(
           'typesafe',
           'configuration',
-          'TypeSafe cost estimate is not finite',
+          'TypeSafe cost estimate cannot be represented',
+          { usage: result.usage, model: result.model },
         );
       return {
         ...result,

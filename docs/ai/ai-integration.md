@@ -689,7 +689,16 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias), GPT-6 Sol, and GPT-6 Luna apply their documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. GPT-6 Sol/Luna were verified on 2026-09-23; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
+
+The GPT-6 additions use these USD rates per million tokens for requests with at most 272,000 input tokens:
+
+| Model | Input | Cached input | Cache writes | Output |
+| --- | --- | --- | --- | --- |
+| `gpt-6-sol` | $2 | $0.20 | $2.50 | $10 |
+| `gpt-6-luna` | $0.10 | $0.01 | $0.125 | $0.50 |
+
+Above 272,000 input tokens, input/cache rates double and output rates multiply by 1.5 for the **whole request**. Normalized input includes cache reads and writes once. The existing `-YYYYMMDD` pricing fallback also applies to these entries; no additional API aliases are introduced. Their rates are independent of GPT-5.6 Sol's promotional window. Sources: [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol uses the bundled $4/$20 input/output rates ($0.40 cached input) before November 22, 2026 UTC, then falls back to its regular $5/$30 rates ($0.50 cached input). Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
@@ -708,6 +717,8 @@ The framework parses cache data from provider responses:
 - **Anthropic**: `usage.cache_read_input_tokens` and `usage.cache_creation_input_tokens`
 - **Bedrock**: cache token fields on Converse usage (when present); `@plumbus/ai-bedrock` applies the same ~0.1× / 1.25× multipliers against Bedrock rates
 ### Long Context Premium
+
+GPT-5.6 Sol, GPT-6 Sol, and GPT-6 Luna use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
 
 For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:
 

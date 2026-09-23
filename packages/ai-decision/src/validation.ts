@@ -1,36 +1,30 @@
 import { z } from '@plumbus/core/zod';
+import { isDeepStrictEqual } from 'node:util';
 import { DecisionProviderError } from './errors/index.js';
+import { DecisionJsonSchema, jsonRecord } from './json.js';
 import type {
   DecisionAnswers,
-  DecisionJson,
   DecisionQuestions,
   DecisionRequest,
   DecisionResult,
   DecisionUsage,
 } from './types.js';
 
-const JsonSchema: z.ZodType<DecisionJson> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number().finite(),
-    z.boolean(),
-    z.null(),
-    z.array(JsonSchema),
-    z.record(JsonSchema),
-  ]),
+const DescriptionSchema = DecisionJsonSchema.pipe(
+  z.union([z.string(), z.array(DecisionJsonSchema), jsonRecord(DecisionJsonSchema)]),
 );
-const DescriptionSchema = z.union([z.string(), z.array(JsonSchema), z.record(JsonSchema)]);
 const QuestionSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('choice'),
       instructions: DescriptionSchema,
-      criteria: z
-        .record(z.string().min(1), DescriptionSchema.nullable())
-        .refine(
-          (criteria) => Object.keys(criteria).length >= 2 && Object.keys(criteria).length <= 255,
-          'Choice requires 2–255 options',
-        ),
+      criteria: jsonRecord(DescriptionSchema.nullable()).refine(
+        (criteria) =>
+          Object.keys(criteria).length >= 2 &&
+          Object.keys(criteria).length <= 255 &&
+          Object.keys(criteria).every((key) => key.length > 0),
+        'Choice requires 2–255 options',
+      ),
     })
     .strict(),
   z
@@ -53,16 +47,19 @@ const QuestionSchema = z.discriminatedUnion('type', [
 ]);
 
 export const DecisionTimeoutSchema = z.number().int().min(1).max(300_000);
+export const DecisionSignalSchema = z.instanceof(AbortSignal).optional();
 const RequestSchema = z.object({
   state: DescriptionSchema,
-  questions: z
-    .record(z.string().min(1), QuestionSchema)
-    .refine(
-      (questions) => Object.keys(questions).length > 0 && Object.keys(questions).length <= 256,
-      'Requests require 1–256 questions',
-    ),
+  questions: jsonRecord(DecisionJsonSchema.pipe(QuestionSchema)).refine(
+    (questions) =>
+      Object.keys(questions).length > 0 &&
+      Object.keys(questions).length <= 256 &&
+      Object.keys(questions).every((key) => key.length > 0),
+    'Requests require 1–256 questions',
+  ),
   model: z.string().trim().min(1).max(256).optional(),
   timeoutMs: DecisionTimeoutSchema.optional(),
+  signal: DecisionSignalSchema,
 });
 
 /** Validates and snapshots JSON data before asynchronous transport work. */
@@ -89,7 +86,7 @@ export function toSystemOneQuestions(questions: DecisionQuestions): Record<strin
 }
 
 const ProbabilitySchema = z.number().finite().min(0).max(1);
-const DistributionSchema = z.record(ProbabilitySchema);
+const DistributionSchema = jsonRecord(ProbabilitySchema);
 const AnswerSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('choice'),
@@ -102,7 +99,7 @@ const AnswerSchema = z.discriminatedUnion('type', [
     score: z.number().finite(),
     probabilities: DistributionSchema,
     confidence: ProbabilitySchema,
-    legend: z.record(DescriptionSchema),
+    legend: jsonRecord(DescriptionSchema),
   }),
   z.object({
     type: z.literal('noul'),
@@ -110,13 +107,15 @@ const AnswerSchema = z.discriminatedUnion('type', [
     confidence: ProbabilitySchema.optional(),
   }),
 ]);
-const EnvelopeSchema = z.object({
-  model: z.string().min(1).max(512),
+const MetadataSchema = z.object({
+  model: z.string().trim().min(1).max(512),
   usage: z.object({
     input_tokens: z.number().int().nonnegative().safe(),
     output_tokens: z.number().int().nonnegative().safe(),
   }),
-  answers: z.record(z.unknown()),
+});
+const EnvelopeSchema = MetadataSchema.extend({
+  answers: jsonRecord(z.unknown()),
   routing: z
     .object({
       model: z.string().min(1).max(256),
@@ -141,10 +140,21 @@ export function parseDecisionResponse<Q extends DecisionQuestions>(
 ): Omit<DecisionResult<Q>, 'cost' | 'costAvailable' | 'latencyMs'> {
   const envelope = EnvelopeSchema.safeParse(value);
   if (!envelope.success) {
+    const metadata = MetadataSchema.safeParse(value);
+    const usage = metadata.success
+      ? {
+          inputTokens: metadata.data.usage.input_tokens,
+          outputTokens: metadata.data.usage.output_tokens,
+          totalTokens: metadata.data.usage.input_tokens + metadata.data.usage.output_tokens,
+        }
+      : undefined;
     throw new DecisionProviderError(
       provider,
       'invalid_response',
       'Invalid decision response envelope',
+      metadata.success && usage && Number.isSafeInteger(usage.totalTokens)
+        ? { model: metadata.data.model, usage }
+        : {},
     );
   }
   const { model, answers, routing } = envelope.data;
@@ -194,9 +204,26 @@ export function parseDecisionResponse<Q extends DecisionQuestions>(
       throw invalid();
     if (answer.type === 'choice') {
       const chosen = answer.probabilities[answer.choice];
-      if (chosen === undefined || chosen + 0.0001 < Math.max(...values)) throw invalid();
+      if (
+        !Object.hasOwn(answer.probabilities, answer.choice) ||
+        chosen === undefined ||
+        chosen + 0.0001 < Math.max(...values)
+      )
+        throw invalid();
     } else {
       if (answer.score < 0 || answer.score > keys.length - 1 || !sameKeys(answer.legend, keys))
+        throw invalid();
+      const expected = keys.reduce(
+        (sum, key, index) => sum + index * (answer.probabilities[key] ?? 0),
+        0,
+      );
+      // Rounding error is weighted by the ordinal index, plus the score's own rounding.
+      const scoreTolerance = 0.000051 * (1 + (keys.length * (keys.length - 1)) / 2);
+      if (Math.abs(answer.score - expected) > scoreTolerance) throw invalid();
+      if (
+        question.type !== 'score' ||
+        !keys.every((key, index) => isDeepStrictEqual(answer.legend[key], question.criteria[index]))
+      )
         throw invalid();
     }
     entries.push([id, answer]);

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import math
 import os
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -18,6 +20,39 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 
 class RequestError(Exception):
     """A safe client error; never put submitted state or credentials in its text."""
+
+
+def validate_json(value, depth=0):
+    """JSON decoder extensions and invalid Unicode must not reach the model."""
+    if depth > 64:
+        raise RequestError("JSON nesting exceeds 64 levels")
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeError as error:
+            raise RequestError("Invalid Unicode in JSON") from error
+    elif isinstance(value, (int, float)):
+        try:
+            if not math.isfinite(value):
+                raise RequestError("Non-finite numbers are not JSON")
+        except OverflowError as error:
+            raise RequestError("Number exceeds the supported range") from error
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            validate_json(key, depth + 1)
+            validate_json(item, depth + 1)
+    elif isinstance(value, list):
+        for item in value:
+            validate_json(item, depth + 1)
+
+
+def unique_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise RequestError("Duplicate JSON keys are not supported")
+        value[key] = item
+    return value
 
 
 def check_token_budget(agent, state, questions, render_options, serialize_state):
@@ -68,7 +103,10 @@ class LayaBackend:
         if not self.lock.acquire(blocking=False):
             return None
         try:
-            decision = self.router.route(body["state"], body["questions"], model=body.get("model"), lang=body.get("lang"))
+            try:
+                decision = self.router.route(body["state"], body["questions"], model=body.get("model"), lang=body.get("lang"))
+            except ValueError as error:
+                raise RequestError("Invalid checkpoint selection") from error
             if decision.model not in self.names:
                 raise RequestError("Selected checkpoint is not preloaded; configure LAYA_MODELS or select a loaded model")
             agent = self.router.load(decision.model)
@@ -82,6 +120,7 @@ class LayaBackend:
 
 def validate_body(body):
     # The HTTP boundary also validates callers that do not use the TypeScript adapter.
+    validate_json(body)
     if not isinstance(body, dict) or set(body) - {"state", "questions", "model", "lang"}:
         raise RequestError("Invalid request object")
     if not isinstance(body.get("state"), (str, dict, list)):
@@ -90,7 +129,7 @@ def validate_body(body):
     if not isinstance(questions, dict) or not 1 <= len(questions) <= 256:
         raise RequestError("Provide 1–256 questions")
     for field in ("model", "lang"):
-        if field in body and (not isinstance(body[field], str) or not 1 <= len(body[field]) <= 256):
+        if field in body and (not isinstance(body[field], str) or not body[field].strip() or not 1 <= len(body[field]) <= 256):
             raise RequestError("Invalid model or language")
     for key, question in questions.items():
         if not key or not isinstance(question, dict) or set(question) - {"type", "instructions", "criteria"}:
@@ -114,9 +153,45 @@ def validate_body(body):
     return body
 
 
-def create_server(address, backend, api_key):
-    if not api_key or api_key.strip() != api_key or any(char in api_key for char in "\r\n"):
-        raise RequestError("Set a nonempty LAYA_API_KEY without surrounding whitespace")
+class BoundedHTTPServer(ThreadingHTTPServer):
+    """Limit active handlers before spawning threads, including slow request readers."""
+
+    def __init__(self, address, handler, max_connections):
+        self._connection_slots = threading.BoundedSemaphore(max_connections)
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self._connection_slots.acquire(blocking=False):
+            payload = b'{"error":"Service connection capacity reached"}'
+            response = (b"HTTP/1.0 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+                        b"Connection: close\r\nRetry-After: 1\r\nContent-Length: "
+                        + str(len(payload)).encode() + b"\r\n\r\n" + payload)
+            try:
+                request.settimeout(0.5)
+                request.sendall(response)
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connection_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connection_slots.release()
+
+
+def create_server(address, backend, api_key, *, max_connections=32):
+    if not api_key or not re.fullmatch(r"[\x21-\x7e]+", api_key):
+        raise RequestError("Set LAYA_API_KEY to a nonempty printable ASCII token without whitespace")
+    if isinstance(max_connections, bool) or not isinstance(max_connections, int) or not 1 <= max_connections <= 128:
+        raise RequestError("max_connections must be an integer from 1 to 128")
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -125,15 +200,17 @@ def create_server(address, backend, api_key):
 
         def respond(self, status, payload):
             data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            if status == 503:
-                self.send_header("Retry-After", "1")
-            self.end_headers()
+            if len(data) > MAX_BODY_BYTES:
+                raise RuntimeError("Inference response exceeds the service limit")
             try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                if status == 503:
+                    self.send_header("Retry-After", "1")
+                self.end_headers()
                 self.wfile.write(data)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
                 pass  # A cancelled HTTP request cannot interrupt an active GPU kernel.
 
         def do_GET(self):
@@ -142,27 +219,43 @@ def create_server(address, backend, api_key):
         def do_POST(self):
             if self.path != "/v1/systemone":
                 return self.respond(404, {"error": "Not found"})
-            expected = f"Bearer {api_key}".encode()
-            supplied = self.headers.get("Authorization", "").encode()
+            expected = api_key.encode()
+            auth_headers = self.headers.get_all("Authorization", [])
+            auth = re.fullmatch(r"(?i:Bearer) +([\x21-\x7e]+)", auth_headers[0]) if len(auth_headers) == 1 else None
+            supplied = auth.group(1).encode() if auth else b""
             if not hmac.compare_digest(expected, supplied):
                 return self.respond(401, {"error": "Unauthorized"})
             if self.headers.get("Transfer-Encoding"):
                 return self.respond(400, {"error": "Chunked requests are not supported"})
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-            except ValueError:
-                length = 0
+            lengths = self.headers.get_all("Content-Length", [])
+            if len(lengths) != 1 or not re.fullmatch(r"[0-9]+", lengths[0]) or len(lengths[0]) > 10:
+                return self.respond(400, {"error": "Provide exactly one valid Content-Length"})
+            length = int(lengths[0])
             if not 0 < length <= MAX_BODY_BYTES:
                 return self.respond(413, {"error": "Provide a JSON body of at most 2 MiB"})
+            encodings = self.headers.get_all("Content-Encoding", [])
+            if len(encodings) > 1 or (encodings and encodings[0].strip().lower() != "identity"):
+                return self.respond(415, {"error": "Unsupported Content-Encoding"})
+            content_types = self.headers.get_all("Content-Type", [])
+            if len(content_types) != 1 or content_types[0].split(";", 1)[0].strip().lower() != "application/json":
+                return self.respond(415, {"error": "Content-Type must be application/json"})
             try:
                 def reject_constant(_value):
                     raise RequestError("Non-finite numbers are not JSON")
-                body = validate_body(json.loads(self.rfile.read(length), parse_constant=reject_constant))
+                data = self.rfile.read(length)
+                if len(data) != length:
+                    return self.respond(400, {"error": "Incomplete request body"})
+                body = validate_body(json.loads(data.decode("utf-8", errors="strict"), parse_constant=reject_constant, object_pairs_hook=unique_object))
+            except (RequestError, ValueError, RecursionError):
+                return self.respond(422, {"error": "Invalid JSON decision request"})
+            except TimeoutError:
+                return self.respond(408, {"error": "Request body timed out"})
+            try:
                 result = backend.predict(body)
                 if result is None:
                     return self.respond(503, {"error": "Inference device busy"})
                 self.respond(200, result)
-            except (RequestError, ValueError, KeyError, RecursionError):
+            except RequestError:
                 self.respond(422, {"error": "Invalid request or checkpoint token budget exceeded"})
             except Exception:
                 self.respond(500, {"error": "Laya inference failed"})
@@ -170,15 +263,21 @@ def create_server(address, backend, api_key):
         def log_message(self, _format, *_args):
             pass  # Request bodies, API keys, and submitted text are never logged.
 
-    return ThreadingHTTPServer(address, Handler)
+    return BoundedHTTPServer(address, Handler, max_connections)
 
 
 if __name__ == "__main__":
     key = os.environ.get("LAYA_API_KEY", "")
-    if not key:
-        raise SystemExit("Set LAYA_API_KEY before starting the service")
+    if not key or not re.fullmatch(r"[\x21-\x7e]+", key):
+        raise SystemExit("Set LAYA_API_KEY to a printable ASCII token without whitespace before starting the service")
+    try:
+        capacity = int(os.environ.get("LAYA_MAX_CONNECTIONS", "32"))
+        if not 1 <= capacity <= 128:
+            raise ValueError
+    except ValueError:
+        raise SystemExit("LAYA_MAX_CONNECTIONS must be an integer from 1 to 128") from None
     backend = LayaBackend()
-    server = create_server((os.environ.get("LAYA_HOST", "127.0.0.1"), int(os.environ.get("LAYA_PORT", "8080"))), backend, key)
+    server = create_server((os.environ.get("LAYA_HOST", "127.0.0.1"), int(os.environ.get("LAYA_PORT", "8080"))), backend, key, max_connections=capacity)
     print(f"Laya ready on {server.server_address[0]}:{server.server_address[1]}; checkpoints: {', '.join(backend.names)}", flush=True)
     try:
         server.serve_forever()
