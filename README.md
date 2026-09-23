@@ -401,24 +401,29 @@ For a fuller explanation of the framework-first policy and destructive git safet
 |---------|-------------|
 | [`@plumbus/core`](packages/plumbus-core/) | Foundation — capabilities, entities, events, flows, prompts, translations, runtime, CLI, audit, governance |
 | [`@plumbus/ui`](packages/ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds |
-| [`@plumbus/auth`](packages/auth/) | Optional peer `0.6.x` on core — OIDC RP runtime; hosted login, server sessions, CSRF |
-| [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.1.x`) |
-| [`@plumbus/api`](packages/api/) | Optional peer `0.1.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
-| [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.1.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.6.x` (**runtime ≥ 0.6.16**). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
-| [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.5.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
-| [`@plumbus/chat`](packages/chat/) | Optional peer `0.1.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
+| [`@plumbus/auth`](packages/auth/) | Optional peer `0.7.x` on core — OIDC RP runtime; hosted login, server sessions, CSRF |
+| [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.2.x`) |
+| [`@plumbus/api`](packages/api/) | Optional peer `0.2.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
+| [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.2.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.7.x` (**runtime ≥ 0.7.0**). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
+| [`@plumbus/ai-decision`](packages/ai-decision/) | Shared typed decision contracts, validation and transport; core `0.7.x`; runtime integration deferred |
+| [`@plumbus/ai-decision-typesafe`](packages/ai-decision-typesafe/) | Optional TypeSafe/Jev decision adapter; choices, scores, probabilities and input pricing |
+| [`@plumbus/ai-decision-laya`](packages/ai-decision-laya/) | Optional self-hosted Laya decision adapter and Python reference service |
+| [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.6.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
+| [`@plumbus/chat`](packages/chat/) | Optional peer `0.2.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
-| [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.1.x` — scoped knowledge providers and registry for registry-backed grounding |
-| [`@plumbus/voice`](packages/voice/) | Optional `0.4.x` — real-time voice runtime (`defineVoice`, routes, builtins: websocket / web-speech / browser-tts); peer `@plumbus/core` `0.6.x` |
-| [`@plumbus/voice-openai`](packages/voice-openai/) | Optional `0.1.x` — OpenAI Whisper / Realtime STT + OpenAI TTS; peer `@plumbus/voice` `0.4.x` |
-| [`@plumbus/voice-livekit`](packages/voice-livekit/) | Optional `0.1.x` — LiveKit transport, agent worker, browser session; peer `@plumbus/voice` `0.4.x` |
-| [`@plumbus/voice-soniox`](packages/voice-soniox/) | Optional `0.1.x` — Soniox STT adapter; peer `@plumbus/voice` `0.4.x` |
-| [`@plumbus/voice-deepdub`](packages/voice-deepdub/) | Optional `0.1.x` — Deepdub TTS adapter; peer `@plumbus/voice` `0.4.x` |
-| [`@plumbus/voice-elevenlabs`](packages/voice-elevenlabs/) | Optional `0.1.x` — ElevenLabs TTS adapter; peer `@plumbus/voice` `0.4.x` |
-| [`@plumbus/voice-minimax`](packages/voice-minimax/) | Optional `0.1.x` — MiniMax TTS adapter; peer `@plumbus/voice` `0.4.x` |
-| [`@plumbus/browser-extension`](packages/browser-extension/) | Optional `0.1.x` — dev-time WXT scaffolder for Chrome/Firefox extensions wired to your capabilities (with `@plumbus/ui`) |
+| [`@plumbus/knowledge-base`](packages/knowledge-base/) | Optional peer of `@plumbus/chat` `0.2.x` — scoped knowledge providers and registry for registry-backed grounding |
+| [`@plumbus/voice`](packages/voice/) | Optional `0.5.x` — real-time voice runtime (`defineVoice`, routes, builtins: websocket / web-speech / browser-tts); peer `@plumbus/core` `0.7.x` |
+| [`@plumbus/voice-openai`](packages/voice-openai/) | Optional `0.2.x` — OpenAI Whisper / Realtime STT + OpenAI TTS; peer `@plumbus/voice` `0.5.x` |
+| [`@plumbus/voice-livekit`](packages/voice-livekit/) | Optional `0.2.x` — LiveKit transport, agent worker, browser session; peer `@plumbus/voice` `0.5.x` |
+| [`@plumbus/voice-soniox`](packages/voice-soniox/) | Optional `0.2.x` — Soniox STT/TTS adapters; peer `@plumbus/voice` `0.5.x` |
+| [`@plumbus/voice-deepdub`](packages/voice-deepdub/) | Optional `0.2.x` — Deepdub TTS adapter; peer `@plumbus/voice` `0.5.x` |
+| [`@plumbus/voice-elevenlabs`](packages/voice-elevenlabs/) | Optional `0.2.x` — ElevenLabs TTS adapter; peer `@plumbus/voice` `0.5.x` |
+| [`@plumbus/voice-minimax`](packages/voice-minimax/) | Optional `0.2.x` — MiniMax TTS adapter; peer `@plumbus/voice` `0.5.x` |
+| [`@plumbus/browser-extension`](packages/browser-extension/) | Optional `0.2.x` — dev-time WXT scaffolder for Chrome/Firefox extensions wired to your capabilities (with `@plumbus/ui`) |
 
 The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).
+
+Prepared versions and paired upgrades are listed in the [voice and decision release guide](docs/upgrading-voice-and-decision-release.md).
 
 ---
 

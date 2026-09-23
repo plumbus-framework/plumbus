@@ -1,3 +1,4 @@
+import { resolveSttContext } from './resolve-stt-context.js';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
 import { ErrorCode, PlumbusError } from '@plumbus/core';
@@ -23,6 +24,7 @@ import { runStreamingTurnPipeline } from './streaming-turn-pipeline.js';
 import { stripVoiceAssistantMarkers } from './assistant-text.js';
 
 export interface RunVoiceTurnArgs {
+  transcriptConfidence?: number;
   voiceDefinition: VoiceDefinition;
   sessionId: string;
   turnId?: string;
@@ -76,8 +78,15 @@ export async function* runVoiceTurn(
     // controller's onTranscript/onEndpoint callbacks on a shared provider and break
     // every turn after the first.
     if (!hasSuppliedTranscript) {
+      const context = await resolveSttContext(ctx, voice, {
+        sessionId: args.sessionId,
+        input: args.input,
+        language: args.language,
+      });
+      if (args.abortSignal?.aborted) return;
       await sttProvider.connect?.({
         sessionId: args.sessionId,
+        context,
         signal: args.abortSignal,
         onTranscript: async (event) => {
           if (event.final) {
@@ -125,7 +134,7 @@ export async function* runVoiceTurn(
         source: transcriptSource,
         language: transcriptLanguage,
       },
-      {},
+      voice.transcript,
     );
     if (!transcript.ok) {
       yield* emit(
@@ -149,10 +158,39 @@ export async function* runVoiceTurn(
     }
     yield* emit(args, createAgentStateEvent('AwaitingLLM'));
 
+    let completeReply: string | undefined;
+    let completedBrainResult: unknown;
+    const brainArgs = {
+      ...args,
+      transcriptConfidence: finalizedTranscript?.confidence ?? args.transcriptConfidence,
+    };
+    if (voice.tts.responseMode === 'reply') {
+      let pendingReplyDeltas = Promise.resolve();
+      completeReply = await runBrainWithDeltas(
+        ctx,
+        voice,
+        brainArgs,
+        transcript,
+        (delta) => {
+          pendingReplyDeltas = pendingReplyDeltas.then(async () => {
+            await args.onAssistantDelta?.(delta);
+          });
+          void pendingReplyDeltas.catch(() => {});
+        },
+        (result) => {
+          completedBrainResult = result;
+        },
+      );
+      await pendingReplyDeltas;
+      if (args.abortSignal?.aborted) return;
+    }
+
     const resolvedTone = await resolveDeliveryTone(ctx, voice, {
       userTranscript: transcript.text,
       language: transcript.language,
       sessionId: args.sessionId,
+      assistantText: completeReply,
+      brainResult: completedBrainResult,
     });
     const mappedTone = mapDeliveryToneForProvider(ttsProvider, resolvedTone);
 
@@ -163,7 +201,9 @@ export async function* runVoiceTurn(
     yield* emit(args, createAgentStateEvent('Synthesizing'));
 
     const useStreamingPipeline = Boolean(
-      ttsProvider.capabilities.streaming && ttsProvider.synthesizeStream,
+      voice.tts.responseMode !== 'reply' &&
+        ttsProvider.capabilities.streaming &&
+        ttsProvider.synthesizeStream,
     );
 
     let responseText = '';
@@ -181,7 +221,7 @@ export async function* runVoiceTurn(
         onAudioChunk: args.onAudioChunk,
         onAssistantDelta: args.onAssistantDelta,
         preprocessForTts: (text) => maybePreprocessForTts(ctx, voice, text),
-        runBrain: async (onDelta) => runBrainWithDeltas(ctx, voice, args, transcript, onDelta),
+        runBrain: async (onDelta) => runBrainWithDeltas(ctx, voice, brainArgs, transcript, onDelta),
       });
       responseText = pipelineResult.responseText;
       yield* emit(
@@ -197,15 +237,15 @@ export async function* runVoiceTurn(
       const batchResult = await runBatchBrainAndTts({
         ctx,
         voice,
-        args,
+        args: brainArgs,
         transcript,
         ttsProvider,
         transportProvider,
         mappedTone,
+        completeReply,
       });
       responseText = batchResult.responseText;
       for (const event of batchResult.events) {
-        await args.onEvent?.(event);
         yield event;
       }
     }
@@ -284,10 +324,12 @@ async function runBrainWithDeltas(
   args: RunVoiceTurnArgs,
   transcript: { text: string; language?: string },
   onDelta: (delta: string) => void,
+  onResult?: (result: unknown) => void,
 ): Promise<string> {
   let deltaEmitted = false;
   const brainResult = await voice.brain.run(ctx, {
     transcript: transcript.text,
+    transcriptConfidence: args.transcriptConfidence,
     language: transcript.language,
     sessionId: args.sessionId,
     input: args.input,
@@ -298,6 +340,8 @@ async function runBrainWithDeltas(
       void onDelta(delta);
     },
   });
+
+  onResult?.(brainResult);
 
   if (isAsyncIterable(brainResult)) {
     let streamed = '';
@@ -330,25 +374,30 @@ async function runBatchBrainAndTts(args: {
   ttsProvider: TTSProvider;
   transportProvider: TransportProvider;
   mappedTone: ReturnType<typeof mapDeliveryToneForProvider>;
+  completeReply?: string;
 }): Promise<{ responseText: string; events: VoiceEvent[] }> {
   const events: VoiceEvent[] = [];
   const pushEvent = async (event: VoiceEvent) => {
     events.push(event);
     await args.args.onEvent?.(event);
   };
-  const capturedDeltas: string[] = [];
-  const brainResult = await args.voice.brain.run(args.ctx, {
-    transcript: args.transcript.text,
-    language: args.transcript.language,
-    sessionId: args.args.sessionId,
-    input: args.args.input,
-    signal: args.args.abortSignal,
-    onAssistantDelta(delta: string) {
-      if (!delta || args.args.abortSignal?.aborted) return;
-      capturedDeltas.push(delta);
-      void args.args.onAssistantDelta?.(delta);
-    },
-  });
+  const capturedDeltas: string[] = args.completeReply === undefined ? [] : [args.completeReply];
+  const brainResult =
+    args.completeReply === undefined
+      ? await args.voice.brain.run(args.ctx, {
+          transcript: args.transcript.text,
+          transcriptConfidence: args.args.transcriptConfidence,
+          language: args.transcript.language,
+          sessionId: args.args.sessionId,
+          input: args.args.input,
+          signal: args.args.abortSignal,
+          onAssistantDelta(delta: string) {
+            if (!delta || args.args.abortSignal?.aborted) return;
+            capturedDeltas.push(delta);
+            void args.args.onAssistantDelta?.(delta);
+          },
+        })
+      : undefined;
 
   if (isAsyncIterable(brainResult)) {
     for await (const chunk of brainResult) {
@@ -368,11 +417,12 @@ async function runBatchBrainAndTts(args: {
     return { responseText: '', events };
   }
 
+  const preparedText = await maybePreprocessForTts(args.ctx, args.voice, responseText);
   if (args.ttsProvider.capabilities.execution === 'client') {
-    await pushEvent({ type: 'tts.speak', text: responseText });
+    await pushEvent({ type: 'tts.speak', text: preparedText });
     await pushEvent(createAgentStateEvent('Playing'));
   } else if (args.ttsProvider.synthesizeStream) {
-    const ttsText = applyDeliveryToneToText(args.ttsProvider, responseText, args.mappedTone.tone);
+    const ttsText = applyDeliveryToneToText(args.ttsProvider, preparedText, args.mappedTone.tone);
     let playingEmitted = false;
     for await (const audioChunk of args.ttsProvider.synthesizeStream(
       ttsText,

@@ -689,18 +689,35 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, and Fast mode requests are billed differently by the provider and are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias) applies its documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. Rates were last synced on 2026-09-10; run the `update-model-pricing` skill to refresh them.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias), GPT-6 Sol, and GPT-6 Luna apply their documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. GPT-6 Sol/Luna and Anthropic Opus rates were verified on 2026-09-23; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
+
+The GPT-6 additions use these USD rates per million tokens for requests with at most 272,000 input tokens:
+
+| Model | Input | Cached input | Cache writes | Output |
+| --- | --- | --- | --- | --- |
+| `gpt-6-sol` | $2 | $0.20 | $2.50 | $10 |
+| `gpt-6-luna` | $0.10 | $0.01 | $0.125 | $0.50 |
+
+Above 272,000 input tokens, input/cache rates double and output rates multiply by 1.5 for the **whole request**. Normalized input includes cache reads and writes once. The existing `-YYYYMMDD` pricing fallback also applies to these entries; no additional API aliases are introduced. Their rates are independent of GPT-5.6 Sol's promotional window. Sources: [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol uses the bundled $4/$20 input/output rates ($0.40 cached input) before November 22, 2026 UTC, then falls back to its regular $5/$30 rates ($0.50 cached input). Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
 The [core 0.7.0 changelog](../../packages/plumbus-core/CHANGELOG.md#ai-pricing-and-accounting) lists the exact before/after catalog and cache-read rates, alias behavior, and accounting corrections.
 
+The September 23 Opus update adds `claude-opus-5-5` with these standard USD rates per million tokens:
+
+| Model | Input | Cached input | 5-minute cache writes | Output |
+| --- | --- | --- | --- | --- |
+| `claude-opus-5-5` | $4 | $0.20 | $5 | $20 |
+
+Opus 5.5 cache reads cost **0.05x** input, rather than the usual 0.1x. Its rates stay flat throughout the 1M-token context window. Opus 5 and 4.5–4.8 retain $5 input / $0.50 cached input / $25 output; legacy Opus 4/4.1 retain $15 / $1.50 / $75. The existing `-YYYYMMDD` pricing fallback also covers Opus 5.5; it does not introduce new API aliases. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Opus 5.5 model documentation](https://platform.claude.com/docs/en/models/opus-5-5/overview).
+
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
-- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 uses **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
+- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
 - Standard (non-cached) input tokens are charged at the full base rate
 
 The framework parses cache data from provider responses:
@@ -708,6 +725,8 @@ The framework parses cache data from provider responses:
 - **Anthropic**: `usage.cache_read_input_tokens` and `usage.cache_creation_input_tokens`
 - **Bedrock**: cache token fields on Converse usage (when present); `@plumbus/ai-bedrock` applies the same ~0.1× / 1.25× multipliers against Bedrock rates
 ### Long Context Premium
+
+GPT-5.6 Sol, GPT-6 Sol, and GPT-6 Luna use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
 
 For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:
 
@@ -1058,3 +1077,9 @@ The same selection drives `findModelRate`, `allKnownModels`, cost estimates, and
 ### Numeric cost compatibility
 
 `calculateModelCost()` keeps its published `number` return type and legacy zero for an unknown model. Use `estimateModelCost()` when callers must distinguish missing pricing from explicit free usage. `generateWithUsage().cost` and `runToolLoop().aggregatedCost` also remain numeric; check `costAvailable` / `aggregatedCostAvailable` before treating those totals as fully priced. The RAG embedding-cost callback exposes `costAvailable` with its existing numeric `cost`. Custom ledgers should store null when availability is false. Framework accounting already uses the unknown-aware path internally, so numeric compatibility values never silently bypass its configured dollar budgets.
+
+## Structured answers with native tools
+
+For `generateWithUsage({ tools, outputValidation: 'prompt', ... })`, the prompt output schema also constrains a final answer. A `tool_calls` result bypasses answer validation. A final result is parsed and validated once, with failure usage recorded; malformed/truncated output is not retried automatically because retries could duplicate tool effects. Omitted validation or explicit `'none'` with tools retains raw `{ content }` behavior. Custom-agent Chat turns request prompt validation so server-only fields can be observed alongside spoken content. See [Chat tools](../chat/tool-calling.md).
+
+The OpenAI adapter forwards the final schema alongside native tools using Chat Completions `response_format` or Responses `text.format`. See the [official Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs). Tool-transport structured output remains mutually exclusive with caller tools.

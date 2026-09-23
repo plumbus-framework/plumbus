@@ -2,11 +2,17 @@ import type { TTSProviderCatalogEntry, VoiceModelOption } from '@plumbus/voice/p
 
 export const DEEPDUB_TTS_MODELS: readonly VoiceModelOption[] = [
   {
+    id: 'dd-etts-3.3',
+    displayName: 'Deepdub eTTS 3.3',
+    streaming: true,
+    costModelKey: 'deepdub-phantom-x',
+    recommended: 'live',
+  },
+  {
     id: 'dd-etts-3.2',
     displayName: 'Deepdub eTTS 3.2',
     streaming: true,
     costModelKey: 'deepdub-phantom-x',
-    recommended: 'live',
   },
   {
     id: 'dd-etts-3.0',

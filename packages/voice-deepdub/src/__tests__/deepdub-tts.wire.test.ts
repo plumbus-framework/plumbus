@@ -55,6 +55,30 @@ function createDeepdubProvider(
 }
 
 describe('Deepdub TTS via @deepdub/node SDK', () => {
+  it('uses the current model by default while preserving the chosen speaker', async () => {
+    const captured: CapturedCall[] = [];
+    const provider = createTTSProvider({
+      registry: createProviderRegistry({ tts: { deepdub: DEEPDUB_TTS_REGISTRATION } }),
+      providers: {
+        providers: {
+          deepdub: {
+            apiKey: 'dd-test',
+            options: { deepdubClientFactory: makeFakeDeepdubFactory(captured) },
+          },
+        },
+      },
+      voiceSlice: { provider: 'deepdub', voiceId: 'existing-speaker', locale: 'he-IL' },
+    });
+    for await (const _chunk of provider.synthesizeStream?.('שלום', undefined) ?? []) {
+      /* drain */
+    }
+    expect(captured[0]?.params).toMatchObject({
+      model: 'dd-etts-3.3',
+      voicePromptId: 'existing-speaker',
+    });
+    expect(provider.usage?.()[0]?.model).toBe('deepdub-phantom-x');
+  });
+
   it('synthesizes through the SDK with the proven Hebrew params and yields PCM chunks', async () => {
     const captured: CapturedCall[] = [];
     const provider = createDeepdubProvider(makeFakeDeepdubFactory(captured), {

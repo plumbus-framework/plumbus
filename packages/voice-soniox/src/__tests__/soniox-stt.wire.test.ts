@@ -82,6 +82,57 @@ function createSonioxProvider(
 }
 
 describe('Soniox STT via @soniox/node SDK', () => {
+  it('forwards server-resolved general context and verified terms without replacing transcript text', async () => {
+    const session = new FakeSonioxSession();
+    const captured: { config?: Record<string, unknown> } = {};
+    const provider = createSonioxProvider(session, captured);
+    const context = {
+      general: [{ key: 'subject', value: 'נועה' }],
+      terms: ['קריית אונו'],
+      text: 'A memoir interview',
+    };
+    const transcripts: string[] = [];
+    await provider.connect({
+      sessionId: 'context',
+      context,
+      onTranscript: (event) => {
+        transcripts.push(event.text);
+      },
+    });
+    await provider.sendAudio?.({ chunk: new Uint8Array(640) });
+    expect(captured.config?.context).toEqual(context);
+    session.emit('result', { tokens: [{ text: 'מה שהמערכת שמעה', is_final: true }] });
+    expect(transcripts.at(-1)).toBe('מה שהמערכת שמעה');
+    await provider.disconnect?.();
+  });
+
+  it('reports SDK failure to the controller and can retry after an initial connection failure', async () => {
+    const session = new FakeSonioxSession();
+    let attempts = 0;
+    session.connect = async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('temporary failure');
+      session.connected = true;
+    };
+    const provider = createSonioxProvider(session, {});
+    const errors: string[] = [];
+    await provider.connect({
+      sessionId: 'retry',
+      onError(error) {
+        errors.push(error.message);
+      },
+    });
+    await expect(provider.sendAudio?.({ chunk: new Uint8Array(640) })).rejects.toThrow(
+      'temporary failure',
+    );
+    await provider.sendAudio?.({ chunk: new Uint8Array(640) });
+    session.emit('error', new Error('provider stopped'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(attempts).toBe(2);
+    expect(errors).toEqual(['temporary failure', 'provider stopped']);
+    await provider.disconnect?.();
+  });
+
   it('opens a real-time session with the configured options and streams audio', async () => {
     const session = new FakeSonioxSession();
     const captured: { config?: Record<string, unknown> } = {};

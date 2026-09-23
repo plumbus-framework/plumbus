@@ -107,3 +107,9 @@ without requiring a consumer app repo.
 
 - [client-stt.md](./client-stt.md)
 - [security.md](./security.md)
+
+Complete-reply regression tests cover one brain call, ordered UI deltas, tone selection after the response, whole-reply TTS with preserved words/hesitation, and cancellation before speech. STT recovery tests cover connection failure, reconnect, stale callbacks, missing endpoints and retained partial text without a forced brain turn. These mocked tests do not evaluate microphone recognition or audible naturalness.
+
+Catalog tests inject a fetch fixture even when checking static model metadata: the fake add-on also provides listVoices, so leaving fetch unspecified accidentally performs a real DNS/network request.
+
+Recognition-context tests cover resolution before connection, concurrent hello calls, authorization/size errors, non-reconnection on supplied transcripts, and exact context forwarding into the Soniox SDK. Deepdub tests retain explicit 3.2 compatibility while live probes verify the new 3.3 request. Audio-file existence is transport/model-availability evidence, not proof of pronunciation quality.

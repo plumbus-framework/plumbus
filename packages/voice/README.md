@@ -1,5 +1,7 @@
 # @plumbus/voice
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 > **Real-time voice runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Define a voice once, pick a transport + STT + TTS stack, and mount governed session routes with shared cost tracking — your brain stays in normal Plumbus primitives.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice.svg)](https://www.npmjs.com/package/@plumbus/voice)

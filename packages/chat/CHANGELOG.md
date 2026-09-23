@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 — 2026-09-23
+
+- Expose custom-agent structured output through optional server-only `onAgentOutput` while emitting only `content`. Custom-agent tool turns validate their prompt output without retrying malformed final answers.
+- Use core `0.7.2` or later in the `0.7.x` family for this validation behavior; upgrade core and chat together when using structured custom-agent output.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

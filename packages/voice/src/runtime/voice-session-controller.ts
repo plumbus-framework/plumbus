@@ -1,3 +1,4 @@
+import { resolveSttContext } from './resolve-stt-context.js';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
 import type { STTProvider, STTProviderTranscriptEvent } from '../providers/base/stt-provider.js';
@@ -138,18 +139,51 @@ export class VoiceSessionController {
     await this.options.onEvent(toVoiceSessionHello(this.session, this.sttMode));
   }
 
+  #sttConnectPromise?: Promise<void>;
   async #ensureServerSttConnected(): Promise<void> {
+    if (this.#disposed || this.sttMode === 'client' || this.#sttConnected) return;
+    if (!this.#sttConnectPromise) {
+      this.#sttConnectPromise = this.#connectServerStt().finally(() => {
+        this.#sttConnectPromise = undefined;
+      });
+    }
+    await this.#sttConnectPromise;
+  }
+
+  async #connectServerStt(): Promise<void> {
     if (this.sttMode === 'client' || this.#sttConnected) {
       return;
     }
 
+    const context = await resolveSttContext(this.options.ctx, this.options.voice, {
+      sessionId: this.session.id,
+      input: this.options.brainInput,
+      language: this.#getSessionLanguage(),
+    });
+    if (this.#disposed) return;
     await this.options.sttProvider.connect?.({
       sessionId: this.session.id,
+      context,
       onTranscript: async (event) => {
         await this.#handleServerTranscript(event);
       },
       onEndpoint: async () => {
         await this.#handleEndpoint();
+      },
+      onError: async () => {
+        if (this.#disposed) return;
+        this.#clearServerTurnTimer();
+        this.#clearEndpointGraceTimer();
+        // Do not promote an unfinished transcript to a final answer.
+        try {
+          await this.options.onEvent({
+            type: 'error',
+            code: 'voice.stt_failed',
+            message: 'Speech recognition stopped; review the captured text before reconnecting.',
+          });
+        } finally {
+          await this.dispose();
+        }
       },
     });
     this.#sttConnected = true;
@@ -170,6 +204,7 @@ export class VoiceSessionController {
     if (this.#disposed) {
       return;
     }
+    this.#clearServerTurnTimer();
     this.#clearBackchannelTimer();
     this.#abortBackchannelInFlight();
     // After the STT provider signals end-of-speech we wait a short grace window
@@ -577,6 +612,34 @@ export class VoiceSessionController {
     // signal alone; only schedule the silence failsafe for providers that lack
     // it, or when an app explicitly opts back in via a positive endpointSilenceMs.
     if (this.#serverEndpointIsReliable() && !explicitFailsafe) {
+      const timeoutMs = this.options.voice.stt.options?.endpointTimeoutMs;
+      if (typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        const timer = setTimeout(() => {
+          this.#serverTurnTimer = undefined;
+          if (this.#disposed || !this.#pendingTranscript?.trim()) return;
+          if (
+            this.#lastSpeechEnergyAt !== undefined &&
+            Date.now() - this.#lastSpeechEnergyAt < timeoutMs
+          ) {
+            this.#scheduleServerTurn();
+            return;
+          }
+          // Recovery notification, never an inferred end-of-answer or a forced
+          // brain turn. The partial transcript remains a partial transcript.
+          Promise.resolve()
+            .then(() =>
+              this.options.onEvent({
+                type: 'error',
+                code: 'voice.stt_incomplete',
+                message: 'Speech has not finalized; review the captured text before continuing.',
+              }),
+            )
+            .finally(() => this.dispose())
+            .catch(() => {});
+        }, timeoutMs);
+        timer.unref?.();
+        this.#serverTurnTimer = timer;
+      }
       return;
     }
     const timer = setTimeout(() => {
@@ -1088,6 +1151,7 @@ export class VoiceSessionController {
     const abortSignal = this.#turnAbort.signal;
     const transcript = this.#pendingTranscript;
     const pendingLanguage = this.#pendingLanguage;
+    const pendingConfidence = this.#pendingConfidence;
     this.#pendingTranscript = undefined;
     this.#pendingLanguage = undefined;
     this.#pendingConfidence = undefined;
@@ -1105,6 +1169,7 @@ export class VoiceSessionController {
         sessionId: this.session.id,
         turnId,
         transcript,
+        transcriptConfidence: pendingConfidence,
         transcriptSource:
           this.options.voice.stt.provider === 'web-speech' ? 'client-stt' : 'server-stt',
         language,

@@ -1,11 +1,15 @@
+import type { VoiceRecognitionContext } from '../../types/voice.js';
 import type { VoiceUsageRecord } from '../../types/cost.js';
 import type { STTProviderCapabilities } from './capabilities.js';
 
 export interface STTProviderConnectArgs {
   sessionId: string;
+  context?: VoiceRecognitionContext;
   signal?: VoiceAbortSignal;
   onTranscript?: (event: STTProviderTranscriptEvent) => Promise<void> | void;
   onEndpoint?: () => Promise<void> | void;
+  /** Provider failure; callers can preserve partial text and offer reconnection. */
+  onError?: (error: Error) => Promise<void> | void;
 }
 
 export interface STTProviderAudioChunk {

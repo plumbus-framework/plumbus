@@ -97,3 +97,9 @@ Path B adds `tool.started`, `tool.completed`, and `tool.failed` to the event str
 `runChatTurn` additionally accepts server-only `promptInput`, `trustedHistory`, and `signal`. These fields are never copied from arbitrary HTTP request properties. When called from inside a capability—where core intentionally hides the dynamic runtime resolver—pass `opts.resolveCapability`; Chat retains the returned contract only for that in-process turn and still executes it through the full capability pipeline.
 
 AI usage/cost returned by `generateWithUsage` or `streamGenerate` inside an auto capability tool is folded into the logical turn totals. This keeps per-turn budgets and consumer cost attribution honest for AI-only helper tools.
+
+## Observing structured agent output on the server
+
+Use `@plumbus/chat@0.2.2` with core `0.7.2` or later in the `0.7.x` family for final-answer validation against the custom prompt schema. Upgrade both packages together; malformed final answers fail without a repair retry.
+
+Programmatic `runChatTurn` accepts `onAgentOutput(output)` in its options. With a custom `agentPrompt`, the callback receives the final tool-less model result (including a terminal round-limit result). An application can validate additional structured fields alongside `content` using its own schema. Only `content` is emitted as the assistant reply; metadata is not added to SSE text. The callback is server-side, optional, and synchronous; it neither invokes another model nor changes tool authorization/confirmation policy. Apply domain mutations after the chat turn has completed successfully. See [defining chats](./defining-chats.md).

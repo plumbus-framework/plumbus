@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — 2026-09-23
+
+- Forward per-session recognition general/terms/text context, replacing static hints without modifying recognized words.
+
+- Report streaming connection/SDK failures through the STT error callback; allow retry after a rejected connection and ignore obsolete session callbacks.
+- Use `@plumbus/voice@0.5.2` for server-resolved recognition context and runtime error recovery. Existing static hints remain supported.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

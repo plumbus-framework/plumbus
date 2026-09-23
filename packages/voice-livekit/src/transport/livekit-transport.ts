@@ -1,6 +1,6 @@
+import { createPcmAudioPublisher } from '../audio-output/index.js';
 import { randomUUID } from 'node:crypto';
 import {
-  AudioFrame,
   AudioSource,
   LocalAudioTrack,
   type RemoteTrack,
@@ -19,6 +19,7 @@ import {
 } from '@plumbus/voice/provider-kit';
 import { AccessToken, RoomAgentDispatch, RoomConfiguration } from 'livekit-server-sdk';
 import { LIVEKIT_TRANSPORT_DESCRIPTOR } from '../descriptor.js';
+import { createVoiceEventSender } from '../event-data/index.js';
 import { createInboundAudioStream } from '../noise-cancellation/create-inbound-audio-stream.js';
 import { LIVEKIT_VOICE_PRICING } from '../pricing.js';
 import { consumeAudioStream } from '../runtime/consume-audio-stream.js';
@@ -110,12 +111,15 @@ export async function mintLiveKitParticipantToken(
 
 export class LiveKitTransportProvider implements LiveKitTransportProviderContract {
   private disconnectPromise?: Promise<void>;
+  private pcmPublisher?: ReturnType<typeof createPcmAudioPublisher>;
+  private pcmConnection?: object;
   private activeConnection?: {
     room: Room;
     audioSource: AudioSource;
     localTrack: LocalAudioTrack;
     dataTopic: string;
     onAudio?: (audio: Uint8Array) => Promise<void> | void;
+    sendEvent?: (payload: unknown) => Promise<void>;
   };
 
   constructor(
@@ -223,14 +227,15 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
     const connection = this.activeConnection;
     if (!connection) return;
 
-    const format = parsePcmFormat(this.voiceSlice.audioFormat);
-    const audioFrame = new AudioFrame(
-      pcmBytesToInt16(audio),
-      format.sampleRate,
-      format.channels,
-      Math.max(1, audio.byteLength / (2 * format.channels)),
-    );
-    await connection.audioSource.captureFrame(audioFrame);
+    if (this.pcmConnection !== connection) {
+      this.pcmPublisher?.reset();
+      this.pcmConnection = connection;
+      this.pcmPublisher = createPcmAudioPublisher(
+        parsePcmFormat(this.voiceSlice.audioFormat),
+        (frame) => connection.audioSource.captureFrame(frame),
+      );
+    }
+    await this.pcmPublisher?.publish(audio);
   }
 
   subscribeRemote(onAudio: (audio: Uint8Array) => Promise<void> | void): void {
@@ -243,14 +248,17 @@ export class LiveKitTransportProvider implements LiveKitTransportProviderContrac
     const connection = this.activeConnection;
     if (!connection?.room.localParticipant) return;
 
-    const encoded = new TextEncoder().encode(JSON.stringify(payload));
-    await connection.room.localParticipant.publishData(encoded, {
-      reliable: true,
-      topic: connection.dataTopic,
-    });
+    connection.sendEvent ??= createVoiceEventSender(
+      () => (this.activeConnection === connection ? connection.room.localParticipant : undefined),
+      connection.dataTopic,
+    );
+    await connection.sendEvent(payload);
   }
 
   disconnect(): Promise<void> {
+    this.pcmPublisher?.reset();
+    this.pcmPublisher = undefined;
+    this.pcmConnection = undefined;
     if (this.disconnectPromise) return this.disconnectPromise;
     const connection = this.activeConnection;
     this.activeConnection = undefined;
@@ -473,14 +481,6 @@ function sanitizeAttributes(
 function serializeMetadata(metadata: Record<string, unknown> | undefined): string | undefined {
   if (!metadata) return undefined;
   return JSON.stringify(metadata);
-}
-
-function pcmBytesToInt16(audio: Uint8Array): Int16Array {
-  const buffer =
-    audio.byteOffset === 0 && audio.byteLength === audio.buffer.byteLength
-      ? audio.buffer
-      : audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength);
-  return new Int16Array(buffer);
 }
 
 function int16ToBytes(frame: Int16Array): Uint8Array {

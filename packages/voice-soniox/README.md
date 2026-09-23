@@ -1,5 +1,7 @@
 # @plumbus/voice-soniox
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 > **Soniox STT + TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register `stt.provider: 'soniox'` and/or `tts.provider: 'soniox'` via the official `@soniox/node` SDK — without bundling Soniox into `@plumbus/voice`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-soniox.svg)](https://www.npmjs.com/package/@plumbus/voice-soniox)

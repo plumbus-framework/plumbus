@@ -325,7 +325,7 @@ class DeepdubTTSProvider implements TTSProvider {
     const generationParams: TtsParams = {
       voicePromptId: toneParams?.voiceId ?? this.voiceSlice.voiceId,
       model:
-        toneParams?.model ?? this.voiceSlice.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.2',
+        toneParams?.model ?? this.voiceSlice.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.3',
       locale: toneParams?.locale ?? this.voiceSlice.locale ?? 'en-US',
     };
     const targetGender =

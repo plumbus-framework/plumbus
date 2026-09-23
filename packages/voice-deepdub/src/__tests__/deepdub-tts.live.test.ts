@@ -18,11 +18,11 @@ describe.runIf(live)('Deepdub TTS live smoke', () => {
     const provider = createTTSProvider({
       registry,
       providers: { providers: { deepdub: { apiKey } } },
-      // Plumbus default model is dd-etts-3.2. Cost key deepdub-phantom-x is
+      // Plumbus default model is dd-etts-3.3. Cost key deepdub-phantom-x is
       // ledger-only — never pass it as tts.model.
       voiceSlice: {
         provider: 'deepdub',
-        model: process.env.DEEPDUB_MODEL ?? 'dd-etts-3.2',
+        model: process.env.DEEPDUB_MODEL ?? 'dd-etts-3.3',
         voiceId,
         locale: process.env.DEEPDUB_LOCALE ?? 'en-US',
       },
