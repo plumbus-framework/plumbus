@@ -1,10 +1,10 @@
 # @plumbus/ai-decision-typesafe
 
-Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-classification.md).
 
 TypeSafe/Jev provider for typed choices, scores, and probabilities.
 
-Version `0.2.1`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
+Version `0.2.2`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
 Install explicitly with `pnpm add @plumbus/ai-decision-typesafe`. Provider packages install
 `@plumbus/ai-decision` transitively. There is no dependency on the other provider.
 
@@ -17,6 +17,11 @@ from `app/server.ts` for API and worker processes. See the
 [decision integration guide](../../docs/ai/decision-providers.md#application-integration-and-cost-recording).
 Direct adapter calls remain useful for infrastructure tests and do not record costs
 in core. Keep these adapters separate from the text-generation provider registry.
+
+Core **0.7.4+** also supports `ctx.ai.classify({ text, labels, provider, model, threshold })`
+for generative or decision models. Start with
+`node_modules/@plumbus/core/instructions/ai-classification.md` for registration,
+model defaults, multi-label semantics, and cost recording.
 
 ## Quick start (infrastructure / smoke testing)
 

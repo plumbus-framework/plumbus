@@ -1,5 +1,9 @@
 # Voice and decision provider release — 2026-09-23
 
+This page describes the initial release. For core integration, classification
+provider/model selection, and current agent wiring, see the
+[classification upgrade guide](upgrading-classification.md).
+
 This release adds optional typed decision packages, improves voice delivery and
 recognition recovery, and updates core AI pricing and structured tool output.
 Existing packages stay within the core `0.7.x` compatibility family. No database

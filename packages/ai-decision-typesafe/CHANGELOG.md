@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.1 — Unreleased
+## 0.2.2 — Unreleased
+
+- Document core 0.7.4+ classification with per-call provider/model and probability threshold. Link the packaged classification recipe from agent instructions and correct stale package-only guidance. Core peer compatibility remains `0.7.x`.
 
 - Preserve model, usage, and known TypeSafe cost on malformed-answer errors so core 0.7.3 records billed failures. Keep unknown response models unpriced.
 - Document native core registration and cost recording; existing core peer ranges remain unchanged.

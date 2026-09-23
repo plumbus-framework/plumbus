@@ -352,6 +352,7 @@ Plumbus is designed to work seamlessly with AI coding agents (GitHub Copilot, Cu
 
 The framework ships agent instruction files inside npm packages. Start with the index files — they link every topic file and stay current as new instructions are added:
 
+- [AI classification: provider/model selection, TypeSafe/Jev and Laya](packages/plumbus-core/instructions/ai-classification.md) — core 0.7.4+, linked by agent wiring v17
 - [`@plumbus/core` instructions index](packages/plumbus-core/instructions/README.md) (`node_modules/@plumbus/core/instructions/README.md`)
 - [`@plumbus/ui` instruction files](packages/ui/README.md#instruction-files) (`node_modules/@plumbus/ui/instructions/`)
 
@@ -423,7 +424,9 @@ For a fuller explanation of the framework-first policy and destructive git safet
 
 The optional packages are version-locked peer add-ons — install them explicitly only when you need them (see [`docs/README.md`](docs/README.md)).
 
-Prepared versions and paired upgrades are listed in the [voice and decision release guide](docs/upgrading-voice-and-decision-release.md).
+For core 0.7.4, decision packages 0.2.2, and agent wiring v17, see the
+[classification upgrade guide](docs/upgrading-classification.md). Earlier paired
+upgrades are listed in the [voice and decision release guide](docs/upgrading-voice-and-decision-release.md).
 
 ---
 

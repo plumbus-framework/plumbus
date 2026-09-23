@@ -2,6 +2,10 @@
 
 Welcome to the Plumbus framework documentation. Use the navigation below to find what you need.
 
+For classification provider/model selection and agent wiring v17, see the
+[classification upgrade guide](./upgrading-classification.md) and
+[packaged agent recipe](../packages/plumbus-core/instructions/ai-classification.md).
+
 See the [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) for package versions and paired upgrades.
 
 ## Documentation Map
@@ -155,6 +159,7 @@ docs/
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
+| Classify with a selected provider/model (Jev, Laya, or generative) | [Agent recipe](../packages/plumbus-core/instructions/ai-classification.md) |
 | Test Jev or self-hosted Laya decisions | [AI → Decision providers](ai/decision-providers.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |

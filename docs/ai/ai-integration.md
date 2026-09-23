@@ -250,6 +250,37 @@ const labels = await ctx.ai.classify({
 // → ["billing"]
 ```
 
+From core **0.7.4+**, classification supports per-call `provider` and `model`.
+See the [packaged agent recipe](../../packages/plumbus-core/instructions/ai-classification.md).
+
+By default, classification uses the configured text provider. Set `provider` to a
+registered text provider or a TypeSafe/Laya adapter registered under
+`decisions.providers`; `model` optionally overrides that provider's model selection.
+
+```typescript
+const labels = await ctx.ai.classify({
+  text: "My subscription was charged twice this month",
+  labels: ["billing", "technical", "account", "general"],
+  provider: "typesafe", // registered under decisions.providers
+  model: "jev-1.13.0", // optional endpoint-supported model ID
+  threshold: 0.5,
+});
+```
+
+For Laya, use `provider: "laya", model: "auto"` for automatic language routing,
+or an explicit checkpoint configured on your server. For a generative provider,
+use e.g. `provider: "openai", model: "gpt-6-sol"` and omit `threshold`.
+Model resolution is per-call → `decisions.defaultModel` → adapter default for
+decision providers, or per-call → AI `defaultModel` → adapter default for text providers.
+
+Decision providers score each label independently in one request. The result is
+every label with probability greater than or equal to `threshold` (default `0.5`),
+in input order; it can be empty or contain multiple labels. `threshold` must be
+between 0 and 1 and is only supported for decision providers. Native classification
+accepts 1–256 nonempty labels and uses the same validation, security, budgets,
+cancellation, and accounting as `decide()`, with one `classify` cost record.
+See [decision provider registration](decision-providers.md).
+
 ### Retrieve (RAG)
 
 ```typescript
@@ -327,7 +358,8 @@ const extractFacts = definePrompt({
 });
 ```
 
-The `extract()` and `classify()` convenience methods always use the default provider.
+`extract()` uses the default provider. `classify()` also uses it unless the call
+specifies `provider`; decision adapters are selected from `decisions.providers`.
 
 ### Configuration and model resolution
 

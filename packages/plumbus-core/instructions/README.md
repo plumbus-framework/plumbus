@@ -15,6 +15,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [flows.md](./flows.md) | `defineFlow()`, steps, triggers, retries. |
 | [prompts.md](./prompts.md) | `definePrompt()`, `system`/`description`, model resolution. |
 | [ai.md](./ai.md) | `ctx.ai` operations (incl. provider-native tool calling + `runToolLoop`), cost tracking, env-based provider config. |
+| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev or Laya, `classify()` vs `decide()`** (core 0.7.4+). |
 | [translations.md](./translations.md) | `defineTranslation()`, `ctx.translations`. |
 | [security.md](./security.md) | Access policies, tenant isolation, auth adapters. |
 | [governance.md](./governance.md) | Advisory rules, `plumbus verify`, compliance profiles. |
@@ -37,5 +38,5 @@ Package quickstart: [../README.md](../README.md).
 - **Use `ctx.*` subsystems** — do not bypass the framework with ad hoc infrastructure unless documented.
 - **Never edit `.plumbus/generated/`** — regenerate with `plumbus generate`.
 - **Do not install framework-provided deps** — import Zod from `@plumbus/core/zod`; run tests with `plumbus test`.
-- **Mock AI by operation** — `mockAI({ generate, extract, classify, retrieve })`, not by prompt name.
+- **Mock AI by operation** — `mockAI({ generate, extract, classify, decide, retrieve })`, not by prompt name.
 - **MCP tool names are canonical** — `<domain>.<name>` (e.g. `billing.getRefund`).
