@@ -35,6 +35,10 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | Browser tests | `cd packages/plumbus-core && pnpm test:browser` |
 | Translation status | `plumbus translation status` |
 
+Framework `pnpm test` defaults to two package tasks and two Vitest workers per
+package; Laya uses one worker with serial files. Live Laya inference is opt-in;
+one-off smoke runs stop servers they start. See `docs/testing/testing-guide.md`.
+
 ## Consumer App Dependency Policy
 
 The framework provides these packages to consumer apps. Consumers must **never** add them to their own `package.json`:
@@ -80,6 +84,23 @@ pnpm add @plumbus/ai-bedrock
 Then set `AI_BEDROCK_REGION` (and optionally `AI_BEDROCK_PRICING_FILE` for containers) or call `createBedrockAdapter()` and register it under `createAIService({ providers: { bedrock } })`. `createProviderAdapter('bedrock')` prints an install hint when the package is missing.
 
 Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `AWS_BEARER_TOKEN_BEDROCK`). Cost USD comes from AWS Price List rates (auto-download or a mounted normalized JSON) — Bedrock responses return token usage only. Guide: `docs/ai/bedrock.md`. Price List URLs, curl, normalize, and ConfigMap: `packages/ai-bedrock/instructions/pricing.md` (in apps: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`).
+
+### Optional add-ons: typed decision providers
+
+`@plumbus/ai-decision-typesafe` (Jev) and `@plumbus/ai-decision-laya` (self-hosted Laya)
+share `@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
+HTTP transport. All three start at `0.2.x` and peer on core `0.7.x`. Install only the
+provider you need; the shared package is a dependency. Laya ships a separate Python
+reference service; Python/model dependencies are not installed by pnpm.
+
+Core 0.7.3+ provides `ctx.ai.decide()` with cost recording, identity, validation,
+security, budgets, and flow cancellation. `defineDecision` and `DecisionRegistry`
+live in `@plumbus/ai-decision` 0.2.1+. Export explicit `decisions` registration
+from `app/server.ts`; CLI startup discovers `app/decisions/` for API and workers.
+Core depends on the shared contract package; vendor adapters remain optional.
+Use `onAICostRecorded` to persist `operation: 'decide'` rows, including failed calls.
+Do not register decision adapters as text-generation providers or bypass Plumbus
+primitives for application business logic. Guide: `docs/ai/decision-providers.md`.
 
 ### Optional add-on: `@plumbus/browser-extension`
 
@@ -252,6 +273,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/security/` — security model, auth, tenant isolation
 - `docs/upgrading-core-0.8.md` — core 0.8 beta family: version table, breaking changes, beta dist-tag
 - `docs/upgrading-security-release.md` — coordinated security release, compatibility checks, and agent wiring v16
+- `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
 - `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade

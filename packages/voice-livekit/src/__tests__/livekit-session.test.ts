@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const roomHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
+const textStreamHandlers = new Map<string, (reader: AsyncIterable<string>) => void>();
 let latestProcessor: { onaudioprocess: ((event: { inputBuffer: AudioBufferLike }) => void) | null };
 
 interface AudioBufferLike {
@@ -19,6 +20,10 @@ const mockLocalParticipant = {
 };
 
 const mockRoom = {
+  registerTextStreamHandler: vi.fn(
+    (topic: string, handler: (reader: AsyncIterable<string>) => void) =>
+      textStreamHandlers.set(topic, handler),
+  ),
   remoteParticipants: new Map<string, { trackPublications: Map<string, MockPublication> }>(),
   localParticipant: mockLocalParticipant,
   on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
@@ -159,6 +164,33 @@ describe('createLiveKitVoiceSession', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it('delivers large streamed transcripts before following packet events', async () => {
+    const { createLiveKitVoiceSession } = await import('../client/livekit-session.js');
+    const events: unknown[] = [];
+    const session = await createLiveKitVoiceSession({
+      voiceName: 'assistant',
+      tokenUrl: '/token',
+      onEvent: (e) => events.push(e),
+    });
+    await session.connect();
+    const final = { type: 'stt.final', text: 'א'.repeat(30000) };
+    const json = JSON.stringify(final);
+    textStreamHandlers.get('voice.events.large')?.({
+      async *[Symbol.asyncIterator]() {
+        yield json.slice(0, 10000);
+        yield json.slice(10000);
+      },
+    });
+    emitRoomEvent(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'agent.state', state: 'AwaitingLLM' })),
+    );
+    await vi.waitFor(() =>
+      expect(events).toEqual([final, { type: 'agent.state', state: 'AwaitingLLM' }]),
+    );
+    await session.disconnect();
   });
 
   it('wires TrackSubscribed to onAudioChunk and DataReceived to onEvent', async () => {

@@ -187,7 +187,7 @@ export async function deepdubSynthesizeWithVoiceReference(
   const buffer = await client.generateToBuffer(input.text, {
     voiceReference: Buffer.from(input.audio),
     locale: input.locale ?? 'en-US',
-    model: input.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.2',
+    model: input.model ?? DEEPDUB_TTS_MODELS[0]?.id ?? 'dd-etts-3.3',
     ...(input.sampleRate !== undefined ? { sampleRate: input.sampleRate } : {}),
   });
   if (Buffer.isBuffer(buffer)) {

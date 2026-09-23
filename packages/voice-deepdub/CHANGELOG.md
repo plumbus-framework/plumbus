@@ -6,6 +6,10 @@
 
 - Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the branch-named npm dist-tag `plumbus-next` (`latest` stays on the 0.7 family). Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
 
+## 0.2.2 — 2026-09-23
+
+- Advance the recommended/default TTS model to `dd-etts-3.3` after live Hebrew synthesis verification; retain explicit `dd-etts-3.2` / `dd-etts-3.0` options and existing contract pricing. Pin a model explicitly when its output must remain unchanged across upgrades.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

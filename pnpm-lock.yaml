@@ -43,6 +43,68 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
 
+  packages/ai-decision:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.4.6
+        version: 2.4.6
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/ai-decision-laya:
+    dependencies:
+      '@plumbus/ai-decision':
+        specifier: workspace:~
+        version: link:../ai-decision
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.4.6
+        version: 2.4.6
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/ai-decision-typesafe:
+    dependencies:
+      '@plumbus/ai-decision':
+        specifier: workspace:~
+        version: link:../ai-decision
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.4.6
+        version: 2.4.6
+      '@plumbus/core':
+        specifier: workspace:*
+        version: link:../plumbus-core
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.4.0)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.31.1)(tsx@4.21.0)(yaml@2.9.0)
+
   packages/api:
     dependencies:
       fastify:
@@ -225,6 +287,9 @@ importers:
       '@noble/hashes':
         specifier: 1.8.0
         version: 1.8.0
+      '@plumbus/ai-decision':
+        specifier: workspace:~
+        version: link:../ai-decision
       '@xmldom/xmldom':
         specifier: ^0.9.10
         version: 0.9.10

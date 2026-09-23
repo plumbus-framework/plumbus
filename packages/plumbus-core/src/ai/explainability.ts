@@ -10,8 +10,9 @@ import type { TokenUsage } from './provider.js';
 export interface AIInvocationRecord {
   id: string;
   timestamp: Date;
-  operation: 'generate' | 'extract' | 'classify' | 'retrieve';
+  operation: 'generate' | 'extract' | 'classify' | 'retrieve' | 'decide';
   promptName?: string;
+  decisionName?: string;
   model?: string;
   provider?: string;
   input: Record<string, unknown>;
@@ -66,6 +67,7 @@ export function createExplainabilityTracker(
         config.audit.record(`ai.${invocation.operation}`, {
           actor: invocation.actor ?? config.actor ?? 'system',
           promptName: invocation.promptName,
+          decisionName: invocation.decisionName,
           model: invocation.model,
           usage: invocation.usage,
           retrievalSourceCount: invocation.retrievalSources?.length ?? 0,

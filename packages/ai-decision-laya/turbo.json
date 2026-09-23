@@ -1,0 +1,12 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/examples/ai-decision-smoke/**/*.mjs",
+        "$TURBO_ROOT$/scripts/test.mjs"
+      ]
+    }
+  }
+}

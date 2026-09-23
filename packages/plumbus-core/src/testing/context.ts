@@ -1,3 +1,5 @@
+import type { DecisionResult } from '@plumbus/ai-decision/types';
+import { PlumbusError } from '../errors/index.js';
 // ── Test Context Builder ──
 // Factory for building test-friendly ExecutionContexts with mock services.
 
@@ -159,13 +161,22 @@ export interface AIResponse {
   generate?: unknown;
   extract?: unknown;
   classify?: string[];
+  decide?: DecisionResult;
   retrieve?: AIDocument[];
 }
 
 /** Create a mock AI service with configurable responses */
 export function mockAI(responses?: AIResponse): AIService {
   return {
-    features: { perCallProviderModelReasoning: true },
+    features: { perCallProviderModelReasoning: true, typedDecisions: true },
+    decide: (async () => {
+      if (!responses?.decide)
+        throw new PlumbusError(
+          'validation',
+          'Configure mockAI({ decide: result }) for decision tests',
+        );
+      return structuredClone(responses.decide);
+    }) as AIService['decide'],
     async recordProviderCost() {},
     checkProviderCostBudget() {},
     async generate(_config) {

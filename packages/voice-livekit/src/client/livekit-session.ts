@@ -1,6 +1,7 @@
 import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import type { SerializedNoiseCancellation } from '@plumbus/voice/noise-cancellation';
 import type { VoiceEvent } from '@plumbus/voice/provider-kit';
+import { createVoiceEventReceiver, VOICE_EVENT_STREAM_TOPIC } from '../event-data/index.js';
 import {
   applyClientNoiseCancellation,
   micConstraintsForNoiseCancellation,
@@ -84,15 +85,28 @@ export async function createLiveKitVoiceSession(
   const attachedAudioElements = new Map<string, HTMLMediaElement>();
   let activeAgentAudioTrackSid: string | undefined;
 
-  room.on(livekit.RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
-    const parsed = parseLiveKitVoiceDataPayload(payload);
-    const event = coerceVoiceEvent(parsed);
-    console.info('[voice-client] data event received', {
-      type: typeof event === 'object' && event !== null ? event.type : undefined,
-      topic,
-    });
-    options.onEvent?.(event);
-  });
+  const makeReceiver = () =>
+    createVoiceEventReceiver(
+      (payload) => {
+        const parsed = parseLiveKitVoiceDataPayload(payload);
+        const event = coerceVoiceEvent(parsed);
+        console.info('[voice-client] data event received', {
+          type: typeof event === 'object' && event !== null ? event.type : undefined,
+        });
+        options.onEvent?.(event);
+      },
+      () =>
+        options.onEvent?.({
+          type: 'error',
+          code: 'voice.invalid_message',
+          message: 'Invalid or oversized voice event stream',
+        }),
+    );
+  let eventReceiver = makeReceiver();
+  room.on(livekit.RoomEvent.DataReceived, (payload) => eventReceiver.packet(payload));
+  room.registerTextStreamHandler?.(VOICE_EVENT_STREAM_TOPIC, (reader) =>
+    eventReceiver.stream(reader),
+  );
 
   const releaseAgentAudio = (trackSid: string) => {
     audioCaptureCleanups.get(trackSid)?.();
@@ -224,6 +238,8 @@ export async function createLiveKitVoiceSession(
 
   return {
     async connect() {
+      eventReceiver.dispose();
+      eventReceiver = makeReceiver();
       removeAllAgentAudioSinks();
       await room.connect(body.url, body.token);
       const micConstraints = micConstraintsForNoiseCancellation(noiseCancellation);
@@ -255,6 +271,7 @@ export async function createLiveKitVoiceSession(
       await room.localParticipant.publishData(encoded, { reliable: true });
     },
     async disconnect() {
+      eventReceiver.dispose();
       removeAllAgentAudioSinks();
       await room.disconnect();
     },

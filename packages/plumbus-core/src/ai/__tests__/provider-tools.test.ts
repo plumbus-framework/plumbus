@@ -95,6 +95,51 @@ describe('provider tool calling', () => {
       vi.unstubAllGlobals();
     });
 
+    it.each([
+      'chat',
+      'responses',
+    ] as const)('preserves final-response schema alongside native tools on %s', async (transport) => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValue(
+          transport === 'chat'
+            ? mockOpenAIResponse({ finish_reason: 'stop', content: '{"content":"hello"}' })
+            : mockOpenAIResponsesResponse({ output: [] }),
+        );
+      vi.stubGlobal('fetch', mockFetch);
+      try {
+        const schema = {
+          type: 'object',
+          properties: { content: { type: 'string' } },
+          required: ['content'],
+          additionalProperties: false,
+        };
+        const adapter = createOpenAIAdapter({
+          apiKey: 'sk-test',
+          model: transport === 'chat' ? 'gpt-4o' : 'gpt-5.6-terra',
+        });
+        await adapter.complete({
+          prompt: 'Return JSON',
+          tools: [sampleTool],
+          responseFormat: 'json',
+          responseSchema: schema,
+        });
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(body.tools).toHaveLength(1);
+        if (transport === 'chat')
+          expect(body.response_format).toEqual({
+            type: 'json_schema',
+            json_schema: { name: 'response', strict: true, schema },
+          });
+        else
+          expect(body.text).toEqual({
+            format: { type: 'json_schema', name: 'response', strict: true, schema },
+          });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('sets parallel_tool_calls false when toolExecution disables it', async () => {
       const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponse({ finish_reason: 'stop' }));
       vi.stubGlobal('fetch', mockFetch);

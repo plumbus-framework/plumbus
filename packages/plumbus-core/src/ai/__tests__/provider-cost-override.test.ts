@@ -266,3 +266,50 @@ it('keeps legacy numeric results without counting unknown cost as free in budget
     'AI budget exceeded',
   );
 });
+
+it.each([
+  ['gpt-6-sol', 'openai', 0.905],
+  ['gpt-6-luna', 'openai', 0.04525],
+  ['claude-opus-5-5', 'anthropic', 0.89],
+] as const)('records %s cache/context pricing consistently for generation and streaming', async (model, providerName, expectedCost) => {
+  const usage = {
+    inputTokens: 300_000,
+    outputTokens: 1000,
+    totalTokens: 301_000,
+    cachedInputTokens: 100_000,
+    cacheWriteTokens: 50_000,
+  };
+  const provider = mockProvider({
+    name: providerName,
+    async complete() {
+      return { content: 'answer', model, usage, finishReason: 'stop' };
+    },
+    async *stream() {
+      yield { type: 'content_delta', delta: 'answer' };
+      yield { type: 'done', finishReason: 'stop', usage };
+    },
+  });
+
+  for (const streaming of [false, true]) {
+    const tracker = createCostTracker({ dailyCostLimit: expectedCost / 2 });
+    const service = createAIService(
+      singleProviderConfig(provider, { defaultModel: model, costTracker: tracker }),
+    );
+    let cost: number | undefined;
+    if (streaming) {
+      for await (const event of service.streamGenerate({ prompt: 'x', input: {} })) {
+        if (event.type === 'done') cost = event.cost;
+      }
+    } else {
+      const result = await service.generateWithUsage({ prompt: 'x', input: {} });
+      expect(result.costAvailable).toBe(true);
+      cost = result.cost;
+    }
+    expect(cost).toBe(expectedCost);
+    expect(tracker.getRecords()).toHaveLength(1);
+    expect(tracker.getRecords()[0]?.cost).toBe(expectedCost);
+    await expect(service.generate({ prompt: 'again', input: {} })).rejects.toThrow(
+      'AI budget exceeded',
+    );
+  }
+});

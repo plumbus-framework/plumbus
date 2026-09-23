@@ -11,6 +11,7 @@
     },
     "test": {
       "dependsOn": ["^build", "build"],
+      "env": ["VITEST_MAX_THREADS", "VITEST_MIN_THREADS", "VITEST_MAX_FORKS", "VITEST_MIN_FORKS"],
       "passThroughEnv": [
         "PLUMBUS_TEST_PG_HOST",
         "PLUMBUS_TEST_PG_PORT",

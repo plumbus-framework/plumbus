@@ -34,6 +34,19 @@ export interface VoiceTransportConfig {
   };
 }
 
+/** Provider-native recognition hints resolved from authenticated app context. */
+export interface VoiceRecognitionContext {
+  general?: Array<{ key: string; value: string }>;
+  terms?: string[];
+  text?: string;
+}
+
+export interface VoiceResolveSttContextArgs {
+  sessionId: string;
+  input?: Record<string, unknown>;
+  language?: string;
+}
+
 export interface VoiceSttConfig {
   provider: string;
   model?: string;
@@ -42,6 +55,8 @@ export interface VoiceSttConfig {
 }
 
 export interface VoiceTtsConfig {
+  /** Opt-in coherent reply synthesis; resolves tone after the brain completes. */
+  responseMode?: 'sentence' | 'reply';
   provider: string;
   model?: string;
   voiceId?: string;
@@ -50,6 +65,7 @@ export interface VoiceTtsConfig {
 }
 
 export interface VoiceBrainRunArgs {
+  transcriptConfidence?: number;
   transcript?: string;
   language?: string;
   sessionId?: string;
@@ -63,6 +79,9 @@ export interface VoiceBrain {
 }
 
 export interface VoiceResolveToneArgs {
+  /** Present in reply mode, from the same brain invocation that wrote the text. */
+  assistantText?: string;
+  brainResult?: unknown;
   userTranscript?: string;
   language?: string;
   sessionId?: string;
@@ -115,6 +134,13 @@ export interface VoiceConfig {
   access: AccessPolicy;
   transport: VoiceTransportConfig;
   stt: VoiceSttConfig;
+  /** Runs server-side before recognition connects; never sourced from client transcript text. */
+  resolveSttContext?: (
+    ctx: ExecutionContext,
+    args: VoiceResolveSttContextArgs,
+  ) => Promise<VoiceRecognitionContext | undefined> | VoiceRecognitionContext | undefined;
+  /** Per-utterance input bound, after trimming. Defaults to 4,000 UTF-16 code units. */
+  transcript?: { maxChars?: number };
   tts: VoiceTtsConfig;
   brain: VoiceBrain;
   instructions?: string[];

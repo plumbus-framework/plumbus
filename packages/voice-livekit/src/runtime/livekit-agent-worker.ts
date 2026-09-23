@@ -1,4 +1,6 @@
+import { createPcmAudioPublisher } from '../audio-output/index.js';
 import { randomUUID } from 'node:crypto';
+import { createVoiceEventSender } from '../event-data/index.js';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   AgentServer,
@@ -9,7 +11,6 @@ import {
   ServerOptions,
 } from '@livekit/agents';
 import {
-  AudioFrame,
   AudioSource,
   LocalAudioTrack,
   type RemoteTrack,
@@ -598,6 +599,7 @@ export function createRoomTransport(
   let audioSource: AudioSource | undefined;
   let localTrack: LocalAudioTrack | undefined;
   let loggedFirstDataEvent = false;
+  const sendEvent = createVoiceEventSender(() => room.localParticipant);
   let loggedFirstAudioPublish = false;
 
   const ensurePublished = async () => {
@@ -615,6 +617,11 @@ export function createRoomTransport(
     });
   };
 
+  const publisher = createPcmAudioPublisher(parsePcmFormat(outputAudioFormat), async (frame) => {
+    await ensurePublished();
+    if (audioSource) await audioSource.captureFrame(frame);
+  });
+
   return {
     async mintSession(args): Promise<TransportProviderSession> {
       return {
@@ -623,19 +630,11 @@ export function createRoomTransport(
       };
     },
     async publishAudio(audio) {
-      await ensurePublished();
-      if (!audioSource) return;
+      await publisher.publish(audio);
       const format = parsePcmFormat(outputAudioFormat);
-      const frame = new AudioFrame(
-        pcmBytesToInt16(audio),
-        format.sampleRate,
-        format.channels,
-        Math.max(1, audio.byteLength / (2 * format.channels)),
-      );
-      await audioSource.captureFrame(frame);
       if (!loggedFirstAudioPublish) {
         loggedFirstAudioPublish = true;
-        console.info('[voice-agent] first agent audio frame published', {
+        console.info('[voice-agent] first agent audio block published', {
           trackName,
           bytes: audio.byteLength,
           samplesPerChannel: Math.max(1, audio.byteLength / (2 * format.channels)),
@@ -653,8 +652,7 @@ export function createRoomTransport(
         });
         return;
       }
-      const encoded = new TextEncoder().encode(JSON.stringify(payload));
-      await room.localParticipant.publishData(encoded, { reliable: true, topic: 'voice.events' });
+      await sendEvent(payload);
       if (!loggedFirstDataEvent) {
         loggedFirstDataEvent = true;
         console.info('[voice-agent] first data event published', {
@@ -663,6 +661,7 @@ export function createRoomTransport(
       }
     },
     async disconnect() {
+      publisher.reset();
       if (localTrack) await localTrack.close();
       if (audioSource) await audioSource.close();
       localTrack = undefined;
@@ -710,12 +709,4 @@ export function parsePcmFormat(audioFormat: string | undefined): {
     sampleRate: Number(rateMatch?.[1] ?? 16000),
     channels: Number(channelsMatch?.[1] ?? 1),
   };
-}
-
-function pcmBytesToInt16(audio: Uint8Array): Int16Array {
-  const buffer =
-    audio.byteOffset === 0 && audio.byteLength === audio.buffer.byteLength
-      ? audio.buffer
-      : audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength);
-  return new Int16Array(buffer);
 }

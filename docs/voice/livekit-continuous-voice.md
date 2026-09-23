@@ -221,7 +221,7 @@ STT token `confidence` and `language` metadata are forwarded on `stt.partial` /
 
 `runVoiceTurn()` uses `runStreamingTurnPipeline()` when the TTS provider supports
 streaming. Assistant deltas are sentence-chunked (sentence terminators,
-paragraphs, 200-char max) and synthesized concurrently.
+paragraphs, approximately 200-character word-boundary fallback) and synthesized concurrently.
 
 TTS providers stream PCM. When a provider's SDK emits a container format (such as
 `wav`), the adapter strips the container header and forwards raw PCM frames — the
@@ -284,3 +284,23 @@ a single hidden `HTMLMediaElement` attached to the subscribed agent track
 remove stale sinks before attaching the next one. Optional `onAudioChunk`
 receives resampled 16 kHz mono PCM16 for diagnostics/visualization only — it must
 not be the audible playback path.
+
+## Long answers and TTS word boundaries
+
+Set `transcript.maxChars` on the voice definition when an application accepts longer answers than the 4,000-character default. The normal governed voice turn still performs trust validation, accounting and brain invocation. Large agent events use LiveKit native text streams; the browser reassembles the original event before delivering it, preserving order with subsequent state packets. Both browser and worker require the updated LiveKit add-on. See [configuration](./configuration.md).
+
+TTS continues to emit complete sentences and merge leading micro-fragments with the following sentence. The 200-character fallback is now a soft size target: it cuts only at whitespace, never inside a word, Hebrew niqqud or an emoji sequence. A streamed word is held until whitespace or final flush; a single unbroken token may exceed 200 characters. This changes request boundaries without classifying or rewriting the text. Adjacent complete sentences are still separate synthesis requests; combining them for prosody would require a separate listening/latency experiment.
+
+## Recognition failure and missing endpoints
+
+Streaming STT adapters can report failures through `STTProviderConnectArgs.onError`. The controller emits `error` with `voice.stt_failed` and disposes the session. Applications should retain previously delivered partial text for explicit review; no final transcript or brain turn is invented.
+
+For a reliable-endpoint provider, optional `stt.options.endpointTimeoutMs` detects pending text with no endpoint or recent speech energy. The timeout resets on transcript activity, checks speech energy, emits `voice.stt_incomplete`, and disposes the session. It is opt-in, requires a finite positive number, and applies when `endpointSilenceMs` has not explicitly enabled forced silence finalization. This timeout is a recovery notification, never automatic submission.
+
+The Soniox adapter reports connection and SDK errors, clears rejected connection promises so reconnect can work, and ignores callbacks from obsolete sessions. Client recovery UI should handle both stable error codes and preserve partial/final status across reload. See [configuration](./configuration.md).
+
+## Bounded PCM delivery
+
+Both worker transports divide provider PCM into at most 20 ms LiveKit frames. A provider can return several seconds of audio in one chunk; passing that chunk to one `AudioSource.captureFrame` can exceed the native queue capacity and stall permanently after the first audio block. Framing preserves PCM samples, rate, channels and ordering; incomplete sample bytes carry into the next chunk and reset on disconnect. It does not split TTS text, add silence or synthesize again. The bug reproduced in a real browser call with Deepdub 3.3 and a complete reply. Regression tests cover long chunks, odd byte boundaries, stereo alignment and concurrent publication.
+
+Each emitted frame owns its sample buffer: rtc-node marshals the underlying buffer from offset zero, so a subarray view would replay earlier samples. Regression checks exercise that native buffer contract as well as logical sample order.

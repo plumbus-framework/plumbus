@@ -1,0 +1,2 @@
+# Inference dependencies are installed only in the separately deployed Python service.
+laya==0.3.5

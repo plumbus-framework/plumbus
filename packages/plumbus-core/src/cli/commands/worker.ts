@@ -102,7 +102,7 @@ export async function startWorkerProcess(
   const db = dbConnection.db;
   info('Database connected');
 
-  const extensions = await loadServerExtensions();
+  const extensions = await loadServerExtensions(undefined, resources.decisions);
   const queues = await resolveRuntimeQueues(config, {
     onWarning: (message) => info(`Queue: ${message}`),
   });

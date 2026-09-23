@@ -132,7 +132,7 @@ export async function startProductionServer(
   }
   const db = dbConnection.db;
 
-  const extensions = await loadServerExtensions();
+  const extensions = await loadServerExtensions(undefined, resources.decisions);
   const queues = await resolveRuntimeQueues(config, {
     onWarning: (message) => info(`Queue: ${message}`),
   });
@@ -159,6 +159,7 @@ export async function startProductionServer(
       onCapabilityError: extensions.onCapabilityError,
       onProcessError: extensions.onProcessError,
       onAICostRecorded: extensions.onAICostRecorded,
+      decisions: extensions.decisions,
       enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
       credentials: extensions.credentials,
       authenticationRuntime: extensions.authenticationRuntime,

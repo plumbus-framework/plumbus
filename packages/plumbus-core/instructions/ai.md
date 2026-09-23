@@ -382,3 +382,25 @@ See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.
 - With security configured, generate/stream/extract/classify apply the field-classification policy. Extract/classify use the `text` field; arbitrary free-text PII is not automatically detected. Explainability stores redacted input.
 - Unknown prior spend rejects further requests when a dollar cap is configured. Local/unpriced providers still work without dollar caps; explicit free prices stay supported. Never supply fake zero costs to bypass budgets.
 - Read [the security release checklist](./upgrading-security-release.md) before upgrading custom cost hooks or AI wrappers.
+
+
+## Typed decisions (core 0.7.3+)
+
+For choices, scores, and probabilities, use `ctx.ai.decide()` inside capabilities
+and flows. Define reusable contracts with `defineDecision` from
+`@plumbus/ai-decision`; CLI startup discovers `app/decisions/`. The shared contract
+package is provided by core; install only the TypeSafe/Laya provider required by
+the app. Export `decisions = { providers, defaultProvider }` from `app/server.ts`
+for both API and workers, using `createTypeSafeDecisionAdapter` or
+`createLayaDecisionAdapter` at that server-owned boundary. Do not register these
+adapters as text-completion providers or call them directly for app business logic.
+
+Core records `operation: 'decide'` with actual model, usage, cost, tenant/actor,
+optional `decisionName`, and the caller's `costContext`. Existing
+`onAICostRecorded(record, costContext, db)` hooks persist these rows; include the
+new operation in any app-owned ledger enum/schema. Failed responses and cancelled
+calls also produce rows. Unknown USD cost is null, never a free zero. Security
+scans state and structured questions; budgets are checked before provider work.
+Use `mockAI({ decide: result })` and test through `runCapability`/`simulateFlow`.
+
+Guide: https://github.com/plumbus-framework/plumbus/blob/main/docs/ai/decision-providers.md

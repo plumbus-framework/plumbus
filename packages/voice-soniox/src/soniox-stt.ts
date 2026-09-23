@@ -73,6 +73,7 @@ class SonioxSTTProvider implements STTProvider {
   #latestConfidence: number | undefined;
   #latestLanguage: string | undefined;
   #firstTranscriptLogged = false;
+  #sessionGeneration = 0;
   #endpointInFlight = false;
   #pendingFinalize: Deferred<STTProviderTranscriptEvent | undefined> | undefined;
 
@@ -136,6 +137,7 @@ class SonioxSTTProvider implements STTProvider {
   }
 
   disconnect(): void {
+    this.#sessionGeneration += 1;
     this.#pendingFinalize?.resolve(this.#buildFinalEvent());
     this.#pendingFinalize = undefined;
     try {
@@ -147,7 +149,7 @@ class SonioxSTTProvider implements STTProvider {
     this.#sessionPromise = undefined;
   }
 
-  #ensureSession(contentType?: string): Promise<SonioxSttSession> {
+  async #ensureSession(contentType?: string): Promise<SonioxSttSession> {
     if (this.#session) {
       return Promise.resolve(this.#session);
     }
@@ -161,6 +163,7 @@ class SonioxSTTProvider implements STTProvider {
       );
     }
 
+    const generation = ++this.#sessionGeneration;
     this.#sessionPromise = (async () => {
       const factory = await resolveSonioxClientFactory(this.credentials);
       const client = factory(this.#apiKey);
@@ -201,11 +204,14 @@ class SonioxSTTProvider implements STTProvider {
       if (typeof endpointSensitivity === 'number') {
         config.endpoint_sensitivity = endpointSensitivity;
       }
-      if (Array.isArray(contextTerms) && contextTerms.length > 0) {
+      // Authenticated session context replaces static hints, keeping sessions isolated.
+      if (this.#connectArgs?.context) {
+        config.context = this.#connectArgs.context;
+      } else if (Array.isArray(contextTerms) && contextTerms.length > 0) {
         config.context = { terms: contextTerms };
       }
       const session = client.realtime.stt(config);
-      this.#wireSession(session);
+      this.#wireSession(session, generation);
       await session.connect();
       console.info('[voice-stt] soniox session connected', {
         sessionId: this.#sessionId,
@@ -219,21 +225,29 @@ class SonioxSTTProvider implements STTProvider {
     })();
 
     try {
-      return this.#sessionPromise;
+      return await this.#sessionPromise;
     } catch (error) {
       this.#sessionPromise = undefined;
+      await this.#connectArgs?.onError?.(
+        error instanceof Error
+          ? error
+          : new PlumbusError(ErrorCode.DependencyViolation, 'Soniox connection failed'),
+      );
       throw error;
     }
   }
 
-  #wireSession(session: SonioxSttSession): void {
+  #wireSession(session: SonioxSttSession, generation: number): void {
     session.on('result', (result: SonioxRealtimeResult) => {
+      if (generation !== this.#sessionGeneration) return;
       this.#ingestResult(result);
     });
     session.on('endpoint', () => {
+      if (generation !== this.#sessionGeneration) return;
       void this.#handleEndpoint();
     });
     session.on('finalized', () => {
+      if (generation !== this.#sessionGeneration) return;
       if (this.#pendingFinalize) {
         this.#pendingFinalize.resolve(this.#buildFinalEvent());
         this.#pendingFinalize = undefined;
@@ -241,12 +255,19 @@ class SonioxSTTProvider implements STTProvider {
       }
     });
     session.on('error', (error: Error) => {
+      if (generation !== this.#sessionGeneration) return;
       console.error('[voice-stt] soniox error', {
         sessionId: this.#sessionId,
         message: error?.message ?? String(error),
       });
       this.#pendingFinalize?.reject(error instanceof Error ? error : new Error(String(error)));
       this.#pendingFinalize = undefined;
+      // Surface SDK failures to the runtime rather than leaving the browser in
+      // Listening forever. The caller owns recovery; don't silently restart a
+      // cumulative utterance and lose its captured prefix.
+      void Promise.resolve()
+        .then(() => this.#connectArgs?.onError?.(error))
+        .catch(() => {});
     });
   }
 

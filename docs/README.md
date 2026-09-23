@@ -2,6 +2,8 @@
 
 Welcome to the Plumbus framework documentation. Use the navigation below to find what you need.
 
+See the [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) for package versions and paired upgrades.
+
 ## Documentation Map
 
 ```
@@ -56,7 +58,9 @@ docs/
 │   └── deployment.md
 ├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
 │   ├── ai-integration.md      Prompts, RAG, cost tracking, governed model calls
-│   └── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
+│   ├── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
+│   ├── decision-providers.md  Typed decisions, core cost recording, and live test environment
+│   └── decision-provider-audit.md  First adversarial audit
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md
 ├── ui/                        Client generation, hooks, Next.js scaffolding
@@ -159,6 +163,7 @@ docs/
 | Apply schema to a per-tenant database | [SDK → Tenant data planes](sdk-reference/tenant-data-planes.md) |
 | Declare named credential types without logging secrets | [SDK → Credential catalog](sdk-reference/credential-catalog.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
+| Test Jev or self-hosted Laya decisions | [AI → Decision providers](ai/decision-providers.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

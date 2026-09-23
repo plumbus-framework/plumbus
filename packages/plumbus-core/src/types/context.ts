@@ -1,3 +1,4 @@
+import type { DecisionCall, DecisionQuestions, DecisionResult } from '@plumbus/ai-decision/types';
 import type { z } from 'zod';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
@@ -370,7 +371,7 @@ export interface AIGenerateConfig {
   tools?: AITool[];
   toolChoice?: AIToolChoice;
   toolExecution?: AIToolExecutionOptions;
-  /** Default 'prompt'. 'none' disables output-schema validation (Chat tool rounds set 'none'). */
+  /** Without tools, validates the prompt by default. With tools, explicit 'prompt' validates final answers once; omitted/'none' returns raw content. */
   outputValidation?: 'prompt' | 'none';
 }
 
@@ -472,6 +473,11 @@ export interface AICostContext {
   relatedEntityId?: string;
 }
 
+export type AIDecideConfig<Q extends DecisionQuestions = DecisionQuestions> = DecisionCall<Q> & {
+  costContext?: AICostContext;
+};
+export type AIDecideResult<Q extends DecisionQuestions = DecisionQuestions> = DecisionResult<Q>;
+
 // ── AI Service ──
 export interface AIService {
   /** Bind a fresh service to the executing identity without mutating shared configuration. */
@@ -481,6 +487,7 @@ export interface AIService {
   readonly features?: {
     /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */
     perCallProviderModelReasoning?: true;
+    typedDecisions?: true;
   };
 
   /**
@@ -579,6 +586,9 @@ export interface AIService {
     /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
     costContext?: AICostContext;
   }): Promise<string[]>;
+
+  /** Validated decisions with shared security, budgets, identity, and cost recording. */
+  decide<const Q extends DecisionQuestions>(config: AIDecideConfig<Q>): Promise<AIDecideResult<Q>>;
 
   retrieve(config: {
     query: string;

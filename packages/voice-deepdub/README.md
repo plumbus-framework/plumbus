@@ -1,5 +1,7 @@
 # @plumbus/voice-deepdub
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 > **Deepdub TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `tts.provider: 'deepdub'` for streaming synthesis with full delivery-tone support and strong Hebrew quality via `@deepdub/node`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-deepdub.svg)](https://www.npmjs.com/package/@plumbus/voice-deepdub)

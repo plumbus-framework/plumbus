@@ -4,6 +4,24 @@ Plumbus provides a complete testing toolkit exported from `@plumbus/core/testing
 
 **Important**: Vitest, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
 
+## Framework repository resource limits
+
+When developing this repository, `pnpm test` runs at most two package tasks at a
+time and defaults each Vitest pool to two workers (minimum one). Laya uses a
+single worker and serial files because its tests launch Python fixtures and load
+framework modules. This limits multiplied package/file parallelism on desktops.
+All tests still run; only scheduling changes.
+
+`pnpm test --concurrency=1` runs one package task at a time. Explicit Vitest worker
+settings (`VITEST_MAX_THREADS` / `VITEST_MAX_FORKS`, with their matching minimums)
+are preserved, as are arguments forwarded after `--`. These limits apply to the
+framework checkout, not consumer applications' `plumbus test` command.
+
+The default suite never starts Laya model inference or downloads weights. The
+[local smoke example](../../examples/ai-decision-smoke/README.md) is opt-in and
+stops servers it starts for a one-off run. Use its explicit `start`/`smoke`/`stop`
+commands when a persistent test endpoint is needed.
+
 ## Setup
 
 ```typescript

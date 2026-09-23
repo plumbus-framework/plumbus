@@ -10,11 +10,38 @@ describe('sentence chunker Hebrew boundaries', () => {
     ]);
   });
 
-  it('forces chunks longer than 200 characters', () => {
+  it('keeps an oversized unbroken word intact instead of synthesizing fragments', () => {
     const long = 'a'.repeat(250);
     const chunks = splitSentenceChunks(long);
+    expect(chunks).toEqual([long]);
+  });
+
+  it('preserves Hebrew words and niqqud across the 200-character size fallback', () => {
+    const words = Array.from({ length: 60 }, (_, i) => `זִכָּרוֹן${i}`);
+    const chunks = splitSentenceChunks(words.join(' '));
     expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.flatMap((chunk) => chunk.split(' '))).toEqual(words);
     expect(chunks.every((chunk) => chunk.length <= 200)).toBe(true);
+  });
+
+  it('does not slice a streamed word or emoji at the size threshold', () => {
+    const text = `${'מילה '.repeat(38)}משפחתיות👨‍👩‍👧‍👦 והמשך הסיפור.`;
+    for (const deltaSize of [1, 7, 199, 200, 201, text.length]) {
+      const chunker = createSentenceChunker();
+      const chunks: string[] = [];
+      for (let i = 0; i < text.length; i += deltaSize)
+        chunks.push(...chunker.push(text.slice(i, i + deltaSize)));
+      chunks.push(...chunker.flush());
+      expect(chunks.flatMap((chunk) => chunk.split(/\s+/u))).toEqual(text.split(/\s+/u));
+    }
+  });
+
+  it('waits for a long word to finish across streaming deltas', () => {
+    const chunker = createSentenceChunker();
+    expect(chunker.push('א'.repeat(210))).toEqual([]);
+    expect(chunker.push('ב'.repeat(20))).toEqual([]);
+    expect(chunker.push(' הסוף')).toEqual(['א'.repeat(210) + 'ב'.repeat(20)]);
+    expect(chunker.flush()).toEqual(['הסוף']);
   });
 });
 

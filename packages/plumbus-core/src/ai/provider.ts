@@ -1067,6 +1067,13 @@ async function completeOpenAIResponses(args: {
   applyOpenAITemperature(body, model, request.temperature);
   applyOpenAIResponsesReasoning(body, request);
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
+  if (request.responseFormat === 'json') {
+    body.text = {
+      format: request.responseSchema
+        ? { type: 'json_schema', name: 'response', strict: true, schema: request.responseSchema }
+        : { type: 'json_object' },
+    };
+  }
   if (request.tools && request.tools.length > 0) {
     body.tools = request.tools.map((tool) => ({
       type: 'function',
@@ -1261,6 +1268,8 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
         validateCallerTools(request.tools);
+        const responseFormat = buildOpenAIResponseFormat(request);
+        if (responseFormat) body.response_format = responseFormat;
         body.tools = request.tools.map((t) => ({
           type: 'function',
           function: { name: t.name, description: t.description, parameters: t.parameters },

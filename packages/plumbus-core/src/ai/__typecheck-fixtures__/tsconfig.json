@@ -1,5 +1,12 @@
 {
   "extends": "../../../../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "rootDir": ".", "composite": false },
-  "files": ["legacy-cost-api.ts"]
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "composite": false
+  },
+  "files": [
+    "legacy-cost-api.ts",
+    "decisions.ts"
+  ]
 }

@@ -6,6 +6,17 @@
 
 - Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the branch-named npm dist-tag `plumbus-next` (`latest` stays on the 0.7 family). Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
 
+## 0.5.2 — 2026-09-23
+
+- Add authenticated server-side `resolveSttContext` with bounded native recognition hints, once-per-connection resolution and serialized connection attempts. Use `@plumbus/voice-soniox@0.2.2` for Soniox context and error forwarding.
+
+- Add opt-in `tts.responseMode: reply`: one brain call, response-aware tone metadata, one full-reply synthesis, ordered UI delivery and abort handling.
+- Forward STT confidence to the brain; add provider error callbacks and opt-in missing-endpoint recovery without forcing a transcript final.
+- Avoid duplicate forwarded events in batch TTS.
+
+- Add validated `transcript.maxChars` on voice definitions, retaining the 4,000-character default and normal trust/budget checks.
+- Make the streaming TTS 200-character fallback split at whitespace rather than inside words; preserve micro-fragment merging and flush behavior.
+
 ## 0.5.1 — 2026-09-10
 
 ### Fixed

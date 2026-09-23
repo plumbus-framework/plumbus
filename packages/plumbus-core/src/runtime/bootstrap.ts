@@ -1,3 +1,4 @@
+import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 // ── Shared Runtime Bootstrap ──
 // Deduplicated wiring for plumbus dev, start, and worker commands.
 
@@ -129,6 +130,7 @@ export interface BuildWorkerAiServiceOptions {
   config: PlumbusConfig;
   db: PostgresJsDatabase;
   promptRegistry?: PromptRegistry;
+  decisions?: DecisionRuntimeConfig;
   entities?: EntityRegistry;
   onAICostRecorded?: ServerConfig['onAICostRecorded'];
   resolveAiOverrides?: ServerConfig['resolveAiOverrides'];
@@ -144,6 +146,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     config,
     db,
     promptRegistry,
+    decisions,
     entities,
     onAICostRecorded,
     resolveAiOverrides,
@@ -166,9 +169,11 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     const costTracker = createCostTracker({
       maxTokensPerRequest: Object.values(config.aiProviders.providers)[0]?.maxTokensPerRequest,
       dailyCostLimit: Object.values(config.aiProviders.providers)[0]?.dailyCostLimit,
+      ...decisions?.budget,
     });
     const workerAiServiceConfig: AIServiceConfig = {
       providers: providerAdapters,
+      decisions,
       defaultProvider: config.aiProviders.defaultProvider,
       defaultModel: config.aiProviders.defaultModel,
       costTracker,
@@ -180,7 +185,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       onProviderSpan: onAIProviderSpan,
       security: buildAISecurityConfig(
         entities?.getAllEntities() ?? [],
-        config.aiProviders.security,
+        config.aiProviders.security ?? (decisions ? {} : undefined),
       ),
     };
     let aiService = createAIService(workerAiServiceConfig);
@@ -200,9 +205,14 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     const costTracker = createCostTracker({
       maxTokensPerRequest: config.ai.maxTokensPerRequest,
       dailyCostLimit: config.ai.dailyCostLimit,
+      ...decisions?.budget,
     });
     return createAIService(
       singleProviderConfig(adapter, {
+        decisions,
+        security: decisions
+          ? buildAISecurityConfig(entities?.getAllEntities() ?? [], {})
+          : undefined,
         costTracker,
         promptRegistry,
         onAICostRecorded: workerOnAICostRecorded,
@@ -212,6 +222,17 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
         onProviderSpan: onAIProviderSpan,
       }),
     );
+  }
+
+  if (decisions) {
+    return createAIService({
+      providers: {},
+      defaultProvider: '',
+      decisions,
+      costTracker: createCostTracker(decisions.budget),
+      onAICostRecorded: workerOnAICostRecorded,
+      security: buildAISecurityConfig(entities?.getAllEntities() ?? [], {}),
+    });
   }
 
   return undefined;
@@ -227,6 +248,7 @@ export type ServerExtensions = Pick<
   | 'aiProviderConcurrency'
   | 'resolveAIProviderHeaders'
   | 'onAIProviderSpan'
+  | 'decisions'
   | 'enableStrictStructuredOutputs'
   | 'credentials'
   | 'authenticationRuntime'
