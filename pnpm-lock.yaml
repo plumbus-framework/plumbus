@@ -278,6 +278,9 @@ importers:
 
   packages/plumbus-core:
     dependencies:
+      '@plumbus/ai-decision':
+        specifier: workspace:~
+        version: link:../ai-decision
       '@xmldom/xmldom':
         specifier: ^0.9.10
         version: 0.9.10

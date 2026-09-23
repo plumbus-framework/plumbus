@@ -78,7 +78,17 @@ describe('local decision smoke example', () => {
       return Response.json(response);
     });
     const result = await appModule.runSmoke(config, { fetch });
-    expect(result.checks).toHaveLength(5);
+    expect(result.checks).toHaveLength(6);
+    expect(result.costs).toHaveLength(2);
+    expect(
+      result.costs.map((row: { operation: string; cost: number | null }) => [
+        row.operation,
+        row.cost,
+      ]),
+    ).toEqual([
+      ['decide', null],
+      ['decide', null],
+    ]);
     expect(result.results.map((r: { provider: string }) => r.provider)).toEqual([
       'laya',
       'typesafe',
@@ -126,9 +136,11 @@ describe('local decision smoke example', () => {
     const result = await runCapability(
       app.capability,
       { via: 'laya', message: 'Refund please' },
-      { auth: { roles: ['smoke-tester'] } },
+      { ctx: app.createContext() },
     );
     expect(result.success).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(app.getCostRecords()).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain('private-provider-body');
     expect(JSON.stringify(result)).not.toContain(config.apiKey);
   });

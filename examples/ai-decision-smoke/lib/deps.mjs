@@ -1,6 +1,8 @@
 // Examples use the built public barrels without becoming publishable packages.
 export {
   createErrorService,
+  createAIService,
+  createCostTracker,
   createExecutionContext,
   defineCapability,
   executeCapability,

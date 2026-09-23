@@ -1,3 +1,6 @@
+import type { DecisionDefinition, DecisionRuntimeModule } from '@plumbus/ai-decision/types';
+import { z } from 'zod';
+import { PlumbusError } from '../errors/index.js';
 // ── Resource Auto-Discovery ──
 // Scans app/ directories for defineCapability, defineEntity, defineFlow,
 // defineEvent, definePrompt exports and returns them.
@@ -21,6 +24,7 @@ export interface DiscoveredResources {
   flows: FlowDefinition[];
   events: EventDefinition[];
   prompts: PromptDefinition[];
+  decisions?: DecisionDefinition[];
   translations: TranslationDefinition[];
   schemas: Record<string, unknown>;
 }
@@ -29,7 +33,7 @@ export interface DiscoveredResources {
  * Scan a directory for .ts/.js files and dynamically import all exports.
  * Returns an array of all exported values.
  */
-async function scanDir(dir: string): Promise<unknown[]> {
+async function scanDir(dir: string, strict = false): Promise<unknown[]> {
   if (!fs.existsSync(dir)) return [];
 
   const files = fs
@@ -53,6 +57,7 @@ async function scanDir(dir: string): Promise<unknown[]> {
         exports.push(value);
       }
     } catch {
+      if (strict) throw new PlumbusError('validation', `Unable to load decision module: ${file}`);
       // Skip files that fail to import
     }
   }
@@ -191,6 +196,7 @@ export async function discoverResources(
       flowExports,
       eventExports,
       promptExports,
+      decisionExports,
       translationExports,
       schemaExports,
     ] = await Promise.all([
@@ -199,9 +205,22 @@ export async function discoverResources(
       scanDir(path.join(appDir, 'flows')),
       scanDir(path.join(appDir, 'events')),
       scanDir(path.join(appDir, 'prompts')),
+      scanDir(path.join(appDir, 'decisions'), true),
       scanDir(path.join(appDir, 'translations')),
       scanSchemaDir(path.join(appDir, 'schemas')),
     ]);
+
+    const decisions: DecisionDefinition[] = [];
+    if (decisionExports.length > 0) {
+      const packageName = '@plumbus/ai-decision';
+      const runtime = (await import(packageName)) as DecisionRuntimeModule;
+      const markerSchema = z.object({ kind: z.literal('decision') });
+      for (const value of new Set(decisionExports)) {
+        if (markerSchema.safeParse(value).success) {
+          decisions.push(runtime.defineDecision(value as DecisionDefinition));
+        }
+      }
+    }
 
     return {
       capabilities: capExports.filter(isCapability),
@@ -209,6 +228,7 @@ export async function discoverResources(
       flows: flowExports.filter(isFlow),
       events: eventExports.filter(isEvent),
       prompts: promptExports.filter(isPrompt),
+      decisions,
       translations: translationExports.filter(isTranslation),
       schemas: schemaExports,
     };

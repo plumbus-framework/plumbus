@@ -18,12 +18,19 @@ export class DecisionProviderError extends PlumbusError {
   readonly attempts?: number;
   readonly usage?: DecisionUsage;
   readonly model?: string;
+  readonly cost?: number | null;
 
   constructor(
     provider: string,
     kind: DecisionErrorKind,
     message: string,
-    details: { httpStatus?: number; attempts?: number; usage?: DecisionUsage; model?: string } = {},
+    details: {
+      httpStatus?: number;
+      attempts?: number;
+      usage?: DecisionUsage;
+      model?: string;
+      cost?: number | null;
+    } = {},
   ) {
     super(
       kind === 'cancelled'
@@ -41,5 +48,6 @@ export class DecisionProviderError extends PlumbusError {
     this.attempts = details.attempts;
     this.usage = details.usage;
     this.model = details.model;
+    this.cost = details.cost;
   }
 }

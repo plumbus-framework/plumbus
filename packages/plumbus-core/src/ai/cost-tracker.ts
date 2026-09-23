@@ -16,10 +16,12 @@ export interface AICostRecord {
   model: string;
   provider: string;
   promptName?: string;
+  decisionName?: string;
   operation:
     | 'generate'
     | 'extract'
     | 'classify'
+    | 'decide'
     | 'embed'
     | 'transcribe'
     | 'synthesize'
@@ -76,6 +78,9 @@ export interface BudgetConfig {
  * `status` to `'success'` internally.
  */
 export type AICostRecordInput = Omit<AICostRecord, 'id' | 'timestamp' | 'status' | 'cost'> & {
+  /** Framework-generated identity shared with the persistence hook. */
+  id?: string;
+  timestamp?: Date;
   status?: AICostRecord['status'];
   cost?: number | null;
 };
@@ -153,13 +158,18 @@ export function createCostTracker(
 
   return {
     record(entry) {
+      const identity = z
+        .object({ id: z.string().min(1).optional(), timestamp: z.date().optional() })
+        .safeParse(entry);
+      if (!identity.success)
+        throw createErrorService().validation('Invalid AI cost record identity');
       records.push({
         ...entry,
         cost: normalizeCost(entry.cost),
         usage: validateTokenUsage(entry.usage),
         status: entry.status ?? 'success',
-        id: crypto.randomUUID(),
-        timestamp: new Date(),
+        id: identity.data.id ?? crypto.randomUUID(),
+        timestamp: identity.data.timestamp ? new Date(identity.data.timestamp) : new Date(),
       });
     },
 

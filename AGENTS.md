@@ -89,11 +89,14 @@ HTTP transport. All three start at `0.2.x` and peer on core `0.7.x`. Install onl
 provider you need; the shared package is a dependency. Laya ships a separate Python
 reference service; Python/model dependencies are not installed by pnpm.
 
-This is package-only support: use the adapter's `decide()` for infrastructure tests.
-Core `ctx.ai.decide()`, decision registration, automatic budget/audit integration,
-and CLI/agent discovery are deferred. Do not register these in the text-generation
-provider registry or bypass Plumbus primitives for application business logic.
-Guide and live environment: `docs/ai/decision-providers.md`.
+Core 0.7.3+ provides `ctx.ai.decide()` with cost recording, identity, validation,
+security, budgets, and flow cancellation. `defineDecision` and `DecisionRegistry`
+live in `@plumbus/ai-decision` 0.2.1+. Export explicit `decisions` registration
+from `app/server.ts`; CLI startup discovers `app/decisions/` for API and workers.
+Core depends on the shared contract package; vendor adapters remain optional.
+Use `onAICostRecorded` to persist `operation: 'decide'` rows, including failed calls.
+Do not register decision adapters as text-generation providers or bypass Plumbus
+primitives for application business logic. Guide: `docs/ai/decision-providers.md`.
 
 ### Optional add-on: `@plumbus/browser-extension`
 

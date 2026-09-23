@@ -1,5 +1,14 @@
 # @plumbus/core changelog
 
+## 0.7.3 — Unreleased
+
+- Audit 20 decision integration failure scenarios with 30 unit/integration/real-HTTP regression cases. Snapshot billing context and isolate ledger observers from caller results. Share one cost-record ID/timestamp between the tracker and persistence hook.
+
+- Add `ctx.ai.decide()` over the shared decision contract, with per-call cost/usage records, tenant/actor attribution, named definitions, security checks over state and questions, budgets, and cancellation forwarding.
+- Wire explicit `app/server.ts` decision registration and `app/decisions/` discovery into API and workers. Preserve decision feature flags through service wrappers and add decision responses to `mockAI`.
+- Reuse `onAICostRecorded` for successful and failed decision calls, preserving unknown cost as null and retaining known billed metadata after invalid provider answers.
+- Depend on `@plumbus/ai-decision@~0.2.1`; vendor adapters remain optional. Keep typecheck fixtures out of production compilation.
+
 ## 0.7.2 — 2026-09-23
 
 - Add `claude-opus-5-5` standard pricing: $4 input, $0.20 cached input, $5 five-minute cache writes, and $20 output per million tokens, with no long-context surcharge. Rechecked earlier Opus rates against Anthropic's pricing on 2026-09-23.

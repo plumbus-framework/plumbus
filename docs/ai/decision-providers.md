@@ -1,9 +1,10 @@
 # Typed decision provider packages
 
-This release implements the provider packages only. Core is unchanged: there is no
-`ctx.ai.decide()`, `defineDecision()`, decision registry, environment discovery, or
-automatic decision budget/audit integration yet. Do not register these adapters in
-`createAIService({ providers })`: that registry expects completion adapters.
+Core **0.7.3+** integrates typed decisions through `ctx.ai.decide()`. Use shared
+`@plumbus/ai-decision@0.2.1+` and the matching TypeSafe/Laya adapters for named
+contracts, validation, security, budgets, cancellation, and per-call cost records.
+The decision packages still work independently for infrastructure tests. Register
+decision adapters separately from text-generation providers.
 
 | Package | Responsibility |
 | --- | --- |
@@ -11,8 +12,8 @@ automatic decision budget/audit integration yet. Do not register these adapters 
 | `@plumbus/ai-decision-typesafe` | TypeSafe/Jev System One adapter and model-specific input pricing |
 | `@plumbus/ai-decision-laya` | Laya HTTP adapter and a separately deployed Python reference service |
 
-All three packages start at `0.2.0` and peer on core `0.7.x`. The provider packages
-depend on the shared package; neither depends on the other. Node.js 20.6+ is
+The decision packages peer on core `0.7.x`. Core 0.7.3 and the provider packages
+depend on shared contracts `~0.2.1`; neither provider depends on the other. Node.js 20.6+ is
 required. Only the Laya service needs Python/model dependencies. The TypeSafe
 adapter calls the documented HTTP endpoint directly, using the shared transport;
 consumer apps do not need a vendor SDK.
@@ -20,7 +21,150 @@ consumer apps do not need a vendor SDK.
 For the researched issue matrix, regressions and local HTTP end-to-end coverage,
 see the [58-scenario first audit](decision-provider-audit.md).
 
-## Contract
+## Application integration and cost recording
+
+Define reusable contracts with `defineDecision` from the shared package. The CLI
+recursively discovers `app/decisions/` when running `plumbus dev`, `start`, or
+`worker`; invalid decision modules fail discovery explicitly. Definitions are
+validated, copied, and deeply frozen. An optional `state` Zod schema is checked
+before any provider invocation.
+
+```ts
+// app/decisions/refund.ts
+import { defineDecision } from '@plumbus/ai-decision';
+import { z } from '@plumbus/core/zod';
+
+export const refundDecision = defineDecision({
+  name: 'billing.refund',
+  state: z.object({ message: z.string() }),
+  questions: {
+    refund: { type: 'probability', instructions: 'Does the customer request a refund?' },
+  },
+});
+```
+
+Register adapters explicitly at the server boundary. `app/server.ts` exports the
+same `decisions` configuration to the API and workers, including decision-only
+applications without a text-generation provider. Credentials stay in the server's
+environment; installing a provider alone does not register it.
+
+```ts
+// app/server.ts
+import { createTypeSafeDecisionAdapter } from '@plumbus/ai-decision-typesafe';
+
+export const decisions = {
+  providers: {
+    typesafe: createTypeSafeDecisionAdapter({ apiKey: process.env.TYPESAFE_API_KEY ?? '' }),
+  },
+  defaultProvider: 'typesafe',
+  budget: { maxTokensPerRequest: 32000, dailyCostLimit: 5 },
+};
+```
+
+For Laya, register `createLayaDecisionAdapter({ baseUrl, apiKey, costPerRequestUsd })`
+under `providers.laya`. The infrastructure estimate is optional: without it, Laya
+cost is unknown. For programmatic bootstrap, pass `decisions` to `createServer()`
+or `buildWorkerAiService()`; pass `decisions.definitions` or a `DecisionRegistry`
+through `decisions.registry` when not using CLI discovery. Direct `createAIService`
+callers supply their existing `costTracker` and `security` configuration.
+
+Inside a capability handler:
+
+```ts
+const result = await ctx.ai.decide({
+  decision: refundDecision,
+  state: { message: input.message },
+  signal: ctx.signal,
+  costContext: { projectId: input.projectId, operationName: 'billing.reviewRefund' },
+});
+```
+
+`decision: 'billing.refund'` also resolves a registered contract; importing the
+object preserves answer-key inference. Inline `questions` are supported. Supply
+either a definition/name or inline questions. Per-call `provider`/`model` override
+the definition, which overrides runtime defaults. `timeoutMs` reaches the adapter;
+flow steps automatically supply their cancellation signal when omitted.
+
+Every dispatched decision call records exactly one logical-call ledger row via
+core's `recordProviderCost` and the existing `onAICostRecorded(record, costContext,
+db)` hook. Rows carry `operation: 'decide'`, optional `decisionName`, actual response
+model, provider, input/output/total tokens, USD cost, elapsed time, and the executing
+tenant/actor. Add `decide` to any application-owned operation enum or ledger
+schema. Continue using your existing hook to persist rows; the built-in cost
+tracker is in memory and does not create a durable database ledger by itself.
+
+Failed responses and cancellations also record rows. Known model, token usage, and
+billed cost survive answer-validation errors. If a transport failure supplies no
+billing metadata, usage is zero **as an unavailable measurement**, cost is `null`,
+and status is `failed`. Raw provider error bodies are excluded from ledger error
+messages. Local definition/state/security/budget rejection before dispatch produces
+no spend row. A persistence-hook failure follows the existing core policy: log it
+without retrying inference or changing the result.
+
+The runtime validates custom adapter results as well as built-in adapters. Unknown
+cost remains `null`, even if a similarly named text model exists in the pricing
+catalog; explicit zero remains available/free. Unpriced prior calls block further
+calls when a dollar budget is configured. The byte-based token estimate checks the
+per-request cap before dispatch; this is an approximate framework estimate, not a
+provider tokenizer. Provider retries retain the adapters' existing semantics; a
+logical ledger row is not an exactly-once billing guarantee.
+
+Security scans both state and structured question content. API/worker registration
+reuses entity classifications and the configured AI security mode. Decision budgets
+override the bootstrap's text-provider budget defaults and share its tracker with
+text calls; process-local trackers do not replace a cross-process application ledger.
+Successful calls also reach a configured explainability tracker.
+
+Tests can use `mockAI({ decide: result })` through `createTestContext` and
+`runCapability`/`simulateFlow`. Keep business logic and authorization in Plumbus
+primitives; decision probabilities never authorize an action by themselves.
+
+## Decision integration regression coverage
+
+Core validates a private copy of the question contract, so an adapter cannot
+change the allowed answers by mutating its request. Provider identity and billing
+context are captured per call. Hook records, returned results, and the in-memory
+tracker have independent accounting objects; the hook and tracker share the same
+record ID and timestamp for correlation. Broken SDK error accessors cannot prevent
+failure accounting or discard other valid metadata. Requests over 2 MiB fail local
+validation before provider work.
+
+Provider/name selectors are trimmed consistently. When `definitions` and `registry`
+are both configured, definitions (including CLI-discovered contracts) resolve first;
+the explicit registry resolves other names.
+
+The following scenarios are executable regression tests, not claims of hosted
+provider availability. The HTTP cases run both adapters through real loopback HTTP
+servers, Plumbus capability routes, authentication, and a file-backed test ledger.
+
+| ID | Failure scenario | Coverage |
+| --- | --- | --- |
+| D01 | Whitespace changes provider/definition lookup after validation | Unit |
+| D02 | An explicit registry hides discovered definitions | Unit |
+| D03 | Adapter mutation changes the question contract used to validate answers | Unit |
+| D04 | Caller mutation changes the project billed during an in-flight call | Unit |
+| D05 | A ledger hook mutates usage seen by the caller or budget tracker | Unit |
+| D06 | Caller mutation rewrites a retained ledger-hook record | Unit |
+| D07 | The hook and tracker generate different IDs for one call | Unit |
+| D08 | A throwing SDK error getter prevents failure accounting | Unit |
+| D09 | Oversized input reaches provider work and consumes budget | Unit |
+| D10 | One tenant's exhausted budget affects another tenant | Integration |
+| D11 | Adapter metadata changes provider attribution during a call | Unit |
+| D12 | A state-schema transform introduces classified fields after input validation | Integration |
+| D13 | An unauthenticated HTTP request reaches inference or accounting | HTTP end-to-end |
+| D14 | A rate-limit retry creates duplicate cost rows | HTTP end-to-end |
+| D15 | Exhausted retries lose the failed row or expose upstream bodies | HTTP end-to-end |
+| D16 | Invalid choices/scores lose known billed usage/cost or trigger retries | HTTP end-to-end |
+| D17 | A redirect forwards the provider credential | HTTP end-to-end |
+| D18 | A stalled response body escapes the deadline or cost hook | HTTP end-to-end |
+| D19 | In-flight cancellation loses accounting or records success | HTTP end-to-end |
+| D20 | Concurrent requests forge or exchange tenant/actor/project attribution | HTTP end-to-end |
+
+Tests: `packages/plumbus-core/src/ai/__tests__/decision-audit.test.ts` and
+`decision-http-e2e.test.ts`. These 20 scenarios have 30 test cases, including both
+providers and both malformed choice/score variants.
+
+## Direct adapter contract
 
 ```ts
 import { createTypeSafeDecisionAdapter } from '@plumbus/ai-decision-typesafe';
@@ -58,8 +202,7 @@ result.costAvailable;
 This is an infrastructure/smoke-test example. Application business logic stays in
 Plumbus capabilities and flows, with data, events, invocation and authentication
 through `ctx.*`. Inject configured adapters at the infrastructure boundary; do not
-create global clients or implement a competing workflow runtime. Native execution
-context integration is deferred. Direct adapter calls do not enforce core's PII
+create global clients or implement a competing workflow runtime. Direct adapter calls do not enforce core's PII
 checks, budgets, identity attribution, action confirmation, or ledger hooks.
 
 `DecisionProviderAdapter.decide()` accepts the same request for either provider.
@@ -131,8 +274,8 @@ appearing free; explicit zero rates and zero input usage remain valid.
 
 Laya defaults to `cost: null`. `costPerRequestUsd` is an explicit operator estimate
 for infrastructure usage; zero is accepted only when deliberately configured.
-Neither adapter automatically writes to the core cost tracker. Integrating a
-native `decide` operation into budgets and billing remains core work.
+Direct adapter calls do not write to the core cost tracker. Calls through
+`ctx.ai.decide()` record the normalized cost and usage automatically.
 
 ## Laya service
 
@@ -281,13 +424,18 @@ contract tests require `python3` on PATH. Package typechecking also compiles tes
 files and verifies inferred answer types. The Python subprocess has a 20-second
 deadline and its enclosing Vitest test allows 25 seconds, so parallel workspace
 load does not impose the default five-second limit on the entire Python suite.
-Publishing order is core, shared
-decision package, then provider packages.
+The connection-capacity test waits for server-handler cleanup, since reading a
+response body does not guarantee its handler has released the connection slot yet.
+Publishing order is shared
+decision package, core, then provider packages. The shared package publishes a
+source-only `/types` entry so core can compile against the same contract before
+the core-dependent runtime is built. Core loads that runtime lazily.
+Core's test task explicitly waits for the shared runtime build, including on a
+fresh checkout without generated files.
 
-Deferred core work: `ctx.ai.decide()`, named decision definitions, bootstrap and
-worker registration, identity/security/budget/audit integration, flow cancellation
-wrappers, mock AI, agent discovery, and optional chat/voice convenience helpers.
-No existing `classify()` semantics change in this release.
+Native TypeSafe `classify()` routing, vendor model catalogs, automatic environment
+provider discovery, chat-specific decision helpers, and dedicated CLI commands are
+not introduced here. Existing `classify()` semantics remain unchanged.
 
 References: [TypeSafe API](https://docs.typesafe.ai/api),
 [confidence semantics](https://docs.typesafe.ai/confidence),

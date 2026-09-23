@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — Unreleased
+
+- Preserve model, usage, and known TypeSafe cost on malformed-answer errors so core 0.7.3 records billed failures. Keep unknown response models unpriced.
+- Document native core registration and cost recording; existing core peer ranges remain unchanged.
+
 ## 0.2.0 — 2026-09-23
 
 - Initial optional TypeSafe/Jev System One HTTP adapter for typed choices, scores, and probabilities, using `@plumbus/ai-decision` contracts and validation.

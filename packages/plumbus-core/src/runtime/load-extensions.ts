@@ -1,3 +1,4 @@
+import type { DecisionDefinition } from '@plumbus/ai-decision/types';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -5,7 +6,10 @@ import { pathToFileURL } from 'node:url';
 import type { ServerExtensions } from './bootstrap.js';
 
 /** Load optional hooks from app/server.ts or app/server.js. */
-export async function loadServerExtensions(cwd = process.cwd()): Promise<ServerExtensions> {
+export async function loadServerExtensions(
+  cwd = process.cwd(),
+  definitions: readonly DecisionDefinition[] = [],
+): Promise<ServerExtensions> {
   let unregisterTsx: (() => void) | undefined;
   try {
     const req = createRequire(import.meta.url);
@@ -26,6 +30,7 @@ export async function loadServerExtensions(cwd = process.cwd()): Promise<ServerE
       extensions.resolveAiOverrides = mod.resolveAiOverrides ?? mod.default?.resolveAiOverrides;
       extensions.onCapabilityError = mod.onCapabilityError ?? mod.default?.onCapabilityError;
       extensions.onProcessError = mod.onProcessError ?? mod.default?.onProcessError;
+      extensions.decisions = mod.decisions ?? mod.default?.decisions;
       extensions.onAICostRecorded = mod.onAICostRecorded ?? mod.default?.onAICostRecorded;
       extensions.enableStrictStructuredOutputs =
         mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
@@ -34,6 +39,13 @@ export async function loadServerExtensions(cwd = process.cwd()): Promise<ServerE
       // caller may log
     }
     break;
+  }
+
+  if (extensions.decisions) {
+    extensions.decisions = {
+      ...extensions.decisions,
+      definitions: [...(extensions.decisions.definitions ?? []), ...definitions],
+    };
   }
 
   unregisterTsx?.();

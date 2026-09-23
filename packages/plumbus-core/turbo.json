@@ -8,7 +8,7 @@
       "dependsOn": ["build"]
     },
     "test": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build", "@plumbus/ai-decision#build"]
     }
   }
 }

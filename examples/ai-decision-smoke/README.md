@@ -77,3 +77,8 @@ Offline regression tests live in `packages/ai-decision-laya/src/__tests__/smoke-
 and run with `pnpm test`. They use injected fetch responses and do not start Docker
 or download weights. Turbo includes the example's JavaScript files in that test
 task's cache inputs, while the private `.env` stays excluded.
+
+The capability now calls `ctx.ai.decide()` through core 0.7.3+, and the smoke suite
+checks that both inference calls produce tenant-scoped `decide` cost records.
+Laya-backed calls retain unknown cost as `null`; the returned `costs` array exposes
+the actual model and token usage without requiring a hosted TypeSafe account.

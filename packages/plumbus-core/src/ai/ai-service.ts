@@ -1,3 +1,9 @@
+import type {
+  DecisionRuntimeConfig,
+  DecisionRuntimeModule,
+  DecisionQuestions,
+  DecisionResult,
+} from '@plumbus/ai-decision/types';
 // ── AI Service Implementation ──
 // Full ctx.ai implementation: generate, extract, classify, retrieve
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
@@ -6,6 +12,7 @@ import { z } from 'zod';
 import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-errors.js';
 import type {
   AICostContext,
+  AIDecideConfig,
   AIDocument,
   AIFinalGenerateResult,
   AIGenerateWithUsageConfig,
@@ -63,6 +70,8 @@ export interface AIServiceConfig {
   providers: Record<string, AIProviderAdapter>;
   /** Which provider to use when a prompt doesn't specify one */
   defaultProvider: string;
+  /** Explicit decision providers and named definitions; independent of text providers. */
+  decisions?: DecisionRuntimeConfig;
   promptRegistry?: PromptRegistry;
   costTracker?: CostTracker;
   ragPipeline?: RAGPipeline;
@@ -248,26 +257,29 @@ export function createAIService(config: AIServiceConfig): AIService {
       actor: config.budget ? config.budget.actor : entry.actor,
       cost:
         (entry.cost == null ? undefined : normalizeCost(entry.cost)) ??
-        (entry.cost == null && entry.usage.totalTokens > 0 && findModelRate(entry.model)
+        (entry.operation !== 'decide' &&
+        entry.cost == null &&
+        entry.usage.totalTokens > 0 &&
+        findModelRate(entry.model)
           ? calculateModelCost(entry.usage.inputTokens, entry.usage.outputTokens, entry.model, {
               cachedInputTokens: entry.usage.cachedInputTokens,
               cacheWriteTokens: entry.usage.cacheWriteTokens,
             })
           : null),
     };
-    if (costTracker) {
-      costTracker.record(entry);
-    }
+    const finalEntry: AICostRecord = {
+      ...entry,
+      usage: { ...entry.usage },
+      ...(entry.mediaUsage ? { mediaUsage: { ...entry.mediaUsage } } : {}),
+      cost: normalizeCost(entry.cost),
+      status: entry.status ?? 'success',
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+    };
+    costTracker?.record(finalEntry);
     if (onAICostRecorded) {
-      const finalEntry: AICostRecord = {
-        ...entry,
-        cost: normalizeCost(entry.cost),
-        status: entry.status ?? 'success',
-        id: crypto.randomUUID(),
-        timestamp: new Date(),
-      };
       try {
-        await onAICostRecorded(finalEntry, costContext);
+        await onAICostRecorded(structuredClone(finalEntry), costContext);
       } catch (hookErr) {
         const msg = hookErr instanceof Error ? hookErr.message : String(hookErr);
         console.error(`[plumbus:ai] onAICostRecorded hook threw: ${msg}`);
@@ -721,11 +733,58 @@ export function createAIService(config: AIServiceConfig): AIService {
     withContext(identity) {
       return createAIService({ ...config, budget: { ...identity } });
     },
-    features: { perCallProviderModelReasoning: true },
+    features: { perCallProviderModelReasoning: true, typedDecisions: true },
     recordProviderCost,
 
     checkProviderCostBudget(config = {}) {
       checkBudget(config.estimatedTokens, config.estimatedCostUsd);
+    },
+
+    async decide<const Q extends DecisionQuestions>(
+      params: AIDecideConfig<Q>,
+    ): Promise<DecisionResult<Q>> {
+      const costContext = params.costContext ? { ...params.costContext } : undefined;
+      // Runtime loading keeps the shared package's core error/Zod imports out of initialization.
+      const packageName = '@plumbus/ai-decision';
+      const runtime = (await import(packageName)) as DecisionRuntimeModule;
+      let securedInput: Record<string, unknown> = {};
+      let warnings: string[] | undefined;
+      let decisionName: string | undefined;
+      const result = await runtime.runDecision<Q>(params, config.decisions, {
+        secure(input) {
+          const checked = applyPromptSecurity(input);
+          securedInput = checked.inputForAI;
+          warnings = checked.securityResult?.warnings.map((warning) => warning.message);
+          return securedInput;
+        },
+        checkBudget,
+        async record(record) {
+          decisionName = record.decisionName;
+          await recordProviderCost(
+            {
+              ...record,
+              operation: 'decide',
+              tenantId: config.budget?.tenantId,
+              actor: config.budget?.actor,
+            },
+            costContext,
+          );
+        },
+      });
+      explainability?.record({
+        operation: 'decide',
+        decisionName,
+        provider: result.provider,
+        model: result.model,
+        input: securedInput,
+        output: result.answers,
+        usage: result.usage,
+        securityWarnings: warnings,
+        latencyMs: result.latencyMs,
+        tenantId: config.budget?.tenantId,
+        actor: config.budget?.actor,
+      });
+      return result;
     },
 
     async generate(params: {

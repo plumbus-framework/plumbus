@@ -1,5 +1,7 @@
 import {
   createErrorService,
+  createAIService,
+  createCostTracker,
   createExecutionContext,
   createLayaDecisionAdapter,
   createTypeSafeDecisionAdapter,
@@ -24,6 +26,11 @@ export function buildApp(config, { fetch: fetchImpl = globalThis.fetch } = {}) {
     laya: createLayaDecisionAdapter(options),
     typesafe: createTypeSafeDecisionAdapter(options),
   };
+  const costTracker = createCostTracker();
+  const ai = createAIService({
+    providers: {}, defaultProvider: '',
+    decisions: { providers: adapters, defaultProvider: 'laya' }, costTracker,
+  });
   const capability = defineCapability({
     name: 'classifyTicket',
     domain: 'smoke',
@@ -48,7 +55,8 @@ export function buildApp(config, { fetch: fetchImpl = globalThis.fetch } = {}) {
     effects: { data: [], events: [], external: ['local-laya'], ai: true },
     audit: { enabled: false, event: 'smoke.decision' },
     async handler(ctx, input) {
-      return adapters[input.via].decide({
+      return ctx.ai.decide({
+        provider: input.via,
         state: { text: input.message },
         signal: ctx.signal,
         questions: {
@@ -83,6 +91,7 @@ export function buildApp(config, { fetch: fetchImpl = globalThis.fetch } = {}) {
         tenantId: 'local-smoke',
         provider: 'smoke',
       },
+      ai,
       data: {},
       audit: { async record() {} },
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -91,6 +100,7 @@ export function buildApp(config, { fetch: fetchImpl = globalThis.fetch } = {}) {
   return {
     capability,
     createContext,
+    getCostRecords: () => costTracker.getRecords(),
     run: (via, message = defaultMessage) =>
       executeCapability(capability, createContext(), { via, message }),
   };
@@ -135,6 +145,9 @@ export async function runSmoke(
       );
     results.push(result.data);
   }
+  const costs = app.getCostRecords();
+  if (costs.length !== 2 || costs.some((row) => row.operation !== 'decide' || row.tenantId !== 'local-smoke'))
+    throw createErrorService().internal('Smoke failed: decision cost records missing or unscoped');
   return {
     checks: [
       'capability access denied',
@@ -142,7 +155,9 @@ export async function runSmoke(
       'missing server password rejected',
       'Laya inference',
       'TypeSafe adapter against Laya',
+      'scoped decision cost records',
     ],
     results,
+    costs,
   };
 }

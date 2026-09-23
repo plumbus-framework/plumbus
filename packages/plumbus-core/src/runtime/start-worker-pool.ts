@@ -100,6 +100,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     promptRegistry,
     entities,
     onAICostRecorded: extensions?.onAICostRecorded,
+    decisions: extensions?.decisions,
     resolveAiOverrides: extensions?.resolveAiOverrides,
     enableStrictStructuredOutputs: extensions?.enableStrictStructuredOutputs,
   });

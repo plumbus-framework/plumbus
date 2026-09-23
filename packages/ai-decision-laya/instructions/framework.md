@@ -33,12 +33,13 @@ console.log(result.answers.refund.probability);
 1. Keep capabilities, flows, access policy and `ctx.*` as the application implementation path.
 2. Construct adapters at a server-owned infrastructure boundary and inject them. Keep keys on the server.
 3. Treat direct adapter usage as protocol integration, not a replacement for core's security/budget/audit lifecycle.
-4. Do not monkeypatch `ctx.ai`, register these as completion providers, or advertise `ctx.ai.decide()` as available.
+4. With core 0.7.3+, use `ctx.ai.decide()` in capabilities/flows. Export `decisions = { providers, defaultProvider }` from `app/server.ts`; API and workers share it. Do not register decision adapters as completion providers.
 5. Preserve distributions and provider confidence separately. A high confidence value is not authorization or proof of correctness.
 6. Validate thresholds on the actual task/model/language. Unknown cost is `null`, not free.
-7. Pass cancellation/deadlines explicitly during this package-only stage.
+7. Pass `signal: ctx.signal` and `timeoutMs` where needed. Flow steps supply their signal by default.
 8. Keep Python inference outside Node.js. Use the packaged Laya service or implement its documented HTTP protocol.
-9. There are no core CLI commands, environment discovery, or `plumbus init` instruction wiring for these packages yet.
+9. Define contracts using `defineDecision` from `@plumbus/ai-decision`; CLI startup discovers `app/decisions/`. No automatic environment provider discovery or dedicated decision CLI commands are provided.
+10. Core records one `operation: decide` row per dispatched logical call, including failed/cancelled calls, with tenant/actor and `costContext`. Persist it in the existing `onAICostRecorded` hook. Unknown cost is null; never convert it to free usage.
 
 Chat, voice and MCP still consume Plumbus capabilities; this package does not
 introduce a parallel runtime or transport for those surfaces.
