@@ -29,8 +29,16 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      # Offline Laya service contract tests use Python without model dependencies.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
       - run: pnpm build
+      - run: pnpm typecheck
       - run: pnpm test
 
       # Publish @plumbus/mcp BEFORE @plumbus/core so the optional peer

@@ -1,5 +1,7 @@
 # @plumbus/core
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 **AI-native, contract-driven TypeScript application framework.**
 
 Define your application through six composable primitives — Capabilities, Entities, Events, Flows, Prompts, and Translations — and get deny-by-default security, advisory governance, audit trails, and managed AI integration out of the box. Optional companion packages extend the surface for partner APIs, MCP agents, chat, knowledge, UI generation, and browser extensions — install only what you need.

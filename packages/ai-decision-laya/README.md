@@ -1,5 +1,7 @@
 # @plumbus/ai-decision-laya
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 Laya provider for self-hosted typed decision inference, with a persistent Python reference service.
 
 Version `0.2.0`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.

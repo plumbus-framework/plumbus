@@ -1,5 +1,7 @@
 # @plumbus/ai-decision
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 Shared decision contracts, runtime validation, structured errors, and HTTP transport.
 
 Version `0.2.0`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.

@@ -1,12 +1,9 @@
 # Changelog
 
-## 0.2.0
+## 0.2.0 — 2026-09-23
 
-- Second audit: millisecond retry hints, safe rate configuration/underflow handling and 15 new scenarios.
-
-- Reject malformed credentials/endpoints, handle pricing overflow without losing usage, and add 16 API/wire/real-HTTP audit scenarios.
-
-- Initial optional package: TypeSafe/Jev provider for typed choices, scores, and probabilities.
-- Typed decision protocol with runtime validation and structured failure handling.
-- Offline tests, agent recipes, and a documented live test environment.
-- Core runtime integration is intentionally deferred.
+- Initial optional TypeSafe/Jev System One HTTP adapter for typed choices, scores, and probabilities, using `@plumbus/ai-decision` contracts and validation.
+- Validate credentials/endpoints, normalize native answers, and handle bounded retries, cancellation, deadlines, and malformed responses with structured errors.
+- Price the actual response model using bundled or configured input rates; return unknown cost explicitly and retain usage when pricing fails.
+- Ship offline unit and HTTP tests, consumer agent instructions, and smoke tooling. Both decision adapters can be exercised against the local Laya reference service; this does not verify hosted TypeSafe authentication or billing.
+- Requires core `0.7.x`. Core `ctx.ai.decide()`, provider registration, automatic budgets/auditing, and agent discovery remain deferred.

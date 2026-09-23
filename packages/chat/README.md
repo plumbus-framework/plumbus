@@ -1,10 +1,12 @@
 # @plumbus/chat
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 > **Policy-first conversation runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Declare a chat, plug in context sources, set guards — get a fully-governed AI conversation with cited sources, budgets, refusals, and an event-streamed UI.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat.svg)](https://www.npmjs.com/package/@plumbus/chat)
 [![license](https://img.shields.io/npm/l/@plumbus/chat.svg)](./LICENSE)
-[![peer: @plumbus/core ≥0.6.11](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%E2%89%A50.6.11-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 

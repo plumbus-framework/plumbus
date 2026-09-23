@@ -265,6 +265,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/cli/` — all CLI commands and options (incl. `browser-extension scaffold`)
 - `docs/security/` — security model, auth, tenant isolation
 - `docs/upgrading-security-release.md` — coordinated security release, compatibility checks, and agent wiring v16
+- `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
 - `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade

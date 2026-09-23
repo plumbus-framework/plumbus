@@ -2,6 +2,8 @@
 
 Welcome to the Plumbus framework documentation. Use the navigation below to find what you need.
 
+See the [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) for package versions and paired upgrades.
+
 ## Documentation Map
 
 ```

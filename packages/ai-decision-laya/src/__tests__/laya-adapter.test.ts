@@ -85,11 +85,13 @@ describe('Laya decision adapter', () => {
     ).toThrow();
   });
 
+  // The subprocess runs the whole Python suite, including HTTP server shutdowns.
+  // Let its own deadline report failures before Vitest's outer timeout fires.
   it('passes the Python service contract tests without downloading models', () => {
     execFileSync(
       'python3',
       ['-B', '-m', 'unittest', 'discover', '-s', 'service', '-p', 'test_*.py'],
       { cwd: new URL('../..', import.meta.url), timeout: 20_000, stdio: 'pipe' },
     );
-  });
+  }, 25_000);
 });

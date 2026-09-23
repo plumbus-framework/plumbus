@@ -278,7 +278,10 @@ and protocol compatibility; they do not establish accuracy or calibration.
 `pnpm test` runs protocol, transport, provider and Python service tests with fake
 backends. No credentials, model download or GPU are required; the Laya service
 contract tests require `python3` on PATH. Package typechecking also compiles test
-files and verifies inferred answer types. Publishing order is core, shared
+files and verifies inferred answer types. The Python subprocess has a 20-second
+deadline and its enclosing Vitest test allows 25 seconds, so parallel workspace
+load does not impose the default five-second limit on the entire Python suite.
+Publishing order is core, shared
 decision package, then provider packages.
 
 Deferred core work: `ctx.ai.decide()`, named decision definitions, bootstrap and

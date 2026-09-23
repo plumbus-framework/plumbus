@@ -1,14 +1,11 @@
 # Changelog
 
-## 0.2.0
+## 0.2.0 — 2026-09-23
 
-- Add a one-command example that manages a local server/password and tests both decision adapters with real inference; initialize the container cache directory with the service user's ownership for persistent volumes.
-
-- Second audit: bounded HTTP handlers, disconnect/header handling, checkpoint identity validation and 15 new scenarios.
-
-- Harden service framing, JSON and output limits, error attribution and routing; add 20 service/backend scenarios and two Node-to-Python end-to-end tests.
-
-- Initial optional package: Laya provider for self-hosted typed decision inference, with a persistent Python reference service.
-- Typed decision protocol with runtime validation and structured failure handling.
-- Offline tests, agent recipes, and a documented live test environment.
-- Core runtime integration is intentionally deferred.
+- Initial optional self-hosted Laya HTTP adapter for typed choices, scores, and probabilities, using `@plumbus/ai-decision` contracts and validation.
+- Ship a persistent Python reference service pinned to Laya `0.3.5` and a CPU Dockerfile. Support preloaded English, multilingual, and typed-decision checkpoints with explicit routing identity and token-budget preflight checks.
+- Bound request/response sizes, JSON depth, HTTP handler capacity, and concurrent inference. Validate bearer authentication, content metadata, and message framing, and handle client disconnects.
+- Add a repository smoke example that manages a local server/password, retains the model cache with correct ownership, and tests both decision adapters with real inference.
+- Ship offline adapter tests, Node-to-Python HTTP tests, Python service tests, and consumer agent instructions. Python/model dependencies are installed separately from pnpm.
+- Give the combined Python contract suite an explicit Vitest timeout longer than its subprocess deadline, avoiding false failures under parallel workspace load.
+- Requires core `0.7.x`. Core `ctx.ai.decide()`, provider registration, automatic budgets/auditing, and agent discovery remain deferred.

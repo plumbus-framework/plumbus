@@ -1,12 +1,9 @@
 # Changelog
 
-## 0.2.0
+## 0.2.0 — 2026-09-23
 
-- Second audit: strict bounded JSON/duplicate-key validation, rubric identity, retry hint handling and first-cause cancellation; 15 new scenarios.
-
-- Harden JSON/response validation, UTF-8 decoding, cancellation/deadlines, retry handling and cleanup; add 20 researched audit scenarios.
-
-- Initial optional package: Shared decision contracts, runtime validation, structured errors, and HTTP transport.
-- Typed decision protocol with runtime validation and structured failure handling.
-- Offline tests, agent recipes, and a documented live test environment.
-- Core runtime integration is intentionally deferred.
+- Initial shared package for typed choices, ordinal scores, and probabilities, with inferred answer types and runtime request/response validation.
+- Validate bounded JSON, UTF-8, duplicate keys, score rubrics, and probability distributions. Preserve known model/usage metadata on answer-validation errors.
+- Provide structured errors and HTTP transport with bounded responses, deadlines, cancellation, retry hints, and cleanup. Redirects are disabled to protect credentials.
+- Ship offline contract/transport tests and consumer agent instructions. Requires core `0.7.x`; provider packages install this dependency transitively.
+- This is package-only support. Core `ctx.ai.decide()`, provider registration, automatic budgets/auditing, and agent discovery remain deferred.

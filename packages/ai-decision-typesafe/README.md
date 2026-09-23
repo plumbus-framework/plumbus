@@ -1,5 +1,7 @@
 # @plumbus/ai-decision-typesafe
 
+Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-voice-and-decision-release.md).
+
 TypeSafe/Jev provider for typed choices, scores, and probabilities.
 
 Version `0.2.0`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
