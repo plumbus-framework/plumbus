@@ -1,13 +1,17 @@
 # @plumbus/core changelog
 
-## 0.7.3 — Unreleased
+## 0.7.4 — Unreleased
+
+- Bump agent wiring to v17 and add a packaged classification recipe covering explicit provider/model selection, defaults, thresholds, and cost recording. All agent formats link the recipe and decision provider instruction indexes; refresh existing apps with `plumbus init --patch --agent all`.
+
+- Let `ctx.ai.classify()` select a registered text or decision provider with optional `provider`/`model`. TypeSafe/Laya classification batches probability questions and returns labels meeting `threshold` (default 0.5), sharing decision validation, security, budgets, cancellation, and one `classify` cost record. Existing calls keep their generative default.
 
 - Audit 20 decision integration failure scenarios with 30 unit/integration/real-HTTP regression cases. Snapshot billing context and isolate ledger observers from caller results. Share one cost-record ID/timestamp between the tracker and persistence hook.
 
 - Add `ctx.ai.decide()` over the shared decision contract, with per-call cost/usage records, tenant/actor attribution, named definitions, security checks over state and questions, budgets, and cancellation forwarding.
 - Wire explicit `app/server.ts` decision registration and `app/decisions/` discovery into API and workers. Preserve decision feature flags through service wrappers and add decision responses to `mockAI`.
 - Reuse `onAICostRecorded` for successful and failed decision calls, preserving unknown cost as null and retaining known billed metadata after invalid provider answers.
-- Depend on `@plumbus/ai-decision@~0.2.1`; vendor adapters remain optional. Keep typecheck fixtures out of production compilation.
+- Depend on `@plumbus/ai-decision@~0.2.2`; vendor adapters remain optional. Keep typecheck fixtures out of production compilation.
 
 ## 0.7.2 — 2026-09-23
 

@@ -14,7 +14,19 @@ Public exports: `DecisionProviderAdapter`, request/result/question/answer types;
 File map: `src/index.ts` is the public barrel, `src/__tests__/` exercises the public
 API, `instructions/` contains these recipes. Laya alone also ships `service/`.
 
-## Minimal usage
+## Classification and model selection (core 0.7.4+)
+
+Read `node_modules/@plumbus/core/instructions/ai-classification.md` for the complete
+registration and usage recipe. Call `ctx.ai.classify({ text, labels, provider, model,
+threshold })` inside capabilities/flows. `provider` is your registered decision map
+key; `model` is an optional endpoint-supported ID. Native `threshold` defaults to
+0.5 and returns all matching labels. Use `decide()` for richer questions.
+
+Core records one `classify` cost row, including dispatched failures, with actual
+model/usage and identity. Omitted `provider` still uses the text default. Keep
+decision adapters under `decisions.providers`, separate from text providers.
+
+## Minimal usage (infrastructure / smoke testing)
 
 ```ts
 import type { DecisionProviderAdapter, DecisionQuestions } from '@plumbus/ai-decision';

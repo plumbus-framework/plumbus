@@ -541,6 +541,12 @@ export interface AIService {
     labels: string[];
     text: string;
     signal?: AbortSignal;
+    /** Select a registered text or decision provider; omitted keeps the text default. */
+    provider?: string;
+    /** Override the selected provider's model. */
+    model?: string;
+    /** Decision providers only: include labels at or above this probability (default 0.5). */
+    threshold?: number;
     /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
     costContext?: AICostContext;
   }): Promise<string[]>;

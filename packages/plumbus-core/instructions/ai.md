@@ -56,6 +56,11 @@ const invoice = await ctx.ai.extract({
 
 ### Classify
 
+**Start with [the classification recipe](ai-classification.md)** for provider/model
+selection, TypeSafe/Jev and Laya registration, defaults, thresholds, and cost hooks
+(core **0.7.4+**). Use `classify()` for matching labels and `decide()` for richer
+typed questions. Keep calls inside capabilities/flows.
+
 Classify text into provided categories:
 
 ```ts

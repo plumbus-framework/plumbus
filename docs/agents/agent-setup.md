@@ -380,8 +380,21 @@ This refreshes the Plumbus-managed wiring sections with the latest instructions 
 
 
 
+## Classification and decision guidance — wiring v17
+
+Core **0.7.4+** generates wiring **v17**. Copilot, Cursor, AGENTS.md, and CLAUDE.md
+point directly to `node_modules/@plumbus/core/instructions/ai-classification.md`
+for classification/categorization, provider/model selection, TypeSafe/Jev and Laya,
+and choosing `classify()` versus `decide()`. The references appear in inline and
+reference modes for both flat and monorepo layouts. Cursor's capability rule also
+links the recipe; installed decision packages link it from their instruction indexes.
+
+Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
+Patching preserves surrounding app-owned text. See the
+[classification upgrade guide](../upgrading-classification.md).
+
 ## Security release wiring v16
 
-Core 0.7.0 generates wiring version **15**. All root agent formats (reference and inline, flat and monorepo) and the Cursor capability rule point at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. The checklist ships in the npm package and covers coordinated versions, credentials/SAML, legacy flow recovery, unknown-cost flags, audit behavior, and voice limits. The framework-first guardrails remain mandatory.
+Core 0.7.0 introduced wiring version **16**. All root agent formats (reference and inline, flat and monorepo) and the Cursor capability rule point at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. The checklist ships in the npm package and covers coordinated versions, credentials/SAML, legacy flow recovery, unknown-cost flags, audit behavior, and voice limits. The framework-first guardrails remain mandatory.
 
 After updating the app's packages, run `plumbus init --patch`, then `plumbus doctor`. Patching updates only managed wiring blocks and retains custom text outside them. See [the release migration guide](../upgrading-security-release.md).

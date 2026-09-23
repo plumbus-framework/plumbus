@@ -98,7 +98,12 @@ security, budgets, and flow cancellation. `defineDecision` and `DecisionRegistry
 live in `@plumbus/ai-decision` 0.2.1+. Export explicit `decisions` registration
 from `app/server.ts`; CLI startup discovers `app/decisions/` for API and workers.
 Core depends on the shared contract package; vendor adapters remain optional.
-Use `onAICostRecorded` to persist `operation: 'decide'` rows, including failed calls.
+Core **0.7.4+** also routes `ctx.ai.classify({ text, labels, provider, model, threshold })`
+to generative or decision models. Start with
+`packages/plumbus-core/instructions/ai-classification.md` for provider registration,
+model defaults, and multi-label thresholds. Generated agent wiring **v17** links
+this recipe; refresh consumer apps with `plumbus init --patch --agent all`.
+Use `onAICostRecorded` to persist `decide` and `classify` rows, including failed calls.
 Do not register decision adapters as text-generation providers or bypass Plumbus
 primitives for application business logic. Guide: `docs/ai/decision-providers.md`.
 
@@ -272,6 +277,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/cli/` — all CLI commands and options (incl. `browser-extension scaffold`)
 - `docs/security/` — security model, auth, tenant isolation
 - `docs/upgrading-security-release.md` — coordinated security release, compatibility checks, and agent wiring v16
+- `docs/upgrading-classification.md` — core 0.7.4, decision packages 0.2.2, and classification agent wiring v17
 - `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
