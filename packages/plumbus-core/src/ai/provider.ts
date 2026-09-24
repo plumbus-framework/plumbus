@@ -84,6 +84,107 @@ export type ChatMessage =
     }
   | { role: 'tool'; content: string; toolCallId: string; name: string };
 
+/**
+ * Per-section prompt-cache controls for providers that require explicit cache
+ * marks (Anthropic `cache_control`, Bedrock Converse `cachePoint`).
+ *
+ * When omitted fields are treated as `false`. Prefer `cache: true` for the
+ * common case (system + tools).
+ */
+export interface AICacheConfig {
+  /** Cache the system prompt / instructions. */
+  system?: boolean;
+  /** Cache tool definitions (mark on the last tool). */
+  tools?: boolean;
+  /** Cache conversation history (mark on the last message). */
+  messages?: boolean;
+}
+
+/**
+ * Prompt-caching option. `true` enables system + tools (not messages).
+ * OpenAI ignores this — it caches long prompts automatically.
+ */
+export type AIPromptCacheOption = boolean | AICacheConfig;
+
+/** Resolved per-section flags, or `undefined` when caching is off. */
+export type ResolvedAICacheConfig = Required<AICacheConfig>;
+
+/**
+ * Resolve a `cache` option into per-section flags.
+ * `true` → `{ system: true, tools: true, messages: false }`.
+ * `false` / `undefined` → `undefined` (no provider marks).
+ */
+export function resolvePromptCache(
+  cache: AIPromptCacheOption | undefined,
+): ResolvedAICacheConfig | undefined {
+  if (cache === undefined || cache === false) return undefined;
+  if (cache === true) return { system: true, tools: true, messages: false };
+  const resolved: ResolvedAICacheConfig = {
+    system: cache.system === true,
+    tools: cache.tools === true,
+    messages: cache.messages === true,
+  };
+  if (!resolved.system && !resolved.tools && !resolved.messages) return undefined;
+  return resolved;
+}
+
+const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' as const });
+
+/** Attach Anthropic `cache_control` to the last content block of a message. */
+function withAnthropicMessageCacheControl(
+  message: Record<string, unknown>,
+): Record<string, unknown> {
+  const content = message.content;
+  if (typeof content === 'string') {
+    return {
+      ...message,
+      content: [{ type: 'text', text: content, cache_control: { ...ANTHROPIC_CACHE_CONTROL } }],
+    };
+  }
+  if (!Array.isArray(content) || content.length === 0) return message;
+  const blocks = content.map((block, index) => {
+    if (index !== content.length - 1 || block == null || typeof block !== 'object') {
+      return block;
+    }
+    return { ...(block as Record<string, unknown>), cache_control: { ...ANTHROPIC_CACHE_CONTROL } };
+  });
+  return { ...message, content: blocks };
+}
+
+/** Apply Anthropic cache marks to a Messages API request body in place. */
+function applyAnthropicPromptCache(
+  body: Record<string, unknown>,
+  cache: ResolvedAICacheConfig,
+): void {
+  if (cache.system && typeof body.system === 'string' && body.system.length > 0) {
+    body.system = [
+      {
+        type: 'text',
+        text: body.system,
+        cache_control: { ...ANTHROPIC_CACHE_CONTROL },
+      },
+    ];
+  }
+
+  if (cache.tools && Array.isArray(body.tools) && body.tools.length > 0) {
+    const tools = body.tools as Record<string, unknown>[];
+    const lastIndex = tools.length - 1;
+    const last = tools[lastIndex];
+    if (last) {
+      tools[lastIndex] = { ...last, cache_control: { ...ANTHROPIC_CACHE_CONTROL } };
+    }
+  }
+
+  if (cache.messages && Array.isArray(body.messages) && body.messages.length > 0) {
+    const messages = body.messages as Record<string, unknown>[];
+    const lastIndex = messages.length - 1;
+    const last = messages[lastIndex];
+    if (last) {
+      messages[lastIndex] = withAnthropicMessageCacheControl(last);
+    }
+  }
+}
+
 export interface ProviderRequest {
   /** System prompt / instructions */
   system?: string;
@@ -141,6 +242,13 @@ export interface ProviderRequest {
   toolChoice?: AIToolChoice;
   /** Tool-execution options (e.g. disable parallel tool calls). */
   toolExecution?: AIToolExecutionOptions;
+  /**
+   * Explicit prompt caching for Anthropic / Bedrock. OpenAI ignores this
+   * (automatic caching). `true` caches system + tools; pass an object for
+   * per-section control. Shorter prompts may not meet provider minima — the
+   * request still succeeds without a cache write.
+   */
+  cache?: AIPromptCacheOption;
 }
 
 /** Compose a request's optional user signal with a timeout, returning a single AbortSignal. */
@@ -1558,6 +1666,8 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         );
         if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
       }
+      const promptCache = resolvePromptCache(request.cache);
+      if (promptCache) applyAnthropicPromptCache(body, promptCache);
 
       const resp = await executeRequestWithRetry({
         providerName: 'anthropic',
@@ -1649,12 +1759,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
-      // Multi-turn path: when `messages` is supplied, send them verbatim.
-      // Single-turn path: synthesize a single user message from `prompt`.
-      const messages =
-        request.messages && request.messages.length > 0
-          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
-          : [{ role: 'user', content: request.prompt }];
+      const messages = toAnthropicMessages(request);
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
         messages,
@@ -1672,6 +1777,22 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         };
       }
       applyAnthropicReasoning(body, request);
+      if (request.tools && request.tools.length > 0) {
+        assertNoStructuredOutputToolConflict(request);
+        validateCallerTools(request.tools);
+        body.tools = request.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters,
+        }));
+        const callerToolChoice = buildAnthropicToolChoice(
+          request.toolChoice,
+          request.toolExecution,
+        );
+        if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
+      }
+      const promptCache = resolvePromptCache(request.cache);
+      if (promptCache) applyAnthropicPromptCache(body, promptCache);
 
       let resp: Response;
       try {

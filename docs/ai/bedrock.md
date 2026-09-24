@@ -80,10 +80,11 @@ Common production patterns (AWS docs, samples, and industry write-ups):
 | Guardrails on Converse (`guardrailConfig`) | **Not first-class** — app can wrap or extend later |
 | Multimodal image/document blocks | **Not first-class** — text/tool path today |
 | Structured outputs / `outputConfig` | Opt-in — `structuredOutputs: 'native'`; default stays on core validate-and-repair |
+| Explicit prompt caching (`cachePoint`) | Yes — when `cache` is set on the request / AI service (Claude model ids) |
 | Bedrock Agents / KB Retrieve | Out of scope — use RAG in core / knowledge-base |
 | Mantle OpenAI proxy | Use OpenAI adapter, not this package |
 
-**Verdict:** We match the mainstream Converse + tools + stream + embed + cost path that most application backends need. Remaining Converse features (guardrails, multimodal, cache checkpoints) are documented gaps, not silent pretenses of support.
+**Verdict:** We match the mainstream Converse + tools + stream + embed + cost + explicit prompt-cache path that most application backends need. Remaining Converse features (guardrails, multimodal) are documented gaps, not silent pretenses of support.
 
 ---
 
@@ -547,13 +548,14 @@ Documented so deployers do not assume silent support:
 
 - **Guardrails** — no `guardrailConfig` plumbing yet
 - **Multimodal** Converse content blocks (image/document/video)
-- **Prompt caching** `cachePoint` blocks — the adapter never *creates* cache checkpoints, it only prices the cache tokens a model reports (Nova caches automatically; Claude needs checkpoints this adapter does not emit yet)
 - **1-hour cache-write tier** — priced at the default 5-minute write rate; AWS bills the longer TTL higher
 - **Batch / provisioned-throughput / priority / flex** pricing tiers
 - **Bedrock Agents**, Flows, Knowledge Bases Retrieve/RetrieveAndGenerate
 - **Image / video / audio** generation models
 - **First-class Mantle** productization (use OpenAI adapter)
 - Control-plane **ListFoundationModels** as `listModels` source
+
+**Prompt caching:** pass `cache` on `ctx.ai.generate*` / `streamGenerate` or `createAIService({ cache })`. For Claude model ids the adapter appends Converse `cachePoint` blocks after system text, at the end of `toolConfig.tools`, and (when requested) on the last message. Models without explicit cache support (for example Nova, which uses implicit caching) skip marks. Response cache tokens are still priced when reported.
 
 Contributions that stay within the `AIProviderAdapter` contract are welcome; do not call the Bedrock SDK from app business logic.
 

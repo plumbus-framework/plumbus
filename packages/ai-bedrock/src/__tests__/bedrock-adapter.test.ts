@@ -467,6 +467,123 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     expect(system?.[0]?.text).toBe('Be terse.');
   });
 
+  it('11b. cache:true adds cachePoint after system and tools for Claude', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: 'hi',
+      system: 'Be terse.',
+      model: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+      tools: [
+        { name: 'a', description: 'd', parameters: { type: 'object' } },
+        { name: 'b', description: 'd', parameters: { type: 'object' } },
+      ],
+      cache: true,
+    });
+
+    const input = commandInput(send);
+    const system = input.system as Array<{ text?: string; cachePoint?: { type?: string } }>;
+    expect(system).toEqual([{ text: 'Be terse.' }, { cachePoint: { type: 'default' } }]);
+    const tools = (input.toolConfig as { tools?: unknown[] }).tools;
+    expect(tools).toHaveLength(3);
+    expect(tools?.[2]).toEqual({ cachePoint: { type: 'default' } });
+  });
+
+  it('11c. cache.messages adds cachePoint on the last message', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: '',
+      model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      messages: [
+        { role: 'user', content: 'First' },
+        { role: 'user', content: 'Latest' },
+      ],
+      cache: { messages: true },
+    });
+
+    const messages = commandInput(send).messages as {
+      role: string;
+      content: { text?: string; cachePoint?: { type?: string } }[];
+    }[];
+    expect(messages[1]?.content).toEqual([{ text: 'Latest' }, { cachePoint: { type: 'default' } }]);
+  });
+
+  it('11d. cache marks are skipped for models without explicit cache support', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: 'hi',
+      system: 'Be terse.',
+      model: 'amazon.nova-lite-v1:0',
+      tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+      cache: true,
+    });
+
+    const input = commandInput(send);
+    expect(input.system).toEqual([{ text: 'Be terse.' }]);
+    const tools = (input.toolConfig as { tools?: unknown[] }).tools;
+    expect(tools).toHaveLength(1);
+  });
+
+  it('11e. stream applies the same cachePoint marks as complete', async () => {
+    async function* events() {
+      yield { messageStop: { stopReason: 'end_turn' } };
+    }
+    const send = vi.fn().mockResolvedValue({ stream: events() });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    for await (const _ of adapter.stream({
+      prompt: 'hi',
+      system: 'Cached',
+      model: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+      cache: true,
+    })) {
+      // drain
+    }
+
+    const system = commandInput(send).system as Array<{
+      text?: string;
+      cachePoint?: { type?: string };
+    }>;
+    expect(system).toEqual([{ text: 'Cached' }, { cachePoint: { type: 'default' } }]);
+  });
+
   it('13. parallel tool results collapse into ONE user turn with all toolResult blocks', async () => {
     const send = vi.fn().mockResolvedValue({
       output: { message: { role: 'assistant', content: [{ text: 'done' }] } },

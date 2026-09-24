@@ -1158,6 +1158,197 @@ describe('AI Provider Adapters', () => {
 
       vi.unstubAllGlobals();
     });
+
+    it('adds Anthropic cache_control marks when cache is enabled', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          model: 'claude-sonnet-4-20250514',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      await adapter.complete({
+        prompt: 'IGNORED',
+        system: 'Long reusable system prompt',
+        messages: [
+          { role: 'user', content: 'First' },
+          { role: 'user', content: 'Latest' },
+        ],
+        tools: [
+          { name: 'a', description: 'tool a', parameters: { type: 'object' } },
+          { name: 'b', description: 'tool b', parameters: { type: 'object' } },
+        ],
+        cache: true,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(body.system).toEqual([
+        {
+          type: 'text',
+          text: 'Long reusable system prompt',
+          cache_control: { type: 'ephemeral' },
+        },
+      ]);
+      expect(body.tools?.[0]?.cache_control).toBeUndefined();
+      expect(body.tools?.[1]?.cache_control).toEqual({ type: 'ephemeral' });
+      // cache: true does not mark messages
+      expect(body.messages?.[1]).toEqual({ role: 'user', content: 'Latest' });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('marks the last message when cache.messages is true', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          model: 'claude-sonnet-4-20250514',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      await adapter.complete({
+        prompt: 'hi',
+        messages: [
+          { role: 'user', content: 'First' },
+          { role: 'assistant', content: 'Second' },
+        ],
+        cache: { messages: true },
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(body.system).toBeUndefined();
+      expect(body.messages?.[1]).toEqual({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Second', cache_control: { type: 'ephemeral' } }],
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('omits Anthropic cache_control when cache is off', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          model: 'claude-sonnet-4-20250514',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      await adapter.complete({
+        prompt: 'hi',
+        system: 'Be terse.',
+        tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+        cache: false,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(body.system).toBe('Be terse.');
+      expect(body.tools?.[0]?.cache_control).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it('applies cache_control on Anthropic stream bodies', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(
+          'data: {"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":0}}}\n\n' +
+            'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}\n\n',
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          },
+        ),
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      for await (const _ of adapter.stream({
+        prompt: 'hi',
+        system: 'Cached system',
+        cache: true,
+      })) {
+        // drain
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(body.stream).toBe(true);
+      expect(body.system).toEqual([
+        {
+          type: 'text',
+          text: 'Cached system',
+          cache_control: { type: 'ephemeral' },
+        },
+      ]);
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe('prompt cache option ignored by OpenAI', () => {
+    it('does not alter OpenAI chat completions body when cache is set', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+          model: 'gpt-4o',
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      await adapter.complete({
+        prompt: 'hi',
+        system: 'sys',
+        tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+        cache: true,
+      });
+
+      const withCache = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      mockFetch.mockClear();
+      await adapter.complete({
+        prompt: 'hi',
+        system: 'sys',
+        tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+      });
+      const withoutCache = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(withCache).toEqual(withoutCache);
+      expect(JSON.stringify(withCache)).not.toContain('cache_control');
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe('resolvePromptCache', () => {
+    it('maps true/false/object shapes', async () => {
+      const { resolvePromptCache } = await import('../provider.js');
+      expect(resolvePromptCache(undefined)).toBeUndefined();
+      expect(resolvePromptCache(false)).toBeUndefined();
+      expect(resolvePromptCache(true)).toEqual({
+        system: true,
+        tools: true,
+        messages: false,
+      });
+      expect(resolvePromptCache({ messages: true })).toEqual({
+        system: false,
+        tools: false,
+        messages: true,
+      });
+      expect(resolvePromptCache({ system: false, tools: false, messages: false })).toBeUndefined();
+    });
   });
 
   describe('external AbortSignal propagation', () => {

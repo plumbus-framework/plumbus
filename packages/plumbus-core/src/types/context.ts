@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
 import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 import type {
+  AIPromptCacheOption,
   AITool,
   AIToolCall,
   AIToolChoice,
@@ -13,12 +14,15 @@ import type {
 
 // Re-export the provider tool-calling protocol types on the context surface.
 export type {
+  AICacheConfig,
+  AIPromptCacheOption,
   AITool,
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
   AIProviderCapabilities,
   ProviderAssistantState,
+  ResolvedAICacheConfig,
 } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
@@ -400,6 +404,11 @@ export interface AIGenerateWithUsageConfig {
    * `'low' | 'medium' | 'high'` values.
    */
   reasoningEffort?: ReasoningEffort | null;
+  /**
+   * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+   * default when set. OpenAI ignores this option.
+   */
+  cache?: AIPromptCacheOption;
 }
 
 export interface AIValidationOptions {
@@ -486,6 +495,11 @@ export interface AIService {
     reasoning?: AIReasoningConfig | null;
     /** @deprecated Use `reasoning`. */
     reasoningEffort?: ReasoningEffort | null;
+    /**
+     * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+     * default when set. OpenAI ignores this option.
+     */
+    cache?: AIPromptCacheOption;
   }): Promise<Record<string, any>>;
 
   /** Like generate(), but also returns actual token usage. No tools → flat result; `.data` unconditional (C1). */
@@ -525,6 +539,11 @@ export interface AIService {
     reasoning?: AIReasoningConfig | null;
     /** @deprecated Use `reasoning`. */
     reasoningEffort?: ReasoningEffort | null;
+    /**
+     * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+     * default when set. OpenAI ignores this option.
+     */
+    cache?: AIPromptCacheOption;
   }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {
