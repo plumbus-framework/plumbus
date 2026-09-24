@@ -251,6 +251,28 @@ describe('provider tool calling', () => {
       vi.unstubAllGlobals();
     });
 
+    it('uses Responses API and omits sampling parameters for GPT-6 default reasoning with tools', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponsesResponse({ output: [] }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+      await adapter.complete({
+        prompt: 'Run tool',
+        tools: [sampleTool],
+        maxTokens: 4321,
+        temperature: 0.2,
+      });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.max_output_tokens).toBe(4321);
+      expect(body.temperature).toBeUndefined();
+      expect(body.reasoning).toBeUndefined();
+      expect(body.tools[0].name).toBe('do_thing');
+
+      vi.unstubAllGlobals();
+    });
+
     it('replays encrypted Responses reasoning state with function outputs', async () => {
       const reasoningItem = {
         id: 'rs_1',

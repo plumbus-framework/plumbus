@@ -2,6 +2,8 @@
 
 ## 0.7.4 — Unreleased
 
+- Fix GPT-6 OpenAI request compatibility: Chat Completions use `max_completion_tokens`, active/default reasoning omits unsupported sampling temperature, and tool calls with GPT-6 default reasoning use the Responses API. Explicitly disabled reasoning stays on Chat Completions and retains configured temperature.
+
 - Bump agent wiring to v17 and add a packaged classification recipe covering explicit provider/model selection, defaults, thresholds, and cost recording. All agent formats link the recipe and decision provider instruction indexes; refresh existing apps with `plumbus init --patch --agent all`.
 
 - Let `ctx.ai.classify()` select a registered text or decision provider with optional `provider`/`model`. TypeSafe/Laya classification batches probability questions and returns labels meeting `threshold` (default 0.5), sharing decision validation, security, budgets, cancellation, and one `classify` cost record. Existing calls keep their generative default.
