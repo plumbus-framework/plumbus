@@ -298,17 +298,19 @@ Plumbus supports multiple AI providers simultaneously. Each prompt can specify w
 
 For OpenAI chat completions, Plumbus maps prompt `maxTokens` to the provider-specific request
 field expected by the selected model. Older models receive `max_tokens`; newer completion models
-such as `gpt-5*`, `gpt-6*`, and `o*` receive `max_completion_tokens`. Separately, OpenAI
-`gpt-5.5+` models only accept the API default temperature (`1`), so Plumbus omits `temperature`
-from the request for those models. GPT-6 models omit `temperature` while reasoning is active or
-left at the model default, but retain a configured temperature when reasoning is explicitly
-disabled. Earlier `gpt-5` lines (for example `gpt-5.4-mini`) still receive the configured
-temperature.
+such as `gpt-5*` and `o*` receive `max_completion_tokens`. Core 0.7.5+ adds this handling for
+`gpt-6*`. Separately, OpenAI `gpt-5.5+` models only accept the API default temperature (`1`), so
+Plumbus omits `temperature`
+from the request for those models. In core 0.7.5+, GPT-6 models omit `temperature` while
+reasoning is active or left at the model default, but retain a configured temperature when
+reasoning is explicitly disabled. Earlier `gpt-5` lines (for example `gpt-5.4-mini`) still receive
+the configured temperature.
 
 Optional `model.reasoning` is provider-neutral. OpenAI retains Chat Completions
 for compatible requests and uses the Responses API when caller tools require
-active reasoning (including GPT-5.6 and GPT-6 default reasoning). Stateless tool rounds
-request and replay encrypted reasoning items through provider continuation state.
+active reasoning, including GPT-5.6 default reasoning. Core 0.7.5+ applies the same routing to
+GPT-6 default reasoning. Stateless tool rounds request and replay encrypted reasoning items
+through provider continuation state.
 Anthropic maps disabled/effort/budget to `thinking` and
 `output_config.effort`. Adapter-level
 incompatibilities fail locally with `AIInvalidRequestError`; model-specific limitations remain
