@@ -1,5 +1,11 @@
 # @plumbus/ai-bedrock
 
+## Unreleased
+
+### Added
+
+- Honor `ProviderRequest.cache` on Converse / ConverseStream: append `cachePoint` after system text, at the end of `toolConfig.tools`, and on the last message when requested. Marks apply to Claude model ids only; other families skip them so requests still succeed.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

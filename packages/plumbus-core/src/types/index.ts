@@ -38,6 +38,7 @@ export type {
 } from './config.js';
 // ── Context ──
 export type {
+  AICacheConfig,
   AIDocument,
   AIFinalGenerateResult,
   AIGenerateConfig,
@@ -45,6 +46,7 @@ export type {
   AIGenerateWithUsageConfig,
   AIDecideConfig,
   AIDecideResult,
+  AIPromptCacheOption,
   AIService,
   AIStreamEvent,
   AITokenUsage,

@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+- Add `cache` on AI generate / stream requests and an optional `createAIService({ cache })` default. Anthropic emits `cache_control` on system, the last tool, and (when requested) the last message; OpenAI ignores the option. Response-side cached-token pricing is unchanged.
+
 ## 0.7.5 — 2026-09-24
 
 - Fix GPT-6 OpenAI request compatibility: Chat Completions use `max_completion_tokens`, active/default reasoning omits unsupported sampling temperature, and tool calls with GPT-6 default reasoning use the Responses API. Explicitly disabled reasoning stays on Chat Completions and retains configured temperature.

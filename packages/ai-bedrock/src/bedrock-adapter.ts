@@ -26,14 +26,85 @@ import type {
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
+  ResolvedAICacheConfig,
   TokenUsage,
 } from '@plumbus/core';
+import { resolvePromptCache } from '@plumbus/core';
 import { BEDROCK_DEFAULT_EMBEDDING_MODEL, type BedrockAdapterConfig } from './types.js';
 import {
   createPricingStore,
   type BedrockPricingStore,
   normalizeBedrockModelId,
 } from './pricing.js';
+
+/** Converse `cachePoint` block (explicit prompt caching). */
+const BEDROCK_CACHE_POINT = Object.freeze({ cachePoint: { type: 'default' as const } });
+
+/**
+ * Models that accept Converse `cachePoint` for explicit prompt caching.
+ * Strip regional / global inference-profile prefixes before matching.
+ * Amazon Nova uses implicit caching — do not emit checkpoints for it.
+ * Unsupported models skip marks so the request still succeeds.
+ */
+export function bedrockSupportsExplicitCache(modelId: string): boolean {
+  return normalizeBedrockModelId(modelId).toLowerCase().startsWith('anthropic.claude');
+}
+
+function applyBedrockPromptCache(options: {
+  modelId: string;
+  request: ProviderRequest;
+  messages: Message[];
+  system: SystemContentBlock[] | undefined;
+  toolConfig: ToolConfiguration | undefined;
+}): {
+  messages: Message[];
+  system: SystemContentBlock[] | undefined;
+  toolConfig: ToolConfiguration | undefined;
+} {
+  const cache = resolvePromptCache(options.request.cache);
+  if (!cache || !bedrockSupportsExplicitCache(options.modelId)) {
+    return {
+      messages: options.messages,
+      system: options.system,
+      toolConfig: options.toolConfig,
+    };
+  }
+  return {
+    system: withBedrockSystemCache(options.system, cache),
+    toolConfig: withBedrockToolsCache(options.toolConfig, cache),
+    messages: withBedrockMessagesCache(options.messages, cache),
+  };
+}
+
+function withBedrockSystemCache(
+  system: SystemContentBlock[] | undefined,
+  cache: ResolvedAICacheConfig,
+): SystemContentBlock[] | undefined {
+  if (!cache.system || !system || system.length === 0) return system;
+  return [...system, { ...BEDROCK_CACHE_POINT } as SystemContentBlock];
+}
+
+function withBedrockToolsCache(
+  toolConfig: ToolConfiguration | undefined,
+  cache: ResolvedAICacheConfig,
+): ToolConfiguration | undefined {
+  if (!cache.tools || !toolConfig?.tools || toolConfig.tools.length === 0) return toolConfig;
+  return {
+    ...toolConfig,
+    tools: [...toolConfig.tools, { ...BEDROCK_CACHE_POINT } as Tool],
+  };
+}
+
+function withBedrockMessagesCache(messages: Message[], cache: ResolvedAICacheConfig): Message[] {
+  if (!cache.messages || messages.length === 0) return messages;
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  if (!last) return messages;
+  const content = [...(last.content ?? []), { ...BEDROCK_CACHE_POINT } as ContentBlock];
+  const next = messages.slice();
+  next[lastIndex] = { ...last, content };
+  return next;
+}
 
 function combineAbort(
   userSignal: AbortSignal | undefined,
@@ -428,12 +499,18 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       await ensurePricing();
       const modelId = request.model ?? defaultModel;
-      const messages = toBedrockMessages(request);
-      const system: SystemContentBlock[] | undefined = request.system
+      const rawMessages = toBedrockMessages(request);
+      const rawSystem: SystemContentBlock[] | undefined = request.system
         ? [{ text: request.system }]
         : undefined;
-
-      const toolConfig: ToolConfiguration | undefined = buildToolConfig(request);
+      const rawToolConfig: ToolConfiguration | undefined = buildToolConfig(request);
+      const { messages, system, toolConfig } = applyBedrockPromptCache({
+        modelId,
+        request,
+        messages: rawMessages,
+        system: rawSystem,
+        toolConfig: rawToolConfig,
+      });
 
       const inferenceConfig: { maxTokens?: number; temperature?: number } = {};
       if (request.maxTokens != null) inferenceConfig.maxTokens = request.maxTokens;
@@ -483,14 +560,21 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
       await ensurePricing();
       const modelId = request.model ?? defaultModel;
-      const messages = toBedrockMessages(request);
-      const system: SystemContentBlock[] | undefined = request.system
+      const rawMessages = toBedrockMessages(request);
+      const rawSystem: SystemContentBlock[] | undefined = request.system
         ? [{ text: request.system }]
         : undefined;
       const inferenceConfig: { maxTokens?: number; temperature?: number } = {};
       if (request.maxTokens != null) inferenceConfig.maxTokens = request.maxTokens;
       if (request.temperature != null) inferenceConfig.temperature = request.temperature;
-      const toolConfig = buildToolConfig(request);
+      const rawToolConfig = buildToolConfig(request);
+      const { messages, system, toolConfig } = applyBedrockPromptCache({
+        modelId,
+        request,
+        messages: rawMessages,
+        system: rawSystem,
+        toolConfig: rawToolConfig,
+      });
 
       let usage = emptyUsage();
       let finishReason = 'stop';

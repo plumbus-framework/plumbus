@@ -125,6 +125,40 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 
 For a one-off override, `generateWithUsage` accepts `provider`, `model`, and provider-neutral `reasoning`. Leaving a field undefined preserves normal prompt/config resolution; `reasoning:null` restores the provider/model default for that call and clears both inherited `reasoning` and inherited legacy `reasoningEffort`. Use `{ mode:'disabled' }`, `{ mode:'effort', effort }`, or `{ mode:'budget', maxTokens }`. The selected adapter translates the intent into its native wire format and explicitly rejects modes it cannot represent. Legacy `reasoningEffort` remains exactly `'low' | 'medium' | 'high'` with its previous OpenAI-only behavior.
 
+### Prompt caching (Anthropic / Bedrock)
+
+Anthropic and Bedrock only cache prompts the client marks (`cache_control` / `cachePoint`). Pass `cache` on `generate`, `generateWithUsage`, or `streamGenerate`, or set a service-level default on `createAIService({ cache })`:
+
+```typescript
+const ai = createAIService({
+  providers: { anthropic },
+  defaultProvider: "anthropic",
+  cache: true, // system + tools on every call
+});
+
+await ctx.ai.generateWithUsage({
+  prompt: "classifyTicket",
+  input: { ticketText },
+  cache: true, // or { system: true, tools: true, messages: false }
+});
+```
+
+| Value | Effect |
+| --- | --- |
+| `true` | Cache system + tools (not messages) |
+| `{ system?, tools?, messages? }` | Per-section control; omitted fields are `false` |
+| `false` | Disable marks even when the service default is on |
+
+When enabled, adapters add provider marks:
+
+| Surface | Anthropic | Bedrock (Converse) |
+| --- | --- | --- |
+| System | `[{ type:'text', text, cache_control:{ type:'ephemeral' } }]` | `{ cachePoint:{ type:'default' } }` after the system text |
+| Tools | `cache_control` on the last tool | `cachePoint` at the end of `toolConfig.tools` |
+| Messages | `cache_control` on the last message content block | `cachePoint` at the end of the last message |
+
+OpenAI ignores `cache` (automatic prompt caching). Bedrock emits `cachePoint` only for Claude model ids (`anthropic.claude…`, including regional inference-profile prefixes); Nova and other families skip marks so the request still succeeds. Providers also enforce minimum prefix lengths — shorter prompts succeed without a cache write. Response-side `cachedInputTokens` / `cacheWriteTokens` pricing is unchanged.
+
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 
 ```typescript
@@ -761,6 +795,8 @@ When providers return cache information, the framework adjusts pricing automatic
 - **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 uses **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
 - **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
 - Standard (non-cached) input tokens are charged at the full base rate
+
+**Request-side marks:** OpenAI caches automatically. For Anthropic and Bedrock Claude, enable `cache` on the call or `createAIService({ cache })` so Plumbus emits `cache_control` / `cachePoint` — see [Prompt caching](#prompt-caching-anthropic--bedrock). Without those marks, responses typically report zero cached tokens even though pricing fields exist.
 
 The framework parses cache data from provider responses:
 - **OpenAI**: `usage.prompt_tokens_details.cached_tokens`

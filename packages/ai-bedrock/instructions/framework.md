@@ -273,6 +273,8 @@ Bedrock does **not** return dollars on chat responses — only token usage. This
 
 Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Converse tool-use). Model-dependent limits still apply on the AWS side.
 
+**Prompt caching:** honor `ProviderRequest.cache` (from `ctx.ai.*` / `createAIService({ cache })`). For Claude model ids, Converse / ConverseStream get `cachePoint` after system, after tools, and on the last message when requested. Other families skip marks.
+
 ## Troubleshooting (quick)
 
 | Symptom | Likely fix |

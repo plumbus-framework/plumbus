@@ -5,7 +5,7 @@
  * package-owned (auto-download by region or `pricingFilePath`).
  */
 
-export { createBedrockAdapter } from './bedrock-adapter.js';
+export { createBedrockAdapter, bedrockSupportsExplicitCache } from './bedrock-adapter.js';
 export {
   BEDROCK_DEFAULT_EMBEDDING_MODEL,
   type BedrockAdapterConfig,
