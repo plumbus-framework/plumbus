@@ -521,20 +521,27 @@ function openAIUsageToTokenUsage(usage: {
 
 function shouldUseOpenAIMaxCompletionTokens(model: string): boolean {
   const normalizedModel = model.trim().toLowerCase();
-  return /^(?:o\d|o\d-|o\d\.)/.test(normalizedModel) || normalizedModel.startsWith('gpt-5');
+  return (
+    /^(?:o\d|o\d-|o\d\.)/.test(normalizedModel) ||
+    normalizedModel.startsWith('gpt-5') ||
+    normalizedModel.startsWith('gpt-6')
+  );
 }
 
 /**
- * `gpt-5.5+` only accept the API default temperature (1). Sending any other
- * value (including Plumbus's 0.7 default) returns HTTP 400 `unsupported_value`.
+ * `gpt-5.5+` only accept the API default temperature (1). GPT-6 accepts
+ * temperature only when reasoning is explicitly disabled. Sending any other
+ * value with active/default GPT-6 reasoning returns HTTP 400.
  *
  * Do not broaden this to all `gpt-5*` models — earlier lines such as
  * `gpt-5.4` / `gpt-5.4-mini` still support custom temperature. Token-limit
  * mapping (`max_completion_tokens`) remains a separate, wider check.
  */
-function shouldOmitOpenAITemperature(model: string): boolean {
+function shouldOmitOpenAITemperature(model: string, request: ProviderRequest): boolean {
   const normalizedModel = model.trim().toLowerCase();
-  return /^gpt-5\.(?:[5-9]|\d{2,})(?:$|[-.])/.test(normalizedModel);
+  if (/^gpt-5\.(?:[5-9]|\d{2,})(?:$|[-.])/.test(normalizedModel)) return true;
+  if (!isGpt6Family(model)) return false;
+  return normalizeProviderRequestReasoning(request)?.mode !== 'disabled';
 }
 
 function applyOpenAITokenLimit(
@@ -553,10 +560,10 @@ function applyOpenAITokenLimit(
 function applyOpenAITemperature(
   body: Record<string, unknown>,
   model: string,
-  temperature?: number,
+  request: ProviderRequest,
 ): void {
-  if (shouldOmitOpenAITemperature(model)) return;
-  body.temperature = temperature ?? 0.7;
+  if (shouldOmitOpenAITemperature(model, request)) return;
+  body.temperature = request.temperature ?? 0.7;
 }
 
 function normalizeProviderRequestReasoning(
@@ -885,11 +892,15 @@ function isGpt56Family(model: string): boolean {
   return /^gpt-5\.6(?:$|[-.])/.test(model.trim().toLowerCase());
 }
 
+function isGpt6Family(model: string): boolean {
+  return /^gpt-6(?:$|[-.])/.test(model.trim().toLowerCase());
+}
+
 /**
  * Chat Completions cannot combine function tools with active reasoning on
- * GPT-5.6. Keep every compatible request on the existing transport, but use
- * Responses for explicit reasoning effort, GPT-5.6's default reasoning, and
- * continuation rounds that already carry Responses output state.
+ * GPT-5.6 or GPT-6. Keep every compatible request on the existing transport,
+ * but use Responses for explicit reasoning effort, these families' default
+ * reasoning, and continuation rounds that already carry Responses output state.
  */
 function shouldUseOpenAIResponses(request: ProviderRequest, model: string): boolean {
   if (hasOpenAIResponsesContinuation(request)) return true;
@@ -898,7 +909,7 @@ function shouldUseOpenAIResponses(request: ProviderRequest, model: string): bool
   const reasoning = normalizeProviderRequestReasoning(request);
   if (reasoning?.mode === 'disabled') return false;
   if (reasoning?.mode === 'effort' || request.reasoningEffort !== undefined) return true;
-  return reasoning === undefined && isGpt56Family(model);
+  return reasoning === undefined && (isGpt56Family(model) || isGpt6Family(model));
 }
 
 function toOpenAIResponsesInput(request: ProviderRequest): Record<string, unknown>[] {
@@ -1026,7 +1037,7 @@ async function completeOpenAIResponses(args: {
     include: ['reasoning.encrypted_content'],
   };
   if (request.system) body.instructions = request.system;
-  applyOpenAITemperature(body, model, request.temperature);
+  applyOpenAITemperature(body, model, request);
   applyOpenAIResponsesReasoning(body, request);
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
   if (request.responseFormat === 'json') {
@@ -1223,7 +1234,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         model,
         messages,
       };
-      applyOpenAITemperature(body, model, request.temperature);
+      applyOpenAITemperature(body, model, request);
       applyOpenAIReasoning(body, request);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
@@ -1368,7 +1379,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream: true,
         stream_options: { include_usage: true },
       };
-      applyOpenAITemperature(body, model, request.temperature);
+      applyOpenAITemperature(body, model, request);
       applyOpenAIReasoning(body, request);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);

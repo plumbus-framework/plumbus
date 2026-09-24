@@ -1,6 +1,10 @@
 # @plumbus/core changelog
 
-## 0.7.4 — Unreleased
+## 0.7.5 — 2026-09-24
+
+- Fix GPT-6 OpenAI request compatibility: Chat Completions use `max_completion_tokens`, active/default reasoning omits unsupported sampling temperature, and tool calls with GPT-6 default reasoning use the Responses API. Explicitly disabled reasoning stays on Chat Completions and retains configured temperature.
+
+## 0.7.4 — 2026-09-23
 
 - Bump agent wiring to v17 and add a packaged classification recipe covering explicit provider/model selection, defaults, thresholds, and cost recording. All agent formats link the recipe and decision provider instruction indexes; refresh existing apps with `plumbus init --patch --agent all`.
 
