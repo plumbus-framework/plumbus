@@ -342,8 +342,11 @@ behind your deployment's private networking/TLS proxy if accessed remotely.
 The service also limits active HTTP handlers (including slow request readers) to
 32 by default. Set `LAYA_MAX_CONNECTIONS` from 1 through 128, or pass
 `max_connections` to `create_server`, to change it. Capacity exhaustion returns
-503 before another handler thread starts. Client disconnects during headers or
-body writes are handled without escaping the request handler.
+503 before another handler thread starts or the request body is read. A client
+still uploading its body can observe a broken pipe as the rejected socket closes;
+the offline capacity test reads the 503 response without sending a body. Client
+disconnects during headers or body writes are handled without escaping the
+request handler.
 
 Requests require one Content-Length and one Authorization header, UTF-8
 `application/json`, and identity Content-Encoding. Duplicate JSON keys,

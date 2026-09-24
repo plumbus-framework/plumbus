@@ -108,7 +108,14 @@ class ServiceRoundTwo(unittest.TestCase):
         first.start()
         try:
             self.assertTrue(entered.wait(1))
-            self.assertEqual(self.send(address=server.server_address)[0], 503)
+            # Capacity is rejected before request bytes are read. Sending a body
+            # here races the server closing the rejected connection.
+            with socket.create_connection(server.server_address, timeout=2) as rejected:
+                response = http.client.HTTPResponse(rejected)
+                response.begin()
+                self.assertEqual(response.status, 503)
+                self.assertEqual(response.getheader("Retry-After"), "1")
+                self.assertEqual(json.loads(response.read()), {"error": "Service connection capacity reached"})
             finish.set()
             first.join(2)
             self.assertEqual(results, [200])
