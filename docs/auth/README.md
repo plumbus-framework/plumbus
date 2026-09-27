@@ -15,7 +15,7 @@ These docs are split in two:
 | [configuration.md](./configuration.md) | You need the full `AuthRuntimeConfig` shape, URLs, TTLs, storage protection, and login context for invitation-only admission. |
 | [providers.md](./providers.md) | You are registering OIDC providers, discovery, integrations, or provider logout. |
 | [sessions-and-csrf.md](./sessions-and-csrf.md) | You are wiring the frontend to `/auth/session`, CSRF headers, or same-site cookies. |
-| [cognito.md](./cognito.md) | Your IdP is Amazon Cognito — pool setup, hosted UI, and `@plumbus/auth-cognito`. |
+| [cognito.md](./cognito.md) | Your IdP is Amazon Cognito — pool setup, hosted UI, server-attested sign-in for passwordless apps, and `@plumbus/auth-cognito`. |
 | [security.md](./security.md) | You need threat-model notes, cookie flags, envelope encryption, and audit events. |
 | [testing.md](./testing.md) | You are writing integration tests with the fake OIDC provider. |
 | [migration.md](./migration.md) | You are moving from JWT-in-localStorage or a custom adapter to `@plumbus/auth`. |
@@ -28,6 +28,7 @@ These docs are split in two:
 | Stateless bearer JWT verified on every request (API-only, no browser login UI) | `createJwtAdapter()` or `createOidcAdapter()` in `@plumbus/core` |
 | Browser login redirect, opaque `__Host-` session cookie, CSRF for mutating requests | **`@plumbus/auth`** |
 | Amazon Cognito hosted UI with identity-provider pinning | **`@plumbus/auth`** + **`@plumbus/auth-cognito`** |
+| Your own passwordless sign-in (magic links, passkeys) with Cognito as the user directory | **`@plumbus/auth-cognito/server`** + **`/triggers`** |
 | MCP agent tokens or partner API client credentials | Existing `@plumbus/mcp` / `@plumbus/api` auth — not this package |
 
 `@plumbus/auth` implements the **`HttpAuthenticationRuntime`** seam introduced in `@plumbus/core` 0.6.8. It registers `/auth/*` routes, owns session storage, and supplies the composite `RequestAuthenticator` (bearer wins over session cookie).

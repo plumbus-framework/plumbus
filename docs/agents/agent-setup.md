@@ -316,6 +316,7 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md` | `cognito()` integration registration |
 | `node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md` | Hosted UI IdP allowlist |
 | `node_modules/@plumbus/auth-cognito/instructions/logout.md` | Cognito logout URL builder |
+| `node_modules/@plumbus/auth-cognito/instructions/attested-sign-in.md` | Server-attested sign-in after the app's own passwordless login (`./server`, `./triggers`) |
 | `node_modules/@plumbus/payments/instructions/README.md` | Payments instruction index (optional package) |
 | `node_modules/@plumbus/payments/instructions/framework.md` | Package boundary, exports, money-handling rules |
 | `node_modules/@plumbus/payments/instructions/wiring.md` | `createPayments()`, collection exports, webhook route, worker, migrations, catalog sync, helpers |
@@ -395,7 +396,7 @@ This refreshes the Plumbus-managed wiring sections with the latest instructions 
 
 ## Payments guidance — wiring v18
 
-Core **0.7.7+** generates wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. Apps without payments are unaffected apart from the version marker.
+Core **0.7.7+** generates wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. They also list `@plumbus/auth-cognito`'s `attested-sign-in.md` (auth-cognito 0.2.2+). Apps without payments are unaffected apart from the version marker.
 
 Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
 

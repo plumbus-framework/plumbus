@@ -14,8 +14,10 @@ export const repoRoot = path.resolve(import.meta.dirname, '../../..');
 const authPkgDir = path.join(repoRoot, 'packages/auth');
 const authDist = path.join(authPkgDir, 'dist/index.js');
 const cognitoDist = path.join(repoRoot, 'packages/auth-cognito/dist/index.js');
+const cognitoServerDist = path.join(repoRoot, 'packages/auth-cognito/dist/server/index.js');
+const cognitoTestingDist = path.join(repoRoot, 'packages/auth-cognito/dist/testing/index.js');
 
-for (const dist of [authDist, cognitoDist]) {
+for (const dist of [authDist, cognitoDist, cognitoServerDist, cognitoTestingDist]) {
   if (!existsSync(dist)) {
     console.error(
       `[deps] Missing build output: ${dist}\n` +
@@ -32,6 +34,10 @@ const require = createRequire(path.join(authPkgDir, 'package.json'));
 const { default: Fastify } = await import(fileUrl(require.resolve('fastify')));
 const auth = await import(fileUrl(authDist));
 const cognitoPkg = await import(fileUrl(cognitoDist));
+// Server-attested sign-in (./server) and the in-process fake Cognito (./testing).
+// Their AWS SDK + jose imports resolve from packages/auth-cognito/node_modules.
+const cognitoServer = await import(fileUrl(cognitoServerDist));
+const cognitoTesting = await import(fileUrl(cognitoTestingDist));
 
 export { Fastify };
 export const {
@@ -40,3 +46,9 @@ export const {
   createMemoryLoginTransactionStore,
 } = auth;
 export const { cognito } = cognitoPkg;
+export const {
+  createCognitoPoolAdministration,
+  createCognitoPoolUsers,
+  CognitoServerError,
+} = cognitoServer;
+export const { startFakeCognito } = cognitoTesting;

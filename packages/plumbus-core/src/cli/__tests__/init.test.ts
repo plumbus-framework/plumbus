@@ -97,6 +97,9 @@ describe('plumbus init', () => {
         'node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md',
       );
       expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/logout.md');
+      expect(content).toContain(
+        'node_modules/@plumbus/auth-cognito/instructions/attested-sign-in.md',
+      );
       expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/testing.md');
       expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/README.md');
       for (const file of [

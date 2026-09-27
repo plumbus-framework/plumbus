@@ -15,6 +15,7 @@ import { cognito, Fastify } from './lib/deps.mjs';
 import { loadConfig, mask } from './lib/config.mjs';
 import { startNonceProxy } from './lib/nonce-proxy.mjs';
 import { buildAuthRuntime, resolveCredentials } from './lib/runtime.mjs';
+import { registerAttestedRoutes, startAttestedDemo } from './lib/attested.mjs';
 
 const results = [];
 function record(name, status, detail = '') {
@@ -219,6 +220,10 @@ async function main() {
   //     Routed through the nonce proxy, so the session step now completes. -----
   await fullLogin(app, cfg, credentials, cognitoxEchoesNonce, identitySeen);
 
+  // --- Server-attested sign-in (magic link → Cognito) — in-process fake Cognito,
+  //     because cognitox answers CUSTOM_AUTH with NotImplementedException. -----
+  await attestedChecks(checkAsync);
+
   await runtime.close?.();
   await app.close();
   await proxy.stop();
@@ -376,6 +381,117 @@ async function fullLogin(app, cfg, credentials, cognitoxEchoesNonce, identitySee
     `callback error=${errCode ?? 'login_failed'} status=${cb.statusCode}` +
       (cognitoxEchoesNonce ? '' : ' (nonce proxy did not inject nonce as expected)'),
   );
+}
+
+/** Server-attested sign-in through @plumbus/auth-cognito/server against the fake Cognito. */
+async function attestedChecks(checkAsync) {
+  let clock = Date.now();
+  const demo = await startAttestedDemo({ now: () => clock });
+  const app = Fastify({ logger: false });
+  registerAttestedRoutes(app, demo);
+  await app.ready();
+  const refusedWith = async (promise, reason) => {
+    try {
+      await promise;
+    } catch (error) {
+      assert(error.reason === reason, `expected ${reason}, got ${error.reason}: ${error.message}`);
+      return;
+    }
+    throw new Error(`expected refusal ${reason}`);
+  };
+  try {
+    await checkAsync('attested: pool is admin-only, trigger-gated, deletion-protected', async () => {
+      const { poolSettings } = demo.describe();
+      assert(poolSettings.allowAdminCreateUserOnly === true, 'self sign-up is allowed');
+      assert(poolSettings.deletionProtection === 'ACTIVE', 'deletion protection is off');
+      const triggers = Object.values(poolSettings.lambdaConfig);
+      assert(triggers.length === 3 && new Set(triggers).size === 1, 'expected one Lambda for three triggers');
+      return `pool=${demo.describe().userPoolId}`;
+    });
+
+    let first;
+    await checkAsync('attested: magic link → Cognito sign-in → verified identity', async () => {
+      const { token } = demo.requestLink('member@tenant-a.example');
+      first = await demo.redeem(token);
+      const { identity } = first;
+      assert(identity.issuer === demo.describe().issuer, `issuer ${identity.issuer}`);
+      assert(identity.username === first.accountId, 'Cognito username is not the app account id');
+      assert(identity.claims.token_use === 'id', 'not an ID token');
+      assert(identity.email === 'member@tenant-a.example' && identity.emailVerified, 'email not verified');
+      return `sub=${identity.subject}`;
+    });
+
+    await checkAsync('attested: user is confirmed and the refresh token was revoked', async () => {
+      const state = demo.session(first.sessionId);
+      assert(state.cognitoUser?.status === 'CONFIRMED', `status ${state.cognitoUser?.status}`);
+      assert(state.refreshTokensIssued === 1 && state.refreshTokensRevoked === 1, JSON.stringify(state));
+      return 'no Cognito tokens kept';
+    });
+
+    await checkAsync('attested: second sign-in reuses the same Cognito user', async () => {
+      const again = await demo.redeem(demo.requestLink('member@tenant-a.example').token);
+      assert(again.identity.subject === first.identity.subject, 'a second Cognito user was created');
+      return 'same sub';
+    });
+
+    await checkAsync('attested: a used link is refused', async () => {
+      const { token } = demo.requestLink('member@tenant-a.example');
+      await demo.redeem(token);
+      await refusedWith(demo.redeem(token), 'link-invalid');
+      return 'link-invalid';
+    });
+
+    await checkAsync('attested: an expired link is refused', async () => {
+      const { token } = demo.requestLink('member@tenant-a.example');
+      clock += 6 * 60_000;
+      await refusedWith(demo.redeem(token), 'link-expired');
+      return 'link-expired';
+    });
+
+    await checkAsync('attested: a user disabled in the pool cannot sign in', async () => {
+      await demo.setEnabled('member@tenant-a.example', false);
+      await refusedWith(demo.redeem(demo.requestLink('member@tenant-a.example').token), 'user-disabled');
+      await demo.setEnabled('member@tenant-a.example', true);
+      await demo.redeem(demo.requestLink('member@tenant-a.example').token);
+      return 'user-disabled, then signs in again once re-enabled';
+    });
+
+    await checkAsync('attested: a Cognito outage fails closed as provider-unavailable', async () => {
+      demo.setOutage(true);
+      await refusedWith(demo.redeem(demo.requestLink('member@tenant-a.example').token), 'provider-unavailable');
+      demo.setOutage(false);
+      return 'provider-unavailable';
+    });
+
+    await checkAsync('attested: browser routes set an HttpOnly session and refuse replays', async () => {
+      const requested = await app.inject({
+        method: 'POST',
+        url: '/attested/request',
+        headers: { 'content-type': 'application/json' },
+        payload: { email: 'staff@tenant-a.example' },
+      });
+      const { link } = requested.json();
+      const redeemed = await app.inject({ method: 'GET', url: link });
+      assert(redeemed.statusCode === 303 && redeemed.headers.location === '/#attested', `redeem ${redeemed.statusCode}`);
+      const cookie = String(redeemed.headers['set-cookie'] ?? '');
+      assert(/HttpOnly/.test(cookie) && /SameSite=Lax/.test(cookie), `cookie ${cookie}`);
+      const state = await app.inject({ method: 'GET', url: '/attested/session', headers: { cookie: cookie.split(';')[0] } });
+      assert(state.json().authenticated === true, 'session not established');
+      const replay = await app.inject({ method: 'GET', url: link });
+      assert(String(replay.headers.location).includes('attestedError=link-invalid'), `replay → ${replay.headers.location}`);
+      const formPost = await app.inject({
+        method: 'POST',
+        url: '/attested/request',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'email=x@y.z',
+      });
+      assert(formPost.statusCode === 415, `form post answered ${formPost.statusCode}`);
+      return 'HttpOnly cookie, replay refused, form posts refused';
+    });
+  } finally {
+    await app.close();
+    await demo.close();
+  }
 }
 
 function finish() {
