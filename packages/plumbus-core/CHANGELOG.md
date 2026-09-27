@@ -1,5 +1,16 @@
 # @plumbus/core changelog
 
+## 0.8.0-beta.7 — 2026-09-27
+
+Carries core 0.7.5 and 0.7.6 from `main` into the beta family.
+
+### Fixed
+
+- **GPT-6 OpenAI requests.** Chat Completions send `max_completion_tokens` for `gpt-6*`; active or default reasoning omits the unsupported sampling `temperature` (explicitly disabled reasoning keeps it); tool calls under GPT-6 default reasoning use the Responses API.
+- **Event pipeline audit is best-effort.** Dispatch and delivery audit entries (`event.dispatch.*`, `event.consumer.*`, including the 0.8 `event.consumer.skipped`) are written through `recordPipelineAudit`: a failed audit write is logged and no longer skips the publish, the consumer handler or the dead-letter write. Beta.2 had already made the outcomes valid, but a failing audit write still counted as a failed publish or a failed consumer attempt, so the row was retried or dead-lettered instead of delivered. `createOutboxDispatcher` and `createEventWorker` take an optional `logger`, which the worker pool passes.
+- **Stranded outbox claims are released.** On every plane it polls, the dispatcher returns `event_outbox` rows left in `processing` for longer than `claimTimeoutMs` (default 5 minutes) to `pending` before selecting, so rows claimed by a dispatcher that stopped before publishing are delivered.
+- **Timer polls cannot reject.** Per-plane failures were already contained; the timer now also catches the poll itself, and every outbox-poll failure goes to the logger when one is configured.
+
 ## 0.8.0-beta.6 — 2026-09-23
 
 Carries core 0.7.2 and 0.7.4 from `main` into the beta family (0.7.4 absorbed the unpublished 0.7.3).
