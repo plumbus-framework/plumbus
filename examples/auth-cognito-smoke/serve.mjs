@@ -12,6 +12,7 @@ import { Fastify } from './lib/deps.mjs';
 import { loadConfig, mask } from './lib/config.mjs';
 import { startNonceProxy } from './lib/nonce-proxy.mjs';
 import { buildAuthRuntime, resolveCredentials } from './lib/runtime.mjs';
+import { registerAttestedRoutes, startAttestedDemo } from './lib/attested.mjs';
 
 const cfg = await loadConfig();
 
@@ -39,8 +40,12 @@ const { runtime } = buildAuthRuntime(cfg, credentials, {
 await runtime.initialize();
 runtime.registerRoutes(app);
 
+// Server-attested sign-in (magic link → Cognito) against the in-process fake Cognito.
+const attested = await startAttestedDemo({ log: (m) => console.log(`· attested: ${m}`) });
+registerAttestedRoutes(app, attested);
+
 app.get('/', async (_req, reply) => {
-  reply.type('text/html').send(landingPage(cfg, credentials));
+  reply.type('text/html').send(landingPage(cfg, credentials, attested.describe()));
 });
 
 app.get('/login-error', async (req, reply) => {
@@ -64,21 +69,23 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     await runtime.close?.();
     await app.close();
     await proxy.stop();
+    await attested.close();
     process.exit(0);
   });
 }
 
 // --- pages -----------------------------------------------------------------
 
-function landingPage(cfg, credentials) {
+function landingPage(cfg, credentials, attestedPool) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>@plumbus/auth-cognito smoke</title>
 <style>
   :root { color-scheme: light dark; }
-  body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; }
-  h1 { font-size: 20px; } code { background: #8883; padding: 1px 5px; border-radius: 4px; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px;
+    background: Canvas; color: CanvasText; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin: 0 0 8px; } code { background: #8883; padding: 1px 5px; border-radius: 4px; }
   .card { border: 1px solid #8884; border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
   a.btn, button { display: inline-block; background: #2563eb; color: #fff; border: 0;
     padding: 10px 16px; border-radius: 8px; text-decoration: none; font: inherit; cursor: pointer; }
@@ -87,6 +94,9 @@ function landingPage(cfg, credentials) {
   .warn { border-left: 3px solid #d97706; padding-left: 12px; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
   dt { color: #888; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .alert { color: #b91c1c; font-weight: 600; }
+  input[type=email] { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #8886; min-width: 260px; }
 </style></head><body>
 <h1>@plumbus/auth-cognito · smoke</h1>
 <p>Exercises the <code>cognito()</code> integration through a real <code>@plumbus/auth</code>
@@ -107,6 +117,36 @@ runtime pointed at your cognitox emulator.</p>
 <div class="card">
   <p><a class="btn" href="/auth/login/cognito?returnTo=/">Sign in with Cognito →</a></p>
   <div id="session">Checking session…</div>
+</div>
+
+
+<div class="card" id="attested">
+  <h2>Server-attested sign-in · magic link → Cognito</h2>
+  <p>The app authenticates the person with its own single-use link, then
+  <code>@plumbus/auth-cognito/server</code> signs their account into a Cognito pool through
+  custom auth, answering the trigger's nonce with an HMAC attestation. cognitox has no custom
+  auth, so this pool lives in the package's in-process fake Cognito, which runs the real
+  <code>createAttestedSignInTrigger</code>.</p>
+  <dl>
+    <dt>fake Cognito</dt><dd><code>${esc(attestedPool.endpoint)}</code></dd>
+    <dt>attested pool</dt><dd><code>${esc(attestedPool.userPoolId)}</code></dd>
+    <dt>app client</dt><dd><code>${esc(attestedPool.clientId)}</code> (no secret, custom auth only)</dd>
+    <dt>issuer</dt><dd><code>${esc(attestedPool.issuer)}</code></dd>
+  </dl>
+  <p id="attested-error" class="alert" role="alert"></p>
+  <form id="attested-form" class="row">
+    <input name="email" type="email" aria-label="Email" value="member@tenant-a.example" required />
+    <button type="submit">Email me a sign-in link</button>
+  </form>
+  <div id="attested-link"></div>
+  <div id="attested-session">Checking attested session…</div>
+  <div class="row">
+    <button type="button" class="secondary" data-admin="disable">Disable user in pool</button>
+    <button type="button" class="secondary" data-admin="enable">Enable user</button>
+    <button type="button" class="secondary" data-admin="outage-on">Simulate Cognito outage</button>
+    <button type="button" class="secondary" data-admin="outage-off">End outage</button>
+  </div>
+  <p id="attested-admin"></p>
 </div>
 
 <div class="card warn">
@@ -135,25 +175,63 @@ async function refresh() {
   };
 }
 refresh();
+
+const post = (url, body) => fetch(url, { method: 'POST', credentials: 'include',
+  headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+const emailInput = document.querySelector('#attested-form input[name=email]');
+const attestedError = new URLSearchParams(location.search).get('attestedError');
+if (attestedError) document.getElementById('attested-error').textContent =
+  'Attested sign-in refused: ' + attestedError;
+async function attestedRefresh() {
+  const el = document.getElementById('attested-session');
+  const s = await (await fetch('/attested/session', { credentials: 'include' })).json();
+  if (!s.authenticated) { el.innerHTML = '<em>Not signed in (attested).</em>'; return; }
+  el.innerHTML = '<strong>Signed in through Cognito</strong><pre>' +
+    JSON.stringify(s, null, 2).replace(/</g, '&lt;') + '</pre>' +
+    '<button class="secondary" id="attested-logout">Log out (attested)</button>';
+  document.getElementById('attested-logout').onclick = async () => {
+    await post('/attested/logout');
+    attestedRefresh();
+  };
+}
+document.getElementById('attested-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const r = await post('/attested/request', { email: emailInput.value });
+  const body = await r.json();
+  const out = document.getElementById('attested-link');
+  if (!r.ok) { out.textContent = 'Refused: ' + body.error; return; }
+  out.innerHTML = '<p>Sign-in link (a real app would email this; valid ' + body.expiresInSeconds +
+    ' s, single use):<br><a id="attested-open" href="' + body.link + '">Open sign-in link</a></p>';
+};
+for (const button of document.querySelectorAll('[data-admin]')) {
+  button.onclick = async () => {
+    const r = await post('/attested/admin', { action: button.dataset.admin, email: emailInput.value });
+    document.getElementById('attested-admin').textContent =
+      button.textContent + ': ' + JSON.stringify(await r.json());
+  };
+}
+attestedRefresh();
 </script>
 </body></html>`;
 }
 
 function errorPage(code, requestId) {
-  const isNonce = code === 'login_failed';
+  // serve.mjs always routes the OIDC flow through the nonce proxy, so a missing
+  // nonce is no longer the likely cause of login_failed; name the real ones.
+  const isLoginFailed = code === 'login_failed';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" /><title>Login error</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px}
+<style>:root{color-scheme:light dark}body{font:15px/1.5 system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;background:Canvas;color:CanvasText}
 code{background:#8883;padding:1px 5px;border-radius:4px}
 .warn{border-left:3px solid #d97706;padding-left:12px}</style></head><body>
 <h1>Login did not complete</h1>
 <p>Error code: <code>${esc(code ?? 'unknown')}</code>${requestId ? ` · request <code>${esc(requestId)}</code>` : ''}</p>
 ${
-  isNonce
-    ? `<div class="warn"><p>This is almost certainly the known cognitox limitation: cognitox does
-       not include the OIDC <code>nonce</code> claim in its id_tokens, and <code>@plumbus/auth</code>
-       rejects an id_token whose <code>nonce</code> does not match the login request. The
-       <code>@plumbus/auth-cognito</code> integration itself is working — see <code>node check.mjs</code>.</p></div>`
+  isLoginFailed
+    ? `<div class="warn"><p><code>@plumbus/auth</code> refused the callback. The usual causes are a
+       login transaction that expired, was already used, or was started in another browser, a
+       forged or mismatched <code>state</code>, or an authorization code Cognito rejected. The
+       request id above matches the server's audit entry.</p></div>`
     : ''
 }
 <p><a href="/">← Back</a></p>

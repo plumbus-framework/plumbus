@@ -142,7 +142,7 @@ button{width:100%;padding:12px;background:#007bff;color:#fff;border:0;border-rad
           otpChallenges.set(cid, { location, code, attempts: 0 });
           lastChallenge = { cid, code };
           console.log(`[nonce-proxy] OTP challenge ${cid} — one-time code: ${code}`);
-          res.writeHead(200, { 'content-type': 'text/html' });
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
           res.end(otpPage(cid));
           return;
         }
@@ -155,19 +155,19 @@ button{width:100%;padding:12px;background:#007bff;color:#fff;border:0;border-rad
         const supplied = url.searchParams.get('code') ?? '';
         const challenge = otpChallenges.get(cid);
         if (!challenge) {
-          res.writeHead(410, { 'content-type': 'text/html' });
+          res.writeHead(410, { 'content-type': 'text/html; charset=utf-8' });
           res.end(otpPage('', 'Challenge expired — start the login again.'));
           return;
         }
         challenge.attempts += 1;
         if (challenge.attempts > 5) {
           otpChallenges.delete(cid);
-          res.writeHead(410, { 'content-type': 'text/html' });
+          res.writeHead(410, { 'content-type': 'text/html; charset=utf-8' });
           res.end(otpPage('', 'Too many attempts — start the login again.'));
           return;
         }
         if (supplied !== challenge.code) {
-          res.writeHead(200, { 'content-type': 'text/html' });
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
           res.end(otpPage(cid, 'Incorrect code — try again.'));
           return;
         }

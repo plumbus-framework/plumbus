@@ -1,7 +1,7 @@
 {
   "name": "@plumbus/auth-cognito",
-  "version": "0.3.0-beta.0",
-  "description": "Amazon Cognito integration for @plumbus/auth — hosted login options, client auth method, and logout URL builder.",
+  "version": "0.3.0-beta.1",
+  "description": "Amazon Cognito integration for @plumbus/auth — hosted login options, client auth method, logout URL builder, and server-attested sign-in for passwordless apps.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,6 +9,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./triggers": {
+      "types": "./dist/triggers/index.d.ts",
+      "default": "./dist/triggers/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "scripts": {
@@ -40,9 +52,14 @@
   "peerDependencies": {
     "@plumbus/auth": ">=0.3.0-beta.0 <0.4.0"
   },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1108.0",
+    "jose": "^6.2.3"
+  },
   "devDependencies": {
     "@plumbus/auth": "workspace:*",
     "@plumbus/core": "workspace:*",
+    "fastify": "^5.0.0",
     "vitest": "^3.2.4"
   },
   "license": "MIT"

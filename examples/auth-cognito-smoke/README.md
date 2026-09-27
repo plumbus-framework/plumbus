@@ -23,6 +23,24 @@ Everything the `cognito()` integration contributes, against a live emulator:
 | `buildProviderLogoutUrl` | Builds `/logout?client_id=…&logout_uri=…` for an HTTPS hosted-UI domain; returns `null` for http |
 | Full login → session | Drives cognitox's hosted UI headlessly to a code, runs the `@plumbus/auth` callback, and asserts an authenticated session + logout (completes via the nonce proxy below) |
 | OTP (simulated, opt-in) | With `OTP_MODE=1`, a one-time-code challenge is inserted mid-login; asserts the challenge gates the code, wrong codes are rejected, and the RP's login transaction survives the multi-step flow |
+| Server-attested sign-in | The app's own single-use sign-in link, then `@plumbus/auth-cognito/server` signs the account into a Cognito pool through custom auth: admin-only, trigger-gated pool; verified ID token (issuer, username, `token_use`, verified email); confirmed user; refresh token revoked; same `sub` on the next sign-in; used and expired links refused; a user disabled in the pool refused (`user-disabled`); an outage fails closed (`provider-unavailable`); HttpOnly session cookie; form posts refused |
+
+### Server-attested sign-in runs against the in-process fake
+
+cognitox has no custom auth and no Lambda triggers — `AdminInitiateAuth` with `CUSTOM_AUTH`
+answers `NotImplementedException` — so the attested-sign-in part runs against the package's own
+fake Cognito (`@plumbus/auth-cognito/testing`), started in-process by `lib/attested.mjs`. The
+fake speaks the Cognito JSON API to the real AWS SDK and runs the real
+`createAttestedSignInTrigger`, so the path from the SDK call to the JWKS check is production
+code. In `serve.mjs` the section **Server-attested sign-in · magic link → Cognito** shows the
+link (a real app would mail it), the resulting Cognito identity, and buttons that disable the
+user in the pool or simulate an outage.
+
+The package's pool administration also runs against cognitox, with one exception: cognitox only
+accepts the account-recovery value `ADMIN_ONLY` in upper case, while Cognito (and the AWS SDK)
+use `admin_only`. `ensureAttestedUserPool` therefore cannot create its pool in cognitox; the
+user operations (`ensureUser`, `updateEmail`, `setUserEnabled`, `getUser`) and `deleteUserPool`
+work there unchanged.
 
 ## Prerequisites
 
@@ -161,4 +179,5 @@ insecure OIDC endpoints).
 | `lib/config.mjs` | Env + discovery → resolved config (with issuer/host warnings) |
 | `lib/cognitox-admin.mjs` | cognito-idp admin client + idempotent provisioning |
 | `lib/runtime.mjs` | Builds the `@plumbus/auth` runtime with the `cognito()` integration |
+| `lib/attested.mjs` | Server-attested sign-in demo: app magic links + `@plumbus/auth-cognito/server` against the in-process fake Cognito, and its routes |
 | `lib/nonce-proxy.mjs` | Local dependency-free proxy that injects the OIDC `nonce` cognitox omits; optional simulated OTP challenge (`OTP_MODE=1`) |

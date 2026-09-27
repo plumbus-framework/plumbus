@@ -22,13 +22,33 @@ Only when using **Amazon Cognito** as the OIDC provider. Generic OIDC IdPs do no
 ```ts
 import { cognito } from "@plumbus/auth-cognito";
 // CognitoIntegrationOptions type inferred from cognito() parameter
+
+// Server-attested sign-in (Node, AWS SDK) — see attested-sign-in.md
+import {
+  createCognitoPoolAdministration,
+  createCognitoPoolDirectory, // a hosted-login pool's users: invite, resend, list, enable/disable, delete
+  createCognitoPoolUsers,
+  createCognitoIdTokenVerifier,
+  cognitoUserPoolIssuer,
+  parseAttestationKeys,
+  CognitoServerError,
+  CognitoServerErrorReason,
+} from "@plumbus/auth-cognito/server";
+
+// The pool's Lambda trigger (dependency-free)
+import { createAttestedSignInTrigger } from "@plumbus/auth-cognito/triggers";
+
+// Tests only
+import { startFakeCognito } from "@plumbus/auth-cognito/testing";
 ```
 
 ## Critical rules
 
-1. **Still use `@plumbus/auth` for sessions and routes** — this package is integration-only.
+1. **Hosted login: still use `@plumbus/auth` for sessions and routes** — the root export is integration-only.
 2. **Do not bypass allowlist validation** — `allowedIdentityProviders` is enforced at construction.
 3. **Logout domain must be HTTPS** with empty path — see [logout.md](./logout.md).
 4. **Cannot disable PKCE or ID token checks** — integration hooks only add Cognito-specific query params.
+5. **Server-attested sign-in runs only after the app authenticated the person itself** — `signIn()` mints Cognito tokens for any username the keyring holder names. Never expose it to unauthenticated input; see [attested-sign-in.md](./attested-sign-in.md).
+6. **Never import `./server` or `./testing` into browser code** — they pull in the AWS SDK; `./testing` must never serve production.
 
 Human docs: [docs/auth/cognito.md](https://github.com/plumbus-framework/plumbus/blob/main/docs/auth/cognito.md).

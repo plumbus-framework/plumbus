@@ -169,10 +169,10 @@ Apps that only need a single direct RAG corpus in chat can use `ragContext` from
 
 ```
 pnpm add @plumbus/auth
-pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers
+pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers + server-attested sign-in
 ```
 
-Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.3.x`). Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.3.x`). Its `./server` + `./triggers` subpaths (0.3.0-beta.1+) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
 
 ### From `@plumbus/ui`
 
