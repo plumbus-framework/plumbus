@@ -390,11 +390,12 @@ import { field } from "@plumbus/core";
 
 field.id()                                          // Unique identifier
 field.string({ classification: "personal" })        // Text field
-field.number({ unique: true })                      // Numeric field
+field.number({ unique: true })                      // 32-bit integer
+field.bigint({ required: true })                    // 64-bit integer (money in minor units, totals)
 field.boolean({ default: true })                    // Boolean with default
 field.timestamp({ default: "now" })                 // Date/time
 field.json({ nullable: true })                      // Arbitrary JSON
-field.decimal()                                     // Decimal / floating-point
+field.decimal()                                     // Floating point — not for money
 field.enum(["a", "b", "c"])                         // Constrained values (positional)
 field.relation({ entity: "User", type: "many-to-one" }) // Foreign key
 ```

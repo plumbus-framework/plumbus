@@ -99,6 +99,25 @@ describe('plumbus init', () => {
       expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/logout.md');
       expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/testing.md');
       expect(content).toContain('node_modules/@plumbus/auth-cognito/instructions/README.md');
+      for (const file of [
+        'framework.md',
+        'wiring.md',
+        'options.md',
+        'capabilities-and-events.md',
+        'testing.md',
+        'README.md',
+      ]) {
+        expect(content).toContain(`node_modules/@plumbus/payments/instructions/${file}`);
+      }
+      for (const file of [
+        'framework.md',
+        'configure-stripe.md',
+        'webhooks.md',
+        'testing.md',
+        'README.md',
+      ]) {
+        expect(content).toContain(`node_modules/@plumbus/payments-stripe/instructions/${file}`);
+      }
       expect(content).toContain('node_modules/@plumbus/core/instructions/capabilities.md');
       expect(content).toContain(
         'node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md',

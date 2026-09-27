@@ -404,6 +404,8 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/ui`](packages/ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds |
 | [`@plumbus/auth`](packages/auth/) | Optional peer `0.7.x` on core — OIDC RP runtime; hosted login, server sessions, CSRF |
 | [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.2.x`) |
+| [`@plumbus/payments`](packages/payments/) | Optional `0.2.x` — sellers (users or tenants) charge their own clients: seller accounts, charges, refunds, disputes, signed webhooks as capabilities/entities/events; peer `@plumbus/core` `0.7.x` (**runtime ≥ 0.7.7**) |
+| [`@plumbus/payments-stripe`](packages/payments-stripe/) | Optional `0.2.x` — Stripe Connect provider for `@plumbus/payments` (Accounts v2, Checkout direct charges, snapshot + thin webhooks); peer `@plumbus/payments` `0.2.x` |
 | [`@plumbus/api`](packages/api/) | Optional peer `0.2.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
 | [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.2.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.7.x` (**runtime ≥ 0.7.0**). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
 | [`@plumbus/ai-decision`](packages/ai-decision/) | Shared typed decision contracts, validation and transport; core `0.7.3+` integrates `ctx.ai.decide()` and cost recording |

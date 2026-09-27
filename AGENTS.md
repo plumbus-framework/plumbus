@@ -174,6 +174,16 @@ pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers
 
 Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.2.x`). Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
 
+### Optional add-on: `@plumbus/payments` (+ `@plumbus/payments-stripe`)
+
+`@plumbus/payments` lets an app's users or tenants charge their own clients through a payment provider, with the app as the platform (seller accounts, charges, refunds, disputes, signed webhooks as capabilities/entities/events). It peer-depends on `@plumbus/core` (version-locked `0.7.x`; **runtime floor ≥ 0.7.7** for `field.bigint()`), and optionally `fastify` for the webhook route. `@plumbus/payments-stripe` is the Stripe Connect provider (Accounts v2, Checkout direct charges, snapshot + thin webhooks, API `2026-08-26.dahlia`); it peer-depends on `@plumbus/payments` (`0.2.x`) and brings the `stripe` SDK as a dependency — apps never add `stripe` themselves:
+
+```
+pnpm add @plumbus/payments @plumbus/payments-stripe
+```
+
+Apps export `payments` from `app/payments/index.ts`, re-export its capabilities, entities, and events, and call `registerPaymentRoutes()` from `app/server.ts`. `plumbus payments doctor|webhooks setup` load that module dynamically; core never imports the add-on. Money moves only through the payments capabilities. Start with `docs/payments/` (every option in `docs/payments/options.md`).
+
 ### From `@plumbus/ui`
 
 | Package | Provided by |
@@ -281,6 +291,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
+- `docs/payments/` — seller accounts, charges, refunds, webhooks (`@plumbus/payments`, `@plumbus/payments-stripe`); every option in `options.md`
 - `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
 - `docs/ui/` — client generation, hooks, Next.js scaffolding

@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   doublePrecision,
   index,
@@ -87,7 +88,7 @@ function mapFieldToColumn(colName: string, descriptor: FieldDescriptor): any {
       col = text(colName);
       break;
     case 'number':
-      col = integer(colName);
+      col = descriptor.size === 'bigint' ? bigint(colName, { mode: 'number' }) : integer(colName);
       break;
     case 'decimal':
       col = doublePrecision(colName);

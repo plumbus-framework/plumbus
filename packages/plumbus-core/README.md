@@ -166,8 +166,9 @@ node_modules/@plumbus/core/instructions/
 └── upgrading-0.5-capabilities.md  # 0.5.x capability invocation migration
 ```
 
-Wire them up with `plumbus init --agent all`. After upgrading to core 0.7.4+, run
-`plumbus init --patch --agent all` for wiring v17. For classification, provider/model
+Wire them up with `plumbus init --agent all`. After upgrading to core 0.7.7+, run
+`plumbus init --patch --agent all` for wiring v18 (v17 added the classification recipe;
+v18 adds the payments packages). For classification, provider/model
 selection, or TypeSafe/Jev and Laya, start with [the classification recipe](instructions/ai-classification.md).
 
 ## Documentation

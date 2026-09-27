@@ -45,6 +45,14 @@ docs/
 │   └── commands.md
 ├── security/                  Security model, auth, tenant isolation
 │   └── security-model.md
+├── payments/                  Optional @plumbus/payments + @plumbus/payments-stripe (sellers charge their clients)
+│   ├── README.md
+│   ├── getting-started.md
+│   ├── options.md             Every option and Stripe Connect choice, incl. ones not available yet
+│   ├── stripe.md
+│   ├── webhooks.md
+│   ├── testing.md
+│   └── security.md
 ├── auth/                      Optional @plumbus/auth package (OIDC RP, server sessions, CSRF)
 │   ├── README.md
 │   ├── getting-started.md

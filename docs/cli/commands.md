@@ -24,6 +24,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus verify` | Run governance rules |
 | `plumbus certify` | Run compliance profile assessment (`certify policy <name>`) |
 | `plumbus api` | Partner API manifest validate, OpenAPI/docs export, diff |
+| `plumbus payments` | Payments add-on: `doctor` (config + provider checks), `webhooks setup` |
 | `plumbus voice worker` | LiveKit realtime voice worker |
 | `plumbus e2e` | Run Playwright browser E2E suites |
 | `plumbus migrate` | Database migration commands |
@@ -687,6 +688,24 @@ plumbus api test-fixtures validate [--json]
 | `generate docs` | — | Write Markdown API docs |
 | `diff` | 1 on breaking changes | Compare current OpenAPI to a published spec |
 | `test-fixtures validate` | 1 on findings | Validate fixture files against capability schemas |
+
+---
+
+### plumbus payments
+
+Checks and setup for the optional [`@plumbus/payments`](../payments/README.md) add-on. The command loads `app/payments/index.ts` (or `.js`), which must export `payments` (the `createPayments()` result) as a named or default export. Core does not depend on the add-on.
+
+```bash
+plumbus payments doctor [--live] [--webhook-url <url>] [--fail-on-warning] [--json]
+plumbus payments webhooks setup --url <url> [--json]
+```
+
+| Subcommand | Exit code | What it does |
+|---|---|---|
+| `doctor` | 1 on error findings (or warnings with `--fail-on-warning`) | Prints config findings (provider rules, advice). With `--live`, also asks the provider: key mode vs `NODE_ENV`, Connect/Accounts v2 access, webhook destinations (existence, URL, events, API version) |
+| `webhooks setup` | 0 | Creates the provider's webhook destinations for `--url` (skips existing ones) and prints each signing secret once |
+
+`--webhook-url` is the public URL of the payments webhook route (default path `/payments/webhooks/<provider>`). See [docs/payments/webhooks.md](../payments/webhooks.md).
 
 ---
 
