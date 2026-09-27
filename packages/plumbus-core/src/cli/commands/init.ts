@@ -554,7 +554,7 @@ const PAYMENTS_INSTRUCTION_REFERENCES = [
 
 const PAYMENTS_STRIPE_INSTRUCTION_REFERENCES = [
   {
-    area: 'Stripe Connect provider boundary, API version, and critical rules',
+    area: 'Stripe provider boundary (Connect and Billing), API version, and critical rules',
     path: 'node_modules/@plumbus/payments-stripe/instructions/framework.md',
   },
   {

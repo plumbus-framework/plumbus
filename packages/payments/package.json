@@ -1,7 +1,7 @@
 {
   "name": "@plumbus/payments",
   "version": "0.2.0",
-  "description": "Plumbus payments add-on — provider-neutral seller accounts, client charges, refunds, and signed webhook ingestion as Plumbus capabilities, entities, and events.",
+  "description": "Plumbus payments add-on — provider-neutral payments as Plumbus capabilities, entities, and events: sellers charge their own clients (Connect), and the app bills its own customers for plans, seats, and usage.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,7 +35,9 @@
     "plumbus",
     "payments",
     "connect",
-    "marketplace"
+    "marketplace",
+    "billing",
+    "subscriptions"
   ],
   "repository": {
     "type": "git",

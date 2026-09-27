@@ -222,6 +222,24 @@ If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @p
 
 Read `node_modules/@plumbus/core/instructions/mcp.md` and `node_modules/@plumbus/mcp/instructions/README.md` for MCP.
 
+## Payments
+
+For apps with the optional `@plumbus/payments` add-on. The commands load the `payments` export of `app/payments/index.ts`; core does not depend on the add-on.
+
+```bash
+# Check the payments config; --live also checks keys, webhook destinations, and the billing catalog at the provider
+plumbus payments doctor --live --webhook-url https://api.example.com/payments/webhooks/stripe
+
+# Create the provider's webhook destinations (prints each signing secret once; re-run after upgrading the add-on)
+plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
+
+# Create or update the billing catalog (plans, prices, features, meters) from `billing` in the config
+plumbus payments catalog sync
+plumbus payments catalog check          # read-only; exits 1 when the provider differs (CI)
+```
+
+Read `node_modules/@plumbus/payments/instructions/README.md` for payments.
+
 ## App Commands
 
 Run custom command scripts defined in your project's `app/commands/` directory. Use this for setup scripts, data migration tasks, and other one-off operations that need framework infrastructure (DB, config, password hashing).

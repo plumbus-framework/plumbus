@@ -1,7 +1,7 @@
 {
   "name": "@plumbus/payments-stripe",
   "version": "0.2.0",
-  "description": "Stripe Connect provider for @plumbus/payments — Accounts v2 sellers, direct charges through Checkout, refunds, and snapshot + thin webhook verification.",
+  "description": "Stripe provider for @plumbus/payments — Connect with Accounts v2 sellers (direct and destination charges, transfers, payouts), Checkout, invoices, subscriptions, Stripe Billing plans and meters, and snapshot + thin webhook verification.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,7 +35,8 @@
     "plumbus",
     "payments",
     "stripe",
-    "stripe-connect"
+    "stripe-connect",
+    "stripe-billing"
   ],
   "repository": {
     "type": "git",
