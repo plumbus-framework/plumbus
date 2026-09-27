@@ -24,7 +24,8 @@ import {
 
 const attestationKeys = parseAttestationKeys(process.env.COGNITO_ATTESTATION_KEYS);
 
-// Provisioning (idempotent; needs pool-administration IAM):
+// Provisioning (idempotent, NOT safe to run concurrently; needs pool-administration IAM).
+// Run from one provisioning step or job — never from start-up code every replica runs:
 const admin = createCognitoPoolAdministration({ region });
 const { userPoolId, clientId, issuer } = await admin.ensureAttestedUserPool({
   name: `myapp-${tenantKey}`,
@@ -75,5 +76,6 @@ export const handler = createAttestedSignInTrigger({
 3. **Do not store Cognito tokens.** The app keeps its own session; the refresh token is revoked on sign-in.
 4. **Use `ensureAttestedUserPool` for pools** so sign-up stays admin-only, recovery stays `admin_only`, and ownership tags are checked. Hand-built pools must match the settings table in the human docs.
 5. **`deleteUserPool` requires the ownership tags** and refuses foreign pools.
+6. **Call `ensureAttestedUserPool` from one place** — a provisioning step that runs once per pool, a one-off job, or an operator command. Never put it in server start-up, a readiness hook, or anything every replica runs (Kubernetes pods, autoscaled instances, several workers). Cognito pool names are not unique: concurrent calls for one name can create two pools and return different pool ids (the app may record one while users land in the other), and every later call fails with `pool-conflict` until the extra pool is deleted with `deleteUserPool`. `ensureUser` and `signIn` are safe from every replica.
 
 Human docs: [docs/auth/cognito.md → Server-attested sign-in](https://github.com/plumbus-framework/plumbus/blob/main/docs/auth/cognito.md#server-attested-sign-in-passwordless-apps).

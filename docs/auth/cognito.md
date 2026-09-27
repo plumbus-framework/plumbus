@@ -182,7 +182,8 @@ import {
 
 const attestationKeys = parseAttestationKeys(process.env.COGNITO_ATTESTATION_KEYS); // "k2:secret,k1:old-secret"
 
-// Once per pool (for example per tenant), with pool-administration IAM rights:
+// Once per pool (for example per tenant), with pool-administration IAM rights,
+// from one provisioning step — never from start-up code every replica runs:
 const admin = createCognitoPoolAdministration({ region: "eu-west-1" });
 const pool = await admin.ensureAttestedUserPool({
   name: "myapp-tenant-a",
@@ -224,7 +225,16 @@ export const handler = createAttestedSignInTrigger({
 | App client | No secret, `ALLOW_CUSTOM_AUTH` only, token revocation on, user-existence errors hidden, 5-minute ID/access tokens, 60-minute refresh | Admin calls are IAM-signed, the client id never reaches a browser, and the attestation is the real gate |
 | Ownership tags | Required | A same-named pool without every tag is refused (`pool-conflict`), never adopted |
 
-It finds the pool by exact name, reconciles the triggers and sign-up/recovery settings if they drifted, and finds the client by name. Every call is idempotent. `ensureUser` creates admin-created users with no Cognito message, the email marked verified, and a random permanent password nobody knows, so the status is `CONFIRMED` (custom auth does not complete for `FORCE_CHANGE_PASSWORD` users).
+It finds the pool by exact name, reconciles the triggers and sign-up/recovery settings if they drifted, and finds the client by name. Repeated calls are idempotent; concurrent calls for the same pool are not (see [Provision pools from one place](#provision-pools-from-one-place)). `ensureUser` creates admin-created users with no Cognito message, the email marked verified, and a random permanent password nobody knows, so the status is `CONFIRMED` (custom auth does not complete for `FORCE_CHANGE_PASSWORD` users).
+
+### Provision pools from one place
+
+`ensureAttestedUserPool` looks the pool up by name and creates it when none exists. The two steps are not atomic, and Cognito does not keep pool names unique. Two calls for the same name at the same moment can therefore both create a pool, and each returns a different pool id. The app may record one pool while users are created in the other. Every later call for that name fails with `pool-conflict` ("ambiguous") until the extra pool is deleted with `deleteUserPool` (its id and ownership tags). The app client has the same race: concurrent calls can create two clients and return different client ids.
+
+- Call it from **one place**: a provisioning step that runs once per pool (for example a tenant-onboarding flow step), a one-off job, or an operator command.
+- **Never** call it from server start-up code that every replica runs — Kubernetes pods, autoscaled instances, several workers. If a job provisions pools, make sure two runs cannot overlap (for example two deploys at once).
+- Calls for different pool names can run in parallel.
+- `ensureUser` and `signIn` are safe from any number of replicas. When two replicas create the same user at once, both end up with that user.
 
 ### Errors
 

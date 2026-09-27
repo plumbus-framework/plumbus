@@ -55,7 +55,10 @@ export interface CognitoMfaPolicy {
 export interface CognitoPoolAdministration {
   /**
    * Finds the pool by name and ownership tags, or creates it; reconciles its security settings
-   * and triggers if they drifted; and ensures its secretless custom-auth app client. Idempotent.
+   * and triggers if they drifted; and ensures its secretless custom-auth app client. Idempotent,
+   * but not safe to run concurrently for one name: pool names are not unique in Cognito, so two
+   * simultaneous calls can create two pools (every later call then fails with `pool-conflict`).
+   * Call it from one provisioning step or job, never from start-up code every replica runs.
    */
   ensureAttestedUserPool(spec: AttestedUserPoolSpec): Promise<EnsuredAttestedUserPool>;
   /**
