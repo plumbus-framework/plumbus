@@ -1,5 +1,12 @@
 # @plumbus/core changelog
 
+## 0.7.6 — 2026-09-27
+
+- Fix the event pipeline stalling whenever audit is wired, which the worker pool does by default (#65). Since 0.7.0 `createAuditService` refuses outcomes outside `success | failure | denied`, but the outbox dispatcher and event worker still wrote `pending`, `retry` and `dead_lettered`. Every dispatch left its outbox row in `processing` and no consumer handler ran. Attempts now record no outcome (stored as `success`), `event.dispatch.failed` and `event.consumer.dead_lettered` record `failure`, and a failed dispatch keeps `retry` / `dead_lettered` in a `disposition` metadata field. Apps that rewrote these literals in `dist/` can remove that patch.
+- Make dispatch and delivery audit entries best-effort: a failed audit write is logged (worker pool logger, else console) and no longer skips the consumer handler, the publish, or the dead-letter write. Capabilities running inside a consumer still record their own audit.
+- Return outbox rows claimed more than five minutes ago (`claimTimeoutMs`) to `pending`, so rows left in `processing` by a stopped dispatcher, including those stranded by this bug, are published after upgrading.
+- Log a failed timer-driven outbox poll instead of leaving an unhandled promise rejection.
+
 ## 0.7.5 — 2026-09-24
 
 - Fix GPT-6 OpenAI request compatibility: Chat Completions use `max_completion_tokens`, active/default reasoning omits unsupported sampling temperature, and tool calls with GPT-6 default reasoning use the Responses API. Explicitly disabled reasoning stays on Chat Completions and retains configured temperature.

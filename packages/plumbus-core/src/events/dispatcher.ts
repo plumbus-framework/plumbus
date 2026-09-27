@@ -1,9 +1,11 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService } from '../types/audit.js';
+import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
+import { recordPipelineAudit } from './pipeline-audit.js';
 import type { EventQueue } from './queue.js';
 
 export interface DispatcherConfig {
@@ -21,6 +23,14 @@ export interface DispatcherConfig {
   backoffBaseMs?: number;
   /** Max backoff delay in ms (default: 60000) */
   backoffMaxMs?: number;
+  /**
+   * How long a claimed (`processing`) row may stay unpublished before a later
+   * poll returns it to `pending` (default: 300000). Covers a dispatcher that
+   * stopped between claim and publish.
+   */
+  claimTimeoutMs?: number;
+  /** Receives audit write and poll failures (default: console) */
+  logger?: LoggerService;
 }
 
 /**
@@ -37,8 +47,10 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     maxRetries = 5,
     backoffBaseMs = 1000,
     backoffMaxMs = 60_000,
+    claimTimeoutMs = 300_000,
     metrics,
     audit,
+    logger,
   } = config;
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -54,8 +66,20 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     polling = true;
 
     try {
-      // Fetch pending rows and failed rows whose backoff has elapsed
       const now = new Date();
+
+      // Release claims whose dispatcher stopped before publishing
+      await db
+        .update(outboxTable)
+        .set({ status: 'pending' })
+        .where(
+          and(
+            eq(outboxTable.status, 'processing'),
+            lt(outboxTable.dispatchedAt, new Date(now.getTime() - claimTimeoutMs)),
+          ),
+        );
+
+      // Fetch pending rows and failed rows whose backoff has elapsed
       const rows = await db
         .select()
         .from(outboxTable)
@@ -109,13 +133,14 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           payload: row.payload as Record<string, unknown>,
         };
 
+        // No outcome yet: audit outcomes are `success | failure | denied`
+        await recordPipelineAudit(audit, logger, 'event.dispatch.attempt', {
+          eventId: row.id,
+          eventType: row.eventType,
+          tenantId: row.tenantId,
+        });
+
         try {
-          await audit?.record('event.dispatch.attempt', {
-            eventId: row.id,
-            eventType: row.eventType,
-            tenantId: row.tenantId,
-            outcome: 'pending',
-          });
           await queue.publish(envelope);
           await db
             .update(outboxTable)
@@ -123,7 +148,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
             .where(eq(outboxTable.id, row.id));
           dispatched++;
           metrics?.eventEmitted.inc({ eventType: row.eventType });
-          await audit?.record('event.dispatch.dispatched', {
+          await recordPipelineAudit(audit, logger, 'event.dispatch.dispatched', {
             eventId: row.id,
             eventType: row.eventType,
             tenantId: row.tenantId,
@@ -133,13 +158,14 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           const retryCount = parseInt(row.retryCount, 10) + 1;
           const errorMsg = err instanceof Error ? err.message : String(err);
 
-          await audit?.record('event.dispatch.failed', {
+          await recordPipelineAudit(audit, logger, 'event.dispatch.failed', {
             eventId: row.id,
             eventType: row.eventType,
             tenantId: row.tenantId,
             retryCount,
             error: errorMsg,
-            outcome: retryCount >= maxRetries ? 'dead_lettered' : 'retry',
+            outcome: 'failure',
+            disposition: retryCount >= maxRetries ? 'dead_lettered' : 'retry',
           });
 
           if (retryCount >= maxRetries) {
@@ -182,6 +208,15 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     }
   }
 
+  /** Timer-driven poll; a failed cycle is logged and the next tick retries */
+  function tick(): void {
+    poll().catch((err) => {
+      const details = { error: err instanceof Error ? err.message : String(err) };
+      if (logger) logger.error('Outbox poll failed', details);
+      else console.error('[plumbus] outbox poll failed', details);
+    });
+  }
+
   return {
     /** Run a single poll cycle (useful for testing) */
     poll,
@@ -190,10 +225,8 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     start(): void {
       if (running) return;
       running = true;
-      timer = setInterval(() => {
-        void poll();
-      }, pollIntervalMs);
-      void poll();
+      timer = setInterval(tick, pollIntervalMs);
+      tick();
     },
 
     /** Stop the background polling loop */
