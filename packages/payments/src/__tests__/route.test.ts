@@ -120,6 +120,30 @@ describe('registerPaymentRoutes', () => {
     expect(old.statusCode).toBe(404);
   });
 
+  it('accepts bodies up to webhooks.bodyLimitBytes, even above the server default', async () => {
+    const { app, ledger } = await build({ webhooks: { bodyLimitBytes: 2 * 1024 * 1024 } });
+    const body = JSON.stringify({
+      id: 'evt_big',
+      type: 'account.updated',
+      livemode: false,
+      created: new Date().toISOString(),
+      account: 'acct_big',
+      object: { id: 'acct_big', type: 'account' },
+      padding: 'x'.repeat(1_500_000),
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/payments/webhooks/fake',
+      headers: {
+        'content-type': 'application/json',
+        [FAKE_SIGNATURE_HEADER]: createHmac('sha256', 'whsec_fake').update(body).digest('hex'),
+      },
+      payload: body,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(await ledger()).toHaveLength(1);
+  });
+
   it('answers 500 when the event cannot be recorded, so the provider retries', async () => {
     const { app, fake, base } = await build();
     await createAccountRow(base);

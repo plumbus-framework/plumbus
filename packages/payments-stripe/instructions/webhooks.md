@@ -35,7 +35,7 @@ Put the printed `whsec_…` secret in `STRIPE_WEBHOOK_SECRETS`. Platform-level e
 
 - Invalid signature / missing header → `400`, nothing recorded.
 - Event from the other mode (test vs live), unrelated type, or unknown seller → `200`, recorded as `ignored` with a reason (`livemode_mismatch`, `unhandled_type`, `unknown_seller_account`, `no_seller_account`).
-- Relevant event → `200`, recorded and queued; the worker re-reads Stripe and applies it. The same event delivered again → `200`, `duplicate`.
+- Relevant event → `200`, recorded and queued; the worker re-reads Stripe and applies it. The same event delivered again → `200`, `duplicate` — unless its processing had failed; then it is queued again (resend it from the Dashboard to retry).
 - Recording fails (database down) → `500`, so Stripe retries.
 
 Inspect deliveries in the `PaymentProviderEvent` table (`status`, `ignoredReason`, `error`).

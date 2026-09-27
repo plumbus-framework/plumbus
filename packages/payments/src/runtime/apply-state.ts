@@ -1,11 +1,13 @@
 // ── Apply provider state to the local copies ──
 // Runs inside applyProviderState's transaction. Every change is a fresh read
 // from the provider (fetch-on-event), so duplicate or out-of-order webhooks are
-// harmless: stale snapshots are skipped by `syncedAt`, statuses never move
-// backwards, and refunded amounts never shrink. Events fire only on transitions.
+// harmless: stale snapshots are skipped by `syncedAt` and charge statuses never
+// move backwards. Events fire only on transitions, and each transition is
+// written with a compare-and-set, so workers racing on one row emit it once.
 
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { SerializedStateChange } from '../capabilities/schemas.js';
 import { PaymentEventName } from '../events/index.js';
 import type { ChargeStatus } from '../types/provider.js';
@@ -14,8 +16,19 @@ import type {
   PaymentChargeRow,
   PaymentDisputeRow,
   PaymentMerchantAccountRow,
+  PaymentRefundRow,
 } from '../types/records.js';
-import { charges, disputes, findOne, isUuid, merchantAccounts, refunds } from './repos.js';
+import {
+  charges,
+  disputes,
+  findOne,
+  isPendingProviderId,
+  isUuid,
+  merchantAccounts,
+  refunds,
+  type TypedRepo,
+  writeIfUnchanged,
+} from './repos.js';
 
 export interface ApplyResult {
   applied: number;
@@ -50,6 +63,40 @@ export function deriveMerchantStatus(account: {
   return 'onboarding';
 }
 
+/** Whether a fresh account read changes what the app shows (requirement order does not count). */
+export function merchantChanged(
+  row: PaymentMerchantAccountRow,
+  account: { chargesEnabled: boolean; payoutsEnabled: boolean; requirementsDue: string[] },
+  status: MerchantAccountStatus,
+): boolean {
+  const before = [...(row.requirementsDue ?? [])].sort();
+  const after = [...account.requirementsDue].sort();
+  return (
+    status !== row.status ||
+    account.chargesEnabled !== row.chargesEnabled ||
+    account.payoutsEnabled !== row.payoutsEnabled ||
+    before.length !== after.length ||
+    before.some((item, index) => item !== after[index])
+  );
+}
+
+/** A row synced after `time` holds newer provider state than a read started at `time`. */
+export function syncedAfter(syncedAt: Date | string | null | undefined, time: Date): boolean {
+  if (!syncedAt) return false;
+  return new Date(syncedAt).getTime() > time.getTime();
+}
+
+// Bounded retries when another worker changes the row between read and write.
+const MAX_WRITE_ATTEMPTS = 5;
+
+function writeConflict(entity: string): PlumbusError {
+  return new PlumbusError(
+    ErrorCode.Conflict,
+    `${entity} kept changing while provider state was applied`,
+    { reason: 'payments_apply_conflict', retryable: true },
+  );
+}
+
 export async function applyStateChanges(
   ctx: ExecutionContext,
   provider: string,
@@ -82,8 +129,7 @@ export async function applyStateChanges(
 }
 
 function isStale(scope: ApplyScope, syncedAt: Date | string | null | undefined): boolean {
-  if (!syncedAt) return false;
-  return new Date(syncedAt).getTime() > scope.observedAt.getTime();
+  return syncedAfter(syncedAt, scope.observedAt);
 }
 
 async function emit(scope: ApplyScope, name: string, payload: Record<string, unknown>) {
@@ -120,12 +166,7 @@ async function applyMerchant(
     return;
   }
   const status = deriveMerchantStatus(account);
-  const previousDue = merchant.requirementsDue ?? [];
-  const changed =
-    status !== merchant.status ||
-    account.chargesEnabled !== merchant.chargesEnabled ||
-    account.payoutsEnabled !== merchant.payoutsEnabled ||
-    previousDue.join('\n') !== account.requirementsDue.join('\n');
+  const changed = merchantChanged(merchant, account, status);
 
   await merchantAccounts(scope.ctx).update(merchant.id, {
     status,
@@ -154,6 +195,18 @@ async function applyMerchant(
   }
 }
 
+/**
+ * A row found by reference must also be bound to the same provider object (or
+ * still await its provider id). Providers list a charge change before its
+ * refunds and disputes, so the payment id is already set when those arrive.
+ */
+function fitsLookup<T>(row: T, lookup: Partial<T>): boolean {
+  return Object.entries(lookup).every(([key, value]) => {
+    const actual = (row as Record<string, unknown>)[key];
+    return actual === value || isPendingProviderId(actual);
+  });
+}
+
 async function findCharge(
   scope: ApplyScope,
   merchant: PaymentMerchantAccountRow,
@@ -163,7 +216,7 @@ async function findCharge(
   // References come back from the provider; payments made outside the app may carry anything.
   if (isUuid(reference)) {
     const byId = await charges(scope.ctx).findById(reference);
-    if (byId && byId.merchantAccountId === merchant.id) return byId;
+    if (byId && byId.merchantAccountId === merchant.id && fitsLookup(byId, lookup)) return byId;
   }
   return findOne(charges(scope.ctx), {
     tenantId: scope.ctx.auth.tenantId,
@@ -178,61 +231,100 @@ async function applyCharge(
   charge: Extract<SerializedStateChange, { kind: 'charge' }>['charge'],
 ): Promise<void> {
   const merchant = await findMerchant(scope, accountId);
-  const row = merchant
-    ? await findCharge(scope, merchant, charge.reference, {
-        provider: scope.provider,
-        providerChargeId: charge.id,
-      })
-    : null;
-  // Charges the app did not create (e.g. made in the seller's own dashboard) are not ours.
-  if (!merchant || !row || isStale(scope, row.syncedAt)) {
+  if (!merchant) {
     scope.result.skipped += 1;
     return;
   }
-
-  const status = CHARGE_RANK[charge.status] < CHARGE_RANK[row.status] ? row.status : charge.status;
-  const amountRefunded = Math.max(row.amountRefunded ?? 0, charge.amountRefunded);
-  const paidAt = row.paidAt ?? (charge.paidAt ? new Date(charge.paidAt) : null);
-
-  await charges(scope.ctx).update(row.id, {
-    status,
-    providerChargeId: charge.id,
-    providerPaymentId: charge.paymentId ?? row.providerPaymentId,
-    platformFeeAmount: charge.platformFeeAmount,
-    amountRefunded,
-    paidAt,
-    clientEmail: row.clientEmail ?? charge.clientEmail,
-    syncedAt: scope.observedAt,
-  });
-  scope.result.applied += 1;
-
-  const base = {
-    ...seller(merchant),
-    chargeId: row.id,
-    amount: row.amount,
-    currency: row.currency,
-  };
-  if (status !== row.status) {
-    if (status === 'paid') {
-      await emit(scope, PaymentEventName.ChargePaid, {
-        ...base,
-        platformFeeAmount: charge.platformFeeAmount,
-        clientId: row.clientId ?? null,
-        paidAt: (paidAt ?? scope.observedAt).toISOString(),
-      });
-    } else if (status === 'failed') {
-      await emit(scope, PaymentEventName.ChargeFailed, base);
-    } else if (status === 'expired') {
-      await emit(scope, PaymentEventName.ChargeExpired, base);
-    }
-  }
-  if (amountRefunded > (row.amountRefunded ?? 0)) {
-    await emit(scope, PaymentEventName.ChargeRefunded, {
-      ...base,
-      amountRefunded,
-      fullyRefunded: amountRefunded >= row.amount,
+  const repo = charges(scope.ctx);
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
+    const row = await findCharge(scope, merchant, charge.reference, {
+      provider: scope.provider,
+      providerChargeId: charge.id,
     });
+    // Charges the app did not create (e.g. made in the seller's own dashboard) are
+    // not ours, and neither is a payment for another amount that reuses our reference.
+    if (
+      !row ||
+      isStale(scope, row.syncedAt) ||
+      row.amount !== charge.amount ||
+      row.currency !== charge.currency
+    ) {
+      scope.result.skipped += 1;
+      return;
+    }
+
+    const status =
+      CHARGE_RANK[charge.status] < CHARGE_RANK[row.status] ? row.status : charge.status;
+    const previousRefunded = row.amountRefunded ?? 0;
+    // A refund that fails after succeeding gives the money back, so this can go down.
+    const amountRefunded = charge.amountRefunded ?? previousRefunded;
+    const platformFeeAmount = charge.platformFeeAmount ?? row.platformFeeAmount ?? 0;
+    const paidAt = row.paidAt ?? (charge.paidAt ? new Date(charge.paidAt) : null);
+
+    const written = await writeIfUnchanged(
+      repo,
+      row.id,
+      { status: row.status, amountRefunded: row.amountRefunded ?? null },
+      {
+        status,
+        providerChargeId: charge.id,
+        providerPaymentId: charge.paymentId ?? row.providerPaymentId,
+        platformFeeAmount,
+        amountRefunded,
+        paidAt,
+        clientEmail: row.clientEmail ?? charge.clientEmail,
+        syncedAt: scope.observedAt,
+      },
+    );
+    if (!written) continue;
+    scope.result.applied += 1;
+
+    const base = {
+      ...seller(merchant),
+      chargeId: row.id,
+      amount: row.amount,
+      currency: row.currency,
+    };
+    if (status !== row.status) {
+      if (status === 'paid') {
+        await emit(scope, PaymentEventName.ChargePaid, {
+          ...base,
+          platformFeeAmount,
+          clientId: row.clientId ?? null,
+          paidAt: (paidAt ?? scope.observedAt).toISOString(),
+        });
+      } else if (status === 'failed') {
+        await emit(scope, PaymentEventName.ChargeFailed, base);
+      } else if (status === 'expired') {
+        await emit(scope, PaymentEventName.ChargeExpired, base);
+      }
+    }
+    if (amountRefunded > previousRefunded) {
+      await emit(scope, PaymentEventName.ChargeRefunded, {
+        ...base,
+        amountRefunded,
+        fullyRefunded: amountRefunded >= row.amount,
+      });
+    }
+    return;
   }
+  throw writeConflict('A charge');
+}
+
+async function findRefund(
+  scope: ApplyScope,
+  repo: TypedRepo<PaymentRefundRow>,
+  chargeId: string,
+  refund: Extract<SerializedStateChange, { kind: 'refund' }>['refund'],
+): Promise<PaymentRefundRow | null> {
+  const byProviderId = await findOne(repo, {
+    tenantId: scope.ctx.auth.tenantId,
+    provider: scope.provider,
+    providerRefundId: refund.id,
+  });
+  if (byProviderId || !isUuid(refund.reference)) return byProviderId;
+  const byReference = await repo.findById(refund.reference);
+  return byReference && byReference.chargeId === chargeId ? byReference : null;
 }
 
 async function applyRefund(
@@ -251,57 +343,61 @@ async function applyRefund(
   }
 
   const repo = refunds(scope.ctx);
-  let row = await findOne(repo, {
-    tenantId: scope.ctx.auth.tenantId,
-    provider: scope.provider,
-    providerRefundId: refund.id,
-  });
-  if (!row && isUuid(refund.reference)) {
-    const byReference = await repo.findById(refund.reference);
-    if (byReference && byReference.chargeId === charge.id) row = byReference;
-  }
-  if (row && isStale(scope, row.syncedAt)) {
-    scope.result.skipped += 1;
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
+    const row = await findRefund(scope, repo, charge.id, refund);
+    if (row && isStale(scope, row.syncedAt)) {
+      scope.result.skipped += 1;
+      return;
+    }
+
+    let refundId: string;
+    if (row) {
+      const written = await writeIfUnchanged(
+        repo,
+        row.id,
+        { status: row.status },
+        {
+          providerRefundId: refund.id,
+          status: refund.status,
+          failureReason: refund.failureReason,
+          syncedAt: scope.observedAt,
+        },
+      );
+      if (!written) continue;
+      refundId = row.id;
+    } else {
+      // Refunded outside the app (e.g. the seller's dashboard): still record it.
+      refundId = randomUUID();
+      await repo.create({
+        id: refundId,
+        tenantId: scope.ctx.auth.tenantId,
+        chargeId: charge.id,
+        merchantAccountId: merchant.id,
+        provider: scope.provider,
+        providerRefundId: refund.id,
+        amount: refund.amount,
+        currency: refund.currency,
+        status: refund.status,
+        reason: refund.reason,
+        failureReason: refund.failureReason,
+        syncedAt: scope.observedAt,
+      });
+    }
+    scope.result.applied += 1;
+
+    if (refund.status === 'failed' && row?.status !== 'failed') {
+      await emit(scope, PaymentEventName.RefundFailed, {
+        ...seller(merchant),
+        refundId,
+        chargeId: charge.id,
+        amount: refund.amount,
+        currency: refund.currency,
+        failureReason: refund.failureReason,
+      });
+    }
     return;
   }
-
-  const previousStatus = row?.status ?? null;
-  if (row) {
-    await repo.update(row.id, {
-      providerRefundId: refund.id,
-      status: refund.status,
-      failureReason: refund.failureReason,
-      syncedAt: scope.observedAt,
-    });
-  } else {
-    // Refunded outside the app (e.g. the seller's dashboard): still record it.
-    row = await repo.create({
-      id: randomUUID(),
-      tenantId: scope.ctx.auth.tenantId,
-      chargeId: charge.id,
-      merchantAccountId: merchant.id,
-      provider: scope.provider,
-      providerRefundId: refund.id,
-      amount: refund.amount,
-      currency: refund.currency,
-      status: refund.status,
-      reason: refund.reason,
-      failureReason: refund.failureReason,
-      syncedAt: scope.observedAt,
-    });
-  }
-  scope.result.applied += 1;
-
-  if (refund.status === 'failed' && previousStatus !== 'failed') {
-    await emit(scope, PaymentEventName.RefundFailed, {
-      ...seller(merchant),
-      refundId: row.id,
-      chargeId: charge.id,
-      amount: refund.amount,
-      currency: refund.currency,
-      failureReason: refund.failureReason,
-    });
-  }
+  throw writeConflict('A refund');
 }
 
 async function applyDispute(
@@ -325,16 +421,6 @@ async function applyDispute(
   }
 
   const repo = disputes(scope.ctx);
-  const existing = await findOne(repo, {
-    tenantId: scope.ctx.auth.tenantId,
-    provider: scope.provider,
-    providerDisputeId: dispute.id,
-  });
-  if (existing && isStale(scope, existing.syncedAt)) {
-    scope.result.skipped += 1;
-    return;
-  }
-
   const fields: Partial<PaymentDisputeRow> = {
     amount: dispute.amount,
     currency: dispute.currency,
@@ -344,26 +430,40 @@ async function applyDispute(
     evidenceDueBy: dispute.evidenceDueBy ? new Date(dispute.evidenceDueBy) : null,
     syncedAt: scope.observedAt,
   };
-  let row: PaymentDisputeRow;
-  if (existing) {
-    row = await repo.update(existing.id, fields);
-  } else {
-    row = await repo.create({
-      ...fields,
-      id: randomUUID(),
+  let existing: PaymentDisputeRow | null = null;
+  let disputeId: string | null = null;
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS && !disputeId; attempt += 1) {
+    existing = await findOne(repo, {
       tenantId: scope.ctx.auth.tenantId,
-      chargeId: charge.id,
-      merchantAccountId: merchant.id,
       provider: scope.provider,
       providerDisputeId: dispute.id,
-      providerPaymentId: dispute.paymentId,
     });
+    if (existing && isStale(scope, existing.syncedAt)) {
+      scope.result.skipped += 1;
+      return;
+    }
+    if (!existing) {
+      disputeId = randomUUID();
+      await repo.create({
+        ...fields,
+        id: disputeId,
+        tenantId: scope.ctx.auth.tenantId,
+        chargeId: charge.id,
+        merchantAccountId: merchant.id,
+        provider: scope.provider,
+        providerDisputeId: dispute.id,
+        providerPaymentId: dispute.paymentId,
+      });
+    } else if (await writeIfUnchanged(repo, existing.id, { status: existing.status }, fields)) {
+      disputeId = existing.id;
+    }
   }
+  if (!disputeId) throw writeConflict('A dispute');
   scope.result.applied += 1;
 
   const payload = {
     ...seller(merchant),
-    disputeId: row.id,
+    disputeId,
     chargeId: charge.id,
     amount: dispute.amount,
     currency: dispute.currency,

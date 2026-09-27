@@ -45,6 +45,8 @@ type FakeObjectType = 'account' | 'charge' | 'refund' | 'dispute';
 
 interface FakeChargeRecord extends ProviderCharge {
   accountId: string;
+  platformFeeAmount: number;
+  amountRefunded: number;
 }
 interface FakeRefundRecord extends ProviderRefund {
   accountId: string;
@@ -311,16 +313,17 @@ export function createFakePaymentProvider(
         case 'refund': {
           const refund = must(refunds, objectId, 'refund');
           const charge = must(charges, refund.chargeId, 'charge');
+          // The charge first, like real providers: it carries the payment id refunds match on.
+          changes.push({
+            kind: 'charge',
+            accountId: charge.accountId,
+            charge: stripAccount(charge),
+          });
           changes.push({
             kind: 'refund',
             accountId: refund.accountId,
             chargeReference: charge.reference,
             refund: stripRefund(refund),
-          });
-          changes.push({
-            kind: 'charge',
-            accountId: charge.accountId,
-            charge: stripAccount(charge),
           });
           break;
         }

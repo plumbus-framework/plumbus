@@ -171,6 +171,7 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
   it('creates a Checkout session on the seller account with the platform fee', async () => {
     const { stub, provider } = setup();
     stub.on('POST /v1/checkout/sessions', () => checkoutSession());
+    const expiresAt = Math.floor(Date.now() / 1000) + 2 * 3600;
 
     const charge = await provider.createCharge({
       accountId: 'acct_seller',
@@ -182,7 +183,7 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
       clientEmail: 'client@example.com',
       successUrl: 'https://app.test/paid/charge-local-1',
       cancelUrl: 'https://app.test/cancel/charge-local-1',
-      expiresAt: new Date(1_790_000_000 * 1000),
+      expiresAt: new Date(expiresAt * 1000),
       metadata: { plumbus_charge_id: 'charge-local-1' },
       idempotencyKey: 'plumbus-charge:charge-local-1',
     });
@@ -201,7 +202,7 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
       'payment_intent_data[application_fee_amount]': '250',
       'payment_intent_data[metadata][plumbus_charge_id]': 'charge-local-1',
       success_url: 'https://app.test/paid/charge-local-1',
-      expires_at: '1790000000',
+      expires_at: String(expiresAt),
     });
     expect(charge).toMatchObject({
       id: 'cs_test_1',
@@ -345,12 +346,13 @@ describe('stripeProvider — resolveEvent (fetch-on-event)', () => {
       objectId: 're_1',
       objectType: 'refund',
     });
-    expect(changes.map((c) => c.kind)).toEqual(['refund', 'charge']);
-    expect(changes[0]).toMatchObject({
+    // The charge first: refunds match the local charge by the payment id it records.
+    expect(changes.map((c) => c.kind)).toEqual(['charge', 'refund']);
+    expect(changes[1]).toMatchObject({
       chargeReference: 'charge-local-1',
       refund: { status: 'succeeded' },
     });
-    expect(changes[1]).toMatchObject({ charge: { amountRefunded: 1000 } });
+    expect(changes[0]).toMatchObject({ charge: { amountRefunded: 1000 } });
     expect(stub.requests[1]?.query.get('payment_intent')).toBe('pi_1');
   });
 

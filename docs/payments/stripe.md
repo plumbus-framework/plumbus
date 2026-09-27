@@ -26,7 +26,12 @@ Charge status mapping (Checkout Session + PaymentIntent): `open` → `open`; `ex
 - `webhookSecrets`: all destination secrets (two in production, one from `stripe listen` locally), plus old ones during rotation.
 - `publishableKey`: returned with merchant sessions for Stripe's embedded components (`@stripe/connect-js`).
 
-`plumbus payments doctor --live` reports: test key in production, live key outside production, restricted-key hint, missing/incomplete webhook secrets, Accounts v2 unavailable (Connect not set up), missing/disabled destinations, wrong URL, missing event types, snapshot API version drift.
+`plumbus payments doctor --live` reports: test key in production, live key outside production, restricted-key hint, missing/incomplete webhook secrets, Accounts v2 unavailable (Connect not set up), missing/disabled destinations, wrong URL, missing event types, snapshot API version drift, and (as a warning) several destinations with the same name, e.g. one left at an old URL after running `webhooks setup` with a new one. With `--webhook-url`, the destination at that URL is the one checked.
+
+## Checkout sessions
+
+- `expires_at` is kept between 31 minutes and 23 h 59 min after the request. Stripe accepts 30 minutes to 24 hours measured from when *it* creates the session, so the minute on each side absorbs request time and clock skew; `checkout.expiresAfterMinutes: 30` gives 31-minute links and `1440` gives 23 h 59 min.
+- The product name on the payment page is the charge description cut to 250 characters, never in the middle of an emoji (half a surrogate pair cannot be sent).
 
 ## Stripe rules the config enforces
 

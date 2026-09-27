@@ -55,6 +55,18 @@ export function createInternalCapabilities(runtime: PaymentsRuntime) {
         provider: input.provider,
         providerEventId: input.providerEventId,
       });
+      if (existing?.status === 'failed' && input.status === 'received') {
+        // Processing gave up earlier; a redelivery (the provider's or an operator's
+        // resend) queues the event again instead of being dropped as a duplicate.
+        await ledger.update(existing.id, { status: 'received', error: null });
+        await ctx.events.emit(PaymentEventName.ProviderEventReceived, {
+          ledgerId: existing.id,
+          provider: input.provider,
+          providerEventId: input.providerEventId,
+          type: input.type,
+        });
+        return { ledgerId: existing.id, duplicate: false };
+      }
       if (existing) return { ledgerId: existing.id, duplicate: true };
 
       const row = await ledger.create({
@@ -171,10 +183,10 @@ export function createInternalCapabilities(runtime: PaymentsRuntime) {
       if (!row || row.status === 'processed' || row.status === 'ignored') {
         return { status: 'skipped' as const, changes: 0 };
       }
+      // Stamped before the read: anything applied later with an older stamp is older state.
       const observedAt = ctx.time.now();
-      let changes: Awaited<ReturnType<typeof provider.resolveEvent>>;
       try {
-        changes = await provider.resolveEvent({
+        const changes = await provider.resolveEvent({
           eventId: row.providerEventId,
           type: row.type,
           format: row.format,
@@ -183,19 +195,20 @@ export function createInternalCapabilities(runtime: PaymentsRuntime) {
           objectId: row.objectId,
           objectType: row.objectType,
         });
+        await ctx.capabilities.invoke('payments.applyProviderState', {
+          ledgerId: row.id,
+          observedAt: observedAt.toISOString(),
+          changes: changes.map(serializeChange),
+        });
+        return { status: 'processed' as const, changes: changes.length };
       } catch (err) {
+        // The worker retries; if it gives up, a redelivery queues the event again.
         await ledger.update(row.id, {
           status: 'failed',
           error: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
         });
         throw err;
       }
-      await ctx.capabilities.invoke('payments.applyProviderState', {
-        ledgerId: row.id,
-        observedAt: observedAt.toISOString(),
-        changes: changes.map(serializeChange),
-      });
-      return { status: 'processed' as const, changes: changes.length };
     },
   });
 

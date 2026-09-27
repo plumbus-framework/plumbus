@@ -22,6 +22,7 @@ stripeProvider({
 - The API **and** worker processes both need `STRIPE_SECRET_KEY` (the worker re-reads Stripe for every webhook) and the API needs `STRIPE_WEBHOOK_SECRETS`.
 - Prefer a **restricted key** (`rk_…`). It needs write access to Connect accounts, account links, account sessions, login links, Checkout Sessions, Customers, Refunds, and event destinations (setup only), and read access to Payment Intents, Charges, and Disputes — on connected accounts too. Run `plumbus payments doctor --live` after creating it.
 - A test key (`sk_test_`/`rk_test_`) with `NODE_ENV=production` is reported as an error by `doctor`.
+- Checkout links live 31 minutes to 23 h 59 min: `checkout.expiresAfterMinutes` is kept a minute inside Stripe's 30-minute–24-hour window.
 
 ## Dashboards, fees, and losses (Stripe Accounts v2)
 

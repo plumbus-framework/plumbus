@@ -119,13 +119,20 @@ export async function computePlatformFee(
   return fee;
 }
 
-/** `amount × percent / 100`, rounded half-up, without floating-point drift. */
+/** `amount × percent / 100`, rounded half-up, exact for any decimal percent. */
 export function percentOf(amount: number, percent: number): number {
   if (percent === 0) return 0;
-  const scaled = BigInt(Math.round(percent * 10_000)); // percent in 1/10000ths
-  const numerator = BigInt(amount) * scaled;
-  const denominator = 1_000_000n; // 100 × 10_000
-  return Number((numerator * 2n + denominator) / (2n * denominator));
+  // The shortest decimal that round-trips, e.g. 2.9 → 29 / 10, 5e-7 → 5 / 10^7.
+  const [mantissa = '0', exponent = '0'] = percent.toString().toLowerCase().split('e');
+  const [whole = '0', fraction = ''] = mantissa.split('.');
+  let digits = BigInt(whole + fraction);
+  let places = fraction.length - Number(exponent);
+  if (places < 0) {
+    digits *= 10n ** BigInt(-places);
+    places = 0;
+  }
+  const denominator = 100n * 10n ** BigInt(places);
+  return Number((BigInt(amount) * digits * 2n + denominator) / (2n * denominator));
 }
 
 export function fillUrl(template: string, values: Record<string, string>): string {

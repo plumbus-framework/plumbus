@@ -20,10 +20,12 @@ Stripe ──POST──▶ /payments/webhooks/stripe (API process)
 Why this shape:
 
 - **Fast answers.** Stripe gets `200` as soon as the event is stored; slow work happens in the worker, and Stripe's retries (for up to three days) stay harmless.
-- **Duplicates.** The ledger is unique on (provider, event id); a redelivery is answered `200` and does nothing.
-- **Out of order.** The worker never trusts the event body; it reads the current object from Stripe. Snapshots older than what's stored are skipped (`syncedAt`), charge statuses never move backwards (open → processing → paid/failed/expired), and refunded amounts never shrink.
+- **Duplicates.** The ledger is unique on (provider, event id); a redelivery is answered `200` and does nothing. The exception is an event whose processing failed (`status: failed`, e.g. after the worker gave up): a redelivery queues it again, so resending it from the Stripe Dashboard retries it.
+- **Out of order.** The worker never trusts the event body; it reads the current object from Stripe. Snapshots older than what's stored are skipped (`syncedAt`), and charge statuses never move backwards (open → processing → paid/failed/expired). A charge's refunded amount follows Stripe: it goes back down when a refund fails after succeeding.
+- **Concurrent workers.** Each change is written only if the row still holds the values it was decided from (compare-and-set); a worker that loses re-reads and sees no transition. Two events about one payment processed at once emit `payments.charge.paid` once.
+- **Payments that only look like ours.** A seller with a full dashboard can create their own Checkout Session carrying one of your charge ids. A session is applied only if it is the charge's own session (or the charge still awaits one) and has the same amount and currency; refunds and disputes must match the charge's payment.
 - **Tenant safety.** The seller lookup maps Stripe's account id to exactly one `PaymentMerchantAccount`; everything after it runs tenant-scoped as that seller's tenant.
-- **Webhooks that beat the API response.** `createCharge` and `refundCharge` save their row (with a `pending:` placeholder provider id) *before* calling Stripe, and Stripe objects carry that row's id (`client_reference_id`, `plumbus_refund_id`). A webhook that arrives before the call returns updates that row; the capability then keeps the webhook's newer state. If Stripe rejects the call, the row is removed.
+- **Webhooks that beat the API response.** `createCharge` and `refundCharge` save their row (with a `pending:` placeholder provider id) *before* calling Stripe, and Stripe objects carry that row's id (`client_reference_id`, `plumbus_refund_id`). A webhook that arrives before the call returns updates that row; the capability then keeps the webhook's newer state. The row's `syncedAt` is the time the call *started*, so state a worker reads while the call is in flight is never taken for older. If Stripe rejects the call, the row is removed; if the process dies before the call completes, retrying with the same `requestId` finishes it.
 
 ## Destinations
 
@@ -38,7 +40,7 @@ Why this shape:
 
 | Column | Meaning |
 |---|---|
-| `status` | `received` (queued) → `processed`, or `ignored`, or `failed` (the worker's Stripe read failed; the worker retries) |
+| `status` | `received` (queued) → `processed`, or `ignored`, or `failed` (reading Stripe or applying the result failed; the worker retries, and a redelivery queues it again) |
 | `ignoredReason` | `livemode_mismatch`, `unhandled_type`, `no_seller_account`, `unknown_seller_account` |
 | `error` | last worker error |
 | `payload` | event body, only with `webhooks.storePayload` |

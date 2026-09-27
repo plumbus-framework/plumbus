@@ -7,7 +7,7 @@ import { defineCapability } from '@plumbus/core';
 import { z } from '@plumbus/core/zod';
 import { PaymentEntityName } from '../entities/index.js';
 import { PaymentEventName } from '../events/index.js';
-import { deriveMerchantStatus } from '../runtime/apply-state.js';
+import { deriveMerchantStatus, merchantChanged, syncedAfter } from '../runtime/apply-state.js';
 import { merchantAccounts } from '../runtime/repos.js';
 import {
   findOwnMerchant,
@@ -106,6 +106,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
           });
         }
         const livemode = await provider.resolveLivemode();
+        const startedAt = ctx.time.now();
         const account = await provider.createMerchantAccount({
           dashboard,
           feesCollector: responsibilities.fees,
@@ -145,7 +146,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
             requirementsPastDue: account.requirementsPastDue,
             disabledReason: account.disabledReason,
             livemode: account.livemode,
-            syncedAt: ctx.time.now(),
+            syncedAt: startedAt,
           });
           created = true;
         } catch (err) {
@@ -262,14 +263,16 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
       ai: false,
     },
     async handler(ctx) {
-      const { merchant } = await requireOwnMerchant(ctx, runtime);
-      const account = await provider.retrieveMerchantAccount(merchant.providerAccountId);
+      const { merchant: before } = await requireOwnMerchant(ctx, runtime);
+      const startedAt = ctx.time.now();
+      const account = await provider.retrieveMerchantAccount(before.providerAccountId);
+      // A webhook may have applied a newer read while this one was in flight.
+      const merchant = (await merchantAccounts(ctx).findById(before.id)) ?? before;
+      if (syncedAfter(merchant.syncedAt, startedAt)) {
+        return { merchantAccount: merchantView(merchant) };
+      }
       const status = deriveMerchantStatus(account);
-      const changed =
-        status !== merchant.status ||
-        account.chargesEnabled !== merchant.chargesEnabled ||
-        account.payoutsEnabled !== merchant.payoutsEnabled ||
-        (merchant.requirementsDue ?? []).join('\n') !== account.requirementsDue.join('\n');
+      const changed = merchantChanged(merchant, account, status);
       const updated = await merchantAccounts(ctx).update(merchant.id, {
         status,
         chargesEnabled: account.chargesEnabled,
@@ -277,7 +280,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
         requirementsDue: account.requirementsDue,
         requirementsPastDue: account.requirementsPastDue,
         disabledReason: account.disabledReason,
-        syncedAt: ctx.time.now(),
+        syncedAt: startedAt,
       });
       if (changed) {
         await ctx.events.emit(PaymentEventName.MerchantUpdated, {

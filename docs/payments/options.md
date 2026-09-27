@@ -220,7 +220,7 @@ The fee may not exceed the charge amount (validation error). When your platform 
 
 ### `checkout.expiresAfterMinutes`
 
-How long a payment link stays valid: 30–1440 minutes, default 1440 (24 hours, Stripe's maximum). Expired links produce `payments.charge.expired`; create a new charge to retry.
+How long a payment link stays valid: 30–1440 minutes, default 1440 (24 hours, Stripe's maximum). Expired links produce `payments.charge.expired`; create a new charge to retry. Stripe links stay a minute inside Stripe's window (31 minutes to 23 h 59 min), see [stripe.md](./stripe.md#checkout-sessions).
 
 ---
 

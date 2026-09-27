@@ -27,7 +27,9 @@ All capabilities have domain `payments`, so canonical names are `payments.create
 4. The client pays → webhook → the worker re-reads the provider and marks the charge paid → `payments.charge.paid`.
 5. Refunds (`refundCharge`) and disputes follow the same webhook path.
 
-The webhook route only verifies, records, and queues; `processProviderEvent` (an eventHandler) re-reads the provider in the worker, and `applyProviderState` writes the local rows and emits events in one transaction. Duplicate and out-of-order webhooks are harmless.
+The webhook route only verifies, records, and queues; `processProviderEvent` (an eventHandler) re-reads the provider in the worker, and `applyProviderState` writes the local rows and emits events in one transaction. Duplicate, out-of-order, and concurrently processed webhooks are harmless: each transition is written with a compare-and-set and emits its event once. A redelivered event whose processing had failed is queued again.
+
+Provider packages: `resolveEvent` lists a charge change before its refunds and disputes (they are matched by the payment id the charge records), and returns `null` for `platformFeeAmount`/`amountRefunded` when its read does not include them, so the stored values are kept.
 
 ## File map (src/)
 

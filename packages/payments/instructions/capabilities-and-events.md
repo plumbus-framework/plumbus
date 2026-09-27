@@ -17,8 +17,8 @@ All run as the signed-in caller; the seller is derived from auth, never from inp
 | `payments.refundCharge` | action | `{ chargeId, amount?, reason?, requestId? }` | `{ refund, created }` |
 
 - `merchantAccount.status`: `onboarding` → `active` (can take payments) → `restricted` (provider needs more information) / `closed`. Show `requirementsDue` to the seller and send them back through `startMerchantOnboarding` when it is not empty.
-- `createCharge` needs `merchantAccount.chargesEnabled`. Give the client `charge.url` (valid until `charge.expiresAt`). `client` (`email`/`reference`/`userId`/`name`) reuses one provider customer per client.
-- Pass a stable `requestId` from forms and retries: the same `requestId` returns the same charge or refund instead of creating a second one.
+- `createCharge` needs `merchantAccount.chargesEnabled`. Give the client `charge.url` (valid until `charge.expiresAt`). `client` (`email`/`reference`/`userId`/`name`) reuses one provider customer per client. Lookup order: `reference`, then `userId`, then `email`; a client found only by `userId` or `email` is reused only if it has no different `reference`/`userId` (siblings may share a parent's email). Pass `reference` whenever two clients can share an email.
+- Pass a stable `requestId` from forms and retries: the same `requestId` returns the same charge or refund instead of creating a second one, and finishes one an earlier attempt saved but never sent (crash, lost response). Reusing a `requestId` for a different request (another amount, currency, description, client, or metadata; for refunds another amount or reason) is a `conflict` with `reason: 'payments_request_id_reused'`.
 - Errors: `notFound` (no account connected / charge not the caller's), `conflict` (cannot take payments yet, dashboard change, unpaid refund), `validation` (country, currency, amount, provider-rejected values with the provider's message), `forbidden` (access policy).
 
 ### From the browser

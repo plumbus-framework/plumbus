@@ -1,6 +1,6 @@
 import type { ExecutionContext } from '@plumbus/core';
 import { executeCapability } from '@plumbus/core';
-import type { MockEventService } from '@plumbus/core/testing';
+import type { MockEventService, TestContextOptions } from '@plumbus/core/testing';
 import { createPayments } from '../runtime/create-payments.js';
 import type { PaymentsConfig } from '../types/config.js';
 import {
@@ -32,10 +32,26 @@ export function baseConfig(
   };
 }
 
-export function setup(overrides: Partial<PaymentsConfig> = {}, fakeLivemode = false) {
+/** A clock that moves one second forward on every read, so reads are strictly ordered. */
+export function tickingClock(start = '2026-09-27T00:00:00.000Z') {
+  let current = Date.parse(start);
+  return {
+    now: () => {
+      current += 1000;
+      return new Date(current);
+    },
+  };
+}
+
+export function setup(
+  overrides: Partial<PaymentsConfig> = {},
+  fakeLivemode = false,
+  contextOptions: Pick<TestContextOptions, 'time'> = {},
+) {
   const fake = createFakePaymentProvider({ livemode: fakeLivemode });
   const payments = createPayments(baseConfig(fake, overrides));
   const ctx = createPaymentsTestContext(payments, {
+    ...contextOptions,
     auth: { userId: 'seller-1', tenantId: 'tenant-a', roles: ['seller'] },
   });
   const as = (userId: string, tenantId = 'tenant-a', roles = ['seller']) =>
@@ -58,8 +74,11 @@ export function setup(overrides: Partial<PaymentsConfig> = {}, fakeLivemode = fa
 }
 
 /** Onboard `seller-1` and finish onboarding at the fake provider. */
-export async function onboardedSeller(overrides: Partial<PaymentsConfig> = {}) {
-  const env = setup(overrides);
+export async function onboardedSeller(
+  overrides: Partial<PaymentsConfig> = {},
+  contextOptions: Pick<TestContextOptions, 'time'> = {},
+) {
+  const env = setup(overrides, false, contextOptions);
   const onboarding = await env.run<any>('startMerchantOnboarding', {});
   const accountId = env.fake.accounts.keys().next().value as string;
   env.fake.completeOnboarding(accountId);

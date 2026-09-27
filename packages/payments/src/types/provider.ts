@@ -102,8 +102,10 @@ export interface ProviderCharge {
   status: ChargeStatus;
   amount: number;
   currency: string;
-  platformFeeAmount: number;
-  amountRefunded: number;
+  /** Null when the provider's read does not include it yet (the stored value is kept). */
+  platformFeeAmount: number | null;
+  /** Refunded so far, pending refunds included or not; null when the read does not say. */
+  amountRefunded: number | null;
   url: string | null;
   expiresAt: Date | null;
   paidAt: Date | null;
@@ -291,7 +293,11 @@ export interface PaymentProvider {
     rawBody: Buffer;
     headers: Record<string, string | string[] | undefined>;
   }): Promise<VerifiedProviderEvent>;
-  /** Re-read the provider for the objects an event concerns. Empty = nothing to apply. */
+  /**
+   * Re-read the provider for the objects an event concerns. Empty = nothing to
+   * apply. List a charge before its refunds and disputes: they are matched to the
+   * local charge by the payment id the charge change records.
+   */
   resolveEvent(event: StoredProviderEvent): Promise<ProviderStateChange[]>;
 
   /** Live environment checks for `plumbus payments doctor --live`. */

@@ -69,6 +69,24 @@ export interface StripePaymentProvider extends PaymentProvider {
   client(): Promise<Stripe>;
 }
 
+// Checkout accepts expires_at 30 minutes to 24 hours after Stripe creates the
+// session; keep a minute inside both ends for request time and clock skew.
+const CHECKOUT_MIN_SECONDS = 31 * 60;
+const CHECKOUT_MAX_SECONDS = 24 * 3600 - 60;
+const PRODUCT_NAME_MAX = 250;
+
+/** Cut to `max` UTF-16 units without splitting a surrogate pair (Stripe rejects half emoji). */
+function clip(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+function checkoutExpiry(requested: Date): number {
+  const now = Math.floor(Date.now() / 1000);
+  const wanted = Math.floor(requested.getTime() / 1000);
+  return Math.min(Math.max(wanted, now + CHECKOUT_MIN_SECONDS), now + CHECKOUT_MAX_SECONDS);
+}
+
 const COMPONENT_MAP: Record<MerchantComponent, string> = {
   onboarding: 'account_onboarding',
   account: 'account_management',
@@ -267,7 +285,7 @@ export function stripeProvider(options: StripeProviderOptions): StripePaymentPro
               price_data: {
                 currency: input.currency,
                 unit_amount: input.amount,
-                product_data: { name: input.description.slice(0, 250) },
+                product_data: { name: clip(input.description, PRODUCT_NAME_MAX) },
               },
             },
           ],
@@ -284,7 +302,7 @@ export function stripeProvider(options: StripeProviderOptions): StripePaymentPro
           },
           success_url: input.successUrl,
           cancel_url: input.cancelUrl,
-          expires_at: Math.floor(input.expiresAt.getTime() / 1000),
+          expires_at: checkoutExpiry(input.expiresAt),
         },
         { stripeAccount: input.accountId, idempotencyKey: input.idempotencyKey },
       );
@@ -351,9 +369,10 @@ export function stripeProvider(options: StripeProviderOptions): StripePaymentPro
           const paymentId = refunds[0]
             ? mapRefund(refunds[0] as unknown as StripeRefundLike).paymentId
             : null;
+          // The charge first: refunds are matched by the payment id it records.
           const { changes, reference } = await paymentChangesFor(accountId, paymentId);
           for (const refund of refunds) {
-            changes.unshift({
+            changes.push({
               kind: 'refund',
               accountId,
               chargeReference: reference,
@@ -368,7 +387,7 @@ export function stripeProvider(options: StripeProviderOptions): StripePaymentPro
             (await stripe.refunds.retrieve(objectId, {}, onSeller)) as unknown as StripeRefundLike,
           );
           const { changes, reference } = await paymentChangesFor(accountId, refund.paymentId);
-          return [{ kind: 'refund', accountId, chargeReference: reference, refund }, ...changes];
+          return [...changes, { kind: 'refund', accountId, chargeReference: reference, refund }];
         }
 
         if (event.type.startsWith('charge.dispute.')) {
@@ -475,7 +494,21 @@ async function diagnoseStripe(input: {
       ['snapshot', STRIPE_DESTINATION_NAMES.snapshot, STRIPE_SNAPSHOT_EVENTS],
       ['thin', STRIPE_DESTINATION_NAMES.thin, STRIPE_THIN_EVENTS],
     ] as const) {
-      const found = destinations.find((d) => d.event_payload === format && d.name === name);
+      const named = destinations.filter((d) => d.event_payload === format && d.name === name);
+      // After a URL change the old destination can still exist; check the one at the URL.
+      const found =
+        named.find((d) => input.webhookUrl && d.webhook_endpoint?.url === input.webhookUrl) ??
+        named[0];
+      if (found && named.length > 1) {
+        findings.push({
+          level: 'warning',
+          code: `stripe_${format}_destination_duplicate`,
+          message: `${named.length} event destinations are named "${name}"; Stripe sends events to each. Delete the ones at ${named
+            .filter((d) => d !== found)
+            .map((d) => d.webhook_endpoint?.url ?? '(no url)')
+            .join(', ')}`,
+        });
+      }
       if (!found) {
         findings.push({
           level: 'error',

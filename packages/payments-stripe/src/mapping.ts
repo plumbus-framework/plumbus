@@ -176,8 +176,14 @@ export function mapSession(session: StripeSessionLike): ProviderCharge {
     status,
     amount: session.amount_total ?? 0,
     currency: session.currency ?? '',
-    platformFeeAmount: intent?.application_fee_amount ?? 0,
-    amountRefunded: latest?.amount_refunded ?? 0,
+    // Null = not in this read (no payment intent yet, or ids that were not expanded);
+    // the stored value is kept.
+    platformFeeAmount: intent ? (intent.application_fee_amount ?? 0) : null,
+    amountRefunded: latest
+      ? (latest.amount_refunded ?? 0)
+      : typeof session.payment_intent === 'string' || typeof intent?.latest_charge === 'string'
+        ? null
+        : 0,
     url: status === 'open' ? (session.url ?? null) : null,
     expiresAt: session.expires_at ? new Date(session.expires_at * 1000) : null,
     paidAt: status === 'paid' && latest?.created ? new Date(latest.created * 1000) : null,

@@ -10,7 +10,8 @@
 | Test events hitting production (or the reverse) | Events whose `livemode` differs from the key's mode are ignored |
 | Delivering goods on a faked redirect | Docs and instructions: deliver only on `payments.charge.paid`, which comes from a fresh Stripe read |
 | Anyone calling the internal webhook capabilities over HTTP | `recordProviderEvent`, `processProviderEvent`, `applyProviderState` require the `system` role or the `payments-webhook` service account (a `serviceAccounts` list alone would not exclude other users) |
-| Double charges from double clicks | `requestId` returns the existing charge/refund; Stripe idempotency keys derive from local ids |
+| Double charges from double clicks | `requestId` returns the existing charge/refund, and reusing it for a different request is a `conflict`; Stripe idempotency keys derive from local ids, and a refund's id derives from its `requestId`, so a retry after a lost response repeats the very same Stripe request |
+| A seller marking a charge paid with a cheaper checkout of their own | A session is applied to a charge only if it is that charge's session and has its amount and currency; refunds and disputes must match the charge's payment |
 | Spoofed Plumbus metadata | Input metadata keys starting with `plumbus_` are rejected |
 | Personal data in logs and ledgers | Client email/name fields are classified `personal` and masked in logs; webhook bodies are not stored unless `webhooks.storePayload` |
 | Holding a DB transaction during Stripe calls | Capabilities that call Stripe declare `effects.external` (non-transactional); state is written in a separate short transaction |
