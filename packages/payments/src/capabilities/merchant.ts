@@ -1,8 +1,11 @@
 // ── Seller account capabilities ──
 // Connect a seller account, mint onboarding links and embedded-component
 // sessions, read status, pull fresh status, and open the seller's dashboard.
+// A seller's charge type (direct or destination) follows their dashboard and is
+// fixed when the account is created, like the dashboard itself.
 
 import { randomUUID } from 'node:crypto';
+import type { ExecutionContext } from '@plumbus/core';
 import { defineCapability } from '@plumbus/core';
 import { z } from '@plumbus/core/zod';
 import { PaymentEntityName } from '../entities/index.js';
@@ -14,7 +17,10 @@ import {
   merchantView,
   ownerMetadata,
   type PaymentsRuntime,
+  requestedCapabilities,
+  requiredCapabilities,
   requireOwnMerchant,
+  requireUrl,
   resolveOwner,
 } from '../runtime/runtime.js';
 import type { MerchantComponent, MerchantDashboard } from '../types/provider.js';
@@ -105,6 +111,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
             reason: 'payments_country_not_allowed',
           });
         }
+        const chargeType = config.chargeType[dashboard] ?? 'direct';
         const livemode = await provider.resolveLivemode();
         const startedAt = ctx.time.now();
         const account = await provider.createMerchantAccount({
@@ -112,6 +119,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
           feesCollector: responsibilities.fees,
           lossesCollector: responsibilities.losses,
           country,
+          capabilities: requestedCapabilities(runtime, chargeType),
           ...(input.email ? { email: input.email } : {}),
           ...(input.displayName ? { displayName: input.displayName } : {}),
           metadata: ownerMetadata(runtime, owner),
@@ -125,7 +133,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
             country,
           ].join(':'),
         });
-        const status = deriveMerchantStatus(account);
+        const status = deriveMerchantStatus(account, requiredCapabilities(runtime, chargeType));
         try {
           merchant = await merchantAccounts(ctx).create({
             id: randomUUID(),
@@ -135,12 +143,14 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
             provider: provider.id,
             providerAccountId: account.id,
             dashboard: account.dashboard,
+            chargeType,
             feesCollector: account.feesCollector,
             lossesCollector: account.lossesCollector,
             country: account.country ?? country,
             defaultCurrency: account.defaultCurrency,
             status,
             chargesEnabled: account.chargesEnabled,
+            transfersEnabled: account.transfersEnabled,
             payoutsEnabled: account.payoutsEnabled,
             requirementsDue: account.requirementsDue,
             requirementsPastDue: account.requirementsPastDue,
@@ -149,6 +159,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
             syncedAt: startedAt,
           });
           created = true;
+          await applyAppPayoutSchedule(ctx, account.id, dashboard);
         } catch (err) {
           // A concurrent call for the same owner won the insert; use its row.
           merchant = await findOwnMerchant(ctx, runtime, owner);
@@ -166,8 +177,8 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
       }
       const link = await provider.createOnboardingLink({
         accountId: merchant.providerAccountId,
-        returnUrl: config.urls.onboardingReturn,
-        refreshUrl: config.urls.onboardingRefresh,
+        returnUrl: requireUrl(ctx, runtime, 'onboardingReturn'),
+        refreshUrl: requireUrl(ctx, runtime, 'onboardingRefresh'),
         collectEventuallyDue: config.onboarding.collect === 'eventually_due',
       });
       return {
@@ -178,6 +189,27 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
       };
     },
   });
+
+  /**
+   * The app's payout schedule for a new seller. Full-dashboard sellers manage
+   * payouts themselves; a failure here never undoes the onboarding.
+   */
+  async function applyAppPayoutSchedule(
+    ctx: ExecutionContext,
+    accountId: string,
+    dashboard: MerchantDashboard,
+  ): Promise<void> {
+    const schedule = config.payouts.schedule;
+    if (!schedule || dashboard === 'full' || !provider.updatePayoutSchedule) return;
+    try {
+      await provider.updatePayoutSchedule({ accountId, schedule });
+    } catch (err) {
+      ctx.logger.warn('payments: could not set the payout schedule for a new seller', {
+        accountId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   function chooseDashboard(requested: MerchantDashboard | undefined): MerchantDashboard | null {
     if (requested) return requested;
@@ -271,11 +303,15 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
       if (syncedAfter(merchant.syncedAt, startedAt)) {
         return { merchantAccount: merchantView(merchant) };
       }
-      const status = deriveMerchantStatus(account);
+      const status = deriveMerchantStatus(
+        account,
+        requiredCapabilities(runtime, merchant.chargeType ?? 'direct'),
+      );
       const changed = merchantChanged(merchant, account, status);
       const updated = await merchantAccounts(ctx).update(merchant.id, {
         status,
         chargesEnabled: account.chargesEnabled,
+        transfersEnabled: account.transfersEnabled,
         payoutsEnabled: account.payoutsEnabled,
         requirementsDue: account.requirementsDue,
         requirementsPastDue: account.requirementsPastDue,
@@ -290,6 +326,7 @@ export function createMerchantCapabilities(runtime: PaymentsRuntime) {
           status,
           previousStatus: merchant.status,
           chargesEnabled: account.chargesEnabled,
+          transfersEnabled: account.transfersEnabled,
           payoutsEnabled: account.payoutsEnabled,
           requirementsDue: account.requirementsDue,
         });

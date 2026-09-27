@@ -17,7 +17,7 @@ function destination(overrides: Record<string, unknown>) {
     event_payload: 'snapshot',
     status: 'enabled',
     enabled_events: [...STRIPE_SNAPSHOT_EVENTS],
-    events_from: ['@accounts'],
+    events_from: ['@self', '@accounts'],
     snapshot_api_version: STRIPE_API_VERSION,
     webhook_endpoint: { url: 'https://app.test/payments/webhooks/stripe' },
     ...overrides,
@@ -56,7 +56,7 @@ describe('setupWebhooks', () => {
       name: STRIPE_DESTINATION_NAMES.snapshot,
       type: 'webhook_endpoint',
       event_payload: 'snapshot',
-      events_from: ['@accounts'],
+      events_from: ['@self', '@accounts'],
       snapshot_api_version: STRIPE_API_VERSION,
       enabled_events: [...STRIPE_SNAPSHOT_EVENTS],
       webhook_endpoint: { url: 'https://app.test/hook' },
@@ -76,17 +76,92 @@ describe('setupWebhooks', () => {
     stub.on('GET /v2/core/event_destinations', () =>
       list([
         destination({ webhook_endpoint: { url: 'https://app.test/hook' } }),
-        destination({
-          id: 'ed_2',
-          name: STRIPE_DESTINATION_NAMES.thin,
-          event_payload: 'thin',
-          webhook_endpoint: { url: 'https://app.test/hook' },
-        }),
+        thinDestination({ webhook_endpoint: { url: 'https://app.test/hook' } }),
       ]),
     );
     const result = await provider.setupWebhooks?.({ url: 'https://app.test/hook' });
     expect(result?.destinations.map((d) => d.created)).toEqual([false, false]);
     expect(stub.requests.filter((r) => r.method === 'POST')).toHaveLength(0);
+  });
+
+  it('adds the events a newer release needs to an existing destination', async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/event_destinations', () =>
+      list([
+        destination({
+          enabled_events: ['checkout.session.completed'],
+          webhook_endpoint: { url: 'https://app.test/hook' },
+        }),
+        thinDestination({ webhook_endpoint: { url: 'https://app.test/hook' } }),
+      ]),
+    );
+    stub.on('POST /v2/core/event_destinations/*', (request) => destination(request.body));
+    const result = await provider.setupWebhooks?.({ url: 'https://app.test/hook' });
+    expect(result?.destinations.map((d) => d.created)).toEqual([false, false]);
+    const [update] = stub.requests.filter((r) => r.method === 'POST');
+    expect(update?.path).toBe('/v2/core/event_destinations/ed_1');
+    expect(update?.body.enabled_events).toEqual([...STRIPE_SNAPSHOT_EVENTS]);
+  });
+
+  it('makes a new snapshot destination when the old one takes no platform events', async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/event_destinations', () =>
+      list([
+        destination({
+          events_from: ['@accounts'],
+          webhook_endpoint: { url: 'https://app.test/hook' },
+        }),
+        thinDestination({ webhook_endpoint: { url: 'https://app.test/hook' } }),
+      ]),
+    );
+    stub.on('POST /v2/core/event_destinations', (request) => ({
+      id: 'ed_new',
+      ...request.body,
+      webhook_endpoint: { url: 'https://app.test/hook', signing_secret: 'whsec_new' },
+    }));
+    const result = await provider.setupWebhooks?.({ url: 'https://app.test/hook' });
+    expect(result?.destinations).toEqual([
+      expect.objectContaining({ id: 'ed_new', format: 'snapshot', created: true }),
+      expect.objectContaining({ id: 'ed_2', format: 'thin', created: false }),
+    ]);
+    expect(stub.requests.find((r) => r.method === 'POST')?.body.events_from).toEqual([
+      '@self',
+      '@accounts',
+    ]);
+  });
+});
+
+function thinDestination(overrides: Record<string, unknown> = {}) {
+  return destination({
+    id: 'ed_2',
+    name: STRIPE_DESTINATION_NAMES.thin,
+    event_payload: 'thin',
+    events_from: ['@self'],
+    enabled_events: [...STRIPE_THIN_EVENTS],
+    snapshot_api_version: null,
+    ...overrides,
+  });
+}
+
+describe('diagnose — duplicate destinations', () => {
+  it('keeps the destination with both sources when an old one shares its name and URL', async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/accounts', () => ({ data: [], next_page_url: null }));
+    stub.on('GET /v2/core/event_destinations', () =>
+      list([
+        destination({ id: 'ed_old', events_from: ['@accounts'] }),
+        destination({ id: 'ed_new' }),
+        thinDestination(),
+      ]),
+    );
+    const findings = await provider.diagnose?.({
+      webhookUrl: 'https://app.test/payments/webhooks/stripe',
+    });
+    expect(findings?.map((f) => f.code)).toEqual([
+      'stripe_use_restricted_key',
+      'stripe_snapshot_destination_duplicate',
+    ]);
+    expect(findings?.[1]?.message).toContain('Keep ed_new and delete ed_old');
   });
 });
 
@@ -94,22 +169,23 @@ describe('diagnose', () => {
   it('passes a correctly wired platform with only the restricted-key hint', async () => {
     const { stub, provider } = setup();
     stub.on('GET /v2/core/accounts', () => ({ data: [], next_page_url: null }));
-    stub.on('GET /v2/core/event_destinations', () =>
-      list([
-        destination({}),
-        destination({
-          id: 'ed_2',
-          name: STRIPE_DESTINATION_NAMES.thin,
-          event_payload: 'thin',
-          enabled_events: [...STRIPE_THIN_EVENTS],
-          snapshot_api_version: null,
-        }),
-      ]),
-    );
+    stub.on('GET /v2/core/event_destinations', () => list([destination({}), thinDestination()]));
     const findings = await provider.diagnose?.({
       webhookUrl: 'https://app.test/payments/webhooks/stripe',
     });
     expect(findings?.map((f) => f.code)).toEqual(['stripe_use_restricted_key']);
+  });
+
+  it('reports a snapshot destination that takes no platform events', async () => {
+    const { stub, provider } = setup('rk_test_1');
+    stub.on('GET /v2/core/accounts', () => ({ data: [], next_page_url: null }));
+    stub.on('GET /v2/core/event_destinations', () =>
+      list([destination({ events_from: ['@accounts'] }), thinDestination()]),
+    );
+    const findings = await provider.diagnose?.({
+      webhookUrl: 'https://app.test/payments/webhooks/stripe',
+    });
+    expect(findings?.map((f) => f.code)).toEqual(['stripe_snapshot_destination_sources']);
   });
 
   it('reports a test key in production, missing destinations, and a disabled Connect platform', async () => {
@@ -147,12 +223,7 @@ describe('diagnose', () => {
           snapshot_api_version: '2025-03-31.basil',
           webhook_endpoint: { url: 'https://old.test/hook' },
         }),
-        destination({
-          id: 'ed_2',
-          name: STRIPE_DESTINATION_NAMES.thin,
-          event_payload: 'thin',
-          enabled_events: [...STRIPE_THIN_EVENTS],
-        }),
+        thinDestination(),
       ]),
     );
     const codes = (

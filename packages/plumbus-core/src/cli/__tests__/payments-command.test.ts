@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { Command } from 'commander';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  formatCatalogResult,
   formatPaymentsFindings,
   loadAppPayments,
   paymentsDoctorShouldFail,
@@ -31,6 +32,7 @@ const payments = {
   config: { webhooks: { path: '/payments/webhooks/stripe' } },
   async diagnose() { return [{ level: 'warning', code: 'w', message: 'careful' }]; },
   async setupWebhooks() { return { destinations: [] }; },
+  async syncCatalog() { return { prices: { 'plumbus:app:team:monthly': 'price_1' }, changes: ['create product plan team'] }; },
 };
 ${exportLine}
 `;
@@ -47,6 +49,10 @@ describe('plumbus payments — app loading', () => {
 
     const fallback = await loadAppPayments(appWith(stubSource('export default payments;')));
     expect(fallback?.provider.displayName).toBe('Stripe');
+    expect(await fallback?.syncCatalog?.()).toMatchObject({
+      changes: ['create product plan team'],
+    });
+    expect(fallback?.checkCatalog).toBeUndefined();
   });
 
   it('ignores exports that are not a createPayments() result', async () => {
@@ -72,11 +78,25 @@ describe('plumbus payments — output and exit policy', () => {
     expect(paymentsDoctorShouldFail([{ level: 'error', code: 'e', message: 'x' }])).toBe(true);
   });
 
-  it('registers doctor and webhooks setup', () => {
+  it('formats a catalog sync and a check', () => {
+    const prices = { 'plumbus:app:team:monthly': 'price_1' };
+    expect(formatCatalogResult({ prices, changes: [] }, 'sync')).toEqual([
+      '✔ Catalog already up to date',
+      'Prices:',
+      '  plumbus:app:team:monthly → price_1',
+    ]);
+    expect(
+      formatCatalogResult({ prices: {}, changes: ['create product plan team'] }, 'check'),
+    ).toEqual(['Differs (run plumbus payments catalog sync):', '  ✖ create product plan team']);
+  });
+
+  it('registers doctor, webhooks setup, and catalog sync and check', () => {
     const program = new Command();
     registerPaymentsCommand(program);
     const payments = program.commands.find((c) => c.name() === 'payments');
-    expect(payments?.commands.map((c) => c.name())).toEqual(['doctor', 'webhooks']);
+    expect(payments?.commands.map((c) => c.name())).toEqual(['doctor', 'webhooks', 'catalog']);
+    const catalog = payments?.commands.find((c) => c.name() === 'catalog');
+    expect(catalog?.commands.map((c) => c.name())).toEqual(['sync', 'check']);
     const doctor = payments?.commands.find((c) => c.name() === 'doctor');
     expect(doctor?.options.map((o) => o.long)).toEqual([
       '--live',

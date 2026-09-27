@@ -250,6 +250,16 @@ app/capabilities/{domain}/{kebab-name}/
     └── fixtures/
 ```
 
+The convention is for your own capabilities; discovery registers every capability **exported** from any file under `app/capabilities/`. Exported arrays and plain objects without a `name` are expanded one level, which is how add-ons ship many capabilities at once:
+
+```ts
+// app/capabilities/payments.ts
+import { payments } from '../payments/index.js';
+export const paymentCapabilities = payments.capabilities; // every payments capability the config turns on
+```
+
+The same holds for entities, events, flows, prompts, and translations in their directories. A capability exported both alone and in a collection is registered once.
+
 ## Generated Types
 
 Running `plumbus generate` produces typed artifacts from capability contracts:

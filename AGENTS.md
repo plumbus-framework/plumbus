@@ -176,13 +176,13 @@ Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authe
 
 ### Optional add-on: `@plumbus/payments` (+ `@plumbus/payments-stripe`)
 
-`@plumbus/payments` lets an app's users or tenants charge their own clients through a payment provider, with the app as the platform (seller accounts, charges, refunds, disputes, signed webhooks as capabilities/entities/events). It peer-depends on `@plumbus/core` (version-locked `0.7.x`; **runtime floor ≥ 0.7.7** for `field.bigint()`), and optionally `fastify` for the webhook route. `@plumbus/payments-stripe` is the Stripe Connect provider (Accounts v2, Checkout direct charges, snapshot + thin webhooks, API `2026-08-26.dahlia`); it peer-depends on `@plumbus/payments` (`0.2.x`) and brings the `stripe` SDK as a dependency — apps never add `stripe` themselves:
+`@plumbus/payments` moves money for an app through a payment provider, as capabilities/entities/events with signed webhooks: its users or tenants charge their own clients with the app as the platform (seller accounts; direct or destination charges; payment pages, invoices, holds, saved cards, links, subscriptions, disputes, payouts, transfers), and the app bills its own customers for plans (`billing`: seats, usage meters, entitlements, AI usage bridge). It peer-depends on `@plumbus/core` (version-locked `0.7.x`; **runtime floor ≥ 0.7.7** for `field.bigint()` and discovery of exported collections), and optionally `fastify` for the webhook route. `@plumbus/payments-stripe` is the Stripe provider (Connect with Accounts v2 merchant/recipient configurations, Checkout, Billing, Balance Settings, snapshot + thin webhooks, API `2026-08-26.dahlia`); it peer-depends on `@plumbus/payments` (`0.2.x`) and brings the `stripe` SDK as a dependency — apps never add `stripe` themselves:
 
 ```
 pnpm add @plumbus/payments @plumbus/payments-stripe
 ```
 
-Apps export `payments` from `app/payments/index.ts`, re-export its capabilities, entities, and events, and call `registerPaymentRoutes()` from `app/server.ts`. `plumbus payments doctor|webhooks setup` load that module dynamically; core never imports the add-on. Money moves only through the payments capabilities. Start with `docs/payments/` (every option in `docs/payments/options.md`).
+Apps export `payments` from `app/payments/index.ts`, export `payments.capabilities`, `paymentEntities`, and `paymentEvents` as collections (one line each), and call `registerPaymentRoutes()` from `app/server.ts`. `plumbus payments doctor|webhooks setup|catalog sync|catalog check` load that module dynamically; core never imports the add-on. Money moves only through the payments capabilities and the `payments.platform` / `payments.billing` helpers. Start with `docs/payments/` (every option in `docs/payments/options.md`, kinds of apps in `use-cases.md`, plans in `billing.md`).
 
 ### From `@plumbus/ui`
 
@@ -291,7 +291,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
-- `docs/payments/` — seller accounts, charges, refunds, webhooks (`@plumbus/payments`, `@plumbus/payments-stripe`); every option in `options.md`
+- `docs/payments/` — sellers charging their clients and the app billing its own customers (`@plumbus/payments`, `@plumbus/payments-stripe`); every option in `options.md`, use cases, billing, Stripe, webhooks
 - `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
 - `docs/ui/` — client generation, hooks, Next.js scaffolding

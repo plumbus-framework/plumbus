@@ -6,12 +6,20 @@ import { createHash } from 'node:crypto';
 import type { ExecutionContext, QueryOptions } from '@plumbus/core';
 import { PaymentEntityName } from '../entities/index.js';
 import type {
+  PaymentBillingCustomerRow,
   PaymentChargeRow,
   PaymentClientRow,
   PaymentDisputeRow,
+  PaymentEntitlementRow,
+  PaymentInvoiceRow,
+  PaymentLinkRow,
   PaymentMerchantAccountRow,
+  PaymentMethodRow,
+  PaymentPayoutRow,
   PaymentProviderEventRow,
   PaymentRefundRow,
+  PaymentSubscriptionRow,
+  PaymentTransferRow,
 } from '../types/records.js';
 
 export interface TypedRepo<T> {
@@ -49,6 +57,21 @@ export const refunds = (ctx: ExecutionContext) =>
   repo<PaymentRefundRow>(ctx, PaymentEntityName.Refund);
 export const disputes = (ctx: ExecutionContext) =>
   repo<PaymentDisputeRow>(ctx, PaymentEntityName.Dispute);
+export const paymentMethods = (ctx: ExecutionContext) =>
+  repo<PaymentMethodRow>(ctx, PaymentEntityName.Method);
+export const subscriptions = (ctx: ExecutionContext) =>
+  repo<PaymentSubscriptionRow>(ctx, PaymentEntityName.Subscription);
+export const invoices = (ctx: ExecutionContext) =>
+  repo<PaymentInvoiceRow>(ctx, PaymentEntityName.Invoice);
+export const links = (ctx: ExecutionContext) => repo<PaymentLinkRow>(ctx, PaymentEntityName.Link);
+export const transfers = (ctx: ExecutionContext) =>
+  repo<PaymentTransferRow>(ctx, PaymentEntityName.Transfer);
+export const payouts = (ctx: ExecutionContext) =>
+  repo<PaymentPayoutRow>(ctx, PaymentEntityName.Payout);
+export const billingCustomers = (ctx: ExecutionContext) =>
+  repo<PaymentBillingCustomerRow>(ctx, PaymentEntityName.BillingCustomer);
+export const entitlements = (ctx: ExecutionContext) =>
+  repo<PaymentEntitlementRow>(ctx, PaymentEntityName.Entitlement);
 export const providerEvents = (ctx: ExecutionContext) =>
   repo<PaymentProviderEventRow>(ctx, PaymentEntityName.ProviderEvent);
 

@@ -36,20 +36,40 @@ describe('createPayments config', () => {
     expect(payments.config.checkout.expiresAfterMinutes).toBe(1440);
     expect(payments.config.refunds.refundPlatformFee).toBe(false);
     expect(payments.config.access.refunds).toEqual({ roles: ['seller'] });
+    // Sellers without subscriptions, transfers, instant payouts, or billing: only what is on.
     expect(Object.keys(payments.capabilities).sort()).toEqual([
+      'acceptDispute',
       'applyProviderState',
+      'cancelCharge',
+      'captureCharge',
+      'chargeSavedMethod',
       'createCharge',
+      'createClientPortalSession',
       'createMerchantSession',
+      'createPaymentLink',
       'getCharge',
       'getMerchantAccount',
+      'getPayoutSettings',
       'listCharges',
+      'listClientPaymentMethods',
+      'listClients',
+      'listDisputes',
+      'listPaymentLinks',
+      'listPayouts',
       'openMerchantDashboard',
       'processProviderEvent',
       'recordProviderEvent',
       'refundCharge',
+      'removeClientPaymentMethod',
+      'respondToDispute',
+      'saveClientPaymentMethod',
+      'setPaymentLinkActive',
       'startMerchantOnboarding',
+      'syncClientPaymentMethods',
       'syncMerchantAccount',
     ]);
+    // Express sellers get destination charges by default (the provider's recommendation).
+    expect(payments.config.chargeType).toEqual({ full: 'direct', express: 'destination' });
   });
 
   it('keeps explicit responsibilities over provider defaults', () => {
@@ -62,9 +82,15 @@ describe('createPayments config', () => {
     expect(err.message).toContain('Offer at least one dashboard');
   });
 
-  it('rejects documented charge types that this release does not ship', () => {
-    const err = errorOf(() => build({ chargeType: 'destination' }));
-    expect(err.message).toContain('not available in this release');
+  it('takes one charge type for every dashboard, or one per dashboard', () => {
+    const all = build({ dashboards: { full: true, express: true }, chargeType: 'direct' });
+    expect(all.config.chargeType).toEqual({ full: 'direct', express: 'direct' });
+    const mixed = build({
+      dashboards: { full: true, none: true },
+      defaultDashboard: 'full',
+      chargeType: { full: 'destination' },
+    });
+    expect(mixed.config.chargeType).toEqual({ full: 'destination', none: 'destination' });
   });
 
   it('rejects a default dashboard that is not offered', () => {

@@ -85,16 +85,20 @@ stops.push(() => app.stop());
 if (simUrl) {
   await plumbus(['payments', 'webhooks', 'setup', '--url', `${appUrl}/payments/webhooks/stripe`], env);
 }
+// The school plans (billing.plans) at Stripe or in the simulator; unchanged plans change nothing.
+await plumbus(['payments', 'catalog', 'sync'], env);
 
 const tutor = signJwt(authSecret, { sub: 'tutor-ada', tenant_id: 'school-north', roles: ['tutor'] });
+const admin = signJwt(authSecret, { sub: 'admin-north', tenant_id: 'school-north', roles: ['school-admin'] });
 console.log(`
 payments-connect-app is running
   app        ${appUrl}
   ${simUrl ? `stripe sim ${simUrl}   (state: ${simUrl}/_sim/state)` : 'stripe     TEST mode (keep `stripe listen` running)'}
   database   ${db.env.DB_NAME} on ${db.env.DB_HOST}:${db.env.DB_PORT}
 
-Tutor token (tenant school-north):
+Tutor and school-admin tokens (tenant school-north):
   export T=${tutor}
+  export A=${admin}
 
 Try:
   curl -s -X POST ${appUrl}/api/payments/start-merchant-onboarding -H "authorization: Bearer $T" -H 'content-type: application/json' -d '{}'
@@ -105,5 +109,9 @@ Try:
   curl -s -X POST ${appUrl}/api/lessons/request-lesson-payment -H "authorization: Bearer $T" -H 'content-type: application/json' -d '{"lessonId":"<id>"}'
     → open url and pay${useStripe ? ' with 4242 4242 4242 4242' : ''}
   curl -s "${appUrl}/api/lessons/get-lesson?lessonId=<id>" -H "authorization: Bearer $T"
+  curl -s -X POST ${appUrl}/api/payments/subscribe-to-plan -H "authorization: Bearer $A" -H 'content-type: application/json' \
+       -d '{"plan":"school","price":"monthly","quantity":3}'
+    → open subscription.checkoutUrl and pay, then:
+  curl -s ${appUrl}/api/payments/get-entitlements -H "authorization: Bearer $A"
 
 Ctrl-C to stop.`);

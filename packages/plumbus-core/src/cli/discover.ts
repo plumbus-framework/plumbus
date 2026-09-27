@@ -30,8 +30,23 @@ export interface DiscoveredResources {
 }
 
 /**
+ * What one export contributes: the value itself, or — for a plain object or an
+ * array that is not itself a resource — the values it holds, one level down.
+ * Add-ons hand apps a collection (`export const paymentCapabilities =
+ * payments.capabilities`), so enabling a feature needs no new export names.
+ */
+function exportedValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'object' && value !== null && !('name' in value)) {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) return Object.values(value);
+  }
+  return [value];
+}
+
+/**
  * Scan a directory for .ts/.js files and dynamically import all exports.
- * Returns an array of all exported values.
+ * Returns every exported value (collections expanded, each value once).
  */
 async function scanDir(dir: string, strict = false): Promise<unknown[]> {
   if (!fs.existsSync(dir)) return [];
@@ -54,14 +69,15 @@ async function scanDir(dir: string, strict = false): Promise<unknown[]> {
     try {
       const mod = (await import(fileUrl)) as Record<string, unknown>;
       for (const value of Object.values(mod)) {
-        exports.push(value);
+        exports.push(...exportedValues(value));
       }
     } catch {
       if (strict) throw new PlumbusError('validation', `Unable to load decision module: ${file}`);
       // Skip files that fail to import
     }
   }
-  return exports;
+  // The same resource exported twice (by name and inside a collection) counts once.
+  return [...new Set(exports)];
 }
 
 function isCapability(v: unknown): v is CapabilityContract {

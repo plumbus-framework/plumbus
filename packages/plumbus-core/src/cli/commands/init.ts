@@ -531,15 +531,15 @@ const PAYMENTS_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/payments/instructions/framework.md',
   },
   {
-    area: 'wiring createPayments() into an app (entities, capabilities, events, webhook route, worker)',
+    area: 'wiring createPayments() into an app (collections, webhook route, worker, catalog sync, helpers)',
     path: 'node_modules/@plumbus/payments/instructions/wiring.md',
   },
   {
-    area: 'choosing payments options (seller owner, dashboards, fees, losses, platform fee, onboarding)',
+    area: 'choosing payments options (sellers or billing, dashboards, charge type, fees, losses, plans)',
     path: 'node_modules/@plumbus/payments/instructions/options.md',
   },
   {
-    area: 'calling payments capabilities and reacting to payments.* events',
+    area: 'calling payments capabilities and helpers, reacting to payments.* events',
     path: 'node_modules/@plumbus/payments/instructions/capabilities-and-events.md',
   },
   {
@@ -558,7 +558,7 @@ const PAYMENTS_STRIPE_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/payments-stripe/instructions/framework.md',
   },
   {
-    area: 'configuring stripeProvider() keys, Connect dashboards, and liability rules',
+    area: 'configuring stripeProvider() keys, dashboards, charge types, liability, the billing catalog',
     path: 'node_modules/@plumbus/payments-stripe/instructions/configure-stripe.md',
   },
   {

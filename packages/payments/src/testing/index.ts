@@ -7,8 +7,7 @@ import type { CapabilityContract, ExecutionContext } from '@plumbus/core';
 import { executeCapability } from '@plumbus/core';
 import { createTestContext, type TestContextOptions } from '@plumbus/core/testing';
 import type { Payments } from '../runtime/create-payments.js';
-import { ingestProviderEvent, paymentsServiceAuth } from '../runtime/ingest.js';
-import { findOne, merchantAccounts } from '../runtime/repos.js';
+import { crossTenantLookups, ingestProviderEvent, paymentsServiceAuth } from '../runtime/ingest.js';
 
 export {
   createFakePaymentProvider,
@@ -68,11 +67,7 @@ export async function deliverTestWebhook(
   const outcome = await ingestProviderEvent({
     payments,
     event,
-    findSeller: (accountId) =>
-      findOne(merchantAccounts(withAuth(ctx, paymentsServiceAuth())), {
-        provider: payments.provider.id,
-        providerAccountId: accountId,
-      }),
+    lookups: crossTenantLookups(withAuth(ctx, paymentsServiceAuth()), payments.provider.id),
     contextFor: (tenantId) => withAuth(ctx, paymentsServiceAuth(tenantId)),
   });
   const status = outcome.duplicate ? 'duplicate' : outcome.status;

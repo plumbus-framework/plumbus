@@ -2,12 +2,12 @@
 
 **Next:** [options.md](./options.md)
 
-This walks through letting your users charge their clients with Stripe Connect.
+This walks through letting your users charge their clients with Stripe Connect. To bill your own customers for plans instead (or as well), add `billing` — see [billing.md](./billing.md); the wiring below is the same. For which features fit your kind of app, see [use-cases.md](./use-cases.md).
 
 ## 1. Before you write code
 
 - A Stripe account with **Connect** enabled (Dashboard → Connect → get started) and the platform profile completed. Test mode works right away; live mode needs Stripe's review.
-- Decide the business terms with whoever owns the app — see [options.md](./options.md): who the seller is (user or tenant), which dashboards to offer, who covers losses, your cut.
+- Decide the business terms with whoever owns the app — see [options.md](./options.md): who the seller is (user or tenant), which dashboards to offer, direct or destination charges, who covers losses, your cut.
 
 ## 2. Install
 
@@ -47,26 +47,15 @@ Invalid combinations (for example Express with Stripe-covered losses) throw when
 ## 4. Register the pieces
 
 ```ts
-// app/capabilities/payments.ts
+// app/capabilities/payments.ts — every capability the config turns on
 import { payments } from '../payments/index.js';
-export const {
-  startMerchantOnboarding, createMerchantSession, getMerchantAccount, syncMerchantAccount,
-  openMerchantDashboard, createCharge, listCharges, getCharge, refundCharge,
-  recordProviderEvent, processProviderEvent, applyProviderState,
-} = payments.capabilities;
+export const paymentCapabilities = payments.capabilities;
 
 // app/entities/payments.ts
-export {
-  paymentMerchantAccountEntity, paymentClientEntity, paymentChargeEntity,
-  paymentRefundEntity, paymentDisputeEntity, paymentProviderEventEntity,
-} from '@plumbus/payments';
+export { paymentEntities } from '@plumbus/payments';
 
 // app/events/payments.ts
-export {
-  merchantUpdatedEvent, chargeCreatedEvent, chargePaidEvent, chargeFailedEvent,
-  chargeExpiredEvent, chargeRefundedEvent, refundFailedEvent, disputeOpenedEvent,
-  disputeUpdatedEvent, disputeClosedEvent, providerEventReceivedEvent,
-} from '@plumbus/payments';
+export { paymentEvents } from '@plumbus/payments';
 
 // app/server.ts
 import { registerPaymentRoutes } from '@plumbus/payments';
@@ -88,7 +77,13 @@ Run the worker too (`plumbus worker`): webhooks are applied there.
 plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
 ```
 
-Store the two printed signing secrets in `STRIPE_WEBHOOK_SECRETS` (comma-separated), then:
+Store the two printed signing secrets in `STRIPE_WEBHOOK_SECRETS` (comma-separated). With `billing`, create your plans at Stripe (and again after each change to them):
+
+```bash
+plumbus payments catalog sync
+```
+
+Then check everything:
 
 ```bash
 plumbus payments doctor --live --webhook-url https://api.example.com/payments/webhooks/stripe
@@ -100,8 +95,9 @@ Locally, forward events with the Stripe CLI — see [webhooks.md](./webhooks.md#
 
 1. **Connect payments** — call `startMerchantOnboarding`, redirect to `onboardingUrl`.
 2. **Return page** (`urls.onboardingReturn`) — call `syncMerchantAccount`, show `status` and `requirementsDue`.
-3. **Request payment** — call `createCharge({ amount, currency, description, client })`, show or send `charge.url`.
+3. **Request payment** — call `createCharge({ amount, currency, description, client })` (or `items` for several lines), show or send `charge.url`.
 4. **Payments list** — `listCharges`, `getCharge`, `refundCharge`.
+5. **What else you turned on** — invoices, holds, saved cards and the client portal, links, subscriptions, payouts, disputes: [capabilities-and-events.md](../../packages/payments/instructions/capabilities-and-events.md).
 
 ## 7. React to payments
 

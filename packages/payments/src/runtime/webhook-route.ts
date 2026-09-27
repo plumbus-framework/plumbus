@@ -3,18 +3,18 @@
 // encapsulated Fastify plugin that keeps the raw request bytes (providers sign
 // the exact body) without changing JSON parsing anywhere else in the app.
 //
-// Order of work: verify signature → check live/test mode → find the seller
-// (the only cross-tenant read, as the payments service account) → record the
-// event once and queue it → 200. Processing happens in the worker, so the
-// provider gets a fast answer and its retries stay harmless.
+// Order of work: verify signature → check live/test mode → find the tenant (the
+// only cross-tenant reads, as the payments service account: the seller, or the
+// owner of a platform-level object) → record the event once and queue it → 200.
+// Processing happens in the worker, so the provider gets a fast answer and its
+// retries stay harmless.
 
 import type { RouteGeneratorConfig } from '@plumbus/core';
 import { createExecutionContext } from '@plumbus/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { VerifiedProviderEvent } from '../types/provider.js';
 import type { Payments } from './create-payments.js';
-import { ingestProviderEvent, paymentsServiceAuth } from './ingest.js';
-import { findOne, merchantAccounts } from './repos.js';
+import { crossTenantLookups, ingestProviderEvent, paymentsServiceAuth } from './ingest.js';
 
 export interface RegisterPaymentRoutesOptions {
   /** Called for each verified delivery after it is recorded (metrics, logs). Errors are ignored. */
@@ -45,15 +45,13 @@ export function registerPaymentRoutes(
     deps.request = { userAgent: 'payments-webhook' };
     return createExecutionContext(deps);
   };
-  const findSeller = (accountId: string) => {
-    const deps = routeConfig.createDependencies(paymentsServiceAuth(), {
-      bypassTenantScope: true,
-    });
-    return findOne(merchantAccounts(createExecutionContext(deps)), {
-      provider: provider.id,
-      providerAccountId: accountId,
-    });
-  };
+  const lookups = () =>
+    crossTenantLookups(
+      createExecutionContext(
+        routeConfig.createDependencies(paymentsServiceAuth(), { bypassTenantScope: true }),
+      ),
+      provider.id,
+    );
 
   app.register(async (scope) => {
     scope.removeContentTypeParser(['application/json']);
@@ -81,7 +79,12 @@ export function registerPaymentRoutes(
       }
 
       try {
-        const outcome = await ingestProviderEvent({ payments, event, findSeller, contextFor });
+        const outcome = await ingestProviderEvent({
+          payments,
+          event,
+          lookups: lookups(),
+          contextFor,
+        });
         try {
           options.onEvent?.({
             eventId: event.eventId,

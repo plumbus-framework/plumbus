@@ -12,7 +12,7 @@ own `node_modules`. It never affects `build`, `test`, `lint`, `typecheck`, or
 `publish`.
 
 For the full stack (Postgres, migrations, API + worker, outbox, a stateful Stripe
-simulator, 13 scenarios) use [`../payments-connect-app`](../payments-connect-app/).
+simulator, 28 scenarios covering every payments feature) use [`../payments-connect-app`](../payments-connect-app/).
 
 The app shell (`lib/app.mjs`) keeps data in memory and runs the worker step
 inline, so no database or worker process is needed. It builds its own context

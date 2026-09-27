@@ -20,9 +20,10 @@ stripeProvider({
 ```
 
 - The API **and** worker processes both need `STRIPE_SECRET_KEY` (the worker re-reads Stripe for every webhook) and the API needs `STRIPE_WEBHOOK_SECRETS`.
-- Prefer a **restricted key** (`rk_…`). It needs write access to Connect accounts, account links, account sessions, login links, Checkout Sessions, Customers, Refunds, and event destinations (setup only), and read access to Payment Intents, Charges, and Disputes — on connected accounts too. Run `plumbus payments doctor --live` after creating it.
+- Prefer a **restricted key** (`rk_…`). It needs write access, on connected accounts too, to what your config uses: Connect accounts, account links, account sessions, login links, Checkout Sessions, Customers, Payment Intents (holds, saved cards), Payment Methods, Refunds, Disputes (answering), Invoices and Invoice Items, Payment Links, Prices (custom amounts), Subscriptions, Billing Portal, Transfers, Payouts and Balance Settings; for `billing`, Products, Prices, Entitlement Features, and Billing Meters; event destinations (setup only); and read access to Charges, Balance, Invoice Payments, and Active Entitlements. Run `plumbus payments doctor --live` after creating it.
 - A test key (`sk_test_`/`rk_test_`) with `NODE_ENV=production` is reported as an error by `doctor`.
-- Checkout links live 31 minutes to 23 h 59 min: `checkout.expiresAfterMinutes` is kept a minute inside Stripe's 30-minute–24-hour window.
+- Checkout pages live 31 minutes to 23 h 59 min: `checkout.expiresAfterMinutes` is kept a minute inside Stripe's 30-minute–24-hour window.
+- Embedded payment pages (`checkout.ui: 'embedded'`) need `publishableKey`; the front end mounts them with Stripe.js `initEmbeddedCheckout`, initialised with `stripeAccount: charge.checkout.accountId` when set (direct charges).
 
 ## Dashboards, fees, and losses (Stripe Accounts v2)
 
@@ -43,6 +44,23 @@ What each combination means:
 - Sellers on express/none cannot write their own Radar rules, and platform Radar rules do not apply to direct charges — set rules per seller from "View Dashboard as this account".
 
 These settings are fixed per seller when the account is created. Ask the app owner before offering `express` or platform liability: it moves financial risk to them.
+
+## Charge types
+
+| `chargeType` | Stripe | Seller's account asks for |
+|---|---|---|
+| `direct` (default for `full`) | Checkout on the seller's account, `application_fee_amount` | `merchant.card_payments` |
+| `destination` (default for `express`, `none`) | Checkout on the platform, `transfer_data.destination`, `application_fee_amount` | `recipient.stripe_balance.stripe_transfers` (+ `card_payments` with `destination.onBehalfOf`, which sets `on_behalf_of`) |
+
+`transfers.enabled` adds `stripe_transfers` for every seller so `payments.platform.transferToSeller` can pay them. Stripe restricts transfers across regions; check Stripe's cross-border payouts before selling internationally.
+
+## Payouts
+
+`payouts.schedule` is written through Stripe's **Balance Settings** API when an Express or no-dashboard seller's account is created (Stripe lets platforms set payout schedules only for accounts whose losses they cover). Weekly payouts go out Monday to Friday; `delayDays` becomes `settlement_timing.delay_days_override` (0–31, `'minimum'` resets it). Instant payouts need an eligible debit card on the seller's account; `getPayoutSettings` reports `instantAvailable` from the seller's balance.
+
+## The billing catalog
+
+`plumbus payments catalog sync` creates, for each plan, a product with a stable id (`plumbus_plan_…`, derived from `appId` and the plan key), a price per plan price with lookup key `plumbus:<appId>:<plan>:<price>`, an entitlement feature per feature key (`plumbus:<appId>:feature:<key>`) attached to its plans' products, and for each meter a billing meter (by `eventName`, mapping `stripe_customer_id` and `value`), a product, and a metered price (`plumbus:<appId>:meter:<meter>`). A changed amount makes a new price with `transfer_lookup_key` and archives the old one. A meter's aggregation cannot change at Stripe: use a new `eventName`. `catalog check` and `doctor --live` report differences without changing anything.
 
 ## Dashboard links
 

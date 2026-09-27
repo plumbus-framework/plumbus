@@ -55,12 +55,16 @@ describe('registerPaymentRoutes', () => {
       country: 'US',
       defaultCurrency: null,
       chargesEnabled: false,
+      transfersEnabled: false,
       payoutsEnabled: false,
       requirementsDue: [],
       requirementsPastDue: [],
       disabledReason: null,
       closed: false,
       livemode: false,
+      requested: { cardPayments: true, transfers: false },
+      payoutSchedule: { interval: 'daily' },
+      metadata: {},
     });
     const delivery = fake.event('account', 'acct_x');
     // Re-serialize with spacing: a parse/re-stringify would change these bytes.
@@ -155,12 +159,16 @@ describe('registerPaymentRoutes', () => {
       country: 'US',
       defaultCurrency: null,
       chargesEnabled: true,
+      transfersEnabled: false,
       payoutsEnabled: true,
       requirementsDue: [],
       requirementsPastDue: [],
       disabledReason: null,
       closed: false,
       livemode: false,
+      requested: { cardPayments: true, transfers: false },
+      payoutSchedule: { interval: 'daily' },
+      metadata: {},
     });
     const repo = (base.data as any).PaymentProviderEvent;
     repo.create = async () => {

@@ -18,6 +18,29 @@ import { serializeChange, stateChangeSchema } from './schemas.js';
 // else out (an access policy with no roles lets any signed-in user through).
 const serviceOnly = { roles: ['system'], serviceAccounts: [PAYMENTS_WEBHOOK_ACTOR] };
 
+/** Everything the worker may write while applying provider state. */
+const APPLIED_ENTITIES = [
+  PaymentEntityName.MerchantAccount,
+  PaymentEntityName.Client,
+  PaymentEntityName.Charge,
+  PaymentEntityName.Refund,
+  PaymentEntityName.Dispute,
+  PaymentEntityName.Method,
+  PaymentEntityName.Subscription,
+  PaymentEntityName.Invoice,
+  PaymentEntityName.Link,
+  PaymentEntityName.Transfer,
+  PaymentEntityName.Payout,
+  PaymentEntityName.BillingCustomer,
+  PaymentEntityName.Entitlement,
+  PaymentEntityName.ProviderEvent,
+];
+
+/** Every domain event the worker can emit. */
+const APPLIED_EVENTS = Object.values(PaymentEventName).filter(
+  (name) => name !== PaymentEventName.ProviderEventReceived,
+);
+
 export function createInternalCapabilities(runtime: PaymentsRuntime) {
   const { provider } = runtime;
 
@@ -116,31 +139,15 @@ export function createInternalCapabilities(runtime: PaymentsRuntime) {
     }),
     access: serviceOnly,
     effects: {
-      data: [
-        PaymentEntityName.MerchantAccount,
-        PaymentEntityName.Charge,
-        PaymentEntityName.Refund,
-        PaymentEntityName.Dispute,
-        PaymentEntityName.ProviderEvent,
-      ],
-      events: [
-        PaymentEventName.MerchantUpdated,
-        PaymentEventName.ChargePaid,
-        PaymentEventName.ChargeFailed,
-        PaymentEventName.ChargeExpired,
-        PaymentEventName.ChargeRefunded,
-        PaymentEventName.RefundFailed,
-        PaymentEventName.DisputeOpened,
-        PaymentEventName.DisputeUpdated,
-        PaymentEventName.DisputeClosed,
-      ],
+      data: APPLIED_ENTITIES,
+      events: APPLIED_EVENTS,
       external: [],
       ai: false,
     },
     async handler(ctx, input) {
       const result = await applyStateChanges(
         ctx,
-        provider.id,
+        runtime,
         new Date(input.observedAt),
         input.changes,
       );

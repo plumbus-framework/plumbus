@@ -115,13 +115,43 @@ describe('webhook processing', () => {
     expect(await env.data.PaymentDispute.findMany({})).toHaveLength(1);
   });
 
-  it('ignores a provider payment that carries our charge id but a different amount', async () => {
+  it('ignores a payment for another amount while the charge still awaits its page', async () => {
+    const env = await openCharge();
+    // The provider call has not answered yet: the row has no page of its own.
+    await env.data.PaymentCharge.update(env.charge.id, {
+      providerChargeId: `pending:${env.charge.id}`,
+    });
+    env.fake.charges.set('cs_cheaper', {
+      ...env.providerCharge,
+      id: 'cs_cheaper',
+      amountSubtotal: 50,
+      amountTotal: 50,
+      status: 'paid',
+      paymentId: 'pi_cheaper',
+      paidAt: new Date(),
+      url: null,
+    });
+    await env.deliver('charge', 'cs_cheaper');
+    expect(await env.row()).toMatchObject({ status: 'open' });
+    expect(env.emitted(PaymentEventName.ChargePaid)).toHaveLength(0);
+
+    // The page for the charge's own amount is applied.
+    env.fake.payCharge(env.providerCharge.id);
+    await env.deliver('charge', env.providerCharge.id);
+    expect(await env.row()).toMatchObject({
+      status: 'paid',
+      providerChargeId: env.providerCharge.id,
+    });
+  });
+
+  it('ignores a provider payment that carries our charge id but is not its page', async () => {
     const env = await openCharge();
     // A seller with a full dashboard can create their own checkout with any reference.
     env.fake.charges.set('cs_elsewhere', {
       ...env.providerCharge,
       id: 'cs_elsewhere',
-      amount: 50,
+      amountSubtotal: 50,
+      amountTotal: 50,
       status: 'paid',
       paymentId: 'pi_elsewhere',
       paidAt: new Date(),
@@ -137,7 +167,13 @@ describe('webhook processing', () => {
 
     // Nor does a refund of that other payment land on our charge.
     const outside = await env.fake.createRefund({
-      accountId: env.accountId,
+      routing: {
+        flow: 'direct',
+        sellerAccountId: env.accountId,
+        onBehalfOf: false,
+        transferGroup: null,
+      },
+      reverseTransfer: false,
       paymentId: 'pi_elsewhere',
       reference: 'n/a',
       amount: 50,
@@ -357,6 +393,13 @@ describe('charges', () => {
       provider: 'fake',
       providerChargeId: `pending:${id}`,
       providerPaymentId: null,
+      flow: 'direct',
+      collection: 'checkout',
+      ui: 'hosted',
+      capture: 'automatic',
+      saveMethod: false,
+      customAmount: false,
+      items: [{ name: 'Lesson 9', unitAmount: 2000, quantity: 1 }],
       requestId: 'lesson-9',
       status: 'open',
       amount: 2000,
@@ -386,7 +429,67 @@ describe('charges', () => {
   });
 });
 
+/** What a crash between saving a refund and hearing back from the provider leaves behind. */
+async function refundLostInCrash(env: Awaited<ReturnType<typeof paidCharge>>, amount: number) {
+  const id = randomUUID();
+  await env.data.PaymentRefund.create({
+    id,
+    tenantId: 'tenant-a',
+    chargeId: env.charge.id,
+    merchantAccountId: env.charge.merchantAccountId,
+    provider: 'fake',
+    providerRefundId: `pending:${id}`,
+    requestId: null,
+    amount,
+    currency: 'usd',
+    status: 'pending',
+    reason: null,
+    failureReason: null,
+    requestedBy: 'seller-1',
+    syncedAt: null,
+    // An hour before the test clock: long after any provider call would have ended.
+    createdAt: new Date(env.ctx.time.now().getTime() - 3_600_000),
+  });
+  return id;
+}
+
 describe('refunds', () => {
+  it('drops a refund that a crash kept from reaching the provider', async () => {
+    const env = await paidCharge();
+    const lost = await refundLostInCrash(env, 800);
+
+    const full = await env.run<any>('refundCharge', { chargeId: env.charge.id, amount: 2000 });
+    expect(full.refund.amount).toBe(2000);
+    expect(await env.data.PaymentRefund.findById(lost)).toBeNull();
+  });
+
+  it('keeps a refund that reached the provider before the crash', async () => {
+    const env = await paidCharge();
+    const lost = await refundLostInCrash(env, 800);
+    await env.fake.createRefund({
+      routing: {
+        flow: 'direct',
+        sellerAccountId: env.accountId,
+        onBehalfOf: false,
+        transferGroup: null,
+      },
+      reverseTransfer: false,
+      paymentId: env.providerCharge.paymentId as string,
+      reference: lost,
+      amount: 800,
+      refundPlatformFee: false,
+      metadata: {},
+      idempotencyKey: `plumbus-refund:${lost}`,
+    });
+
+    const tooMuch = await env.tryRun('refundCharge', { chargeId: env.charge.id, amount: 2000 });
+    expect(reasonOf(tooMuch)).toBe('payments_refund_exceeds_charge');
+    const stored = await env.data.PaymentRefund.findById(lost);
+    expect(stored.providerRefundId).toMatch(/^re_fake_/);
+    const rest = await env.run<any>('refundCharge', { chargeId: env.charge.id, amount: 1200 });
+    expect(rest.refund.amount).toBe(1200);
+  });
+
   it('asks the provider for the same refund when a requestId is retried after a lost response', async () => {
     const env = await paidCharge();
     const createRefund = env.fake.createRefund.bind(env.fake);
@@ -480,7 +583,7 @@ describe('refunds', () => {
       const refunded = [...env.fake.refunds.values()]
         .filter((r) => r.paymentId === input.paymentId && r.status !== 'failed')
         .reduce((sum, r) => sum + r.amount, 0);
-      if (refunded + (input.amount ?? 0) > env.providerCharge.amount) {
+      if (refunded + (input.amount ?? 0) > (env.providerCharge.amountTotal ?? 0)) {
         throw new Error('Refund amount is greater than the unrefunded amount');
       }
       return createRefund(input);

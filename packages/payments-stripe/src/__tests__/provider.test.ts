@@ -7,9 +7,40 @@ import {
   dispute,
   list,
   paidSession,
+  paymentIntent,
   refund,
   v2Account,
 } from './fixtures.js';
+
+const direct = {
+  flow: 'direct' as const,
+  sellerAccountId: 'acct_seller',
+  onBehalfOf: false,
+  transferGroup: null,
+};
+
+/** A createCharge input for one line item on the seller's account. */
+function chargeInput(overrides: Record<string, unknown> = {}) {
+  return {
+    ...direct,
+    reference: 'charge-local-1',
+    currency: 'usd',
+    items: [{ name: 'Private lesson', unitAmount: 5000, quantity: 1 }],
+    description: 'Private lesson',
+    platformFeeAmount: 250,
+    ui: 'hosted' as const,
+    successUrl: 'https://app.test/paid/charge-local-1',
+    cancelUrl: 'https://app.test/cancel/charge-local-1',
+    returnUrl: 'https://app.test/returned/charge-local-1',
+    expiresAt: new Date(),
+    capture: 'automatic' as const,
+    saveMethod: false,
+    options: {},
+    metadata: { plumbus_charge_id: 'charge-local-1' },
+    idempotencyKey: 'plumbus-charge:charge-local-1',
+    ...overrides,
+  };
+}
 
 function setup(key = 'sk_test_123') {
   const stub = createStripeHttpStub();
@@ -35,6 +66,7 @@ describe('stripeProvider — sellers (Accounts v2)', () => {
       country: 'US',
       email: 'seller@example.com',
       displayName: 'Ada Studio',
+      capabilities: { cardPayments: true, transfers: false },
       metadata: { plumbus_tenant_id: 't1' },
       idempotencyKey: 'plumbus-merchant:t1',
     });
@@ -53,7 +85,16 @@ describe('stripeProvider — sellers (Accounts v2)', () => {
         responsibilities: { fees_collector: 'application', losses_collector: 'application' },
       },
       metadata: { plumbus_tenant_id: 't1' },
-      include: ['configuration.merchant', 'defaults', 'identity', 'requirements'],
+      include: [
+        'configuration.merchant',
+        'configuration.recipient',
+        'defaults',
+        'identity',
+        'requirements',
+      ],
+    });
+    expect(request?.body.configuration).toEqual({
+      merchant: { capabilities: { card_payments: { requested: true } } },
     });
     expect(account).toMatchObject({
       id: 'acct_seller',
@@ -83,7 +124,8 @@ describe('stripeProvider — sellers (Accounts v2)', () => {
       collectEventuallyDue: true,
     });
     expect(link.expiresAt.toISOString()).toBe('2026-09-27T12:00:00.000Z');
-    expect(stub.requests[0]?.body).toEqual({
+    const linkRequest = stub.requests.find((r) => r.path === '/v2/core/account_links');
+    expect(linkRequest?.body).toEqual({
       account: 'acct_seller',
       use_case: {
         type: 'account_onboarding',
@@ -102,13 +144,79 @@ describe('stripeProvider — sellers (Accounts v2)', () => {
       payoutsEnabled: true,
       requirementsDue: [],
     });
-    const include = stub.requests[1]?.query;
-    expect([0, 1, 2, 3].map((i) => include?.get(`include[${i}]`))).toEqual([
+    const include = stub.requests.at(-1)?.query;
+    expect([0, 1, 2, 3, 4].map((i) => include?.get(`include[${i}]`))).toEqual([
       'configuration.merchant',
+      'configuration.recipient',
       'defaults',
       'identity',
       'requirements',
     ]);
+  });
+
+  it('asks for transfers (recipient) when the seller is paid by destination charges', async () => {
+    const { stub, provider } = setup();
+    stub.on('POST /v2/core/accounts', () => v2Account({ dashboard: 'express' }));
+    await provider.createMerchantAccount({
+      dashboard: 'express',
+      feesCollector: 'platform',
+      lossesCollector: 'platform',
+      country: 'US',
+      capabilities: { cardPayments: false, transfers: true },
+      metadata: {},
+      idempotencyKey: 'k',
+    });
+    expect(stub.requests[0]?.body.configuration).toEqual({
+      recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } },
+    });
+  });
+
+  it('onboards every configuration the account has', async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/accounts/*', () =>
+      v2Account({ applied_configurations: ['merchant', 'recipient'] }),
+    );
+    stub.on('POST /v2/core/account_links', () => ({
+      object: 'v2.core.account_link',
+      url: 'https://connect.stripe.com/setup/x',
+      expires_at: '2026-09-27T12:00:00.000Z',
+    }));
+    await provider.createOnboardingLink({
+      accountId: 'acct_seller',
+      returnUrl: 'https://app.test/return',
+      refreshUrl: 'https://app.test/refresh',
+      collectEventuallyDue: false,
+    });
+    const linkRequest = stub.requests.find((r) => r.path === '/v2/core/account_links');
+    expect(linkRequest?.body).toMatchObject({
+      use_case: { account_onboarding: { configurations: ['merchant', 'recipient'] } },
+    });
+  });
+
+  it('reports transfers as enabled once the recipient capability is active', async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/accounts/*', () =>
+      v2Account({
+        configuration: {
+          recipient: {
+            applied: true,
+            capabilities: {
+              stripe_balance: {
+                stripe_transfers: { status: 'active', status_details: [] },
+                payouts: { status: 'active', status_details: [] },
+              },
+            },
+          },
+        },
+        requirements: { entries: [] },
+      }),
+    );
+    expect(await provider.retrieveMerchantAccount('acct_seller')).toMatchObject({
+      chargesEnabled: false,
+      transfersEnabled: true,
+      payoutsEnabled: true,
+      disabledReason: null,
+    });
   });
 
   it('mints embedded component sessions with the configured refund/dispute features', async () => {
@@ -173,20 +281,9 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
     stub.on('POST /v1/checkout/sessions', () => checkoutSession());
     const expiresAt = Math.floor(Date.now() / 1000) + 2 * 3600;
 
-    const charge = await provider.createCharge({
-      accountId: 'acct_seller',
-      reference: 'charge-local-1',
-      amount: 5000,
-      currency: 'usd',
-      description: 'Private lesson',
-      platformFeeAmount: 250,
-      clientEmail: 'client@example.com',
-      successUrl: 'https://app.test/paid/charge-local-1',
-      cancelUrl: 'https://app.test/cancel/charge-local-1',
-      expiresAt: new Date(expiresAt * 1000),
-      metadata: { plumbus_charge_id: 'charge-local-1' },
-      idempotencyKey: 'plumbus-charge:charge-local-1',
-    });
+    const charge = await provider.createCharge(
+      chargeInput({ clientEmail: 'client@example.com', expiresAt: new Date(expiresAt * 1000) }),
+    );
 
     const [request] = stub.requests;
     expect(request?.headers['stripe-account']).toBe('acct_seller');
@@ -201,6 +298,8 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
       client_reference_id: 'charge-local-1',
       'payment_intent_data[application_fee_amount]': '250',
       'payment_intent_data[metadata][plumbus_charge_id]': 'charge-local-1',
+      'payment_intent_data[metadata][plumbus_collection]': 'checkout',
+      ui_mode: 'hosted_page',
       success_url: 'https://app.test/paid/charge-local-1',
       expires_at: String(expiresAt),
     });
@@ -215,21 +314,14 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
   it('omits the application fee when there is no platform cut and uses an existing customer', async () => {
     const { stub, provider } = setup();
     stub.on('POST /v1/checkout/sessions', () => checkoutSession());
-    await provider.createCharge({
-      accountId: 'acct_seller',
-      reference: 'c2',
-      amount: 100,
-      currency: 'eur',
-      description: 'x',
-      platformFeeAmount: 0,
-      clientId: 'cus_1',
-      clientEmail: 'ignored@example.com',
-      successUrl: 'https://a.test/s',
-      cancelUrl: 'https://a.test/c',
-      expiresAt: new Date(),
-      metadata: {},
-      idempotencyKey: 'k',
-    });
+    await provider.createCharge(
+      chargeInput({
+        currency: 'eur',
+        platformFeeAmount: 0,
+        clientId: 'cus_1',
+        clientEmail: 'ignored@example.com',
+      }),
+    );
     const body = stub.requests[0]?.body ?? {};
     expect(body['payment_intent_data[application_fee_amount]']).toBeUndefined();
     expect(body.customer).toBe('cus_1');
@@ -243,7 +335,7 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
 
     expect(
       await provider.createClient({
-        accountId: 'acct_seller',
+        sellerAccountId: 'acct_seller',
         email: 'c@example.com',
         name: 'C',
         metadata: {},
@@ -251,7 +343,8 @@ describe('stripeProvider — charges and refunds (direct charges)', () => {
       }),
     ).toEqual({ clientId: 'cus_9' });
     const created = await provider.createRefund({
-      accountId: 'acct_seller',
+      routing: direct,
+      reverseTransfer: false,
       paymentId: 'pi_1',
       reference: 'refund-local-1',
       amount: 1000,
@@ -325,6 +418,7 @@ describe('stripeProvider — resolveEvent (fetch-on-event)', () => {
   it('returns the refund and the refreshed charge for refund events', async () => {
     const { stub, provider } = setup();
     stub.on('GET /v1/refunds/*', () => refund());
+    stub.on('GET /v1/payment_intents/*', () => paymentIntent());
     stub.on('GET /v1/checkout/sessions', () =>
       list([
         paidSession({
@@ -353,13 +447,16 @@ describe('stripeProvider — resolveEvent (fetch-on-event)', () => {
       refund: { status: 'succeeded' },
     });
     expect(changes[0]).toMatchObject({ charge: { amountRefunded: 1000 } });
-    expect(stub.requests[1]?.query.get('payment_intent')).toBe('pi_1');
+    const sessions = stub.requests.find((r) => r.path === '/v1/checkout/sessions');
+    expect(sessions?.query.get('payment_intent')).toBe('pi_1');
   });
 
   it('lists refunds of a charge for charge.refunded and ignores payments the app did not create', async () => {
     const { stub, provider } = setup();
     stub.on('GET /v1/refunds', () => list([refund(), refund({ id: 're_2', amount: 500 })]));
+    stub.on('GET /v1/payment_intents/*', () => paymentIntent({ metadata: {} }));
     stub.on('GET /v1/checkout/sessions', () => list([]));
+    stub.on('GET /v1/invoice_payments', () => list([]));
     const changes = await provider.resolveEvent({
       eventId: 'evt_4',
       type: 'charge.refunded',
@@ -376,6 +473,7 @@ describe('stripeProvider — resolveEvent (fetch-on-event)', () => {
   it('returns the charge and the dispute for dispute events', async () => {
     const { stub, provider } = setup();
     stub.on('GET /v1/disputes/*', () => dispute({ status: 'warning_under_review' }));
+    stub.on('GET /v1/payment_intents/*', () => paymentIntent());
     stub.on('GET /v1/checkout/sessions', () => list([paidSession()]));
     const changes = await provider.resolveEvent({
       eventId: 'evt_5',
@@ -393,23 +491,31 @@ describe('stripeProvider — resolveEvent (fetch-on-event)', () => {
     });
   });
 
-  it('returns nothing for events without a seller or object, or of other types', async () => {
+  it("returns nothing for events without an object, of other types, or the platform's own payouts", async () => {
     const { stub, provider } = setup();
     const base = { eventId: 'e', format: 'snapshot' as const, livemode: false, objectType: 'x' };
     expect(
       await provider.resolveEvent({
         ...base,
-        type: 'payout.paid',
-        accountId: 'a',
-        objectId: 'po_1',
+        type: 'checkout.session.completed',
+        accountId: 'acct_seller',
+        objectId: null,
       }),
     ).toEqual([]);
     expect(
       await provider.resolveEvent({
         ...base,
-        type: 'checkout.session.completed',
+        type: 'customer.created',
+        accountId: 'acct_seller',
+        objectId: 'cus_1',
+      }),
+    ).toEqual([]);
+    expect(
+      await provider.resolveEvent({
+        ...base,
+        type: 'payout.paid',
         accountId: null,
-        objectId: 'cs',
+        objectId: 'po_1',
       }),
     ).toEqual([]);
     expect(stub.requests).toHaveLength(0);
@@ -431,19 +537,9 @@ describe('stripeProvider — errors', () => {
       },
     }));
     const failure = provider
-      .createCharge({
-        accountId: 'acct_seller',
-        reference: 'c',
-        amount: 10,
-        currency: 'usd',
-        description: 'x',
-        platformFeeAmount: 0,
-        successUrl: 'https://a.test/s',
-        cancelUrl: 'https://a.test/c',
-        expiresAt: new Date(),
-        metadata: {},
-        idempotencyKey: 'k',
-      })
+      .createCharge(
+        chargeInput({ items: [{ name: 'x', unitAmount: 10, quantity: 1 }], platformFeeAmount: 0 }),
+      )
       .catch((err: unknown) => err);
     const err = (await failure) as {
       code: string;

@@ -7,7 +7,8 @@
 // Steps: link the built packages → typecheck the app → private Postgres
 // (docker, or E2E_DB_*) → `plumbus migrate generate` + `apply --create-db` →
 // Stripe simulator → `plumbus dev` (API + worker + outbox in one process) →
-// `plumbus payments webhooks setup` + `doctor --live` → scenarios over HTTP.
+// `plumbus payments webhooks setup` + `catalog check/sync` + `doctor --live` →
+// scenarios over HTTP.
 // Exit code is non-zero on any failure. Needs `pnpm build` at the repo root.
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -122,6 +123,23 @@ async function main() {
     const output = await plumbus(['payments', 'webhooks', 'setup', '--url', webhookUrl], env);
     assert((output.match(/created/g) ?? []).length === 2, output);
   });
+  await step('plumbus payments catalog check fails before the first sync', async () => {
+    const failed = await plumbus(['payments', 'catalog', 'check'], env).then(
+      () => null,
+      (err) => err.message,
+    );
+    assert(failed?.includes('create product plan school'), failed ?? 'catalog check passed on an empty catalog');
+  });
+  await step('plumbus payments catalog sync', async () => {
+    const output = await plumbus(['payments', 'catalog', 'sync'], env);
+    assert(output.includes('plumbus:payments-connect-app:school:monthly →'), output);
+    const again = await plumbus(['payments', 'catalog', 'sync'], env);
+    assert(again.includes('Catalog already up to date'), again);
+  });
+  await step('plumbus payments catalog check passes after it', async () => {
+    const output = await plumbus(['payments', 'catalog', 'check'], env);
+    assert(output.includes('Catalog matches'), output);
+  });
   const doctor = await step('plumbus payments doctor --live', () =>
     plumbus(['payments', 'doctor', '--live', '--webhook-url', webhookUrl], env),
   );
@@ -137,10 +155,7 @@ async function main() {
   };
 
   console.log('\nScenarios');
-  const runnable = scenarios.filter((s) => !s.planned);
-  const selected = only
-    ? runnable.slice(0, runnable.findIndex((s) => s.id === only) + 1)
-    : runnable;
+  const selected = only ? scenarios.slice(0, scenarios.findIndex((s) => s.id === only) + 1) : scenarios;
   if (only && selected.length === 0) throw new Error(`unknown scenario ${only}`);
   for (const scenario of selected) {
     try {
@@ -150,11 +165,6 @@ async function main() {
       if (verbose) console.log(app.output.slice(-40).join('\n'));
       break; // later scenarios build on earlier ones
     }
-  }
-
-  console.log('\nPlanned (later phases — not built yet)');
-  for (const scenario of scenarios.filter((s) => s.planned)) {
-    console.log(`[ PLAN ] ${scenario.id} — ${scenario.title}\n         needs: ${scenario.needs}`);
   }
 
   if (keep) {
@@ -177,7 +187,6 @@ try {
       }
     }
   }
-  const total = scenarios.filter((s) => !s.planned).length;
-  console.log(failed ? `\nFAILED (${failed})` : `\nPASSED — ${total} scenarios`);
+  console.log(failed ? `\nFAILED (${failed})` : `\nPASSED — ${scenarios.length} scenarios`);
   process.exitCode = failed ? 1 : 0;
 }

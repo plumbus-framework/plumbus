@@ -34,8 +34,8 @@ const provider = stripeProvider({ secretKey: 'sk_test_x', webhookSecrets: ['whse
 // stub.requests: method, path, query, headers (stripe-account, idempotency-key, stripe-version), body
 ```
 
-Unmatched routes answer 404. v1 bodies are form fields (`line_items[0][price_data][unit_amount]`); v2 bodies are JSON.
+Unmatched routes answer 404, and the first route that matches answers (register one handler per route and keep changing state in variables). v1 bodies are form fields (`line_items[0][price_data][unit_amount]`); v2 bodies are JSON. Platform requests have no `stripe-account` header; seller requests (direct charges, payouts) do.
 
 ## Live test mode (optional, manual)
 
-With a **test** key and the Stripe CLI forwarding (see [webhooks.md](./webhooks.md)): onboard a seller with Stripe's test onboarding data, create a charge, pay with card `4242 4242 4242 4242`, and watch `payments.charge.paid`. Never run this against live keys. In the Plumbus repo, `examples/payments-connect-app` runs this on the real runtime (`node scripts/dev.mjs --stripe`), and its `scripts/e2e.mjs` runs 13 scenarios against a local Stripe simulator without keys.
+With a **test** key and the Stripe CLI forwarding (see [webhooks.md](./webhooks.md)): onboard a seller with Stripe's test onboarding data, create a charge, pay with card `4242 4242 4242 4242`, and watch `payments.charge.paid`. Never run this against live keys. In the Plumbus repo, `examples/payments-connect-app` runs this on the real runtime (`node scripts/dev.mjs --stripe`), and its `scripts/e2e.mjs` runs 28 scenarios — every payments feature, including destination charges, transfers, payouts, and platform billing with `catalog sync` — against a local Stripe simulator without keys.

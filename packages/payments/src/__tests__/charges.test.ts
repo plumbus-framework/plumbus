@@ -52,8 +52,10 @@ describe('createCharge', () => {
 
     const input = env.fake.calls.find((c) => c.method === 'createCharge')?.input as any;
     expect(input).toMatchObject({
-      accountId: env.accountId,
+      flow: 'direct',
+      sellerAccountId: env.accountId,
       reference: charge.id,
+      items: [{ name: 'Private lesson', unitAmount: 5000, quantity: 1 }],
       platformFeeAmount: 280,
       successUrl: `https://app.test/paid/${charge.id}`,
       cancelUrl: `https://app.test/cancelled/${charge.id}`,

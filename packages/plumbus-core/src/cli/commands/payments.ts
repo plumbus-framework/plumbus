@@ -1,6 +1,6 @@
 // ── plumbus payments ──
-// Config + environment checks and webhook setup for the optional
-// @plumbus/payments add-on. Core never imports the add-on: it loads the app's
+// Config + environment checks, webhook setup, and the billing catalog for the
+// optional @plumbus/payments add-on. Core never imports the add-on: it loads the app's
 // `app/payments/index.ts`, which exports the `payments` object from
 // createPayments(), and talks to it through the small interface below.
 
@@ -18,6 +18,13 @@ export interface PaymentsCliFinding {
   path?: string;
 }
 
+/** What a catalog sync or check did or would do. */
+export interface PaymentsCliCatalogResult {
+  /** Provider price id per catalog lookup key. */
+  prices: Record<string, string>;
+  changes: string[];
+}
+
 /** The parts of a `createPayments()` result the CLI uses. */
 export interface PaymentsCliModule {
   provider: { id: string; displayName: string };
@@ -33,6 +40,9 @@ export interface PaymentsCliModule {
       created: boolean;
     }>;
   }>;
+  /** Billing catalog (payments 0.2+); absent in older add-on releases. */
+  syncCatalog?(): Promise<PaymentsCliCatalogResult>;
+  checkCatalog?(): Promise<PaymentsCliCatalogResult>;
 }
 
 export const PAYMENTS_ENTRY_FILES = ['app/payments/index.ts', 'app/payments/index.js'] as const;
@@ -84,6 +94,27 @@ export function formatPaymentsFindings(findings: readonly PaymentsCliFinding[]):
   );
 }
 
+export function formatCatalogResult(
+  result: PaymentsCliCatalogResult,
+  mode: 'sync' | 'check',
+): string[] {
+  const lines: string[] = [];
+  if (result.changes.length === 0) {
+    lines.push(
+      mode === 'sync' ? '✔ Catalog already up to date' : '✔ Catalog matches billing in the config',
+    );
+  } else {
+    lines.push(mode === 'sync' ? 'Changed:' : 'Differs (run plumbus payments catalog sync):');
+    for (const change of result.changes) lines.push(`  ${mode === 'sync' ? '✔' : '✖'} ${change}`);
+  }
+  const prices = Object.entries(result.prices);
+  if (prices.length > 0) {
+    lines.push('Prices:');
+    for (const [lookupKey, id] of prices) lines.push(`  ${lookupKey} → ${id}`);
+  }
+  return lines;
+}
+
 /** Exit policy for `plumbus payments doctor`: errors fail; warnings fail only when asked. */
 export function paymentsDoctorShouldFail(
   findings: readonly PaymentsCliFinding[],
@@ -121,7 +152,9 @@ async function requirePayments(): Promise<PaymentsCliModule> {
 export function registerPaymentsCommand(program: Command): void {
   const payments = program
     .command('payments')
-    .description('Payments add-on — check config and provider setup, create webhook destinations');
+    .description(
+      'Payments add-on — check config and provider setup, create webhook destinations, sync the billing catalog',
+    );
 
   payments
     .command('doctor')
@@ -188,4 +221,41 @@ export function registerPaymentsCommand(program: Command): void {
         );
       }
     });
+
+  const catalog = payments
+    .command('catalog')
+    .description(
+      'The billing catalog (plans, prices, features, meters) from `billing` in the payments config',
+    );
+
+  for (const mode of ['sync', 'check'] as const) {
+    catalog
+      .command(mode)
+      .description(
+        mode === 'sync'
+          ? 'Create or update the catalog at the provider so it matches the config'
+          : 'Compare the catalog at the provider with the config without changing it; fails when they differ',
+      )
+      .option('--json', 'Print the result as JSON')
+      .action(async (opts: { json?: boolean }) => {
+        const app = await requirePayments();
+        const run = mode === 'sync' ? app.syncCatalog : app.checkCatalog;
+        if (!run) {
+          console.error('');
+          console.error(
+            'This @plumbus/payments release has no billing catalog; upgrade to 0.2 or later.',
+          );
+          console.error('');
+          process.exit(1);
+        }
+        const result = await run.call(app);
+        if (opts.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`Payments provider: ${app.provider.displayName}`);
+          for (const line of formatCatalogResult(result, mode)) console.log(line);
+        }
+        if (mode === 'check' && result.changes.length > 0) process.exitCode = 1;
+      });
+  }
 }

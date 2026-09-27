@@ -155,7 +155,13 @@ describe('webhook ingest + processing', () => {
 
     // A refund the seller made in their own dashboard still shows up.
     const outside = await env.fake.createRefund({
-      accountId: env.accountId,
+      routing: {
+        flow: 'direct',
+        sellerAccountId: env.accountId,
+        onBehalfOf: false,
+        transferGroup: null,
+      },
+      reverseTransfer: false,
       paymentId: env.providerCharge.paymentId as string,
       reference: 'n/a',
       amount: 1500,
@@ -249,7 +255,7 @@ describe('webhook ingest guards', () => {
       ignoredReason: 'unknown_seller_account',
     });
 
-    const payout = env.fake.event('account', env.accountId, { type: 'payout.paid' });
+    const payout = env.fake.event('account', env.accountId, { type: 'ignored.payout.paid' });
     expect(await deliverTestWebhook(env.payments, env.ctx, payout)).toMatchObject({
       status: 'ignored',
       ignoredReason: 'unhandled_type',

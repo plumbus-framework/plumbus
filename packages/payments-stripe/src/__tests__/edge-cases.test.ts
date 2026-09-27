@@ -14,16 +14,29 @@ import {
   signStripeWebhook,
   stripeSnapshotEvent,
 } from '../testing/index.js';
-import { activeV2Account, checkoutSession, list, paidSession } from './fixtures.js';
+import { activeV2Account, checkoutSession, list, paidSession, refund } from './fixtures.js';
+
+const direct = {
+  flow: 'direct' as const,
+  sellerAccountId: 'acct_seller',
+  onBehalfOf: false,
+  transferGroup: null,
+};
 
 const chargeInput = {
-  accountId: 'acct_seller',
+  ...direct,
   reference: 'charge-local-1',
-  amount: 1000,
   currency: 'usd',
+  items: [{ name: 'Lesson', unitAmount: 1000, quantity: 1 }],
+  description: 'Lesson',
   platformFeeAmount: 0,
+  ui: 'hosted' as const,
   successUrl: 'https://app.test/paid',
   cancelUrl: 'https://app.test/cancelled',
+  returnUrl: 'https://app.test/returned',
+  capture: 'automatic' as const,
+  saveMethod: false,
+  options: {},
   metadata: {},
 };
 
@@ -122,12 +135,18 @@ describe('Stripe adapter edge cases', () => {
     expect(stored.charge).toMatchObject({ status: 'expired', platformFeeAmount: 200 });
   });
 
-  it('sends a well-formed product name when the description is cut inside an emoji', async () => {
+  it('sends a well-formed product name when the item name is cut inside an emoji', async () => {
     const stub = createStripeHttpStub();
     stub.on('POST /v1/checkout/sessions', () => checkoutSession());
     await provider(stub).createCharge({
       ...chargeInput,
-      description: `${'a'.repeat(249)}😀 and the rest of a long description`,
+      items: [
+        {
+          name: `${'a'.repeat(249)}😀 and the rest of a long name`,
+          unitAmount: 1000,
+          quantity: 1,
+        },
+      ],
       expiresAt: new Date(Date.now() + 3_600_000),
       idempotencyKey: 'plumbus-charge:emoji',
     });
@@ -174,7 +193,7 @@ describe('Stripe adapter edge cases', () => {
       event_payload: 'snapshot',
       status: 'enabled',
       enabled_events: [...STRIPE_SNAPSHOT_EVENTS],
-      events_from: ['@accounts'],
+      events_from: ['@self', '@accounts'],
       snapshot_api_version: STRIPE_API_VERSION,
     };
     stub.on('GET /v2/core/accounts', () => ({ data: [], next_page_url: null }));
@@ -203,6 +222,26 @@ describe('Stripe adapter edge cases', () => {
     )?.map((f) => f.code);
     expect(codes).not.toContain('stripe_snapshot_destination_url');
     expect(codes).toContain('stripe_snapshot_destination_duplicate');
+  });
+
+  it("finds a refund by the local id in its metadata on the seller's account", async () => {
+    const stub = createStripeHttpStub();
+    stub.on('GET /v1/refunds', () =>
+      list([
+        refund({ id: 're_other', metadata: { plumbus_refund_id: 'someone-else' } }),
+        refund({ id: 're_mine', metadata: { plumbus_refund_id: 'refund-local-7' } }),
+      ]),
+    );
+    const stripe = provider(stub);
+    const lookup = { routing: direct, paymentId: 'pi_1' };
+    expect(await stripe.findRefund?.({ ...lookup, reference: 'refund-local-7' })).toMatchObject({
+      id: 're_mine',
+      reference: 'refund-local-7',
+    });
+    expect(await stripe.findRefund?.({ ...lookup, reference: 'missing' })).toBeNull();
+    const [request] = stub.requests;
+    expect(request?.headers['stripe-account']).toBe('acct_seller');
+    expect(request?.query.get('payment_intent')).toBe('pi_1');
   });
 
   it('reports fee and refunded amount as unknown when Stripe did not expand them', () => {

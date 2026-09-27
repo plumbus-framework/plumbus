@@ -45,12 +45,15 @@ await deliverTestWebhook(payments, ctx, fake.event('charge', providerCharge.id))
 const paid = (ctx.events as MockEventService).emitted.filter((e) => e.eventName === 'payments.charge.paid');
 ```
 
-Fake helpers: `completeOnboarding`, `restrictAccount`, `closeAccount`, `payCharge`, `setChargeStatus`, `settleRefund`, `openDispute`, `setDisputeStatus`, `failNext(method, error)`, `event(objectType, id, { type, livemode, eventId })`, plus `calls` (every provider call with its input).
+Fake helpers: `completeOnboarding`, `restrictAccount`, `closeAccount`, `payCharge(id, { amount?, discount?, tax? })` (a hold becomes `authorized`; `saveMethod` keeps the card), `setChargeStatus`, `setSavedMethodOutcome('requires_action' | 'failed')`, `settleRefund`, `openDispute`, `setDisputeStatus`, `completeSetup(sessionId, card?)`, `completeSubscriptionCheckout`, `expireSubscriptionCheckout`, `renewSubscription(id, { paid })`, `payLink(linkId, { quantity? })`, `payoutSeller(accountId, { amount, status? })`, `setPayoutStatus`, `failNext(method, error)`, `event(objectType, id, { type, livemode, eventId })`, plus `calls` (every provider call with its input) and maps of what exists (`accounts`, `charges`, `methods`, `subscriptions`, `subscriptionCheckouts`, `setupSessions`, `links`, `transfers`, `payouts`, …). Object types for `event`: `account`, `charge`, `refund`, `dispute`, `payment_method`, `setup`, `subscription`, `subscription_checkout`, `invoice`, `transfer`, `payout`, `entitlements` (by customer id). The fake enforces what matters (a seller that cannot take payments, refund limits, idempotency keys) and routes platform events by the tenant in their metadata, like Stripe.
+
+For billing, call `await payments.syncCatalog()` first (the fake keeps its own catalog), subscribe with `subscribeToPlan`, then `fake.completeSubscriptionCheckout(checkoutId)` and deliver `fake.event('subscription_checkout', checkoutId)` and `fake.event('entitlements', customerId)`.
 
 ## What to test in your app
 
 - Your `payments.charge.paid` handler grants exactly once (deliver the same `fake.event(...)` twice; the second returns `status: 'duplicate'`).
 - Your capability that invokes `payments.createCharge` passes the server-side amount and a stable `requestId`.
 - Sellers without `access.sellers` get `forbidden`; another seller's `chargeId` gets `notFound`.
+- Capabilities gated by plan refuse customers without the feature (`payments.billing.hasFeature`), and usage you meter passes a stable `identifier`.
 
 Stripe-specific tests (real signatures, request shapes): `node_modules/@plumbus/payments-stripe/instructions/testing.md`.

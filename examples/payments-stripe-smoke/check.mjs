@@ -67,6 +67,7 @@ async function offline() {
     return {
       id: 'acct_smoke',
       object: 'v2.core.account',
+      applied_configurations: ['merchant'],
       livemode: false,
       dashboard: 'full',
       identity: { country: 'US' },
@@ -216,6 +217,7 @@ async function live() {
       lossesCollector: 'provider',
       country: 'US',
       email: `smoke+${Date.now()}@example.com`,
+      capabilities: { cardPayments: true, transfers: false },
       metadata: { plumbus_smoke: 'true' },
       idempotencyKey: `plumbus-smoke-${Date.now()}`,
     });
@@ -242,15 +244,23 @@ async function live() {
   }
   await check('Create a Checkout session with a platform fee', async () => {
     const charge = await provider.createCharge({
-      accountId: seller,
+      flow: 'direct',
+      sellerAccountId: seller,
+      onBehalfOf: false,
+      transferGroup: null,
       reference: `smoke-${Date.now()}`,
-      amount: 2500,
       currency: 'usd',
+      items: [{ name: 'Plumbus smoke charge', unitAmount: 2500, quantity: 1 }],
       description: 'Plumbus smoke charge',
       platformFeeAmount: 125,
+      ui: 'hosted',
       successUrl: 'https://example.com/paid',
       cancelUrl: 'https://example.com/cancel',
+      returnUrl: 'https://example.com/returned',
       expiresAt: new Date(Date.now() + 60 * 60_000),
+      capture: 'automatic',
+      saveMethod: false,
+      options: {},
       metadata: { plumbus_smoke: 'true' },
       idempotencyKey: `plumbus-smoke-charge-${Date.now()}`,
     });

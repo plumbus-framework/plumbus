@@ -24,7 +24,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus verify` | Run governance rules |
 | `plumbus certify` | Run compliance profile assessment (`certify policy <name>`) |
 | `plumbus api` | Partner API manifest validate, OpenAPI/docs export, diff |
-| `plumbus payments` | Payments add-on: `doctor` (config + provider checks), `webhooks setup` |
+| `plumbus payments` | Payments add-on: `doctor` (config + provider checks), `webhooks setup`, `catalog sync` / `catalog check` (billing plans at the provider) |
 | `plumbus voice worker` | LiveKit realtime voice worker |
 | `plumbus e2e` | Run Playwright browser E2E suites |
 | `plumbus migrate` | Database migration commands |
@@ -698,12 +698,16 @@ Checks and setup for the optional [`@plumbus/payments`](../payments/README.md) a
 ```bash
 plumbus payments doctor [--live] [--webhook-url <url>] [--fail-on-warning] [--json]
 plumbus payments webhooks setup --url <url> [--json]
+plumbus payments catalog sync [--json]
+plumbus payments catalog check [--json]
 ```
 
 | Subcommand | Exit code | What it does |
 |---|---|---|
-| `doctor` | 1 on error findings (or warnings with `--fail-on-warning`) | Prints config findings (provider rules, advice). With `--live`, also asks the provider: key mode vs `NODE_ENV`, Connect/Accounts v2 access, webhook destinations (existence, URL, events, API version) |
-| `webhooks setup` | 0 | Creates the provider's webhook destinations for `--url` (skips existing ones) and prints each signing secret once |
+| `doctor` | 1 on error findings (or warnings with `--fail-on-warning`) | Prints config findings (provider rules, advice). With `--live`, also asks the provider: key mode vs `NODE_ENV`, Connect/Accounts v2 access, webhook destinations (existence, URL, sources, events, API version), and, with `billing` configured, whether the provider's catalog matches it |
+| `webhooks setup` | 0 | Creates the provider's webhook destinations for `--url` and prints each signing secret once. Existing destinations get any events a newer release needs; one that cannot be fixed in place (Stripe cannot change where a destination takes events from) is replaced by a new one, and `doctor --live` says which old one to delete |
+| `catalog sync` | 0 | Creates or updates the provider's products, prices, entitlement features, and usage meters so they match `billing` in the payments config, and prints what changed and the price ids. Safe to run on every deploy. A changed price becomes a new provider price; existing subscribers keep theirs |
+| `catalog check` | 1 when the catalog differs | Read-only: lists what `catalog sync` would change. Use it in CI |
 
 `--webhook-url` is the public URL of the payments webhook route (default path `/payments/webhooks/<provider>`). See [docs/payments/webhooks.md](../payments/webhooks.md).
 

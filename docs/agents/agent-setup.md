@@ -318,13 +318,13 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/auth-cognito/instructions/logout.md` | Cognito logout URL builder |
 | `node_modules/@plumbus/payments/instructions/README.md` | Payments instruction index (optional package) |
 | `node_modules/@plumbus/payments/instructions/framework.md` | Package boundary, exports, money-handling rules |
-| `node_modules/@plumbus/payments/instructions/wiring.md` | `createPayments()`, re-exports, webhook route, worker, migrations |
-| `node_modules/@plumbus/payments/instructions/options.md` | Choosing seller owner, dashboards, fees, losses, platform fee |
-| `node_modules/@plumbus/payments/instructions/capabilities-and-events.md` | Calling payments capabilities, reacting to `payments.*` events |
+| `node_modules/@plumbus/payments/instructions/wiring.md` | `createPayments()`, collection exports, webhook route, worker, migrations, catalog sync, helpers |
+| `node_modules/@plumbus/payments/instructions/options.md` | Choosing sellers or billing, dashboards, charge type, fees, losses, platform fee, plans |
+| `node_modules/@plumbus/payments/instructions/capabilities-and-events.md` | Calling payments capabilities and helpers, reacting to `payments.*` events |
 | `node_modules/@plumbus/payments/instructions/testing.md` | Fake provider, `deliverTestWebhook` |
 | `node_modules/@plumbus/payments-stripe/instructions/README.md` | Stripe provider instruction index (optional package) |
 | `node_modules/@plumbus/payments-stripe/instructions/framework.md` | Stripe APIs used, API version, critical rules |
-| `node_modules/@plumbus/payments-stripe/instructions/configure-stripe.md` | Keys, Connect dashboards, liability rules |
+| `node_modules/@plumbus/payments-stripe/instructions/configure-stripe.md` | Keys, dashboards, charge types, liability rules, the billing catalog |
 | `node_modules/@plumbus/payments-stripe/instructions/webhooks.md` | Event destinations, signing secrets, Stripe CLI forwarding |
 | `node_modules/@plumbus/payments-stripe/instructions/testing.md` | Signed Stripe events, HTTP stub |
 | `node_modules/@plumbus/voice/instructions/README.md` | Voice instruction index — open first after installing `@plumbus/voice` |

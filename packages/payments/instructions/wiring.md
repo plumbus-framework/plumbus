@@ -33,6 +33,7 @@ export const payments = createPayments({
     checkoutSuccess: 'https://app.example.com/pay/{chargeId}/thanks',
     checkoutCancel: 'https://app.example.com/pay/{chargeId}',
   },
+  appId: 'my-app',
 });
 ```
 
@@ -45,52 +46,22 @@ export const payments = createPayments({
 ```ts
 import { payments } from '../payments/index.js';
 
-export const {
-  startMerchantOnboarding,
-  createMerchantSession,
-  getMerchantAccount,
-  syncMerchantAccount,
-  openMerchantDashboard,
-  createCharge,
-  listCharges,
-  getCharge,
-  refundCharge,
-  recordProviderEvent,
-  processProviderEvent,
-  applyProviderState,
-} = payments.capabilities;
+export const paymentCapabilities = payments.capabilities;
 ```
 
-Export **all twelve**. The last three are internal (system-only) but required: `processProviderEvent` is the worker's webhook consumer.
+One export registers every capability the config turned on (discovery expands exported collections). The three internal ones (`recordProviderEvent`, `processProviderEvent`, `applyProviderState`) are system-only but required: `processProviderEvent` is the worker's webhook consumer. Do not pick capabilities out by name — a feature you enable later would be missing.
 
 ## 4. Register entities and events
 
 ```ts
 // app/entities/payments.ts
-export {
-  paymentMerchantAccountEntity,
-  paymentClientEntity,
-  paymentChargeEntity,
-  paymentRefundEntity,
-  paymentDisputeEntity,
-  paymentProviderEventEntity,
-} from '@plumbus/payments';
+export { paymentEntities } from '@plumbus/payments';
 
 // app/events/payments.ts
-export {
-  merchantUpdatedEvent,
-  chargeCreatedEvent,
-  chargePaidEvent,
-  chargeFailedEvent,
-  chargeExpiredEvent,
-  chargeRefundedEvent,
-  refundFailedEvent,
-  disputeOpenedEvent,
-  disputeUpdatedEvent,
-  disputeClosedEvent,
-  providerEventReceivedEvent,
-} from '@plumbus/payments';
+export { paymentEvents } from '@plumbus/payments';
 ```
+
+All 14 entities and 25 events are registered whatever features are on; unused tables stay empty.
 
 Then generate and apply migrations:
 
@@ -115,21 +86,56 @@ The route is `POST /payments/webhooks/stripe` (change with `webhooks.path`). It 
 
 Webhooks are applied by `payments.processProviderEvent` in the worker (`plumbus worker`, or a combined role). Without a worker, events are recorded but charges never become paid.
 
-## 7. Create webhook destinations and check the setup
+## 7. Create webhook destinations, sync the billing catalog, and check the setup
 
 ```bash
 plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
 # store both printed signing secrets in STRIPE_WEBHOOK_SECRETS (comma-separated)
+plumbus payments catalog sync        # only with `billing`: products, prices, features, meters
 plumbus payments doctor --live --webhook-url https://api.example.com/payments/webhooks/stripe
 ```
 
+Run `webhooks setup` again after upgrading this package: it adds events a newer release needs. Run `catalog sync` on every deploy that changes `billing` (it changes nothing when the catalog already matches); `catalog check` in CI fails when it would.
+
 For local development with the Stripe CLI see `node_modules/@plumbus/payments-stripe/instructions/webhooks.md`.
 
-## 8. Build the screens (your app's UI)
+## 8. Money your own capabilities move (platform charges, billing)
+
+`payments.platform.*` and `payments.billing.*` are server-side helpers for your own capabilities (they have no access policy of their own — yours decides). Spread their effects so the capability runs outside a database transaction during provider calls:
+
+```ts
+export const chargeGroupClass = defineCapability({
+  name: 'chargeGroupClass',
+  kind: 'action',
+  domain: 'school',
+  input: z.object({ classId: z.string(), studentEmail: z.string().email() }),
+  output: z.object({ url: z.string().nullable() }),
+  access: { roles: ['school-admin'] },
+  effects: { ...payments.effects.platform, ai: false },
+  async handler(ctx, input) {
+    const { charge } = await payments.platform.createCharge(ctx, {
+      amount: 10_000, currency: 'usd', description: 'Group class',
+      client: { email: input.studentEmail }, transferGroup: `class:${input.classId}`,
+      requestId: `class:${input.classId}:${input.studentEmail}`,
+    });
+    return { url: charge.url };
+  },
+});
+```
+
+Then, in an `eventHandler` on `payments.charge.paid` (with `flow: 'platform'`), pay each seller with `payments.platform.transferToSeller(ctx, { merchantAccountId, amount, currency, chargeId, requestId })`. Billing: gate features with `payments.billing.hasFeature(ctx, 'ai')`, sync seats with `payments.billing.setSeats(ctx, { quantity })`, meter usage with `payments.billing.recordUsage(ctx, { meter, value, identifier })`, and meter every AI call with the hook in `app/server.ts`:
+
+```ts
+export const onAICostRecorded = payments.billing.aiUsageBridge({ meter: 'aiTokens', value: 'tokens' });
+```
+
+## 9. Build the screens (your app's UI)
 
 - "Connect payments": call `startMerchantOnboarding` and redirect to `onboardingUrl`.
 - Onboarding return page (`urls.onboardingReturn`): call `syncMerchantAccount` and show the status.
 - Refresh page (`urls.onboardingRefresh`): call `startMerchantOnboarding` again and redirect.
-- "Request payment": call `createCharge` and show or send `charge.url`.
-- Payments list: `listCharges` / `getCharge`; refunds: `refundCharge`.
+- "Request payment": call `createCharge` and show or send `charge.url` — or, with `ui: 'embedded'`, mount `charge.checkout` with the provider's embedded checkout.
+- Payments list: `listCharges` / `getCharge`; refunds: `refundCharge`; holds: `captureCharge` / `cancelCharge`.
+- Features you enabled: invoices (`createCharge({ collection: 'invoice' })`), saved cards (`saveClientPaymentMethod`, `chargeSavedMethod`, `createClientPortalSession`), links (`createPaymentLink`), subscriptions (`createSubscription`), payouts (`listPayouts`, `getPayoutSettings`), disputes (`listDisputes`, `respondToDispute`).
+- Your plans: pricing page (`listPlans`), subscribe (`subscribeToPlan` → `subscription.checkoutUrl`), plan settings (`getPlanSubscription`, `changePlan`, `cancelPlanSubscription`, `openBillingPortal`).
 - Sellers with `dashboard: 'none'` need your app to render the provider's embedded components (`createMerchantSession`).

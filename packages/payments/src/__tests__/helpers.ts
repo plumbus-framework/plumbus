@@ -15,6 +15,14 @@ export const urls = {
   onboardingRefresh: 'https://app.test/payments/refresh',
   checkoutSuccess: 'https://app.test/paid/{chargeId}',
   checkoutCancel: 'https://app.test/cancelled/{chargeId}',
+  checkoutReturn: 'https://app.test/returned/{chargeId}',
+  setupSuccess: 'https://app.test/saved/{clientId}',
+  setupCancel: 'https://app.test/not-saved/{clientId}',
+  portalReturn: 'https://app.test/account',
+  billingSuccess: 'https://app.test/billing/welcome',
+  billingCancel: 'https://app.test/billing/plans',
+  billingPortalReturn: 'https://app.test/billing',
+  linkCompleted: 'https://app.test/thanks',
 };
 
 export function baseConfig(
