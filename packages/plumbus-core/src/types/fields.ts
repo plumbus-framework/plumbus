@@ -26,6 +26,12 @@ export interface StringFieldDescriptor {
 export interface NumberFieldDescriptor {
   type: 'number';
   options: BaseFieldOptions;
+  /**
+   * Column width. Omitted (default) stores a 32-bit PostgreSQL `integer`;
+   * `'bigint'` stores a 64-bit `bigint` read back as a JS number (safe integers
+   * only). Use `field.bigint()` for money in minor units and running totals.
+   */
+  size?: 'bigint';
 }
 
 export interface DecimalFieldDescriptor {

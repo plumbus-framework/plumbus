@@ -35,7 +35,9 @@ export const User = defineEntity({
 |-------------|-----------|-------|
 | `field.id()` | UUID string | Primary key |
 | `field.string(opts)` | Text | General text |
-| `field.number(opts)` | Numeric | Integer or decimal |
+| `field.number(opts)` | 32-bit integer | Counts and small integers |
+| `field.bigint(opts)` | 64-bit integer | Money in minor units (cents) and totals; JS number, safe integers only (core 0.7.7+) |
+| `field.decimal(opts)` | Floating point | Measurements; never money |
 | `field.boolean(opts)` | Boolean | |
 | `field.timestamp(opts)` | Datetime | ISO timestamps |
 | `field.json(opts)` | JSONB | Arbitrary structured data |

@@ -59,6 +59,8 @@ plumbus init
 │ node_modules/@plumbus/ai-bedrock/instructions/              │
 │ node_modules/@plumbus/auth/instructions/                    │
 │ node_modules/@plumbus/auth-cognito/instructions/            │
+│ node_modules/@plumbus/payments/instructions/                │
+│ node_modules/@plumbus/payments-stripe/instructions/         │
 │ node_modules/@plumbus/browser-extension/instructions/       │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
@@ -314,6 +316,17 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md` | `cognito()` integration registration |
 | `node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md` | Hosted UI IdP allowlist |
 | `node_modules/@plumbus/auth-cognito/instructions/logout.md` | Cognito logout URL builder |
+| `node_modules/@plumbus/payments/instructions/README.md` | Payments instruction index (optional package) |
+| `node_modules/@plumbus/payments/instructions/framework.md` | Package boundary, exports, money-handling rules |
+| `node_modules/@plumbus/payments/instructions/wiring.md` | `createPayments()`, collection exports, webhook route, worker, migrations, catalog sync, helpers |
+| `node_modules/@plumbus/payments/instructions/options.md` | Choosing sellers or billing, dashboards, charge type, fees, losses, platform fee, plans |
+| `node_modules/@plumbus/payments/instructions/capabilities-and-events.md` | Calling payments capabilities and helpers, reacting to `payments.*` events |
+| `node_modules/@plumbus/payments/instructions/testing.md` | Fake provider, `deliverTestWebhook` |
+| `node_modules/@plumbus/payments-stripe/instructions/README.md` | Stripe provider instruction index (optional package) |
+| `node_modules/@plumbus/payments-stripe/instructions/framework.md` | Stripe APIs used, API version, critical rules |
+| `node_modules/@plumbus/payments-stripe/instructions/configure-stripe.md` | Keys, dashboards, charge types, liability rules, the billing catalog |
+| `node_modules/@plumbus/payments-stripe/instructions/webhooks.md` | Event destinations, signing secrets, Stripe CLI forwarding |
+| `node_modules/@plumbus/payments-stripe/instructions/testing.md` | Signed Stripe events, HTTP stub |
 | `node_modules/@plumbus/voice/instructions/README.md` | Voice instruction index — open first after installing `@plumbus/voice` |
 | `node_modules/@plumbus/voice/instructions/framework.md` | Voice runtime overview and critical rules (optional package) |
 | `node_modules/@plumbus/voice/instructions/client-stt.md` | Client-side STT (`web-speech`) trust boundaries |
@@ -379,6 +392,12 @@ plumbus init --patch --agent <your-agent>
 This refreshes the Plumbus-managed wiring sections with the latest instructions while preserving surrounding custom notes. If doctor reports that a file cannot be patched safely, rerun with `--force` for that full replacement.
 
 
+
+## Payments guidance — wiring v18
+
+Core **0.7.7+** generates wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. Apps without payments are unaffected apart from the version marker.
+
+Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
 
 ## Classification and decision guidance — wiring v17
 

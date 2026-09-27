@@ -52,6 +52,27 @@ describe('discoverResources', () => {
     expect(result.capabilities).toEqual([]);
     expect(result.entities).toEqual([]);
   });
+  it('expands exported collections of resources and counts each resource once', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'capabilities');
+    fs.mkdirSync(dir, { recursive: true });
+    const capability = (name: string) =>
+      `{ name: '${name}', kind: 'action', domain: 'addon', handler() {}, effects: { data: [], events: [], external: [], ai: false } }`;
+    fs.writeFileSync(
+      path.join(dir, 'addon.js'),
+      [
+        `const one = ${capability('one')};`,
+        `export const addonCapabilities = Object.freeze({ one, two: ${capability('two')} });`,
+        `export const more = [${capability('three')}];`,
+        'export { one };',
+        // A named object is a resource candidate itself, never a collection.
+        `export const settings = { name: 'settings', nested: ${capability('hidden')} };`,
+      ].join('\n'),
+    );
+    const result = await discoverResources(root);
+    expect(result.capabilities.map((c) => c.name).sort()).toEqual(['one', 'three', 'two']);
+  });
+
   it('discovers nested decision definitions and snapshots their questions', async () => {
     const root = makeTmpDir();
     const dir = path.join(root, 'app', 'decisions', 'billing');

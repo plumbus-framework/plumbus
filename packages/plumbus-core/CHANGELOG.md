@@ -1,5 +1,12 @@
 # @plumbus/core changelog
 
+## 0.7.7 — 2026-09-27
+
+- Add `field.bigint()`: a 64-bit integer column (PostgreSQL `bigint`, read and written as a JS number, safe integers only) for money in minor units and running totals. `field.number()` stays a 32-bit `integer`; test field validation rejects unsafe integers in bigint fields. Docs now state the actual column types (`field.decimal()` is floating point and must not hold money).
+- Add `plumbus payments doctor [--live] [--webhook-url] [--fail-on-warning] [--json]`, `plumbus payments webhooks setup --url`, and `plumbus payments catalog sync|check [--json]` (the add-on's billing catalog at the provider; `check` exits 1 when it differs). They load the app's `app/payments/index.ts` export from the new optional `@plumbus/payments` add-on; core does not depend on it.
+- Discovery registers exported collections: an exported array, or a plain object without a `name` (for example `export const paymentCapabilities = payments.capabilities`), contributes each capability, entity, event, or flow it contains, one level deep. A resource exported both alone and in a collection is registered once.
+- Bump agent wiring to v18: all agent formats reference the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files. Refresh apps with `plumbus init --patch --agent all`.
+
 ## 0.7.6 — 2026-09-27
 
 - Fix the event pipeline stalling whenever audit is wired, which the worker pool does by default (#65). Since 0.7.0 `createAuditService` refuses outcomes outside `success | failure | denied`, but the outbox dispatcher and event worker still wrote `pending`, `retry` and `dead_lettered`. Every dispatch left its outbox row in `processing` and no consumer handler ran. Attempts now record no outcome (stored as `success`), `event.dispatch.failed` and `event.consumer.dead_lettered` record `failure`, and a failed dispatch keeps `retry` / `dead_lettered` in a `disposition` metadata field. Apps that rewrote these literals in `dist/` can remove that patch.

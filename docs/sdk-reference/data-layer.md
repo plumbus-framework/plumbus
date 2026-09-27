@@ -366,7 +366,8 @@ const tableMap = generateSchemas([UserEntity, OrderEntity, InvoiceEntity]);
 |--------------|-------------------|-------------|
 | `field.id()` | `TEXT PRIMARY KEY` | `text().primaryKey()` |
 | `field.string()` | `TEXT` | `text()` |
-| `field.number()` | `DOUBLE PRECISION` | `doublePrecision()` |
+| `field.number()` | `INTEGER` | `integer()` |
+| `field.bigint()` | `BIGINT` | `bigint({ mode: 'number' })` |
 | `field.decimal()` | `DOUBLE PRECISION` | `doublePrecision()` |
 | `field.boolean()` | `BOOLEAN` | `boolean()` |
 | `field.timestamp()` | `TIMESTAMP` | `timestamp()` |
@@ -535,6 +536,7 @@ export interface DataServiceMap {
 | `field.id()` | `string` |
 | `field.string()` | `string` |
 | `field.number()` | `number` |
+| `field.bigint()` | `number` (safe integers) |
 | `field.decimal()` | `number` |
 | `field.boolean()` | `boolean` |
 | `field.timestamp()` | `Date` |

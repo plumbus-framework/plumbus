@@ -135,6 +135,30 @@ jobs:
             pnpm publish --access public --no-git-checks
           fi
 
+      # Publish @plumbus/payments AFTER @plumbus/core (peer: @plumbus/core 0.7.x).
+      - name: Publish @plumbus/payments
+        working-directory: packages/payments
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
+      # Publish @plumbus/payments-stripe AFTER @plumbus/payments (peer: @plumbus/payments 0.2.x).
+      - name: Publish @plumbus/payments-stripe
+        working-directory: packages/payments-stripe
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi
+
       - name: Publish @plumbus/voice
         working-directory: packages/voice
         run: |
