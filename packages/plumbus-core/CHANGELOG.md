@@ -100,7 +100,18 @@ Repository tag `v0.8.0-beta.3` already pointed at the format-only commit and no 
 - `WorkerPoolConfig.schedulePlanes` and `app/server.ts` `export const schedulePlanes`: tenant planes for the scheduler alone, for hosts that route tenant data themselves; flows, events and the outbox keep the pool plane.
 - The scheduler syncs and polls the pool only when a registered flow is scheduled on the spine, tolerates a plane it cannot resolve or read, and reports the driver's cause.
 
-## 0.7.4 — Unreleased
+## 0.7.6 — 2026-09-27
+
+- Fix the event pipeline stalling whenever audit is wired, which the worker pool does by default (#65). Since 0.7.0 `createAuditService` refuses outcomes outside `success | failure | denied`, but the outbox dispatcher and event worker still wrote `pending`, `retry` and `dead_lettered`. Every dispatch left its outbox row in `processing` and no consumer handler ran. Attempts now record no outcome (stored as `success`), `event.dispatch.failed` and `event.consumer.dead_lettered` record `failure`, and a failed dispatch keeps `retry` / `dead_lettered` in a `disposition` metadata field. Apps that rewrote these literals in `dist/` can remove that patch.
+- Make dispatch and delivery audit entries best-effort: a failed audit write is logged (worker pool logger, else console) and no longer skips the consumer handler, the publish, or the dead-letter write. Capabilities running inside a consumer still record their own audit.
+- Return outbox rows claimed more than five minutes ago (`claimTimeoutMs`) to `pending`, so rows left in `processing` by a stopped dispatcher, including those stranded by this bug, are published after upgrading.
+- Log a failed timer-driven outbox poll instead of leaving an unhandled promise rejection.
+
+## 0.7.5 — 2026-09-24
+
+- Fix GPT-6 OpenAI request compatibility: Chat Completions use `max_completion_tokens`, active/default reasoning omits unsupported sampling temperature, and tool calls with GPT-6 default reasoning use the Responses API. Explicitly disabled reasoning stays on Chat Completions and retains configured temperature.
+
+## 0.7.4 — 2026-09-23
 
 - Bump agent wiring to v17 and add a packaged classification recipe covering explicit provider/model selection, defaults, thresholds, and cost recording. All agent formats link the recipe and decision provider instruction indexes; refresh existing apps with `plumbus init --patch --agent all`.
 

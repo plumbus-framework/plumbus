@@ -43,14 +43,6 @@ class ServiceRoundTwo(unittest.TestCase):
         finally:
             conn.close()
 
-    def refused(self, address):
-        # Over capacity the server answers at accept without reading a request, so a client
-        # still sending one can be reset before it reads the 503. Connect and only read.
-        with socket.create_connection(address, timeout=2) as sock:
-            response = http.client.HTTPResponse(sock)
-            response.begin()
-            return response.status, json.loads(response.read())
-
     def test_L23_missing_length_cannot_start_inference(self):
         self.assertEqual(self.send(length=None)[0], 400)
         self.assertEqual(self.backend.calls, [])
@@ -116,7 +108,14 @@ class ServiceRoundTwo(unittest.TestCase):
         first.start()
         try:
             self.assertTrue(entered.wait(1))
-            self.assertEqual(self.refused(server.server_address)[0], 503)
+            # Capacity is rejected before request bytes are read. Sending a body
+            # here races the server closing the rejected connection.
+            with socket.create_connection(server.server_address, timeout=2) as rejected:
+                response = http.client.HTTPResponse(rejected)
+                response.begin()
+                self.assertEqual(response.status, 503)
+                self.assertEqual(response.getheader("Retry-After"), "1")
+                self.assertEqual(json.loads(response.read()), {"error": "Service connection capacity reached"})
             finish.set()
             first.join(2)
             self.assertEqual(results, [200])

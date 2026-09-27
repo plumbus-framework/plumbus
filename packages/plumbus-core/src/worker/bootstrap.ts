@@ -470,6 +470,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     db,
     queue,
     audit: workerAudit,
+    logger,
     pollIntervalMs: outboxPollIntervalMs,
     metrics,
     ...(dataPlaneResolver
@@ -491,6 +492,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     consumers,
     idempotency,
     audit: workerAudit,
+    logger,
     metrics,
     resolver: dataPlaneResolver,
   };
@@ -504,6 +506,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           consumers,
           idempotency,
           audit: workerAudit,
+          logger,
           metrics,
           resolver: dataPlaneResolver,
         })

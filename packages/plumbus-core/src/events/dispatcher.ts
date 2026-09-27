@@ -1,11 +1,13 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import type { AuditService } from '../types/audit.js';
+import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
+import { recordPipelineAudit } from './pipeline-audit.js';
 import type { EventQueue } from './queue.js';
 
 export interface DispatcherConfig {
@@ -23,6 +25,14 @@ export interface DispatcherConfig {
   backoffBaseMs?: number;
   /** Max backoff delay in ms (default: 60000) */
   backoffMaxMs?: number;
+  /**
+   * How long a claimed (`processing`) row may stay unpublished before a later
+   * poll returns it to `pending` (default: 300000). Covers a dispatcher that
+   * stopped between claim and publish.
+   */
+  claimTimeoutMs?: number;
+  /** Receives audit write and poll failures (default: console) */
+  logger?: LoggerService;
   /**
    * When set with `listTenantRefs`, each poll resolves those tenants and
    * drains `event_outbox` (and `dispatch_outbox` when `spineDb` is set) on
@@ -73,8 +83,10 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     maxRetries = 5,
     backoffBaseMs = 1000,
     backoffMaxMs = 60_000,
+    claimTimeoutMs = 300_000,
     metrics,
     audit,
+    logger,
     resolver,
     listTenantRefs,
     spineDb,
@@ -86,6 +98,12 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
   /** Compute exponential backoff delay: min(base * 2^attempt, max) */
   function computeBackoff(attempt: number): number {
     return Math.min(backoffBaseMs * 2 ** attempt, backoffMaxMs);
+  }
+
+  /** Logger messages are sentence case; the console fallback keeps the `[plumbus]` prefix. */
+  function logError(message: string, details: Record<string, unknown>): void {
+    if (logger) logger.error(message, details);
+    else console.error(`[plumbus] ${message.charAt(0).toLowerCase()}${message.slice(1)}`, details);
   }
 
   // Where `dispatch_outbox` is, on every plane: the engine's own resolution, mirrored.
@@ -106,6 +124,18 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
 
   async function pollEventOutbox(targetDb: PostgresJsDatabase): Promise<number> {
     const now = new Date();
+
+    // Release claims whose dispatcher stopped before publishing
+    await targetDb
+      .update(outboxTable)
+      .set({ status: 'pending' })
+      .where(
+        and(
+          eq(outboxTable.status, 'processing'),
+          lt(outboxTable.dispatchedAt, new Date(now.getTime() - claimTimeoutMs)),
+        ),
+      );
+
     const rows = await targetDb
       .select()
       .from(outboxTable)
@@ -158,13 +188,14 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         payload: row.payload as Record<string, unknown>,
       };
 
+      // No outcome yet: audit outcomes are `success | failure | denied`
+      await recordPipelineAudit(audit, logger, 'event.dispatch.attempt', {
+        eventId: row.id,
+        eventType: row.eventType,
+        tenantId: row.tenantId,
+      });
+
       try {
-        // Audit outcomes are `success | failure | denied`; an attempt has none yet.
-        await audit?.record('event.dispatch.attempt', {
-          eventId: row.id,
-          eventType: row.eventType,
-          tenantId: row.tenantId,
-        });
         await queue.publish(envelope);
         await targetDb
           .update(outboxTable)
@@ -172,7 +203,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           .where(eq(outboxTable.id, row.id));
         dispatched++;
         metrics?.eventEmitted.inc({ eventType: row.eventType });
-        await audit?.record('event.dispatch.dispatched', {
+        await recordPipelineAudit(audit, logger, 'event.dispatch.dispatched', {
           eventId: row.id,
           eventType: row.eventType,
           tenantId: row.tenantId,
@@ -182,7 +213,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         const retryCount = parseInt(row.retryCount, 10) + 1;
         const errorMsg = err instanceof Error ? err.message : String(err);
 
-        await audit?.record('event.dispatch.failed', {
+        await recordPipelineAudit(audit, logger, 'event.dispatch.failed', {
           eventId: row.id,
           eventType: row.eventType,
           tenantId: row.tenantId,
@@ -247,7 +278,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         );
         published += 1;
       } catch (err) {
-        console.error('[plumbus] dispatch_outbox pump failed', {
+        logError('dispatch_outbox pump failed', {
           tenantRef: target.tenantRef,
           outboxId: row.outboxId,
           error: err instanceof Error ? err.message : String(err),
@@ -271,7 +302,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
           dispatched += await pollEventOutbox(target.db);
           dispatched += await pumpDispatchOutbox(target);
         } catch (err) {
-          console.error('[plumbus] outbox poll failed for one plane', {
+          logError('Outbox poll failed for one plane', {
             tenantRef: target.tenantRef,
             error: err instanceof Error ? err.message : String(err),
           });
@@ -279,13 +310,22 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
       }
       return dispatched;
     } catch (err) {
-      console.error('[plumbus] outbox poll could not resolve its planes', {
+      logError('Outbox poll could not resolve its planes', {
         error: err instanceof Error ? err.message : String(err),
       });
       return 0;
     } finally {
       polling = false;
     }
+  }
+
+  /** Timer-driven poll; a failed cycle is logged and the next tick retries */
+  function tick(): void {
+    poll().catch((err) => {
+      logError('Outbox poll failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return {
@@ -296,10 +336,8 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     start(): void {
       if (running) return;
       running = true;
-      timer = setInterval(() => {
-        void poll();
-      }, pollIntervalMs);
-      void poll();
+      timer = setInterval(tick, pollIntervalMs);
+      tick();
     },
 
     /** Stop the background polling loop */

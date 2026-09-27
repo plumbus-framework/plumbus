@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it, vi } from 'vitest';
 import { createOutboxDispatcher } from '../dispatcher.js';
 import { createInMemoryQueue } from '../queue.js';
@@ -214,5 +216,59 @@ describe('OutboxDispatcher', () => {
     expect(pool.select).not.toHaveBeenCalled();
     expect(tenantA.select).toHaveBeenCalled();
     expect(tenantB.select).toHaveBeenCalled();
+  });
+
+  it('returns claims older than claimTimeoutMs to pending before selecting', async () => {
+    const db = mockDb([]);
+    const conditions: unknown[] = [];
+    db.update = vi.fn().mockReturnValue({
+      set: vi.fn().mockImplementation((values: any) => ({
+        where: vi.fn().mockImplementation((condition: unknown) => {
+          conditions.push({ values, condition });
+          return Promise.resolve();
+        }),
+      })),
+    });
+    const queue = createInMemoryQueue();
+    const dispatcher = createOutboxDispatcher({ db, queue, claimTimeoutMs: 60_000 });
+
+    const before = Date.now();
+    await dispatcher.poll();
+
+    expect(conditions).toHaveLength(1);
+    const { values, condition } = conditions[0] as { values: unknown; condition: SQL };
+    expect(values).toEqual({ status: 'pending' });
+    const query = new PgDialect().sqlToQuery(condition);
+    expect(query.sql).toBe(
+      '("event_outbox"."status" = $1 and "event_outbox"."dispatched_at" < $2)',
+    );
+    expect(query.params[0]).toBe('processing');
+    const cutoff = new Date(query.params[1] as string).getTime();
+    expect(cutoff).toBeGreaterThanOrEqual(before - 60_000);
+    expect(cutoff).toBeLessThanOrEqual(Date.now() - 60_000);
+  });
+
+  it('logs a failed timer poll instead of leaving an unhandled rejection', async () => {
+    const db = mockDb([]);
+    db.update = vi.fn().mockImplementation(() => {
+      throw new Error('database unavailable');
+    });
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const dispatcher = createOutboxDispatcher({
+      db,
+      queue: createInMemoryQueue(),
+      logger,
+      pollIntervalMs: 60_000,
+    });
+
+    dispatcher.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    dispatcher.stop();
+
+    // Each plane's poll is contained, so the failure is logged with its plane.
+    expect(logger.error).toHaveBeenCalledWith('Outbox poll failed for one plane', {
+      tenantRef: 'default',
+      error: 'database unavailable',
+    });
   });
 });
