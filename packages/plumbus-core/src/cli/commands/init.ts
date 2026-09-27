@@ -516,7 +516,11 @@ const AUTH_COGNITO_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/auth-cognito/instructions/logout.md',
   },
   {
-    area: 'testing Cognito integration helpers and registration validation',
+    area: 'Cognito server-attested sign-in after passwordless login (./server, ./triggers, pool administration, attestation keys)',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/attested-sign-in.md',
+  },
+  {
+    area: 'testing Cognito integration helpers, registration validation, and startFakeCognito()',
     path: 'node_modules/@plumbus/auth-cognito/instructions/testing.md',
   },
   {

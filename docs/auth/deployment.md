@@ -10,8 +10,8 @@ Production checklist for `@plumbus/auth` on `@plumbus/core` 0.6.x.
 
 | Package | Peer |
 |---|---|
-| `@plumbus/auth` | `@plumbus/core` **`0.6.x`** |
-| `@plumbus/auth-cognito` | `@plumbus/auth` **`0.1.x`** |
+| `@plumbus/auth` | `@plumbus/core` **`0.7.x`** |
+| `@plumbus/auth-cognito` | `@plumbus/auth` **`0.2.x`** |
 
 Install production deps with **npm** in Docker (`npm install --omit=dev`) — copy peer literals from [`peer-dependencies.md`](../../packages/plumbus-core/instructions/peer-dependencies.md).
 
