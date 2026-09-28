@@ -172,7 +172,7 @@ pnpm add @plumbus/auth
 pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers + server-attested sign-in
 ```
 
-Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.2.x`). Its `./server` + `./triggers` subpaths (0.2.2+) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+Pass `createServer({ authenticationRuntime })` from core **0.6.8+**, or export `authenticationRuntime` from `app/server.ts` for apps run by `plumbus dev` / `plumbus start` (core **0.7.8+**). With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.2.x`). Its `./server` + `./triggers` subpaths (0.2.2+) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
 
 ### Optional add-on: `@plumbus/payments` (+ `@plumbus/payments-stripe`)
 

@@ -53,6 +53,7 @@ vi.mock('../../runtime/start-worker-pool.js', () => ({
 }));
 
 import { createServer } from '../../server/bootstrap.js';
+import { loadServerExtensions } from '../../runtime/load-extensions.js';
 import { startWorkerPool } from '../../runtime/start-worker-pool.js';
 import { runDev, startDevServer } from '../commands/dev.js';
 import { discoverResources } from '../discover.js';
@@ -172,6 +173,26 @@ describe('CLI dev command', () => {
       await startDevServer({ db: mockDb as never });
       const serverConfig = (createServer as any).mock.calls[0][0];
       expect(serverConfig.db).toBe(mockDb);
+    });
+
+    it('passes an authenticationRuntime exported from app/server.ts to createServer', async () => {
+      const authenticationRuntime = {
+        authenticator: {},
+        initialize: vi.fn(),
+        registerRoutes: vi.fn(),
+      };
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+        authenticationRuntime: authenticationRuntime as never,
+      });
+      await startDevServer({ db: {} as never });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.authenticationRuntime).toBe(authenticationRuntime);
+    });
+
+    it('leaves authenticationRuntime unset when app/server.ts exports none', async () => {
+      await startDevServer({ db: {} as never });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.authenticationRuntime).toBeUndefined();
     });
 
     it('starts the worker pool when flows need background work (C1)', async () => {

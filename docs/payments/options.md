@@ -396,7 +396,7 @@ Who pays: `'tenant'` (the organization; `access.billing` decides who may change 
 
 ### `billing.plans`
 
-Plans by key (letters, digits, `_`, `-`; the key is part of the lookup key, so renaming a plan makes a new one). Each plan:
+Plans by key (letters, digits, `_`, `-`; the key is part of the lookup key, so renaming a plan makes a new one). Optional (payments 0.2.1+): omit it when your platform only sells one-off purchases through `payments.billing.purchase` — a fixed product per order, with no subscription; `listPlans` then returns none and `catalog sync` has nothing to create. Each plan:
 
 - `billing.plans.<key>.name` — shown at checkout and on invoices.
 - `billing.plans.<key>.description` — shown at checkout.
@@ -487,11 +487,11 @@ Where the client portal (`createClientPortalSession`) sends the client back to.
 
 ### `urls.billingSuccess`
 
-Required with `billing`. Where a customer lands after subscribing to a plan. `{subscriptionId}` is replaced.
+Required with `billing.plans`. Where a customer lands after subscribing to a plan. `{subscriptionId}` is replaced.
 
 ### `urls.billingCancel`
 
-Required with `billing`. Where a customer lands if they leave plan checkout.
+Required with `billing.plans`. Where a customer lands if they leave plan checkout.
 
 ### `urls.billingPortalReturn`
 

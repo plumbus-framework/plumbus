@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { STRIPE_SNAPSHOT_EVENTS, STRIPE_THIN_EVENTS } from '../events.js';
+import {
+  STRIPE_PLATFORM_SNAPSHOT_EVENTS,
+  STRIPE_SNAPSHOT_EVENTS,
+  STRIPE_THIN_EVENTS,
+} from '../events.js';
 import { STRIPE_API_VERSION, STRIPE_DESTINATION_NAMES, stripeProvider } from '../provider.js';
 import { createStripeHttpStub } from '../testing/index.js';
 import { list } from './fixtures.js';
@@ -131,6 +135,54 @@ describe('setupWebhooks', () => {
   });
 });
 
+describe('setupWebhooks — a platform without sellers', () => {
+  it("creates one snapshot destination for the platform's own events, and nothing for Connect", async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/event_destinations', () => ({ data: [], next_page_url: null }));
+    stub.on('POST /v2/core/event_destinations', (request) => ({
+      id: 'ed_1',
+      ...request.body,
+      webhook_endpoint: { url: 'https://app.test/hook', signing_secret: 'whsec_new_1' },
+    }));
+
+    const result = await provider.setupWebhooks?.({ url: 'https://app.test/hook', sellers: false });
+    expect(result?.destinations).toEqual([
+      expect.objectContaining({ format: 'snapshot', secret: 'whsec_new_1', created: true }),
+    ]);
+    const posts = stub.requests.filter((r) => r.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.body).toMatchObject({
+      name: STRIPE_DESTINATION_NAMES.snapshot,
+      event_payload: 'snapshot',
+      events_from: ['@self'],
+      snapshot_api_version: STRIPE_API_VERSION,
+      enabled_events: [...STRIPE_PLATFORM_SNAPSHOT_EVENTS],
+    });
+    const events = posts[0]?.body.enabled_events as string[];
+    expect(events).toContain('checkout.session.completed');
+    expect(events).toContain('charge.dispute.created');
+    expect(events.some((type) => type.startsWith('transfer.') || type.startsWith('payout.'))).toBe(
+      false,
+    );
+  });
+
+  it('keeps an existing platform destination at the URL', async () => {
+    const { stub, provider } = setup();
+    stub.on('GET /v2/core/event_destinations', () =>
+      list([
+        destination({
+          events_from: ['@self'],
+          enabled_events: [...STRIPE_PLATFORM_SNAPSHOT_EVENTS],
+          webhook_endpoint: { url: 'https://app.test/hook' },
+        }),
+      ]),
+    );
+    const result = await provider.setupWebhooks?.({ url: 'https://app.test/hook', sellers: false });
+    expect(result?.destinations.map((d) => d.created)).toEqual([false]);
+    expect(stub.requests.filter((r) => r.method === 'POST')).toHaveLength(0);
+  });
+});
+
 function thinDestination(overrides: Record<string, unknown> = {}) {
   return destination({
     id: 'ed_2',
@@ -235,6 +287,36 @@ describe('diagnose', () => {
       'stripe_snapshot_destination_url',
       'stripe_snapshot_destination_events',
       'stripe_snapshot_version_mismatch',
+    ]);
+  });
+});
+
+describe('diagnose — a platform without sellers', () => {
+  it('needs one destination and one secret, and never asks for Connect', async () => {
+    const { stub, provider } = setup('rk_test_1', ['whsec_only']);
+    stub.on('GET /v2/core/event_destinations', () =>
+      list([
+        destination({
+          events_from: ['@self'],
+          enabled_events: [...STRIPE_PLATFORM_SNAPSHOT_EVENTS],
+        }),
+      ]),
+    );
+    const findings = await provider.diagnose?.({
+      webhookUrl: 'https://app.test/payments/webhooks/stripe',
+      sellers: false,
+    });
+    expect(findings).toEqual([]);
+    expect(stub.requests.some((r) => r.path.startsWith('/v2/core/accounts'))).toBe(false);
+  });
+
+  it('reports a missing destination and a missing secret', async () => {
+    const { stub, provider } = setup('rk_test_1', []);
+    stub.on('GET /v2/core/event_destinations', () => list([]));
+    const codes = (await provider.diagnose?.({ sellers: false }))?.map((f) => f.code);
+    expect(codes).toEqual([
+      'stripe_webhook_secrets_incomplete',
+      'stripe_snapshot_destination_missing',
     ]);
   });
 });

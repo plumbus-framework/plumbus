@@ -15,9 +15,9 @@ Events from your platform's own account (destination and platform charges, trans
 plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
 ```
 
-- Creates both destinations (skips ones that already exist for that URL) and prints each **signing secret once**.
+- Creates both destinations (skips ones that already exist for that URL) and prints each **signing secret once**. A platform without sellers (only `billing`) gets one: the snapshot destination from `@self`, without transfer and payout events, and no Connect requirement.
 - **After upgrading this package, run it again.** It adds the events a newer release needs to existing destinations. A snapshot destination from an earlier release takes events only from `@accounts`, and Stripe cannot change a destination's sources: setup creates a new one (add its secret) and `doctor --live` names the old one to delete.
-- Put both secrets in `STRIPE_WEBHOOK_SECRETS` (comma-separated). During a rotation, list old and new secrets until Stripe stops signing with the old one.
+- Put every printed secret in `STRIPE_WEBHOOK_SECRETS` (comma-separated). During a rotation, list old and new secrets until Stripe stops signing with the old one.
 - Verify: `plumbus payments doctor --live --webhook-url https://api.example.com/payments/webhooks/stripe`.
 
 Do not create these destinations by hand with different names; `doctor` looks for the names above.

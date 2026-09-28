@@ -164,6 +164,7 @@ export function createPayments(input: PaymentsConfig): Payments {
           ...(await provider.diagnose({
             ...(options.webhookUrl ? { webhookUrl: options.webhookUrl } : {}),
             ...(catalog ? { catalog } : {}),
+            sellers: config.seller !== null,
           })),
         );
       } else {
@@ -183,7 +184,7 @@ export function createPayments(input: PaymentsConfig): Payments {
           { reason: 'payments_webhook_setup_unsupported' },
         );
       }
-      return provider.setupWebhooks(options);
+      return provider.setupWebhooks({ ...options, sellers: config.seller !== null });
     },
     async syncCatalog() {
       const input = requireCatalog('sync');

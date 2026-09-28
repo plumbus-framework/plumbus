@@ -137,7 +137,7 @@ export function normalizePaymentsConfig(input: PaymentsConfig): NormalizedPaymen
     billing: input.billing
       ? {
           customer: input.billing.customer,
-          plans: input.billing.plans,
+          plans: input.billing.plans ?? {},
           meters: input.billing.meters ?? {},
           features: input.billing.features ?? {},
           trialDays: input.billing.trialDays ?? null,
@@ -357,9 +357,12 @@ function checkGeneralRules(
         'access.billing is required when billing.customer is "tenant" (who may change the tenant\'s plan?)',
       );
     }
-    for (const url of ['billingSuccess', 'billingCancel'] as const) {
-      if (!config.urls[url])
-        error('url_required', `urls.${url}`, `urls.${url} is required with billing`);
+    // Plan checkout lands on these; one-off purchases use the checkout URLs.
+    if (Object.keys(billing.plans).length > 0) {
+      for (const url of ['billingSuccess', 'billingCancel'] as const) {
+        if (!config.urls[url])
+          error('url_required', `urls.${url}`, `urls.${url} is required with billing plans`);
+      }
     }
     for (const [planKey, plan] of Object.entries(billing.plans)) {
       for (const meterKey of plan.meters ?? []) {

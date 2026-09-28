@@ -235,6 +235,7 @@ export type ServerExtensions = Pick<
   | 'onAICostRecorded'
   | 'decisions'
   | 'enableStrictStructuredOutputs'
+  | 'authenticationRuntime'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
 };

@@ -379,8 +379,10 @@ export const paymentsConfigSchema = z
           .describe('Who pays for the plans: the tenant, each user, or each seller.'),
         plans: z
           .record(key, plan)
-          .refine((value) => Object.keys(value).length > 0, 'Define at least one plan')
-          .describe('Plans by key.'),
+          .optional()
+          .describe(
+            'Plans by key. Omit when the platform only sells one-off purchases (`payments.billing.purchase`).',
+          ),
         meters: z.record(key, meter).optional().describe('Usage meters by key.'),
         features: z
           .record(key, z.object({ name: z.string().min(1).max(80) }).strict())

@@ -107,7 +107,8 @@ export interface MeterConfig {
 export interface BillingConfig {
   /** Who pays for the plans: the tenant, each user, or each seller account. */
   customer: BillingCustomerKind;
-  plans: Record<string, PlanConfig>;
+  /** Plans by key. Omit when the platform only sells one-off purchases (`payments.billing.purchase`). */
+  plans?: Record<string, PlanConfig>;
   meters?: Record<string, MeterConfig>;
   /** Display names of entitlement features (defaults to the key). */
   features?: Record<string, { name: string }>;

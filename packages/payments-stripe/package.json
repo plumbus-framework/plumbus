@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/payments-stripe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Stripe provider for @plumbus/payments — Connect with Accounts v2 sellers (direct and destination charges, transfers, payouts), Checkout, invoices, subscriptions, Stripe Billing plans and meters, and snapshot + thin webhook verification.",
   "type": "module",
   "main": "./dist/index.js",

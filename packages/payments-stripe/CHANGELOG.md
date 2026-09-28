@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-09-28
+
+### Fixed
+
+- A customer Stripe no longer has (`resource_missing` on `customer`, or "No such customer") is reported with `reason: 'payments_provider_customer_missing'` instead of `stripe_error`, so `@plumbus/payments` 0.2.1 replaces the billing customer and retries instead of failing every checkout after a switch of Stripe account.
+
+- A platform without sellers (only `billing`, e.g. one-off purchases) no longer needs Stripe Connect. `plumbus payments webhooks setup` created a snapshot destination taking events from `@accounts` and a thin destination for v2 account events, and `doctor --live` reported an error when the key could not use Accounts v2 and warned when fewer than two signing secrets were set. Neither applies to an account with no connected accounts. Now, when the config has no `seller` (passed by `@plumbus/payments` 0.2.1 as `sellers: false`), setup creates one snapshot destination from `@self` with the platform's events (`STRIPE_PLATFORM_SNAPSHOT_EVENTS`: no transfer or payout events), and doctor checks only that destination and one signing secret, and skips the Accounts v2 check. Apps with sellers, and callers that do not pass `sellers`, get the two destinations as before.
+
 ## 0.2.0 — 2026-09-27
 
 ### Added

@@ -871,12 +871,19 @@ export function stripeProvider(options: StripeProviderOptions): StripePaymentPro
         })),
     ),
 
-    async diagnose({ webhookUrl, catalog } = {}) {
-      return diagnoseStripe({ client, secretKey, webhookSecrets, webhookUrl, catalog });
+    async diagnose({ webhookUrl, catalog, sellers } = {}) {
+      return diagnoseStripe({
+        client,
+        secretKey,
+        webhookSecrets,
+        webhookUrl,
+        catalog,
+        ...(sellers === undefined ? {} : { sellers }),
+      });
     },
 
-    setupWebhooks: withStripeErrors(async ({ url }: { url: string }) =>
-      setupStripeDestinations(await client(), url),
+    setupWebhooks: withStripeErrors(async ({ url, sellers }: { url: string; sellers?: boolean }) =>
+      setupStripeDestinations(await client(), url, sellers ?? true),
     ),
   };
   return provider;

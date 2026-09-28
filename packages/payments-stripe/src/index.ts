@@ -12,6 +12,7 @@ export {
 export {
   isRelevantStripeEvent,
   routingOf,
+  STRIPE_PLATFORM_SNAPSHOT_EVENTS,
   STRIPE_SNAPSHOT_EVENTS,
   STRIPE_SNAPSHOT_SOURCES,
   STRIPE_THIN_EVENTS,

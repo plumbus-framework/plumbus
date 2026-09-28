@@ -842,6 +842,13 @@ export interface PaymentProvider {
   }): Promise<ProviderDispute>;
 
   // The platform's own billing
+  /**
+   * A billing customer at the provider. When a later call names a customer the
+   * provider does not have (the app moved to another provider account in the
+   * same mode, or a test account was reset), throw a PlumbusError with
+   * `reason: 'payments_provider_customer_missing'`: purchases and plan
+   * checkouts then make a new customer for the same billing customer and retry.
+   */
   createBillingCustomer?(input: {
     email?: string;
     name?: string;
@@ -873,8 +880,20 @@ export interface PaymentProvider {
    */
   resolveEvent(event: StoredProviderEvent): Promise<ProviderStateChange[]>;
 
-  /** Live environment checks for `plumbus payments doctor --live`. */
-  diagnose?(input: { webhookUrl?: string; catalog?: CatalogInput }): Promise<PaymentsFinding[]>;
-  /** Create the webhook destinations this provider needs, for `plumbus payments webhooks setup`. */
-  setupWebhooks?(input: { url: string }): Promise<WebhookSetupResult>;
+  /**
+   * Live environment checks for `plumbus payments doctor --live`. `sellers` is
+   * whether the config has `seller`: without sellers (a platform that only bills
+   * its own customers) the provider skips what only a marketplace needs.
+   * Omitted means sellers, as before.
+   */
+  diagnose?(input: {
+    webhookUrl?: string;
+    catalog?: CatalogInput;
+    sellers?: boolean;
+  }): Promise<PaymentsFinding[]>;
+  /**
+   * Create the webhook destinations this provider needs, for `plumbus payments
+   * webhooks setup`. `sellers` as for `diagnose`.
+   */
+  setupWebhooks?(input: { url: string; sellers?: boolean }): Promise<WebhookSetupResult>;
 }

@@ -6,10 +6,23 @@
 import { ErrorCode, PlumbusError } from '@plumbus/core';
 import Stripe from 'stripe';
 
+/**
+ * Stripe no longer has a customer this app saved (another Stripe account in the
+ * same mode, or a reset test account). Stripe names the `customer` parameter;
+ * the message is the fallback for responses that do not.
+ */
+function isMissingCustomer(err: InstanceType<typeof Stripe.errors.StripeError>): boolean {
+  return (
+    err.code === 'resource_missing' &&
+    (err.param === 'customer' || /^No such customer\b/.test(err.message))
+  );
+}
+
 export function translateStripeError(err: unknown): unknown {
   if (!(err instanceof Stripe.errors.StripeError)) return err;
   const metadata = {
-    reason: 'stripe_error',
+    // The provider contract's reason, so @plumbus/payments can replace the customer and retry.
+    reason: isMissingCustomer(err) ? 'payments_provider_customer_missing' : 'stripe_error',
     stripeType: err.type,
     ...(err.code ? { stripeCode: err.code } : {}),
     ...(err.param ? { param: err.param } : {}),

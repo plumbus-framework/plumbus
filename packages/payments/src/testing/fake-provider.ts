@@ -7,6 +7,7 @@
 // the charge, an idempotency key repeats its first answer).
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type {
   BillingInterval,
   CatalogInput,
@@ -346,7 +347,17 @@ export function createFakePaymentProvider(
 
   function customerOn(customerId: string | undefined, accountId: string | null): void {
     if (!customerId) return;
-    const customer = must(customers, customerId, 'customer');
+    const customer = customers.get(customerId);
+    // The contract's signal for a customer the provider does not have (see PaymentProvider).
+    if (!customer) {
+      throw new PlumbusError(
+        ErrorCode.Validation,
+        `fake provider: unknown customer ${customerId}`,
+        {
+          reason: 'payments_provider_customer_missing',
+        },
+      );
+    }
     if (customer.accountId !== accountId) {
       throw new FakeProviderError(
         `customer ${customerId} is not on this account`,

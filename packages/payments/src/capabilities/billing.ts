@@ -19,6 +19,7 @@ import {
   meterLookupKey,
   namespaceOf,
   planLookupKey,
+  withBillingCustomer,
 } from '../runtime/billing.js';
 import { entitlements, invoices } from '../runtime/repos.js';
 import {
@@ -191,49 +192,54 @@ export function createBillingCapabilities(runtime: PaymentsRuntime) {
       }
       const ui = input.ui ?? config.checkout.ui;
       const success = requireUrl(ctx, runtime, 'billingSuccess');
-      const row = await startSubscription(ctx, runtime, party, {
-        client: null,
-        providerCustomerId: customer.providerCustomerId,
-        currency: price.currency,
-        items: [
-          { lookupKey: planLookupKey(namespace, input.plan, input.price), quantity },
-          ...(plan.meters ?? []).map((meter) => ({ lookupKey: meterLookupKey(namespace, meter) })),
-        ],
-        preview: [
-          {
-            priceId: '',
-            lookupKey: planLookupKey(namespace, input.plan, input.price),
-            name: plan.name,
-            unitAmount: price.amount,
-            interval: price.interval,
-            intervalCount: price.intervalCount ?? 1,
-            quantity,
-            metered: false,
+      // A provider that lost the saved customer gets a new one, and the page is tried once more.
+      const row = await withBillingCustomer(ctx, runtime, owner, customer, input.email, (current) =>
+        startSubscription(ctx, runtime, party, {
+          client: null,
+          providerCustomerId: current.providerCustomerId,
+          currency: price.currency,
+          items: [
+            { lookupKey: planLookupKey(namespace, input.plan, input.price), quantity },
+            ...(plan.meters ?? []).map((meter) => ({
+              lookupKey: meterLookupKey(namespace, meter),
+            })),
+          ],
+          preview: [
+            {
+              priceId: '',
+              lookupKey: planLookupKey(namespace, input.plan, input.price),
+              name: plan.name,
+              unitAmount: price.amount,
+              interval: price.interval,
+              intervalCount: price.intervalCount ?? 1,
+              quantity,
+              metered: false,
+            },
+          ],
+          plan: input.plan,
+          planPrice: input.price,
+          quantity,
+          trialDays: plan.trialDays ?? billing.trialDays,
+          applicationFeePercent: null,
+          ui,
+          urls: {
+            success,
+            cancel: requireUrl(ctx, runtime, 'billingCancel'),
+            return: success,
           },
-        ],
-        plan: input.plan,
-        planPrice: input.price,
-        quantity,
-        trialDays: plan.trialDays ?? billing.trialDays,
-        applicationFeePercent: null,
-        ui,
-        urls: {
-          success,
-          cancel: requireUrl(ctx, runtime, 'billingCancel'),
-          return: success,
-        },
-        options: {
-          allowPromotionCodes: billing.allowPromotionCodes,
-          automaticTax: billing.automaticTax,
-          ...(config.checkout.locale ? { locale: config.checkout.locale } : {}),
-        },
-        requestId: input.requestId ?? null,
-        metadata: null,
-        providerMetadata: ownerMetadata(runtime, owner, {
-          plumbus_billing_customer_id: customer.id,
+          options: {
+            allowPromotionCodes: billing.allowPromotionCodes,
+            automaticTax: billing.automaticTax,
+            ...(config.checkout.locale ? { locale: config.checkout.locale } : {}),
+          },
+          requestId: input.requestId ?? null,
+          metadata: null,
+          providerMetadata: ownerMetadata(runtime, owner, {
+            plumbus_billing_customer_id: customer.id,
+          }),
+          createdBy: ctx.auth.userId ?? null,
         }),
-        createdBy: ctx.auth.userId ?? null,
-      });
+      );
       return { subscription: subscriptionView(row), created: true };
     },
   });
