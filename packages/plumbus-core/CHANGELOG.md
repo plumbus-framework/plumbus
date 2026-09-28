@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## 0.7.8 — 2026-09-27
+
+- `plumbus dev` and `plumbus start` load an `authenticationRuntime` export from `app/server.ts` (named or on the default export) and pass it to `createServer`, so apps that do not own their bootstrap can use `@plumbus/auth` browser sign-in. Without the export nothing changes. With it, capability routes authenticate through the runtime's composite authenticator (bearer first, then the session cookie) and `routeConfig.authAdapter` is the deny-all adapter, so custom routes in `onRoutesRegistered` should call `routeConfig.requestAuthenticator`.
+
 ## 0.7.7 — 2026-09-27
 
 - Add `field.bigint()`: a 64-bit integer column (PostgreSQL `bigint`, read and written as a JS number, safe integers only) for money in minor units and running totals. `field.number()` stays a 32-bit `integer`; test field validation rejects unsafe integers in bigint fields. Docs now state the actual column types (`field.decimal()` is floating point and must not hold money).

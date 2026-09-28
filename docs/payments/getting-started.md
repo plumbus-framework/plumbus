@@ -77,7 +77,7 @@ Run the worker too (`plumbus worker`): webhooks are applied there.
 plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
 ```
 
-Store the two printed signing secrets in `STRIPE_WEBHOOK_SECRETS` (comma-separated). With `billing`, create your plans at Stripe (and again after each change to them):
+Store the printed signing secrets in `STRIPE_WEBHOOK_SECRETS` (comma-separated): two with sellers, one for a platform that only uses `billing`. With `billing`, create your plans at Stripe (and again after each change to them):
 
 ```bash
 plumbus payments catalog sync

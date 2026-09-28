@@ -90,7 +90,7 @@ Webhooks are applied by `payments.processProviderEvent` in the worker (`plumbus 
 
 ```bash
 plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
-# store both printed signing secrets in STRIPE_WEBHOOK_SECRETS (comma-separated)
+# store the printed signing secrets in STRIPE_WEBHOOK_SECRETS (comma-separated; one without sellers)
 plumbus payments catalog sync        # only with `billing`: products, prices, features, meters
 plumbus payments doctor --live --webhook-url https://api.example.com/payments/webhooks/stripe
 ```

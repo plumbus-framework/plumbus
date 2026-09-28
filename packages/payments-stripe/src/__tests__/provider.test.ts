@@ -556,6 +556,58 @@ describe('stripeProvider — errors', () => {
     });
   });
 
+  it('reports a customer Stripe no longer has with the payments reason, so the customer is replaced', async () => {
+    for (const error of [
+      // Stripe names the parameter…
+      { param: 'customer', message: "No such customer: 'cus_gone'" },
+      // …and the message alone is enough when it does not.
+      { message: "No such customer: 'cus_gone'" },
+    ]) {
+      const { stub, provider } = setup();
+      stub.on('POST /v1/checkout/sessions', () => ({
+        status: 400,
+        body: { error: { type: 'invalid_request_error', code: 'resource_missing', ...error } },
+      }));
+      const err = (await provider
+        .createCharge(
+          chargeInput({
+            items: [{ name: 'x', unitAmount: 4900, quantity: 1 }],
+            platformFeeAmount: 0,
+            clientId: 'cus_gone',
+          }),
+        )
+        .catch((e: unknown) => e)) as { metadata: Record<string, unknown> };
+      expect(err.metadata).toMatchObject({
+        reason: 'payments_provider_customer_missing',
+        stripeCode: 'resource_missing',
+      });
+    }
+  });
+
+  it('keeps other missing objects as Stripe errors', async () => {
+    const { stub, provider } = setup();
+    stub.on('POST /v1/checkout/sessions', () => ({
+      status: 400,
+      body: {
+        error: {
+          type: 'invalid_request_error',
+          code: 'resource_missing',
+          param: 'line_items[0][price]',
+          message: "No such price: 'price_gone'",
+        },
+      },
+    }));
+    const err = (await provider
+      .createCharge(
+        chargeInput({
+          items: [{ name: 'x', unitAmount: 4900, quantity: 1 }],
+          platformFeeAmount: 0,
+        }),
+      )
+      .catch((e: unknown) => e)) as { metadata: Record<string, unknown> };
+    expect(err.metadata.reason).toBe('stripe_error');
+  });
+
   it('marks Stripe outages as retryable internal errors', async () => {
     const { stub, provider } = setup();
     stub.on('GET /v2/core/accounts/*', () => ({

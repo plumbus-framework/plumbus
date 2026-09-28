@@ -158,6 +158,7 @@ The optional `app/server.ts` file exports hooks that customize server behavior. 
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
 | `onAICostRecorded` | After each AI cost record is written | Custom cost analytics or billing hooks |
 | `enableStrictStructuredOutputs` | Server bootstrap | Global toggle for strict structured-output mode |
+| `authenticationRuntime` | Server bootstrap (core 0.7.8+) | Browser sign-in with `@plumbus/auth` (`createAuthRuntime(...)`): the same value `createServer({ authenticationRuntime })` takes |
 
 ### Error Capture Coverage
 

@@ -231,7 +231,7 @@ Behavior:
 
 - Loads `plumbus.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, and from core 0.7.8 `authenticationRuntime`).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
 - Exposes `GET /health` and `GET /ready`.
@@ -704,8 +704,8 @@ plumbus payments catalog check [--json]
 
 | Subcommand | Exit code | What it does |
 |---|---|---|
-| `doctor` | 1 on error findings (or warnings with `--fail-on-warning`) | Prints config findings (provider rules, advice). With `--live`, also asks the provider: key mode vs `NODE_ENV`, Connect/Accounts v2 access, webhook destinations (existence, URL, sources, events, API version), and, with `billing` configured, whether the provider's catalog matches it |
-| `webhooks setup` | 0 | Creates the provider's webhook destinations for `--url` and prints each signing secret once. Existing destinations get any events a newer release needs; one that cannot be fixed in place (Stripe cannot change where a destination takes events from) is replaced by a new one, and `doctor --live` says which old one to delete |
+| `doctor` | 1 on error findings (or warnings with `--fail-on-warning`) | Prints config findings (provider rules, advice). With `--live`, also asks the provider: key mode vs `NODE_ENV`, Connect/Accounts v2 access (only when the config has sellers), webhook destinations (existence, URL, sources, events, API version), and, with `billing` configured, whether the provider's catalog matches it |
+| `webhooks setup` | 0 | Creates the provider's webhook destinations for `--url` (what the config needs: without sellers, Stripe gets one destination for the platform's own events) and prints each signing secret once. Existing destinations get any events a newer release needs; one that cannot be fixed in place (Stripe cannot change where a destination takes events from) is replaced by a new one, and `doctor --live` says which old one to delete |
 | `catalog sync` | 0 | Creates or updates the provider's products, prices, entitlement features, and usage meters so they match `billing` in the payments config, and prints what changed and the price ids. Safe to run on every deploy. A changed price becomes a new provider price; existing subscribers keep theirs |
 | `catalog check` | 1 when the catalog differs | Read-only: lists what `catalog sync` would change. Use it in CI |
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-09-27
+
+### Changed
+
+- A purchase or plan checkout whose saved billing customer the provider no longer has (another provider account in the same mode, or a reset test account) no longer fails every time: the provider reports it with `reason: 'payments_provider_customer_missing'` (now part of the provider contract, and what the fake provider does), and the package makes a new provider customer for the same `PaymentBillingCustomer` row and retries once.
+- The provider's `diagnose` and `setupWebhooks` receive `sellers` (whether the config has `seller`), so a provider can leave out what only a marketplace needs (with `@plumbus/payments-stripe` 0.2.1: no Connect and one webhook destination for a platform without sellers). The field is optional for providers.
+- `billing.plans` is optional: a platform that only sells one-off purchases configures `billing: { customer }` and charges with `payments.billing.purchase` (a platform charge on a payment page, with `metadata` and an idempotent `requestId`). `urls.billingSuccess` and `urls.billingCancel` are required only when plans exist. Previously billing needed at least one subscription plan, so a purchase-only app could not configure the package without inventing a plan the catalog would create at the provider.
+
 ## 0.2.0 — 2026-09-27
 
 ### Added

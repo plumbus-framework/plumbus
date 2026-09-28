@@ -4,7 +4,12 @@
 import type { CatalogInput, PaymentsFinding, WebhookSetupResult } from '@plumbus/payments';
 import Stripe from 'stripe';
 import { reconcileCatalog } from './catalog.js';
-import { STRIPE_SNAPSHOT_EVENTS, STRIPE_SNAPSHOT_SOURCES, STRIPE_THIN_EVENTS } from './events.js';
+import {
+  STRIPE_PLATFORM_SNAPSHOT_EVENTS,
+  STRIPE_SNAPSHOT_EVENTS,
+  STRIPE_SNAPSHOT_SOURCES,
+  STRIPE_THIN_EVENTS,
+} from './events.js';
 import { keyMode } from './secrets.js';
 
 export const STRIPE_API_VERSION = Stripe.API_VERSION;
@@ -21,7 +26,7 @@ interface DestinationPlan {
   sources: readonly string[];
 }
 
-const PLANS: readonly DestinationPlan[] = [
+const MARKETPLACE_PLANS: readonly DestinationPlan[] = [
   {
     name: STRIPE_DESTINATION_NAMES.snapshot,
     format: 'snapshot',
@@ -35,6 +40,27 @@ const PLANS: readonly DestinationPlan[] = [
     sources: ['@self'],
   },
 ];
+
+/**
+ * A platform without sellers (only `billing`) has no connected accounts: one
+ * snapshot destination for its own events, no thin v2 account events, and no
+ * need for Connect. It keeps the snapshot destination's name, so adding sellers
+ * later shows up in doctor as a destination to replace rather than a silent
+ * second one.
+ */
+const PLATFORM_PLANS: readonly DestinationPlan[] = [
+  {
+    name: STRIPE_DESTINATION_NAMES.snapshot,
+    format: 'snapshot',
+    events: STRIPE_PLATFORM_SNAPSHOT_EVENTS,
+    sources: ['@self'],
+  },
+];
+
+/** The destinations an app needs: with sellers (the default) or platform only. */
+export function destinationPlans(sellers = true): readonly DestinationPlan[] {
+  return sellers ? MARKETPLACE_PLANS : PLATFORM_PLANS;
+}
 
 type Destination = Stripe.V2.Core.EventDestination;
 
@@ -58,8 +84,12 @@ export async function diagnoseStripe(input: {
   webhookSecrets: () => Promise<readonly string[]>;
   webhookUrl: string | undefined;
   catalog: CatalogInput | undefined;
+  /** The config has sellers (default). Without them Connect is not needed. */
+  sellers?: boolean;
 }): Promise<PaymentsFinding[]> {
   const findings: PaymentsFinding[] = [];
+  const sellers = input.sellers ?? true;
+  const plans = destinationPlans(sellers);
   let key: string;
   try {
     key = await input.secretKey();
@@ -94,11 +124,14 @@ export async function diagnoseStripe(input: {
 
   try {
     const secrets = await input.webhookSecrets();
-    if (secrets.length < 2) {
+    if (secrets.length < plans.length) {
       findings.push({
         level: 'warning',
         code: 'stripe_webhook_secrets_incomplete',
-        message: `Two event destinations sign with separate secrets; ${secrets.length} configured`,
+        message:
+          plans.length === 1
+            ? 'The event destination signs deliveries with a secret; none configured'
+            : `${plans.length} event destinations sign with separate secrets; ${secrets.length} configured`,
       });
     }
   } catch (err) {
@@ -110,21 +143,24 @@ export async function diagnoseStripe(input: {
   }
 
   const stripe = await input.client();
-  try {
-    await stripe.v2.core.accounts.list({ limit: 1 });
-  } catch (err) {
-    findings.push({
-      level: 'error',
-      code: 'stripe_accounts_v2_unavailable',
-      message: `Accounts v2 is not usable with this key: ${messageOf(err)}. Finish Connect onboarding (platform profile) and use a key with Connect access.`,
-    });
+  // Sellers are v2 Accounts; a platform that only bills its own customers never makes one.
+  if (sellers) {
+    try {
+      await stripe.v2.core.accounts.list({ limit: 1 });
+    } catch (err) {
+      findings.push({
+        level: 'error',
+        code: 'stripe_accounts_v2_unavailable',
+        message: `Accounts v2 is not usable with this key: ${messageOf(err)}. Finish Connect onboarding (platform profile) and use a key with Connect access.`,
+      });
+    }
   }
 
   try {
     const destinations = (
       await stripe.v2.core.eventDestinations.list({ include: ['webhook_endpoint.url'], limit: 20 })
     ).data;
-    for (const plan of PLANS) {
+    for (const plan of plans) {
       const { format, name } = plan;
       const named = destinations.filter((d) => d.event_payload === format && d.name === name);
       const found = pick(named, plan, input.webhookUrl);
@@ -219,12 +255,13 @@ export async function diagnoseStripe(input: {
 export async function setupStripeDestinations(
   stripe: Stripe,
   url: string,
+  sellers = true,
 ): Promise<WebhookSetupResult> {
   const existing = (
     await stripe.v2.core.eventDestinations.list({ include: ['webhook_endpoint.url'], limit: 20 })
   ).data;
   const result: WebhookSetupResult = { destinations: [] };
-  for (const plan of PLANS) {
+  for (const plan of destinationPlans(sellers)) {
     const found = existing.find(
       (d) =>
         d.name === plan.name &&

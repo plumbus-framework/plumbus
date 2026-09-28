@@ -4,7 +4,7 @@ import { listPaymentsConfigOptions } from '../config/schema.js';
 import { createPayments } from '../runtime/create-payments.js';
 import { createFakePaymentProvider } from '../testing/index.js';
 import type { PaymentsConfig } from '../types/config.js';
-import { baseConfig } from './helpers.js';
+import { baseConfig, urls } from './helpers.js';
 
 function build(overrides: Partial<PaymentsConfig> = {}) {
   return createPayments(baseConfig(createFakePaymentProvider(), overrides));
@@ -165,6 +165,41 @@ describe('createPayments config', () => {
       ]),
     );
     expect(new Set(paths).size).toBe(paths.length);
+  });
+});
+
+describe('provider setup follows the config', () => {
+  it('tells the provider whether there are sellers, for doctor and webhook setup', async () => {
+    const seen: [string, boolean | undefined][] = [];
+    const withHooks = () =>
+      Object.assign(createFakePaymentProvider(), {
+        async diagnose(input: { sellers?: boolean }) {
+          seen.push(['diagnose', input.sellers]);
+          return [];
+        },
+        async setupWebhooks(input: { url: string; sellers?: boolean }) {
+          seen.push(['setup', input.sellers]);
+          return { destinations: [] };
+        },
+      });
+    const marketplace = createPayments(baseConfig(withHooks()));
+    // Billing only, no plans: a platform that bills its own customers once.
+    const platform = createPayments({
+      provider: withHooks(),
+      billing: { customer: 'user' },
+      access: { billing: { roles: ['admin'] } },
+      urls,
+    });
+    await marketplace.diagnose({ live: true });
+    await marketplace.setupWebhooks({ url: 'https://app.test/hook' });
+    await platform.diagnose({ live: true });
+    await platform.setupWebhooks({ url: 'https://app.test/hook' });
+    expect(seen).toEqual([
+      ['diagnose', true],
+      ['setup', true],
+      ['diagnose', false],
+      ['setup', false],
+    ]);
   });
 });
 

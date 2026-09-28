@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AICostRecord, ExecutionContext } from '@plumbus/core';
-import { ErrorCode, PlumbusError, sql } from '@plumbus/core';
+import { ErrorCode, isPlumbusError, PlumbusError, sql } from '@plumbus/core';
 import type { CatalogInput } from '../types/provider.js';
 import type { PaymentBillingCustomerRow, PaymentSubscriptionRow } from '../types/records.js';
 import type { PlatformHelpers } from './platform.js';
@@ -139,6 +139,69 @@ export async function ensureBillingCustomer(
     const winner = await billingCustomers(ctx).findById(id);
     if (winner) return winner;
     throw err;
+  }
+}
+
+/**
+ * The provider no longer has a saved customer: the app moved to another
+ * provider account in the same mode, or a test account was reset. Providers
+ * report it with this reason (see `PaymentProvider`).
+ */
+export const PROVIDER_CUSTOMER_MISSING = 'payments_provider_customer_missing';
+
+export function isMissingProviderCustomer(err: unknown): boolean {
+  return isPlumbusError(err) && err.metadata?.reason === PROVIDER_CUSTOMER_MISSING;
+}
+
+/**
+ * Make a new provider customer for a billing customer whose provider customer
+ * is gone, and keep the same row (its subscriptions and charges stay linked).
+ * Keyed by the id it replaces, so concurrent replacements make one customer.
+ */
+export async function replaceBillingCustomer(
+  ctx: ExecutionContext,
+  runtime: PaymentsRuntime,
+  owner: BillingOwner,
+  customer: PaymentBillingCustomerRow,
+  email?: string,
+): Promise<PaymentBillingCustomerRow> {
+  const { provider } = runtime;
+  if (!provider.createBillingCustomer)
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `${provider.displayName} does not support billing`,
+      { reason: 'payments_provider_feature_unsupported' },
+    );
+  const address = email ?? customer.email ?? undefined;
+  const created = await provider.createBillingCustomer({
+    ...(address ? { email: address } : {}),
+    metadata: ownerMetadata(runtime, owner, { plumbus_billing_customer_id: customer.id }),
+    idempotencyKey: `plumbus-billing-customer:${customer.id}:replaces:${customer.providerCustomerId}`,
+  });
+  return billingCustomers(ctx).update(customer.id, {
+    providerCustomerId: created.customerId,
+    ...(email ? { email } : {}),
+  });
+}
+
+/**
+ * Run a provider call with the owner's billing customer. When the provider no
+ * longer has that customer, replace it once and run the call again (the calls
+ * that use this remove their own row on failure, so the retry starts clean).
+ */
+export async function withBillingCustomer<T>(
+  ctx: ExecutionContext,
+  runtime: PaymentsRuntime,
+  owner: BillingOwner,
+  customer: PaymentBillingCustomerRow,
+  email: string | undefined,
+  call: (customer: PaymentBillingCustomerRow) => Promise<T>,
+): Promise<T> {
+  try {
+    return await call(customer);
+  } catch (err) {
+    if (!isMissingProviderCustomer(err)) throw err;
+    return call(await replaceBillingCustomer(ctx, runtime, owner, customer, email));
   }
 }
 
@@ -314,11 +377,14 @@ export function createBillingHelpers(runtime: PaymentsRuntime, platform: Platfor
     ) {
       requireBilling();
       const { email, ...charge } = input;
-      const customer = await ensureBillingCustomer(ctx, runtime, await ownerOf(ctx), email);
-      return platform.createCharge(ctx, {
-        ...charge,
-        billingCustomer: { id: customer.id, providerCustomerId: customer.providerCustomerId },
-      });
+      const owner = await ownerOf(ctx);
+      const customer = await ensureBillingCustomer(ctx, runtime, owner, email);
+      return withBillingCustomer(ctx, runtime, owner, customer, email, (current) =>
+        platform.createCharge(ctx, {
+          ...charge,
+          billingCustomer: { id: current.id, providerCustomerId: current.providerCustomerId },
+        }),
+      );
     },
 
     /**

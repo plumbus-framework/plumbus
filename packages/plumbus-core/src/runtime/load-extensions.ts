@@ -35,6 +35,10 @@ export async function loadServerExtensions(
       extensions.enableStrictStructuredOutputs =
         mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
       extensions.onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
+      const authenticationRuntime = mod.authenticationRuntime ?? mod.default?.authenticationRuntime;
+      if (authenticationRuntime !== undefined) {
+        extensions.authenticationRuntime = authenticationRuntime;
+      }
     } catch {
       // caller may log
     }

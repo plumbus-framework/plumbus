@@ -20,7 +20,8 @@
 // through the API (`plumbus payments webhooks setup`).
 //
 // Control endpoints under /_sim move objects through their lifecycle (finish
-// onboarding, pay, renew, refund, dispute, pay out, redeliver). Browser pages
+// onboarding, pay — by card, or by bank debit that settles later through
+// /_sim/payments/:pi/settle — renew, refund, dispute, pay out, redeliver). Browser pages
 // under /connect, /pay, /buy, /invoice, /portal, and /express let a human click
 // through the same steps.
 //
@@ -119,7 +120,10 @@ export function createStripeSimulator({ Fastify, baseUrl, log = () => {} }) {
     nextOffSession: null,
   };
   let counter = 0;
-  const id = (prefix) => `${prefix}_sim_${(++counter).toString().padStart(6, '0')}`;
+  // A tag per run keeps ids unique across restarts, as Stripe's are: an app
+  // database that outlives the simulator never sees an id twice.
+  const run = randomBytes(2).toString('hex');
+  const id = (prefix) => `${prefix}_sim_${run}${(++counter).toString().padStart(6, '0')}`;
   const now = () => Math.floor(Date.now() / 1000);
 
   const app = Fastify({ logger: false });
@@ -1935,6 +1939,23 @@ export function createStripeSimulator({ Fastify, baseUrl, log = () => {} }) {
       capture_method: session.pi.capture_method === 'manual' ? 'manual' : 'automatic',
     });
     if ((pi.application_fee_amount ?? 0) > total) throw invalid('The application fee cannot exceed the amount paid.');
+    if (truthy(input.async)) {
+      // A bank debit: Checkout completes unpaid while the payment is processing;
+      // /_sim/payments/:pi/settle later succeeds or fails it (async_payment_* events).
+      pi.status = 'processing';
+      Object.assign(session, {
+        status: 'complete',
+        payment_status: 'unpaid',
+        payment_intent: pi.id,
+        amount_subtotal: subtotal,
+        amount_discount: discount,
+        amount_tax: tax,
+        amount_total: total,
+      });
+      await emit('checkout.session.completed', account, sessionView(session));
+      await emit('payment_intent.processing', account, intentView(pi));
+      return session;
+    }
     succeed(pi);
     Object.assign(session, {
       status: 'complete',
@@ -2043,6 +2064,27 @@ export function createStripeSimulator({ Fastify, baseUrl, log = () => {} }) {
     return subscriptionView(sub);
   }));
 
+  // A processing (bank debit) payment from Checkout settles: `{ status: 'succeeded' | 'failed' }`.
+  app.post('/_sim/payments/:pi/settle', control(async (request) => {
+    const pi = find(state.intents, request.params.pi);
+    if (pi.status !== 'processing') throw invalid(`payment is ${pi.status}, not processing`);
+    const session = [...state.sessions.values()].find((s) => s.payment_intent === pi.id) ?? null;
+    if (request.body?.status === 'failed') {
+      pi.status = 'requires_payment_method';
+      pi.last_payment_error = { code: 'payment_method_failed', decline_code: null, type: 'invalid_request_error' };
+      if (session) await emit('checkout.session.async_payment_failed', pi.account, sessionView(session));
+      await emit('payment_intent.payment_failed', pi.account, intentView(pi));
+    } else {
+      succeed(pi);
+      if (session) {
+        session.payment_status = 'paid';
+        await emit('checkout.session.async_payment_succeeded', pi.account, sessionView(session));
+      }
+      await emit('payment_intent.succeeded', pi.account, intentView(pi));
+    }
+    return intentView(pi);
+  }));
+
   app.post('/_sim/refunds/:id/settle', control(async (request) => {
     const refund = find(state.refunds, request.params.id);
     const status = request.body?.status === 'failed' ? 'failed' : 'succeeded';
@@ -2136,7 +2178,12 @@ export function createStripeSimulator({ Fastify, baseUrl, log = () => {} }) {
     if (!session) return reply.status(404).send('unknown session');
     const amount = (session.amount_total / 100).toFixed(2);
     const title = session.mode === 'setup' ? 'Save a card' : `Pay ${amount} ${String(session.currency).toUpperCase()}`;
-    return html(reply, title, `<form method="post" action="/_sim/checkout/${session.id}/pay?redirect=${encodeURIComponent(session.success_url ?? '/')}"><button>${session.mode === 'setup' ? 'Save' : 'Pay with'} 4242 4242 4242 4242</button></form>`);
+    const action = `/_sim/checkout/${session.id}/pay?redirect=${encodeURIComponent(session.success_url ?? '/')}`;
+    const bankDebit =
+      session.mode === 'payment'
+        ? `<form method="post" action="${action}"><input type="hidden" name="async" value="true"><button>Pay by bank debit (settles later)</button></form>`
+        : '';
+    return html(reply, title, `<form method="post" action="${action}"><button>${session.mode === 'setup' ? 'Save' : 'Pay with'} 4242 4242 4242 4242</button></form>${bankDebit}`);
   });
 
   app.get('/buy/:id', async (request, reply) => {

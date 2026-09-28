@@ -85,6 +85,15 @@ const server = await createServer({
 });
 ```
 
+Apps started with `plumbus dev` or `plumbus start` do not call `createServer` themselves: export the runtime from `app/server.ts` instead (core 0.7.8+), and both commands pass it to `createServer`:
+
+```typescript
+// app/server.ts
+export const authenticationRuntime = createAuthRuntime({ /* … */ });
+```
+
+Custom routes registered in `onRoutesRegistered` should then authenticate through `routeConfig.requestAuthenticator` (session cookie or bearer); `routeConfig.authAdapter` is the deny-all adapter whenever a runtime is present.
+
 With `authenticationRuntime` supplied, **`auth.secret` is not required** in Plumbus config — session auth replaces the default JWT adapter for browser traffic. You may still pass a bearer `AuthAdapter` as the second argument for machine clients:
 
 ```typescript

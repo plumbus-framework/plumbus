@@ -1,11 +1,13 @@
 // ── Stripe webhook events ──
-// Two destinations feed one route:
+// With sellers, two destinations feed one route:
 //  • snapshot events from the platform account (`@self`) and from sellers'
 //    accounts (`@accounts`): checkout, payments, refunds, disputes, saved
 //    methods, subscriptions, invoices, transfers, payouts, entitlements
 //  • thin v2 events about the sellers' v2 Accounts (`@self`): onboarding progress
-// Both use the same `Stripe-Signature` scheme, so the route verifies first and
-// only then looks at the body to tell the formats apart.
+// A platform without sellers needs only the snapshot destination, from `@self`,
+// without the transfer and payout events (STRIPE_PLATFORM_SNAPSHOT_EVENTS).
+// Both formats use the same `Stripe-Signature` scheme, so the route verifies
+// first and only then looks at the body to tell them apart.
 
 import { ErrorCode, PlumbusError } from '@plumbus/core';
 import type { ProviderEventRouting, VerifiedProviderEvent } from '@plumbus/payments';
@@ -56,6 +58,15 @@ export const STRIPE_SNAPSHOT_EVENTS = [
   'payout.canceled',
   'entitlements.active_entitlement_summary.updated',
 ] as const;
+
+/**
+ * The snapshot events a platform without sellers acts on: everything but
+ * transfers to sellers and sellers' payouts (the platform's own payouts are
+ * ignored either way).
+ */
+export const STRIPE_PLATFORM_SNAPSHOT_EVENTS = STRIPE_SNAPSHOT_EVENTS.filter(
+  (type) => !type.startsWith('transfer.') && !type.startsWith('payout.'),
+);
 
 /** Thin (v2) event types about sellers' v2 Accounts. */
 export const STRIPE_THIN_EVENTS = [

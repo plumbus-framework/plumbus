@@ -8,6 +8,7 @@ Every option is explained in full (with provider rules, costs, and what the app 
 |---|---|
 | Lets its users (or tenants) charge **their own clients** | `seller` (+ `access.sellers`, `dashboards`, onboarding and checkout `urls`) |
 | Bills **its own customers** for plans (SaaS) | `billing` (+ `access.billing`, `urls.billingSuccess`, `urls.billingCancel`) |
+| Sells **its own customers** one-off purchases only (a product per order) | `billing: { customer }` without `plans` (+ `urls.checkoutSuccess`, `urls.checkoutCancel`); charge with `payments.billing.purchase` |
 | Both | Both — they are independent |
 
 At least one of `seller` and `billing` is required.
@@ -71,7 +72,7 @@ Always: `losses: 'platform'` requires `fees: 'platform'`. Offering several dashb
 | Option | Notes |
 |---|---|
 | `billing.customer` ★ | `'tenant'` (requires `access.billing`: who may change the tenant's plan), `'user'`, or `'seller'` |
-| `billing.plans` ★ | `{ key: { name, features?, prices: { monthly: { amount, currency, interval, perSeat? } }, meters?, trialDays? } }` |
+| `billing.plans` | `{ key: { name, features?, prices: { monthly: { amount, currency, interval, perSeat? } }, meters?, trialDays? } }`. Omit when the platform only sells one-off purchases (`payments.billing.purchase`, 0.2.1+) |
 | `billing.meters` | `{ key: { name, eventName, unitAmount ('0.002' allowed), currency, aggregation?, interval? } }` for usage billing (AI tokens) |
 | `billing.features` | Display names of feature keys |
 | `billing.trialDays` / `allowPromotionCodes` / `automaticTax` / `prorate` | Plan checkout and change settings (`prorate` default `true`) |

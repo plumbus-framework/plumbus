@@ -439,6 +439,109 @@ describe('usage and purchases', () => {
   });
 });
 
+describe('billing without plans', () => {
+  // A platform that only sells one-off purchases (a fixed product per order)
+  // configures billing for its customers but defines no subscription plans.
+  const { billingSuccess: _s, billingCancel: _c, billingPortalReturn: _p, ...checkoutUrls } = urls;
+
+  function purchaseOnlyEnv() {
+    const fake = createFakePaymentProvider();
+    const payments = createPayments({
+      provider: fake,
+      billing: { customer: 'user' },
+      access: {},
+      urls: checkoutUrls,
+      appId: 'myapp',
+    });
+    const ctx = createPaymentsTestContext(payments, {
+      auth: { userId: 'user-1', tenantId: 'tenant-a', roles: ['user'] },
+    });
+    return { fake, payments, ctx, data: ctx.data as any };
+  }
+
+  it('accepts billing with no plans and no plan-checkout urls', () => {
+    const { payments } = purchaseOnlyEnv();
+    expect(payments.config.billing?.plans).toEqual({});
+    expect(payments.findings.filter((f) => f.level === 'error')).toEqual([]);
+  });
+
+  it('still asks for the plan-checkout urls once plans exist', () => {
+    const fake = createFakePaymentProvider();
+    expect(() =>
+      createPayments({
+        provider: fake,
+        billing: { ...plans, customer: 'user' },
+        access: {},
+        urls: checkoutUrls,
+      }),
+    ).toThrow('urls.billingSuccess is required with billing plans');
+  });
+
+  it('lists no plans and has an empty catalog', async () => {
+    const { payments, ctx } = purchaseOnlyEnv();
+    const result = await executeCapability((payments.capabilities as any).listPlans, ctx, {});
+    expect(result.success).toBe(true);
+    expect((result as any).data.plans).toEqual([]);
+    const sync = await payments.syncCatalog();
+    expect(sync.changes).toEqual([]);
+  });
+
+  it('sells a one-off purchase with the caller’s request id and metadata', async () => {
+    const { fake, payments, ctx, data } = purchaseOnlyEnv();
+    const first = await payments.billing.purchase(ctx, {
+      description: 'Memoir',
+      currency: 'usd',
+      amount: 4900,
+      email: 'buyer@example.test',
+      metadata: { orderId: 'order-1' },
+      requestId: 'order-1:1',
+    });
+    const retry = await payments.billing.purchase(ctx, {
+      description: 'Memoir',
+      currency: 'usd',
+      amount: 4900,
+      email: 'buyer@example.test',
+      metadata: { orderId: 'order-1' },
+      requestId: 'order-1:1',
+    });
+    expect(retry.charge.id).toBe(first.charge.id);
+    const row = await data.PaymentCharge.findById(first.charge.id);
+    expect(row).toMatchObject({ flow: 'platform', requestId: 'order-1:1' });
+    expect(row.metadata).toMatchObject({ orderId: 'order-1' });
+    const customer = (await data.PaymentBillingCustomer.findMany({}))[0];
+    expect(customer).toMatchObject({ ownerType: 'user', ownerId: 'user-1' });
+    expect([...fake.charges.values()]).toHaveLength(1);
+  });
+
+  it('makes a new provider customer when the provider no longer has the saved one', async () => {
+    const { fake, payments, ctx, data } = purchaseOnlyEnv();
+    const order = (n: number) => ({
+      description: 'Memoir',
+      currency: 'usd',
+      amount: 4900,
+      email: 'buyer@example.test',
+      requestId: `order-${n}:1`,
+    });
+    await payments.billing.purchase(ctx, order(1));
+    const [saved] = await data.PaymentBillingCustomer.findMany({});
+    // The app moved to another provider account in the same mode, or a test account was reset.
+    fake.customers.delete(saved.providerCustomerId);
+
+    const second = await payments.billing.purchase(ctx, order(2));
+    const rows = await data.PaymentBillingCustomer.findMany({});
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(saved.id);
+    expect(rows[0].providerCustomerId).not.toBe(saved.providerCustomerId);
+    expect(fake.customers.has(rows[0].providerCustomerId)).toBe(true);
+    expect(await data.PaymentCharge.findById(second.charge.id)).toMatchObject({
+      requestId: 'order-2:1',
+      billingCustomerId: saved.id,
+    });
+    // The attempt that failed left no charge behind.
+    expect(await data.PaymentCharge.findMany({ requestId: 'order-2:1' })).toHaveLength(1);
+  });
+});
+
 describe('billing customers', () => {
   it('bills each seller for their own subscription', async () => {
     const env = await onboardedSeller({
@@ -454,6 +557,24 @@ describe('billing customers', () => {
     const customer = (await (env.ctx.data as any).PaymentBillingCustomer.findMany({}))[0];
     expect(customer).toMatchObject({ ownerType: 'seller', ownerId: merchant.id });
     expect(subscription.billingCustomerId).toBe(customer.id);
+  });
+
+  it('replaces a provider customer the provider lost before opening a plan checkout', async () => {
+    const env = billingEnv({ billing: { ...plans, customer: 'user' }, access: {} });
+    await env.payments.syncCatalog();
+    await env.run('subscribeToPlan', { plan: 'starter', price: 'monthly', requestId: 'first' });
+    const [saved] = await env.data.PaymentBillingCustomer.findMany({});
+    env.fake.customers.delete(saved.providerCustomerId);
+
+    const { subscription } = await env.run<any>('subscribeToPlan', {
+      plan: 'starter',
+      price: 'monthly',
+      requestId: 'second',
+    });
+    const [customer] = await env.data.PaymentBillingCustomer.findMany({});
+    expect(customer.id).toBe(saved.id);
+    expect(customer.providerCustomerId).not.toBe(saved.providerCustomerId);
+    expect(subscription.billingCustomerId).toBe(saved.id);
   });
 
   it('bills each signed-in user, who may manage their own plan', async () => {
