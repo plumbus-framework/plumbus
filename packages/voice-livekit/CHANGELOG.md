@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3 — 2026-09-30
+
+### Fixed
+
+- Pin `@livekit/agents` to **1.9.0** and raise `@livekit/rtc-node` to `^0.13.34`. The old `^1.4.6` range admitted `@livekit/agents` 1.9.1, which needs `@livekit/rtc-node` 1.x: a fresh install (npm in particular, as in a backend Docker image) then put a second rtc-node beside this package's 0.13, and the worker's room objects and our audio code ran on different native bindings. 1.9.0 is the newest release whose rtc-node peer (`^0.13.34`) this package satisfies.
+
+### Security
+
+- `@livekit/agents` 1.9.0 brings the patched `sharp` (0.35.4) and OpenTelemetry 2.x packages, clearing the high-severity `sharp` (libvips/libheif) and `@opentelemetry/propagator-jaeger` advisories that 1.4.x pulled in.
+
 ## 0.2.2 — 2026-09-23
 
 - Frame provider PCM into at most 20 ms native captures in both transports, preserving samples and stream boundaries; prevents complete-reply audio chunks from wedging the LiveKit capture queue.
