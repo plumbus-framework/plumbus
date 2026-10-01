@@ -5,15 +5,16 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-09-23 (GPT-6 Sol/Luna and Anthropic Opus)
-// Other entries last synced 2026-09-10.
+// Last updated: 2026-10-01 (full sync of both pages).
 //
 // Unknown models (Ollama, custom endpoints) have no catalog cost.
 //
 // Only standard-tier rates are tracked (not batch, flex, or fast mode), and for
 // models with split short/long context pricing the short-context (base) rate is
-// recorded, with explicit long-context thresholds for GPT-5.6 Sol and GPT-6 Sol/Luna.
+// recorded, with an explicit 272K long-context threshold on every OpenAI model the
+// page prices that way.
 // Sonnet 5 remains $2/$10 (the scheduled increase was cancelled).
+// GPT-Rosalind Research billing begins 2026-10-05; its rate is recorded ahead of that.
 //
 // `kind` is derived from the pricing page's section structure, not from name
 // patterns — see `.agents/skills/update-model-pricing/scripts/fetch-pricing.ts`.
@@ -49,12 +50,26 @@ export interface ModelRate {
 
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
-  'gpt-6-astra': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'gpt-6-astra': {
+    kind: 'text',
+    inputPerMTok: 10,
+    outputPerMTok: 50,
+    cachedInputPerMTok: 1,
+    longContextThreshold: 272_000,
+  },
   'gpt-6-sol': {
     kind: 'text',
     inputPerMTok: 2,
     outputPerMTok: 10,
     cachedInputPerMTok: 0.2,
+    longContextThreshold: 272_000,
+  },
+  // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+  'gpt-6.1-sol': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cachedInputPerMTok: 0.1,
     longContextThreshold: 272_000,
   },
   'gpt-6-luna': {
@@ -71,14 +86,34 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
     cachedInputPerMTok: 0.5,
     longContextThreshold: 272_000,
   },
-  'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
-  'gpt-5.6-luna': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.2 },
-  'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
-  'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
-  'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
+  'gpt-5.6-terra': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 12,
+    longContextThreshold: 272_000,
+  },
+  'gpt-5.6-luna': {
+    kind: 'text',
+    inputPerMTok: 0.2,
+    outputPerMTok: 1.2,
+    longContextThreshold: 272_000,
+  },
+  'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30, longContextThreshold: 272_000 },
+  'gpt-5.5-pro': {
+    kind: 'text',
+    inputPerMTok: 30,
+    outputPerMTok: 180,
+    longContextThreshold: 272_000,
+  },
+  'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15, longContextThreshold: 272_000 },
   'gpt-5.4-mini': { kind: 'text', inputPerMTok: 0.75, outputPerMTok: 4.5 },
   'gpt-5.4-nano': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.25 },
-  'gpt-5.4-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
+  'gpt-5.4-pro': {
+    kind: 'text',
+    inputPerMTok: 30,
+    outputPerMTok: 180,
+    longContextThreshold: 272_000,
+  },
   'gpt-5.2': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.2-pro': { kind: 'text', inputPerMTok: 21, outputPerMTok: 168 },
   'gpt-5.1': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
@@ -114,13 +149,14 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'o3-deep-research': { kind: 'text', inputPerMTok: 10, outputPerMTok: 40 },
   'o4-mini-deep-research': { kind: 'text', inputPerMTok: 2, outputPerMTok: 8 },
   'computer-use-preview': { kind: 'text', inputPerMTok: 3, outputPerMTok: 12 },
-  // ── OpenAI: Specialized / ChatGPT, Codex, Cyber, Search ──
+  // ── OpenAI: Specialized / ChatGPT, Codex, Cyber, Life Sciences, Search ──
   'chat-latest': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
   'gpt-5.3-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.2-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.6-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
   'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
+  'gpt-rosalind-research': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
   // ── OpenAI: Embeddings ──
   'text-embedding-3-small': { kind: 'embedding', inputPerMTok: 0.02, outputPerMTok: 0 },
@@ -177,6 +213,7 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'claude-opus-4-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-1': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
   'claude-opus-4': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
+  'claude-sonnet-5-5': { kind: 'text', inputPerMTok: 2, outputPerMTok: 10 },
   'claude-sonnet-5': { kind: 'text', inputPerMTok: 2, outputPerMTok: 10 },
   'claude-sonnet-4-6': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-sonnet-4-5': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
@@ -264,8 +301,8 @@ export function calculateModelCost(
  * - **Cached input tokens**: published per-model rate, defaulting to 0.1× input.
  * - **Cache write tokens**: charged at 1.25× the base input rate.
  * - **Long context premium**: for Claude Sonnet 4 / 4.5, when total input exceeds
- *   200K tokens, or GPT-5.6 Sol / GPT-6 Sol and Luna over 272K, charge 2× input/cache
- *   and 1.5× output.
+ *   200K tokens, or OpenAI models with a `longContextThreshold` (272K), charge 2×
+ *   input/cache and 1.5× output.
  *
  * Returns undefined for unknown/unsupported models; explicitly free adapters may report zero.
  */

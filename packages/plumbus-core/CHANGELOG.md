@@ -1,5 +1,16 @@
 # @plumbus/core changelog
 
+## 0.8.0-beta.9 — 2026-10-01
+
+### Fixed
+
+- **GPT-6 models report their reasoning levels.** `ProviderModel.reasoningEfforts` came from a table that stopped at GPT-5.6, so `listModels()` answered `null` ("unknown") for `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra` and `gpt-6.1-sol`, and an application offering choices from it could offer none. Per OpenAI's model pages: `gpt-6-sol` and `gpt-6-luna` take `none`…`max`; `gpt-6-astra` and `gpt-6.1-sol` take `low`…`max` (no `none`). `gpt-6.1-sol` is priced ($2 / $10 per million tokens).
+
+### Changed
+
+- **Pricing synced with OpenAI's and Anthropic's pricing pages on 2026-10-01.** Added `claude-sonnet-5-5` ($2 input / $0.20 cached input / $10 output per million tokens, flat across its 1M window) and `gpt-rosalind-research` ($5 / $0.50 / $25; OpenAI starts billing it on 2026-10-05, and the catalog charges it from now on). `gpt-6.1-sol` cache reads cost $0.10, 5% of input rather than the 10% default. The full-request long-context premium above 272K input tokens (2× input and cache, 1.5× output) now also applies to `gpt-6-astra`, `gpt-6.1-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4` and `gpt-5.4-pro`, which OpenAI prices that way; they were charged base rates at any length, so long requests were under-recorded. No other published rate changed.
+- **Manual pricing tool.** `update-model-pricing` reads Anthropic rows whose input or output cell carries a footnote (it had stopped parsing Sonnet 5), records OpenAI long-context thresholds, maps the Life Sciences category, compares cache rates with a float tolerance, and checks the per-minute and per-character rates in `@plumbus/voice-openai`.
+
 ## 0.8.0-beta.8 — 2026-10-01
 
 ### Fixed

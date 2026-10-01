@@ -1,4 +1,5 @@
 import { allKnownModels } from '../../../../packages/plumbus-core/src/ai/model-pricing.js';
+import { OPENAI_VOICE_PRICING } from '../../../../packages/voice-openai/src/pricing.js';
 
 // Minimal node-global typing. This file is run via `tsx`, not type-checked
 // inside the workspace, and @types/node isn't hoisted to the root for this
@@ -25,6 +26,9 @@ declare const process: {
  * Only the standard tier is read — Batch, Flex, and Fast mode tables repeat the
  * same models at different rates and are skipped.
  *
+ * Also checks the per-minute / per-character OpenAI rates hardcoded in
+ * `@plumbus/voice-openai` against the page's transcription and audio tables.
+ *
  * Usage: npx tsx .agents/skills/update-model-pricing/scripts/fetch-pricing.ts
  * Output: JSON to stdout
  */
@@ -49,9 +53,18 @@ interface DiffEntry {
   oldInput?: number;
   oldOutput?: number;
   oldCachedInput?: number;
+  oldLongContextThreshold?: number;
   newCachedInput?: number;
+  newLongContextThreshold?: number;
   newInput: number;
   newOutput: number;
+}
+
+interface VoicePriceEntry {
+  model: string;
+  unit: string;
+  current: number;
+  published: number | null;
 }
 
 interface PricingReport {
@@ -63,6 +76,7 @@ interface PricingReport {
     changed: DiffEntry[];
     removed: DiffEntry[];
   };
+  voice: VoicePriceEntry[];
 }
 
 // ── Fetch helpers ──
@@ -126,6 +140,7 @@ function groupLabelToKind(label: string): Kind | null {
     l.includes('chatgpt') ||
     l.includes('codex') ||
     l.includes('cyber') ||
+    l.includes('life sciences') ||
     l.includes('search')
   ) {
     return 'text';
@@ -133,10 +148,25 @@ function groupLabelToKind(label: string): Kind | null {
   return null; // Web search, File search, Containers, Agent Kit, etc.
 }
 
+/**
+ * The long-context boundary OpenAI publishes for every model with a long-context
+ * rate ("Prompts with more than 272K input tokens…" on each model page). Rows
+ * that carry their own "(<NNNK context length)" qualifier use that instead.
+ */
+const OPENAI_LONG_CONTEXT_THRESHOLD = 272_000;
+
 // ── OpenAI parser ──
 
 /** Pricing tiers the page exposes. Only `standard` feeds the catalog. */
-const TIER_LABELS = new Set(['standard', 'batch', 'flex', 'fast mode', 'priority']);
+const TIER_LABELS = new Set([
+  'standard',
+  'batch',
+  'flex',
+  'fast',
+  'fast mode',
+  'ultrafast',
+  'priority',
+]);
 
 interface MarkdownTable {
   header: string[];
@@ -263,8 +293,10 @@ function columnIndex(header: string[], ...candidates: string[]): number {
  * Pull model rates out of one standard-tier table.
  *
  * Flagship tables price short and long context separately; we track the short
- * (base) context rates. Specialized tables prefix each row with a `Category`
- * cell that determines the kind.
+ * (base) context rates, plus a `longContextThreshold` where a long-context rate
+ * is published at the 2× input / 1.5× output that `estimateModelCost` applies.
+ * Specialized tables prefix each row with a `Category` cell that determines the
+ * kind; rows in a category with no mapping are reported, not silently dropped.
  */
 function collectTableRows(
   table: MarkdownTable,
@@ -279,6 +311,9 @@ function collectTableRows(
   const inputCol = columnIndex(header, 'short context input', 'input');
   const outputCol = columnIndex(header, 'short context output', 'output', 'output / cost');
   const cacheCol = columnIndex(header, 'short context cached input', 'cached input');
+  const longInputCol = columnIndex(header, 'long context input');
+  const longCacheCol = columnIndex(header, 'long context cached input');
+  const longOutputCol = columnIndex(header, 'long context output');
   if (inputCol === -1 || outputCol === -1) return;
 
   const categoryCol = columnIndex(header, 'category');
@@ -288,7 +323,14 @@ function collectTableRows(
 
   for (const row of rows) {
     const kind = categoryCol === -1 ? sectionKind : groupLabelToKind(row[categoryCol] ?? '');
-    if (!kind) continue;
+    if (!kind) {
+      if (categoryCol !== -1 && parseCellValue(row[inputCol] ?? '') !== null) {
+        process.stderr.write(
+          `  (unmapped category) ${row[categoryCol]}: ${row[modelCol]} — map it in groupLabelToKind\n`,
+        );
+      }
+      continue;
+    }
 
     const rawName = row[modelCol] ?? '';
     // Drop trailing qualifiers: "(<272K context length)", "(legacy)", "(data sharing)".
@@ -301,14 +343,51 @@ function collectTableRows(
 
     seen.add(model);
     const cached = cacheCol < 0 ? null : parseCellValue(row[cacheCol] ?? '');
+    const cell = (col: number) => (col < 0 ? null : parseCellValue(row[col] ?? ''));
     out.push({
       model,
       kind,
       inputPerMTok: input,
       outputPerMTok: output ?? 0,
       ...cacheOverride(input, cached),
+      ...longContext(model, rawName, input, cached, output, {
+        input: cell(longInputCol),
+        cached: cell(longCacheCol),
+        output: cell(longOutputCol),
+      }),
     });
   }
+}
+
+/**
+ * A published long-context rate becomes a threshold only when it is the 2× input
+ * and cache / 1.5× output premium the cost calculator applies. Any other shape is
+ * reported so a person decides how to model it.
+ */
+function longContext(
+  model: string,
+  rawName: string,
+  input: number,
+  cached: number | null,
+  output: number | null,
+  long: { input: number | null; cached: number | null; output: number | null },
+): { longContextThreshold?: number } {
+  if (long.input === null) return {};
+  const close = (a: number, b: number) => Math.abs(a - b) <= 1e-9;
+  const matches =
+    close(long.input, input * 2) &&
+    (long.output === null || output === null || close(long.output, output * 1.5)) &&
+    (long.cached === null || cached === null || close(long.cached, cached * 2));
+  if (!matches) {
+    process.stderr.write(
+      `  (long context) ${model}: $${long.input}/$${long.output} is not 2× input / 1.5× output — review\n`,
+    );
+    return {};
+  }
+  const qualified = /<\s*(\d+)K\b/i.exec(rawName);
+  return {
+    longContextThreshold: qualified ? Number(qualified[1]) * 1000 : OPENAI_LONG_CONTEXT_THRESHOLD,
+  };
 }
 
 /**
@@ -346,9 +425,10 @@ export function parseAnthropicPricing(markdown: string, asOf = new Date()): Mode
   // Columns: Model | Base Input | 5m Cache Write | 1h Cache Write | Cache Hits | Output
   // Every group excludes newlines so a row can never chain into the next one —
   // the narrower Batch and Fast-mode tables would otherwise splice together and
-  // yield rates that appear on no single row.
+  // yield rates that appear on no single row. Any price cell may carry a footnote
+  // marker after `MTok` (`$2 / MTok<sup>3</sup>`).
   const tableRowPattern =
-    /\|\s*Claude\s+([^|\n]+?)\s*\|\s*\$?([\d.]+)\s*\/\s*MTok\s*\|[^|\n]*\|[^|\n]*\|\s*\$?([\d.]+)\s*\/\s*MTok[^|\n]*\|\s*\$?([\d.]+)\s*\/\s*MTok\s*\|/gi;
+    /\|\s*Claude\s+([^|\n]+?)\s*\|\s*\$?([\d.]+)\s*\/\s*MTok[^|\n]*\|[^|\n]*\|[^|\n]*\|\s*\$?([\d.]+)\s*\/\s*MTok[^|\n]*\|\s*\$?([\d.]+)\s*\/\s*MTok[^|\n]*\|/gi;
 
   const effectiveStarts = new Map<string, number>();
 
@@ -453,13 +533,18 @@ function computeDiff(
         newInput: fp.inputPerMTok,
         newOutput: fp.outputPerMTok,
         newCachedInput: fp.cachedInputPerMTok,
+        newLongContextThreshold: fp.longContextThreshold,
       });
     } else if (
       current.inputPerMTok !== fp.inputPerMTok ||
       current.outputPerMTok !== fp.outputPerMTok ||
       current.kind !== fp.kind ||
-      (current.cachedInputPerMTok ?? current.inputPerMTok * 0.1) !==
-        (fp.cachedInputPerMTok ?? fp.inputPerMTok * 0.1)
+      // Compare effective cache rates with a tolerance: 0.1 × 0.1 is not 0.01 in floats.
+      Math.abs(
+        (current.cachedInputPerMTok ?? current.inputPerMTok * 0.1) -
+          (fp.cachedInputPerMTok ?? fp.inputPerMTok * 0.1),
+      ) > 1e-9 ||
+      current.longContextThreshold !== fp.longContextThreshold
     ) {
       changed.push({
         model: fp.model,
@@ -468,9 +553,11 @@ function computeDiff(
         oldInput: current.inputPerMTok,
         oldOutput: current.outputPerMTok,
         oldCachedInput: current.cachedInputPerMTok,
+        oldLongContextThreshold: current.longContextThreshold,
         newInput: fp.inputPerMTok,
         newOutput: fp.outputPerMTok,
         newCachedInput: fp.cachedInputPerMTok,
+        newLongContextThreshold: fp.longContextThreshold,
       });
     }
   }
@@ -499,6 +586,65 @@ function computeDiff(
   return { added, changed, removed };
 }
 
+// ── Voice (per-minute / per-character) rates ──
+
+/**
+ * Compare `@plumbus/voice-openai`'s hardcoded rates against the page: the
+ * transcription table's "Estimated cost" per minute, and the audio table's
+ * `tts-*` per-1M-character input price. The page lists `whisper-1` as "Whisper".
+ */
+export function checkOpenAIVoicePricing(markdown: string): VoicePriceEntry[] {
+  const perMinute = new Map<string, number>();
+  const perMillionChars = new Map<string, number>();
+  const lines = markdown.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (!(lines[i] ?? '').trim().startsWith('###')) continue;
+    const parsed = readMarkdownTable(lines, i + 1);
+    if (!parsed) continue;
+    i = parsed.endIndex;
+    const { header, rows } = parsed.table;
+    const modelCol = columnIndex(header, 'model');
+    const estimateCol = columnIndex(header, 'estimated cost');
+    const inputCol = columnIndex(header, 'input');
+    if (modelCol === -1) continue;
+    for (const row of rows) {
+      const name = (row[modelCol] ?? '').toLowerCase();
+      const model = name === 'whisper' ? 'whisper-1' : name;
+      const minute = /^\$([\d.]+)\s*\/\s*minute$/i.exec((row[estimateCol] ?? '').trim());
+      if (estimateCol !== -1 && minute && !perMinute.has(model)) {
+        perMinute.set(model, Number(minute[1]));
+      }
+      const chars = /^\$([\d.]+)\s*\/\s*1M characters$/i.exec((row[inputCol] ?? '').trim());
+      if (inputCol !== -1 && chars && !perMillionChars.has(model)) {
+        perMillionChars.set(model, Number(chars[1]));
+      }
+    }
+  }
+
+  return Object.values(OPENAI_VOICE_PRICING).map((entry) => {
+    switch (entry.unit) {
+      case 'audioInputSeconds':
+        return voiceEntry(entry.model, 'minute', entry.usdPerUnit * 60, perMinute);
+      case 'audioInputMinutes':
+        return voiceEntry(entry.model, 'minute', entry.usdPerUnit, perMinute);
+      case 'characters':
+        return voiceEntry(entry.model, '1M characters', entry.usdPerUnit * 1e6, perMillionChars);
+      default:
+        return { model: entry.model, unit: entry.unit, current: entry.usdPerUnit, published: null };
+    }
+  });
+}
+
+function voiceEntry(
+  model: string,
+  unit: string,
+  current: number,
+  published: Map<string, number>,
+): VoicePriceEntry {
+  const rounded = Number(current.toPrecision(12));
+  return { model, unit, current: rounded, published: published.get(model) ?? null };
+}
+
 // ── Main ──
 
 async function main(): Promise<void> {
@@ -517,6 +663,7 @@ async function main(): Promise<void> {
 
   const openaiDiff = computeDiff(openaiPrices, 'openai');
   const anthropicDiff = computeDiff(anthropicPrices, 'anthropic');
+  const voice = checkOpenAIVoicePricing(openaiMarkdown);
 
   const report: PricingReport = {
     fetchedAt: new Date().toISOString(),
@@ -527,6 +674,7 @@ async function main(): Promise<void> {
       changed: [...openaiDiff.changed, ...anthropicDiff.changed],
       removed: [...openaiDiff.removed, ...anthropicDiff.removed],
     },
+    voice,
   };
 
   process.stderr.write(`\n── Pricing Report ──\n`);
@@ -545,8 +693,9 @@ async function main(): Promise<void> {
   if (report.diff.changed.length > 0) {
     process.stderr.write(`\nChanged prices:\n`);
     for (const e of report.diff.changed) {
+      const longContext = (threshold?: number) => (threshold ? `>${threshold / 1000}K` : 'none');
       process.stderr.write(
-        `  ~ [${e.kind}] ${e.model}: $${e.oldInput}/$${e.oldOutput} → $${e.newInput}/$${e.newOutput}; cached input ${e.newCachedInput ?? e.newInput * 0.1}\n`,
+        `  ~ [${e.kind}] ${e.model}: $${e.oldInput}/$${e.oldOutput} → $${e.newInput}/$${e.newOutput}; cached input ${e.oldCachedInput ?? 'default'} → ${e.newCachedInput ?? 'default'}; long context ${longContext(e.oldLongContextThreshold)} → ${longContext(e.newLongContextThreshold)}\n`,
       );
     }
   }
@@ -555,6 +704,18 @@ async function main(): Promise<void> {
     for (const e of report.diff.removed) {
       process.stderr.write(`  - [${e.kind}] ${e.model}: $${e.oldInput}/$${e.oldOutput}\n`);
     }
+  }
+
+  const voiceDrift = voice.filter(
+    (v) => v.published === null || Math.abs(v.current - v.published) > 1e-9,
+  );
+  process.stderr.write(`\nVoice (@plumbus/voice-openai) rates checked: ${voice.length}\n`);
+  for (const v of voiceDrift) {
+    process.stderr.write(
+      v.published === null
+        ? `  ? ${v.model}: not found on the page (review needed)\n`
+        : `  ~ ${v.model}: $${v.current} → $${v.published} per ${v.unit}\n`,
+    );
   }
 
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

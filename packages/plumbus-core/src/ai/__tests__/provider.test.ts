@@ -1631,4 +1631,25 @@ describe('model reasoning metadata', () => {
     });
     expect(custom.every((model) => model.reasoningEfforts === null)).toBe(true);
   });
+
+  it('knows the GPT-6 family, which differs on `none`', () => {
+    const official = joinAndFilterModels({
+      provider: 'openai',
+      entries: [
+        { id: 'gpt-6-sol' },
+        { id: 'gpt-6-luna' },
+        { id: 'gpt-6-astra' },
+        { id: 'gpt-6.1-sol' },
+      ],
+      filter: undefined,
+      isOfficial: true,
+    });
+    const all = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+    expect(official.map((model) => model.reasoningEfforts)).toEqual([
+      all,
+      all,
+      all.slice(1),
+      all.slice(1),
+    ]);
+  });
 });

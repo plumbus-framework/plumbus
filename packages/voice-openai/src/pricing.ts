@@ -17,7 +17,7 @@ export const OPENAI_VOICE_PRICING: Readonly<Record<string, VoicePricingEntry>> =
     model: 'gpt-realtime-whisper',
     operation: 'transcribe',
     unit: 'audioInputMinutes',
-    usdPerUnit: 0.006,
+    usdPerUnit: 0.017,
   },
   'tts-1': {
     model: 'tts-1',

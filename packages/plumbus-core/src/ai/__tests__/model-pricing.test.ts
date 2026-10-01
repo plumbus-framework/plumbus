@@ -91,6 +91,9 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'claude-opus-4-7')).toBe(0.0175);
     // claude-sonnet-5: the $2/$10 launch rates are now standard
     expect(calculateModelCost(1000, 500, 'claude-sonnet-5')).toBe(0.007);
+    // claude-sonnet-5-5: input $2/MTok, output $10/MTok, flat across the 1M window
+    expect(calculateModelCost(1000, 500, 'claude-sonnet-5-5')).toBe(0.007);
+    expect(calculateModelCost(300_000, 1000, 'claude-sonnet-5-5')).toBe(0.61);
     // claude-opus-5: input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'claude-opus-5')).toBe(0.0175);
   });
@@ -118,6 +121,8 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'gpt-5.5-cyber')).toBe(0.05);
     // gpt-5-search-api: input $1.25/MTok, output $10/MTok
     expect(calculateModelCost(1000, 500, 'gpt-5-search-api')).toBe(0.00625);
+    // gpt-rosalind-research (Life Sciences): input $5/MTok, output $25/MTok
+    expect(calculateModelCost(1000, 500, 'gpt-rosalind-research')).toBe(0.0175);
     for (const model of ['chat-latest', 'gpt-5.3-chat-latest', 'gpt-5.2-chat-latest']) {
       expect(findModelRate(model)?.kind, model).toBe('text');
       expect(calculateModelCost(1000, 500, model), model).toBeGreaterThan(0);
@@ -371,6 +376,33 @@ it('does not apply Sol special pricing to other models or free/local providers',
 
 describe.each([
   {
+    model: 'gpt-6-astra',
+    input: 10,
+    cached: 1,
+    output: 50,
+    shortCost: 0.035,
+    cacheCost: 0.001,
+    writeCost: 0.0125,
+    boundaryCost: 2.77,
+    premiumCost: 5.51502,
+    mixedShortCost: 1.995,
+    mixedLongCost: 4.525,
+  },
+  {
+    // Cache reads cost 5% of input, not the usual 10%.
+    model: 'gpt-6.1-sol',
+    input: 2,
+    cached: 0.1,
+    output: 10,
+    shortCost: 0.007,
+    cacheCost: 0.0001,
+    writeCost: 0.0025,
+    boundaryCost: 0.554,
+    premiumCost: 1.103004,
+    mixedShortCost: 0.389,
+    mixedLongCost: 0.885,
+  },
+  {
     model: 'gpt-6-sol',
     input: 2,
     cached: 0.2,
@@ -436,4 +468,29 @@ describe.each([
       expect(calculateModelCost(1000, 500, expected.model)).toBe(expected.shortCost);
     }
   });
+});
+
+// OpenAI's pricing page lists a long-context rate (2× input, 1.5× output above 272K
+// input tokens) for these models too.
+it.each([
+  { model: 'gpt-5.6-terra', boundaryCost: 0.556, premiumCost: 1.106004 },
+  { model: 'gpt-5.6-luna', boundaryCost: 0.0556, premiumCost: 0.1106004 },
+  { model: 'gpt-5.5', boundaryCost: 1.39, premiumCost: 2.76501 },
+  { model: 'gpt-5.5-pro', boundaryCost: 8.34, premiumCost: 16.59006 },
+  { model: 'gpt-5.4', boundaryCost: 0.695, premiumCost: 1.382505 },
+  { model: 'gpt-5.4-pro', boundaryCost: 8.34, premiumCost: 16.59006 },
+])('applies the 272K long-context premium to $model', ({ model, boundaryCost, premiumCost }) => {
+  expect(findModelRate(model)?.longContextThreshold).toBe(272_000);
+  expect(calculateModelCost(272_000, 1000, model)).toBe(boundaryCost);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(premiumCost);
+});
+
+it.each([
+  'gpt-5.4-mini',
+  'gpt-5.2',
+  'gpt-5.6-cyber',
+])('keeps one rate at any length for %s, which has no published long-context price', (model) => {
+  expect(findModelRate(model)?.longContextThreshold).toBeUndefined();
+  const rate = findModelRate(model);
+  expect(calculateModelCost(300_000, 0, model)).toBe((300_000 * (rate?.inputPerMTok ?? 0)) / 1e6);
 });

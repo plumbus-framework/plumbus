@@ -321,6 +321,10 @@ function knownReasoningEfforts(
 ): readonly ReasoningEffortOption[] | null {
   if (provider !== 'openai') return null;
   const id = model.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  // https://developers.openai.com/api/docs/guides/latest-model and each model's page.
+  if (['gpt-6-sol', 'gpt-6-luna'].includes(id))
+    return ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+  if (['gpt-6-astra', 'gpt-6.1-sol'].includes(id)) return ['low', 'medium', 'high', 'xhigh', 'max'];
   if (['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(id))
     return ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
   if (['gpt-5.2', 'gpt-5.4', 'gpt-5.5'].includes(id))

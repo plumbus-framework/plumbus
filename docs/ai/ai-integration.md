@@ -738,7 +738,7 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias), GPT-6 Sol, and GPT-6 Luna apply their documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. GPT-6 Sol/Luna and Anthropic Opus rates were verified on 2026-09-23; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. OpenAI models whose pricing lists a long-context rate (GPT-6 Astra, Sol and Luna, GPT-6.1 Sol, GPT-5.6 Sol (including the `gpt-5.6` alias), Terra and Luna, GPT-5.5, GPT-5.5 Pro, GPT-5.4 and GPT-5.4 Pro) apply that premium above 272K input tokens; other OpenAI models use one rate at any length. The whole catalog was last synced on 2026-10-01. Run the `update-model-pricing` skill to refresh rates.
 
 The GPT-6 additions use these USD rates per million tokens for requests with at most 272,000 input tokens:
 
@@ -761,11 +761,13 @@ The September 23 Opus update adds `claude-opus-5-5` with these standard USD rate
 
 Opus 5.5 cache reads cost **0.05x** input, rather than the usual 0.1x. Its rates stay flat throughout the 1M-token context window. Opus 5 and 4.5–4.8 retain $5 input / $0.50 cached input / $25 output; legacy Opus 4/4.1 retain $15 / $1.50 / $75. The existing `-YYYYMMDD` pricing fallback also covers Opus 5.5; it does not introduce new API aliases. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Opus 5.5 model documentation](https://platform.claude.com/docs/en/models/opus-5-5/overview).
 
+The October 1 sync adds `claude-sonnet-5-5` ($2 input / $0.20 cached input / $10 output per million tokens, flat across its 1M window) and `gpt-rosalind-research` ($5 / $0.50 / $25, billed by OpenAI from October 5, 2026), records GPT-6.1 Sol's $0.10 cache-read rate, and extends the 272K long-context premium to every OpenAI model priced that way. No other published rate changed. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 uses **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 and GPT-6.1 Sol use **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
 - **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
 - Standard (non-cached) input tokens are charged at the full base rate
 
@@ -775,7 +777,7 @@ The framework parses cache data from provider responses:
 - **Bedrock**: cache token fields on Converse usage (when present); `@plumbus/ai-bedrock` applies the same ~0.1× / 1.25× multipliers against Bedrock rates
 ### Long Context Premium
 
-GPT-5.6 Sol, GPT-6 Sol, and GPT-6 Luna use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
+The OpenAI models with a long-context rate (listed above) use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
 
 For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:
 

@@ -6,7 +6,7 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
-| `@plumbus/core` | 0.7.6 | 0.8.0-beta.8 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`; beta.8: database connections honour `ssl`) |
+| `@plumbus/core` | 0.7.6 | 0.8.0-beta.9 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`; beta.8: database connections honour `ssl`; beta.9: GPT-6 reasoning levels, 2026-10-01 price sync with `claude-sonnet-5-5` and the 272K long-context premium on every OpenAI model priced that way) |
 | `@plumbus/ui` | 0.8.1 | 0.9.0-beta.1 (beta.0 + flow triggers only for descriptors with an explicit `startPath`) |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
 | `@plumbus/voice` | 0.5.2 | 0.6.0-beta.1 (beta.0 + voice 0.5.2: `resolveSttContext`, `tts.responseMode: 'reply'`, STT error recovery, `transcript.maxChars`) |
@@ -22,7 +22,7 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 | `@plumbus/voice-elevenlabs` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/voice-livekit` | 0.2.2 | 0.3.0-beta.1 (beta.0 + 20 ms PCM framing, text streams for events above 15 KiB) |
 | `@plumbus/voice-minimax` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/voice-openai` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/voice-openai` | 0.2.1 | 0.3.0-beta.1 (beta.0 + `gpt-realtime-whisper` at $0.017 per minute) |
 | `@plumbus/voice-soniox` | 0.2.2 | 0.3.0-beta.1 (beta.0 + per-session recognition context, STT error callback) |
 | `@plumbus/ai-decision` | 0.2.2 | 0.3.0-beta.0 (joins the family with core 0.8.0-beta.6, which depends on it) |
 | `@plumbus/ai-decision-typesafe` | 0.2.2 | 0.3.0-beta.0 |

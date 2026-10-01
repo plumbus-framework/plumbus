@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-10-01
+
+### Fixed
+
+- **`gpt-realtime-whisper` costs $0.017 per minute.** The bundled rate was $0.006, Whisper's price, so voice cost records for the default realtime transcription model came to about a third of OpenAI's bill.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary
