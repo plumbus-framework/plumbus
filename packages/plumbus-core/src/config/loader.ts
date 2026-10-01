@@ -83,7 +83,10 @@ function loadDatabaseConfig(
     database: env.DATABASE_NAME ?? env.DB_NAME ?? env.PGDATABASE ?? defaults.database,
     user: env.DATABASE_USER ?? env.DB_USER ?? env.PGUSER ?? defaults.user,
     password: env.DATABASE_PASSWORD ?? env.DB_PASSWORD ?? env.PGPASSWORD ?? defaults.password,
-    ssl: env.DATABASE_SSL === 'true' || environment === 'production',
+    // TLS to Postgres: on in production unless DATABASE_SSL=false says the server has none
+    // (validateConfig then warns); elsewhere only with DATABASE_SSL=true.
+    ssl:
+      env.DATABASE_SSL === 'true' || (environment === 'production' && env.DATABASE_SSL !== 'false'),
     poolSize: parseInt(env.DATABASE_POOL_SIZE ?? (environment === 'production' ? '20' : '5'), 10),
   };
 }

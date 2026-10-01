@@ -6,7 +6,7 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
-| `@plumbus/core` | 0.7.6 | 0.8.0-beta.7 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`) |
+| `@plumbus/core` | 0.7.6 | 0.8.0-beta.8 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`; beta.8: database connections honour `ssl`) |
 | `@plumbus/ui` | 0.8.1 | 0.9.0-beta.1 (beta.0 + flow triggers only for descriptors with an explicit `startPath`) |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
 | `@plumbus/voice` | 0.5.2 | 0.6.0-beta.1 (beta.0 + voice 0.5.2: `resolveSttContext`, `tts.responseMode: 'reply'`, STT error recovery, `transcript.maxChars`) |
@@ -59,6 +59,7 @@ Do not mix beta packages with the 0.7 family, and do not use `--force` or `--leg
 | Audit writer refusals | Custom `AuditWriter` implementations | A writer that throws a `PlumbusError` is refusing the record: `AuditService.record` rethrows it as is, with no retry and no `Audit persistence failed` wrapper. Any other error is still retried three times and then wrapped. |
 | Reasoning configuration | Apps that used the widened legacy `reasoningEffort` values | Use the provider-neutral `reasoning` config from the 0.7 family. `REASONING_EFFORTS` / `ReasoningEffortOption` remain the vocabulary of `ProviderModel.reasoningEfforts` metadata. |
 | Access before input parsing | Clients and tests that expected `400` for malformed input from a caller the capability's static policy rejects | Since core 0.8.0-beta.5 roles, scopes, tenant and principal checks run before the Zod input parse, for capability execution and HTTP queued jobs alike: a statically denied caller gets `403` (audit outcome `denied`, no schema issues) whether or not the input is well-formed. The input-aware `authorize(ctx, input)` hook still runs after parsing and still sees the transformed input. See [security model](security/security-model.md#authorization-and-validation-ordering). |
+| Database TLS | Production hosts whose Postgres has no TLS, or a certificate Node does not trust | Since core 0.8.0-beta.8 the server and worker connection, `plumbus seed`, `plumbus run` and `migrate`'s maintenance connections actually use the configured `ssl` (production defaults to it); before, they connected in plain text whatever the configuration said. A Postgres without TLS: set `DATABASE_SSL=false` (production now honours it, with a warning). A private CA (Amazon RDS, self-hosted): add it with `NODE_EXTRA_CA_CERTS`. |
 
 ### Additive in this family
 

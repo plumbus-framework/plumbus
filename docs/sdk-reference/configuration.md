@@ -92,7 +92,7 @@ DB_PORT=5432               # aliases: DATABASE_PORT, PGPORT
 DB_NAME=myapp              # aliases: DATABASE_NAME, PGDATABASE
 DB_USER=postgres           # aliases: DATABASE_USER, PGUSER
 DB_PASSWORD=secret         # aliases: DATABASE_PASSWORD, PGPASSWORD
-DATABASE_SSL=false         # read when DATABASE_SSL=true
+DATABASE_SSL=true          # TLS to Postgres; production defaults to true, false turns it off
 DATABASE_POOL_SIZE=10
 ```
 

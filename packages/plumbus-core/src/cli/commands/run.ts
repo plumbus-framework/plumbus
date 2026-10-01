@@ -12,6 +12,7 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from '../../config/loader.js';
+import { postgresConnectionOptions } from '../../data/connection.js';
 import { info, error as logError, resolvePath, success, warn } from '../utils.js';
 
 interface RunOptions {
@@ -30,13 +31,7 @@ async function connectDb(): Promise<{
     const config = loadConfig({});
     const { drizzle } = await import('drizzle-orm/postgres-js');
     const postgres = (await import('postgres')).default;
-    const sql = postgres({
-      host: config.database.host,
-      port: config.database.port,
-      database: config.database.database,
-      username: config.database.user,
-      password: config.database.password,
-    });
+    const sql = postgres(postgresConnectionOptions(config.database));
     return { db: drizzle(sql), sql, close: () => sql.end() };
   } catch {
     return null;

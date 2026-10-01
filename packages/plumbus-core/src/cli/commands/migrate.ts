@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import type { Command } from 'commander';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { loadConfig } from '../../config/loader.js';
+import { postgresConnectionOptions } from '../../data/connection.js';
 import { openDataPlaneConnection } from '../../tenancy/data-plane-connection.js';
 import { DATA_PLANE_MIGRATE_APPLICATION_NAME } from '../../tenancy/data-plane-migrate.js';
 import {
@@ -103,13 +104,7 @@ async function ensureDatabase(dbName: string): Promise<boolean> {
   try {
     const config = loadConfig({});
     const postgres = (await import('postgres')).default;
-    const sql = postgres({
-      host: config.database.host,
-      port: config.database.port,
-      database: 'postgres',
-      username: config.database.user,
-      password: config.database.password,
-    });
+    const sql = postgres(postgresConnectionOptions(config.database, 'postgres'));
     try {
       const rows = await sql`
         SELECT 1 FROM pg_database WHERE datname = ${dbName}
@@ -984,13 +979,7 @@ export function registerDbCommand(program: Command): void {
 
       try {
         const postgres = (await import('postgres')).default;
-        const sql = postgres({
-          host: config.database.host,
-          port: config.database.port,
-          database: 'postgres',
-          username: config.database.user,
-          password: config.database.password,
-        });
+        const sql = postgres(postgresConnectionOptions(config.database, 'postgres'));
 
         try {
           if (!/^[a-zA-Z0-9_]+$/.test(dbName)) {

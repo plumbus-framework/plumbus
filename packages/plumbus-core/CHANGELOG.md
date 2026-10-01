@@ -1,5 +1,15 @@
 # @plumbus/core changelog
 
+## 0.8.0-beta.8 — 2026-10-01
+
+### Fixed
+
+- **Connections made from `config.database` honour `ssl`.** The server and worker pool's connection (`connectPostgresDatabase`), `plumbus seed`, `plumbus run`, and `plumbus migrate`'s create-database and reset connections built their postgres.js options without `ssl`, so they connected in plain text even when the configuration asked for TLS — which production always does. A Postgres that requires TLS refused them: Amazon RDS for PostgreSQL 15+ (`rds.force_ssl=1`) answered `28000 … no encryption`, and the worker's startup preflight surfaced it as `Failed query: SELECT lease_owner, lease_expires_at FROM flow_executions LIMIT 0`. All five now take their options from one `postgresConnectionOptions(config.database)`; `ssl: true` negotiates TLS and verifies the server certificate (supply a private CA, e.g. the RDS bundle, with `NODE_EXTRA_CA_CERTS`). Tenant data-plane connections and `migrate apply` already passed `ssl`.
+
+### Changed
+
+- **`DATABASE_SSL=false` now turns TLS off in production.** Production still defaults to TLS; an explicit `false` is for a production Postgres without TLS, which the fix above would otherwise stop connecting to (`validateConfig` keeps its `database.ssl should be enabled in production` warning).
+
 ## 0.8.0-beta.7 — 2026-09-27
 
 Carries core 0.7.5 and 0.7.6 from `main` into the beta family.

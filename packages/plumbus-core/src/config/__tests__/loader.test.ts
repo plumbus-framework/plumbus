@@ -131,6 +131,16 @@ describe('Config Loader', () => {
       expect(config.database.ssl).toBe(true);
     });
 
+    it('lets DATABASE_SSL=false turn SSL off in production, for a Postgres without TLS', () => {
+      expect(
+        loadConfig({ environment: 'production', env: { DATABASE_SSL: 'false' } }).database.ssl,
+      ).toBe(false);
+      expect(
+        loadConfig({ environment: 'production', env: { DATABASE_SSL: 'true' } }).database.ssl,
+      ).toBe(true);
+      expect(loadConfig({ environment: 'development', env: {} }).database.ssl).toBe(false);
+    });
+
     it('uses larger pool size in production', () => {
       const config = loadConfig({
         environment: 'production',
