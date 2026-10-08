@@ -657,6 +657,44 @@ describe('Config Loader', () => {
       });
     });
 
+    it('loads the AI_PROMPT_CACHE default into both AI config shapes', () => {
+      const env = {
+        AI_PROVIDER: 'anthropic',
+        AI_API_KEY: 'sk-ant-test',
+        AI_DEFAULT_PROVIDER: 'anthropic',
+        AI_ANTHROPIC_API_KEY: 'sk-ant-test',
+      };
+      const on = loadConfig({
+        environment: 'development',
+        env: { ...env, AI_PROMPT_CACHE: 'true' },
+      });
+      expect(on.ai?.cache).toBe(true);
+      expect(on.aiProviders?.cache).toBe(true);
+
+      const sections = loadConfig({
+        environment: 'development',
+        env: { ...env, AI_PROMPT_CACHE: 'system, messages' },
+      });
+      expect(sections.aiProviders?.cache).toEqual({ system: true, messages: true });
+
+      expect(loadConfig({ environment: 'development', env }).aiProviders?.cache).toBeUndefined();
+    });
+
+    it('ignores an invalid AI_PROMPT_CACHE value with a warning', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const config = loadConfig({
+        environment: 'development',
+        env: {
+          AI_DEFAULT_PROVIDER: 'anthropic',
+          AI_ANTHROPIC_API_KEY: 'sk-ant-test',
+          AI_PROMPT_CACHE: 'system,history',
+        },
+      });
+      expect(config.aiProviders?.cache).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('AI_PROMPT_CACHE'));
+      warn.mockRestore();
+    });
+
     it('ignores invalid AI_SECURITY_WARN_THRESHOLD values', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const config = loadConfig({

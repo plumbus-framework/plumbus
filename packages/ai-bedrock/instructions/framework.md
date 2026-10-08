@@ -46,7 +46,7 @@ Pricing pull / k8s: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`
 pnpm add @plumbus/ai-bedrock
 ```
 
-Requires `@plumbus/core` **≥ 0.6.16**. After install on an existing app, refresh agent wiring so coding agents discover these files:
+Requires `@plumbus/core` **≥ 0.7.0** (**≥ 0.7.9** for prompt caching). After install on an existing app, refresh agent wiring so coding agents discover these files:
 
 ```bash
 plumbus init --patch --agent agents-md
@@ -273,16 +273,19 @@ Bedrock does **not** return dollars on chat responses — only token usage. This
 
 Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Converse tool-use). Model-dependent limits still apply on the AWS side.
 
+**Prompt caching:** set `cache` on `ctx.ai.generate*` / `streamGenerate` / `runToolLoop`, or `AI_PROMPT_CACHE=true` for every call (core **≥ 0.7.9**; earlier cores never pass it). For Claude model ids (any inference-profile prefix; not a model ARN), Converse / ConverseStream get `cachePoint` after system, after tools, and on the last message when requested. Claude 3 Haiku / Sonnet / Opus and Claude 3.5 Sonnet `20240620` reject `cachePoint` and Claude 3.5 Sonnet v2 has it only in Preview, so they get no marks; non-Claude families (Nova caches on its own) get none either.
+
 ## Troubleshooting (quick)
 
 | Symptom | Likely fix |
 |---------|------------|
-| Install / load error for `bedrock` | `pnpm add @plumbus/ai-bedrock`; core **≥ 0.6.16** |
+| Install / load error for `bedrock` | `pnpm add @plumbus/ai-bedrock`; core **≥ 0.7.0** |
 | AccessDenied / model not found | IAM + Bedrock console model access for region (Anthropic use-case form) |
 | `cost` missing from responses | No rate for that model family — see [pricing.md](./pricing.md). Unkeyed models (Llama, Mistral, newer Nova generations) need a manual pricing-file row. The field is omitted rather than set to `0`, so core falls back to its own catalog instead of recording spend as free |
 | Auto-download fails in cluster | Mount `AI_BEDROCK_PRICING_FILE` |
 | Mantle `OPENAI_API_KEY` does not work here | Correct — Mantle uses `createOpenAIAdapter`; this package is Runtime + IAM |
 | Tools never fire | Model must support Converse tools; check `finishReason === 'tool_calls'` / use `runToolLoop` |
+| `cache` set but zero cached tokens | Core **≥ 0.7.9**; a Claude model id (not an ARN) other than the four oldest; system + tools above the model's minimum cacheable length |
 | RAG retrieve fails / dim mismatch | Wire `ragPipeline` with this adapter; same Titan model id for ingest + query |
 
 ## Critical rules
@@ -290,7 +293,7 @@ Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Con
 1. **Framework-first** — business logic in `definePrompt` / capabilities / `ctx.ai`; never call Bedrock SDK from app code for product features.
 2. **Do not** copy Anthropic `MODEL_PRICING` rows for Bedrock — rates diverge (e.g. Haiku 4.5 regional Bedrock ≠ Anthropic API).
 3. **Containers:** prefer `AI_BEDROCK_PRICING_FILE` ([pricing.md](./pricing.md)).
-4. **Peer literal** is `"0.7.x"` — never `^0.6.0`. Runtime floor **≥ 0.6.16**.
+4. **Peer literal** is `"0.7.x"` — never `^0.6.0`. Runtime floor **≥ 0.7.0** (**≥ 0.7.9** for prompt caching).
 5. Install the package explicitly; core only `createRequire`s it when the provider name is `bedrock`.
 6. **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; never invent a Bedrock-only tool API. `toolChoice: 'none'` omits tools.
 7. **Embeddings** — via `createRAGPipeline({ provider: bedrockAdapter })` + `ctx.ai.retrieve` / rag ingest — not Converse, not Mantle.

@@ -728,6 +728,32 @@ describe('AI Service (ctx.ai)', () => {
       );
     });
 
+    it('forwards per-call cache and falls back to the service default', async () => {
+      const anthropic = createNamedProvider('anthropic');
+      const withDefault = createAIService({
+        providers: { anthropic },
+        defaultProvider: 'anthropic',
+        cache: true,
+      });
+
+      await withDefault.generate({ prompt: 'raw', input: {} });
+      expect((anthropic.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ cache: true }),
+      );
+
+      (anthropic.complete as ReturnType<typeof vi.fn>).mockClear();
+      await withDefault.generate({ prompt: 'raw', input: {}, cache: { messages: true } });
+      expect((anthropic.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ cache: { messages: true } }),
+      );
+
+      (anthropic.complete as ReturnType<typeof vi.fn>).mockClear();
+      await withDefault.generate({ prompt: 'raw', input: {}, cache: false });
+      expect((anthropic.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ cache: false }),
+      );
+    });
+
     it('surfaces provider continuation state only on the tool-call result', async () => {
       const providerState = {
         provider: 'anthropic',

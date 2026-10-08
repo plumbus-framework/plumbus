@@ -294,6 +294,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         : undefined,
       onAICostRecorded: onAICostRecordedAdapter,
       enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
+      cache: config.aiProviders.cache,
       security: buildAISecurityConfig(
         entities.getAllEntities(),
         config.aiProviders.security ?? (serverConfig.decisions ? {} : undefined),
@@ -332,6 +333,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         promptRegistry: serverConfig.promptRegistry,
         onAICostRecorded: onAICostRecordedAdapter,
         enableStrictStructuredOutputs: serverConfig.enableStrictStructuredOutputs,
+        cache: config.ai.cache,
       }),
     );
     logger.info(`AI service configured with single provider: ${config.ai.provider}`);

@@ -467,6 +467,134 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     expect(system?.[0]?.text).toBe('Be terse.');
   });
 
+  it('11b. cache:true adds cachePoint after system and tools for Claude', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: 'hi',
+      system: 'Be terse.',
+      // Any geo inference-profile prefix (jp., au., us-gov., …) is still Claude.
+      model: 'jp.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      tools: [
+        { name: 'a', description: 'd', parameters: { type: 'object' } },
+        { name: 'b', description: 'd', parameters: { type: 'object' } },
+      ],
+      cache: true,
+    });
+
+    const input = commandInput(send);
+    const system = input.system as Array<{ text?: string; cachePoint?: { type?: string } }>;
+    expect(system).toEqual([{ text: 'Be terse.' }, { cachePoint: { type: 'default' } }]);
+    const tools = (input.toolConfig as { tools?: unknown[] }).tools;
+    expect(tools).toHaveLength(3);
+    expect(tools?.[2]).toEqual({ cachePoint: { type: 'default' } });
+  });
+
+  it('11c. cache.messages adds cachePoint on the last message', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: '',
+      model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      messages: [
+        { role: 'user', content: 'First' },
+        { role: 'user', content: 'Latest' },
+      ],
+      cache: { messages: true },
+    });
+
+    const messages = commandInput(send).messages as {
+      role: string;
+      content: { text?: string; cachePoint?: { type?: string } }[];
+    }[];
+    expect(messages[1]?.content).toEqual([{ text: 'Latest' }, { cachePoint: { type: 'default' } }]);
+  });
+
+  it.each([
+    'amazon.nova-lite-v1:0',
+    // Older Claude models reject cachePoint with a ValidationException.
+    'anthropic.claude-3-haiku-20240307-v1:0',
+    'us.anthropic.claude-3-haiku-20240307-v1:0',
+    // Explicit caching is Preview-only for Claude 3.5 Sonnet v2.
+    'anthropic.claude-3-5-sonnet-20241022-v2:0',
+  ])('11d. cache marks are skipped for %s', async (model) => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    await adapter.complete({
+      prompt: 'hi',
+      system: 'Be terse.',
+      model,
+      tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+      cache: true,
+    });
+
+    const input = commandInput(send);
+    expect(input.system).toEqual([{ text: 'Be terse.' }]);
+    const tools = (input.toolConfig as { tools?: unknown[] }).tools;
+    expect(tools).toHaveLength(1);
+  });
+
+  it('11e. stream applies the same cachePoint marks as complete and reports cache reads', async () => {
+    async function* events() {
+      yield { messageStop: { stopReason: 'end_turn' } };
+      yield { metadata: { usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 40 } } };
+    }
+    const send = vi.fn().mockResolvedValue({ stream: events() });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+
+    const streamed: Array<{ type: string }> = [];
+    for await (const event of adapter.stream({
+      prompt: 'hi',
+      system: 'Cached',
+      model: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+      cache: true,
+    })) {
+      streamed.push(event);
+    }
+
+    const system = commandInput(send).system as Array<{
+      text?: string;
+      cachePoint?: { type?: string };
+    }>;
+    expect(system).toEqual([{ text: 'Cached' }, { cachePoint: { type: 'default' } }]);
+    expect(streamed.at(-1)).toMatchObject({ type: 'done', usage: { cachedInputTokens: 40 } });
+  });
+
   it('13. parallel tool results collapse into ONE user turn with all toolResult blocks', async () => {
     const send = vi.fn().mockResolvedValue({
       output: { message: { role: 'assistant', content: [{ text: 'done' }] } },

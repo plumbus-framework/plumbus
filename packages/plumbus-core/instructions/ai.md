@@ -108,6 +108,20 @@ await ctx.ai.generateWithUsage({
 
 Omit `reasoning` to inherit prompt/config; use `null` to restore the provider/model default for one call, clearing both inherited `reasoning` and inherited legacy `reasoningEffort`. Explicit modes are `{ mode:'disabled' }`, `{ mode:'effort', effort:'minimal'|'low'|'medium'|'high'|'xhigh'|'max' }`, and `{ mode:'budget', maxTokens }`. Built-in core adapters translate the intent: OpenAI uses Chat Completions normally and switches caller-tool requests that need active/default GPT-5.6 or GPT-6 reasoning to the Responses API; Anthropic uses `thinking` + `output_config.effort`. GPT-6 Chat Completions use `max_completion_tokens`; GPT-6 requests omit sampling temperature unless reasoning is explicitly disabled. Responses tool continuations are stateless (`store:false`) and preserve encrypted reasoning items through server-owned `providerState`. Custom providers translate the contract in their own `AIProviderAdapter`. Unsupported modes fail with `AIInvalidRequestError` before provider I/O when the adapter can identify the incompatibility. Deprecated `reasoningEffort` remains the unchanged OpenAI-only `'low' | 'medium' | 'high'` shorthand.
 
+### Prompt caching (Anthropic / Bedrock)
+
+Core **0.7.9+**. Pass `cache: true` (system + tools) or `{ system?, tools?, messages? }` on `generate` / `generateWithUsage` / `streamGenerate` / `runToolLoop`. To make it the default for every call, set `AI_PROMPT_CACHE=true` (or sections such as `system,messages`); a per-call `cache` overrides it. Anthropic gets `cache_control`; Bedrock Claude gets Converse `cachePoint` (`@plumbus/ai-bedrock` 0.2.2+), except Claude 3 Haiku / Sonnet / Opus and Claude 3.5 Sonnet `20240620`, which reject it, and Claude 3.5 Sonnet v2 (Preview-only on Bedrock). OpenAI and non-Claude Bedrock models ignore the option. Shorter prompts may not meet provider minima — the call still succeeds.
+
+`cache: true` marks only the system prompt and tools. In a single-turn call, a prompt's `description` and its input go into the user message, so keep long, stable instructions in `system`. In multi-turn mode (`messages` set), the description and `Input: {...}` are merged into the system prompt, so an input that changes between turns writes a new cache entry every turn.
+
+```ts
+await ctx.ai.generateWithUsage({
+  prompt: 'classifyTicket',
+  input: { ticketText },
+  cache: true,
+});
+```
+
 ### Tool calling (provider-native)
 
 Pass `tools` to `generate` / `generateWithUsage` to let the model call functions natively. Both built-in adapters implement caller tools on the wire (OpenAI `tools`/`tool_calls`; Anthropic `tool_use`/`tool_result` + `input_schema`). Build each `AITool.parameters` from `zodToProviderJsonSchema(schema).schema`:
@@ -160,7 +174,7 @@ const { final, messages, rounds } = await runToolLoop(ctx.ai, {
 // final is a flat AIFinalGenerateResult; final.data is the answer.
 ```
 
-`runToolLoop` defaults to `maxRounds: 8` (hard cap 20). On round exhaustion it makes ONE final request that **omits both `tools` and `toolChoice`** (never `toolChoice: 'none'`), so it always resolves to a non-tool answer. Invalid-argument tool calls are **never** executed — they surface to the model as a bounded `tool_arguments_invalid` observation. Observations are byte-bounded and wrapped in an `untrusted_tool_result` envelope.
+`runToolLoop` defaults to `maxRounds: 8` (hard cap 20). On round exhaustion it makes ONE final request that **omits both `tools` and `toolChoice`** (never `toolChoice: 'none'`), so it always resolves to a non-tool answer. Invalid-argument tool calls are **never** executed — they surface to the model as a bounded `tool_arguments_invalid` observation. Observations are byte-bounded and wrapped in an `untrusted_tool_result` envelope. Pass `cache: true` to reuse the cached system prompt and tools across rounds (core 0.7.9+); it is forwarded to every request.
 
 An external `AIProviderAdapter` that omits the optional `capabilities` field is treated as declaring every capability `false` (no tool support).
 
@@ -258,7 +272,7 @@ AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
 
 ### Amazon Bedrock
 
-Requires `@plumbus/core` **≥ 0.6.16** (provider slot, env discovery, adapter `cost`, wiring v13).
+Requires `@plumbus/core` **≥ 0.7.0** (prompt caching needs core **≥ 0.7.9** and `@plumbus/ai-bedrock` **≥ 0.2.2**).
 
 ```bash
 pnpm add @plumbus/ai-bedrock
@@ -291,6 +305,14 @@ Set a global fallback model that all prompts use unless overridden:
 
 ```bash
 AI_DEFAULT_MODEL=gpt-4o
+```
+
+### Default Prompt Caching
+
+Turn on Anthropic / Bedrock prompt caching for every call (see [Prompt caching](#prompt-caching-anthropic--bedrock)):
+
+```bash
+AI_PROMPT_CACHE=true            # system + tools; or e.g. system,tools,messages
 ```
 
 ### Per-Prompt Overrides

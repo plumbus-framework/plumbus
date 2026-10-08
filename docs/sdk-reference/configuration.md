@@ -166,6 +166,7 @@ interface AIProviderConfig {
   maxTokensPerRequest?: number;
   dailyCostLimit?: number;
   requestTimeout?: number; // default 120_000 ms
+  cache?: boolean | { system?: boolean; tools?: boolean; messages?: boolean }; // prompt-cache default (single-provider `ai` only)
 }
 
 // Accepted by createProviderAdapter — same shape with an optional apiKey, so
@@ -189,6 +190,7 @@ AI_BASE_URL=
 AI_MAX_TOKENS=4096
 AI_DAILY_COST_LIMIT=50
 AI_REQUEST_TIMEOUT=120000
+AI_PROMPT_CACHE=true            # optional — see Prompt caching below
 ```
 
 ### Multi-Provider
@@ -201,6 +203,7 @@ interface AIProvidersConfig {
   defaultModel?: string;
   providers: Record<string, AIProviderConfig>;
   promptOverrides?: Record<string, PromptModelOverride>;
+  cache?: boolean | { system?: boolean; tools?: boolean; messages?: boolean }; // prompt-cache default
 }
 
 interface PromptModelOverride {
@@ -216,6 +219,7 @@ Environment variables follow the pattern `AI_{PROVIDER}_*`:
 ```bash
 AI_DEFAULT_PROVIDER=openai
 AI_DEFAULT_MODEL=gpt-4o          # fallback model for all prompts
+AI_PROMPT_CACHE=true             # optional — Anthropic / Bedrock prompt-cache default
 
 # OpenAI
 AI_OPENAI_API_KEY=sk-...
@@ -270,6 +274,18 @@ When a prompt is invoked, model and provider are resolved in this order:
 Provider resolution: per-prompt override → prompt definition → `AI_DEFAULT_PROVIDER`.
 
 When `aiProviders` is configured in `PlumbusConfig`, it takes precedence over the legacy single `ai` field.
+
+### Prompt caching (core 0.7.9+)
+
+`AI_PROMPT_CACHE` sets the default `cache` option for every Anthropic / Bedrock call. `loadConfig()` stores it as `aiProviders.cache`, and as `ai.cache` in single-provider mode. The API server and workers pass it to `createAIService({ cache })`; a `cache` set on a call (or on `runToolLoop`) overrides it. Slots under `aiProviders.providers` do not read `cache`.
+
+```bash
+AI_PROMPT_CACHE=true                   # system prompt + tools
+AI_PROMPT_CACHE=system,tools,messages  # any comma-separated subset
+AI_PROMPT_CACHE=false                  # off (same as unset)
+```
+
+Any other value logs a warning and leaves caching off. What each section marks, and which models skip it, is in [Prompt caching](../ai/ai-integration.md#prompt-caching-anthropic--bedrock).
 
 ### AI security (opt-in)
 

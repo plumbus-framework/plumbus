@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { FlowConditionError } from '../../flows/evaluate-condition.js';
 import { createTestContext } from '../../testing/context.js';
 import { ErrorCode } from '../../types/enums.js';
 import type { CapabilityContract } from '../../types/capability.js';
+import type { PlumbusConfig } from '../../types/config.js';
 import {
   buildStepDeps,
+  buildWorkerAiService,
   needsJobQueuePublish,
   needsWorkerPool,
   resolveRuntimeRole,
@@ -164,5 +166,49 @@ describe('buildStepDeps', () => {
     expect(stepDeps.evaluateCondition('state.amount > 100', { amount: 150 })).toBe(true);
     // Arbitrary JS is rejected — the safe evaluator is wired, not `new Function`.
     expect(() => stepDeps.evaluateCondition('process.exit(1)', {})).toThrow(FlowConditionError);
+  });
+});
+
+describe('buildWorkerAiService', () => {
+  const baseConfig: PlumbusConfig = {
+    environment: 'development',
+    database: { host: 'localhost', port: 5432, database: 'test', user: 'test', password: '' },
+    queue: { host: 'localhost', port: 6379 },
+    auth: { provider: 'jwt', secret: 'synthetic-test-secret-at-least-32-characters' },
+  };
+  const cases: [string, Partial<PlumbusConfig>][] = [
+    ['ai', { ai: { provider: 'anthropic', apiKey: 'sk-ant-test', cache: { messages: true } } }],
+    [
+      'aiProviders',
+      {
+        aiProviders: {
+          defaultProvider: 'anthropic',
+          providers: { anthropic: { provider: 'anthropic', apiKey: 'sk-ant-test' } },
+          cache: { messages: true },
+        },
+      },
+    ],
+  ];
+
+  it.each(cases)('applies the %s prompt-cache default to provider requests', async (_, ai) => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: 'ok' }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: 'end_turn',
+      }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+    try {
+      const service = buildWorkerAiService({ config: { ...baseConfig, ...ai }, db: {} as never });
+      await service?.generate({ prompt: 'hi', input: {} });
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(body.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

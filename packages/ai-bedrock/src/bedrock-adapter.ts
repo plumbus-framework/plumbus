@@ -35,6 +35,119 @@ import {
   normalizeBedrockModelId,
 } from './pricing.js';
 
+/** Converse `cachePoint` block (explicit prompt caching). */
+const BEDROCK_CACHE_POINT = Object.freeze({ cachePoint: { type: 'default' as const } });
+
+/**
+ * `ProviderRequest.cache` (core 0.7.9+), resolved here rather than with a core
+ * helper so the adapter still loads on earlier 0.7.x cores (which never set it).
+ */
+type PromptCacheOption = boolean | { system?: boolean; tools?: boolean; messages?: boolean };
+
+interface PromptCacheSections {
+  system: boolean;
+  tools: boolean;
+  messages: boolean;
+}
+
+/** `true` → system + tools; `false` / `undefined` / no section enabled → no marks. */
+function resolvePromptCache(cache: PromptCacheOption | undefined): PromptCacheSections | undefined {
+  if (cache === undefined || cache === false) return undefined;
+  if (cache === true) return { system: true, tools: true, messages: false };
+  const sections: PromptCacheSections = {
+    system: cache.system === true,
+    tools: cache.tools === true,
+    messages: cache.messages === true,
+  };
+  return sections.system || sections.tools || sections.messages ? sections : undefined;
+}
+
+/**
+ * Claude models that reject Converse `cachePoint` with a ValidationException.
+ * Claude 3.5 Sonnet v2 is listed too: AWS lists its explicit caching as
+ * Preview, which most accounts cannot use. Every newer Claude model accepts it,
+ * so a deny-list stays correct as new ids ship. Matched as a prefix, so
+ * `-v1:0` / `:0` suffixes are covered.
+ */
+const CLAUDE_WITHOUT_CACHE_POINT = [
+  'anthropic.claude-3-haiku-20240307',
+  'anthropic.claude-3-sonnet-20240229',
+  'anthropic.claude-3-opus-20240229',
+  'anthropic.claude-3-5-sonnet-20240620',
+  'anthropic.claude-3-5-sonnet-20241022',
+];
+
+/**
+ * Whether to emit `cachePoint` for a model id (any inference-profile prefix
+ * such as `us.`, `jp.` or `us-gov.` stripped). Only Claude gets marks: Amazon
+ * Nova caches implicitly and other families may reject the block. Skipped
+ * marks leave the request valid.
+ */
+function supportsCachePoint(modelId: string): boolean {
+  const id = modelId
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z-]+\.(?=anthropic\.)/, '');
+  if (!id.startsWith('anthropic.claude')) return false;
+  return !CLAUDE_WITHOUT_CACHE_POINT.some((oldId) => id.startsWith(oldId));
+}
+
+function applyBedrockPromptCache(options: {
+  modelId: string;
+  request: ProviderRequest;
+  messages: Message[];
+  system: SystemContentBlock[] | undefined;
+  toolConfig: ToolConfiguration | undefined;
+}): {
+  messages: Message[];
+  system: SystemContentBlock[] | undefined;
+  toolConfig: ToolConfiguration | undefined;
+} {
+  const cache = resolvePromptCache(options.request.cache);
+  if (!cache || !supportsCachePoint(options.modelId)) {
+    return {
+      messages: options.messages,
+      system: options.system,
+      toolConfig: options.toolConfig,
+    };
+  }
+  return {
+    system: withBedrockSystemCache(options.system, cache),
+    toolConfig: withBedrockToolsCache(options.toolConfig, cache),
+    messages: withBedrockMessagesCache(options.messages, cache),
+  };
+}
+
+function withBedrockSystemCache(
+  system: SystemContentBlock[] | undefined,
+  cache: PromptCacheSections,
+): SystemContentBlock[] | undefined {
+  if (!cache.system || !system || system.length === 0) return system;
+  return [...system, { ...BEDROCK_CACHE_POINT } as SystemContentBlock];
+}
+
+function withBedrockToolsCache(
+  toolConfig: ToolConfiguration | undefined,
+  cache: PromptCacheSections,
+): ToolConfiguration | undefined {
+  if (!cache.tools || !toolConfig?.tools || toolConfig.tools.length === 0) return toolConfig;
+  return {
+    ...toolConfig,
+    tools: [...toolConfig.tools, { ...BEDROCK_CACHE_POINT } as Tool],
+  };
+}
+
+function withBedrockMessagesCache(messages: Message[], cache: PromptCacheSections): Message[] {
+  if (!cache.messages || messages.length === 0) return messages;
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  if (!last) return messages;
+  const content = [...(last.content ?? []), { ...BEDROCK_CACHE_POINT } as ContentBlock];
+  const next = messages.slice();
+  next[lastIndex] = { ...last, content };
+  return next;
+}
+
 function combineAbort(
   userSignal: AbortSignal | undefined,
   timeoutSignal: AbortSignal,
@@ -428,12 +541,18 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       await ensurePricing();
       const modelId = request.model ?? defaultModel;
-      const messages = toBedrockMessages(request);
-      const system: SystemContentBlock[] | undefined = request.system
+      const rawMessages = toBedrockMessages(request);
+      const rawSystem: SystemContentBlock[] | undefined = request.system
         ? [{ text: request.system }]
         : undefined;
-
-      const toolConfig: ToolConfiguration | undefined = buildToolConfig(request);
+      const rawToolConfig: ToolConfiguration | undefined = buildToolConfig(request);
+      const { messages, system, toolConfig } = applyBedrockPromptCache({
+        modelId,
+        request,
+        messages: rawMessages,
+        system: rawSystem,
+        toolConfig: rawToolConfig,
+      });
 
       const inferenceConfig: { maxTokens?: number; temperature?: number } = {};
       if (request.maxTokens != null) inferenceConfig.maxTokens = request.maxTokens;
@@ -483,14 +602,21 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
       await ensurePricing();
       const modelId = request.model ?? defaultModel;
-      const messages = toBedrockMessages(request);
-      const system: SystemContentBlock[] | undefined = request.system
+      const rawMessages = toBedrockMessages(request);
+      const rawSystem: SystemContentBlock[] | undefined = request.system
         ? [{ text: request.system }]
         : undefined;
       const inferenceConfig: { maxTokens?: number; temperature?: number } = {};
       if (request.maxTokens != null) inferenceConfig.maxTokens = request.maxTokens;
       if (request.temperature != null) inferenceConfig.temperature = request.temperature;
-      const toolConfig = buildToolConfig(request);
+      const rawToolConfig = buildToolConfig(request);
+      const { messages, system, toolConfig } = applyBedrockPromptCache({
+        modelId,
+        request,
+        messages: rawMessages,
+        system: rawSystem,
+        toolConfig: rawToolConfig,
+      });
 
       let usage = emptyUsage();
       let finishReason = 'stop';

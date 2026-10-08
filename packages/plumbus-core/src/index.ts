@@ -31,6 +31,8 @@ export type {
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
+  AICacheConfig,
+  AIPromptCacheOption,
   AnthropicAdapterConfig,
   BudgetCheckResult,
   BudgetConfig,

@@ -1,5 +1,15 @@
 # @plumbus/ai-bedrock
 
+## 0.2.2 — 2026-10-08
+
+### Added
+
+- Prompt caching on Converse / ConverseStream (#63). When a request sets `cache` (core 0.7.9+ passes it from `ctx.ai`, `runToolLoop`, and `AI_PROMPT_CACHE`), the adapter appends `cachePoint` after the system text, at the end of `toolConfig.tools`, and on the last message when requested. Only Claude model ids get marks, with or without an inference-profile prefix (`us.`, `jp.`, `us-gov.`, …); a model ARN gets none. Claude 3 Haiku, Claude 3 Sonnet, Claude 3 Opus, and Claude 3.5 Sonnet `20240620` get no marks because Bedrock rejects `cachePoint` for them with a ValidationException, and neither does Claude 3.5 Sonnet v2 (`20241022`), whose explicit caching AWS lists as Preview; other model families get none either, so those requests still succeed.
+
+### Compatibility
+
+- Loads and runs on any core 0.7.x. The `cache` option is resolved inside this package, which imports nothing from `@plumbus/core` that 0.7.0 lacks. On cores before 0.7.9, `ctx.ai` never sets `cache`, so requests are unchanged. The peer range stays `0.7.x`.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

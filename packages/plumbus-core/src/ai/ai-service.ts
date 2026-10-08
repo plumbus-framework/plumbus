@@ -29,6 +29,7 @@ import { normalizeCost, validateTokenUsage } from './usage-validation.js';
 import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import {
+  type AIPromptCacheOption,
   type AIProviderAdapter,
   type AITool,
   type AIToolCall,
@@ -83,6 +84,11 @@ export interface AIServiceConfig {
   defaultModel?: string /** Per-prompt model/provider overrides from config/env */;
   /** Enable provider-side constrained decoding for JSON-output prompt schemas. */
   enableStrictStructuredOutputs?: boolean;
+  /**
+   * Default prompt-caching preference for Anthropic / Bedrock. Per-call
+   * `cache` on generate / streamGenerate overrides this. OpenAI ignores it.
+   */
+  cache?: AIPromptCacheOption;
   promptOverrides?: Record<
     string,
     {
@@ -440,6 +446,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     model?: string;
     reasoning?: AIReasoningConfig | null;
     reasoningEffort?: ReasoningEffort | null;
+    cache?: AIPromptCacheOption;
   }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
@@ -501,6 +508,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         : promptDef?.structuredOutputTransport,
       signal: params.signal,
       seed: params.seed,
+      cache: params.cache ?? config.cache,
     };
     if (toolsEnabled) {
       request.tools = params.tools;
@@ -812,6 +820,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       model?: string;
       reasoning?: AIReasoningConfig | null;
       reasoningEffort?: ReasoningEffort | null;
+      cache?: AIPromptCacheOption;
     }): Promise<Record<string, any>> {
       const result = await _generateCore(params);
       if (result.finishReason === 'tool_calls') {
@@ -849,6 +858,11 @@ export function createAIService(config: AIServiceConfig): AIService {
        * ignored by providers that do not support seeding.
        */
       seed?: number;
+      /**
+       * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+       * default when set. OpenAI ignores this option.
+       */
+      cache?: AIPromptCacheOption;
     }): AsyncIterable<AIStreamEvent> {
       const streamStart = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity(params.input);
@@ -933,6 +947,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         structuredOutputTransport: promptDef?.structuredOutputTransport,
         signal: params.signal,
         seed: params.seed,
+        cache: params.cache ?? config.cache,
       };
 
       const resolvedModel =

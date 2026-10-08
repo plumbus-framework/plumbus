@@ -54,6 +54,8 @@ export {
   createProviderAdapter,
   joinAndFilterModels,
   normalizeFinishReason,
+  type AICacheConfig,
+  type AIPromptCacheOption,
   type AIProviderAdapter,
   type AIProviderCapabilities,
   type AITool,
