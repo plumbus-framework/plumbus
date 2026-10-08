@@ -243,6 +243,7 @@ export {
 } from './events/index.js';
 export type {
   AuthorizationResult,
+  CapabilityErrorInfo,
   CapabilityResult,
   ContextDependencies,
   ExecutionFailure,

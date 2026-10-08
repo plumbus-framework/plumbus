@@ -121,6 +121,42 @@ describe('buildStepDeps', () => {
     if (result.success) return;
     expect(result.error.code).toBe(ErrorCode.DependencyViolation);
     expect((result.error.metadata as { reason?: string }).reason).toBe('unsupportedTargetKind');
+    // Rejected before execution: nothing for the worker pool to report.
+    expect(result.capability).toBeUndefined();
+  });
+
+  it('names the capability only on failures that came from executing it', async () => {
+    const action = (name: string, fail: boolean): CapabilityContract =>
+      ({
+        name,
+        kind: 'action',
+        domain: 'reports',
+        input: z.object({}),
+        output: z.object({ ok: z.boolean() }),
+        effects: { data: [], events: [], external: [], ai: false },
+        access: { roles: ['admin'] },
+        handler: async (ctx) => {
+          if (fail) throw ctx.errors.conflict('Already running');
+          return { ok: true };
+        },
+      }) as CapabilityContract;
+    const registry = new CapabilityRegistry();
+    registry.register(action('startReport', true));
+    registry.register(action('checkReport', false));
+    const stepDeps = buildStepDeps(registry);
+    const ctx = createTestContext({ auth: { roles: ['admin'] } });
+
+    const failed = await stepDeps.executeCapability('reports.startReport', ctx, {});
+    expect(failed).toMatchObject({
+      success: false,
+      error: { code: 'conflict' },
+      capability: { name: 'startReport', domain: 'reports' },
+    });
+    const passed = await stepDeps.executeCapability('reports.checkReport', ctx, {});
+    expect(passed).toEqual({ success: true, data: { ok: true } });
+    const unknown = await stepDeps.executeCapability('reports.missing', ctx, {});
+    expect(unknown.success).toBe(false);
+    expect(unknown.capability).toBeUndefined();
   });
 
   it('wires evaluateFlowCondition as evaluateCondition (C1)', () => {

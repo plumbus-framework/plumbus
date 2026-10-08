@@ -34,7 +34,16 @@ export interface StepExecutorDeps {
     capabilityName: string,
     ctx: ExecutionContext,
     input: unknown,
-  ) => Promise<{ success: boolean; data?: unknown; error?: unknown }>;
+  ) => Promise<{
+    success: boolean;
+    data?: unknown;
+    error?: unknown;
+    /**
+     * Set by `buildStepDeps` when a resolved capability ran and failed (`error` is then a
+     * `PlumbusErrorLike`). The worker pool reports these failures to `onCapabilityError`.
+     */
+    capability?: { name: string; domain: string };
+  }>;
   /** Evaluate a condition expression against the flow state */
   evaluateCondition: (expression: string, state: unknown) => boolean;
 }

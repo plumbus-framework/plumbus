@@ -269,6 +269,8 @@ Exposes:
 
 Does **not** start the main Fastify API. Requires the same `app/`, `config/`, database, and Redis configuration as the API process.
 
+Loads `app/server.ts`; its `onCapabilityError` fires in this process for failed flow steps, jobs, and event handlers (`source` `'flow'`, `'job'`, `'event'`). See [Configuration](../sdk-reference/configuration.md#oncapabilityerror-hook).
+
 #### `plumbus worker status`
 
 Static configuration summary (does not connect to running workers).

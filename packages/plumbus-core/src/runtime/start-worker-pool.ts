@@ -145,6 +145,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     },
     eventRegistry: events,
     onFlowError: extensions?.onFlowError,
+    onCapabilityError: extensions?.onCapabilityError,
     logger,
     metrics,
     onFlowStepEnqueue: (executionId, correlationId) =>

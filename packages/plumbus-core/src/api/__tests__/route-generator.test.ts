@@ -499,6 +499,39 @@ describe('GET query param coercion', () => {
   });
 });
 
+describe('onCapabilityError', () => {
+  it('fires with source http after the error response is sent', async () => {
+    const app = makeMockApp();
+    const onCapabilityError = vi.fn();
+    const config = { ...makeMockConfig(), onCapabilityError };
+    const cap = makeCapability({
+      handler: async (ctx) => {
+        throw ctx.errors.conflict('Already taken', { key: 'k1' });
+      },
+    });
+
+    registerCapabilityRoute(app as any, cap, config);
+    const reply = makeMockReply();
+    await app.get.mock.calls[0]?.[1](makeMockRequest({ id: '1' }), reply);
+
+    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError).toHaveBeenCalledWith({
+      capabilityName: 'getUser',
+      domain: 'users',
+      errorCode: 'conflict',
+      errorMessage: 'Already taken',
+      metadata: { key: 'k1' },
+      userId: 'u1',
+      tenantId: 'tenant-1',
+      sourceIp: '127.0.0.1',
+      userAgent: undefined,
+      db: config.db,
+      source: 'http',
+    });
+  });
+});
+
 describe('resolveRequestLocale', () => {
   it('prefers plumbus-ui-locale cookie over Accept-Language', () => {
     const locale = resolveRequestLocale(
