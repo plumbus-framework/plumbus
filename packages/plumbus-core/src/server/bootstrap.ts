@@ -29,6 +29,7 @@ import { registerJobStatusRoute } from '../jobs/routes.js';
 import { createJobDispatchService } from '../jobs/job-dispatch-service.js';
 import { JobExecutionSource } from '../jobs/schema.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import type { CapabilityErrorInfo } from '../execution/capability-error-hook.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import {
@@ -97,19 +98,11 @@ export interface ServerConfig {
    * Called when a capability execution fails with a non-success result.
    * Use to log errors to a system log table, send alerts, etc.
    * Runs after the error response has been sent — exceptions are caught and logged.
+   * Covers HTTP routes (`source: 'http'`); pass the same hook to `createWorkerPool`
+   * for flow steps, jobs, and event handlers. `plumbus dev`, `start`, and `worker`
+   * pass the `app/server.ts` export to whichever of the two they run.
    */
-  onCapabilityError?: (info: {
-    capabilityName: string;
-    domain: string;
-    errorCode: string;
-    errorMessage: string;
-    metadata?: Record<string, unknown>;
-    userId?: string;
-    tenantId?: string;
-    sourceIp?: string;
-    userAgent?: string;
-    db?: PostgresJsDatabase;
-  }) => void | Promise<void>;
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   /**
    * Called on uncaught exceptions, unhandled rejections, and Fastify-level errors.
    * Use to log process-level crashes that bypass capability/flow hooks.

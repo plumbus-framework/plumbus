@@ -14,6 +14,8 @@ export type {
   ExecutionResult,
 } from './capability-executor.js';
 
+export type { CapabilityErrorInfo } from './capability-error-hook.js';
+
 export { evaluateAccess } from './authorization.js';
 export type { AuthorizationResult } from './authorization.js';
 

@@ -9,12 +9,15 @@ import {
   errorToSsePayload,
   unknownErrorToSsePayload,
 } from '../errors/http.js';
-import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
 import { JobExecutionSource } from '../jobs/schema.js';
 import { dispatchQueuedJob } from '../jobs/dispatch.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
+import {
+  type CapabilityErrorInfo,
+  fireCapabilityErrorHook,
+} from '../execution/capability-error-hook.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -47,18 +50,7 @@ export interface RouteGeneratorConfig {
   /** Locales supported by registered translation definitions */
   supportedLocales?: string[];
   /** Called when a capability execution fails */
-  onCapabilityError?: (info: {
-    capabilityName: string;
-    domain: string;
-    errorCode: string;
-    errorMessage: string;
-    metadata?: Record<string, unknown>;
-    userId?: string;
-    tenantId?: string;
-    sourceIp?: string;
-    userAgent?: string;
-    db?: PostgresJsDatabase;
-  }) => void | Promise<void>;
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
 }
 
 /**
@@ -190,24 +182,19 @@ export function registerCapabilityRoute(
       reply.status(httpError.statusCode).send(httpError.body);
 
       // Fire error hook (fire-and-forget, never blocks the response).
-      // IIFE so a sync throw inside the hook is caught by .catch.
-      if (config.onCapabilityError) {
-        void (async () =>
-          config.onCapabilityError?.({
-            capabilityName: capability.name,
-            domain: capability.domain,
-            errorCode: result.error.code,
-            errorMessage: result.error.message,
-            metadata: result.error.metadata,
-            userId: ctx.auth.userId,
-            tenantId: ctx.auth.tenantId,
-            sourceIp: request.ip,
-            userAgent: request.headers['user-agent'],
-            db: config.db,
-          }))().catch((hookErr) => {
-          logHookError('onCapabilityError', hookErr);
-        });
-      }
+      fireCapabilityErrorHook(config.onCapabilityError, {
+        capabilityName: capability.name,
+        domain: capability.domain,
+        errorCode: result.error.code,
+        errorMessage: result.error.message,
+        metadata: result.error.metadata,
+        userId: ctx.auth.userId,
+        tenantId: ctx.auth.tenantId,
+        sourceIp: request.ip,
+        userAgent: request.headers['user-agent'],
+        db: config.db,
+        source: 'http',
+      });
     }
   };
 

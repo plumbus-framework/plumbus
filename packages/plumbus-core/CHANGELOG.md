@@ -1,5 +1,11 @@
 # @plumbus/core changelog
 
+## 0.7.9 — 2026-10-08
+
+- `onCapabilityError` also fires when a capability fails in the worker: flow steps, jobs, and event handlers (#71). It used to run only for HTTP routes, so background failures never reached the hook. Apps that export `onCapabilityError` from `app/server.ts` start receiving these failures without a code change, because the worker started by `plumbus dev`, `plumbus start`, and `plumbus worker` now wires it. A new optional `source` field (`'http' | 'flow' | 'job' | 'event'`) tells them apart. In the worker, `sourceIp` and `userAgent` are undefined and `userId` can be a service identity (`event-worker` for event handlers), so a hook that assumes an HTTP caller should check `source`.
+- The hook stays fire-and-forget: errors it throws are logged, and event retries and dead-lettering, job status, and flow step retries and `onFlowError` are unchanged. Each failed attempt fires once, so an event handler that fails on all N delivery attempts fires N times.
+- Apps with their own bootstrap pass the hook as `createWorkerPool({ onCapabilityError })`. Flow steps are reported when `stepDeps` comes from `buildStepDeps()`, which now names the capability on failures it ran (an optional `capability` field on the step result). Jobs and event handlers are reported when `createWorkerPool()` registers their consumers; apps that call `registerCapabilityConsumers()` themselves pass it the new `onCapabilityError` option. The payload type is exported as `CapabilityErrorInfo` and replaces the inline types on `ServerConfig` and `RouteGeneratorConfig`; hooks typed against the old shape still compile.
+
 ## 0.7.8 — 2026-09-27
 
 - `plumbus dev` and `plumbus start` load an `authenticationRuntime` export from `app/server.ts` (named or on the default export) and pass it to `createServer`, so apps that do not own their bootstrap can use `@plumbus/auth` browser sign-in. Without the export nothing changes. With it, capability routes authenticate through the runtime's composite authenticator (bearer first, then the session cookie) and `routeConfig.authAdapter` is the deny-all adapter, so custom routes in `onRoutesRegistered` should call `routeConfig.requestAuthenticator`.

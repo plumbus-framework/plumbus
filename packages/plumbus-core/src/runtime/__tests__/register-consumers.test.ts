@@ -7,7 +7,10 @@ import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { defineCapability } from '../../define/index.js';
 import { JobExecutionStatus } from '../../jobs/schema.js';
 import { TrustedReplayActor } from '../../types/event.js';
-import { registerCapabilityConsumers } from '../register-consumers.js';
+import {
+  type RegisterCapabilityConsumersOptions,
+  registerCapabilityConsumers,
+} from '../register-consumers.js';
 
 const jobCap = defineCapability({
   name: 'syncData',
@@ -342,5 +345,212 @@ describe('registerCapabilityConsumers job security', () => {
     });
 
     expect(db.update).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('registerCapabilityConsumers onCapabilityError', () => {
+  const failingEventHandlerCap = defineCapability({
+    name: 'onOrderPlaced',
+    domain: 'orders',
+    kind: 'eventHandler',
+    description: 'Handle order placed',
+    trigger: { event: 'order.placed' },
+    input: z.object({ orderId: z.string() }),
+    output: z.object({ ok: z.boolean() }),
+    access: { public: true },
+    effects: { data: [], events: [], external: [] },
+    handler: async (ctx) => {
+      throw ctx.errors.conflict('Already handled', { key: 'k1' });
+    },
+  });
+
+  const failingJobCap = defineCapability({
+    name: 'syncData',
+    domain: 'ops',
+    kind: 'job',
+    description: 'Sync data',
+    input: z.object({ id: z.string() }),
+    output: z.object({ done: z.boolean() }),
+    access: { public: true },
+    effects: { data: [], events: [], external: [] },
+    handler: async (ctx) => {
+      throw ctx.errors.conflict('Already synced');
+    },
+  });
+
+  const delivery = (payload: Record<string, unknown>) => ({
+    id: 'evt-1',
+    eventType: 'order.placed',
+    version: '1',
+    occurredAt: new Date(),
+    actor: 'system',
+    tenantId: 'tenant-db',
+    correlationId: 'c1',
+    payload,
+  });
+
+  function registerEventHandler(
+    cap: typeof eventHandlerCap,
+    onCapabilityError: NonNullable<RegisterCapabilityConsumersOptions['onCapabilityError']>,
+  ) {
+    const capabilities = new CapabilityRegistry();
+    capabilities.register(cap);
+    const consumers = new ConsumerRegistry();
+    const db = mockOutboxDb({ tenantId: 'tenant-db', eventType: 'order.placed' });
+    registerCapabilityConsumers({
+      capabilities,
+      consumers,
+      events: new EventRegistry(),
+      entities: new EntityRegistry(),
+      db,
+      config: { environment: 'test' } as never,
+      onCapabilityError,
+    });
+    return { handler: consumers.getById('onOrderPlaced')?.handler, db };
+  }
+
+  it('fires with source event when an event handler fails, then throws for retry', async () => {
+    const onCapabilityError = vi.fn();
+    const { handler, db } = registerEventHandler(failingEventHandlerCap, onCapabilityError);
+
+    await expect(handler?.(delivery({ orderId: 'o1' }))).rejects.toThrow('Already handled');
+
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError).toHaveBeenCalledWith({
+      capabilityName: 'onOrderPlaced',
+      domain: 'orders',
+      errorCode: 'conflict',
+      errorMessage: 'Already handled',
+      metadata: { key: 'k1' },
+      userId: 'event-worker',
+      tenantId: 'tenant-db',
+      db,
+      source: 'event',
+    });
+  });
+
+  it('does not fire on success or when the payload is rejected before execution', async () => {
+    const onCapabilityError = vi.fn();
+    const { handler } = registerEventHandler(eventHandlerCap, onCapabilityError);
+
+    await handler?.(delivery({ orderId: 'o1' }));
+    await expect(handler?.(delivery({}))).rejects.toThrow('Event payload validation failed');
+
+    expect(onCapabilityError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'throws',
+      () => {
+        throw new Error('hook down');
+      },
+    ],
+    ['rejects', async () => Promise.reject(new Error('hook down'))],
+  ])('keeps the event outcome when the hook %s', async (_label, hook) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { handler } = registerEventHandler(failingEventHandlerCap, hook);
+
+    await expect(handler?.(delivery({ orderId: 'o1' }))).rejects.toThrow('Already handled');
+
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('[plumbus] Hook "onCapabilityError" failed: hook down'),
+    );
+    warn.mockRestore();
+  });
+
+  function registerFailingJob(
+    onMcpJobComplete: NonNullable<RegisterCapabilityConsumersOptions['onMcpJobComplete']>,
+    onCapabilityError: NonNullable<RegisterCapabilityConsumersOptions['onCapabilityError']>,
+  ) {
+    const capabilities = new CapabilityRegistry();
+    capabilities.register(failingJobCap);
+    const consumers = new ConsumerRegistry();
+    const db = mockDb({
+      id: 'job-1',
+      capabilityDomain: 'ops',
+      capabilityName: 'syncData',
+      status: JobExecutionStatus.Queued,
+      inputJson: { id: 'x' },
+      authSnapshotJson: {
+        userId: 'real-user',
+        roles: [],
+        scopes: [],
+        provider: 'db',
+        tenantId: 'tenant-a',
+      },
+      tenantId: 'tenant-a',
+    });
+    registerCapabilityConsumers({
+      capabilities,
+      consumers,
+      events: new EventRegistry(),
+      entities: new EntityRegistry(),
+      db,
+      config: { environment: 'test' } as never,
+      onMcpJobComplete,
+      onCapabilityError,
+    });
+    const run = () =>
+      consumers.getById('job:ops:syncData')?.handler({
+        id: 'env-1',
+        eventType: 'job.ops.syncData',
+        version: '1',
+        occurredAt: new Date(),
+        actor: 'system',
+        correlationId: 'c1',
+        payload: {
+          jobExecutionId: 'job-1',
+          input: { id: 'x' },
+          capability: { domain: 'ops', name: 'syncData' },
+          source: 'http',
+        },
+      });
+    return { db, run };
+  }
+
+  it('fires with source job after the job is marked failed', async () => {
+    const onMcpJobComplete = vi.fn(async () => {});
+    const onCapabilityError = vi.fn();
+    const { db, run } = registerFailingJob(onMcpJobComplete, onCapabilityError);
+
+    await expect(run()).rejects.toThrow('Already synced');
+
+    expect(onMcpJobComplete).toHaveBeenCalledWith(
+      'job-1',
+      'failed',
+      undefined,
+      expect.objectContaining({ code: 'conflict' }),
+      'tenant-a',
+    );
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError.mock.invocationCallOrder[0]).toBeGreaterThan(
+      onMcpJobComplete.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(onCapabilityError).toHaveBeenCalledWith({
+      capabilityName: 'syncData',
+      domain: 'ops',
+      errorCode: 'conflict',
+      errorMessage: 'Already synced',
+      metadata: undefined,
+      userId: 'real-user',
+      tenantId: 'tenant-a',
+      db,
+      source: 'job',
+    });
+  });
+
+  it('still fires for a failed job when onMcpJobComplete throws', async () => {
+    const onCapabilityError = vi.fn();
+    const { run } = registerFailingJob(async () => {
+      throw new Error('task sync down');
+    }, onCapabilityError);
+
+    await expect(run()).rejects.toThrow('task sync down');
+
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError).toHaveBeenCalledWith(
+      expect.objectContaining({ capabilityName: 'syncData', source: 'job' }),
+    );
   });
 });

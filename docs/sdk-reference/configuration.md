@@ -436,9 +436,9 @@ interface ServerConfig {
 
 ### `onCapabilityError` Hook
 
-Optional fire-and-forget callback invoked whenever a capability returns a failure result. The hook runs **after** the error response is sent to the client, so it never delays the HTTP response. Any errors thrown by the hook are silently swallowed.
+Optional fire-and-forget callback invoked whenever a capability returns a failure result: from an HTTP route, a flow step, a job, or an event handler. HTTP routes call it **after** the error response is sent, so it never delays the response. In the worker it never changes what happens next: event retries and dead-lettering, the job's failed status, and flow step retries and `onFlowError` run as before. Errors thrown or rejected by the hook are logged (`[plumbus] Hook "onCapabilityError" failed: …`) and never propagate.
 
-Export an `onCapabilityError` function from `app/server.ts` and the CLI will wire it automatically:
+Export an `onCapabilityError` function from `app/server.ts` and `plumbus dev`, `plumbus start`, and `plumbus worker` wire it into whichever of the API and the worker pool they run:
 
 ```typescript
 // app/server.ts
@@ -446,10 +446,27 @@ import type { ServerConfig } from "@plumbus/core";
 
 export const onCapabilityError: NonNullable<ServerConfig['onCapabilityError']> = async (info) => {
   // info contains: capabilityName, domain, errorCode, errorMessage,
-  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?, db?
+  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?, db?, source?
   await writeToMyErrorTable(info);
 };
 ```
+
+The payload type is exported as `CapabilityErrorInfo`. `source` tells you where the capability ran:
+
+| `source` | Where | `userId` / `tenantId` |
+|----------|-------|-----------------------|
+| `'http'` | Generated HTTP route | The caller; `sourceIp` and `userAgent` come from the request |
+| `'flow'` | Flow step (including parallel branches) | The caller stored when the flow started |
+| `'job'` | `kind: 'job'` capability run by the worker | The caller stored when the job was queued |
+| `'event'` | `kind: 'eventHandler'` capability run by the worker | The handler's first service account (or `event-worker`) and the event's tenant |
+
+`sourceIp` and `userAgent` are always undefined outside HTTP.
+
+The worker reports each failed attempt. An event handler that fails on all N delivery attempts fires the hook N times before the event is dead-lettered, and a flow step retried through the flow's `retry.attempts` fires once per failed attempt. A failed job fires once: it is marked failed and not run again. A step that fails after its flow was cancelled, or after its lease moved to another worker, is not reported: the engine discards that attempt.
+
+Only failures returned by the capability pipeline are reported: input validation, access policy, handler errors, and invalid output. Rejections before the capability runs are not: HTTP authentication failures, the input and access checks before an HTTP job is queued, the event-handler and job consumers' own payload and access checks, and a flow step that names an unknown capability or a job. Nested `ctx.capabilities.invoke()` calls do not fire the hook. MCP tool calls are not covered either; `@plumbus/mcp` has its own `onCapabilityError`. Neither are routes registered by `@plumbus/api` `registerApiRoutes()`.
+
+`createServer()` covers HTTP routes only. With your own bootstrap, pass the same function to `createWorkerPool({ onCapabilityError })` for flow steps, jobs, and event handlers. Flow steps are reported when `stepDeps` comes from `buildStepDeps()`. Jobs and event handlers are reported when `createWorkerPool()` registers their consumers (`capabilities`, `entities`, and `eventRegistry` set); if you call `registerCapabilityConsumers()` yourself, pass `onCapabilityError` to it.
 
 When the server is already connected to PostgreSQL, the same live Drizzle connection is also passed into framework callbacks and custom route hooks. Consumer apps can use that `db` handle instead of opening a second ad hoc database client from `app/server.ts`.
 
@@ -504,6 +521,7 @@ interface WorkerPoolConfig {
   metrics?: PlumbusMetrics;
   onMcpJobComplete?: (jobId, result, payload?, error?) => Promise<void>;
   onFlowError?: (info) => void | Promise<void>;
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   outboxPollIntervalMs?: number;      // Default: 1000
   schedulerPollIntervalMs?: number;   // Default: 60000
   flowPollIntervalMs?: number;        // Default: 1000

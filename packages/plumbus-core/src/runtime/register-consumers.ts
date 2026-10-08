@@ -11,6 +11,10 @@ import { TrustedReplayActor, type EventEnvelope } from '../types/event.js';
 import { CapabilityKind } from '../types/enums.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
+import {
+  type CapabilityErrorInfo,
+  fireCapabilityErrorHook,
+} from '../execution/capability-error-hook.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import { evaluateAccess } from '../execution/authorization.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
@@ -22,7 +26,8 @@ import { createJobService, JobClaimResult } from '../jobs/service.js';
 import { jobEventType, type JobQueuePayload } from '../jobs/types.js';
 import type { EntityRegistry } from '../data/registry.js';
 import type { PlumbusConfig } from '../types/config.js';
-import type { AIService, LoggerService } from '../types/context.js';
+import type { AIService, ExecutionContext, LoggerService } from '../types/context.js';
+import type { PlumbusErrorLike } from '../types/errors.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { AuthContext } from '../types/security.js';
 
@@ -47,6 +52,28 @@ export interface RegisterCapabilityConsumersOptions {
     error?: unknown,
     tenantId?: string | null,
   ) => Promise<void>;
+  /** Called when an event handler or job capability returns a non-success result (fire-and-forget). */
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
+}
+
+function reportCapabilityError(
+  opts: RegisterCapabilityConsumersOptions,
+  cap: { name: string; domain: string },
+  ctx: ExecutionContext,
+  error: PlumbusErrorLike,
+  source: 'event' | 'job',
+): void {
+  fireCapabilityErrorHook(opts.onCapabilityError, {
+    capabilityName: cap.name,
+    domain: cap.domain,
+    errorCode: error.code,
+    errorMessage: error.message,
+    metadata: error.metadata,
+    userId: ctx.auth.userId,
+    tenantId: ctx.auth.tenantId,
+    db: opts.db,
+    source,
+  });
 }
 
 function eventWorkerAuth(
@@ -201,6 +228,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
           });
           if (!result.success) {
             opts.metrics?.eventFailed.inc({ consumer: cap.name });
+            reportCapabilityError(opts, cap, ctx, result.error, 'event');
             throw new Error(result.error.message);
           }
           opts.metrics?.eventDelivered.inc({ consumer: cap.name });
@@ -299,18 +327,23 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
             );
             opts.metrics?.eventDelivered.inc({ consumer: consumerId });
           } else {
-            await jobs.markFailed(payload.jobExecutionId, {
-              code: result.error.code,
-              message: result.error.message,
-            });
-            await opts.onMcpJobComplete?.(
-              payload.jobExecutionId,
-              'failed',
-              undefined,
-              result.error,
-              record.tenantId,
-            );
-            opts.metrics?.eventFailed.inc({ consumer: consumerId });
+            try {
+              await jobs.markFailed(payload.jobExecutionId, {
+                code: result.error.code,
+                message: result.error.message,
+              });
+              await opts.onMcpJobComplete?.(
+                payload.jobExecutionId,
+                'failed',
+                undefined,
+                result.error,
+                record.tenantId,
+              );
+              opts.metrics?.eventFailed.inc({ consumer: consumerId });
+            } finally {
+              // Report even if the bookkeeping above throws: the capability still failed.
+              reportCapabilityError(opts, cap, ctx, result.error, 'job');
+            }
             throw new Error(result.error.message);
           }
         },

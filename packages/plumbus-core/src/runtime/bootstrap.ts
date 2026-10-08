@@ -120,7 +120,11 @@ export function buildStepDeps(capabilities: CapabilityRegistry): StepExecutorDep
         const error = ctx.errors.dependencyViolation(message, { ...metadata });
         return { success: false, error };
       }
-      return executeCapability(capability, ctx, input);
+      const result = await executeCapability(capability, ctx, input);
+      // Name the capability that ran so the worker pool can report the failure.
+      return result.success
+        ? result
+        : { ...result, capability: { name: capability.name, domain: capability.domain } };
     },
     evaluateCondition: (expression, state) => evaluateFlowCondition(expression, state),
   };
