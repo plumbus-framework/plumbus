@@ -88,8 +88,8 @@ export type ChatMessage =
  * Per-section prompt-cache controls for providers that require explicit cache
  * marks (Anthropic `cache_control`, Bedrock Converse `cachePoint`).
  *
- * When omitted fields are treated as `false`. Prefer `cache: true` for the
- * common case (system + tools).
+ * Omitted fields are treated as `false`. Prefer `cache: true` for the common
+ * case (system + tools).
  */
 export interface AICacheConfig {
   /** Cache the system prompt / instructions. */
@@ -106,15 +106,15 @@ export interface AICacheConfig {
  */
 export type AIPromptCacheOption = boolean | AICacheConfig;
 
-/** Resolved per-section flags, or `undefined` when caching is off. */
-export type ResolvedAICacheConfig = Required<AICacheConfig>;
+/** Per-section cache flags with every section set. */
+type ResolvedAICacheConfig = Required<AICacheConfig>;
 
 /**
  * Resolve a `cache` option into per-section flags.
  * `true` → `{ system: true, tools: true, messages: false }`.
- * `false` / `undefined` → `undefined` (no provider marks).
+ * `false` / `undefined` / no section enabled → `undefined` (no provider marks).
  */
-export function resolvePromptCache(
+function resolvePromptCache(
   cache: AIPromptCacheOption | undefined,
 ): ResolvedAICacheConfig | undefined {
   if (cache === undefined || cache === false) return undefined;
@@ -1777,20 +1777,6 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         };
       }
       applyAnthropicReasoning(body, request);
-      if (request.tools && request.tools.length > 0) {
-        assertNoStructuredOutputToolConflict(request);
-        validateCallerTools(request.tools);
-        body.tools = request.tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          input_schema: t.parameters,
-        }));
-        const callerToolChoice = buildAnthropicToolChoice(
-          request.toolChoice,
-          request.toolExecution,
-        );
-        if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
-      }
       const promptCache = resolvePromptCache(request.cache);
       if (promptCache) applyAnthropicPromptCache(body, promptCache);
 

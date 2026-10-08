@@ -26,10 +26,8 @@ import type {
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
-  ResolvedAICacheConfig,
   TokenUsage,
 } from '@plumbus/core';
-import { resolvePromptCache } from '@plumbus/core';
 import { BEDROCK_DEFAULT_EMBEDDING_MODEL, type BedrockAdapterConfig } from './types.js';
 import {
   createPricingStore,
@@ -41,13 +39,57 @@ import {
 const BEDROCK_CACHE_POINT = Object.freeze({ cachePoint: { type: 'default' as const } });
 
 /**
- * Models that accept Converse `cachePoint` for explicit prompt caching.
- * Strip regional / global inference-profile prefixes before matching.
- * Amazon Nova uses implicit caching — do not emit checkpoints for it.
- * Unsupported models skip marks so the request still succeeds.
+ * `ProviderRequest.cache` (core 0.7.9+), resolved here rather than with a core
+ * helper so the adapter still loads on earlier 0.7.x cores (which never set it).
  */
-export function bedrockSupportsExplicitCache(modelId: string): boolean {
-  return normalizeBedrockModelId(modelId).toLowerCase().startsWith('anthropic.claude');
+type PromptCacheOption = boolean | { system?: boolean; tools?: boolean; messages?: boolean };
+
+interface PromptCacheSections {
+  system: boolean;
+  tools: boolean;
+  messages: boolean;
+}
+
+/** `true` → system + tools; `false` / `undefined` / no section enabled → no marks. */
+function resolvePromptCache(cache: PromptCacheOption | undefined): PromptCacheSections | undefined {
+  if (cache === undefined || cache === false) return undefined;
+  if (cache === true) return { system: true, tools: true, messages: false };
+  const sections: PromptCacheSections = {
+    system: cache.system === true,
+    tools: cache.tools === true,
+    messages: cache.messages === true,
+  };
+  return sections.system || sections.tools || sections.messages ? sections : undefined;
+}
+
+/**
+ * Claude models that reject Converse `cachePoint` with a ValidationException.
+ * Claude 3.5 Sonnet v2 is listed too: AWS lists its explicit caching as
+ * Preview, which most accounts cannot use. Every newer Claude model accepts it,
+ * so a deny-list stays correct as new ids ship. Matched as a prefix, so
+ * `-v1:0` / `:0` suffixes are covered.
+ */
+const CLAUDE_WITHOUT_CACHE_POINT = [
+  'anthropic.claude-3-haiku-20240307',
+  'anthropic.claude-3-sonnet-20240229',
+  'anthropic.claude-3-opus-20240229',
+  'anthropic.claude-3-5-sonnet-20240620',
+  'anthropic.claude-3-5-sonnet-20241022',
+];
+
+/**
+ * Whether to emit `cachePoint` for a model id (any inference-profile prefix
+ * such as `us.`, `jp.` or `us-gov.` stripped). Only Claude gets marks: Amazon
+ * Nova caches implicitly and other families may reject the block. Skipped
+ * marks leave the request valid.
+ */
+function supportsCachePoint(modelId: string): boolean {
+  const id = modelId
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z-]+\.(?=anthropic\.)/, '');
+  if (!id.startsWith('anthropic.claude')) return false;
+  return !CLAUDE_WITHOUT_CACHE_POINT.some((oldId) => id.startsWith(oldId));
 }
 
 function applyBedrockPromptCache(options: {
@@ -62,7 +104,7 @@ function applyBedrockPromptCache(options: {
   toolConfig: ToolConfiguration | undefined;
 } {
   const cache = resolvePromptCache(options.request.cache);
-  if (!cache || !bedrockSupportsExplicitCache(options.modelId)) {
+  if (!cache || !supportsCachePoint(options.modelId)) {
     return {
       messages: options.messages,
       system: options.system,
@@ -78,7 +120,7 @@ function applyBedrockPromptCache(options: {
 
 function withBedrockSystemCache(
   system: SystemContentBlock[] | undefined,
-  cache: ResolvedAICacheConfig,
+  cache: PromptCacheSections,
 ): SystemContentBlock[] | undefined {
   if (!cache.system || !system || system.length === 0) return system;
   return [...system, { ...BEDROCK_CACHE_POINT } as SystemContentBlock];
@@ -86,7 +128,7 @@ function withBedrockSystemCache(
 
 function withBedrockToolsCache(
   toolConfig: ToolConfiguration | undefined,
-  cache: ResolvedAICacheConfig,
+  cache: PromptCacheSections,
 ): ToolConfiguration | undefined {
   if (!cache.tools || !toolConfig?.tools || toolConfig.tools.length === 0) return toolConfig;
   return {
@@ -95,7 +137,7 @@ function withBedrockToolsCache(
   };
 }
 
-function withBedrockMessagesCache(messages: Message[], cache: ResolvedAICacheConfig): Message[] {
+function withBedrockMessagesCache(messages: Message[], cache: PromptCacheSections): Message[] {
   if (!cache.messages || messages.length === 0) return messages;
   const lastIndex = messages.length - 1;
   const last = messages[lastIndex];

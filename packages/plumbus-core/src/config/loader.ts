@@ -15,6 +15,7 @@ import type {
   PromptModelOverride,
   QueueConfig,
 } from '../types/config.js';
+import type { AICacheConfig, AIPromptCacheOption } from '../ai/provider.js';
 import type { AISecurityConfig } from '../ai/security.js';
 import { FieldClassification } from '../types/enums.js';
 import type { FieldClassification as FieldClassificationType } from '../types/enums.js';
@@ -118,7 +119,34 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
     maxTokensPerRequest: env.AI_MAX_TOKENS ? parseInt(env.AI_MAX_TOKENS, 10) : undefined,
     dailyCostLimit: env.AI_DAILY_COST_LIMIT ? parseFloat(env.AI_DAILY_COST_LIMIT) : undefined,
     requestTimeout: env.AI_REQUEST_TIMEOUT ? parseInt(env.AI_REQUEST_TIMEOUT, 10) : undefined,
+    cache: loadPromptCacheConfig(env),
   };
+}
+
+const PROMPT_CACHE_SECTIONS = ['system', 'tools', 'messages'] as const;
+
+/**
+ * Parse `AI_PROMPT_CACHE`: `true` / `1` (system + tools), `false` / `0`, or a
+ * comma-separated list of sections such as `system,messages`.
+ */
+function loadPromptCacheConfig(
+  env: Record<string, string | undefined>,
+): AIPromptCacheOption | undefined {
+  const raw = env.AI_PROMPT_CACHE?.trim().toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  const cache: AICacheConfig = {};
+  for (const section of raw.split(',').map((s) => s.trim())) {
+    if (!(PROMPT_CACHE_SECTIONS as readonly string[]).includes(section)) {
+      console.warn(
+        `[plumbus] Invalid AI_PROMPT_CACHE="${raw}" — expected true, false, or a comma-separated list of ${PROMPT_CACHE_SECTIONS.join(', ')}; prompt caching stays off`,
+      );
+      return undefined;
+    }
+    cache[section as keyof AICacheConfig] = true;
+  }
+  return cache;
 }
 
 // ── Multi-Provider AI Config ──
@@ -234,6 +262,7 @@ export function loadMultiProviderConfig(
     providers,
     promptOverrides: loadPromptOverrides(env),
     security: loadAiSecurityConfig(env),
+    cache: loadPromptCacheConfig(env),
   };
 }
 

@@ -1261,26 +1261,34 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
-    it('applies cache_control on Anthropic stream bodies', async () => {
+    it('streams with cache marks but no tools, and reports cache reads', async () => {
+      const sse = [
+        'event: message_start',
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0,"cache_read_input_tokens":40}}}',
+        '',
+        'event: message_delta',
+        'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}',
+        '',
+        '',
+      ].join('\n');
       const mockFetch = vi.fn().mockResolvedValue(
-        new Response(
-          'data: {"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":0}}}\n\n' +
-            'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}\n\n',
-          {
-            status: 200,
-            headers: { 'Content-Type': 'text/event-stream' },
-          },
-        ),
+        new Response(sse, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
       );
       vi.stubGlobal('fetch', mockFetch);
 
       const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
-      for await (const _ of adapter.stream({
+      const events: Array<{ type: string }> = [];
+      for await (const event of adapter.stream({
         prompt: 'hi',
         system: 'Cached system',
+        // stream() parses text deltas only, so a tool call could not be returned.
+        tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
         cache: true,
       })) {
-        // drain
+        events.push(event);
       }
 
       const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
@@ -1291,6 +1299,56 @@ describe('AI Provider Adapters', () => {
           text: 'Cached system',
           cache_control: { type: 'ephemeral' },
         },
+      ]);
+      expect(body.tools).toBeUndefined();
+      expect(events.at(-1)).toMatchObject({
+        type: 'done',
+        usage: { inputTokens: 45, outputTokens: 3, cachedInputTokens: 40 },
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('stream maps tool turns in history the same way as complete()', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response('', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+      for await (const _ of adapter.stream({
+        prompt: '',
+        messages: [
+          { role: 'user', content: 'Look it up' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              { id: 'call_1', name: 'lookup', argumentsStatus: 'parsed', arguments: { q: 'x' } },
+            ],
+          },
+          { role: 'tool', content: '{"ok":true}', toolCallId: 'call_1', name: 'lookup' },
+          { role: 'user', content: 'Summarize' },
+        ],
+      })) {
+        // drain
+      }
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
+      expect(body.messages).toEqual([
+        { role: 'user', content: 'Look it up' },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '{"ok":true}' }],
+        },
+        { role: 'user', content: 'Summarize' },
       ]);
 
       vi.unstubAllGlobals();
@@ -1329,25 +1387,6 @@ describe('AI Provider Adapters', () => {
       expect(JSON.stringify(withCache)).not.toContain('cache_control');
 
       vi.unstubAllGlobals();
-    });
-  });
-
-  describe('resolvePromptCache', () => {
-    it('maps true/false/object shapes', async () => {
-      const { resolvePromptCache } = await import('../provider.js');
-      expect(resolvePromptCache(undefined)).toBeUndefined();
-      expect(resolvePromptCache(false)).toBeUndefined();
-      expect(resolvePromptCache(true)).toEqual({
-        system: true,
-        tools: true,
-        messages: false,
-      });
-      expect(resolvePromptCache({ messages: true })).toEqual({
-        system: false,
-        tools: false,
-        messages: true,
-      });
-      expect(resolvePromptCache({ system: false, tools: false, messages: false })).toBeUndefined();
     });
   });
 

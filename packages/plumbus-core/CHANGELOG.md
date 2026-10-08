@@ -1,8 +1,10 @@
 # @plumbus/core changelog
 
-## Unreleased
+## 0.7.9 — 2026-10-08
 
-- Add `cache` on AI generate / stream requests and an optional `createAIService({ cache })` default. Anthropic emits `cache_control` on system, the last tool, and (when requested) the last message; OpenAI ignores the option. Response-side cached-token pricing is unchanged.
+- Add prompt caching for Anthropic and Bedrock (#63). Pass `cache: true` (system prompt + tools) or `{ system?, tools?, messages? }` on `ctx.ai.generate`, `generateWithUsage`, `streamGenerate`, or `runToolLoop`, which forwards it to every round. Anthropic requests get `cache_control` on the system prompt, the last tool, and (when asked) the last message; `@plumbus/ai-bedrock` 0.2.2 adds Converse `cachePoint`. OpenAI ignores the option. Calls without `cache` are unchanged. Cache reads and writes are reported in `usage.cachedInputTokens` / `usage.cacheWriteTokens` and priced as before.
+- Add a prompt-cache default for every call: `AI_PROMPT_CACHE=true` (or sections such as `system,messages`) loads into `aiProviders.cache` (`ai.cache` in single-provider mode), and the API server, workers, and `plumbus mcp serve` pass it to `createAIService({ cache })`. A per-call `cache` overrides it. Other values log a warning and leave caching off.
+- Fix multi-turn history in the Anthropic adapter's `stream()`: it now converts `messages` with the same mapping as `complete()`. It used to copy each message as `{ role, content }`, so a `tool` message went out with a role the Messages API does not accept, assistant tool calls were dropped, and thinking blocks kept in `providerState` were not sent back. `stream()` still sends no tools.
 
 ## 0.7.8 — 2026-09-27
 

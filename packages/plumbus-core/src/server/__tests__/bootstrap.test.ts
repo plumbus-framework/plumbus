@@ -480,6 +480,23 @@ describe('Server Bootstrap', () => {
       );
     });
 
+    it.each<[string, Partial<PlumbusConfig>]>([
+      ['ai', { ai: { provider: 'anthropic', apiKey: 'test-key', cache: true } }],
+      [
+        'aiProviders',
+        {
+          aiProviders: {
+            defaultProvider: 'anthropic',
+            providers: { anthropic: { provider: 'anthropic', apiKey: 'test-key' } },
+            cache: true,
+          },
+        },
+      ],
+    ])('passes the %s prompt-cache default to createAIService', (_, ai) => {
+      createServer(makeServerConfig({ config: makeConfig(ai) }));
+      expect(createAIService).toHaveBeenCalledWith(expect.objectContaining({ cache: true }));
+    });
+
     it('wraps AI service when resolveAiOverrides is provided', () => {
       const resolver = vi.fn(async () => ({
         defaultModel: 'gpt-4o',

@@ -127,15 +127,9 @@ For a one-off override, `generateWithUsage` accepts `provider`, `model`, and pro
 
 ### Prompt caching (Anthropic / Bedrock)
 
-Anthropic and Bedrock only cache prompts the client marks (`cache_control` / `cachePoint`). Pass `cache` on `generate`, `generateWithUsage`, or `streamGenerate`, or set a service-level default on `createAIService({ cache })`:
+Core **0.7.9+** (Bedrock also needs `@plumbus/ai-bedrock` **0.2.2+**). The Anthropic API only caches prompts the client marks with `cache_control`; Claude on Bedrock caches implicitly on a best-effort basis, and `cachePoint` marks make it explicit. Pass `cache` on `generate`, `generateWithUsage`, `streamGenerate`, or `runToolLoop` (which forwards it to every round):
 
 ```typescript
-const ai = createAIService({
-  providers: { anthropic },
-  defaultProvider: "anthropic",
-  cache: true, // system + tools on every call
-});
-
 await ctx.ai.generateWithUsage({
   prompt: "classifyTicket",
   input: { ticketText },
@@ -143,11 +137,15 @@ await ctx.ai.generateWithUsage({
 });
 ```
 
+To turn caching on for every call, set `AI_PROMPT_CACHE=true` (or a list of sections such as `system,messages`). `loadConfig()` stores it as `aiProviders.cache` (and `ai.cache` in single-provider mode), and the API server and workers pass it to `createAIService({ cache })`. Apps that build the service themselves pass `cache` there. A per-call `cache` overrides the default.
+
 | Value | Effect |
 | --- | --- |
 | `true` | Cache system + tools (not messages) |
 | `{ system?, tools?, messages? }` | Per-section control; omitted fields are `false` |
-| `false` | Disable marks even when the service default is on |
+| `false` | No marks, even when the default is on |
+
+`cache: true` marks only the system prompt and tools. In a single-turn call, a prompt's `description` and its input go into the user message, so a prompt that keeps most of its text there gains little. In multi-turn mode (`messages` set), the description and `Input: {...}` are merged into the system prompt, so an input that changes between turns writes a new cache entry every turn. The same applies to input values substituted into `system` through `{{key}}`.
 
 When enabled, adapters add provider marks:
 
@@ -157,7 +155,7 @@ When enabled, adapters add provider marks:
 | Tools | `cache_control` on the last tool | `cachePoint` at the end of `toolConfig.tools` |
 | Messages | `cache_control` on the last message content block | `cachePoint` at the end of the last message |
 
-OpenAI ignores `cache` (automatic prompt caching). Bedrock emits `cachePoint` only for Claude model ids (`anthropic.claude…`, including regional inference-profile prefixes); Nova and other families skip marks so the request still succeeds. Providers also enforce minimum prefix lengths — shorter prompts succeed without a cache write. Response-side `cachedInputTokens` / `cacheWriteTokens` pricing is unchanged.
+OpenAI ignores `cache` (automatic prompt caching). Bedrock emits `cachePoint` only for Claude model ids (`anthropic.claude…`, with or without an inference-profile prefix such as `us.`, `jp.` or `global.`; a model ARN gets none). It skips Claude 3 Haiku, Claude 3 Sonnet, Claude 3 Opus, and Claude 3.5 Sonnet `20240620`, which reject `cachePoint`, Claude 3.5 Sonnet v2 (`20241022`, explicit caching in Preview), and every non-Claude family (Nova caches on its own), so those requests still succeed. Providers also enforce a minimum prefix length; shorter prompts succeed without a cache write. Cache reads and writes come back as `usage.cachedInputTokens` / `usage.cacheWriteTokens` and are priced as before.
 
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 
@@ -251,7 +249,9 @@ if (result.finishReason === "tool_calls") {
 (`packages/plumbus-core/src/ai/tool-loop.ts`): default `maxRounds` 8, hard maximum 20. On
 round exhaustion the final request **omits both `tools` and `toolChoice`** (never
 `toolChoice: 'none'`). Invalid-argument calls are never executed and surface as a
-`tool_arguments_invalid` observation.
+`tool_arguments_invalid` observation. A `cache` option is forwarded to every request, so
+an agent loop can reuse the cached system prompt and tools across rounds (see
+[Prompt caching](#prompt-caching-anthropic--bedrock)).
 
 > `@plumbus/chat`'s Path B tool calling is a **separate** loop (default `maxToolRounds`
 > 5); chat does **not** call `runToolLoop`. See [chat policies →
@@ -410,6 +410,7 @@ specifies `provider`; decision adapters are selected from `decisions.providers`.
 | `AI_OPENAI_*` / `AI_ANTHROPIC_*` | Per-provider API keys, base URLs, and default models |
 | `AI_BEDROCK_REGION` / `AI_BEDROCK_MODEL` / `AI_BEDROCK_PRICING_FILE` | Bedrock (IAM auth; optional mounted pricing JSON — recommended in containers) |
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
+| `AI_PROMPT_CACHE` | Default prompt caching for Anthropic / Bedrock: `true`, `false`, or sections such as `system,tools,messages` (see [Prompt caching](#prompt-caching-anthropic--bedrock)) |
 | `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
 
 Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
@@ -455,7 +456,7 @@ Optional ProviderResponse.cost ◄────── sets cost from usage × rat
 MODEL_PRICING (OpenAI/Anthropic only)
 ```
 
-Core’s optional peer: `"@plumbus/ai-bedrock": "0.1.x"`. The add-on’s required peer: `"@plumbus/core": "0.6.x"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** for the Bedrock provider slot, env discovery, adapter-supplied `cost`, and agent wiring v13.
+Core’s optional peer: `"@plumbus/ai-bedrock": "0.2.x"`. The add-on’s required peer: `"@plumbus/core": "0.7.x"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs core **≥ 0.7.9** (earlier cores never pass `cache` to the adapter) and `@plumbus/ai-bedrock` **≥ 0.2.2**.
 
 #### Install and wire
 
@@ -796,7 +797,7 @@ When providers return cache information, the framework adjusts pricing automatic
 - **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
 - Standard (non-cached) input tokens are charged at the full base rate
 
-**Request-side marks:** OpenAI caches automatically. For Anthropic and Bedrock Claude, enable `cache` on the call or `createAIService({ cache })` so Plumbus emits `cache_control` / `cachePoint` — see [Prompt caching](#prompt-caching-anthropic--bedrock). Without those marks, responses typically report zero cached tokens even though pricing fields exist.
+**Request-side marks:** OpenAI caches automatically. For Anthropic and Bedrock Claude, enable `cache` on the call, or set `AI_PROMPT_CACHE` / `createAIService({ cache })`, so Plumbus emits `cache_control` / `cachePoint` — see [Prompt caching](#prompt-caching-anthropic--bedrock). Without those marks, Anthropic responses report zero cached tokens even though pricing fields exist, and Bedrock caching is best effort.
 
 The framework parses cache data from provider responses:
 - **OpenAI**: `usage.prompt_tokens_details.cached_tokens`

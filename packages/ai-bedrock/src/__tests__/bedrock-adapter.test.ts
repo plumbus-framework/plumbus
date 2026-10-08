@@ -483,7 +483,8 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     await adapter.complete({
       prompt: 'hi',
       system: 'Be terse.',
-      model: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+      // Any geo inference-profile prefix (jp., au., us-gov., …) is still Claude.
+      model: 'jp.anthropic.claude-sonnet-4-5-20250929-v1:0',
       tools: [
         { name: 'a', description: 'd', parameters: { type: 'object' } },
         { name: 'b', description: 'd', parameters: { type: 'object' } },
@@ -529,7 +530,14 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     expect(messages[1]?.content).toEqual([{ text: 'Latest' }, { cachePoint: { type: 'default' } }]);
   });
 
-  it('11d. cache marks are skipped for models without explicit cache support', async () => {
+  it.each([
+    'amazon.nova-lite-v1:0',
+    // Older Claude models reject cachePoint with a ValidationException.
+    'anthropic.claude-3-haiku-20240307-v1:0',
+    'us.anthropic.claude-3-haiku-20240307-v1:0',
+    // Explicit caching is Preview-only for Claude 3.5 Sonnet v2.
+    'anthropic.claude-3-5-sonnet-20241022-v2:0',
+  ])('11d. cache marks are skipped for %s', async (model) => {
     const send = vi.fn().mockResolvedValue({
       output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
       stopReason: 'end_turn',
@@ -545,7 +553,7 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     await adapter.complete({
       prompt: 'hi',
       system: 'Be terse.',
-      model: 'amazon.nova-lite-v1:0',
+      model,
       tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
       cache: true,
     });
@@ -556,9 +564,10 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     expect(tools).toHaveLength(1);
   });
 
-  it('11e. stream applies the same cachePoint marks as complete', async () => {
+  it('11e. stream applies the same cachePoint marks as complete and reports cache reads', async () => {
     async function* events() {
       yield { messageStop: { stopReason: 'end_turn' } };
+      yield { metadata: { usage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 40 } } };
     }
     const send = vi.fn().mockResolvedValue({ stream: events() });
     const adapter = createBedrockAdapter({
@@ -568,13 +577,14 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
       warmPricingOnCreate: false,
     });
 
-    for await (const _ of adapter.stream({
+    const streamed: Array<{ type: string }> = [];
+    for await (const event of adapter.stream({
       prompt: 'hi',
       system: 'Cached',
       model: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
       cache: true,
     })) {
-      // drain
+      streamed.push(event);
     }
 
     const system = commandInput(send).system as Array<{
@@ -582,6 +592,7 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
       cachePoint?: { type?: string };
     }>;
     expect(system).toEqual([{ text: 'Cached' }, { cachePoint: { type: 'default' } }]);
+    expect(streamed.at(-1)).toMatchObject({ type: 'done', usage: { cachedInputTokens: 40 } });
   });
 
   it('13. parallel tool results collapse into ONE user turn with all toolResult blocks', async () => {

@@ -174,6 +174,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       promptRegistry,
       onAICostRecorded: workerOnAICostRecorded,
       enableStrictStructuredOutputs,
+      cache: config.aiProviders.cache,
       security: buildAISecurityConfig(
         entities?.getAllEntities() ?? [],
         config.aiProviders.security ?? (decisions ? {} : undefined),
@@ -208,6 +209,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
         promptRegistry,
         onAICostRecorded: workerOnAICostRecorded,
         enableStrictStructuredOutputs,
+        cache: config.ai.cache,
       }),
     );
   }

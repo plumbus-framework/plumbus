@@ -1,5 +1,6 @@
 import type { PolicyProfile } from './enums.js';
 import type { AISecurityConfig } from '../ai/security.js';
+import type { AIPromptCacheOption } from '../ai/provider.js';
 import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 
 // ── Database Config ──
@@ -49,6 +50,11 @@ export interface AIProviderConfig {
   embeddingModel?: string;
   /** In-memory TTL for auto-downloaded Bedrock Price List rates. */
   pricingCacheTtlMs?: number;
+  /**
+   * Default prompt caching (`AI_PROMPT_CACHE`) for the single-provider `ai`
+   * block. Slots under `aiProviders.providers` ignore it; set `aiProviders.cache`.
+   */
+  cache?: AIPromptCacheOption;
 }
 
 /**
@@ -85,6 +91,11 @@ export interface AIProvidersConfig {
   promptOverrides?: Record<string, PromptModelOverride>;
   /** AI prompt security: entity field classification scanning (default mode: redact) */
   security?: AISecurityConfig;
+  /**
+   * Default prompt caching for Anthropic / Bedrock calls (`AI_PROMPT_CACHE`).
+   * A per-call `cache` overrides it; OpenAI ignores it.
+   */
+  cache?: AIPromptCacheOption;
 }
 
 // ── Prompt Model Override ──

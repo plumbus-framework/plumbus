@@ -54,7 +54,6 @@ export {
   createProviderAdapter,
   joinAndFilterModels,
   normalizeFinishReason,
-  resolvePromptCache,
   type AICacheConfig,
   type AIPromptCacheOption,
   type AIProviderAdapter,
@@ -74,7 +73,6 @@ export {
   type ProviderRequest,
   type ProviderResponse,
   type ProviderStreamEvent,
-  type ResolvedAICacheConfig,
   type TokenUsage,
 } from './provider.js';
 // Bounded provider-native tool loop

@@ -239,6 +239,19 @@ describe('runToolLoop', () => {
     expect('toolChoice' in lastConfig).toBe(false);
   });
 
+  it('forwards cache to every round and to the final request', async () => {
+    const execute = vi.fn(async () => ({ ok: true }));
+    const { ai, configs } = createScriptedAI(exhaustedLoopScript(2));
+
+    await runToolLoop(ai, { ...baseParams, execute, maxRounds: 2, cache: { messages: true } });
+
+    expect(configs.map((config) => config.cache)).toEqual([
+      { messages: true },
+      { messages: true },
+      { messages: true },
+    ]);
+  });
+
   it('defaults maxRounds to 8 and clamps above the hard maximum of 20', async () => {
     const execute = vi.fn(async () => ({ ok: true }));
 

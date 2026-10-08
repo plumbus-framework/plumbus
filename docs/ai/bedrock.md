@@ -35,14 +35,14 @@ This page is the detailed integration guide. For the broader AI stack (prompts, 
 
 | | |
 |---|---|
-| **Package** | `@plumbus/ai-bedrock` `0.1.x` |
-| **Peer** | `@plumbus/core` `0.6.x` (literal range — copy from `packages/plumbus-core/instructions/peer-dependencies.md`) |
-| **Runtime floor** | `@plumbus/core` **≥ 0.6.16** (provider slot, `AI_BEDROCK_*` discovery, adapter `cost`, wiring v13) |
+| **Package** | `@plumbus/ai-bedrock` `0.2.x` |
+| **Peer** | `@plumbus/core` `0.7.x` (literal range — copy from `packages/plumbus-core/instructions/peer-dependencies.md`) |
+| **Runtime floor** | `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs core **≥ 0.7.9** and `@plumbus/ai-bedrock` **≥ 0.2.2** |
 | **SDK** | `@aws-sdk/client-bedrock-runtime` |
 | **Plumbus surface** | `AIProviderAdapter` registered as `providers.bedrock` on `createAIService` |
 | **Not included** | Bedrock Agents, Knowledge Bases Retrieve API, Guardrails config UI, image generation, Mantle OpenAI proxy |
 
-Apps that never call Bedrock never install the AWS SDK. Core’s optional peer declares `"@plumbus/ai-bedrock": "0.1.x"`; `createProviderAdapter('bedrock')` dynamically loads the package and prints `pnpm add @plumbus/ai-bedrock` when missing.
+Apps that never call Bedrock never install the AWS SDK. Core’s optional peer declares `"@plumbus/ai-bedrock": "0.2.x"`; `createProviderAdapter('bedrock')` dynamically loads the package and prints `pnpm add @plumbus/ai-bedrock` when missing.
 
 Business logic still uses `definePrompt`, `ctx.ai.generateWithUsage`, chat, and RAG. App code does **not** import the Bedrock SDK directly — only register the adapter.
 
@@ -80,7 +80,7 @@ Common production patterns (AWS docs, samples, and industry write-ups):
 | Guardrails on Converse (`guardrailConfig`) | **Not first-class** — app can wrap or extend later |
 | Multimodal image/document blocks | **Not first-class** — text/tool path today |
 | Structured outputs / `outputConfig` | Opt-in — `structuredOutputs: 'native'`; default stays on core validate-and-repair |
-| Explicit prompt caching (`cachePoint`) | Yes — when `cache` is set on the request / AI service (Claude model ids) |
+| Explicit prompt caching (`cachePoint`) | Yes — when `cache` is set on the call or as the AI service default (Claude model ids except the four oldest; core ≥ 0.7.9, ai-bedrock ≥ 0.2.2) |
 | Bedrock Agents / KB Retrieve | Out of scope — use RAG in core / knowledge-base |
 | Mantle OpenAI proxy | Use OpenAI adapter, not this package |
 
@@ -96,8 +96,8 @@ pnpm add @plumbus/ai-bedrock
 
 | Dependency | Range | Notes |
 |------------|-------|-------|
-| `@plumbus/core` (peer) | `0.6.x` (**≥ 0.6.16** at runtime) | Copy literal; never `^0.6.0` |
-| Core optional peer on this package | `0.1.x` | Declared in `@plumbus/core` `peerDependencies` / `peerDependenciesMeta` |
+| `@plumbus/core` (peer) | `0.7.x` (**≥ 0.7.0** at runtime; **≥ 0.7.9** for prompt caching) | Copy literal; never `^0.7.0` |
+| Core optional peer on this package | `0.2.x` | Declared in `@plumbus/core` `peerDependencies` / `peerDependenciesMeta` |
 | Publish order | ai-bedrock **before** core | See `.github/workflows/publish.yml` |
 
 Refresh agent wiring so consumer agents discover package instructions:
@@ -555,7 +555,7 @@ Documented so deployers do not assume silent support:
 - **First-class Mantle** productization (use OpenAI adapter)
 - Control-plane **ListFoundationModels** as `listModels` source
 
-**Prompt caching:** pass `cache` on `ctx.ai.generate*` / `streamGenerate` or `createAIService({ cache })`. For Claude model ids the adapter appends Converse `cachePoint` blocks after system text, at the end of `toolConfig.tools`, and (when requested) on the last message. Models without explicit cache support (for example Nova, which uses implicit caching) skip marks. Response cache tokens are still priced when reported.
+**Prompt caching:** pass `cache` on `ctx.ai.generate*` / `streamGenerate` / `runToolLoop`, or set the default with `AI_PROMPT_CACHE` or `createAIService({ cache })` (core ≥ 0.7.9 and ai-bedrock ≥ 0.2.2; earlier cores never pass `cache` to the adapter, and earlier adapters ignore it). For Claude model ids the adapter appends Converse `cachePoint` blocks after system text, at the end of `toolConfig.tools`, and (when requested) on the last message. It skips `anthropic.claude-3-haiku-20240307`, `anthropic.claude-3-sonnet-20240229`, `anthropic.claude-3-opus-20240229`, and `anthropic.claude-3-5-sonnet-20240620` (with or without an inference-profile prefix such as `us.` or `jp.`), which reject `cachePoint` with a ValidationException, `anthropic.claude-3-5-sonnet-20241022-v2:0`, whose explicit caching AWS lists as Preview, and every non-Claude family (Nova caches on its own). A model ARN gets no marks. Bedrock may also cache Claude prompts implicitly (best effort), so cached tokens on a response do not by themselves prove the marks were sent. Response cache tokens are priced when reported. What `cache: true` covers, and why a changing prompt input defeats it, is in [Prompt caching](./ai-integration.md#prompt-caching-anthropic--bedrock).
 
 Contributions that stay within the `AIProviderAdapter` contract are welcome; do not call the Bedrock SDK from app business logic.
 
@@ -573,14 +573,14 @@ Contributions that stay within the `AIProviderAdapter` contract are welcome; do 
 | Mixing OpenAI embed dims with Titan | RAG will return nonsense — one embedding model for ingest + query |
 | Expecting `plumbus rag ingest` to use Titan | CLI path is OpenAI/`ai.apiKey` today — ingest via `ragPipeline.ingest` with the Bedrock adapter |
 | Global inference profile on the bill | Call it with the `global.` prefix so the Global SKU is used; without a global row it falls back to the regional rate |
-| Peer `0.6.x` but core `< 0.6.16` | No provider slot / no adapter `cost` preference / no wiring v13 |
+| `cache` set but no `cachePoint` / zero cached tokens | Core `< 0.7.9` never passes `cache`; `@plumbus/ai-bedrock` `< 0.2.2` ignores it; the model is a non-Claude or pre-caching Claude 3 id, or a model ARN; or the prefix is below the model's minimum |
 | Agent never opens these recipes | `plumbus init --patch` then `plumbus doctor` |
 
 ---
 
 ## Checklist before production
 
-- [ ] `@plumbus/ai-bedrock@0.1.x` installed; peer `@plumbus/core` `0.6.x` satisfied and runtime **≥ 0.6.16** (npm Docker installs verify peers — pnpm alone is insufficient)
+- [ ] `@plumbus/ai-bedrock@0.2.x` installed; peer `@plumbus/core` `0.7.x` satisfied and runtime **≥ 0.7.0** (core **≥ 0.7.9** and ai-bedrock **≥ 0.2.2** for prompt caching) (npm Docker installs verify peers — pnpm alone is insufficient)
 - [ ] Adapter registered (env discovery or `createBedrockAdapter`)
 - [ ] Correct product path chosen: **Runtime** vs **Mantle**
 - [ ] Models enabled in the account (Anthropic forms if needed)

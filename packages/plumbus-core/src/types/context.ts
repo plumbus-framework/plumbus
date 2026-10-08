@@ -22,7 +22,6 @@ export type {
   AIToolExecutionOptions,
   AIProviderCapabilities,
   ProviderAssistantState,
-  ResolvedAICacheConfig,
 } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
 import type { ErrorService } from './errors.js';
