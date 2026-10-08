@@ -273,6 +273,62 @@ describe('provider tool calling', () => {
       vi.unstubAllGlobals();
     });
 
+    it('sends GPT-6.1 Sol tool calls through Responses and reports cache writes', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'completed',
+          model: 'gpt-6.1-sol',
+          output: [],
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 7,
+            total_tokens: 1007,
+            input_tokens_details: { cached_tokens: 200, cache_write_tokens: 300 },
+          },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6.1-sol' });
+      const result = await adapter.complete({
+        prompt: 'Run tool',
+        tools: [sampleTool],
+        temperature: 0.2,
+        reasoning: { mode: 'effort', effort: 'low' },
+      });
+      await expect(
+        adapter.complete({
+          prompt: 'Run tool',
+          tools: [sampleTool],
+          reasoning: { mode: 'effort', effort: 'minimal' },
+        }),
+      ).rejects.toMatchObject({
+        name: 'AIInvalidRequestError',
+        reason: 'reasoning_effort_unsupported',
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      expect(JSON.parse(mockFetch.mock.calls[0]?.[1].body)).toEqual({
+        model: 'gpt-6.1-sol',
+        input: [{ role: 'user', content: 'Run tool' }],
+        store: false,
+        include: ['reasoning.encrypted_content'],
+        reasoning: { effort: 'low' },
+        tools: [{ type: 'function', ...sampleTool }],
+      });
+      expect(result.usage).toEqual({
+        inputTokens: 1000,
+        outputTokens: 7,
+        totalTokens: 1007,
+        cachedInputTokens: 200,
+        cacheWriteTokens: 300,
+      });
+
+      vi.unstubAllGlobals();
+    });
+
     it('replays encrypted Responses reasoning state with function outputs', async () => {
       const reasoningItem = {
         id: 'rs_1',

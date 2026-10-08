@@ -270,6 +270,44 @@ describe('generateWithValidation', () => {
     expect(result.usage.totalTokens).toBe(60);
   });
 
+  describe('per-attempt cost', () => {
+    // Each 60K-token attempt stays under Claude Haiku 5.5's 100K tier ($0.10 / $0.50
+    // per MTok, so $0.0065); the 120K sum alone would price at $0.50 / $2.50 ($0.065).
+    const reply = (content: string) => ({
+      content,
+      model: 'claude-haiku-5-5',
+      usage: { inputTokens: 60_000, outputTokens: 1_000, totalTokens: 61_000 },
+      finishReason: 'stop',
+    });
+
+    it('prices each attempt on its own usage', async () => {
+      const provider = createMockProvider({
+        complete: vi
+          .fn()
+          .mockResolvedValueOnce(reply('not json'))
+          .mockResolvedValueOnce(reply('{"name":"Bob","age":25}')),
+      });
+
+      const result = await generateWithValidation(provider, { prompt: 'test' }, schema);
+
+      expect(result.usage.inputTokens).toBe(120_000);
+      expect(result.cost).toBeCloseTo(0.013, 12);
+    });
+
+    it('carries the per-attempt cost on AIValidationError, and none for unknown models', async () => {
+      const failing = (model?: string) =>
+        generateWithValidation(
+          createMockProvider({ complete: vi.fn(async () => reply('{"bad":"shape"}')) }),
+          { prompt: 'test json' },
+          schema,
+          { maxRetries: 1, model },
+        ).catch((error: unknown) => error as AIValidationError);
+
+      expect((await failing()).cost).toBeCloseTo(0.013, 12);
+      expect((await failing('unpriced-model')).cost).toBeUndefined();
+    });
+  });
+
   it('appends error feedback when feedbackOnError is true', async () => {
     const calls: string[] = [];
     const provider = createMockProvider({

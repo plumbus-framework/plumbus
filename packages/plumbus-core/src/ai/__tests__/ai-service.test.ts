@@ -1300,6 +1300,89 @@ describe('AI Service (ctx.ai)', () => {
       expect(hookCalls[0]?.ctx).toEqual({ projectId: 'p2' });
     });
 
+    it.each([
+      'generate',
+      'extract',
+      'classify',
+    ] as const)('records the per-attempt cost when %s exhausts validation retries', async (operation) => {
+      const provider = createMockProvider({
+        complete: vi.fn(async () => ({
+          content: '{"wrong":"schema"}',
+          model: 'claude-haiku-5-5',
+          usage: { inputTokens: 60_000, outputTokens: 1_000, totalTokens: 61_000 },
+          finishReason: 'stop',
+        })),
+      });
+      const costTracker = createCostTracker();
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          promptRegistry: makePromptRegistry(),
+          costTracker,
+          defaultModel: 'claude-haiku-5-5',
+          validation: { maxRetries: 1, feedbackOnError: false },
+        }),
+      );
+
+      const call =
+        operation === 'generate'
+          ? service.generate({ prompt: 'greet', input: { name: 'Alice' } })
+          : operation === 'extract'
+            ? service.extract({ schema: z.object({ result: z.string() }), text: 'x' })
+            : service.classify({ labels: ['a'], text: 'x' });
+      await expect(call).rejects.toThrow(/AI output validation failed/);
+
+      const record = costTracker.getRecords()[0];
+      expect(record?.usage.inputTokens).toBe(120_000);
+      // Two 60K-token requests at Claude Haiku 5.5's up-to-100K rates, not one 120K request.
+      expect(record?.cost).toBeCloseTo(0.013, 12);
+    });
+
+    it('records the per-attempt cost when the streaming validation fallback fails', async () => {
+      const reg = new PromptRegistry();
+      reg.register(
+        definePrompt({
+          name: 'structured',
+          description: 'Return json',
+          input: z.object({}),
+          output: z.object({ ok: z.boolean(), name: z.string() }),
+        }),
+      );
+      const usage = { inputTokens: 60_000, outputTokens: 1_000, totalTokens: 61_000 };
+      const provider = createMockProvider({
+        async *stream() {
+          yield { type: 'content_delta' as const, delta: '{"ok":' };
+          yield { type: 'usage' as const, usage };
+          yield { type: 'done' as const, finishReason: 'stop' };
+        },
+        complete: vi.fn(async () => ({
+          content: '{"still":"wrong"}',
+          model: 'claude-haiku-5-5',
+          usage,
+          finishReason: 'stop',
+        })),
+      });
+      const costTracker = createCostTracker();
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          promptRegistry: reg,
+          costTracker,
+          defaultModel: 'claude-haiku-5-5',
+          validation: { maxRetries: 1, feedbackOnError: false },
+        }),
+      );
+
+      await expect(async () => {
+        for await (const _ of service.streamGenerate({ prompt: 'structured', input: {} })) {
+          // drain
+        }
+      }).rejects.toThrow(/AI output validation failed/);
+
+      const record = costTracker.getRecords()[0];
+      expect(record?.usage.inputTokens).toBe(180_000);
+      // The streamed request and two fallback attempts, each under the 100K tier.
+      expect(record?.cost).toBeCloseTo(0.0195, 12);
+    });
+
     it('records status=failed with zero usage when provider throws an opaque error', async () => {
       const provider = createMockProvider({
         complete: vi.fn(async () => {

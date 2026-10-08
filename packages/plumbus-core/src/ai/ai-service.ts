@@ -610,12 +610,19 @@ export function createAIService(config: AIServiceConfig): AIService {
           : (getTypedAIErrorUsage(err) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
       const errorMessage = err instanceof Error ? err.message : String(err);
       const failureCost =
-        failureUsage.totalTokens > 0
-          ? calculateModelCost(failureUsage.inputTokens, failureUsage.outputTokens, resolvedModel, {
-              cachedInputTokens: failureUsage.cachedInputTokens,
-              cacheWriteTokens: failureUsage.cacheWriteTokens,
-            })
-          : null;
+        err instanceof AIValidationError && err.cost != null
+          ? err.cost
+          : failureUsage.totalTokens > 0
+            ? calculateModelCost(
+                failureUsage.inputTokens,
+                failureUsage.outputTokens,
+                resolvedModel,
+                {
+                  cachedInputTokens: failureUsage.cachedInputTokens,
+                  cacheWriteTokens: failureUsage.cacheWriteTokens,
+                },
+              )
+            : null;
       await recordProviderCost(
         {
           model: resolvedModel,
@@ -1236,18 +1243,22 @@ export function createAIService(config: AIServiceConfig): AIService {
                     totalTokens: 0,
                   });
             const combinedUsage = sumUsage(streamUsage, fallbackErrorUsage);
+            const fallbackErrorCost =
+              fallbackErr instanceof AIValidationError ? fallbackErr.cost : undefined;
             const combinedCost =
-              combinedUsage.totalTokens > 0
-                ? calculateModelCost(
-                    combinedUsage.inputTokens,
-                    combinedUsage.outputTokens,
-                    resolvedModel,
-                    {
-                      cachedInputTokens: combinedUsage.cachedInputTokens,
-                      cacheWriteTokens: combinedUsage.cacheWriteTokens,
-                    },
-                  )
-                : null;
+              streamCost != null && fallbackErrorCost != null
+                ? streamCost + fallbackErrorCost
+                : combinedUsage.totalTokens > 0
+                  ? calculateModelCost(
+                      combinedUsage.inputTokens,
+                      combinedUsage.outputTokens,
+                      resolvedModel,
+                      {
+                        cachedInputTokens: combinedUsage.cachedInputTokens,
+                        cacheWriteTokens: combinedUsage.cacheWriteTokens,
+                      },
+                    )
+                  : null;
             await recordProviderCost(
               {
                 model: resolvedModel,
@@ -1369,7 +1380,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             provider: activeProvider.name,
             operation: 'extract',
             usage: failureUsage,
-            cost: null,
+            cost: err instanceof AIValidationError ? (err.cost ?? null) : null,
             latencyMs,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1529,7 +1540,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             provider: activeProvider.name,
             operation: 'classify',
             usage: failureUsage,
-            cost: null,
+            cost: err instanceof AIValidationError ? (err.cost ?? null) : null,
             latencyMs,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,

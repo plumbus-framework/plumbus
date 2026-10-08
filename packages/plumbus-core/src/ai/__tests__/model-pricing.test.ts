@@ -369,7 +369,47 @@ it('does not apply Sol special pricing to other models or free/local providers',
   expect(estimateModelCost(1000, 0, 'local-unpriced')).toBeUndefined();
 });
 
+// 272,000 and 272,001 input tokens plus 1,000 output tokens, at the input / output rates
+// of OpenAI's standard pricing table, short context then long context (>272K input).
+it.each([
+  ['gpt-5.6-terra', 0.556, 1.106004], // $2 / $12, then $4 / $18
+  ['gpt-5.6-luna', 0.0556, 0.1106004], // $0.20 / $1.20, then $0.40 / $1.80
+  ['gpt-5.5', 1.39, 2.76501], // $5 / $30, then $10 / $45
+  ['gpt-5.5-pro', 8.34, 16.59006], // $30 / $180, then $60 / $270
+  ['gpt-5.4', 0.695, 1.382505], // $2.50 / $15, then $5 / $22.50
+  ['gpt-5.4-pro', 8.34, 16.59006], // $30 / $180, then $60 / $270
+])('charges %s its long-context rates above 272K input tokens', (model, boundaryCost, premiumCost) => {
+  expect(calculateModelCost(272_000, 1000, model)).toBe(boundaryCost);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(premiumCost);
+});
+
 describe.each([
+  {
+    model: 'gpt-6-astra',
+    input: 10,
+    cached: 1,
+    output: 50,
+    shortCost: 0.035,
+    cacheCost: 0.001,
+    writeCost: 0.0125,
+    boundaryCost: 2.77,
+    premiumCost: 5.51502,
+    mixedShortCost: 1.995,
+    mixedLongCost: 4.525,
+  },
+  {
+    model: 'gpt-6.1-sol',
+    input: 2,
+    cached: 0.1,
+    output: 10,
+    shortCost: 0.007,
+    cacheCost: 0.0001,
+    writeCost: 0.0025,
+    boundaryCost: 0.554,
+    premiumCost: 1.103004,
+    mixedShortCost: 0.389,
+    mixedLongCost: 0.885,
+  },
   {
     model: 'gpt-6-sol',
     input: 2,
@@ -435,5 +475,49 @@ describe.each([
       vi.setSystemTime(new Date(at));
       expect(calculateModelCost(1000, 500, expected.model)).toBe(expected.shortCost);
     }
+  });
+});
+
+it('prices Claude Sonnet 5.5 flat across its 1M window with a 0.05x cache-read rate', () => {
+  const model = 'claude-sonnet-5-5';
+  expect(findModelRate(model)).toEqual({
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cachedInputPerMTok: 0.1,
+  });
+  expect(estimateModelCost(1000, 500, model)).toBe(0.007);
+  expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.0001);
+  expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(0.0025);
+  expect(calculateModelCost(900_000, 1000, model)).toBe(1.81);
+});
+
+describe('Claude Haiku 5.5 pricing', () => {
+  const model = 'claude-haiku-5-5';
+
+  it('uses the published rates on each side of 100,000 input tokens', () => {
+    expect(findModelRate(model)).toEqual({
+      kind: 'text',
+      inputPerMTok: 0.1,
+      outputPerMTok: 0.5,
+      cachedInputPerMTok: 0.01,
+      longContextThreshold: 100_000,
+      longContextRates: { inputPerMTok: 0.5, outputPerMTok: 2.5, cachedInputPerMTok: 0.05 },
+    });
+    expect(estimateModelCost(1000, 500, model)).toBe(0.00035);
+    expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.00001);
+    expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(0.000125);
+    // Up to 100,000 tokens: $0.10 input / $0.50 output.
+    expect(calculateModelCost(100_000, 1000, model)).toBe(0.0105);
+    // Over 100,000 tokens: $0.50 input / $2.50 output for the whole request.
+    expect(calculateModelCost(100_001, 1000, model)).toBe(0.0525005);
+  });
+
+  it('counts cache reads and writes in the prompt and prices them at the matching tier', () => {
+    const cache = { cachedInputTokens: 40_000, cacheWriteTokens: 20_000 };
+    // 40K × $0.10 + 40K × $0.01 + 20K × $0.125 + 1K × $0.50
+    expect(calculateModelCost(100_000, 1000, model, cache)).toBe(0.0074);
+    // 240K × $0.50 + 40K × $0.05 + 20K × $0.625 + 1K × $2.50
+    expect(calculateModelCost(300_000, 1000, model, cache)).toBe(0.137);
   });
 });
