@@ -1,9 +1,11 @@
 # Changelog
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-10-08
 
-- Initial optional OpenAI Decisions API (`POST /v1/decisions`) adapter for typed choices, scores, and probabilities, using `@plumbus/ai-decision` 0.2.3 contracts, validation, and the shared bounded HTTP transport. No OpenAI SDK dependency.
+- Initial optional OpenAI Decisions API (`POST /v1/decisions`) adapter for typed choices, scores, and probabilities, using `@plumbus/ai-decision` 0.2.3 contracts, validation, and the shared bounded HTTP transport. No OpenAI SDK dependency. OpenAI's Decisions API is in public beta; the adapter follows its documentation as of 2026-10-08 and may need a patch if the API changes at general availability.
+- The adapter's provider name is `openai-decisions`, so its cost rows are distinct from rows of the `openai` text provider.
 - Map `probability` questions to `predicate`, `choice` criteria to `choices`, and `score` criteria to ordered `levels`. Each Plumbus question key becomes the OpenAI question `name`. Answers are matched by name, and score levels are checked against the requested labels and indices.
-- Report `refusal` answers and malformed answers as `invalid_response` errors that keep the billed model, usage, and known cost, so core records the failed call.
-- Price the actual response model with the bundled `gpt-6-luna` input rate ($0.10 / 1M tokens, verified 2026-10-08) or configured `inputRates`; dated snapshots inherit their alias rate, unknown models return `cost: null`. Regional and long-context multipliers are not modeled.
-- Requires core `0.7.x`; `ctx.ai.decide()` needs core 0.7.3+, `ctx.ai.classify({ provider })` needs 0.7.4+, and agent wiring v19 (core 0.7.9) links these instructions.
+- Accept two-decimal rounding in OpenAI's numbers: distributions that sum to 1 only within rounding, a chosen option that is within rounding of the top option, and a score that matches its distribution only within rounding. Options and levels that OpenAI leaves out count as probability 0. The chosen option is never changed. Unknown, repeated, or mistyped answers, options, and levels, probabilities outside [0, 1], and sums far from 1 still fail.
+- A `refusal` answer fails the whole call with `invalid_response` and sets `error.refusedQuestions` to the refused question keys. Refusals and malformed answers keep the billed model, usage, and known cost, so core records the failed call.
+- Price the actual response model with the bundled `gpt-6-luna` input rate ($0.10 / 1M tokens, verified 2026-10-08), doubled above 272K input tokens as OpenAI bills long prompts, or with configured `inputRates`, which are applied flat. Dated snapshots inherit their alias rate; unknown models return `cost: null`. Regional processing is not modeled.
+- Requires core `0.7.x`; `ctx.ai.decide()` needs core 0.7.3+, `ctx.ai.classify({ provider })` needs 0.7.4+, and agent wiring v19 (core 0.7.9) links these instructions. Core checks results again with its own `@plumbus/ai-decision`, which must be 0.2.3+ for OpenAI's rounding: use core 0.7.9, or on core 0.7.3–0.7.8 run `pnpm dedupe` and check that `pnpm why @plumbus/ai-decision` lists one copy.

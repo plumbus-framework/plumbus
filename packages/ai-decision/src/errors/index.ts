@@ -19,6 +19,8 @@ export class DecisionProviderError extends PlumbusError {
   readonly usage?: DecisionUsage;
   readonly model?: string;
   readonly cost?: number | null;
+  /** Set only when the provider declined to answer; lists the refused question keys. */
+  readonly refusedQuestions?: readonly string[];
 
   constructor(
     provider: string,
@@ -30,6 +32,7 @@ export class DecisionProviderError extends PlumbusError {
       usage?: DecisionUsage;
       model?: string;
       cost?: number | null;
+      refusedQuestions?: readonly string[];
     } = {},
   ) {
     super(
@@ -49,5 +52,6 @@ export class DecisionProviderError extends PlumbusError {
     this.usage = details.usage;
     this.model = details.model;
     this.cost = details.cost;
+    this.refusedQuestions = details.refusedQuestions;
   }
 }

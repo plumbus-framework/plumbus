@@ -591,7 +591,6 @@ describe('classification agent discovery', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'plumbus-openai-decision-wiring-'));
     const openai = 'node_modules/@plumbus/ai-decision-openai/instructions/README.md';
     try {
-      expect(AGENT_WIRING_VERSION).toBe(19);
       const old = generateAgentsMd(false)
         .replace(`version=${AGENT_WIRING_VERSION}`, 'version=18')
         .split('\n')
@@ -602,7 +601,7 @@ describe('classification agent discovery', () => {
       const results = writeAgentFiles(root, ['agents-md'], false, false, false, 'patch');
       const updated = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
       expect(results[0]?.action).toBe('patched');
-      expect(updated).toContain('version=19');
+      expect(updated).toContain(`version=${AGENT_WIRING_VERSION}`);
       expect(updated).toContain(openai);
       expect(updated.startsWith('App-owned preface\n')).toBe(true);
     } finally {

@@ -9,6 +9,9 @@
 read `node_modules/@plumbus/core/instructions/ai-classification.md` first (core
 **0.7.4+**), then [framework.md](framework.md) for this package.
 
+OpenAI's Decisions API is in public beta; this adapter follows OpenAI's documentation as
+of 2026-10-08.
+
 Core 0.7.3+ provides `ctx.ai.decide()`; core 0.7.4+ also routes `ctx.ai.classify()`
 to explicitly registered decision adapters. Keep app business logic in Plumbus
 primitives and `ctx.*`. Never route predictions around capability access checks

@@ -54,7 +54,8 @@ For the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/dec
 install `@plumbus/ai-decision-openai@~0.2.0` and register
 `'openai-decisions': createOpenAIDecisionAdapter({ apiKey: process.env.OPENAI_API_KEY ?? '' })`
 (default model `gpt-6-luna`). Do not reuse the key `openai` when the app also registers
-the OpenAI text provider. Read `node_modules/@plumbus/ai-decision-openai/instructions/README.md`.
+the OpenAI text provider. OpenAI's Decisions API is in public beta. Read
+`node_modules/@plumbus/ai-decision-openai/instructions/README.md`.
 
 ## Select a provider and model per call
 
@@ -75,7 +76,9 @@ const labels = await ctx.ai.classify({
 endpoint. For Laya automatic language routing use `provider: 'laya', model: 'auto'`;
 an explicit checkpoint must be configured on your Laya service.
 For OpenAI Decisions use `provider: 'openai-decisions', model: 'gpt-6-luna'`; each
-label is sent as one `predicate` question in a single request.
+label is sent as one `predicate` question in a single request. A refusal on any label
+fails the whole call; the error's `refusedQuestions` lists the refused `label_<index>`
+keys, where the index is the label's position in `labels`.
 
 | Setting | Resolution |
 | --- | --- |
@@ -108,8 +111,7 @@ Persist the existing `onAICostRecorded` hook. Native classification records one
 actual model, usage, cost, tenant/actor, and `costContext`. It does not create an
 extra `decide` row. Unknown cost remains `null`; never invent zero to bypass a
 budget. TypeSafe and OpenAI Decisions use adapter input pricing; Laya uses optional
-`costPerRequestUsd`. OpenAI decision rows record provider `openai`; tell them apart
-from text rows by `operation` and `model`.
+`costPerRequestUsd`. OpenAI decision rows record provider `openai-decisions`.
 
 Use `mockAI({ classify: ['billing'] })` through `createTestContext` and
 `runCapability` / `simulateFlow` for application tests. Read the installed provider's

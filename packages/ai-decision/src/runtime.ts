@@ -13,6 +13,7 @@ import type {
   DecisionState,
 } from './types.js';
 import {
+  DecisionRoundingSchema,
   readDecisionFailureMetadata,
   validateDecisionRequest,
   validateDecisionResult,
@@ -65,6 +66,13 @@ export async function runDecision<Q extends DecisionQuestions>(
     );
   // Adapter identity belongs to this dispatch, even if its owner replaces metadata later.
   const providerName = provider.name;
+  const rounding = provider.rounding;
+  if (!DecisionRoundingSchema.optional().safeParse(rounding).success)
+    throw new DecisionProviderError(
+      providerName,
+      'configuration',
+      'Decision provider rounding must be a positive step of at most 0.01',
+    );
   const model = parsedCall.data.model ?? definition?.model ?? config.defaultModel;
   let state: unknown;
   try {
@@ -116,6 +124,7 @@ export async function runDecision<Q extends DecisionQuestions>(
       await provider.decide(dispatched),
       input.questions,
       providerName,
+      { rounding },
     );
   } catch (error) {
     const metadata = readDecisionFailureMetadata(error);

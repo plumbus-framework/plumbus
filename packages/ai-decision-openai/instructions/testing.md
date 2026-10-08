@@ -10,7 +10,7 @@ For core 0.7.4+ classification, use `mockAI({ classify: ['billing'] })` and test
 through `runCapability()` / `simulateFlow()`. Integration tests with a real
 `createAIService({ decisions, onAICostRecorded })` should assert the
 `openai-decisions` provider/model forwarding, threshold behavior, one `classify` cost
-row, refusal handling, and unknown-cost handling.
+row, refusal handling (`error.refusedQuestions`), and unknown-cost handling.
 
 In the framework repository, run `pnpm lint`, `pnpm format:check`, `pnpm typecheck`,
 and `pnpm test`. No credentials or network access are required.

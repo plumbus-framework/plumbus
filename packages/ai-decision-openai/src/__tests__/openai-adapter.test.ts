@@ -1,3 +1,4 @@
+import { runDecision, type DecisionQuestion } from '@plumbus/ai-decision';
 import { describe, expect, it, vi } from 'vitest';
 import { createOpenAIDecisionAdapter, DecisionProviderError } from '../index.js';
 
@@ -57,8 +58,22 @@ const usage = {
 const wire = { model: 'gpt-6-luna', answers, usage };
 
 function respond(body: unknown) {
-  return vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(body));
+  return vi.fn<typeof globalThis.fetch>(async () => Response.json(body));
 }
+const choiceWith = (choice: string, ...options: [string, number][]) => ({
+  ...answers[0],
+  choice,
+  probabilities: options.map(([value, probability]) => ({ value, probability })),
+});
+const scoreWith = (score: number, ...levels: [number, number][]) => ({
+  ...answers[1],
+  score,
+  probabilities: levels.map(([value, probability]) => ({
+    value,
+    label: request.questions.urgency.criteria[value] ?? 'Unknown',
+    probability,
+  })),
+});
 
 describe('OpenAI decision adapter', () => {
   it('maps questions to the Decisions API and returns typed results with input pricing', async () => {
@@ -101,7 +116,7 @@ describe('OpenAI decision adapter', () => {
     });
 
     expect(result).toMatchObject({
-      provider: 'openai',
+      provider: 'openai-decisions',
       model: 'gpt-6-luna',
       usage: { inputTokens: 1000, outputTokens: 0, totalTokens: 1000 },
       costAvailable: true,
@@ -140,16 +155,34 @@ describe('OpenAI decision adapter', () => {
 
   it('uses model overrides and custom base URLs', async () => {
     const fetch = respond({ ...wire, model: 'gpt-6-luna-preview' });
-    const result = await createOpenAIDecisionAdapter({
+    const adapter = createOpenAIDecisionAdapter({
       apiKey: 'sk-test',
       baseUrl: 'https://proxy.example.test/openai/v1',
       model: 'gpt-6-luna-preview',
       inputRates: { 'gpt-6-luna-preview': 0.2 },
       fetch,
-    }).decide(request);
+    });
+    const result = await adapter.decide(request);
+    await adapter.decide({ ...request, model: 'gpt-6-luna-next' });
     expect(String(fetch.mock.calls[0]?.[0])).toBe('https://proxy.example.test/openai/v1/decisions');
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)).model).toBe('gpt-6-luna-preview');
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)).model).toBe('gpt-6-luna-next');
     expect(result.cost).toBeCloseTo(0.0002, 12);
+  });
+
+  it('doubles the bundled rate above 272K input tokens but keeps configured rates flat', async () => {
+    const long = { ...wire, usage: { ...usage, input_tokens: 300_000, total_tokens: 300_000 } };
+    const bundled = await createOpenAIDecisionAdapter({
+      apiKey: 'sk-test',
+      fetch: respond(long),
+    }).decide(request);
+    expect(bundled.cost).toBeCloseTo(0.06, 12);
+    const configured = await createOpenAIDecisionAdapter({
+      apiKey: 'sk-test',
+      inputRates: { 'gpt-6-luna': 0.11 },
+      fetch: respond(long),
+    }).decide(request);
+    expect(configured.cost).toBeCloseTo(0.033, 12);
   });
 
   it('prices dated snapshots of a priced model and leaves unknown models unpriced', async () => {
@@ -175,10 +208,23 @@ describe('OpenAI decision adapter', () => {
     expect(result).toMatchObject({ cost: 0, costAvailable: true });
   });
 
-  it('reports refusals as billed invalid responses with usage and cost', async () => {
+  it('never reports a positive charge that underflows as free', async () => {
+    await expect(
+      createOpenAIDecisionAdapter({
+        apiKey: 'sk-test',
+        inputRates: { 'gpt-6-luna': Number.MIN_VALUE },
+        fetch: respond(wire),
+      }).decide(request),
+    ).rejects.toMatchObject({ kind: 'configuration', usage: { inputTokens: 1000 } });
+  });
+
+  it.each([
+    'refund',
+    null,
+  ])('reports a refusal named %j with the refused question key, usage and cost', async (name) => {
     const fetch = respond({
       ...wire,
-      answers: [answers[0], answers[1], { type: 'refusal', name: 'refund' }],
+      answers: [answers[0], answers[1], { type: 'refusal', name }],
     });
     const error = await createOpenAIDecisionAdapter({ apiKey: 'sk-test', fetch })
       .decide(request)
@@ -186,12 +232,83 @@ describe('OpenAI decision adapter', () => {
     expect(error).toBeInstanceOf(DecisionProviderError);
     expect(error).toMatchObject({
       kind: 'invalid_response',
+      refusedQuestions: ['refund'],
       model: 'gpt-6-luna',
       usage: { inputTokens: 1000, totalTokens: 1000 },
       message: 'OpenAI refused to answer a decision question',
     });
     expect((error as DecisionProviderError).cost).toBeCloseTo(0.0001, 12);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, DecisionQuestion, object, object]>([
+    [
+      "the guide's choice example",
+      {
+        type: 'choice',
+        instructions: 'Which team handles this request?',
+        criteria: { billing: null, technical: null, shipping: null, other: null },
+      },
+      choiceWith(
+        'billing',
+        ['billing', 0.95],
+        ['technical', 0.02],
+        ['shipping', 0.01],
+        ['other', 0.02],
+      ),
+      { choice: 'billing' },
+    ],
+    [
+      "the guide's score example",
+      request.questions.urgency,
+      scoreWith(1.1, [0, 0.1], [1, 0.7], [2, 0.2]),
+      { score: 1.1 },
+    ],
+    [
+      'two-decimal probabilities that sum to 0.99',
+      request.questions.department,
+      choiceWith('billing', ['billing', 0.34], ['technical', 0.33], ['other', 0.32]),
+      { choice: 'billing', probabilities: { billing: 0.34, technical: 0.33, other: 0.32 } },
+    ],
+    [
+      'a choice tied with the top option within rounding',
+      request.questions.department,
+      choiceWith('technical', ['billing', 0.34], ['technical', 0.33], ['other', 0.33]),
+      { choice: 'technical' },
+    ],
+    [
+      'a score computed before its probabilities were rounded',
+      request.questions.urgency,
+      scoreWith(1, [0, 0.33], [1, 0.33], [2, 0.34]),
+      { score: 1, probabilities: { 0: 0.33, 1: 0.33, 2: 0.34 } },
+    ],
+    [
+      'an omitted zero-probability option',
+      request.questions.department,
+      choiceWith('billing', ['billing', 0.9], ['technical', 0.1]),
+      { probabilities: { billing: 0.9, technical: 0.1, other: 0 } },
+    ],
+    [
+      'an omitted zero-probability level',
+      request.questions.urgency,
+      scoreWith(0.3, [0, 0.7], [1, 0.3]),
+      { score: 0.3, probabilities: { 0: 0.7, 1: 0.3, 2: 0 } },
+    ],
+  ])('accepts %s through the shared runtime', async (_case, question, answer, expected) => {
+    const result = await runDecision(
+      { state: request.state, questions: { q: question } },
+      {
+        providers: {
+          'openai-decisions': createOpenAIDecisionAdapter({
+            apiKey: 'sk-test',
+            fetch: respond({ ...wire, answers: [{ ...answer, name: 'q' }] }),
+          }),
+        },
+        defaultProvider: 'openai-decisions',
+      },
+      { secure: (input) => input, checkBudget() {}, async record() {} },
+    );
+    expect(result.answers.q).toMatchObject(expected);
   });
 
   it.each([
@@ -204,16 +321,45 @@ describe('OpenAI decision adapter', () => {
       [{ ...answers[0], choice: 'sales' }, answers[1], answers[2]],
     ],
     [
-      'duplicate choice probabilities',
+      'an unknown choice option',
       [
-        {
-          ...answers[0],
-          probabilities: [
-            { value: 'billing', probability: 0.5 },
-            { value: 'billing', probability: 0.5 },
-            { value: 'other', probability: 0 },
-          ],
-        },
+        choiceWith(
+          'billing',
+          ['billing', 0.95],
+          ['technical', 0.03],
+          ['other', 0.02],
+          ['sales', 0],
+        ),
+        answers[1],
+        answers[2],
+      ],
+    ],
+    [
+      'a repeated choice option',
+      [
+        choiceWith(
+          'billing',
+          ['billing', 0.9],
+          ['billing', 0.8],
+          ['technical', 0.1],
+          ['other', 0.1],
+        ),
+        answers[1],
+        answers[2],
+      ],
+    ],
+    [
+      'a choice well below the top option',
+      [
+        choiceWith('billing', ['billing', 0.4], ['technical', 0.45], ['other', 0.15]),
+        answers[1],
+        answers[2],
+      ],
+    ],
+    [
+      'a distribution far from 1',
+      [
+        choiceWith('billing', ['billing', 0.5], ['technical', 0.2], ['other', 0.1]),
         answers[1],
         answers[2],
       ],
@@ -233,9 +379,21 @@ describe('OpenAI decision adapter', () => {
         answers[2],
       ],
     ],
+    [
+      'an unknown score level',
+      [answers[0], scoreWith(1.1, [0, 0.1], [1, 0.7], [2, 0.2], [3, 0]), answers[2]],
+    ],
+    [
+      'a repeated score level',
+      [answers[0], scoreWith(1.1, [0, 0.1], [1, 0.7], [2, 0.2], [1, 0.7]), answers[2]],
+    ],
     ['an inconsistent score', [answers[0], { ...answers[1], score: 2 }, answers[2]]],
     ['an out-of-range probability', [answers[0], answers[1], { ...answers[2], probability: 1.5 }]],
-  ])('rejects %s while preserving billed usage', async (_case, body) => {
+    [
+      'a malformed answer next to a refusal',
+      [{ ...answers[0], choice: 'sales' }, answers[1], { type: 'refusal', name: 'refund' }],
+    ],
+  ])('rejects %s while preserving billed usage and cost', async (_case, body) => {
     const fetch = respond({ ...wire, answers: body });
     await expect(
       createOpenAIDecisionAdapter({ apiKey: 'sk-test', fetch }).decide(request),
@@ -243,6 +401,8 @@ describe('OpenAI decision adapter', () => {
       kind: 'invalid_response',
       model: 'gpt-6-luna',
       usage: { inputTokens: 1000 },
+      cost: expect.closeTo(0.0001, 12),
+      refusedQuestions: undefined,
     });
   });
 
@@ -268,15 +428,42 @@ describe('OpenAI decision adapter', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('does not retry or expose OpenAI error bodies', async () => {
+  it('does not retry a 4xx error or expose its body', async () => {
+    const body = { error: { message: 'secret detail', type: 'invalid_request_error', code: null } };
     const fetch = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(new Response('{"error":"secret detail"}', { status: 400 }));
+      .mockResolvedValue(Response.json(body, { status: 400 }));
     const error = await createOpenAIDecisionAdapter({ apiKey: 'sk-test', fetch })
       .decide(request)
       .catch((caught: unknown) => caught);
     expect(error).toMatchObject({ kind: 'http', httpStatus: 400, attempts: 1 });
     expect(String((error as Error).message)).not.toContain('secret');
+  });
+
+  it('retries a transient HTTP error through the shared transport', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response('', { status: 503, headers: { 'retry-after-ms': '1' } }))
+      .mockResolvedValueOnce(Response.json(wire));
+    await expect(
+      createOpenAIDecisionAdapter({ apiKey: 'sk-test', fetch }).decide(request),
+    ).resolves.toMatchObject({ provider: 'openai-decisions' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwards per-call deadlines and cancellation to the transport', async () => {
+    const adapter = createOpenAIDecisionAdapter({
+      apiKey: 'sk-test',
+      timeoutMs: 30_000,
+      fetch: vi.fn<typeof globalThis.fetch>(() => new Promise(() => {})),
+    });
+    await expect(adapter.decide({ ...request, timeoutMs: 30 })).rejects.toMatchObject({
+      kind: 'timeout',
+    });
+    const controller = new AbortController();
+    const cancelled = adapter.decide({ ...request, signal: controller.signal });
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ kind: 'cancelled' });
   });
 
   it.each([

@@ -1,10 +1,10 @@
 import { createOpenAIDecisionAdapter, DecisionProviderError } from '../dist/index.js';
 
 if (process.env.PLUMBUS_LIVE_DECISION_TESTS !== '1') {
-  throw new DecisionProviderError('openai', 'configuration', 'Set PLUMBUS_LIVE_DECISION_TESTS=1 to explicitly enable one live inference request');
+  throw new DecisionProviderError('openai-decisions', 'configuration', 'Set PLUMBUS_LIVE_DECISION_TESTS=1 to explicitly enable one live inference request');
 }
 const apiKey = process.env.OPENAI_API_KEY;
-if (!apiKey) throw new DecisionProviderError('openai', 'configuration', 'Set OPENAI_API_KEY in the process environment');
+if (!apiKey) throw new DecisionProviderError('openai-decisions', 'configuration', 'Set OPENAI_API_KEY in the process environment');
 const adapter = createOpenAIDecisionAdapter({ apiKey, model: process.env.OPENAI_DECISION_MODEL, baseUrl: process.env.OPENAI_BASE_URL });
 const result = await adapter.decide({
   state: 'I was charged twice for my order. Please refund the duplicate charge.',

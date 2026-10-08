@@ -24,12 +24,16 @@ export interface OpenAIDecisionAdapterConfig
 
 /**
  * Source: https://developers.openai.com/api/docs/guides/decisions, verified 2026-10-08.
- * Output and cached input are not charged separately. Regional processing and
- * long-context multipliers are not modeled.
+ * Output and cached input are not charged separately. Bundled rates double above
+ * 272K input tokens; regional processing is not modeled.
  */
 export const OpenAIDecisionInputRates = Object.freeze({ 'gpt-6-luna': 0.1 });
 
-const Provider = 'openai';
+// https://developers.openai.com/api/docs/models/gpt-6-luna: "more than 272K input tokens are priced at 2x".
+const LongContextInputTokens = 272_000;
+// OpenAI documents no precision; its examples use two decimal places.
+const Rounding = 0.01;
+const Provider = 'openai-decisions';
 const ProbabilitySchema = z.number().finite().min(0).max(1);
 const TokensSchema = z.number().int().nonnegative().safe();
 const MetadataSchema = z.object({
@@ -133,15 +137,20 @@ export function createOpenAIDecisionAdapter(
   );
 
   // Dated snapshots (gpt-6-luna-2026-10-01) inherit the alias rate; other unknown models stay unpriced.
-  const rateFor = (model: string): number | undefined => {
-    if (Object.hasOwn(rates, model)) return rates[model];
+  const pricedAs = (model: string): string | undefined => {
+    if (Object.hasOwn(rates, model)) return model;
     const alias = /^(.+)-\d{4}-\d{2}-\d{2}$/.exec(model)?.[1];
-    return alias !== undefined && Object.hasOwn(rates, alias) ? rates[alias] : undefined;
+    return alias !== undefined && Object.hasOwn(rates, alias) ? alias : undefined;
   };
   const costFor = (model: string, usage: DecisionUsage): number | null => {
-    const rate = rateFor(model);
-    if (rate === undefined) return null;
-    const cost = (usage.inputTokens / 1_000_000) * rate;
+    const priced = pricedAs(model);
+    const rate = priced === undefined ? undefined : rates[priced];
+    if (priced === undefined || rate === undefined) return null;
+    // Configured rates are flat; bundled rates double for long prompts, as OpenAI bills them.
+    const long =
+      !Object.hasOwn(settings.data.inputRates ?? {}, priced) &&
+      usage.inputTokens > LongContextInputTokens;
+    const cost = (usage.inputTokens / 1_000_000) * rate * (long ? 2 : 1);
     return Number.isFinite(cost) && (cost > 0 || usage.inputTokens === 0 || rate === 0)
       ? cost
       : Number.NaN;
@@ -149,6 +158,7 @@ export function createOpenAIDecisionAdapter(
 
   return {
     name: Provider,
+    rounding: Rounding,
     async decide(request) {
       const input = validateDecisionRequest(request, Provider);
       const start = performance.now();
@@ -170,14 +180,16 @@ export function createOpenAIDecisionAdapter(
             totalTokens: metadata.data.usage.input_tokens + metadata.data.usage.output_tokens,
           }
         : undefined;
-      const fail = (message: string): DecisionProviderError => {
+      const fail = (message: string, refusedQuestions?: string[]): DecisionProviderError => {
+        const refusal = refusedQuestions === undefined ? {} : { refusedQuestions };
         if (model === undefined || usage === undefined || !Number.isSafeInteger(usage.totalTokens))
-          return new DecisionProviderError(Provider, 'invalid_response', message);
+          return new DecisionProviderError(Provider, 'invalid_response', message, refusal);
         const cost = costFor(model, usage);
         return new DecisionProviderError(Provider, 'invalid_response', message, {
           model,
           usage,
           cost: cost === null || Number.isNaN(cost) ? null : cost,
+          ...refusal,
         });
       };
 
@@ -188,24 +200,37 @@ export function createOpenAIDecisionAdapter(
         throw fail(mismatch);
 
       const answers: Record<string, unknown> = {};
+      const named = new Set<string>();
+      let refused = false;
       for (const raw of envelope.data.answers) {
         const parsed = AnswerSchema.safeParse(raw);
         if (!parsed.success) throw fail(mismatch);
         const answer = parsed.data;
-        if (answer.type === 'refusal') throw fail('OpenAI refused to answer a decision question');
+        if (answer.type === 'refusal') refused = true;
+        // Only a refusal may be unnamed; its question is found by elimination below.
+        if (answer.name === null) continue;
         const question = Object.hasOwn(input.questions, answer.name)
           ? input.questions[answer.name]
           : undefined;
-        if (question === undefined || Object.hasOwn(answers, answer.name)) throw fail(mismatch);
+        if (question === undefined || named.has(answer.name)) throw fail(mismatch);
+        named.add(answer.name);
 
+        if (answer.type === 'refusal') continue;
         if (answer.type === 'predicate') {
           answers[answer.name] = { type: 'noul', noul: answer.probability };
         } else if (answer.type === 'choice') {
-          const probabilities = Object.fromEntries(
-            answer.probabilities.map((option) => [option.value, option.probability]),
+          if (question.type !== 'choice') throw fail(mismatch);
+          // Omitted options have zero probability; unknown or repeated options are errors.
+          const probabilities: Record<string, number> = Object.fromEntries(
+            Object.keys(question.criteria).map((value) => [value, 0]),
           );
-          if (Object.keys(probabilities).length !== answer.probabilities.length)
-            throw fail(mismatch);
+          const seen = new Set<string>();
+          for (const option of answer.probabilities) {
+            if (!Object.hasOwn(probabilities, option.value) || seen.has(option.value))
+              throw fail(mismatch);
+            seen.add(option.value);
+            probabilities[option.value] = option.probability;
+          }
           answers[answer.name] = {
             type: 'choice',
             choice: answer.choice,
@@ -215,15 +240,15 @@ export function createOpenAIDecisionAdapter(
         } else {
           if (question.type !== 'score') throw fail(mismatch);
           const levels = question.criteria;
-          const probabilities: Record<string, number> = {};
+          const probabilities: Record<string, number> = Object.fromEntries(
+            levels.map((_, index) => [String(index), 0]),
+          );
+          const seen = new Set<number>();
           for (const level of answer.probabilities) {
             const requested = levels[level.value];
-            if (
-              requested === undefined ||
-              level.label !== text(requested) ||
-              Object.hasOwn(probabilities, String(level.value))
-            )
+            if (requested === undefined || level.label !== text(requested) || seen.has(level.value))
               throw fail(mismatch);
+            seen.add(level.value);
             probabilities[String(level.value)] = level.probability;
           }
           answers[answer.name] = {
@@ -236,17 +261,28 @@ export function createOpenAIDecisionAdapter(
         }
       }
 
+      // Check the answered questions first, so a malformed answer is never reported as a refusal.
+      const answered = Object.fromEntries(
+        Object.entries(input.questions).filter(([key]) => Object.hasOwn(answers, key)),
+      ) as typeof input.questions;
       let result: ReturnType<typeof parseDecisionResponse<typeof input.questions>>;
       try {
         result = parseDecisionResponse(
           { model: envelope.data.model, usage: envelope.data.usage, answers },
-          input.questions,
+          answered,
           Provider,
+          { rounding: Rounding },
         );
       } catch (error) {
         if (error instanceof DecisionProviderError) throw fail(mismatch);
         throw error;
       }
+      // Every other question has exactly one answer, so the unanswered ones were refused.
+      if (refused)
+        throw fail(
+          'OpenAI refused to answer a decision question',
+          Object.keys(input.questions).filter((key) => !Object.hasOwn(answers, key)),
+        );
       const cost = costFor(result.model, result.usage);
       if (cost !== null && Number.isNaN(cost))
         throw new DecisionProviderError(

@@ -254,8 +254,8 @@ From core **0.7.4+**, classification supports per-call `provider` and `model`.
 See the [packaged agent recipe](../../packages/plumbus-core/instructions/ai-classification.md).
 
 By default, classification uses the configured text provider. Set `provider` to a
-registered text provider or a TypeSafe/Laya adapter registered under
-`decisions.providers`; `model` optionally overrides that provider's model selection.
+registered text provider or a TypeSafe, Laya, or OpenAI Decisions adapter registered
+under `decisions.providers`; `model` optionally overrides that provider's model selection.
 
 ```typescript
 const labels = await ctx.ai.classify({
@@ -268,8 +268,11 @@ const labels = await ctx.ai.classify({
 ```
 
 For Laya, use `provider: "laya", model: "auto"` for automatic language routing,
-or an explicit checkpoint configured on your server. For a generative provider,
-use e.g. `provider: "openai", model: "gpt-6-sol"` and omit `threshold`.
+or an explicit checkpoint configured on your server. For OpenAI's Decisions API
+(public beta), register `@plumbus/ai-decision-openai` under a decision key such as
+`"openai-decisions"` and use `provider: "openai-decisions", model: "gpt-6-luna"`.
+For a generative provider, use e.g. `provider: "openai", model: "gpt-6-sol"` and omit
+`threshold`; the decision key must differ from that text provider's name.
 Model resolution is per-call → `decisions.defaultModel` → adapter default for
 decision providers, or per-call → AI `defaultModel` → adapter default for text providers.
 

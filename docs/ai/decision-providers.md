@@ -1,10 +1,11 @@
 # Typed decision provider packages
 
 Core **0.7.3+** integrates typed decisions through `ctx.ai.decide()`. Use shared
-`@plumbus/ai-decision@0.2.1+` and the matching TypeSafe/Laya adapters for named
-contracts, validation, security, budgets, cancellation, and per-call cost records.
-The decision packages still work independently for infrastructure tests. Register
-decision adapters separately from text-generation providers.
+`@plumbus/ai-decision@0.2.1+` (0.2.3+ for OpenAI) and the matching TypeSafe, Laya, or
+OpenAI Decisions adapter for named contracts, validation, security, budgets,
+cancellation, and per-call cost records. The decision packages still work
+independently for infrastructure tests. Register decision adapters separately from
+text-generation providers.
 
 | Package | Responsibility |
 | --- | --- |
@@ -14,11 +15,16 @@ decision adapters separately from text-generation providers.
 | `@plumbus/ai-decision-openai` | OpenAI Decisions API (`POST /v1/decisions`) adapter and `gpt-6-luna` input pricing |
 
 The decision packages peer on core `0.7.x`. Core 0.7.4 and the 0.2.2 provider packages
-depend on shared contracts `~0.2.2`; neither provider depends on the other. Node.js 20.6+ is
-required. Only the Laya service needs Python/model dependencies. The TypeSafe and
-OpenAI adapters call the documented HTTP endpoints directly, using the shared transport;
-consumer apps do not need a vendor SDK. `@plumbus/ai-decision-openai` 0.2.0 needs shared
-contracts `~0.2.3` for the transport's endpoint-path option.
+depend on shared contracts `~0.2.2`; core 0.7.9 depends on `~0.2.3`. No provider depends
+on another. Node.js 20.6+ is required. Only the Laya service needs Python/model
+dependencies. The TypeSafe and OpenAI adapters call the documented HTTP endpoints
+directly, using the shared transport; consumer apps do not need a vendor SDK.
+`@plumbus/ai-decision-openai` 0.2.0 needs shared contracts `~0.2.3` for the transport's
+endpoint-path option and adapter-declared rounding. Core checks every result again with
+the copy it loads, so that copy must be 0.2.3+ as well. Use core 0.7.9, or on core
+0.7.3–0.7.8 run `pnpm dedupe` after installing the adapter and check that
+`pnpm why @plumbus/ai-decision` lists a single 0.2.3+ copy. Otherwise core rejects
+OpenAI's rounded answers as `invalid_response` after the call is billed.
 
 For the researched issue matrix, regressions and local HTTP end-to-end coverage,
 see the [58-scenario first audit](decision-provider-audit.md).
@@ -73,8 +79,9 @@ For the OpenAI Decisions API, register
 `createOpenAIDecisionAdapter({ apiKey: process.env.OPENAI_API_KEY ?? '' })` from
 `@plumbus/ai-decision-openai` under a key such as `'openai-decisions'`. Do not reuse
 `openai`, because provider names must be distinct across the text and decision
-registries. Ledger rows carry the adapter name `openai`; `operation` and `model`
-distinguish them from text-generation rows. Direct `createAIService`
+registries. Ledger rows carry the adapter name `openai-decisions`, distinct from rows of
+the `openai` text provider. OpenAI's Decisions API is in public beta; the
+adapter follows OpenAI's documentation as of 2026-10-08. Direct `createAIService`
 callers supply their existing `costTracker` and `security` configuration.
 
 Inside a capability handler:
@@ -222,9 +229,19 @@ The OpenAI adapter translates the shared contract to the
 
 Returned score levels must have the requested indices and labels. A `refusal`
 answer for any question fails the call with `invalid_response`, keeping the model,
-usage and known cost because the request was billed. Missing, duplicate, unknown or
-mistyped answers fail the same way. Descriptions and instructions that are JSON are
-sent as JSON text. Image inputs and `safety_identifier` are not supported yet.
+usage and known cost because the request was billed. The error's `refusedQuestions`
+lists the refused question keys and is set only for refusals, so apps can tell a
+refusal from a malformed response. Because `classify()` sends every label in one
+request, a refusal on any label fails the whole `classify()` call; its keys are
+`label_<index>` by position in `labels`. Missing, duplicate, unknown or mistyped
+answers fail with `invalid_response` and no `refusedQuestions`.
+
+OpenAI does not document the precision of its numbers; its examples use two decimal
+places. The adapter therefore declares a `rounding` step of 0.01 (see the validator
+rules below), and options or levels that OpenAI leaves out of `probabilities` count as
+probability 0. Answers keep OpenAI's values; the chosen option is never changed.
+Descriptions and instructions that are JSON are sent as JSON text. Image inputs and
+`safety_identifier` are not supported yet.
 
 ## Direct adapter contract
 
@@ -267,8 +284,9 @@ through `ctx.*`. Inject configured adapters at the infrastructure boundary; do n
 create global clients or implement a competing workflow runtime. Direct adapter calls do not enforce core's PII
 checks, budgets, identity attribution, action confirmation, or ledger hooks.
 
-`DecisionProviderAdapter.decide()` accepts the same request for either provider.
-The public `probability` question/answer maps to the providers' `noul` wire format.
+`DecisionProviderAdapter.decide()` accepts the same request for every provider.
+The public `probability` question/answer maps to System One's `noul` wire format
+(TypeSafe, Laya) and to OpenAI's `predicate`.
 State and descriptions support text, JSON objects and arrays. Choices have 2–255
 options; scores have 2–10 ordered levels. Requests contain 1–256 questions and must
 fit 2 MiB. Each selected model imposes further token limits.
@@ -276,13 +294,19 @@ fit 2 MiB. Each selected model imposes further token limits.
 The validator rejects missing/extra answer IDs, mismatched types, unknown choice
 labels, a choice that is not a maximum-probability option, invalid distribution
 keys/sums, non-finite values, negative usage, and out-of-range scores. Distribution
-sum tolerance accounts for Laya's four-decimal rounding. Provider action
-predictions are discarded. Choice/score confidence is retained separately from
-probabilities. Optional Laya probability confidence is preserved; missing
-TypeSafe confidence is not invented. Structured score legends are preserved.
-Ordinal scores must agree with their distributions within provider rounding
-tolerance. JSON objects must be plain or null-prototype records; class instances
-and `__proto__` fields are rejected rather than silently transformed.
+sums, the chosen option's gap to the top option, and score consistency allow for
+Laya's four-decimal rounding. An adapter that rounds more coarsely declares its step as
+`rounding` (at most 0.01; OpenAI declares 0.01), and the runtime widens those three
+checks to that step. The sum allowance then grows with the option count only up to ten
+options, so a large choice cannot sum far from 1. An invalid `rounding` is a
+configuration error before dispatch.
+The structural checks never widen. Provider action predictions are discarded.
+Choice/score confidence is retained separately from probabilities. Optional Laya
+probability confidence is preserved; missing TypeSafe confidence is not invented.
+Structured score legends are preserved. Ordinal scores must agree with their
+distributions within provider rounding tolerance. JSON objects must be plain or
+null-prototype records; class instances and `__proto__` fields are rejected rather
+than silently transformed.
 The public `DecisionJsonSchema` also validates configuration JSON: finite numbers,
 valid Unicode in keys and values, and at most 64 nested containers. Response JSON
 rejects duplicate keys, including escaped spellings of the same key. Score legends
@@ -324,7 +348,9 @@ of silently substituting replacement characters.
 configuration, invalid request/response, HTTP, network, timeout and cancellation
 failures. HTTP failures expose status and attempt count, never raw response bodies
 or credentials. Answer-validation failures preserve model and token usage when a
-valid response envelope supplied them; the call may already have been billed.
+valid response envelope supplied them; the call may already have been billed. When a
+provider declines to answer, the `invalid_response` error also carries
+`refusedQuestions`, the refused question keys (shared package 0.2.3+).
 
 ## Pricing
 
@@ -340,9 +366,12 @@ appearing free; explicit zero rates and zero input usage remain valid.
 The OpenAI adapter defaults to `gpt-6-luna` and prices the actual response model at
 the bundled $0.10/million input tokens, with no output, cache-read or cache-write
 charges, verified against the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions#pricing-and-availability)
-on 2026-10-08. A dated snapshot such as `gpt-6-luna-2026-10-01` uses its alias rate;
-other unknown models return `cost: null`. Regional processing premiums and
-long-context multipliers are not modeled; set `inputRates` when they apply.
+on 2026-10-08. Above 272K input tokens the bundled rate doubles, as OpenAI bills
+long prompts ([model pricing](https://developers.openai.com/api/docs/models/gpt-6-luna)).
+A dated snapshot such as `gpt-6-luna-2026-10-01` uses its alias rate; other unknown
+models return `cost: null`. `inputRates` entries replace the bundled rate and are
+applied flat, without the long-context doubling. Regional processing is not modeled;
+include OpenAI's 10% uplift with an entry such as `{ 'gpt-6-luna': 0.11 }`.
 
 Laya defaults to `cost: null`. `costPerRequestUsd` is an explicit operator estimate
 for infrastructure usage; zero is accepted only when deliberately configured.

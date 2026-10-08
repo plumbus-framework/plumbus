@@ -304,18 +304,21 @@ describe('classification provider routing', () => {
       text: 'Refund please',
       labels,
       provider: 'openai-decisions',
-      model: 'gpt-6-luna',
+      model: 'gpt-6-luna-2026-10-01',
       costContext: { projectId: 'project' },
     });
     expect(result).toEqual(['billing', 'refund']);
     expect(String(fetch.mock.calls[0]?.[0])).toBe('https://api.openai.com/v1/decisions');
     const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-    expect(body).toMatchObject({ model: 'gpt-6-luna', input: '{"text":"Refund please"}' });
+    expect(body).toMatchObject({
+      model: 'gpt-6-luna-2026-10-01',
+      input: '{"text":"Refund please"}',
+    });
     expect(body.questions[0]).toMatchObject({ type: 'predicate', name: 'label_0' });
     expect(hook).toHaveBeenCalledTimes(1);
     expect(hook.mock.calls[0]?.[0]).toMatchObject({
       operation: 'classify',
-      provider: 'openai',
+      provider: 'openai-decisions',
       model: 'gpt-6-luna-2026-10-01',
       usage,
     });

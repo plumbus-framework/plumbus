@@ -1,8 +1,9 @@
 # @plumbus/core changelog
 
-## 0.7.9 — Unreleased
+## 0.7.9 — 2026-10-08
 
-- Bump agent wiring to v19: all agent formats reference `node_modules/@plumbus/ai-decision-openai/instructions/README.md` for the new optional OpenAI Decisions API provider (`@plumbus/ai-decision-openai` 0.2.0). The classification recipe (`instructions/ai-classification.md`) shows how to register it under `decisions.providers` and select it from `ctx.ai.classify()` / `ctx.ai.decide()`. Refresh apps with `plumbus init --patch --agent all`. No runtime behavior changes.
+- Bump agent wiring to v19: all agent formats reference `node_modules/@plumbus/ai-decision-openai/instructions/README.md` for the new optional OpenAI Decisions API provider (`@plumbus/ai-decision-openai` 0.2.0). The classification recipe (`instructions/ai-classification.md`) shows how to register it under `decisions.providers` and select it from `ctx.ai.classify()` / `ctx.ai.decide()`. Refresh apps with `plumbus init --patch --agent all`.
+- Core now depends on `@plumbus/ai-decision` `~0.2.3` (was `~0.2.2`), the shared version the OpenAI adapter needs. It adds the transport endpoint path, adapter-declared rounding, and `DecisionProviderError.refusedQuestions`; TypeSafe and Laya results are validated exactly as before. Core's own runtime code is unchanged.
 
 ## 0.7.8 — 2026-09-27
 
