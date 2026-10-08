@@ -286,7 +286,7 @@ export interface TokenUsage {
   totalTokens: number;
   /** Tokens served from provider cache (charged at reduced rate). */
   cachedInputTokens?: number;
-  /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
+  /** Tokens written to provider cache (charged at an elevated input rate). */
   cacheWriteTokens?: number;
 }
 
@@ -613,18 +613,35 @@ function buildEmptyOpenAIStructuredContentError(args: {
   );
 }
 
-function openAIUsageToTokenUsage(usage: {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  prompt_tokens_details?: { cached_tokens?: number };
-}): TokenUsage {
+function openAIUsageToTokenUsage(
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  },
+  model: string,
+): TokenUsage {
   return {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
     cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    ...openAICacheWriteUsage(model, usage.prompt_tokens_details?.cache_write_tokens),
   };
+}
+
+/**
+ * OpenAI reports cache writes inside input tokens. GPT-5.6 and later bill them at
+ * 1.25x input, as the catalog does; earlier models have no write charge, so their
+ * writes stay ordinary input.
+ */
+function openAICacheWriteUsage(
+  model: string,
+  cacheWriteTokens: number | undefined,
+): Pick<TokenUsage, 'cacheWriteTokens'> {
+  if (!cacheWriteTokens || !(isGpt56Family(model) || isGpt6Family(model))) return {};
+  return { cacheWriteTokens };
 }
 
 function shouldUseOpenAIMaxCompletionTokens(model: string): boolean {
@@ -687,20 +704,110 @@ function unsupportedReasoning(provider: string, reasoning: AIReasoningConfig): n
   });
 }
 
+/**
+ * GPT-6 models accept no `minimal` effort, and GPT-6 Astra and GPT-6.1 Sol also
+ * reject `none`, so disabled reasoning cannot be represented for them.
+ */
+function assertOpenAIReasoningSupported(model: string, reasoning: AIReasoningConfig): void {
+  if (!isGpt6Family(model)) return;
+  if (reasoning.mode === 'effort' && reasoning.effort === 'minimal') {
+    throw new AIInvalidRequestError({
+      reason: 'reasoning_effort_unsupported',
+      message: `OpenAI model "${model}" does not support reasoning effort "minimal"; use "low"`,
+    });
+  }
+  if (reasoning.mode === 'disabled' && isGpt6WithoutNoneEffort(model)) {
+    throw new AIInvalidRequestError({
+      reason: 'reasoning_disabled_unsupported',
+      message: `OpenAI model "${model}" cannot disable reasoning; its lowest effort is "low"`,
+    });
+  }
+}
+
 /** Translate provider-neutral reasoning onto OpenAI's top-level `reasoning_effort`. */
-function applyOpenAIReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
+function applyOpenAIReasoning(
+  body: Record<string, unknown>,
+  request: ProviderRequest,
+  model: string,
+): void {
   const reasoning = normalizeProviderRequestReasoning(request);
   if (!reasoning) {
     if (request.reasoningEffort) body.reasoning_effort = request.reasoningEffort;
     return;
   }
   if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  assertOpenAIReasoningSupported(model, reasoning);
   body.reasoning_effort = reasoning.mode === 'disabled' ? 'none' : reasoning.effort;
+}
+
+/**
+ * Claude models that return HTTP 400 for any non-default `temperature`, `top_p` or
+ * `top_k` on every request, thinking on or off. `disabled` is the `thinking` type sent
+ * for `{ mode: 'disabled' }` (Sonnet 5.5 takes `between_tools` instead); a model
+ * without it cannot turn thinking off. Opus 5, Sonnet 5.5 and Haiku 5.5 accept that
+ * type only at effort `high` or below; a disabled request sends no effort, and their
+ * defaults are `high` (`medium` on Haiku 5.5). Of these models only Mythos Preview
+ * accepts `thinking: { type: 'enabled', budget_tokens }`.
+ * Sources: https://platform.claude.com/docs/en/build-with-claude/thinking#sampling-parameters
+ * and https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
+ */
+const FIXED_SAMPLING_CLAUDE_MODELS: Readonly<
+  Record<string, { disabled?: 'disabled' | 'between_tools'; budget?: true }>
+> = {
+  'fable-5-1': {},
+  'mythos-5-1': {},
+  'fable-5': {},
+  'mythos-5': {},
+  'mythos-preview': { budget: true },
+  'opus-5-5': {},
+  'opus-5': { disabled: 'disabled' },
+  'opus-4-8': { disabled: 'disabled' },
+  'opus-4-7': { disabled: 'disabled' },
+  'sonnet-5-5': { disabled: 'between_tools' },
+  'sonnet-5': { disabled: 'disabled' },
+  'haiku-5-5': { disabled: 'disabled' },
+};
+
+/** Looks up a fixed-sampling Claude model, including dated and platform-prefixed ids. */
+function fixedSamplingClaudeModel(
+  model: unknown,
+): (typeof FIXED_SAMPLING_CLAUDE_MODELS)[string] | undefined {
+  if (typeof model !== 'string') return undefined;
+  const normalizedModel = model.trim().toLowerCase();
+  const id = /(?:^|[./])claude-([a-z]+-(?:\d+(?:-\d{1,2})?|preview))(?=$|[-@:])/.exec(
+    normalizedModel,
+  )?.[1];
+  return id && Object.hasOwn(FIXED_SAMPLING_CLAUDE_MODELS, id)
+    ? FIXED_SAMPLING_CLAUDE_MODELS[id]
+    : undefined;
 }
 
 /** Translate provider-neutral reasoning onto Anthropic Messages API fields. */
 function applyAnthropicReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
   const reasoning = normalizeProviderRequestReasoning(request);
+  const fixedSampling = fixedSamplingClaudeModel(body.model);
+  // These models accept only the API default, so any temperature (Plumbus's 0.7
+  // default or a prompt's own) is left out, as for OpenAI gpt-5.5+.
+  const temperature = fixedSampling ? undefined : request.temperature;
+  if (fixedSampling) {
+    delete body.temperature;
+    if (reasoning?.mode === 'budget' && !fixedSampling.budget) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_budget_unsupported',
+        message: `Anthropic model "${body.model}" does not accept a thinking budget; use an effort`,
+      });
+    }
+    if (reasoning?.mode === 'disabled') {
+      if (!fixedSampling.disabled) {
+        throw new AIInvalidRequestError({
+          reason: 'reasoning_disabled_unsupported',
+          message: `Anthropic model "${body.model}" cannot turn thinking off; use effort "low"`,
+        });
+      }
+      body.thinking = { type: fixedSampling.disabled };
+      return;
+    }
+  }
   if (!reasoning) return;
   if (reasoning.mode === 'disabled') {
     body.thinking = { type: 'disabled' };
@@ -719,13 +826,13 @@ function applyAnthropicReasoning(body: Record<string, unknown>, request: Provide
         message: 'Anthropic reasoning budget must be smaller than maxTokens',
       });
     }
-    if (request.temperature != null && request.temperature !== 1) {
+    if (temperature != null && temperature !== 1) {
       throw new AIInvalidRequestError({
         reason: 'reasoning_temperature_conflict',
         message: 'Anthropic thinking requires temperature 1 or an omitted temperature',
       });
     }
-    if (request.temperature == null) delete body.temperature;
+    if (temperature == null) delete body.temperature;
     body.thinking = {
       type: 'enabled',
       budget_tokens: reasoning.maxTokens,
@@ -736,13 +843,13 @@ function applyAnthropicReasoning(body: Record<string, unknown>, request: Provide
   if (reasoning.effort === 'minimal') {
     unsupportedReasoning('anthropic', reasoning);
   }
-  if (request.temperature != null && request.temperature !== 1) {
+  if (temperature != null && temperature !== 1) {
     throw new AIInvalidRequestError({
       reason: 'reasoning_temperature_conflict',
       message: 'Anthropic adaptive thinking requires temperature 1 or an omitted temperature',
     });
   }
-  if (request.temperature == null) delete body.temperature;
+  if (temperature == null) delete body.temperature;
   body.thinking = { type: 'adaptive', display: 'omitted' };
   const outputConfig =
     body.output_config && typeof body.output_config === 'object'
@@ -982,7 +1089,7 @@ interface OpenAIResponsesData {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
-    input_tokens_details?: { cached_tokens?: number };
+    input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
   };
 }
 
@@ -1002,6 +1109,11 @@ function isGpt56Family(model: string): boolean {
 
 function isGpt6Family(model: string): boolean {
   return /^gpt-6(?:$|[-.])/.test(model.trim().toLowerCase());
+}
+
+/** GPT-6 Astra and GPT-6.1 Sol: lowest reasoning effort is `low`, not `none`. */
+function isGpt6WithoutNoneEffort(model: string): boolean {
+  return /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model.trim().toLowerCase());
 }
 
 /**
@@ -1073,6 +1185,7 @@ function buildOpenAIResponsesToolChoice(toolChoice: AIToolChoice | undefined): u
 function applyOpenAIResponsesReasoning(
   body: Record<string, unknown>,
   request: ProviderRequest,
+  model: string,
 ): void {
   const reasoning = normalizeProviderRequestReasoning(request);
   if (!reasoning) {
@@ -1080,10 +1193,14 @@ function applyOpenAIResponsesReasoning(
     return;
   }
   if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  assertOpenAIReasoningSupported(model, reasoning);
   body.reasoning = { effort: reasoning.mode === 'disabled' ? 'none' : reasoning.effort };
 }
 
-function openAIResponsesUsageToTokenUsage(usage: OpenAIResponsesData['usage']): TokenUsage {
+function openAIResponsesUsageToTokenUsage(
+  usage: OpenAIResponsesData['usage'],
+  model: string,
+): TokenUsage {
   const inputTokens = usage?.input_tokens ?? 0;
   const outputTokens = usage?.output_tokens ?? 0;
   return {
@@ -1091,6 +1208,7 @@ function openAIResponsesUsageToTokenUsage(usage: OpenAIResponsesData['usage']): 
     outputTokens,
     totalTokens: usage?.total_tokens ?? inputTokens + outputTokens,
     cachedInputTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
+    ...openAICacheWriteUsage(model, usage?.input_tokens_details?.cache_write_tokens),
   };
 }
 
@@ -1146,7 +1264,7 @@ async function completeOpenAIResponses(args: {
   };
   if (request.system) body.instructions = request.system;
   applyOpenAITemperature(body, model, request);
-  applyOpenAIResponsesReasoning(body, request);
+  applyOpenAIResponsesReasoning(body, request, model);
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
   if (request.responseFormat === 'json') {
     body.text = {
@@ -1182,7 +1300,7 @@ async function completeOpenAIResponses(args: {
       }),
   });
   const data = (await response.json()) as OpenAIResponsesData;
-  const usage = openAIResponsesUsageToTokenUsage(data.usage);
+  const usage = openAIResponsesUsageToTokenUsage(data.usage, model);
   const output = data.output ?? [];
   const extracted = extractOpenAIResponsesContent(output);
   const content = extracted.content || data.output_text || '';
@@ -1343,7 +1461,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         messages,
       };
       applyOpenAITemperature(body, model, request);
-      applyOpenAIReasoning(body, request);
+      applyOpenAIReasoning(body, request, model);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
@@ -1413,13 +1531,13 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           prompt_tokens: number;
           completion_tokens: number;
           total_tokens: number;
-          prompt_tokens_details?: { cached_tokens?: number };
+          prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
         };
       };
 
       const choice = data.choices[0];
       if (!choice) throw new Error('OpenAI returned no choices');
-      const usage = openAIUsageToTokenUsage(data.usage);
+      const usage = openAIUsageToTokenUsage(data.usage, model);
       const content = extractOpenAIMessageContent(choice.message);
       if (choice.message.refusal) {
         throw new AIRefusalError({
@@ -1488,7 +1606,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream_options: { include_usage: true },
       };
       applyOpenAITemperature(body, model, request);
-      applyOpenAIReasoning(body, request);
+      applyOpenAIReasoning(body, request, model);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {
@@ -1522,7 +1640,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         return;
       }
 
-      yield* parseSSEStream(resp, parseOpenAISSEChunk);
+      yield* parseSSEStream(resp, (eventType, data) => parseOpenAISSEChunk(eventType, data, model));
     },
 
     async embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
@@ -1947,6 +2065,7 @@ async function* parseSSEStream(
 function parseOpenAISSEChunk(
   _eventType: string,
   data: string,
+  model: string,
 ): ProviderStreamEvent | ProviderStreamEvent[] | null {
   try {
     const parsed = JSON.parse(data) as {
@@ -1955,7 +2074,7 @@ function parseOpenAISSEChunk(
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
-        prompt_tokens_details?: { cached_tokens?: number };
+        prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
       };
     };
 
@@ -1964,15 +2083,7 @@ function parseOpenAISSEChunk(
       parsed.usage &&
       (!parsed.choices || parsed.choices.length === 0 || !parsed.choices[0]?.delta?.content)
     ) {
-      return {
-        type: 'usage',
-        usage: {
-          inputTokens: parsed.usage.prompt_tokens,
-          outputTokens: parsed.usage.completion_tokens,
-          totalTokens: parsed.usage.total_tokens,
-          cachedInputTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0,
-        },
-      };
+      return { type: 'usage', usage: openAIUsageToTokenUsage(parsed.usage, model) };
     }
 
     const choice = parsed.choices?.[0];

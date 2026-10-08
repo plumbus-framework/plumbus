@@ -33,7 +33,7 @@ Return valid JSON matching the output schema.`,
 
 `model` is a `ModelConfig` object — `{ provider?, name?, temperature?, maxTokens? }`. Leaving any field unset falls back to the provider's default. Set `provider: "openai" | "anthropic" | …` when you have multiple providers configured and want this prompt to pin to one.
 
-For OpenAI `gpt-5.5+` models, `temperature` is omitted from the API request (those models only support the default value of `1`). Earlier `gpt-5` lines such as `gpt-5.4-mini` still send the configured temperature. Separately, `maxTokens` is sent as `max_completion_tokens` for the broader `gpt-5*` / `o*` family.
+For OpenAI `gpt-5.5+` models, `temperature` is omitted from the API request (those models only support the default value of `1`). Earlier `gpt-5` lines such as `gpt-5.4-mini` still send the configured temperature. Claude Opus 4.7 and later, Sonnet 5 and 5.5, Haiku 5.5, Fable, and Mythos also accept only `1`: in core 0.7.9+ Plumbus leaves out its `0.7` default for them and rejects any other configured temperature before sending the request (see [Multi-Provider Setup](../ai/ai-integration.md#multi-provider-setup)). Separately, `maxTokens` is sent as `max_completion_tokens` for the broader `gpt-5*` / `o*` family.
 
 ## Using Prompts via ctx.ai
 

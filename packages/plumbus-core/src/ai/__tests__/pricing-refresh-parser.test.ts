@@ -93,6 +93,47 @@ Standard
       { model: 'claude-opus-5', kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
     ]);
   });
+
+  it('reads short-context prices from tables with cache-write columns', () => {
+    expect(
+      parseOpenAIPricing(`Flagship models
+Standard
+### Standard pricing data
+| Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gpt-6.1-sol | $2.00 | $0.10 | $2.50 | $10.00 | $4.00 | $0.20 | $5.00 | $15.00 |
+`),
+    ).toEqual([
+      {
+        model: 'gpt-6.1-sol',
+        kind: 'text',
+        inputPerMTok: 2,
+        outputPerMTok: 10,
+        cachedInputPerMTok: 0.1,
+      },
+    ]);
+  });
+
+  it('keeps the Haiku 5.5 row for prompts up to 100,000 tokens as the base rate', () => {
+    expect(
+      parseAnthropicPricing(`
+| Model | Base input tokens | 5m cache writes | 1h cache writes | Cache hits and refreshes | Output tokens |
+| --- | --- | --- | --- | --- | --- |
+| Claude Sonnet 5.5 | $2 / MTok | $2.50 / MTok | $4 / MTok | $0.10 / MTok<sup>2</sup> | $10 / MTok |
+| Claude Haiku 5.5 (for prompts up to 100,000 tokens) | $0.10 / MTok | $0.125 / MTok | $0.20 / MTok | $0.01 / MTok | $0.50 / MTok |
+| Claude Haiku 5.5 (for prompts over 100,000 tokens) | $0.50 / MTok | $0.625 / MTok | $1 / MTok | $0.05 / MTok | $2.50 / MTok |
+`),
+    ).toEqual([
+      {
+        model: 'claude-sonnet-5-5',
+        kind: 'text',
+        inputPerMTok: 2,
+        outputPerMTok: 10,
+        cachedInputPerMTok: 0.1,
+      },
+      { model: 'claude-haiku-5-5', kind: 'text', inputPerMTok: 0.1, outputPerMTok: 0.5 },
+    ]);
+  });
 });
 
 describe('manual pricing update dates', () => {

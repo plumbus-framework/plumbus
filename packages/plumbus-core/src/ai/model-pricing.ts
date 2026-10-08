@@ -5,14 +5,17 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-09-23 (GPT-6 Sol/Luna and Anthropic Opus)
+// Last updated: 2026-10-08 (GPT-6.1 Sol, GPT-6 Astra, Claude Sonnet 5.5 and Haiku 5.5,
+// GPT-5.4 to GPT-5.6 long-context rows; GPT-6 and current Anthropic rows rechecked).
 // Other entries last synced 2026-09-10.
 //
 // Unknown models (Ollama, custom endpoints) have no catalog cost.
 //
 // Only standard-tier rates are tracked (not batch, flex, or fast mode), and for
 // models with split short/long context pricing the short-context (base) rate is
-// recorded, with explicit long-context thresholds for GPT-5.6 Sol and GPT-6 Sol/Luna.
+// recorded, with explicit long-context thresholds for the OpenAI models the page
+// prices above 272K input tokens (GPT-5.4, GPT-5.5, GPT-5.6 and GPT-6 rows) and
+// Claude Haiku 5.5 (published rates above 100K input tokens).
 // Sonnet 5 remains $2/$10 (the scheduled increase was cancelled).
 //
 // `kind` is derived from the pricing page's section structure, not from name
@@ -39,6 +42,8 @@ export interface ModelRate {
   cachedInputPerMTok?: number;
   /** Above this inclusive input-token boundary, charge 2× input/cache and 1.5× output. */
   longContextThreshold?: number;
+  /** Published rates above `longContextThreshold`, replacing the 2× / 1.5× rule. */
+  longContextRates?: Pick<ModelRate, 'inputPerMTok' | 'outputPerMTok' | 'cachedInputPerMTok'>;
   /**
    * Capability classification. Optional on the type for backward compat —
    * existing consumers that destructure only the rate fields keep working —
@@ -49,7 +54,20 @@ export interface ModelRate {
 
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
-  'gpt-6-astra': { kind: 'text', inputPerMTok: 10, outputPerMTok: 50 },
+  'gpt-6-astra': {
+    kind: 'text',
+    inputPerMTok: 10,
+    outputPerMTok: 50,
+    cachedInputPerMTok: 1,
+    longContextThreshold: 272_000,
+  },
+  'gpt-6.1-sol': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cachedInputPerMTok: 0.1,
+    longContextThreshold: 272_000,
+  },
   'gpt-6-sol': {
     kind: 'text',
     inputPerMTok: 2,
@@ -71,14 +89,34 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
     cachedInputPerMTok: 0.5,
     longContextThreshold: 272_000,
   },
-  'gpt-5.6-terra': { kind: 'text', inputPerMTok: 2, outputPerMTok: 12 },
-  'gpt-5.6-luna': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.2 },
-  'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30 },
-  'gpt-5.5-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
-  'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15 },
+  'gpt-5.6-terra': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 12,
+    longContextThreshold: 272_000,
+  },
+  'gpt-5.6-luna': {
+    kind: 'text',
+    inputPerMTok: 0.2,
+    outputPerMTok: 1.2,
+    longContextThreshold: 272_000,
+  },
+  'gpt-5.5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 30, longContextThreshold: 272_000 },
+  'gpt-5.5-pro': {
+    kind: 'text',
+    inputPerMTok: 30,
+    outputPerMTok: 180,
+    longContextThreshold: 272_000,
+  },
+  'gpt-5.4': { kind: 'text', inputPerMTok: 2.5, outputPerMTok: 15, longContextThreshold: 272_000 },
   'gpt-5.4-mini': { kind: 'text', inputPerMTok: 0.75, outputPerMTok: 4.5 },
   'gpt-5.4-nano': { kind: 'text', inputPerMTok: 0.2, outputPerMTok: 1.25 },
-  'gpt-5.4-pro': { kind: 'text', inputPerMTok: 30, outputPerMTok: 180 },
+  'gpt-5.4-pro': {
+    kind: 'text',
+    inputPerMTok: 30,
+    outputPerMTok: 180,
+    longContextThreshold: 272_000,
+  },
   'gpt-5.2': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.2-pro': { kind: 'text', inputPerMTok: 21, outputPerMTok: 168 },
   'gpt-5.1': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
@@ -177,12 +215,26 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'claude-opus-4-5': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
   'claude-opus-4-1': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
   'claude-opus-4': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
+  'claude-sonnet-5-5': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cachedInputPerMTok: 0.1,
+  },
   'claude-sonnet-5': { kind: 'text', inputPerMTok: 2, outputPerMTok: 10 },
   'claude-sonnet-4-6': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-sonnet-4-5': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-sonnet-4': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-3-7-sonnet': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
   'claude-3-5-sonnet': { kind: 'text', inputPerMTok: 3, outputPerMTok: 15 },
+  'claude-haiku-5-5': {
+    kind: 'text',
+    inputPerMTok: 0.1,
+    outputPerMTok: 0.5,
+    cachedInputPerMTok: 0.01,
+    longContextThreshold: 100_000,
+    longContextRates: { inputPerMTok: 0.5, outputPerMTok: 2.5, cachedInputPerMTok: 0.05 },
+  },
   'claude-haiku-4-5': { kind: 'text', inputPerMTok: 1, outputPerMTok: 5 },
   'claude-3-5-haiku': { kind: 'text', inputPerMTok: 0.8, outputPerMTok: 4 },
   'claude-3-opus': { kind: 'text', inputPerMTok: 15, outputPerMTok: 75 },
@@ -264,8 +316,9 @@ export function calculateModelCost(
  * - **Cached input tokens**: published per-model rate, defaulting to 0.1× input.
  * - **Cache write tokens**: charged at 1.25× the base input rate.
  * - **Long context premium**: for Claude Sonnet 4 / 4.5, when total input exceeds
- *   200K tokens, or GPT-5.6 Sol / GPT-6 Sol and Luna over 272K, charge 2× input/cache
- *   and 1.5× output.
+ *   200K tokens, or OpenAI models with a `longContextThreshold` (GPT-5.4 to GPT-6)
+ *   over 272K, charge 2× input/cache and 1.5× output. Claude Haiku 5.5 over 100K uses
+ *   its published `longContextRates`.
  *
  * Returns undefined for unknown/unsupported models; explicitly free adapters may report zero.
  */
@@ -299,9 +352,16 @@ export function estimateModelCost(
   const longContextThreshold =
     rate.longContextThreshold ?? (hasLongContextPremium(model) ? 200_000 : undefined);
   if (longContextThreshold != null && totalInput > longContextThreshold) {
-    inputRate *= 2;
-    cachedInputRate *= 2;
-    outputRate *= 1.5;
+    const longRates = rate.longContextRates;
+    if (longRates) {
+      inputRate = longRates.inputPerMTok;
+      outputRate = longRates.outputPerMTok;
+      cachedInputRate = longRates.cachedInputPerMTok ?? longRates.inputPerMTok * 0.1;
+    } else {
+      inputRate *= 2;
+      cachedInputRate *= 2;
+      outputRate *= 1.5;
+    }
   }
 
   // Standard (non-cached) input tokens

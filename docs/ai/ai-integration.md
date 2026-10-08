@@ -168,7 +168,7 @@ await ctx.ai.generateWithUsage({
 });
 ```
 
-When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. Catch it in capability handlers to surface a structured error to the caller instead of a generic 500.
+When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. In core 0.7.9+ it also carries `cost`: each attempt priced on its own usage (adapter cost, else the catalog), omitted when an attempt cannot be priced. Catch it in capability handlers to surface a structured error to the caller instead of a generic 500.
 
 ### streamGenerate (streaming completions)
 
@@ -352,14 +352,50 @@ through provider continuation state.
 Anthropic maps disabled/effort/budget to `thinking` and
 `output_config.effort`. Adapter-level
 incompatibilities fail locally with `AIInvalidRequestError`; model-specific limitations remain
-provider errors. The adapter uses bounded model-family detection only for provider-specific
-transport and parameter compatibility. The same override can be supplied via
-`resolveAiOverrides` / `promptOverrides`.
+provider errors, except for the models listed below. The adapter uses bounded model-family
+detection only for provider-specific transport and parameter compatibility. The same override
+can be supplied via `resolveAiOverrides` / `promptOverrides`.
+
+Core 0.7.9 checks GPT-6 reasoning settings that these models reject before sending the request:
+
+| Model | Accepted | Fails locally with `AIInvalidRequestError` |
+| --- | --- | --- |
+| `gpt-6-sol`, `gpt-6-luna` | disabled (`none`), efforts `low` to `max` | effort `minimal` |
+| `gpt-6-astra`, `gpt-6.1-sol` | efforts `low` to `max` | disabled (these models have no `none` effort; use `low`), effort `minimal` |
+
+GPT-6 Astra and GPT-6.1 Sol support tool calls only through the Responses API, which Plumbus
+already uses for tool calls with active or default reasoning. Source: [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+The models below return HTTP 400 for any `temperature`, `top_p`, or `top_k` other than the
+default, whether or not thinking is on (the adapter sends only `temperature`). In core 0.7.9+
+Plumbus sends them no `temperature` at all: not its `0.7` default and not one set on a call or
+a prompt, as the OpenAI adapter already does for `gpt-5.5` and later.
+It also maps `reasoning` onto what each model accepts:
+
+| Model | `{ mode: 'disabled' }` | `{ mode: 'budget' }` |
+| --- | --- | --- |
+| `claude-sonnet-5-5` | sent as `thinking: { type: "between_tools" }` | fails locally |
+| `claude-haiku-5-5`, `claude-opus-5`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-opus-4-7` | sent as `thinking: { type: "disabled" }` | fails locally |
+| `claude-opus-5-5`, `claude-fable-5-1`, `claude-mythos-5-1`, `claude-fable-5`, `claude-mythos-5` | fails locally: thinking cannot be turned off, so lower the effort instead | fails locally |
+| `claude-mythos-preview` | fails locally, as above | sent as before (`thinking: { type: "enabled" }`) |
+
+Local failures are `AIInvalidRequestError` with reason `reasoning_disabled_unsupported` or
+`reasoning_budget_unsupported`. Effort mode is unchanged on every model. Claude Sonnet 5.5 rejects
+`thinking: { type: "disabled" }`; `between_tools` is Anthropic's replacement that turns off
+up-front thinking, and its short progress notes between tool calls come back as thinking blocks
+that Plumbus passes back on the next tool round. Opus 5, Sonnet 5.5, and Haiku 5.5 accept
+thinking off only at effort `high` or below; disabled reasoning sends no effort, so the model
+default applies (`high`, or `medium` on Haiku 5.5). Other Claude models, such as
+`claude-sonnet-4-5`, `claude-haiku-4-5`, and `claude-opus-4-6`, get the same requests as before.
+Sources: [Anthropic thinking](https://platform.claude.com/docs/en/build-with-claude/thinking#sampling-parameters),
+[Troubleshooting thinking](https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting),
+[Effort](https://platform.claude.com/docs/en/build-with-claude/effort).
 
 The legacy `model.reasoningEffort` union and runtime behavior are unchanged: only
 `low`, `medium`, and `high`, and only the OpenAI adapter consumes it. Anthropic
 continues to ignore that legacy property and keeps its existing `temperature: 0.7`
-default unless the new `reasoning` property is explicitly configured.
+default unless the new `reasoning` property is explicitly configured, except on the models in
+the table above, which never get that default.
 
 ```typescript
 import { createAIService, createOpenAIAdapter, createProviderAdapter } from "@plumbus/core";
@@ -770,16 +806,18 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. GPT-5.6 Sol (including the `gpt-5.6` alias), GPT-6 Sol, and GPT-6 Luna apply their documented long-context premium above 272K input tokens. Other OpenAI models currently use the short-context base rate. GPT-6 Sol/Luna and Anthropic Opus rates were verified on 2026-09-23; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.6-sol` (including the `gpt-5.6` alias), `gpt-5.6-terra`, `gpt-5.6-luna`, and the GPT-6 models apply their documented long-context premium above 272K input tokens. Other OpenAI models list no long-context price and use the base rate at any length. GPT-6 and current Anthropic rates were checked on 2026-10-08; the remaining catalog was last synced on 2026-09-10. Run the `update-model-pricing` skill to refresh rates.
 
-The GPT-6 additions use these USD rates per million tokens for requests with at most 272,000 input tokens:
+The GPT-6 models use these USD rates per million tokens for requests with at most 272,000 input tokens:
 
 | Model | Input | Cached input | Cache writes | Output |
 | --- | --- | --- | --- | --- |
+| `gpt-6-astra` | $10 | $1 | $12.50 | $50 |
+| `gpt-6.1-sol` | $2 | $0.10 | $2.50 | $10 |
 | `gpt-6-sol` | $2 | $0.20 | $2.50 | $10 |
 | `gpt-6-luna` | $0.10 | $0.01 | $0.125 | $0.50 |
 
-Above 272,000 input tokens, input/cache rates double and output rates multiply by 1.5 for the **whole request**. Normalized input includes cache reads and writes once. The existing `-YYYYMMDD` pricing fallback also applies to these entries; no additional API aliases are introduced. Their rates are independent of GPT-5.6 Sol's promotional window. Sources: [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Above 272,000 input tokens, input/cache rates double and output rates multiply by 1.5 for the **whole request**. Normalized input includes cache reads and writes once. The existing `-YYYYMMDD` pricing fallback also applies to these entries; no additional API aliases are introduced. Their rates are independent of GPT-5.6 Sol's promotional window. GPT-6.1 Sol cache reads cost **0.05x** input. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra), [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol uses the bundled $4/$20 input/output rates ($0.40 cached input) before November 22, 2026 UTC, then falls back to its regular $5/$30 rates ($0.50 cached input). Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
@@ -793,30 +831,42 @@ The September 23 Opus update adds `claude-opus-5-5` with these standard USD rate
 
 Opus 5.5 cache reads cost **0.05x** input, rather than the usual 0.1x. Its rates stay flat throughout the 1M-token context window. Opus 5 and 4.5–4.8 retain $5 input / $0.50 cached input / $25 output; legacy Opus 4/4.1 retain $15 / $1.50 / $75. The existing `-YYYYMMDD` pricing fallback also covers Opus 5.5; it does not introduce new API aliases. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Opus 5.5 model documentation](https://platform.claude.com/docs/en/models/opus-5-5/overview).
 
+The October 8 update adds Claude Sonnet 5.5 and Claude Haiku 5.5:
+
+| Model | Input | Cached input | 5-minute cache writes | Output |
+| --- | --- | --- | --- | --- |
+| `claude-sonnet-5-5` | $2 | $0.10 | $2.50 | $10 |
+| `claude-haiku-5-5`, prompts up to 100,000 tokens | $0.10 | $0.01 | $0.125 | $0.50 |
+| `claude-haiku-5-5`, prompts over 100,000 tokens | $0.50 | $0.05 | $0.625 | $2.50 |
+
+Sonnet 5.5 cache reads cost **0.05x** input, and its rates stay flat throughout the 1M-token context window. Haiku 5.5 is priced by prompt length: above 100,000 input tokens (cache reads and writes included) every token in the request uses the higher row, five times the base rates. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview), [Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview).
+
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 uses **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
-- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5, Sonnet 5.5, and GPT-6.1 Sol use **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
+- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching Anthropic five-minute caching and OpenAI GPT-5.6 and later. One-hour cache-write pricing is not separately modelled.
 - Standard (non-cached) input tokens are charged at the full base rate
 
 **Request-side marks:** OpenAI caches automatically. For Anthropic and Bedrock Claude, enable `cache` on the call, or set `AI_PROMPT_CACHE` / `createAIService({ cache })`, so Plumbus emits `cache_control` / `cachePoint` — see [Prompt caching](#prompt-caching-anthropic--bedrock). Without those marks, Anthropic responses report zero cached tokens even though pricing fields exist, and Bedrock caching is best effort.
 
 The framework parses cache data from provider responses:
-- **OpenAI**: `usage.prompt_tokens_details.cached_tokens`
+- **OpenAI**: `usage.prompt_tokens_details.cached_tokens` (Responses: `usage.input_tokens_details.cached_tokens`). In core 0.7.9+, `cache_write_tokens` from the same object becomes `cacheWriteTokens` for GPT-5.6 and GPT-6 models, the models OpenAI bills for cache writes; earlier models have no cache-write charge, so their writes stay ordinary input.
 - **Anthropic**: `usage.cache_read_input_tokens` and `usage.cache_creation_input_tokens`
 - **Bedrock**: cache token fields on Converse usage (when present); `@plumbus/ai-bedrock` applies the same ~0.1× / 1.25× multipliers against Bedrock rates
 ### Long Context Premium
 
-GPT-5.6 Sol, GPT-6 Sol, and GPT-6 Luna use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
+The OpenAI models with a long-context premium (`gpt-5.4`, `gpt-5.4-pro`, `gpt-5.5`, `gpt-5.5-pro`, the three GPT-5.6 models, and the GPT-6 models) use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
+
+Claude Haiku 5.5 uses the same strict boundary at **100,000 input tokens** but with its published rates instead of the multipliers: above it, input, cache reads, cache writes, and output all cost 5x the base rates for the full request.
 
 For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:
 
 - Input rate: **2x** standard
 - Output rate: **1.5x** standard
 
-The framework detects this automatically based on the model name and total input token count. Normalized input already includes cache reads/writes, which are counted once when checking the long-context threshold.
+The framework detects this automatically based on the model name and total input token count. Normalized input already includes cache reads/writes, which are counted once when checking the long-context threshold. Thresholds apply per provider request: validation retries and a streaming validation fallback are priced request by request and then added up, so two 60K-token Claude Haiku 5.5 attempts both pay the up-to-100K rates.
 
 ### Budget Enforcement
 
