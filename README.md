@@ -352,7 +352,7 @@ Plumbus is designed to work seamlessly with AI coding agents (GitHub Copilot, Cu
 
 The framework ships agent instruction files inside npm packages. Start with the index files — they link every topic file and stay current as new instructions are added:
 
-- [AI classification: provider/model selection, TypeSafe/Jev and Laya](packages/plumbus-core/instructions/ai-classification.md) — core 0.7.4+, linked by agent wiring v17
+- [AI classification: provider/model selection, TypeSafe/Jev, Laya and OpenAI Decisions](packages/plumbus-core/instructions/ai-classification.md) — core 0.7.4+, linked by agent wiring v17 (OpenAI Decisions provider: v19)
 - [`@plumbus/core` instructions index](packages/plumbus-core/instructions/README.md) (`node_modules/@plumbus/core/instructions/README.md`)
 - [`@plumbus/ui` instruction files](packages/ui/README.md#instruction-files) (`node_modules/@plumbus/ui/instructions/`)
 
@@ -411,6 +411,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/ai-decision`](packages/ai-decision/) | Shared typed decision contracts, validation and transport; core `0.7.3+` integrates `ctx.ai.decide()` and cost recording |
 | [`@plumbus/ai-decision-typesafe`](packages/ai-decision-typesafe/) | Optional TypeSafe/Jev decision adapter; choices, scores, probabilities and input pricing |
 | [`@plumbus/ai-decision-laya`](packages/ai-decision-laya/) | Optional self-hosted Laya decision adapter and Python reference service |
+| [`@plumbus/ai-decision-openai`](packages/ai-decision-openai/) | Optional OpenAI Decisions API adapter (`gpt-6-luna`); choices, scores, probabilities and input pricing |
 | [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.6.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.2.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |

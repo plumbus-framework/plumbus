@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { parseDecisionResponse, toSystemOneQuestions, validateDecisionRequest } from '../index.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  parseDecisionResponse,
+  runDecision,
+  toSystemOneQuestions,
+  validateDecisionRequest,
+  validateDecisionResult,
+  type DecisionProviderAdapter,
+} from '../index.js';
 
 const questions = {
   department: {
@@ -176,6 +183,74 @@ describe('decision protocol', () => {
       },
     };
     expect(parseDecisionResponse(wire, q, 'laya').answers.a).not.toHaveProperty('action');
+  });
+
+  it('widens the numeric checks only for a declared rounding step', async () => {
+    const wire = response();
+    wire.answers.department.probabilities = { billing: 0.5, support: 0.49 };
+    wire.answers.urgency.score = 1.19;
+    expect(() => parseDecisionResponse(wire, questions, 'test')).toThrow(
+      expect.objectContaining({ kind: 'invalid_response' }),
+    );
+    const parsed = parseDecisionResponse(wire, questions, 'test', { rounding: 0.01 });
+    expect(parsed.answers.department.probabilities).toEqual({ billing: 0.5, support: 0.49 });
+    for (const rounding of [0, 0.1, Number.NaN]) {
+      expect(() => parseDecisionResponse(wire, questions, 'test', { rounding })).toThrow(
+        expect.objectContaining({ kind: 'configuration' }),
+      );
+      expect(() => validateDecisionResult({}, questions, 'test', { rounding })).toThrow(
+        expect.objectContaining({ kind: 'configuration' }),
+      );
+    }
+
+    const run = (rounding?: number) => {
+      const decide = vi.fn(async () => ({
+        ...parsed,
+        cost: null,
+        costAvailable: false,
+        latencyMs: 0,
+      }));
+      const providers = { test: { name: 'test', rounding, decide } as DecisionProviderAdapter };
+      const hooks = {
+        secure: (input: Record<string, unknown>) => input,
+        checkBudget() {},
+        async record() {},
+      };
+      return {
+        decide,
+        result: runDecision(
+          { state: 'text', questions },
+          { providers, defaultProvider: 'test' },
+          hooks,
+        ),
+      };
+    };
+    await expect(run(0.01).result).resolves.toMatchObject({ answers: parsed.answers });
+    await expect(run().result).rejects.toMatchObject({ kind: 'invalid_response' });
+    const invalid = run(0.5);
+    await expect(invalid.result).rejects.toMatchObject({ kind: 'configuration' });
+    expect(invalid.decide).not.toHaveBeenCalled();
+  });
+
+  it('caps a declared rounding allowance for choices with many options', () => {
+    const keys = Array.from({ length: 255 }, (_, i) => `o${i}`);
+    const criteria = Object.fromEntries(keys.map((key) => [key, null]));
+    const q = { a: { type: 'choice' as const, instructions: 'Pick', criteria } };
+    const zeros = Object.fromEntries(keys.map((key) => [key, 0]));
+    const wire = (top: number) => ({
+      model: 'm',
+      usage: { input_tokens: 2, output_tokens: 0 },
+      answers: {
+        a: { type: 'choice', choice: 'o0', probabilities: { ...zeros, o0: top }, confidence: 0 },
+      },
+    });
+    expect(parseDecisionResponse(wire(0.96), q, 'test', { rounding: 0.01 }).answers.a.choice).toBe(
+      'o0',
+    );
+    for (const top of [0, 0.5, 0.9])
+      expect(() => parseDecisionResponse(wire(top), q, 'test', { rounding: 0.01 })).toThrow(
+        expect.objectContaining({ kind: 'invalid_response' }),
+      );
   });
 
   it.each([

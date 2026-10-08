@@ -57,9 +57,9 @@ const invoice = await ctx.ai.extract({
 ### Classify
 
 **Start with [the classification recipe](ai-classification.md)** for provider/model
-selection, TypeSafe/Jev and Laya registration, defaults, thresholds, and cost hooks
-(core **0.7.4+**). Use `classify()` for matching labels and `decide()` for richer
-typed questions. Keep calls inside capabilities/flows.
+selection, TypeSafe/Jev, Laya, and OpenAI Decisions registration, defaults, thresholds,
+and cost hooks (core **0.7.4+**). Use `classify()` for matching labels and `decide()`
+for richer typed questions. Keep calls inside capabilities/flows.
 
 Classify text into provided categories:
 
@@ -402,11 +402,12 @@ See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.
 For choices, scores, and probabilities, use `ctx.ai.decide()` inside capabilities
 and flows. Define reusable contracts with `defineDecision` from
 `@plumbus/ai-decision`; CLI startup discovers `app/decisions/`. The shared contract
-package is provided by core; install only the TypeSafe/Laya provider required by
-the app. Export `decisions = { providers, defaultProvider }` from `app/server.ts`
-for both API and workers, using `createTypeSafeDecisionAdapter` or
-`createLayaDecisionAdapter` at that server-owned boundary. Do not register these
-adapters as text-completion providers or call them directly for app business logic.
+package is provided by core; install only the TypeSafe, Laya, or OpenAI Decisions
+provider required by the app. Export `decisions = { providers, defaultProvider }` from
+`app/server.ts` for both API and workers, using `createTypeSafeDecisionAdapter`,
+`createLayaDecisionAdapter`, or `createOpenAIDecisionAdapter` at that server-owned
+boundary. Do not register these adapters as text-completion providers or call them
+directly for app business logic.
 
 Core records `operation: 'decide'` with actual model, usage, cost, tenant/actor,
 optional `decisionName`, and the caller's `costContext`. Existing

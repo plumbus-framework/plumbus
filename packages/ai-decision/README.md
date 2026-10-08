@@ -4,9 +4,9 @@ Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../doc
 
 Shared decision contracts, runtime validation, structured errors, and HTTP transport.
 
-Version `0.2.2`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
+Version `0.2.3`; required peer `@plumbus/core` exactly `0.7.x`; Node.js 20.6+.
 Install explicitly with `pnpm add @plumbus/ai-decision`. Provider packages install
-`@plumbus/ai-decision` transitively. There is no dependency on the other provider.
+`@plumbus/ai-decision` transitively. It does not depend on any provider package.
 
 ## Scope
 

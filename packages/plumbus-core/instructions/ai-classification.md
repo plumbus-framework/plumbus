@@ -1,7 +1,7 @@
 # AI classification: provider and model selection
 
 Read this when implementing classification, categorization, label selection, or
-TypeSafe/Jev and Laya integration. Requires **@plumbus/core 0.7.4+** for the
+TypeSafe/Jev, Laya, and OpenAI Decisions integration. Requires **@plumbus/core 0.7.4+** for the
 `classify()` provider/model options. Use this recipe inside Plumbus capabilities
 and flows; preserve their access policies and declare `effects.ai: true`.
 
@@ -50,6 +50,13 @@ bootstrap, pass `decisions` to `createServer()` / `buildWorkerAiService()` or
 `createAIService()`. Decision adapters belong under `decisions.providers`, not the
 text-completion `providers` map. Use distinct names across those two maps.
 
+For the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions),
+install `@plumbus/ai-decision-openai@~0.2.0` and register
+`'openai-decisions': createOpenAIDecisionAdapter({ apiKey: process.env.OPENAI_API_KEY ?? '' })`
+(default model `gpt-6-luna`). Do not reuse the key `openai` when the app also registers
+the OpenAI text provider. OpenAI's Decisions API is in public beta. Read
+`node_modules/@plumbus/ai-decision-openai/instructions/README.md`.
+
 ## Select a provider and model per call
 
 ```ts
@@ -68,6 +75,10 @@ const labels = await ctx.ai.classify({
 `provider` is the registered map key; `model` is a model ID supported by that
 endpoint. For Laya automatic language routing use `provider: 'laya', model: 'auto'`;
 an explicit checkpoint must be configured on your Laya service.
+For OpenAI Decisions use `provider: 'openai-decisions', model: 'gpt-6-luna'`; each
+label is sent as one `predicate` question in a single request. A refusal on any label
+fails the whole call; the error's `refusedQuestions` lists the refused `label_<index>`
+keys, where the index is the label's position in `labels`.
 
 | Setting | Resolution |
 | --- | --- |
@@ -99,7 +110,8 @@ Persist the existing `onAICostRecorded` hook. Native classification records one
 `operation: 'classify'` row per dispatched logical call, including failures, with
 actual model, usage, cost, tenant/actor, and `costContext`. It does not create an
 extra `decide` row. Unknown cost remains `null`; never invent zero to bypass a
-budget. TypeSafe uses adapter pricing; Laya uses optional `costPerRequestUsd`.
+budget. TypeSafe and OpenAI Decisions use adapter input pricing; Laya uses optional
+`costPerRequestUsd`. OpenAI decision rows record provider `openai-decisions`.
 
 Use `mockAI({ classify: ['billing'] })` through `createTestContext` and
 `runCapability` / `simulateFlow` for application tests. Read the installed provider's
@@ -107,7 +119,8 @@ Use `mockAI({ classify: ['billing'] })` through `createTestContext` and
 out of routine tests.
 
 After upgrading core, run `plumbus init --patch --agent all` and `plumbus doctor`
-to refresh agent wiring to **v17**, preserving app-owned text outside managed blocks.
+to refresh agent wiring (**v17** added this recipe; **v19**, core 0.7.9+, links the
+OpenAI Decisions provider), preserving app-owned text outside managed blocks.
 
 See [AI operations](ai.md), [instruction index](README.md), and the
 [decision provider guide](https://github.com/plumbus-framework/plumbus/blob/main/docs/ai/decision-providers.md).

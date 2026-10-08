@@ -303,3 +303,16 @@ jobs:
           else
             pnpm publish --access public --no-git-checks
           fi
+
+      # Last, so a first-run 404 cannot stop other packages: trusted publishing needs the package
+      # on npm. After ai-decision 0.2.3 is out, publish 0.2.0 once by hand with pnpm (not npm).
+      - name: Publish @plumbus/ai-decision-openai
+        working-directory: packages/ai-decision-openai
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks
+          fi

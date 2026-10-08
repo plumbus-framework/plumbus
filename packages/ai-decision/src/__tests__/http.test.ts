@@ -20,6 +20,31 @@ describe('decision HTTP transport', () => {
     });
   });
 
+  it('appends a configured endpoint path instead of systemone', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response('{}'));
+    const post = createDecisionHttpTransport(
+      'test',
+      { baseUrl: 'https://example.test/v1/', fetch },
+      { path: 'decisions' },
+    );
+    await post({});
+    expect(String(fetch.mock.calls[0]?.[0])).toBe('https://example.test/v1/decisions');
+  });
+
+  it.each([
+    '',
+    '/decisions',
+    'decisions/',
+    '../admin',
+    'a?b',
+    'a#b',
+    'a//b',
+  ])('rejects unsafe endpoint path %j', (path) => {
+    expect(() =>
+      createDecisionHttpTransport('test', { baseUrl: 'https://example.test/v1' }, { path }),
+    ).toThrow(expect.objectContaining({ kind: 'configuration' }));
+  });
+
   it.each([429, 500, 502, 503, 504, 529])('retries HTTP %s with Retry-After', async (status) => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()

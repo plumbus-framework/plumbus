@@ -169,8 +169,8 @@ docs/
 | Write tests | [Testing → Guide](testing/testing-guide.md) |
 | Understand the security model | [Security → Model](security/security-model.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
-| Classify with a selected provider/model (Jev, Laya, or generative) | [Agent recipe](../packages/plumbus-core/instructions/ai-classification.md) |
-| Test Jev or self-hosted Laya decisions | [AI → Decision providers](ai/decision-providers.md) |
+| Classify with a selected provider/model (Jev, Laya, OpenAI Decisions, or generative) | [Agent recipe](../packages/plumbus-core/instructions/ai-classification.md) |
+| Test Jev, self-hosted Laya, or OpenAI Decisions | [AI → Decision providers](ai/decision-providers.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

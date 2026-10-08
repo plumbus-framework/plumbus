@@ -87,9 +87,12 @@ Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `A
 
 ### Optional add-ons: typed decision providers
 
-`@plumbus/ai-decision-typesafe` (Jev) and `@plumbus/ai-decision-laya` (self-hosted Laya)
-share `@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
-HTTP transport. All three start at `0.2.x` and peer on core `0.7.x`. Install only the
+`@plumbus/ai-decision-typesafe` (Jev), `@plumbus/ai-decision-laya` (self-hosted Laya), and
+`@plumbus/ai-decision-openai` (OpenAI Decisions API, `gpt-6-luna`) share
+`@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
+HTTP transport. All decision packages are on `0.2.x` and peer on core `0.7.x`.
+Register the OpenAI adapter under a decision key such as `openai-decisions`, distinct
+from the `openai` text provider; agent wiring **v19** (core 0.7.9) links its instructions. Install only the
 provider you need; the shared package is a dependency. Laya ships a separate Python
 reference service; Python/model dependencies are not installed by pnpm.
 
