@@ -80,7 +80,7 @@ Common production patterns (AWS docs, samples, and industry write-ups):
 | Guardrails on Converse (`guardrailConfig`) | **Not first-class** — app can wrap or extend later |
 | Multimodal image/document blocks | **Not first-class** — text/tool path today |
 | Structured outputs / `outputConfig` | Opt-in — `structuredOutputs: 'native'`; default stays on core validate-and-repair |
-| Explicit prompt caching (`cachePoint`) | Yes — when `cache` is set on the call or as the AI service default (Claude model ids except the four oldest; core ≥ 0.7.9, ai-bedrock ≥ 0.2.2) |
+| Explicit prompt caching (`cachePoint`) | Yes — when `cache` is set on the call or as the AI service default (Claude model ids except Claude 3 Haiku / Sonnet / Opus and both Claude 3.5 Sonnet versions; core ≥ 0.7.9, ai-bedrock ≥ 0.2.2) |
 | Bedrock Agents / KB Retrieve | Out of scope — use RAG in core / knowledge-base |
 | Mantle OpenAI proxy | Use OpenAI adapter, not this package |
 

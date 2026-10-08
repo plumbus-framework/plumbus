@@ -134,7 +134,7 @@ Full curl, normalize script, ConfigMap sketch: **[instructions/pricing.md](./ins
 - **Missing pricing file** — file mode throws on first call; auto-download failure warns, leaves cost unknown, and backs off 5 minutes before retrying.
 - **Unmapped / unkeyed models** — inference works; **no `cost` field** is set until the pricing file has an explicit family-key row (auto-download is best-effort, not a complete AWS catalog). Core then falls back to its own catalog rather than recording the call as free.
 - **IAM** — Converse itself requires `bedrock:InvokeModel`; do not scope that action to embedding models only.
-- **Wiring** — after install, `plumbus init --patch` (core ≥ 0.6.16 / wiring v13) so agents see `instructions/`.
+- **Wiring** — after install, `plumbus init --patch` (wiring v13+, any core 0.7.x) so agents see `instructions/`.
 
 ## Documentation / Agent recipes
 

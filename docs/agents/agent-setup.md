@@ -57,6 +57,7 @@ plumbus init
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
 │ node_modules/@plumbus/ai-bedrock/instructions/              │
+│ node_modules/@plumbus/ai-decision*/instructions/            │
 │ node_modules/@plumbus/auth/instructions/                    │
 │ node_modules/@plumbus/auth-cognito/instructions/            │
 │ node_modules/@plumbus/payments/instructions/                │
@@ -73,6 +74,7 @@ plumbus init
 │  events.md        ← How to define and emit events           │
 │  flows.md         ← How to build multi-step flows           │
 │  ai.md            ← How to use AI features                  │
+│  ai-classification.md ← Provider/model selection, decisions │
 │  security.md      ← Access policies and tenant isolation    │
 │  governance.md    ← Governance rules and compliance         │
 │  testing.md       ← Testing helpers and patterns            │
@@ -258,6 +260,7 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/core/instructions/flows.md` | Flow orchestration |
 | `node_modules/@plumbus/core/instructions/prompts.md` | Prompt content and model config |
 | `node_modules/@plumbus/core/instructions/ai.md` | AI integration |
+| `node_modules/@plumbus/core/instructions/ai-classification.md` | Classification, provider/model selection, `classify()` vs `decide()`, decision provider registration |
 | `node_modules/@plumbus/core/instructions/translations.md` | Translation catalogs |
 | `node_modules/@plumbus/core/instructions/security.md` | Security model |
 | `node_modules/@plumbus/core/instructions/governance.md` | Governance rules |
@@ -300,6 +303,10 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/ai-bedrock/instructions/README.md` | Amazon Bedrock AI provider instruction index |
 | `node_modules/@plumbus/ai-bedrock/instructions/framework.md` | Bedrock Converse/embeddings, pricing file vs auto-download, IAM |
 | `node_modules/@plumbus/ai-bedrock/instructions/pricing.md` | AWS Price List URLs, curl, normalize, ConfigMap, troubleshooting |
+| `node_modules/@plumbus/ai-decision/instructions/README.md` | Shared typed decision contracts index (installed with any decision provider) |
+| `node_modules/@plumbus/ai-decision-typesafe/instructions/README.md` | TypeSafe/Jev decision provider index (optional package) |
+| `node_modules/@plumbus/ai-decision-laya/instructions/README.md` | Self-hosted Laya decision provider index (optional package) |
+| `node_modules/@plumbus/ai-decision-openai/instructions/README.md` | OpenAI Decisions API provider index (optional package, wiring v19) |
 | `node_modules/@plumbus/api/instructions/README.md` | Partner API instruction index (optional package) |
 | `node_modules/@plumbus/api/instructions/framework.md` | API package boundary, public exports, critical rules |
 | `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |
@@ -398,7 +405,8 @@ This refreshes the Plumbus-managed wiring sections with the latest instructions 
 
 Core **0.7.9+** generates wiring **v19**. All agent formats (reference and inline, flat
 and monorepo) also list `node_modules/@plumbus/ai-decision-openai/instructions/README.md`
-next to the TypeSafe/Jev and Laya decision provider indexes. Apps that install
+next to the TypeSafe/Jev and Laya decision provider indexes, and Cursor's capability rule
+names OpenAI Decisions in its classification line. Apps that install
 `@plumbus/ai-decision-openai` find its registration, question mapping, refusal, and
 pricing rules. Other apps are unaffected apart from the version marker.
 

@@ -5,6 +5,9 @@ Welcome to the Plumbus framework documentation. Use the navigation below to find
 For classification provider/model selection and agent wiring v17, see the
 [classification upgrade guide](./upgrading-classification.md) and
 [packaged agent recipe](../packages/plumbus-core/instructions/ai-classification.md).
+Core 0.7.9 generates wiring v19, which also links the OpenAI Decisions provider
+(`@plumbus/ai-decision-openai`); see [Agent setup](./agents/agent-setup.md#openai-decisions-provider--wiring-v19)
+and [Decision providers](./ai/decision-providers.md).
 
 See the [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) for package versions and paired upgrades.
 
@@ -69,7 +72,7 @@ docs/
 ├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
 │   ├── ai-integration.md
 │   ├── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
-│   ├── decision-providers.md  Typed decisions, core cost recording, and live test environment
+│   ├── decision-providers.md  Typed decisions (TypeSafe/Jev, Laya, OpenAI Decisions), cost recording, live tests
 │   └── decision-provider-audit.md  First adversarial audit
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md

@@ -1,7 +1,8 @@
 # AI Integration Guide
 
-Core **0.7.3+** also provides `ctx.ai.decide()` for typed decision providers. It
-records `operation: 'decide'` through the existing cost tracker and
+Core **0.7.3+** also provides `ctx.ai.decide()` for typed decision providers
+(`@plumbus/ai-decision-typesafe`, `@plumbus/ai-decision-laya`, and, with core 0.7.9+,
+`@plumbus/ai-decision-openai`). It records `operation: 'decide'` through the existing cost tracker and
 `onAICostRecorded` hook, including billed validation failures and cancellations.
 See [decision registration, named contracts, and accounting](./decision-providers.md#application-integration-and-cost-recording).
 

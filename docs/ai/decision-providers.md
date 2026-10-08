@@ -15,7 +15,8 @@ text-generation providers.
 | `@plumbus/ai-decision-openai` | OpenAI Decisions API (`POST /v1/decisions`) adapter and `gpt-6-luna` input pricing |
 
 The decision packages peer on core `0.7.x`. Core 0.7.4 and the 0.2.2 provider packages
-depend on shared contracts `~0.2.2`; core 0.7.9 depends on `~0.2.3`. No provider depends
+depend on shared contracts `~0.2.2`; core 0.7.9 and the 0.2.3 TypeSafe and Laya packages
+depend on `~0.2.3`. No provider depends
 on another. Node.js 20.6+ is required. Only the Laya service needs Python/model
 dependencies. The TypeSafe and OpenAI adapters call the documented HTTP endpoints
 directly, using the shared transport; consumer apps do not need a vendor SDK.
@@ -139,7 +140,9 @@ primitives; decision probabilities never authorize an action by themselves.
 
 Requires core **0.7.4+**. Coding agents should start with the packaged
 [classification recipe](../../packages/plumbus-core/instructions/ai-classification.md);
-see the [upgrade guide](../upgrading-classification.md) for wiring v17.
+see the [upgrade guide](../upgrading-classification.md) for wiring v17. Core 0.7.9
+generates wiring v19, which also links the OpenAI Decisions provider index
+([agent setup](../agents/agent-setup.md#openai-decisions-provider--wiring-v19)).
 
 Use `classify()` when you only need matching labels; keep `decide()` for typed
 choices, scores, probabilities, or several different questions in one request.
@@ -161,7 +164,10 @@ The returned `string[]` contains labels meeting `threshold` (inclusive, default
 labels; `threshold` must be between 0 and 1. Optional `model` overrides the decision
 model default: per-call `model` → `decisions.defaultModel` → adapter default.
 For Laya automatic language routing, use `provider: 'laya', model: 'auto'`; explicit
-checkpoints must be configured on that server. Provider names must be distinct across text and decision registries.
+checkpoints must be configured on that server. For OpenAI Decisions, use
+`provider: 'openai-decisions', model: 'gpt-6-luna'`; a refusal on any label fails the
+call (see [OpenAI Decisions mapping](#openai-decisions-mapping)). Provider names must be
+distinct across text and decision registries.
 
 Classification reuses the decision execution path, including security, budgets,
 cancellation, and success/failure accounting. It records one `operation: 'classify'`
@@ -184,8 +190,9 @@ are both configured, definitions (including CLI-discovered contracts) resolve fi
 the explicit registry resolves other names.
 
 The following scenarios are executable regression tests, not claims of hosted
-provider availability. The HTTP cases run both adapters through real loopback HTTP
-servers, Plumbus capability routes, authentication, and a file-backed test ledger.
+provider availability. The HTTP cases run the TypeSafe and Laya adapters through real
+loopback HTTP servers, Plumbus capability routes, authentication, and a file-backed test
+ledger. The OpenAI adapter's tests are in `packages/ai-decision-openai/src/__tests__`.
 
 | ID | Failure scenario | Coverage |
 | --- | --- | --- |
@@ -211,8 +218,8 @@ servers, Plumbus capability routes, authentication, and a file-backed test ledge
 | D20 | Concurrent requests forge or exchange tenant/actor/project attribution | HTTP end-to-end |
 
 Tests: `packages/plumbus-core/src/ai/__tests__/decision-audit.test.ts` and
-`decision-http-e2e.test.ts`. These 20 scenarios have 30 test cases, including both
-providers and both malformed choice/score variants.
+`decision-http-e2e.test.ts`. These 20 scenarios have 30 test cases, including the
+TypeSafe and Laya providers and both malformed choice/score variants.
 
 ## OpenAI Decisions mapping
 

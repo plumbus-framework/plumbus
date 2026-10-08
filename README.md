@@ -411,7 +411,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/ai-decision`](packages/ai-decision/) | Shared typed decision contracts, validation and transport; core `0.7.3+` integrates `ctx.ai.decide()` and cost recording |
 | [`@plumbus/ai-decision-typesafe`](packages/ai-decision-typesafe/) | Optional TypeSafe/Jev decision adapter; choices, scores, probabilities and input pricing |
 | [`@plumbus/ai-decision-laya`](packages/ai-decision-laya/) | Optional self-hosted Laya decision adapter and Python reference service |
-| [`@plumbus/ai-decision-openai`](packages/ai-decision-openai/) | Optional OpenAI Decisions API adapter (`gpt-6-luna`); choices, scores, probabilities and input pricing |
+| [`@plumbus/ai-decision-openai`](packages/ai-decision-openai/) | Optional OpenAI Decisions API adapter (`gpt-6-luna`, public beta); choices, scores, probabilities and input pricing; use with core **≥ 0.7.9** |
 | [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.6.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.2.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
@@ -430,6 +430,8 @@ The optional packages are version-locked peer add-ons — install them explicitl
 For core 0.7.4, decision packages 0.2.2, and agent wiring v17, see the
 [classification upgrade guide](docs/upgrading-classification.md). Earlier paired
 upgrades are listed in the [voice and decision release guide](docs/upgrading-voice-and-decision-release.md).
+Core 0.7.9 (agent wiring v19) adds prompt caching, worker `onCapabilityError`, and support
+for `@plumbus/ai-decision-openai`; see the [core changelog](packages/plumbus-core/CHANGELOG.md).
 
 ---
 

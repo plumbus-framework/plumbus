@@ -163,6 +163,27 @@ describe('plumbus doctor', () => {
     }
   });
 
+  it('checkAgentWiring recommends patch for v18 generated wiring', () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-doctor-agent-wiring-'));
+    try {
+      vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
+      writeFileSync(
+        path.join(tempDir, 'AGENTS.md'),
+        generateAgentsMd(false).replace(`version=${AGENT_WIRING_VERSION}`, 'version=18'),
+        'utf-8',
+      );
+
+      const check = checkAgentWiring();
+      expect(check.status).toBe('warn');
+      expect(check.message).toContain(
+        `AGENTS.md uses wiring version 18 (current: ${AGENT_WIRING_VERSION})`,
+      );
+      expect(check.message).toContain('plumbus init --patch');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('checkAgentWiring accepts current generated wiring', () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), 'plumbus-doctor-agent-wiring-'));
     try {

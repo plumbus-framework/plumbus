@@ -12,6 +12,11 @@ through `runCapability()` / `simulateFlow()`. Integration tests with a real
 `openai-decisions` provider/model forwarding, threshold behavior, one `classify` cost
 row, refusal handling (`error.refusedQuestions`), and unknown-cost handling.
 
+For core 0.7.3+ `decide()` tests, configure `mockAI({ decide: result })` or a real
+`createAIService({ decisions, costTracker, onAICostRecorded })` with injected provider
+fetch. Assert exactly one cost row, identity, actual model/usage, billed validation
+failures and refusals, and budget rejection before dispatch.
+
 In the framework repository, run `pnpm lint`, `pnpm format:check`, `pnpm typecheck`,
 and `pnpm test`. No credentials or network access are required.
 

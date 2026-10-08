@@ -91,10 +91,19 @@ Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `A
 `@plumbus/ai-decision-openai` (OpenAI Decisions API, `gpt-6-luna`) share
 `@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
 HTTP transport. All decision packages are on `0.2.x` and peer on core `0.7.x`.
-Register the OpenAI adapter under a decision key such as `openai-decisions`, distinct
-from the `openai` text provider; agent wiring **v19** (core 0.7.9) links its instructions. Install only the
-provider you need; the shared package is a dependency. Laya ships a separate Python
-reference service; Python/model dependencies are not installed by pnpm.
+Install only the provider you need; the shared package is a dependency:
+
+```
+pnpm add @plumbus/ai-decision-typesafe   # TypeSafe/Jev
+pnpm add @plumbus/ai-decision-laya       # self-hosted Laya
+pnpm add @plumbus/ai-decision-openai     # OpenAI Decisions API (public beta)
+```
+
+Laya ships a separate Python reference service; Python/model dependencies are not
+installed by pnpm. Register the OpenAI adapter under a decision key such as
+`openai-decisions`, distinct from the `openai` text provider. Core re-validates its
+answers with the `@plumbus/ai-decision` copy core loads, which must be **0.2.3+**: use
+core **0.7.9+** (depends on `~0.2.3`), or on core 0.7.3–0.7.8 dedupe to one 0.2.3+ copy.
 
 Core 0.7.3+ provides `ctx.ai.decide()` with cost recording, identity, validation,
 security, budgets, and flow cancellation. `defineDecision` and `DecisionRegistry`
@@ -105,7 +114,8 @@ Core **0.7.4+** also routes `ctx.ai.classify({ text, labels, provider, model, th
 to generative or decision models. Start with
 `packages/plumbus-core/instructions/ai-classification.md` for provider registration,
 model defaults, and multi-label thresholds. Generated agent wiring **v17** links
-this recipe; refresh consumer apps with `plumbus init --patch --agent all`.
+this recipe and the TypeSafe/Laya indexes; **v19** (core 0.7.9) adds the OpenAI
+Decisions index. Refresh consumer apps with `plumbus init --patch --agent all`.
 Use `onAICostRecorded` to persist `decide` and `classify` rows, including failed calls.
 Do not register decision adapters as text-generation providers or bypass Plumbus
 primitives for application business logic. Guide: `docs/ai/decision-providers.md`.
@@ -295,7 +305,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
 - `docs/payments/` — sellers charging their clients and the app billing its own customers (`@plumbus/payments`, `@plumbus/payments-stripe`); every option in `options.md`, use cases, billing, Stripe, webhooks
-- `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade
+- `docs/ai/` — prompts, RAG, cost tracking, prompt caching, Bedrock, decision providers (TypeSafe/Jev, Laya, OpenAI Decisions), 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
 - `docs/ui/` — client generation, hooks, Next.js scaffolding
 - `docs/agents/` — agent setup, framework-first guardrails

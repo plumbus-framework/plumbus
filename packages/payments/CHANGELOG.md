@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 — 2026-10-08
+
+### Changed
+
+- The README now uses the standard Plumbus package format (badges, Why?, What you get, When to use this vs alternatives, Status, How requests flow, Public API, Key gotchas, Links), keeping all of its earlier content. Runtime behavior and peer dependencies are unchanged from 0.2.1.
+
 ## 0.2.1 — 2026-09-27
 
 ### Changed

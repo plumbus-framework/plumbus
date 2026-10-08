@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/payments",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Plumbus payments add-on — provider-neutral payments as Plumbus capabilities, entities, and events: sellers charge their own clients (Connect), and the app bills its own customers for plans, seats, and usage.",
   "type": "module",
   "main": "./dist/index.js",

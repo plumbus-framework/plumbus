@@ -285,7 +285,7 @@ Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Con
 | Auto-download fails in cluster | Mount `AI_BEDROCK_PRICING_FILE` |
 | Mantle `OPENAI_API_KEY` does not work here | Correct — Mantle uses `createOpenAIAdapter`; this package is Runtime + IAM |
 | Tools never fire | Model must support Converse tools; check `finishReason === 'tool_calls'` / use `runToolLoop` |
-| `cache` set but zero cached tokens | Core **≥ 0.7.9**; a Claude model id (not an ARN) other than the four oldest; system + tools above the model's minimum cacheable length |
+| `cache` set but zero cached tokens | Core **≥ 0.7.9**; a Claude model id (not an ARN) other than Claude 3 Haiku / Sonnet / Opus and both Claude 3.5 Sonnet versions; system + tools above the model's minimum cacheable length |
 | RAG retrieve fails / dim mismatch | Wire `ragPipeline` with this adapter; same Titan model id for ingest + query |
 
 ## Critical rules

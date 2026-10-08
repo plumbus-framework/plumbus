@@ -561,6 +561,7 @@ describe('classification agent discovery', () => {
       }
     }
     expect(generateCursorCapabilityRule()).toContain(recipe);
+    expect(generateCursorCapabilityRule()).toContain('TypeSafe/Jev, Laya, or OpenAI Decisions');
   });
 
   it('patches v16 instructions to include classification while preserving app text', () => {

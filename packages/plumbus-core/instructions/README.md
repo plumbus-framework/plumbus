@@ -30,6 +30,8 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 
 Optional AI provider: after `pnpm add @plumbus/ai-bedrock`, read `node_modules/@plumbus/ai-bedrock/instructions/README.md` (framework + pricing pull).
 
+Optional decision providers (TypeSafe/Jev, self-hosted Laya, OpenAI Decisions API): read [ai-classification.md](./ai-classification.md), then after `pnpm add @plumbus/ai-decision-typesafe`, `@plumbus/ai-decision-laya`, or `@plumbus/ai-decision-openai`, read that package's `instructions/README.md`. The OpenAI provider needs core 0.7.9+.
+
 Package quickstart: [../README.md](../README.md).
 
 ## Critical rules

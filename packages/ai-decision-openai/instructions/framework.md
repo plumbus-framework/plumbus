@@ -67,8 +67,9 @@ JSON text. Image inputs and `safety_identifier` are not supported by this adapte
 OpenAI does not document the precision of its numbers. The adapter accepts answers that
 are consistent within two-decimal rounding: a distribution that sums to 1 within rounding
 (at most ten options' worth), a chosen option within rounding of the top option, and a
-score within rounding of its distribution's weighted mean. Options or levels that OpenAI omits get probability 0. The
-returned values are OpenAI's own; the chosen option is never changed.
+score within rounding of its distribution's weighted mean. Options or levels that OpenAI
+omits get probability 0. The returned values are OpenAI's own; the chosen option is
+never changed.
 
 ## Classification and model selection (core 0.7.4+)
 
@@ -89,8 +90,8 @@ labels. Use `decide()` for richer questions.
 6. A `refusal` answer for any question fails the whole call (`decide()` or `classify()`) with a `DecisionProviderError` of kind `invalid_response`; the call is still billed and recorded. Detect it with `error.refusedQuestions`, which is set only for refusals and lists the refused question keys (for `classify()`, `label_<index>` by position in `labels`). Handle it as a business outcome (for example route to review), not by retrying in a loop.
 7. Validate thresholds on the actual task/model/language. Unknown cost is `null`, not free. The bundled `gpt-6-luna` rate doubles above 272K input tokens, as OpenAI bills long prompts. `inputRates` entries replace the bundled rate and are applied flat; use one for regional processing (for example `{ 'gpt-6-luna': 0.11 }` for OpenAI's 10% uplift) or a different account rate.
 8. Pass `signal: ctx.signal` and `timeoutMs` where needed. Flow steps supply their signal by default.
-9. Define contracts using `defineDecision` from `@plumbus/ai-decision`; CLI startup discovers `app/decisions/`.
-10. Core records one `decide` or `classify` row per dispatched logical call, including failed/cancelled calls. Persist it in the existing `onAICostRecorded` hook.
+9. Define contracts using `defineDecision` from `@plumbus/ai-decision`; CLI startup discovers `app/decisions/`. No automatic environment provider discovery or dedicated decision CLI commands are provided.
+10. Core records one `decide` or `classify` row per dispatched logical call, including failed/cancelled calls, with tenant/actor and `costContext`. Persist it in the existing `onAICostRecorded` hook. Unknown cost is null; never convert it to free usage.
 
 Chat, voice and MCP still consume Plumbus capabilities; this package does not
 introduce a parallel runtime or transport for those surfaces.
