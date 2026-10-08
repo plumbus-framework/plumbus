@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.2.2 — Unreleased
+## 0.2.3 — Unreleased
+
+- `createDecisionHttpTransport(provider, config, { path })` accepts an optional endpoint path appended to `baseUrl` (default `systemone`). Paths are relative segments of letters, digits, `_` and `-`; anything else is a configuration error. Used by `@plumbus/ai-decision-openai` for `POST /v1/decisions`. Existing adapters are unchanged.
+
+## 0.2.2
 
 - Document core 0.7.4+ classification with per-call provider/model and probability threshold. Link the packaged classification recipe from agent instructions and correct stale package-only guidance. Core peer compatibility remains `0.7.x`.
 

@@ -394,6 +394,16 @@ This refreshes the Plumbus-managed wiring sections with the latest instructions 
 
 
 
+## OpenAI Decisions provider — wiring v19
+
+Core **0.7.9+** generates wiring **v19**. All agent formats (reference and inline, flat
+and monorepo) also list `node_modules/@plumbus/ai-decision-openai/instructions/README.md`
+next to the TypeSafe/Jev and Laya decision provider indexes. Apps that install
+`@plumbus/ai-decision-openai` find its registration, question mapping, refusal, and
+pricing rules. Other apps are unaffected apart from the version marker.
+
+Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
+
 ## Payments guidance — wiring v18
 
 Core **0.7.7+** generates wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. They also list `@plumbus/auth-cognito`'s `attested-sign-in.md` (auth-cognito 0.2.2+). Apps without payments are unaffected apart from the version marker.

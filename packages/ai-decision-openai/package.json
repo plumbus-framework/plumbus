@@ -1,7 +1,7 @@
 {
-  "name": "@plumbus/ai-decision",
-  "version": "0.2.3",
-  "description": "Shared typed decision contracts, validation, and transport for Plumbus decision adapters.",
+  "name": "@plumbus/ai-decision-openai",
+  "version": "0.2.0",
+  "description": "OpenAI Decisions API typed decision provider adapter for Plumbus.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,17 +9,13 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./types": {
-      "types": "./src/types.ts"
     }
   },
   "files": [
     "dist",
     "instructions",
     "README.md",
-    "CHANGELOG.md",
-    "src/types.ts"
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -29,18 +25,20 @@
     "format": "biome format --write ./src",
     "format:check": "biome format ./src",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "smoke": "pnpm build && node scripts/smoke.mjs"
   },
   "keywords": [
     "plumbus",
     "ai",
-    "decision"
+    "decision",
+    "openai"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/plumbus-framework/plumbus.git",
-    "directory": "packages/ai-decision"
+    "directory": "packages/ai-decision-openai"
   },
   "publishConfig": {
     "access": "public"
@@ -57,5 +55,8 @@
     "@types/node": "^25.4.0",
     "typescript": "^5.7.0",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@plumbus/ai-decision": "workspace:~"
   }
 }

@@ -42,4 +42,4 @@ Run lint, format checking, typechecking, tests, and packed npm install checks be
 
 ## Consumer upgrade
 
-Read [upgrading-security-release.md](./upgrading-security-release.md), explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch --agent all` for current agent wiring (**v18** with core 0.7.7+; v17 added the classification recipe). For classification/provider/model selection, read [ai-classification.md](./ai-classification.md). Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.
+Read [upgrading-security-release.md](./upgrading-security-release.md), explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch --agent all` for current agent wiring (**v19** with core 0.7.9+; v17 added the classification recipe). For classification/provider/model selection, read [ai-classification.md](./ai-classification.md). Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.

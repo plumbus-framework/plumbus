@@ -8,6 +8,7 @@ import { defineCapability } from '../../define/index.js';
 import { createTestContext, runCapability } from '../../testing/index.js';
 import { createTypeSafeDecisionAdapter } from '../../../../ai-decision-typesafe/src/index.js';
 import { createLayaDecisionAdapter } from '../../../../ai-decision-laya/src/index.js';
+import { createOpenAIDecisionAdapter } from '../../../../ai-decision-openai/src/index.js';
 
 const labels = ['billing', 'technical', 'refund'];
 const usage = { inputTokens: 1000, outputTokens: 0, totalTokens: 1000 };
@@ -281,5 +282,43 @@ describe('classification provider routing', () => {
       { projectId: 'project' },
     );
     expect(hook.mock.calls[0]?.[0].cost).toBeCloseTo(provider === 'typesafe' ? 0.000042 : 0.1, 10);
+  });
+
+  it('uses the OpenAI Decisions adapter with a per-call model and records classification once', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      Response.json({
+        model: 'gpt-6-luna-2026-10-01',
+        usage: { input_tokens: 1000, output_tokens: 0, total_tokens: 1000 },
+        answers: [
+          { type: 'predicate', name: 'label_0', probability: 0.9 },
+          { type: 'predicate', name: 'label_1', probability: 0.2 },
+          { type: 'predicate', name: 'label_2', probability: 0.5 },
+        ],
+      }),
+    );
+    const adapter = createOpenAIDecisionAdapter({ apiKey: 'synthetic', fetch });
+    const { ai, hook } = setup({
+      decisions: { providers: { 'openai-decisions': adapter } },
+    });
+    const result = await ai.classify({
+      text: 'Refund please',
+      labels,
+      provider: 'openai-decisions',
+      model: 'gpt-6-luna',
+      costContext: { projectId: 'project' },
+    });
+    expect(result).toEqual(['billing', 'refund']);
+    expect(String(fetch.mock.calls[0]?.[0])).toBe('https://api.openai.com/v1/decisions');
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({ model: 'gpt-6-luna', input: '{"text":"Refund please"}' });
+    expect(body.questions[0]).toMatchObject({ type: 'predicate', name: 'label_0' });
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(hook.mock.calls[0]?.[0]).toMatchObject({
+      operation: 'classify',
+      provider: 'openai',
+      model: 'gpt-6-luna-2026-10-01',
+      usage,
+    });
+    expect(hook.mock.calls[0]?.[0].cost).toBeCloseTo(0.0001, 10);
   });
 });

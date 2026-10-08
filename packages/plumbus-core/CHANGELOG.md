@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## 0.7.9 — Unreleased
+
+- Bump agent wiring to v19: all agent formats reference `node_modules/@plumbus/ai-decision-openai/instructions/README.md` for the new optional OpenAI Decisions API provider (`@plumbus/ai-decision-openai` 0.2.0). The classification recipe (`instructions/ai-classification.md`) shows how to register it under `decisions.providers` and select it from `ctx.ai.classify()` / `ctx.ai.decide()`. Refresh apps with `plumbus init --patch --agent all`. No runtime behavior changes.
+
 ## 0.7.8 — 2026-09-27
 
 - `plumbus dev` and `plumbus start` load an `authenticationRuntime` export from `app/server.ts` (named or on the default export) and pass it to `createServer`, so apps that do not own their bootstrap can use `@plumbus/auth` browser sign-in. Without the export nothing changes. With it, capability routes authenticate through the runtime's composite authenticator (bearer first, then the session cookie) and `routeConfig.authAdapter` is the deny-all adapter, so custom routes in `onRoutesRegistered` should call `routeConfig.requestAuthenticator`.

@@ -549,7 +549,12 @@ describe('classification agent discovery', () => {
         expect(content).toContain('ctx.ai.classify()');
         expect(content).toContain('ctx.ai.decide()');
         expect(content).toContain('provider and model selection');
-        for (const pkg of ['ai-decision', 'ai-decision-typesafe', 'ai-decision-laya']) {
+        for (const pkg of [
+          'ai-decision',
+          'ai-decision-typesafe',
+          'ai-decision-laya',
+          'ai-decision-openai',
+        ]) {
           expect(content).toContain(`node_modules/@plumbus/${pkg}/instructions/README.md`);
         }
         expect(content).toContain('Use `ctx.data`, `ctx.events`, `ctx.flows`, `ctx.ai`');
@@ -577,6 +582,29 @@ describe('classification agent discovery', () => {
       );
       expect(updated.startsWith('App-owned preface\n')).toBe(true);
       expect(updated.endsWith('\nApp-owned footer\n')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('patches v18 instructions to include the OpenAI Decisions provider', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'plumbus-openai-decision-wiring-'));
+    const openai = 'node_modules/@plumbus/ai-decision-openai/instructions/README.md';
+    try {
+      expect(AGENT_WIRING_VERSION).toBe(19);
+      const old = generateAgentsMd(false)
+        .replace(`version=${AGENT_WIRING_VERSION}`, 'version=18')
+        .split('\n')
+        .filter((line) => !line.includes('ai-decision-openai'))
+        .join('\n');
+      expect(old).not.toContain(openai);
+      writeFileSync(path.join(root, 'AGENTS.md'), `App-owned preface\n${old}\n`);
+      const results = writeAgentFiles(root, ['agents-md'], false, false, false, 'patch');
+      const updated = readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
+      expect(results[0]?.action).toBe('patched');
+      expect(updated).toContain('version=19');
+      expect(updated).toContain(openai);
+      expect(updated.startsWith('App-owned preface\n')).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

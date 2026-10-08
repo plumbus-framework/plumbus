@@ -11,12 +11,14 @@ decision adapters separately from text-generation providers.
 | `@plumbus/ai-decision` | Shared types, runtime validation, structured errors, bounded HTTP transport |
 | `@plumbus/ai-decision-typesafe` | TypeSafe/Jev System One adapter and model-specific input pricing |
 | `@plumbus/ai-decision-laya` | Laya HTTP adapter and a separately deployed Python reference service |
+| `@plumbus/ai-decision-openai` | OpenAI Decisions API (`POST /v1/decisions`) adapter and `gpt-6-luna` input pricing |
 
 The decision packages peer on core `0.7.x`. Core 0.7.4 and the 0.2.2 provider packages
 depend on shared contracts `~0.2.2`; neither provider depends on the other. Node.js 20.6+ is
-required. Only the Laya service needs Python/model dependencies. The TypeSafe
-adapter calls the documented HTTP endpoint directly, using the shared transport;
-consumer apps do not need a vendor SDK.
+required. Only the Laya service needs Python/model dependencies. The TypeSafe and
+OpenAI adapters call the documented HTTP endpoints directly, using the shared transport;
+consumer apps do not need a vendor SDK. `@plumbus/ai-decision-openai` 0.2.0 needs shared
+contracts `~0.2.3` for the transport's endpoint-path option.
 
 For the researched issue matrix, regressions and local HTTP end-to-end coverage,
 see the [58-scenario first audit](decision-provider-audit.md).
@@ -65,7 +67,14 @@ For Laya, register `createLayaDecisionAdapter({ baseUrl, apiKey, costPerRequestU
 under `providers.laya`. The infrastructure estimate is optional: without it, Laya
 cost is unknown. For programmatic bootstrap, pass `decisions` to `createServer()`
 or `buildWorkerAiService()`; pass `decisions.definitions` or a `DecisionRegistry`
-through `decisions.registry` when not using CLI discovery. Direct `createAIService`
+through `decisions.registry` when not using CLI discovery.
+
+For the OpenAI Decisions API, register
+`createOpenAIDecisionAdapter({ apiKey: process.env.OPENAI_API_KEY ?? '' })` from
+`@plumbus/ai-decision-openai` under a key such as `'openai-decisions'`. Do not reuse
+`openai`, because provider names must be distinct across the text and decision
+registries. Ledger rows carry the adapter name `openai`; `operation` and `model`
+distinguish them from text-generation rows. Direct `createAIService`
 callers supply their existing `costTracker` and `security` configuration.
 
 Inside a capability handler:
@@ -198,6 +207,25 @@ Tests: `packages/plumbus-core/src/ai/__tests__/decision-audit.test.ts` and
 `decision-http-e2e.test.ts`. These 20 scenarios have 30 test cases, including both
 providers and both malformed choice/score variants.
 
+## OpenAI Decisions mapping
+
+The OpenAI adapter translates the shared contract to the
+[Decisions API](https://developers.openai.com/api/docs/guides/decisions) and back:
+
+| Plumbus | OpenAI request | OpenAI answer → Plumbus answer |
+| --- | --- | --- |
+| `state` | `input` (string, or JSON text for objects/arrays) | — |
+| question key | question `name` | answers matched by `name`; one per question |
+| `probability` | `predicate`; `criteria.true/false` appended to `instructions` | `probability` (no confidence) |
+| `choice` | `choice`, `choices[{ value: key, description? }]` | `choice`, `probabilities[]` → record, `confidence` |
+| `score` | `score`, `levels[{ label }]` in criteria order | `score`, per-level `probabilities[]` → `{ "0": p, … }`, `confidence`; `legend` is the requested rubric |
+
+Returned score levels must have the requested indices and labels. A `refusal`
+answer for any question fails the call with `invalid_response`, keeping the model,
+usage and known cost because the request was billed. Missing, duplicate, unknown or
+mistyped answers fail the same way. Descriptions and instructions that are JSON are
+sent as JSON text. Image inputs and `safety_identifier` are not supported yet.
+
 ## Direct adapter contract
 
 ```ts
@@ -262,10 +290,13 @@ must reproduce the requested rubric; object key order does not matter.
 
 ## Configuration and failures
 
-Both adapters accept `baseUrl`, `apiKey`, `model`, `timeoutMs`, `maxRetries`, and an
+All adapters accept `baseUrl`, `apiKey`, `model`, `timeoutMs`, `maxRetries`, and an
 injected `fetch`. Base URLs include the API prefix, such as
 `https://api.typesafe.ai/v1` or `http://127.0.0.1:8080/v1`; the transport appends
-`/systemone`. URLs cannot contain embedded credentials, query strings or fragments.
+`/systemone`. The OpenAI adapter defaults to `https://api.openai.com/v1` and appends
+`/decisions` through the transport's `{ path }` option (shared package 0.2.3+); paths
+are relative letter/digit/`_`/`-` segments. URLs cannot contain embedded credentials,
+query strings or fragments.
 Redirects are disabled so bearer keys cannot follow an unexpected endpoint.
 Keys must be printable ASCII without whitespace; credentials are never trimmed.
 An explicitly null endpoint is invalid rather than selecting the default host.
@@ -305,6 +336,13 @@ million tokens. Unknown response models return `cost: null`; they are not free.
 Pricing overrides must be plain JSON records. A positive charge that underflows to
 numeric zero raises a configuration error with known usage/model instead of
 appearing free; explicit zero rates and zero input usage remain valid.
+
+The OpenAI adapter defaults to `gpt-6-luna` and prices the actual response model at
+the bundled $0.10/million input tokens, with no output, cache-read or cache-write
+charges, verified against the [Decisions guide](https://developers.openai.com/api/docs/guides/decisions#pricing-and-availability)
+on 2026-10-08. A dated snapshot such as `gpt-6-luna-2026-10-01` uses its alias rate;
+other unknown models return `cost: null`. Regional processing premiums and
+long-context multipliers are not modeled; set `inputRates` when they apply.
 
 Laya defaults to `cost: null`. `costPerRequestUsd` is an explicit operator estimate
 for infrastructure usage; zero is accepted only when deliberately configured.
@@ -443,7 +481,11 @@ Build and run smoke scripts from the repo root:
 pnpm --filter '@plumbus/ai-decision*' build
 node --env-file=/absolute/path/decision-test.env packages/ai-decision-typesafe/scripts/smoke.mjs
 node --env-file=/absolute/path/decision-test.env packages/ai-decision-laya/scripts/smoke.mjs
+node --env-file=/absolute/path/decision-test.env packages/ai-decision-openai/scripts/smoke.mjs
 ```
+
+The OpenAI smoke script reads `OPENAI_API_KEY` and optionally `OPENAI_DECISION_MODEL`
+and `OPENAI_BASE_URL`; it needs outbound HTTPS to `api.openai.com`.
 
 The scripts require `PLUMBUS_LIVE_DECISION_TESTS=1`, print only the synthetic request's
 validated results/usage/cost, and stay outside the default test suite. If service
@@ -480,6 +522,8 @@ decision helpers, and dedicated CLI commands are not introduced here. Generative
 models are supported through `classify()`; `decide()` uses decision adapters.
 
 References: [TypeSafe API](https://docs.typesafe.ai/api),
+[OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions),
+[OpenAI Decisions API reference](https://developers.openai.com/api/reference/resources/decisions/methods/create),
 [confidence semantics](https://docs.typesafe.ai/confidence),
 [Jev limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13),
 [Laya source](https://github.com/NandhaKishorM/laya),
