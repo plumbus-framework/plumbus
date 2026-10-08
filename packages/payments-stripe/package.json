@@ -1,0 +1,67 @@
+{
+  "name": "@plumbus/payments-stripe",
+  "version": "0.2.1",
+  "description": "Stripe provider for @plumbus/payments — Connect with Accounts v2 sellers (direct and destination charges, transfers, payouts), Checkout, invoices, subscriptions, Stripe Billing plans and meters, and snapshot + thin webhook verification.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "test": "vitest run",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": [
+    "dist",
+    "instructions",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "plumbus",
+    "payments",
+    "stripe",
+    "stripe-connect",
+    "stripe-billing"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plumbus-framework/plumbus.git",
+    "directory": "packages/payments-stripe"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "dependencies": {
+    "stripe": "^22.6.2"
+  },
+  "peerDependencies": {
+    "@plumbus/core": "0.7.x",
+    "@plumbus/payments": "0.2.x"
+  },
+  "devDependencies": {
+    "@plumbus/core": "workspace:*",
+    "@plumbus/payments": "workspace:*",
+    "@types/node": "^25.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT"
+}

@@ -253,6 +253,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     db,
     queue,
     audit: workerAudit,
+    logger,
     pollIntervalMs: outboxPollIntervalMs,
     metrics,
   };
@@ -265,6 +266,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     consumers,
     idempotency,
     audit: workerAudit,
+    logger,
     metrics,
   };
   const eventWorker = enableEventWorker ? createEventWorker(eventWorkerConfig) : null;
@@ -277,6 +279,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           consumers,
           idempotency,
           audit: workerAudit,
+          logger,
           metrics,
         })
       : null;

@@ -168,6 +168,8 @@ Capability handler
 
 All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` or `createRedisQueue`). Redis queues use atomic Lua rewrap on dequeue and a single shared client quit on shutdown. Legacy processing entries without `dequeuedAt` are requeued on recovery. A configurable visibility timeout (`queue.visibilityTimeoutSec`, default 30 seconds) handles poison-message recovery.
 
+**Outbox claims:** the dispatcher sets a row to `processing` before publishing it. A claim older than five minutes (`createOutboxDispatcher({ claimTimeoutMs })`) belongs to a dispatcher that stopped between claim and publish; the next poll returns it to `pending` and publishes it again. Consumer idempotency absorbs the duplicate if the first publish had gone through.
+
 The flow step queue consumer calls `claimExecution(executionId)` before `runNext` to prevent double execution alongside the DB poll loop.
 
 **Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback.
@@ -278,7 +280,7 @@ See [CLI → Commands](../cli/commands.md) for full option reference.
 
 ## Observability
 
-Worker processes expose Prometheus-style metrics at `GET /metrics` (health port, default `3001`). Colocated `plumbus dev` / `plumbus start` (`role=all`) also expose `GET /metrics` on the API port when the worker pool runs. Gauges and histograms cover outbox pending depth, per-queue depth (Redis), event delivery duration, consumer failures, capability execution duration, and flow step duration. Event dispatch and consumer attempts are recorded in the audit log (`event.dispatch.*`, `event.consumer.*` with terminal `delivered` / `dead_lettered`). Wire metrics into your monitoring stack alongside `/health` and `/ready` (worker `/ready` pings Redis when durable).
+Worker processes expose Prometheus-style metrics at `GET /metrics` (health port, default `3001`). Colocated `plumbus dev` / `plumbus start` (`role=all`) also expose `GET /metrics` on the API port when the worker pool runs. Gauges and histograms cover outbox pending depth, per-queue depth (Redis), event delivery duration, consumer failures, capability execution duration, and flow step duration. Event dispatch and consumer attempts are recorded in the audit log (`event.dispatch.*`, `event.consumer.*` with terminal `delivered` / `dead_lettered`). Their outcomes stay within the audit vocabulary: attempts, `dispatched` and `delivered` record `success`; `event.dispatch.failed` and `event.consumer.dead_lettered` record `failure`, and a failed dispatch carries `disposition: retry | dead_lettered`. These entries are best-effort: a failed audit write is logged and never blocks a publish, a consumer handler, or a dead-letter write. Wire metrics into your monitoring stack alongside `/health` and `/ready` (worker `/ready` pings Redis when durable).
 
 ## MCP Job Queue Unification
 

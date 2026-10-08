@@ -38,7 +38,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 17;
+export const AGENT_WIRING_VERSION = 18;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -516,12 +516,66 @@ const AUTH_COGNITO_INSTRUCTION_REFERENCES = [
     path: 'node_modules/@plumbus/auth-cognito/instructions/logout.md',
   },
   {
-    area: 'testing Cognito integration helpers and registration validation',
+    area: 'Cognito server-attested sign-in after passwordless login (./server, ./triggers, pool administration, attestation keys)',
+    path: 'node_modules/@plumbus/auth-cognito/instructions/attested-sign-in.md',
+  },
+  {
+    area: 'testing Cognito integration helpers, registration validation, and startFakeCognito()',
     path: 'node_modules/@plumbus/auth-cognito/instructions/testing.md',
   },
   {
     area: 'auth-cognito instruction index and reading order',
     path: 'node_modules/@plumbus/auth-cognito/instructions/README.md',
+  },
+] as const;
+
+const PAYMENTS_INSTRUCTION_REFERENCES = [
+  {
+    area: 'payments package boundary, public exports, and critical money-handling rules',
+    path: 'node_modules/@plumbus/payments/instructions/framework.md',
+  },
+  {
+    area: 'wiring createPayments() into an app (collections, webhook route, worker, catalog sync, helpers)',
+    path: 'node_modules/@plumbus/payments/instructions/wiring.md',
+  },
+  {
+    area: 'choosing payments options (sellers or billing, dashboards, charge type, fees, losses, plans)',
+    path: 'node_modules/@plumbus/payments/instructions/options.md',
+  },
+  {
+    area: 'calling payments capabilities and helpers, reacting to payments.* events',
+    path: 'node_modules/@plumbus/payments/instructions/capabilities-and-events.md',
+  },
+  {
+    area: 'testing payments with the fake provider and deliverTestWebhook',
+    path: 'node_modules/@plumbus/payments/instructions/testing.md',
+  },
+  {
+    area: 'payments instruction index and reading order',
+    path: 'node_modules/@plumbus/payments/instructions/README.md',
+  },
+] as const;
+
+const PAYMENTS_STRIPE_INSTRUCTION_REFERENCES = [
+  {
+    area: 'Stripe provider boundary (Connect and Billing), API version, and critical rules',
+    path: 'node_modules/@plumbus/payments-stripe/instructions/framework.md',
+  },
+  {
+    area: 'configuring stripeProvider() keys, dashboards, charge types, liability, the billing catalog',
+    path: 'node_modules/@plumbus/payments-stripe/instructions/configure-stripe.md',
+  },
+  {
+    area: 'Stripe webhook destinations, signing secrets, and local forwarding',
+    path: 'node_modules/@plumbus/payments-stripe/instructions/webhooks.md',
+  },
+  {
+    area: 'testing the Stripe provider with signed events and the HTTP stub',
+    path: 'node_modules/@plumbus/payments-stripe/instructions/testing.md',
+  },
+  {
+    area: 'payments-stripe instruction index and reading order',
+    path: 'node_modules/@plumbus/payments-stripe/instructions/README.md',
   },
 ] as const;
 
@@ -542,7 +596,7 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   );
   if (inline) {
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, auth, auth-cognito, and browser-extension) for full SDK documentation.',
+      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, auth, auth-cognito, payments, payments-stripe, and browser-extension) for full SDK documentation.',
       'After installing any optional package, open `node_modules/@plumbus/<package>/instructions/README.md` first — that index lists the exact recipe files to read.',
     );
     return;
@@ -623,6 +677,14 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
   }
 
   for (const reference of AUTH_COGNITO_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of PAYMENTS_INSTRUCTION_REFERENCES) {
+    lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
+  }
+
+  for (const reference of PAYMENTS_STRIPE_INSTRUCTION_REFERENCES) {
     lines.push(`- When working on ${reference.area}, read \`${reference.path}\``);
   }
 

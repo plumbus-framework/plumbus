@@ -52,6 +52,22 @@ describe('generateDrizzleSchema', () => {
     expect(cols.orgId).toBeDefined();
   });
 
+  it('stores field.bigint() as a 64-bit bigint and field.number() as a 32-bit integer', () => {
+    const entity = makeEntity({
+      name: 'Ledger',
+      fields: {
+        id: field.id(),
+        count: field.number({ required: true }),
+        amountMinor: field.bigint({ required: true }),
+      },
+    });
+    const cols = getTableColumns(generateDrizzleSchema(entity));
+    expect(cols.count?.getSQLType()).toBe('integer');
+    expect(cols.amountMinor?.getSQLType()).toBe('bigint');
+    expect(cols.amountMinor?.notNull).toBe(true);
+    expect(cols.amountMinor?.columnType).toBe('PgBigInt53');
+  });
+
   it('auto-adds createdAt and updatedAt when not in fields', () => {
     const entity = makeEntity({
       fields: {

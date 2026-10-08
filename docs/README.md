@@ -45,6 +45,16 @@ docs/
 │   └── commands.md
 ├── security/                  Security model, auth, tenant isolation
 │   └── security-model.md
+├── payments/                  Optional @plumbus/payments + @plumbus/payments-stripe (sellers charge their clients; the app bills its customers)
+│   ├── README.md
+│   ├── getting-started.md
+│   ├── options.md             Every option and Stripe choice, and what is not offered
+│   ├── use-cases.md           Which features to combine for your kind of app
+│   ├── billing.md             The app's own plans: catalog, seats, meters, entitlements
+│   ├── stripe.md
+│   ├── webhooks.md
+│   ├── testing.md
+│   └── security.md
 ├── auth/                      Optional @plumbus/auth package (OIDC RP, server sessions, CSRF)
 │   ├── README.md
 │   ├── getting-started.md

@@ -88,7 +88,7 @@ export async function ensurePool({ base, poolId, poolName, log = () => {} }) {
 /**
  * Ensure a confidential app client exists with the OAuth settings this smoke
  * app needs, and that its callback / logout URLs match the running config.
- * Idempotent: reuses an existing client with the same name, refreshing its URLs.
+ * Idempotent: reuses an existing client with the same name, adding this run's URLs.
  *
  * @returns {Promise<{ clientId: string, clientSecret: string, created: boolean }>}
  */
@@ -132,14 +132,26 @@ export async function ensureAppClient({
     return { clientId: created.ClientId, clientSecret: created.ClientSecret, created: true };
   }
 
-  // Refresh callback/logout URLs on the existing client so it matches this run.
-  // Cognito's UpdateUserPoolClient replaces the whole config, so we send the
-  // full desired shape (minus GenerateSecret, which is create-only).
+  // Add this run's callback/logout URLs to the existing client. Cognito's
+  // UpdateUserPoolClient replaces the whole config, so we send the full desired
+  // shape (minus GenerateSecret, which is create-only), keeping the URLs already
+  // registered: check.mjs and serve.mjs on different ports share this client, and
+  // replacing the list would make cognitox refuse the other one's redirect_uri.
+  const current = assertOk(
+    'DescribeUserPoolClient',
+    await cognitoIdp(base, 'DescribeUserPoolClient', {
+      UserPoolId: poolId,
+      ClientId: existing.ClientId,
+    }),
+  ).UserPoolClient;
+  const merge = (registered, wanted) => [...new Set([...(registered ?? []), wanted])].slice(-100);
   const { GenerateSecret: _drop, ...updatable } = desired;
   assertOk(
     'UpdateUserPoolClient',
     await cognitoIdp(base, 'UpdateUserPoolClient', {
       ...updatable,
+      CallbackURLs: merge(current.CallbackURLs, callbackUrl),
+      LogoutURLs: merge(current.LogoutURLs, logoutUrl),
       ClientId: existing.ClientId,
     }),
   );
@@ -150,7 +162,7 @@ export async function ensureAppClient({
       ClientId: existing.ClientId,
     }),
   ).UserPoolClient;
-  log(`reused app client "${clientName}" (${existing.ClientId}); callback/logout URLs refreshed`);
+  log(`reused app client "${clientName}" (${existing.ClientId}); callback/logout URLs registered`);
   return { clientId: described.ClientId, clientSecret: described.ClientSecret, created: false };
 }
 

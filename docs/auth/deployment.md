@@ -10,8 +10,8 @@ Production checklist for `@plumbus/auth` on `@plumbus/core` 0.6.x.
 
 | Package | Peer |
 |---|---|
-| `@plumbus/auth` | `@plumbus/core` **`0.6.x`** |
-| `@plumbus/auth-cognito` | `@plumbus/auth` **`0.1.x`** |
+| `@plumbus/auth` | `@plumbus/core` **`0.7.x`** |
+| `@plumbus/auth-cognito` | `@plumbus/auth` **`0.2.x`** |
 
 Install production deps with **npm** in Docker (`npm install --omit=dev`) — copy peer literals from [`peer-dependencies.md`](../../packages/plumbus-core/instructions/peer-dependencies.md).
 
@@ -76,6 +76,7 @@ When using **`authenticationRuntime`**, Plumbus **`auth.secret`** is optional (c
 - Session and transaction stores **must be shared** (PostgreSQL) — memory stores are single-process only.
 - Sticky sessions are **not** required; any instance can validate any session row.
 - Login transactions are single-use — load balancers may round-robin callback handling.
+- **Cognito server-attested sign-in:** call `ensureAttestedUserPool` from one provisioning step or job, never from start-up code every replica runs; concurrent calls for one pool can create a duplicate pool. `ensureUser` and `signIn` are safe on every instance. See [Provision pools from one place](./cognito.md#provision-pools-from-one-place).
 
 ---
 

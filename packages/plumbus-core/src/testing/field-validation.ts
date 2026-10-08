@@ -62,6 +62,9 @@ function validateFieldValue(
           value,
         };
       }
+      if (descriptor.size === 'bigint' && !Number.isSafeInteger(value)) {
+        return { field: fieldName, expected: 'safe integer', actual: 'unsafe integer', value };
+      }
       return null;
 
     case 'decimal':

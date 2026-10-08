@@ -177,7 +177,7 @@ plumbus start                      # defaults: port 3000, host 0.0.0.0
 plumbus start --port 8080 --host 127.0.0.1
 ```
 
-Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`) are loaded automatically.
+Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, and from core 0.7.8 `authenticationRuntime`) are loaded automatically.
 
 ## Background work
 
@@ -221,6 +221,24 @@ plumbus mcp list-tools
 If `@plumbus/mcp` is not installed, `plumbus mcp serve` prints `Run: pnpm add @plumbus/mcp` and exits. Manifest generation works without the runtime.
 
 Read `node_modules/@plumbus/core/instructions/mcp.md` and `node_modules/@plumbus/mcp/instructions/README.md` for MCP.
+
+## Payments
+
+For apps with the optional `@plumbus/payments` add-on. The commands load the `payments` export of `app/payments/index.ts`; core does not depend on the add-on.
+
+```bash
+# Check the payments config; --live also checks keys, webhook destinations, and the billing catalog at the provider
+plumbus payments doctor --live --webhook-url https://api.example.com/payments/webhooks/stripe
+
+# Create the provider's webhook destinations (prints each signing secret once; re-run after upgrading the add-on)
+plumbus payments webhooks setup --url https://api.example.com/payments/webhooks/stripe
+
+# Create or update the billing catalog (plans, prices, features, meters) from `billing` in the config
+plumbus payments catalog sync
+plumbus payments catalog check          # read-only; exits 1 when the provider differs (CI)
+```
+
+Read `node_modules/@plumbus/payments/instructions/README.md` for payments.
 
 ## App Commands
 

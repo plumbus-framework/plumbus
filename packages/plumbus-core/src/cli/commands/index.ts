@@ -43,6 +43,15 @@ export { registerFlowCommand } from './flow.js';
 export { registerGenerateCommand } from './generate.js';
 export { registerInitCommand } from './init.js';
 export { registerMcpCommand } from './mcp.js';
+export {
+  formatPaymentsFindings,
+  loadAppPayments,
+  PAYMENTS_ENTRY_FILES,
+  type PaymentsCliFinding,
+  type PaymentsCliModule,
+  paymentsDoctorShouldFail,
+  registerPaymentsCommand,
+} from './payments.js';
 export { registerVoiceCommand } from './voice.js';
 export { registerDbCommand, registerMigrateCommand } from './migrate.js';
 export { registerPromptCommand } from './prompt.js';

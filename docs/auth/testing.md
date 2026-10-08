@@ -136,6 +136,8 @@ Mirror these patterns when adding app-specific resolver tests.
 
 `@plumbus/auth-cognito` tests integration validation and URL builders without a live AWS account. Import `cognito()` and assert hosted-login params and logout URLs in app tests when customizing Cognito options.
 
+For anything that talks to Cognito — server-attested sign-in, pool administration, or a full `@plumbus/auth` login against a pool's hosted login — use **`startFakeCognito()`** from `@plumbus/auth-cognito/testing`. The real AWS SDK talks to it through an endpoint override, and it runs the real attested trigger in-process. See [cognito.md → Testing without AWS](./cognito.md#testing-without-aws).
+
 ---
 
 ## PostgreSQL store integration tests

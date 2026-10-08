@@ -22,6 +22,14 @@ describe('field constructors', () => {
     expect(f.options.nullable).toBe(true);
   });
 
+  it('creates a 64-bit bigint field that keeps the number type', () => {
+    const f = field.bigint({ required: true });
+    expect(f.type).toBe('number');
+    expect(f.size).toBe('bigint');
+    expect(f.options.required).toBe(true);
+    expect(field.number().size).toBeUndefined();
+  });
+
   it('creates a decimal field', () => {
     const f = field.decimal({ nullable: true });
     expect(f.type).toBe('decimal');

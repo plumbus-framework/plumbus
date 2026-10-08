@@ -1,12 +1,14 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { AuditService } from '../types/audit.js';
+import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 import { createJobService } from '../jobs/service.js';
 import type { JobQueuePayload } from '../jobs/types.js';
 import type { ConsumerRegistry } from './consumer-registry.js';
 import type { IdempotencyService } from './idempotency.js';
 import { deadLetterTable } from './outbox.js';
+import { recordPipelineAudit } from './pipeline-audit.js';
 import type { EventQueue } from './queue.js';
 
 export interface WorkerConfig {
@@ -16,6 +18,8 @@ export interface WorkerConfig {
   idempotency: IdempotencyService;
   audit?: AuditService;
   metrics?: PlumbusMetrics;
+  /** Receives audit write failures (default: console) */
+  logger?: LoggerService;
   /** Default max retries per consumer (default: 3) */
   defaultMaxRetries?: number;
   /** Base delay in ms for exponential backoff between retries (default: 100) */
@@ -40,6 +44,7 @@ export function createEventWorker(config: WorkerConfig) {
     defaultMaxRetries = 3,
     metrics,
     audit,
+    logger,
     retryBackoffBaseMs = 100,
     retryBackoffMaxMs = 5000,
   } = config;
@@ -74,15 +79,15 @@ export function createEventWorker(config: WorkerConfig) {
 
       while (attempt < maxRetries && !succeeded) {
         attempt++;
+        // No outcome yet: audit outcomes are `success | failure | denied`
+        await recordPipelineAudit(audit, logger, 'event.consumer.attempt', {
+          eventId: envelope.id,
+          eventType: envelope.eventType,
+          consumerId: consumer.id,
+          attempt,
+          tenantId: envelope.tenantId,
+        });
         try {
-          await audit?.record('event.consumer.attempt', {
-            eventId: envelope.id,
-            eventType: envelope.eventType,
-            consumerId: consumer.id,
-            attempt,
-            tenantId: envelope.tenantId,
-            outcome: 'pending',
-          });
           await consumer.handler(envelope);
           succeeded = true;
         } catch (err) {
@@ -100,7 +105,7 @@ export function createEventWorker(config: WorkerConfig) {
           consumer: consumer.id,
           outcome: 'delivered',
         });
-        await audit?.record('event.consumer.delivered', {
+        await recordPipelineAudit(audit, logger, 'event.consumer.delivered', {
           eventId: envelope.id,
           eventType: envelope.eventType,
           consumerId: consumer.id,
@@ -113,14 +118,14 @@ export function createEventWorker(config: WorkerConfig) {
           consumer: consumer.id,
           outcome: 'failed',
         });
-        await audit?.record('event.consumer.dead_lettered', {
+        await recordPipelineAudit(audit, logger, 'event.consumer.dead_lettered', {
           eventId: envelope.id,
           eventType: envelope.eventType,
           consumerId: consumer.id,
           tenantId: envelope.tenantId,
           lastError,
           attempts: attempt,
-          outcome: 'dead_lettered',
+          outcome: 'failure',
         });
         // Dead-letter
         await db.insert(deadLetterTable).values({

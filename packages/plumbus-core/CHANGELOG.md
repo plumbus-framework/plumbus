@@ -4,6 +4,24 @@
 
 - Add `cache` on AI generate / stream requests and an optional `createAIService({ cache })` default. Anthropic emits `cache_control` on system, the last tool, and (when requested) the last message; OpenAI ignores the option. Response-side cached-token pricing is unchanged.
 
+## 0.7.8 — 2026-09-27
+
+- `plumbus dev` and `plumbus start` load an `authenticationRuntime` export from `app/server.ts` (named or on the default export) and pass it to `createServer`, so apps that do not own their bootstrap can use `@plumbus/auth` browser sign-in. Without the export nothing changes. With it, capability routes authenticate through the runtime's composite authenticator (bearer first, then the session cookie) and `routeConfig.authAdapter` is the deny-all adapter, so custom routes in `onRoutesRegistered` should call `routeConfig.requestAuthenticator`.
+
+## 0.7.7 — 2026-09-27
+
+- Add `field.bigint()`: a 64-bit integer column (PostgreSQL `bigint`, read and written as a JS number, safe integers only) for money in minor units and running totals. `field.number()` stays a 32-bit `integer`; test field validation rejects unsafe integers in bigint fields. Docs now state the actual column types (`field.decimal()` is floating point and must not hold money).
+- Add `plumbus payments doctor [--live] [--webhook-url] [--fail-on-warning] [--json]`, `plumbus payments webhooks setup --url`, and `plumbus payments catalog sync|check [--json]` (the add-on's billing catalog at the provider; `check` exits 1 when it differs). They load the app's `app/payments/index.ts` export from the new optional `@plumbus/payments` add-on; core does not depend on it.
+- Discovery registers exported collections: an exported array, or a plain object without a `name` (for example `export const paymentCapabilities = payments.capabilities`), contributes each capability, entity, event, or flow it contains, one level deep. A resource exported both alone and in a collection is registered once.
+- Bump agent wiring to v18: all agent formats reference the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, and `@plumbus/auth-cognito`'s `attested-sign-in.md` (server-attested sign-in, auth-cognito 0.2.2). Refresh apps with `plumbus init --patch --agent all`.
+
+## 0.7.6 — 2026-09-27
+
+- Fix the event pipeline stalling whenever audit is wired, which the worker pool does by default (#65). Since 0.7.0 `createAuditService` refuses outcomes outside `success | failure | denied`, but the outbox dispatcher and event worker still wrote `pending`, `retry` and `dead_lettered`. Every dispatch left its outbox row in `processing` and no consumer handler ran. Attempts now record no outcome (stored as `success`), `event.dispatch.failed` and `event.consumer.dead_lettered` record `failure`, and a failed dispatch keeps `retry` / `dead_lettered` in a `disposition` metadata field. Apps that rewrote these literals in `dist/` can remove that patch.
+- Make dispatch and delivery audit entries best-effort: a failed audit write is logged (worker pool logger, else console) and no longer skips the consumer handler, the publish, or the dead-letter write. Capabilities running inside a consumer still record their own audit.
+- Return outbox rows claimed more than five minutes ago (`claimTimeoutMs`) to `pending`, so rows left in `processing` by a stopped dispatcher, including those stranded by this bug, are published after upgrading.
+- Log a failed timer-driven outbox poll instead of leaving an unhandled promise rejection.
+
 ## 0.7.5 — 2026-09-24
 
 - Fix GPT-6 OpenAI request compatibility: Chat Completions use `max_completion_tokens`, active/default reasoning omits unsupported sampling temperature, and tool calls with GPT-6 default reasoning use the Responses API. Explicitly disabled reasoning stays on Chat Completions and retains configured temperature.

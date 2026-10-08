@@ -117,6 +117,10 @@ package.json          # Private root — delegates scripts via pnpm -r
 
 In monorepo mode the `app/` and `config/` directories live under `backend/`. The CLI auto-detects the layout.
 
+### Discovery
+
+The CLI registers every capability, entity, flow, event, prompt, and translation **exported** from a file under the matching `app/` directory (file names and nesting are free). An exported array, or a plain object without a `name` field, is expanded one level, so an add-on's collections register with one line each — for example `export const paymentCapabilities = payments.capabilities` and `export { paymentEntities } from '@plumbus/payments'`. A definition exported both alone and inside a collection is registered once.
+
 ## Framework-Provided Dependencies
 
 The framework provides common dependencies — **consumer apps must NOT install them separately**. Import through the framework's subpath exports:
@@ -154,6 +158,7 @@ The optional `app/server.ts` file exports hooks that customize server behavior. 
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
 | `onAICostRecorded` | After each AI cost record is written | Custom cost analytics or billing hooks |
 | `enableStrictStructuredOutputs` | Server bootstrap | Global toggle for strict structured-output mode |
+| `authenticationRuntime` | Server bootstrap (core 0.7.8+) | Browser sign-in with `@plumbus/auth` (`createAuthRuntime(...)`): the same value `createServer({ authenticationRuntime })` takes |
 
 ### Error Capture Coverage
 
