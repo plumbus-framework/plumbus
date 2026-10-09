@@ -108,6 +108,17 @@ interface E2EOptions {
 /**
  * Resolve the vitest binary and its parent node_modules from within the framework.
  */
+/**
+ * Keep reading the dev server's stdout for the whole run. `next dev` writes a line
+ * there for every request and puts stdout in blocking mode (its native bindings
+ * require it), so a pipe nobody reads fills after about 80 KB and the server
+ * freezes inside that write for the rest of the run: the test in flight times
+ * out, and so does every later one. The output is discarded, as before.
+ */
+export function drainServerStdout(server: Pick<ChildProcess, 'stdout'>): void {
+  server.stdout?.resume();
+}
+
 function resolveVitest(): { bin: string; nodeModulesDir: string } {
   const require = createRequire(import.meta.url);
   const vitestPkg = require.resolve('vitest/package.json');
@@ -228,6 +239,7 @@ export function registerE2ECommand(program: Command): void {
             },
           });
 
+          drainServerStdout(serverProcess);
           if (serverProcess.pid) {
             spawnOrphanWatchdog(process.pid, serverProcess.pid);
           }

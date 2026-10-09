@@ -886,6 +886,7 @@ Config discovery (first match wins): `frontend/e2e/vitest.config.e2e.ts`, `e2e/v
 - **Heap cap** — the server is spawned with `NODE_OPTIONS=--max-old-space-size=4096` (not applied when the caller already sets a `--max-old-space-size`). A runaway dev-server compile crashes the run loudly instead of exhausting machine memory.
 - **Signal cleanup** — Ctrl-C / SIGTERM / SIGHUP on the CLI kills the detached server process group before exiting (previously the detached group never received the terminal's signal and survived as an immortal orphan).
 - **Orphan watchdog** — a tiny detached watchdog reaps the server group if the CLI process disappears without cleanup (SIGKILL, crash, killed session): SIGTERM first, SIGKILL after a 5 s grace. It exits by itself once the server group is gone and never interferes with a normal shutdown.
+- **Server output (0.7.9+)** — the server's stderr is relayed as `[frontend]` lines; its stdout (Next's per-request log) is read and discarded. Before 0.7.9 stdout was never read, so the server froze for the rest of the run once about 80 KB of request lines filled the pipe.
 
 ---
 
