@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { assertPortFree, mergeNodeOptions, spawnOrphanWatchdog } from '../e2e.js';
+import {
+  assertPortFree,
+  drainServerStdout,
+  mergeNodeOptions,
+  spawnOrphanWatchdog,
+} from '../e2e.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -121,5 +126,49 @@ describe('plumbus e2e lifecycle helpers', () => {
 
       expect(await waitUntilDead(watchdogPid, 5000)).toBe(true);
     }, 10_000);
+  });
+
+  describe('drainServerStdout', () => {
+    // A stand-in for `next dev`: stdout in blocking mode (as Next's native bindings
+    // set it), 400 KB of request-log-sized lines, then a marker on stderr.
+    const FAKE_SERVER = `
+      process.stdout._handle?.setBlocking?.(true);
+      const line = 'GET /page 200 in 12ms'.padEnd(99, '.') + '\\n';
+      for (let i = 0; i < 4000; i++) process.stdout.write(line);
+      process.stderr.write('done\\n');
+    `;
+
+    function runFakeServer(drain: boolean, waitMs: number): Promise<boolean> {
+      const child = spawn(process.execPath, ['-e', FAKE_SERVER], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      if (drain) drainServerStdout(child);
+      return new Promise((resolveDone) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          resolveDone(false);
+        }, waitMs);
+        child.stderr?.on('data', (data: Buffer) => {
+          if (!data.toString().includes('done')) return;
+          clearTimeout(timer);
+          child.kill('SIGKILL');
+          resolveDone(true);
+        });
+      });
+    }
+
+    it.skipIf(process.platform === 'win32')(
+      'a server writing to a stdout nobody reads stops after the pipe fills',
+      async () => {
+        expect(await runFakeServer(false, 2_000)).toBe(false);
+      },
+    );
+
+    it.skipIf(process.platform === 'win32')(
+      'keeps the server writing past the pipe buffer when stdout is drained',
+      async () => {
+        expect(await runFakeServer(true, 10_000)).toBe(true);
+      },
+    );
   });
 });
