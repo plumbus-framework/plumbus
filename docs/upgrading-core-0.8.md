@@ -4,42 +4,48 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 ## Packages to publish
 
+Prepared on **2026-10-12** for repository release **`v0.8.0-beta.10`**. The stable
+`latest` values below were verified against npm on that date. Seven existing
+packages receive new beta versions; three packages publish their first beta.
+Other package versions remain unchanged.
+
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
-| `@plumbus/core` | 0.7.6 | 0.8.0-beta.9 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`; beta.8: database connections honour `ssl`; beta.9: GPT-6 reasoning levels, 2026-10-01 price sync with `claude-sonnet-5-5` and the 272K long-context premium on every OpenAI model priced that way) |
+| `@plumbus/core` | 0.7.9 | 0.8.0-beta.10 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`; beta.8: database connections honour `ssl`; beta.9: GPT-6 reasoning levels, 2026-10-01 price sync with `claude-sonnet-5-5` and the 272K long-context premium on every OpenAI model priced that way; beta.10: the main integration and AI timeout, strict-output and failed-call budget fixes below) |
 | `@plumbus/ui` | 0.8.1 | 0.9.0-beta.1 (beta.0 + flow triggers only for descriptors with an explicit `startPath`) |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
 | `@plumbus/voice` | 0.5.2 | 0.6.0-beta.1 (beta.0 + voice 0.5.2: `resolveSttContext`, `tts.responseMode: 'reply'`, STT error recovery, `transcript.maxChars`) |
-| `@plumbus/ai-bedrock` | 0.2.1 | 0.3.0-beta.0 |
+| `@plumbus/ai-bedrock` | 0.2.2 | 0.3.0-beta.1 (prompt caching, timeout errors and embedding cancellation) |
 | `@plumbus/api` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/auth` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/auth-cognito` | 0.2.1 | 0.3.0-beta.1 (beta.0 + server-attested sign-in: `./server`, `./triggers`, `./testing`) |
+| `@plumbus/auth-cognito` | 0.2.2 | 0.3.0-beta.2 (beta.1: server-attested sign-in through `./server`, `./triggers`, `./testing`; beta.2: pool-provisioning concurrency guidance) |
 | `@plumbus/browser-extension` | 0.2.1 | 0.3.0-beta.1 (beta.0 + scaffolding filtered to the served HTTP surface) |
 | `@plumbus/chat` | 0.2.2 | 0.3.0-beta.1 (beta.0 + chat 0.2.2: structured custom-agent output through `onAgentOutput`) |
 | `@plumbus/chat-ui` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/knowledge-base` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/voice-deepdub` | 0.2.2 | 0.3.0-beta.1 (beta.0 + default model `dd-etts-3.3`) |
 | `@plumbus/voice-elevenlabs` | 0.2.1 | 0.3.0-beta.0 |
-| `@plumbus/voice-livekit` | 0.2.2 | 0.3.0-beta.1 (beta.0 + 20 ms PCM framing, text streams for events above 15 KiB) |
+| `@plumbus/voice-livekit` | 0.2.3 | 0.3.0-beta.2 (beta.1: 20 ms PCM framing and text streams for events above 15 KiB; beta.2: compatible LiveKit native dependencies) |
 | `@plumbus/voice-minimax` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/voice-openai` | 0.2.1 | 0.3.0-beta.1 (beta.0 + `gpt-realtime-whisper` at $0.017 per minute) |
 | `@plumbus/voice-soniox` | 0.2.2 | 0.3.0-beta.1 (beta.0 + per-session recognition context, STT error callback) |
-| `@plumbus/ai-decision` | 0.2.2 | 0.3.0-beta.0 (joins the family with core 0.8.0-beta.6, which depends on it) |
-| `@plumbus/ai-decision-typesafe` | 0.2.2 | 0.3.0-beta.0 |
-| `@plumbus/ai-decision-laya` | 0.2.2 | 0.3.0-beta.0 |
+| `@plumbus/ai-decision` | 0.2.3 | 0.3.0-beta.1 (beta.0 joined with core 0.8.0-beta.6; beta.1 adds endpoint paths and rounding support for OpenAI Decisions) |
+| `@plumbus/ai-decision-typesafe` | 0.2.3 | 0.3.0-beta.1 |
+| `@plumbus/ai-decision-laya` | 0.2.3 | 0.3.0-beta.1 |
 | `@plumbus/ai-decision-openai` | 0.2.0 | 0.3.0-beta.0 (OpenAI Decisions API provider) |
 | `@plumbus/payments` | 0.2.2 | 0.3.0-beta.0 (payment capabilities, billing, entities, events and webhooks) |
 | `@plumbus/payments-stripe` | 0.2.2 | 0.3.0-beta.0 (Stripe provider; payments peer `>=0.3.0-beta.0 <0.4.0`) |
 
 All 24 packages move outside their previous caret range, including add-ons whose only change is the peer literal: every add-on peers on core, and a `0.7.x` peer would reject core 0.8. Canonical peer literals are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
 
-Since 0.8.0-beta.6 core has a regular dependency on `@plumbus/ai-decision` (`~0.3.0-beta.0`, the shared decision contracts). The publish workflow publishes that package before core; a core 0.8.0-beta.6 install cannot resolve until `@plumbus/ai-decision@0.3.0-beta.0` is on npm. The TypeSafe and Laya adapters stay optional installs.
+Since 0.8.0-beta.6 core has a regular dependency on `@plumbus/ai-decision` (`~0.3.0-beta.0`, the shared decision contracts). The publish workflow publishes that package before core; a core 0.8.0-beta.6 install cannot resolve until `@plumbus/ai-decision@0.3.0-beta.0` is on npm. Core 0.8.0-beta.10 and the current decision adapters now depend on `~0.3.0-beta.1`, which includes OpenAI rounding support. The TypeSafe, Laya, and OpenAI adapters stay optional installs.
 
-## Updates merged from main
+## Included in v0.8.0-beta.10
 
-This branch includes the later main-line fixes and features below without changing
-the existing beta version numbers. The stable release numbers in changelogs record
-where those changes originated; they do not change this branch's peer ranges.
+This release publishes the later main-line fixes and features below together with
+the branch's AI fixes, using the package versions above. The stable release numbers
+in changelogs record where main-line changes originated; this release keeps the
+0.8-family peer ranges.
 
 - Core includes the stable 0.7.7–0.7.9 additions: `field.bigint()`, exported collection
   discovery, payments CLI commands, `authenticationRuntime` loading from
@@ -108,7 +114,7 @@ Do not mix beta packages with the 0.7 family, and do not use `--force` or `--leg
 | AI provider admission and trace propagation | Hosts that meter or trace outbound model calls | `app/server.ts` may export `aiProviderConcurrency` (immediate per-scope ceiling, default scope provider + tenant + `costContext.serviceArea`; saturation throws `ai-provider-concurrency-exhausted` with `retryAfterSeconds: 1`, never queues), `resolveAIProviderHeaders` (trusted W3C `traceparent` / `tracestate` for every provider attempt, reaching the adapter as `ProviderRequest.transportHeaders`; credential and content-type headers are refused) and `onAIProviderSpan` (best-effort client-span export). `createAIService` takes the same as `providerConcurrency` / `resolveProviderHeaders` / `onProviderSpan`; `withContext` accepts `correlationId` and flow workers bind the persisted flow correlation id. See [AI integration](ai/ai-integration.md#provider-admission-and-trace-propagation). |
 | `ctx.flows.terminate` | Operator recovery capabilities | `FlowService` exposes the engine's `terminate(executionId)`: abort and close as `cancelled` without compensations, beside `cancel`, which runs every declared compensation. See [Flows](core-concepts/flows.md#cancellation). |
 | Approval request cancellation | Hosts with human-approval workflows | `ApprovalService.cancel({ requestId, auth, reason })` withdraws a still-pending request after human-actor and host-authorization revalidation, records cancellation evidence, and atomically cancels linked open/claimed human tasks without writing an approval decision. Tenant durable migration `0002_approval_cancellation.sql` adds the evidence columns. See [Approvals](core-concepts/approvals.md). |
-| Typed decisions and classification | Apps that call TypeSafe/Jev or self-hosted Laya decision providers | Since core 0.8.0-beta.6, `ctx.ai.decide()` runs a decision adapter over the shared `@plumbus/ai-decision` contract with security checks, budgets, cancellation and per-call cost records through `onAICostRecorded`, and `ctx.ai.classify()` takes optional `provider` / `model` to route labels to a text provider or a decision adapter (labels at or above `threshold`, default 0.5). Register providers with `export const decisions = { providers, defaultProvider }` in `app/server.ts`; named definitions live under `app/decisions/`. Install the adapter packages (`0.3.0-beta.0`) explicitly. Run `plumbus init --patch --agent all` for agent wiring v17, which links the classification recipe. See [Decision providers](ai/decision-providers.md). |
+| Typed decisions and classification | Apps that call TypeSafe/Jev or self-hosted Laya decision providers | Since core 0.8.0-beta.6, `ctx.ai.decide()` runs a decision adapter over the shared `@plumbus/ai-decision` contract with security checks, budgets, cancellation and per-call cost records through `onAICostRecorded`, and `ctx.ai.classify()` takes optional `provider` / `model` to route labels to a text provider or a decision adapter (labels at or above `threshold`, default 0.5). Register providers with `export const decisions = { providers, defaultProvider }` in `app/server.ts`; named definitions live under `app/decisions/`. Install the matching adapter from the version table explicitly. Agent wiring v17 first linked the classification recipe; this release provides v19. Refresh with `plumbus init --patch --agent all`. See [Decision providers](ai/decision-providers.md). |
 | Server-attested Cognito sign-in | Apps that keep their own passwordless sign-in (magic links, passkeys) and want Cognito as the user directory and token issuer | Since auth-cognito 0.3.0-beta.1, `@plumbus/auth-cognito/server` creates attested user pools and their users and signs a person in from the server through custom auth answered with an HMAC attestation; `./triggers` is the matching dependency-free Lambda for the Define/Create/Verify triggers, and `./testing` provides `startFakeCognito()`. These subpaths bring the AWS SDK and `jose`; the root `cognito()` export is unchanged. See [Server-attested sign-in](auth/cognito.md#server-attested-sign-in-passwordless-apps). |
 | Events audit vocabulary | Every host | The dispatcher and the event worker record their audit with the outcomes `createAuditService` accepts (`success` / `failure` / `denied`); `event.dispatch.attempt`, `event.consumer.attempt` and `event.consumer.skipped` carry no outcome, `event.dispatch.failed` and `event.consumer.dead_lettered` are `failure` (the former adds `disposition: retry \| dead_lettered`). Before, they wrote `pending` / `retry` / `dead_lettered` / `skipped`, which the audit service refused — so with the real audit service every dispatch attempt threw, and one plane's rejected poll escaped the timer and ended the worker process. The outbox poll now contains a failing plane and keeps polling the others. Since core 0.8.0-beta.7 these audit entries are best-effort (a failed audit write is logged to the optional `logger` and never blocks a publish, a consumer handler or a dead-letter write), and each poll returns `event_outbox` rows stuck in `processing` for longer than `claimTimeoutMs` (default 5 minutes) to `pending`. |
 
@@ -116,6 +122,94 @@ No database schema changes are introduced by this family beyond the tenant data-
 
 ## Publication
 
-- The publish workflow runs when a `v*` Git tag is pushed. Repository release tags are numbered independently from package versions; never move or reuse an existing release tag.
-- The workflow derives the dist-tag from the branch containing the tagged commit: `latest` for `main`, otherwise the branch name. Push the branch before the tag; a tag whose commit is on no branch fails the run. Promoting a beta to `latest` is a separate operator decision after the whole family and consumer staging checks pass.
-- Run the four repository gates (lint, format check, typecheck, tests) and the packed npm consumer install from the [security release runbook](./upgrading-security-release.md#release-preparation-checks) before tagging.
+The three identifiers serve different purposes:
+
+| Identifier | Meaning for this release |
+| --- | --- |
+| Git tag `v0.8.0-beta.10` | One repository snapshot; pushing it starts `.github/workflows/publish.yml`. |
+| Package version | Each package's immutable `package.json` version, as listed above. Add-ons do not all become `0.8.0-beta.10`. |
+| npm dist-tag `plumbus-next` | The movable install alias for each package's beta version. `latest` stays on the stable 0.7 family. |
+
+Before running the local checks, provide a reachable, isolated PostgreSQL test
+database with password authentication. Set `PLUMBUS_TEST_PG_HOST`,
+`PLUMBUS_TEST_PG_PORT` (required), `PLUMBUS_TEST_PG_DATABASE`,
+`PLUMBUS_TEST_PG_USER`, and `PLUMBUS_TEST_PG_PASSWORD` for that database; do not
+point tests at application data. See the [testing guide](testing/testing-guide.md).
+Prepare and validate from the repository root:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm format:check
+pnpm build
+pnpm typecheck
+pnpm test
+```
+
+Also complete the packed npm consumer checks in the
+[security release runbook](./upgrading-security-release.md#release-preparation-checks)
+using **all 24 packages** in this family; the historical runbook's 18-package count
+is not the package set for this release.
+The generic `scripts/bump-version.sh` only handles core, UI and voice and accepts
+stable `patch`/`minor`/`major` bumps; it does not prepare this beta release.
+
+Review `git status` and `git diff` on `plumbus-next`. Once the working tree contains
+only the intended, validated release changes, the operator release sequence is:
+
+```bash
+git add -A
+git commit -m "chore(release): prepare v0.8.0-beta.10"
+git push origin plumbus-next
+git tag -a v0.8.0-beta.10 -m "Plumbus core 0.8 beta 10"
+git push origin refs/tags/v0.8.0-beta.10
+```
+
+Agents need explicit per-command approval for these Git writes under `AGENTS.md`.
+Never move or reuse an existing release tag. Push the branch before the tag: the
+workflow derives the npm dist-tag from a remote branch containing the tagged
+commit. A commit contained in `main` publishes under `latest`; a commit contained
+only in `plumbus-next` publishes under `plumbus-next`. A tagged commit on no remote
+branch fails instead of choosing an alias. Keep this beta release off `main` until
+promotion is intended.
+
+The workflow installs with the frozen lockfile and runs lint, format check, build,
+typecheck and tests before publication, with PostgreSQL available for database
+tests. It publishes all 24 packages in dependency order, including shared decision
+contracts before core and adapters and payments before its Stripe provider. For
+each package, it checks npm for that exact version: an existing version is skipped;
+a missing version is published under the resolved dist-tag. Therefore unchanged
+packages keep their versions, and publishing again cannot replace an existing
+version's contents. A skipped package's dist-tags are not changed by the workflow.
+
+Watch the **Publish to npm** workflow and wait for its successful completion, then
+verify the registry:
+
+```bash
+gh run list --workflow publish.yml --limit 5
+npm view @plumbus/core@plumbus-next version
+npm view @plumbus/ai-decision@plumbus-next version
+npm view @plumbus/ai-decision-typesafe@plumbus-next version
+npm view @plumbus/ai-decision-laya@plumbus-next version
+npm view @plumbus/ai-bedrock@plumbus-next version
+npm view @plumbus/auth-cognito@plumbus-next version
+npm view @plumbus/voice-livekit@plumbus-next version
+npm view @plumbus/ai-decision-openai@plumbus-next version
+npm view @plumbus/payments@plumbus-next version
+npm view @plumbus/payments-stripe@plumbus-next version
+npm view @plumbus/core dist-tags --json
+```
+
+Expect the package versions in the table, with core `plumbus-next` at
+`0.8.0-beta.10` and core `latest` still at `0.7.9` for this release. Install the beta
+explicitly in consumers; include every Plumbus package the app already uses and
+only the optional providers it needs. For example, a core app using OpenAI
+Decisions installs:
+
+```bash
+pnpm add @plumbus/core@plumbus-next @plumbus/ai-decision-openai@plumbus-next
+pnpm exec plumbus init --patch --agent all
+pnpm exec plumbus doctor
+```
+
+Promoting the beta to `latest` is a separate release decision after the entire
+family and consumer staging checks pass.

@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/auth-cognito",
-  "version": "0.3.0-beta.1",
+  "version": "0.3.0-beta.2",
   "description": "Amazon Cognito integration for @plumbus/auth — hosted login options, client auth method, logout URL builder, and server-attested sign-in for passwordless apps.",
   "type": "module",
   "main": "./dist/index.js",

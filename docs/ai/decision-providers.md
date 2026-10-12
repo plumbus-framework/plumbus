@@ -1,7 +1,7 @@
 # Typed decision provider packages
 
 Core **0.7.3+** (0.8 family: **0.8.0-beta.6+**) integrates typed decisions through `ctx.ai.decide()`. Use shared
-`@plumbus/ai-decision@0.2.1+` (0.2.3+ for OpenAI on the stable line; this beta family uses `0.3.0-beta.0`) and the matching
+`@plumbus/ai-decision@0.2.1+` (0.2.3+ for OpenAI on the stable line; this beta release uses `0.3.0-beta.1`) and the matching
 TypeSafe, Laya, or OpenAI Decisions adapter for named contracts, validation, security, budgets,
 cancellation, and per-call cost records. The decision packages still work independently for
 infrastructure tests. Register decision adapters separately from text-generation providers.
@@ -14,7 +14,7 @@ infrastructure tests. Register decision adapters separately from text-generation
 | `@plumbus/ai-decision-openai` | OpenAI Decisions API (`POST /v1/decisions`) adapter and `gpt-6-luna` input pricing |
 
 The 0.8-family decision packages (`0.3.0-beta.N`) peer on core
-`>=0.8.0-beta.0 <0.9.0` and depend on shared contracts `~0.3.0-beta.0`. This beta
+`>=0.8.0-beta.0 <0.9.0` and depend on shared contracts `~0.3.0-beta.1`. This beta
 includes the endpoint-path and adapter-declared rounding support required by OpenAI Decisions.
 
 On the stable 0.7 line, decision packages peer on core `0.7.x`. Core 0.7.4 and the 0.2.2 provider packages

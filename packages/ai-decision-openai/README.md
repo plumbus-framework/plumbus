@@ -45,7 +45,7 @@ This package gives apps that already use OpenAI a registered decision provider w
 
 ## Status
 
-Optional decision provider, version `0.3.0-beta.0` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; use the matching core **0.8 beta** (see [Install](#install)); agent wiring **v19** in this family links these instructions. Depends on `@plumbus/ai-decision` `~0.3.0-beta.0`. Install alone is not enough until the adapter is registered under `decisions.providers`.
+Optional decision provider, version `0.3.0-beta.0` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; use the matching core **0.8 beta** (see [Install](#install)); agent wiring **v19** in this family links these instructions. Depends on `@plumbus/ai-decision` `~0.3.0-beta.1`. Install alone is not enough until the adapter is registered under `decisions.providers`.
 
 OpenAI's Decisions API is in public beta. This adapter follows OpenAI's documentation as of
 2026-10-08 and may need a patch release if the API changes when it becomes generally available.
@@ -61,11 +61,11 @@ pnpm add @plumbus/ai-decision-openai@plumbus-next
 ```
 
 Install explicitly with `pnpm add @plumbus/ai-decision-openai@plumbus-next`. Provider packages install
-`@plumbus/ai-decision` (`~0.3.0-beta.0`) transitively. There is no dependency on the OpenAI SDK
+`@plumbus/ai-decision` (`~0.3.0-beta.1`) transitively. There is no dependency on the OpenAI SDK
 or on the other decision providers.
 
 Through `ctx.ai`, core checks every result again with its own copy of
-`@plumbus/ai-decision`. The matching beta family shares `~0.3.0-beta.0`, including
+`@plumbus/ai-decision`. The matching beta family shares `~0.3.0-beta.1`, including
 this adapter's rounding support. Do not mix beta and stable packages. On the stable
 0.7 line, use core 0.7.9 and shared contracts 0.2.3+; older shared contracts reject
 OpenAI's rounded answers as `invalid_response` after the call is billed.
@@ -187,7 +187,7 @@ Unknown response models return `cost: null`; they are not free. Core records suc
 - **Probabilities are not permissions.** A probability is P(true), not a boolean, and a high confidence value is not authorization or proof of correctness. Validate thresholds on the actual task, model, and language.
 - **Retries can repeat cost.** The transport retries HTTP 429, 500, 502, 503, 504, and 529 (two retries by default, honoring `Retry-After`); repeated requests can still incur cost, with no exactly-once guarantee.
 - **Refusals fail the whole call.** `decide()` and `classify()` throw `invalid_response` with `error.refusedQuestions` (for `classify()`, `label_<index>` by position in `labels`); `refusedQuestions` is set only for refusals. Handle it as a business outcome, such as routing to review, not by retrying in a loop.
-- **Core and the adapter must share rounding-aware contracts.** Install the matching beta family (`@plumbus/ai-decision` `~0.3.0-beta.0`); see [Install](#install) for stable-line compatibility.
+- **Core and the adapter must share rounding-aware contracts.** Install the matching beta family (`@plumbus/ai-decision` `~0.3.0-beta.1`); see [Install](#install) for stable-line compatibility.
 - **Public beta.** OpenAI may change the Decisions API at general availability.
 
 ## Documentation / Agent recipes

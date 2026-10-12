@@ -51,7 +51,7 @@ This package ships those pieces, tested against each other. The hosted-login hal
 
 ## Status
 
-Optional add-on for `@plumbus/auth` (version **`0.3.0-beta.1`**, npm dist-tag `plumbus-next`; peer `@plumbus/auth` **`>=0.3.0-beta.0 <0.4.0`**). The server-attested subpaths (`./server`, `./triggers`, `./testing`) are available from **0.3.0-beta.1** in this family (stable line: **0.2.2**); they depend on the AWS SDK and `jose`, which the root `cognito()` export and `./triggers` never load. Agent wiring **v18** (`@plumbus/core` **≥ 0.7.7**) links the package's `attested-sign-in.md` recipe.
+Optional add-on for `@plumbus/auth` (version **`0.3.0-beta.2`**, npm dist-tag `plumbus-next`; peer `@plumbus/auth` **`>=0.3.0-beta.0 <0.4.0`**). The server-attested subpaths (`./server`, `./triggers`, `./testing`) are available from **0.3.0-beta.1** in this family (stable line: **0.2.2**); they depend on the AWS SDK and `jose`, which the root `cognito()` export and `./triggers` never load. Agent wiring **v18** (`@plumbus/core` **≥ 0.7.7**) links the package's `attested-sign-in.md` recipe.
 
 Not included: a general Cognito emulator (the fake covers the actions this package uses), identity pools / federated AWS credentials, and hosted login for public (secretless) app clients.
 

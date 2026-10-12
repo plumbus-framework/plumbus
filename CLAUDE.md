@@ -104,7 +104,7 @@ Laya ships a separate Python reference service; Python/model dependencies are no
 installed by pnpm. Register the OpenAI adapter under a decision key such as
 `openai-decisions`, distinct from the `openai` text provider. Core re-validates its
 answers with the `@plumbus/ai-decision` copy core loads. The beta family shares
-`~0.3.0-beta.0`, including OpenAI rounding support. On the stable 0.7 line use
+`~0.3.0-beta.1`, including OpenAI rounding support. On the stable 0.7 line use
 core **0.7.9+** with shared contracts **0.2.3+**.
 
 Core 0.7.3+ provides `ctx.ai.decide()` with cost recording, identity, validation,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0-beta.2 — 2026-10-12
+
+- Carry the stable 0.2.3 dependency fix into the beta family: pin `@livekit/agents` to 1.9.0 with `@livekit/rtc-node` ^0.13.34 so the worker and transport share compatible native bindings. Keep the existing PCM framing and large-event stream behavior.
+
 ## 0.3.0-beta.1 — 2026-09-23
 
 Carries 0.2.2 from `main` into the beta family.

@@ -13,7 +13,7 @@ decisions. Use core generation and embeddings (the `openai` text provider) for t
 responses and vector inference.
 
 Core checks every `ctx.ai` result again with its own copy of `@plumbus/ai-decision`.
-This beta family shares `~0.3.0-beta.0`, including OpenAI rounding support; install
+This beta family shares `~0.3.0-beta.1`, including OpenAI rounding support; install
 matching beta versions together. Stable-line apps use core 0.7.9 and shared contracts
 0.2.3+. An older validator rejects OpenAI's rounded answers as `invalid_response`
 after the call is billed.

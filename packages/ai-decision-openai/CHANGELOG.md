@@ -3,7 +3,7 @@
 ## 0.3.0-beta.0 — core 0.8 beta family
 
 - Carries the stable-line functionality below into the coordinated core 0.8 beta family, published under `plumbus-next`; `latest` stays on the 0.7 family. Install matching beta packages together; the core peer is `>=0.8.0-beta.0 <0.9.0`. See the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
-- Depends on `@plumbus/ai-decision` `~0.3.0-beta.0`, including the endpoint-path and rounding support required by the adapter.
+- Depends on `@plumbus/ai-decision` `~0.3.0-beta.1`, including the endpoint-path and rounding support required by the adapter.
 
 ## 0.2.0 — 2026-10-08
 

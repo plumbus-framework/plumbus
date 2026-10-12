@@ -46,7 +46,7 @@ An opt-in peer keeps core lean while giving AWS shops a first-class `provider: '
 
 ## Status
 
-Optional peer of `@plumbus/core` (beta family version **`0.3.0-beta.0`**, npm dist-tag `plumbus-next`; required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**). The beta includes prompt caching through `ctx.ai`; on the stable 0.7 line caching needs core **≥ 0.7.9** and Bedrock **≥ 0.2.2**. Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
+Optional peer of `@plumbus/core` (beta family version **`0.3.0-beta.1`**, npm dist-tag `plumbus-next`; required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**). The beta includes prompt caching through `ctx.ai`; on the stable 0.7 line caching needs core **≥ 0.7.9** and Bedrock **≥ 0.2.2**. Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
 
 ## Install
 

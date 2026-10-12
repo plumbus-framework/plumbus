@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0-beta.1 — 2026-10-12
+
+- Carry endpoint-path selection, provider rounding tolerance and refused-question metadata from stable 0.2.3 into the beta family. Core 0.8.0-beta.10 and all current decision adapters depend on `~0.3.0-beta.1`.
+- Refresh packaged provider guidance for TypeSafe, Laya and OpenAI Decisions.
+
 ## 0.3.0-beta.0 — 2026-09-23 — core 0.8 beta family
 
 ### Upgrade boundary

@@ -50,7 +50,7 @@ Typed decision models answer bounded questions (one option from a list, a level 
 
 ## Status
 
-Shared decision contracts, version `0.3.0-beta.0` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; agent wiring **v17** (core 0.7.4+) links these instructions. Core 0.8.0-beta.6+ depends on this package at `~0.3.0-beta.0`. On the stable line, core 0.7.3 depends on `~0.2.1`, 0.7.4–0.7.8 on `~0.2.2`, and 0.7.9 on `~0.2.3`.
+Shared decision contracts, version `0.3.0-beta.1` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; agent wiring **v17** (core 0.7.4+) links these instructions. Core 0.8.0-beta.10 depends on this package at `~0.3.0-beta.1`. On the stable line, core 0.7.3 depends on `~0.2.1`, 0.7.4–0.7.8 on `~0.2.2`, and 0.7.9 on `~0.2.3`.
 
 Not included: vendor model catalogs, automatic environment provider discovery, and dedicated decision CLI commands.
 

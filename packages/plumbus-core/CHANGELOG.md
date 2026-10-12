@@ -1,6 +1,17 @@
 # @plumbus/core changelog
 
-## Unreleased
+## 0.8.0-beta.10 — 2026-10-12
+
+Carries core 0.7.7–0.7.9 and subsequent main fixes into the beta family, alongside the request-timeout, strict-output and budget fixes below.
+
+### Added
+
+- Anthropic/Bedrock prompt caching, OpenAI Decisions integration with shared contracts `~0.3.0-beta.1`, payments CLI and collection discovery, `field.bigint()`, authentication runtime discovery, and agent wiring v19.
+- Capability error hooks now cover HTTP, flow, job and event execution while retaining the beta data-plane routing.
+
+### Updated
+
+- Merge the latest model compatibility/pricing, per-attempt validation accounting and e2e server-output draining fixes. Publish this family under `plumbus-next` using repository tag `v0.8.0-beta.10`; stable `latest` remains unchanged.
 
 ### Fixed
 

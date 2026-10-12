@@ -1,6 +1,10 @@
 # @plumbus/ai-bedrock
 
-## Unreleased
+## 0.3.0-beta.1 — 2026-10-12
+
+### Added
+
+- Carry Converse/ConverseStream prompt caching from stable 0.2.2 into the beta family, preserving native structured-output schemas and per-call deadlines. Use with core 0.8.0-beta.10.
 
 ### Fixed
 

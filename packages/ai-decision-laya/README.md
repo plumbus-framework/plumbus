@@ -45,7 +45,7 @@ This package gives apps that keep inference on their own infrastructure a regist
 
 ## Status
 
-Optional decision provider, version `0.3.0-beta.0` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; agent wiring **v17** (core 0.7.4+) links these instructions. Depends on `@plumbus/ai-decision` `~0.3.0-beta.0`. Install alone is not enough until the adapter is registered under `decisions.providers` and a Laya server is running. Python/model dependencies are installed separately from pnpm.
+Optional decision provider, version `0.3.0-beta.1` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; agent wiring **v17** (core 0.7.4+) links these instructions. Depends on `@plumbus/ai-decision` `~0.3.0-beta.1`. Install alone is not enough until the adapter is registered under `decisions.providers` and a Laya server is running. Python/model dependencies are installed separately from pnpm.
 
 Not included: vendor model catalogs, automatic environment provider discovery, and dedicated decision CLI commands.
 

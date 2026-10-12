@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/ai-decision-laya",
-  "version": "0.3.0-beta.0",
+  "version": "0.3.0-beta.1",
   "description": "Self-hosted Laya typed decision adapter and Python reference service for Plumbus.",
   "type": "module",
   "main": "./dist/index.js",

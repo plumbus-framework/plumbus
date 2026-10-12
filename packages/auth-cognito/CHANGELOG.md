@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0-beta.2 — 2026-10-12
+
+- Refresh the README and packaged attested-sign-in guidance, including the public API warning to provision each named user pool from one step rather than concurrently across replicas. Runtime behavior is unchanged.
+
 ## 0.3.0-beta.1 — 2026-09-27 — core 0.8 beta family
 
 ### Added

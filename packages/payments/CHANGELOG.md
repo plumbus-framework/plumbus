@@ -2,6 +2,8 @@
 
 ## 0.3.0-beta.0 — core 0.8 beta family
 
+- Payment webhooks use the core runtime subpath and resolve tenant dependencies asynchronously; a failed tenant resolution returns an error without falling back to the control-plane database. See the documented routing-row and worker-wiring requirements.
+
 - Carries the stable-line functionality below into the coordinated core 0.8 beta family, published under `plumbus-next`; `latest` stays on the 0.7 family. Install matching beta packages together; the core peer is `>=0.8.0-beta.0 <0.9.0`. See the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
 
 ## 0.2.2 — 2026-10-08
