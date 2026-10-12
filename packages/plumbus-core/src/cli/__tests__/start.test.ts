@@ -68,9 +68,28 @@ function startConfigured(
 ): ReturnType<typeof startProductionServer> {
   return startProductionServer({ port: LISTEN_PORT, ...options });
 }
+// startProductionServer installs process signal/error handlers; drop the ones each
+// test added so the suite does not exceed Node's default listener limit.
+const processEvents = ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'] as const;
+let listenersBefore = new Map<string, ((...args: never) => unknown)[]>();
 
 describe('CLI start command', () => {
+  afterEach(() => {
+    for (const event of processEvents) {
+      const before = listenersBefore.get(event) ?? [];
+      for (const listener of process.listeners(event)) {
+        if (!before.includes(listener)) process.removeListener(event, listener as never);
+      }
+    }
+    if (ORIGINAL_START_PORT === undefined) {
+      delete process.env.PLUMBUS_START_PORT;
+    } else {
+      process.env.PLUMBUS_START_PORT = ORIGINAL_START_PORT;
+    }
+  });
+
   beforeEach(() => {
+    listenersBefore = new Map(processEvents.map((event) => [event, [...process.listeners(event)]]));
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(createServer).mockClear();
@@ -81,14 +100,6 @@ describe('CLI start command', () => {
     // Production config requires these
     process.env.DB_PASSWORD = 'test-password';
     process.env.AUTH_SECRET = 'test-secret-that-is-long-enough-for-production';
-  });
-
-  afterEach(() => {
-    if (ORIGINAL_START_PORT === undefined) {
-      delete process.env.PLUMBUS_START_PORT;
-    } else {
-      process.env.PLUMBUS_START_PORT = ORIGINAL_START_PORT;
-    }
   });
 
   describe('resolveStartPort', () => {
@@ -206,6 +217,20 @@ describe('CLI start command', () => {
     await startConfigured({ db: mockDb as never });
     const serverConfig = (createServer as any).mock.calls[0][0];
     expect(serverConfig.db).toBe(mockDb);
+  });
+
+  it('passes an authenticationRuntime exported from app/server.ts to createServer', async () => {
+    const authenticationRuntime = {
+      authenticator: {},
+      initialize: vi.fn(),
+      registerRoutes: vi.fn(),
+    };
+    vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+      authenticationRuntime: authenticationRuntime as never,
+    });
+    await startConfigured({ db: {} as never });
+    const serverConfig = (createServer as any).mock.calls[0][0];
+    expect(serverConfig.authenticationRuntime).toBe(authenticationRuntime);
   });
 
   it('returns shutdown function', async () => {

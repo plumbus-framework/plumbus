@@ -57,8 +57,11 @@ plumbus init
 │ node_modules/@plumbus/mcp/instructions/                     │
 │ node_modules/@plumbus/api/instructions/                     │
 │ node_modules/@plumbus/ai-bedrock/instructions/              │
+│ node_modules/@plumbus/ai-decision*/instructions/            │
 │ node_modules/@plumbus/auth/instructions/                    │
 │ node_modules/@plumbus/auth-cognito/instructions/            │
+│ node_modules/@plumbus/payments/instructions/                │
+│ node_modules/@plumbus/payments-stripe/instructions/         │
 │ node_modules/@plumbus/browser-extension/instructions/       │
 │                                                             │
 │  guardrails.md    ← Mandatory architecture + git safety     │
@@ -71,6 +74,7 @@ plumbus init
 │  events.md        ← How to define and emit events           │
 │  flows.md         ← How to build multi-step flows           │
 │  ai.md            ← How to use AI features                  │
+│  ai-classification.md ← Provider/model selection, decisions │
 │  security.md      ← Access policies and tenant isolation    │
 │  governance.md    ← Governance rules and compliance         │
 │  testing.md       ← Testing helpers and patterns            │
@@ -256,6 +260,7 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/core/instructions/flows.md` | Flow orchestration |
 | `node_modules/@plumbus/core/instructions/prompts.md` | Prompt content and model config |
 | `node_modules/@plumbus/core/instructions/ai.md` | AI integration |
+| `node_modules/@plumbus/core/instructions/ai-classification.md` | Classification, provider/model selection, `classify()` vs `decide()`, decision provider registration |
 | `node_modules/@plumbus/core/instructions/translations.md` | Translation catalogs |
 | `node_modules/@plumbus/core/instructions/security.md` | Security model |
 | `node_modules/@plumbus/core/instructions/governance.md` | Governance rules |
@@ -298,6 +303,10 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/ai-bedrock/instructions/README.md` | Amazon Bedrock AI provider instruction index |
 | `node_modules/@plumbus/ai-bedrock/instructions/framework.md` | Bedrock Converse/embeddings, pricing file vs auto-download, IAM |
 | `node_modules/@plumbus/ai-bedrock/instructions/pricing.md` | AWS Price List URLs, curl, normalize, ConfigMap, troubleshooting |
+| `node_modules/@plumbus/ai-decision/instructions/README.md` | Shared typed decision contracts index (installed with any decision provider) |
+| `node_modules/@plumbus/ai-decision-typesafe/instructions/README.md` | TypeSafe/Jev decision provider index (optional package) |
+| `node_modules/@plumbus/ai-decision-laya/instructions/README.md` | Self-hosted Laya decision provider index (optional package) |
+| `node_modules/@plumbus/ai-decision-openai/instructions/README.md` | OpenAI Decisions API provider index (optional package, wiring v19) |
 | `node_modules/@plumbus/api/instructions/README.md` | Partner API instruction index (optional package) |
 | `node_modules/@plumbus/api/instructions/framework.md` | API package boundary, public exports, critical rules |
 | `node_modules/@plumbus/api/instructions/expose-a-capability.md` | `exposeAs: ['api']` recipe + `registerApiRoutes` wiring |
@@ -314,6 +323,18 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/auth-cognito/instructions/configure-cognito.md` | `cognito()` integration registration |
 | `node_modules/@plumbus/auth-cognito/instructions/hosted-login-options.md` | Hosted UI IdP allowlist |
 | `node_modules/@plumbus/auth-cognito/instructions/logout.md` | Cognito logout URL builder |
+| `node_modules/@plumbus/auth-cognito/instructions/attested-sign-in.md` | Server-attested sign-in after the app's own passwordless login (`./server`, `./triggers`) |
+| `node_modules/@plumbus/payments/instructions/README.md` | Payments instruction index (optional package) |
+| `node_modules/@plumbus/payments/instructions/framework.md` | Package boundary, exports, money-handling rules |
+| `node_modules/@plumbus/payments/instructions/wiring.md` | `createPayments()`, collection exports, webhook route, worker, migrations, catalog sync, helpers |
+| `node_modules/@plumbus/payments/instructions/options.md` | Choosing sellers or billing, dashboards, charge type, fees, losses, platform fee, plans |
+| `node_modules/@plumbus/payments/instructions/capabilities-and-events.md` | Calling payments capabilities and helpers, reacting to `payments.*` events |
+| `node_modules/@plumbus/payments/instructions/testing.md` | Fake provider, `deliverTestWebhook` |
+| `node_modules/@plumbus/payments-stripe/instructions/README.md` | Stripe provider instruction index (optional package) |
+| `node_modules/@plumbus/payments-stripe/instructions/framework.md` | Stripe APIs used, API version, critical rules |
+| `node_modules/@plumbus/payments-stripe/instructions/configure-stripe.md` | Keys, dashboards, charge types, liability rules, the billing catalog |
+| `node_modules/@plumbus/payments-stripe/instructions/webhooks.md` | Event destinations, signing secrets, Stripe CLI forwarding |
+| `node_modules/@plumbus/payments-stripe/instructions/testing.md` | Signed Stripe events, HTTP stub |
 | `node_modules/@plumbus/voice/instructions/README.md` | Voice instruction index — open first after installing `@plumbus/voice` |
 | `node_modules/@plumbus/voice/instructions/framework.md` | Voice runtime overview and critical rules (optional package) |
 | `node_modules/@plumbus/voice/instructions/client-stt.md` | Client-side STT (`web-speech`) trust boundaries |
@@ -379,6 +400,23 @@ plumbus init --patch --agent <your-agent>
 This refreshes the Plumbus-managed wiring sections with the latest instructions while preserving surrounding custom notes. If doctor reports that a file cannot be patched safely, rerun with `--force` for that full replacement.
 
 
+
+## OpenAI Decisions provider — wiring v19
+
+Core **0.7.9+** generates wiring **v19**. All agent formats (reference and inline, flat
+and monorepo) also list `node_modules/@plumbus/ai-decision-openai/instructions/README.md`
+next to the TypeSafe/Jev and Laya decision provider indexes, and Cursor's capability rule
+names OpenAI Decisions in its classification line. Apps that install
+`@plumbus/ai-decision-openai` find its registration, question mapping, refusal, and
+pricing rules. Other apps are unaffected apart from the version marker.
+
+Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
+
+## Payments guidance — wiring v18
+
+Core **0.7.7+** generates wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. They also list `@plumbus/auth-cognito`'s `attested-sign-in.md` (auth-cognito 0.2.2+). Apps without payments are unaffected apart from the version marker.
+
+Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
 
 ## Classification and decision guidance — wiring v17
 

@@ -4,6 +4,11 @@ Core **0.7.4** lets `ctx.ai.classify()` select either a generative provider or a
 registered TypeSafe/Jev or Laya decision adapter. Existing calls retain their text
 default and `string[]` result. `decide()` remains the richer typed-question API.
 
+Later, core **0.7.9** added support for the OpenAI Decisions provider
+(`@plumbus/ai-decision-openai` 0.2.0, shared contracts 0.2.3) and agent wiring **v19**.
+The same `plumbus init --patch --agent all` refreshes the wiring; see
+[decision providers](ai/decision-providers.md) for registration and core versions.
+
 ## Prepared versions
 
 | Package | Previous workspace version | Prepared |

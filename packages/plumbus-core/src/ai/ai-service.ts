@@ -36,6 +36,7 @@ import { createPromptRegistry } from './prompt-registry.js';
 import { isCostFreeProviderFailure } from './provider-failure.js';
 import {
   assertRequestTimeout,
+  type AIPromptCacheOption,
   type AIProviderAdapter,
   type AITool,
   type AIToolCall,
@@ -277,6 +278,11 @@ export interface AIServiceConfig {
   defaultModel?: string /** Per-prompt model/provider overrides from config/env */;
   /** Enable provider-side constrained decoding for JSON-output prompt schemas. */
   enableStrictStructuredOutputs?: boolean;
+  /**
+   * Default prompt-caching preference for Anthropic / Bedrock. Per-call
+   * `cache` on generate / streamGenerate overrides this. OpenAI ignores it.
+   */
+  cache?: AIPromptCacheOption;
   promptOverrides?: Record<
     string,
     {
@@ -938,6 +944,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     reasoning?: AIReasoningConfig | null;
     reasoningEffort?: ReasoningEffort | null;
     timeoutMs?: number;
+    cache?: AIPromptCacheOption;
   }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
@@ -1004,6 +1011,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         : promptDef?.structuredOutputTransport,
       signal: params.signal,
       seed: params.seed,
+      cache: params.cache ?? config.cache,
     };
     // Per call → prompt override → prompt definition; unset keeps the adapter's requestTimeout.
     const timeoutMs =
@@ -1320,6 +1328,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       reasoning?: AIReasoningConfig | null;
       reasoningEffort?: ReasoningEffort | null;
       timeoutMs?: number;
+      cache?: AIPromptCacheOption;
     }): Promise<Record<string, any>> {
       const result = await _generateCore(params);
       if (result.finishReason === 'tool_calls') {
@@ -1359,6 +1368,11 @@ export function createAIService(config: AIServiceConfig): AIService {
        * ignored by providers that do not support seeding.
        */
       seed?: number;
+      /**
+       * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+       * default when set. OpenAI ignores this option.
+       */
+      cache?: AIPromptCacheOption;
     }): AsyncIterable<AIStreamEvent> {
       const streamStart = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity(params.input);
@@ -1447,6 +1461,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         structuredOutputTransport: promptDef?.structuredOutputTransport,
         signal: params.signal,
         seed: params.seed,
+        cache: params.cache ?? config.cache,
       };
       // Per call → prompt override → prompt definition; unset keeps the adapter's requestTimeout.
       // The non-streaming validation fallback below reuses this request, timeout included.

@@ -102,7 +102,7 @@ describe('per-prompt request timeout', () => {
     expect(provider.requests.map((request) => request.timeout)).toEqual([30_000, 5_000, 7_000]);
   });
 
-  it('gives every validation retry the same timeout', async () => {
+  it('preserves timeout and prompt cache options through every validation retry', async () => {
     const provider = recordingProvider();
     let calls = 0;
     provider.complete = async (request) => {
@@ -115,18 +115,35 @@ describe('per-prompt request timeout', () => {
         finishReason: 'stop',
       };
     };
-    await service(provider).generateWithUsage({ prompt: 'summarize', input: { text: 't' } });
+    await service(provider, { cache: true }).generateWithUsage({
+      prompt: 'summarize',
+      input: { text: 't' },
+      cache: { messages: true },
+    });
     expect(provider.requests.map((request) => request.timeout)).toEqual([900_000, 900_000]);
+    expect(provider.requests.map((request) => request.cache)).toEqual([
+      { messages: true },
+      { messages: true },
+    ]);
   });
 
   it('applies to streamGenerate and to its non-streaming validation fallback', async () => {
     const provider = recordingProvider('not json');
-    const ai = service(provider);
+    const ai = service(provider, { cache: true });
     await drain(ai.streamGenerate({ prompt: 'summarize', input: { text: 't' } }));
-    await drain(ai.streamGenerate({ prompt: 'untimed', input: { text: 't' }, timeoutMs: 4_000 }));
+    await drain(
+      ai.streamGenerate({
+        prompt: 'untimed',
+        input: { text: 't' },
+        timeoutMs: 4_000,
+        cache: false,
+      }),
+    );
     expect(provider.streams.map((request) => request.timeout)).toEqual([900_000, 4_000]);
     // Both streams produced invalid JSON, so each was replayed without streaming.
     expect(provider.requests.map((request) => request.timeout)).toEqual([900_000, 4_000]);
+    expect(provider.streams.map((request) => request.cache)).toEqual([true, false]);
+    expect(provider.requests.map((request) => request.cache)).toEqual([true, false]);
   });
 
   it.each([

@@ -94,6 +94,107 @@ export type ChatMessage =
     }
   | { role: 'tool'; content: string; toolCallId: string; name: string };
 
+/**
+ * Per-section prompt-cache controls for providers that require explicit cache
+ * marks (Anthropic `cache_control`, Bedrock Converse `cachePoint`).
+ *
+ * Omitted fields are treated as `false`. Prefer `cache: true` for the common
+ * case (system + tools).
+ */
+export interface AICacheConfig {
+  /** Cache the system prompt / instructions. */
+  system?: boolean;
+  /** Cache tool definitions (mark on the last tool). */
+  tools?: boolean;
+  /** Cache conversation history (mark on the last message). */
+  messages?: boolean;
+}
+
+/**
+ * Prompt-caching option. `true` enables system + tools (not messages).
+ * OpenAI ignores this — it caches long prompts automatically.
+ */
+export type AIPromptCacheOption = boolean | AICacheConfig;
+
+/** Per-section cache flags with every section set. */
+type ResolvedAICacheConfig = Required<AICacheConfig>;
+
+/**
+ * Resolve a `cache` option into per-section flags.
+ * `true` → `{ system: true, tools: true, messages: false }`.
+ * `false` / `undefined` / no section enabled → `undefined` (no provider marks).
+ */
+function resolvePromptCache(
+  cache: AIPromptCacheOption | undefined,
+): ResolvedAICacheConfig | undefined {
+  if (cache === undefined || cache === false) return undefined;
+  if (cache === true) return { system: true, tools: true, messages: false };
+  const resolved: ResolvedAICacheConfig = {
+    system: cache.system === true,
+    tools: cache.tools === true,
+    messages: cache.messages === true,
+  };
+  if (!resolved.system && !resolved.tools && !resolved.messages) return undefined;
+  return resolved;
+}
+
+const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' as const });
+
+/** Attach Anthropic `cache_control` to the last content block of a message. */
+function withAnthropicMessageCacheControl(
+  message: Record<string, unknown>,
+): Record<string, unknown> {
+  const content = message.content;
+  if (typeof content === 'string') {
+    return {
+      ...message,
+      content: [{ type: 'text', text: content, cache_control: { ...ANTHROPIC_CACHE_CONTROL } }],
+    };
+  }
+  if (!Array.isArray(content) || content.length === 0) return message;
+  const blocks = content.map((block, index) => {
+    if (index !== content.length - 1 || block == null || typeof block !== 'object') {
+      return block;
+    }
+    return { ...(block as Record<string, unknown>), cache_control: { ...ANTHROPIC_CACHE_CONTROL } };
+  });
+  return { ...message, content: blocks };
+}
+
+/** Apply Anthropic cache marks to a Messages API request body in place. */
+function applyAnthropicPromptCache(
+  body: Record<string, unknown>,
+  cache: ResolvedAICacheConfig,
+): void {
+  if (cache.system && typeof body.system === 'string' && body.system.length > 0) {
+    body.system = [
+      {
+        type: 'text',
+        text: body.system,
+        cache_control: { ...ANTHROPIC_CACHE_CONTROL },
+      },
+    ];
+  }
+
+  if (cache.tools && Array.isArray(body.tools) && body.tools.length > 0) {
+    const tools = body.tools as Record<string, unknown>[];
+    const lastIndex = tools.length - 1;
+    const last = tools[lastIndex];
+    if (last) {
+      tools[lastIndex] = { ...last, cache_control: { ...ANTHROPIC_CACHE_CONTROL } };
+    }
+  }
+
+  if (cache.messages && Array.isArray(body.messages) && body.messages.length > 0) {
+    const messages = body.messages as Record<string, unknown>[];
+    const lastIndex = messages.length - 1;
+    const last = messages[lastIndex];
+    if (last) {
+      messages[lastIndex] = withAnthropicMessageCacheControl(last);
+    }
+  }
+}
+
 export interface ProviderRequest {
   /** System prompt / instructions */
   system?: string;
@@ -159,6 +260,13 @@ export interface ProviderRequest {
   toolChoice?: AIToolChoice;
   /** Tool-execution options (e.g. disable parallel tool calls). */
   toolExecution?: AIToolExecutionOptions;
+  /**
+   * Explicit prompt caching for Anthropic / Bedrock. OpenAI ignores this
+   * (automatic caching). `true` caches system + tools; pass an object for
+   * per-section control. Shorter prompts may not meet provider minima — the
+   * request still succeeds without a cache write.
+   */
+  cache?: AIPromptCacheOption;
 }
 
 // ── Provider Response ──
@@ -728,20 +836,110 @@ function unsupportedReasoning(provider: string, reasoning: AIReasoningConfig): n
   });
 }
 
+/**
+ * GPT-6 models accept no `minimal` effort, and GPT-6 Astra and GPT-6.1 Sol also
+ * reject `none`, so disabled reasoning cannot be represented for them.
+ */
+function assertOpenAIReasoningSupported(model: string, reasoning: AIReasoningConfig): void {
+  if (!isGpt6Family(model)) return;
+  if (reasoning.mode === 'effort' && reasoning.effort === 'minimal') {
+    throw new AIInvalidRequestError({
+      reason: 'reasoning_effort_unsupported',
+      message: `OpenAI model "${model}" does not support reasoning effort "minimal"; use "low"`,
+    });
+  }
+  if (reasoning.mode === 'disabled' && isGpt6WithoutNoneEffort(model)) {
+    throw new AIInvalidRequestError({
+      reason: 'reasoning_disabled_unsupported',
+      message: `OpenAI model "${model}" cannot disable reasoning; its lowest effort is "low"`,
+    });
+  }
+}
+
 /** Translate provider-neutral reasoning onto OpenAI's top-level `reasoning_effort`. */
-function applyOpenAIReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
+function applyOpenAIReasoning(
+  body: Record<string, unknown>,
+  request: ProviderRequest,
+  model: string,
+): void {
   const reasoning = normalizeProviderRequestReasoning(request);
   if (!reasoning) {
     if (request.reasoningEffort) body.reasoning_effort = request.reasoningEffort;
     return;
   }
   if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  assertOpenAIReasoningSupported(model, reasoning);
   body.reasoning_effort = reasoning.mode === 'disabled' ? 'none' : reasoning.effort;
+}
+
+/**
+ * Claude models that return HTTP 400 for any non-default `temperature`, `top_p` or
+ * `top_k` on every request, thinking on or off. `disabled` is the `thinking` type sent
+ * for `{ mode: 'disabled' }` (Sonnet 5.5 takes `between_tools` instead); a model
+ * without it cannot turn thinking off. Opus 5, Sonnet 5.5 and Haiku 5.5 accept that
+ * type only at effort `high` or below; a disabled request sends no effort, and their
+ * defaults are `high` (`medium` on Haiku 5.5). Of these models only Mythos Preview
+ * accepts `thinking: { type: 'enabled', budget_tokens }`.
+ * Sources: https://platform.claude.com/docs/en/build-with-claude/thinking#sampling-parameters
+ * and https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
+ */
+const FIXED_SAMPLING_CLAUDE_MODELS: Readonly<
+  Record<string, { disabled?: 'disabled' | 'between_tools'; budget?: true }>
+> = {
+  'fable-5-1': {},
+  'mythos-5-1': {},
+  'fable-5': {},
+  'mythos-5': {},
+  'mythos-preview': { budget: true },
+  'opus-5-5': {},
+  'opus-5': { disabled: 'disabled' },
+  'opus-4-8': { disabled: 'disabled' },
+  'opus-4-7': { disabled: 'disabled' },
+  'sonnet-5-5': { disabled: 'between_tools' },
+  'sonnet-5': { disabled: 'disabled' },
+  'haiku-5-5': { disabled: 'disabled' },
+};
+
+/** Looks up a fixed-sampling Claude model, including dated and platform-prefixed ids. */
+function fixedSamplingClaudeModel(
+  model: unknown,
+): (typeof FIXED_SAMPLING_CLAUDE_MODELS)[string] | undefined {
+  if (typeof model !== 'string') return undefined;
+  const normalizedModel = model.trim().toLowerCase();
+  const id = /(?:^|[./])claude-([a-z]+-(?:\d+(?:-\d{1,2})?|preview))(?=$|[-@:])/.exec(
+    normalizedModel,
+  )?.[1];
+  return id && Object.hasOwn(FIXED_SAMPLING_CLAUDE_MODELS, id)
+    ? FIXED_SAMPLING_CLAUDE_MODELS[id]
+    : undefined;
 }
 
 /** Translate provider-neutral reasoning onto Anthropic Messages API fields. */
 function applyAnthropicReasoning(body: Record<string, unknown>, request: ProviderRequest): void {
   const reasoning = normalizeProviderRequestReasoning(request);
+  const fixedSampling = fixedSamplingClaudeModel(body.model);
+  // These models accept only the API default, so any temperature (Plumbus's 0.7
+  // default or a prompt's own) is left out, as for OpenAI gpt-5.5+.
+  const temperature = fixedSampling ? undefined : request.temperature;
+  if (fixedSampling) {
+    delete body.temperature;
+    if (reasoning?.mode === 'budget' && !fixedSampling.budget) {
+      throw new AIInvalidRequestError({
+        reason: 'reasoning_budget_unsupported',
+        message: `Anthropic model "${body.model}" does not accept a thinking budget; use an effort`,
+      });
+    }
+    if (reasoning?.mode === 'disabled') {
+      if (!fixedSampling.disabled) {
+        throw new AIInvalidRequestError({
+          reason: 'reasoning_disabled_unsupported',
+          message: `Anthropic model "${body.model}" cannot turn thinking off; use effort "low"`,
+        });
+      }
+      body.thinking = { type: fixedSampling.disabled };
+      return;
+    }
+  }
   if (!reasoning) return;
   if (reasoning.mode === 'disabled') {
     body.thinking = { type: 'disabled' };
@@ -760,13 +958,13 @@ function applyAnthropicReasoning(body: Record<string, unknown>, request: Provide
         message: 'Anthropic reasoning budget must be smaller than maxTokens',
       });
     }
-    if (request.temperature != null && request.temperature !== 1) {
+    if (temperature != null && temperature !== 1) {
       throw new AIInvalidRequestError({
         reason: 'reasoning_temperature_conflict',
         message: 'Anthropic thinking requires temperature 1 or an omitted temperature',
       });
     }
-    if (request.temperature == null) delete body.temperature;
+    if (temperature == null) delete body.temperature;
     body.thinking = {
       type: 'enabled',
       budget_tokens: reasoning.maxTokens,
@@ -777,13 +975,13 @@ function applyAnthropicReasoning(body: Record<string, unknown>, request: Provide
   if (reasoning.effort === 'minimal') {
     unsupportedReasoning('anthropic', reasoning);
   }
-  if (request.temperature != null && request.temperature !== 1) {
+  if (temperature != null && temperature !== 1) {
     throw new AIInvalidRequestError({
       reason: 'reasoning_temperature_conflict',
       message: 'Anthropic adaptive thinking requires temperature 1 or an omitted temperature',
     });
   }
-  if (request.temperature == null) delete body.temperature;
+  if (temperature == null) delete body.temperature;
   body.thinking = { type: 'adaptive', display: 'omitted' };
   const outputConfig =
     body.output_config && typeof body.output_config === 'object'
@@ -1208,6 +1406,11 @@ function isGpt6Family(model: string): boolean {
   return /^gpt-6(?:$|[-.])/.test(model.trim().toLowerCase());
 }
 
+/** GPT-6 Astra and GPT-6.1 Sol: lowest reasoning effort is `low`, not `none`. */
+function isGpt6WithoutNoneEffort(model: string): boolean {
+  return /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model.trim().toLowerCase());
+}
+
 /**
  * Chat Completions cannot combine function tools with active reasoning on
  * GPT-5.6 or GPT-6 ("Function tools with reasoning_effort are not supported for
@@ -1286,6 +1489,7 @@ function buildOpenAIResponsesToolChoice(toolChoice: AIToolChoice | undefined): u
 function applyOpenAIResponsesReasoning(
   body: Record<string, unknown>,
   request: ProviderRequest,
+  model: string,
 ): void {
   const reasoning = normalizeProviderRequestReasoning(request);
   if (!reasoning) {
@@ -1293,6 +1497,7 @@ function applyOpenAIResponsesReasoning(
     return;
   }
   if (reasoning.mode === 'budget') unsupportedReasoning('openai', reasoning);
+  assertOpenAIReasoningSupported(model, reasoning);
   body.reasoning = { effort: reasoning.mode === 'disabled' ? 'none' : reasoning.effort };
 }
 
@@ -1371,7 +1576,7 @@ async function completeOpenAIResponses(args: {
   };
   if (request.system) body.instructions = request.system;
   applyOpenAITemperature(body, model, request);
-  applyOpenAIResponsesReasoning(body, request);
+  applyOpenAIResponsesReasoning(body, request, model);
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
   if (structuredToolSchema) {
     body.tools = [{ type: 'function', ...openAIStructuredOutputFunction(structuredToolSchema) }];
@@ -1600,7 +1805,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         messages,
       };
       applyOpenAITemperature(body, model, request);
-      applyOpenAIReasoning(body, request);
+      applyOpenAIReasoning(body, request, model);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
@@ -1755,7 +1960,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         stream_options: { include_usage: true },
       };
       applyOpenAITemperature(body, model, request);
-      applyOpenAIReasoning(body, request);
+      applyOpenAIReasoning(body, request, model);
       applyOpenAITokenLimit(body, model, request.maxTokens);
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {
@@ -1948,6 +2153,8 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         );
         if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
       }
+      const promptCache = resolvePromptCache(request.cache);
+      if (promptCache) applyAnthropicPromptCache(body, promptCache);
 
       const deadline = createRequestDeadline({
         providerName: 'anthropic',
@@ -2046,12 +2253,7 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
-      // Multi-turn path: when `messages` is supplied, send them verbatim.
-      // Single-turn path: synthesize a single user message from `prompt`.
-      const messages =
-        request.messages && request.messages.length > 0
-          ? request.messages.map((m) => ({ role: m.role, content: m.content }))
-          : [{ role: 'user', content: request.prompt }];
+      const messages = toAnthropicMessages(request);
       const body: Record<string, unknown> = {
         model: request.model ?? defaultModel,
         messages,
@@ -2069,6 +2271,8 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         };
       }
       applyAnthropicReasoning(body, request);
+      const promptCache = resolvePromptCache(request.cache);
+      if (promptCache) applyAnthropicPromptCache(body, promptCache);
 
       const deadline = createRequestDeadline({
         providerName: 'anthropic',

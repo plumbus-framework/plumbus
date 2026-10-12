@@ -11,7 +11,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { EventQueue } from '../../events/queue.js';
 import type { StepExecutorDeps } from '../../flows/step-executor.js';
 import type { PlumbusConfig } from '../../types/config.js';
-import type { LoggerService } from '../../types/context.js';
+import type { ExecutionContext, LoggerService } from '../../types/context.js';
 import type { DataPlaneResolver } from '../../tenancy/types.js';
 
 // ── Mocks ──
@@ -270,6 +270,60 @@ describe('worker per-unit data-plane routing', () => {
     await runOneCycle(makePoolConfig({ dataPlaneResolver: makeResolver() }), 2);
 
     expect(runNextDatabases()).toEqual({ 'exec-a': tenantADb, 'exec-b': tenantBDb });
+    expect(markFailedFromRunner).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'resolved',
+    'control-plane',
+  ] as const)('reports failed flow capabilities against their %s unit database', async (unitDataPlane) => {
+    claimNext.mockResolvedValueOnce([{ id: 'exec-a', tenant_id: 'tenant-a' }]);
+    const onCapabilityError = vi.fn();
+    const stepDeps: StepExecutorDeps = {
+      ...makeStepDeps(),
+      executeCapability: async () => ({
+        success: false,
+        error: { code: 'conflict', message: 'Already running' },
+        capability: { domain: 'reports', name: 'startReport' },
+      }),
+    };
+    runNext.mockImplementationOnce(async (_id, ctx) => {
+      const wiredStepDeps = vi.mocked(createFlowEngine).mock.calls[0]?.[0].stepDeps;
+      await wiredStepDeps?.executeCapability(
+        'reports.startReport',
+        {
+          ...(ctx as ExecutionContext),
+          auth: {
+            userId: 'u1',
+            tenantId: 'tenant-a',
+            roles: ['admin'],
+            scopes: [],
+            provider: 'test',
+          },
+        },
+        {},
+      );
+      return { status: 'completed' };
+    });
+
+    await runOneCycle(
+      makePoolConfig({
+        dataPlaneResolver: makeResolver(),
+        unitDataPlane,
+        stepDeps,
+        onCapabilityError,
+      }),
+      1,
+    );
+
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db: unitDataPlane === 'resolved' ? tenantADb : poolDb,
+        tenantId: 'tenant-a',
+        source: 'flow',
+      }),
+    );
     expect(markFailedFromRunner).not.toHaveBeenCalled();
   });
 

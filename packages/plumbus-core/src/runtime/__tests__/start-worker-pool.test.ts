@@ -79,3 +79,13 @@ it('builds the classic data service on the boot database without a resolver', as
   expect(capture.poolConfig.schedulePlanes).toBe(schedulePlanes);
   expect('dataPlaneResolver' in capture.poolConfig).toBe(false);
 });
+
+it('forwards onCapabilityError from app/server.ts extensions to the worker pool', async () => {
+  const onCapabilityError = vi.fn();
+  await startWorkerPool({
+    ...baseOptions(),
+    extensions: { onCapabilityError },
+  });
+
+  expect(capture.poolConfig.onCapabilityError).toBe(onCapabilityError);
+});

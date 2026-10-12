@@ -153,7 +153,7 @@ node_modules/@plumbus/core/instructions/
 ├── flows.md                       # Workflow steps and retry logic
 ├── prompts.md                     # Prompt content, system/description, model config
 ├── ai.md                          # ctx.ai operations, RAG, cost tracking
-├── ai-classification.md           # Provider/model selection, TypeSafe/Jev, Laya
+├── ai-classification.md           # Provider/model selection, TypeSafe/Jev, Laya, OpenAI Decisions
 ├── translations.md                # i18n catalogs and ctx.translations
 ├── security.md                    # Access policies and tenant isolation
 ├── governance.md                  # Advisory rules and compliance
@@ -167,9 +167,11 @@ node_modules/@plumbus/core/instructions/
 └── upgrading-0.5-capabilities.md  # 0.5.x capability invocation migration
 ```
 
-Wire them up with `plumbus init --agent all`. After upgrading to core 0.7.4+ (0.8.0-beta.6+ in the 0.8 family), run
-`plumbus init --patch --agent all` for wiring v17. For classification, provider/model
-selection, or TypeSafe/Jev and Laya, start with [the classification recipe](instructions/ai-classification.md).
+Wire them up with `plumbus init --agent all`. After upgrading to this 0.8 beta family (stable line: core 0.7.9+), run
+`plumbus init --patch --agent all` for wiring v19 (v17 added the classification recipe;
+v18 adds the payments packages and Cognito server-attested sign-in; v19 adds the OpenAI
+Decisions provider). For classification, provider/model selection, or TypeSafe/Jev, Laya,
+or OpenAI Decisions, start with [the classification recipe](instructions/ai-classification.md).
 
 ## Documentation
 

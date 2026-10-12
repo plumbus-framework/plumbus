@@ -1,7 +1,8 @@
 # AI Integration Guide
 
-Core **0.7.4+** (0.8 family: **0.8.0-beta.6+**) also provides `ctx.ai.decide()` for typed decision providers. It
-records `operation: 'decide'` through the existing cost tracker and
+Core **0.7.3+** (0.8 family: **0.8.0-beta.6+**) also provides `ctx.ai.decide()` for typed decision providers
+(`@plumbus/ai-decision-typesafe`, `@plumbus/ai-decision-laya`, and, in this beta family or with stable core 0.7.9+,
+`@plumbus/ai-decision-openai`). It records `operation: 'decide'` through the existing cost tracker and
 `onAICostRecorded` hook, including billed validation failures and cancellations.
 See [decision registration, named contracts, and accounting](./decision-providers.md#application-integration-and-cost-recording).
 
@@ -135,6 +136,38 @@ On OpenAI reasoning models (o-series, `gpt-5*`, `gpt-6*`) `usage.reasoningTokens
 
 For a one-off override, `generateWithUsage` accepts `provider`, `model`, provider-neutral `reasoning`, and `timeoutMs` (see [Request Timeouts](#request-timeouts)); `generate` and `streamGenerate` accept the same. Leaving a field undefined preserves normal prompt/config resolution; `reasoning:null` restores the provider/model default for that call and clears both inherited `reasoning` and inherited legacy `reasoningEffort`. Use `{ mode:'disabled' }`, `{ mode:'effort', effort }`, or `{ mode:'budget', maxTokens }`. The selected adapter translates the intent into its native wire format and explicitly rejects modes it cannot represent. Legacy `reasoningEffort` remains exactly `'low' | 'medium' | 'high'` with its previous OpenAI-only behavior.
 
+### Prompt caching (Anthropic / Bedrock)
+
+Included in this beta family (stable core **0.7.9+**, with Bedrock **0.2.2+**). The Anthropic API only caches prompts the client marks with `cache_control`; Claude on Bedrock caches implicitly on a best-effort basis, and `cachePoint` marks make it explicit. Pass `cache` on `generate`, `generateWithUsage`, `streamGenerate`, or `runToolLoop` (which forwards it to every round):
+
+```typescript
+await ctx.ai.generateWithUsage({
+  prompt: "classifyTicket",
+  input: { ticketText },
+  cache: true, // or { system: true, tools: true, messages: false }
+});
+```
+
+To turn caching on for every call, set `AI_PROMPT_CACHE=true` (or a list of sections such as `system,messages`). `loadConfig()` stores it as `aiProviders.cache` (and `ai.cache` in single-provider mode), and the API server and workers pass it to `createAIService({ cache })`. Apps that build the service themselves pass `cache` there. A per-call `cache` overrides the default.
+
+| Value | Effect |
+| --- | --- |
+| `true` | Cache system + tools (not messages) |
+| `{ system?, tools?, messages? }` | Per-section control; omitted fields are `false` |
+| `false` | No marks, even when the default is on |
+
+`cache: true` marks only the system prompt and tools. In a single-turn call, a prompt's `description` and its input go into the user message, so a prompt that keeps most of its text there gains little. In multi-turn mode (`messages` set), the description and `Input: {...}` are merged into the system prompt, so an input that changes between turns writes a new cache entry every turn. The same applies to input values substituted into `system` through `{{key}}`.
+
+When enabled, adapters add provider marks:
+
+| Surface | Anthropic | Bedrock (Converse) |
+| --- | --- | --- |
+| System | `[{ type:'text', text, cache_control:{ type:'ephemeral' } }]` | `{ cachePoint:{ type:'default' } }` after the system text |
+| Tools | `cache_control` on the last tool | `cachePoint` at the end of `toolConfig.tools` |
+| Messages | `cache_control` on the last message content block | `cachePoint` at the end of the last message |
+
+OpenAI ignores `cache` (automatic prompt caching). Bedrock emits `cachePoint` only for Claude model ids (`anthropic.claude…`, with or without an inference-profile prefix such as `us.`, `jp.` or `global.`; a model ARN gets none). It skips Claude 3 Haiku, Claude 3 Sonnet, Claude 3 Opus, and Claude 3.5 Sonnet `20240620`, which reject `cachePoint`, Claude 3.5 Sonnet v2 (`20241022`, explicit caching in Preview), and every non-Claude family (Nova caches on its own), so those requests still succeed. Providers also enforce a minimum prefix length; shorter prompts succeed without a cache write. Cache reads and writes come back as `usage.cachedInputTokens` / `usage.cacheWriteTokens` and are priced as before.
+
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 
 ```typescript
@@ -145,7 +178,7 @@ await ctx.ai.generateWithUsage({
 });
 ```
 
-When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. `AIValidationError` is exported from `@plumbus/core`, alongside `AIRefusalError` and `AIIncompleteOutputError`, so `catch (err) { if (err instanceof AIValidationError) ... }` works in a capability handler — surface a structured error to the caller instead of a generic 500, and read `err.usage` when the host keeps its own spend ledger rather than using `onAICostRecorded`.
+When structured-output validation still fails, Plumbus throws an `AIValidationError`. The error carries `attempts`, `rawOutput` (final raw model completion), `validationMessage`, and — new in 0.3.0 — `usage`, `model`, and `provider` so failure-path cost recording knows what the provider actually billed across the retry loop. `AIValidationError` is exported from `@plumbus/core`, alongside `AIRefusalError` and `AIIncompleteOutputError`, so `catch (err) { if (err instanceof AIValidationError) ... }` works in a capability handler — surface a structured error to the caller instead of a generic 500, and read `err.usage` when the host keeps its own spend ledger rather than using `onAICostRecorded`. It also carries `cost`: each attempt priced on its own usage (adapter cost, else the catalog), omitted when an attempt cannot be priced.
 
 ### streamGenerate (streaming completions)
 
@@ -237,6 +270,9 @@ round exhaustion the final request **omits both `tools` and `toolChoice`** (neve
 `toolChoice: 'none'`). Invalid-argument calls are never executed and surface as a
 `tool_arguments_invalid` observation. A `timeoutMs` passed to `runToolLoop` applies to every
 round and to that final request ([Request Timeouts](#request-timeouts)).
+A `cache` option is forwarded to every request, so
+an agent loop can reuse the cached system prompt and tools across rounds (see
+[Prompt caching](#prompt-caching-anthropic--bedrock)).
 
 > `@plumbus/chat`'s Path B tool calling is a **separate** loop (default `maxToolRounds`
 > 5); chat does **not** call `runToolLoop`. See [chat policies →
@@ -275,8 +311,8 @@ From core **0.7.4+** (0.8 family: **0.8.0-beta.6+**), classification supports pe
 See the [packaged agent recipe](../../packages/plumbus-core/instructions/ai-classification.md).
 
 By default, classification uses the configured text provider. Set `provider` to a
-registered text provider or a TypeSafe/Laya adapter registered under
-`decisions.providers`; `model` optionally overrides that provider's model selection.
+registered text provider or a TypeSafe, Laya, or OpenAI Decisions adapter registered
+under `decisions.providers`; `model` optionally overrides that provider's model selection.
 
 ```typescript
 const labels = await ctx.ai.classify({
@@ -289,8 +325,11 @@ const labels = await ctx.ai.classify({
 ```
 
 For Laya, use `provider: "laya", model: "auto"` for automatic language routing,
-or an explicit checkpoint configured on your server. For a generative provider,
-use e.g. `provider: "openai", model: "gpt-6-sol"` and omit `threshold`.
+or an explicit checkpoint configured on your server. For OpenAI's Decisions API
+(public beta), register `@plumbus/ai-decision-openai` under a decision key such as
+`"openai-decisions"` and use `provider: "openai-decisions", model: "gpt-6-luna"`.
+For a generative provider, use e.g. `provider: "openai", model: "gpt-6-sol"` and omit
+`threshold`; the decision key must differ from that text provider's name.
 Model resolution is per-call → `decisions.defaultModel` → adapter default for
 decision providers, or per-call → AI `defaultModel` → adapter default for text providers.
 
@@ -338,14 +377,50 @@ through provider continuation state.
 Anthropic maps disabled/effort/budget to `thinking` and
 `output_config.effort`. Adapter-level
 incompatibilities fail locally with `AIInvalidRequestError`; model-specific limitations remain
-provider errors. The adapter uses bounded model-family detection only for provider-specific
-transport and parameter compatibility. The same override can be supplied via
-`resolveAiOverrides` / `promptOverrides`.
+provider errors, except for the models listed below. The adapter uses bounded model-family
+detection only for provider-specific transport and parameter compatibility. The same override
+can be supplied via `resolveAiOverrides` / `promptOverrides`.
+
+Core 0.7.9 checks GPT-6 reasoning settings that these models reject before sending the request:
+
+| Model | Accepted | Fails locally with `AIInvalidRequestError` |
+| --- | --- | --- |
+| `gpt-6-sol`, `gpt-6-luna` | disabled (`none`), efforts `low` to `max` | effort `minimal` |
+| `gpt-6-astra`, `gpt-6.1-sol` | efforts `low` to `max` | disabled (these models have no `none` effort; use `low`), effort `minimal` |
+
+GPT-6 Astra and GPT-6.1 Sol support tool calls only through the Responses API, which Plumbus
+already uses for tool calls with active or default reasoning. Source: [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model).
+
+The models below return HTTP 400 for any `temperature`, `top_p`, or `top_k` other than the
+default, whether or not thinking is on (the adapter sends only `temperature`). In core 0.7.9+
+Plumbus sends them no `temperature` at all: not its `0.7` default and not one set on a call or
+a prompt, as the OpenAI adapter already does for `gpt-5.5` and later.
+It also maps `reasoning` onto what each model accepts:
+
+| Model | `{ mode: 'disabled' }` | `{ mode: 'budget' }` |
+| --- | --- | --- |
+| `claude-sonnet-5-5` | sent as `thinking: { type: "between_tools" }` | fails locally |
+| `claude-haiku-5-5`, `claude-opus-5`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-opus-4-7` | sent as `thinking: { type: "disabled" }` | fails locally |
+| `claude-opus-5-5`, `claude-fable-5-1`, `claude-mythos-5-1`, `claude-fable-5`, `claude-mythos-5` | fails locally: thinking cannot be turned off, so lower the effort instead | fails locally |
+| `claude-mythos-preview` | fails locally, as above | sent as before (`thinking: { type: "enabled" }`) |
+
+Local failures are `AIInvalidRequestError` with reason `reasoning_disabled_unsupported` or
+`reasoning_budget_unsupported`. Effort mode is unchanged on every model. Claude Sonnet 5.5 rejects
+`thinking: { type: "disabled" }`; `between_tools` is Anthropic's replacement that turns off
+up-front thinking, and its short progress notes between tool calls come back as thinking blocks
+that Plumbus passes back on the next tool round. Opus 5, Sonnet 5.5, and Haiku 5.5 accept
+thinking off only at effort `high` or below; disabled reasoning sends no effort, so the model
+default applies (`high`, or `medium` on Haiku 5.5). Other Claude models, such as
+`claude-sonnet-4-5`, `claude-haiku-4-5`, and `claude-opus-4-6`, get the same requests as before.
+Sources: [Anthropic thinking](https://platform.claude.com/docs/en/build-with-claude/thinking#sampling-parameters),
+[Troubleshooting thinking](https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting),
+[Effort](https://platform.claude.com/docs/en/build-with-claude/effort).
 
 The legacy `model.reasoningEffort` union and runtime behavior are unchanged: only
 `low`, `medium`, and `high`, and only the OpenAI adapter consumes it. Anthropic
 continues to ignore that legacy property and keeps its existing `temperature: 0.7`
-default unless the new `reasoning` property is explicitly configured.
+default unless the new `reasoning` property is explicitly configured, except on the models in
+the table above, which never get that default.
 
 ```typescript
 import { createAIService, createOpenAIAdapter, createProviderAdapter } from "@plumbus/core";
@@ -400,6 +475,7 @@ specifies `provider`; decision adapters are selected from `decisions.providers`.
 | `AI_OPENAI_*` / `AI_ANTHROPIC_*` | Per-provider API keys, base URLs, and default models |
 | `AI_BEDROCK_REGION` / `AI_BEDROCK_MODEL` / `AI_BEDROCK_PRICING_FILE` | Bedrock (IAM auth; optional mounted pricing JSON — recommended in containers) |
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
+| `AI_PROMPT_CACHE` | Default prompt caching for Anthropic / Bedrock: `true`, `false`, or sections such as `system,tools,messages` (see [Prompt caching](#prompt-caching-anthropic--bedrock)) |
 | `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`, `TIMEOUT_MS`; dots → underscores, uppercased), applied by the HTTP server and the worker pool alike |
 
 Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
@@ -449,7 +525,7 @@ Optional ProviderResponse.cost ◄────── sets cost from usage × rat
 MODEL_PRICING (OpenAI/Anthropic only)
 ```
 
-Core’s optional peer: `"@plumbus/ai-bedrock": "0.1.x"`. The add-on’s required peer: `"@plumbus/core": "0.6.x"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** for the Bedrock provider slot, env discovery, adapter-supplied `cost`, and agent wiring v13.
+Core’s optional peer: `"@plumbus/ai-bedrock": ">=0.3.0-beta.0 <0.4.0"`. The add-on’s required peer: `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs core **≥ 0.7.9** (earlier cores never pass `cache` to the adapter) and `@plumbus/ai-bedrock` **≥ 0.2.2**.
 
 #### Install and wire
 
@@ -817,16 +893,18 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. OpenAI models whose pricing lists a long-context rate (GPT-6 Astra, Sol and Luna, GPT-6.1 Sol, GPT-5.6 Sol (including the `gpt-5.6` alias), Terra and Luna, GPT-5.5, GPT-5.5 Pro, GPT-5.4 and GPT-5.4 Pro) apply that premium above 272K input tokens; other OpenAI models use one rate at any length. The whole catalog was last synced on 2026-10-01. Run the `update-model-pricing` skill to refresh rates.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.6-sol` (including the `gpt-5.6` alias), `gpt-5.6-terra`, `gpt-5.6-luna`, and the GPT-6 models apply their documented long-context premium above 272K input tokens. Other OpenAI models list no long-context price and use the base rate at any length. GPT-6 and current Anthropic rates were checked on 2026-10-08; the remaining catalog was last synced on 2026-10-01. Run the `update-model-pricing` skill to refresh rates.
 
-The GPT-6 additions use these USD rates per million tokens for requests with at most 272,000 input tokens:
+The GPT-6 models use these USD rates per million tokens for requests with at most 272,000 input tokens:
 
 | Model | Input | Cached input | Cache writes | Output |
 | --- | --- | --- | --- | --- |
+| `gpt-6-astra` | $10 | $1 | $12.50 | $50 |
+| `gpt-6.1-sol` | $2 | $0.10 | $2.50 | $10 |
 | `gpt-6-sol` | $2 | $0.20 | $2.50 | $10 |
 | `gpt-6-luna` | $0.10 | $0.01 | $0.125 | $0.50 |
 
-Above 272,000 input tokens, input/cache rates double and output rates multiply by 1.5 for the **whole request**. Normalized input includes cache reads and writes once. The existing `-YYYYMMDD` pricing fallback also applies to these entries; no additional API aliases are introduced. Their rates are independent of GPT-5.6 Sol's promotional window. Sources: [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Above 272,000 input tokens, input/cache rates double and output rates multiply by 1.5 for the **whole request**. Normalized input includes cache reads and writes once. The existing `-YYYYMMDD` pricing fallback also applies to these entries; no additional API aliases are introduced. Their rates are independent of GPT-5.6 Sol's promotional window. GPT-6.1 Sol cache reads cost **0.05x** input. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra), [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 The September 10 refresh adds GPT-6 Astra, GPT-5.6 Cyber, Claude Fable 5.1, and Claude Mythos 5.1. GPT-5.6 Sol uses the bundled $4/$20 input/output rates ($0.40 cached input) before November 22, 2026 UTC, then falls back to its regular $5/$30 rates ($0.50 cached input). Sonnet 5 stays at $2/$10: Anthropic cancelled its planned September increase. Published cache-read rates are also included. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing). Legacy entries absent from the current pages are retained for compatibility, not treated as newly verified rates.
 
@@ -840,15 +918,27 @@ The September 23 Opus update adds `claude-opus-5-5` with these standard USD rate
 
 Opus 5.5 cache reads cost **0.05x** input, rather than the usual 0.1x. Its rates stay flat throughout the 1M-token context window. Opus 5 and 4.5–4.8 retain $5 input / $0.50 cached input / $25 output; legacy Opus 4/4.1 retain $15 / $1.50 / $75. The existing `-YYYYMMDD` pricing fallback also covers Opus 5.5; it does not introduce new API aliases. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Opus 5.5 model documentation](https://platform.claude.com/docs/en/models/opus-5-5/overview).
 
-The October 1 sync adds `claude-sonnet-5-5` ($2 input / $0.20 cached input / $10 output per million tokens, flat across its 1M window) and `gpt-rosalind-research` ($5 / $0.50 / $25, billed by OpenAI from October 5, 2026), records GPT-6.1 Sol's $0.10 cache-read rate, and extends the 272K long-context premium to every OpenAI model priced that way. No other published rate changed. Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+The October 8 update adds Claude Sonnet 5.5 and Claude Haiku 5.5:
+
+| Model | Input | Cached input | 5-minute cache writes | Output |
+| --- | --- | --- | --- | --- |
+| `claude-sonnet-5-5` | $2 | $0.10 | $2.50 | $10 |
+| `claude-haiku-5-5`, prompts up to 100,000 tokens | $0.10 | $0.01 | $0.125 | $0.50 |
+| `claude-haiku-5-5`, prompts over 100,000 tokens | $0.50 | $0.05 | $0.625 | $2.50 |
+
+Sonnet 5.5 cache reads cost **0.05x** input, and its rates stay flat throughout the 1M-token context window. Haiku 5.5 is priced by prompt length: above 100,000 input tokens (cache reads and writes included) every token in the request uses the higher row, five times the base rates. Sources: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview), [Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview).
+
+The October 1 catalog sync also adds `gpt-rosalind-research` ($5 input / $0.50 cached input / $25 output per million tokens, billed by OpenAI from October 5, 2026), records GPT-6.1 Sol's $0.10 cache-read rate, and extends the 272K long-context premium to every OpenAI model priced that way. Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing).
 
 ### Cached Token Pricing
 
 When providers return cache information, the framework adjusts pricing automatically:
 
-- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 and GPT-6.1 Sol use **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
+- **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5, Sonnet 5.5, and GPT-6.1 Sol use **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
 - **Cache write tokens** (new cache entries) are counted inside the input tokens, like cache reads, and priced once: at **1.25x** the base input rate on Claude (five-minute caching; one-hour cache-write pricing is not separately modelled) and on OpenAI GPT-5.6 and later (the pricing page's "Cache writes" column, e.g. `gpt-6-luna` $0.125 per MTok), and at the base input rate on earlier OpenAI models, which OpenAI bills no extra for a cache write ("No additional cache-write charge").
 - Standard (non-cached) input tokens are charged at the full base rate
+
+**Request-side marks:** OpenAI caches automatically. For Anthropic and Bedrock Claude, enable `cache` on the call, or set `AI_PROMPT_CACHE` / `createAIService({ cache })`, so Plumbus emits `cache_control` / `cachePoint` — see [Prompt caching](#prompt-caching-anthropic--bedrock). Without those marks, Anthropic responses report zero cached tokens even though pricing fields exist, and Bedrock caching is best effort.
 
 The framework parses cache data from provider responses:
 - **OpenAI**: `usage.prompt_tokens_details.cached_tokens` and `cache_write_tokens` (Chat Completions), `usage.input_tokens_details.cached_tokens` and `cache_write_tokens` (Responses API); `cacheWriteTokens` is set only when OpenAI reports the field
@@ -858,12 +948,14 @@ The framework parses cache data from provider responses:
 
 The OpenAI models with a long-context rate (listed above) use a strict **greater than 272,000 input tokens** threshold. At exactly 272,000 tokens the base rates still apply; above it, input, cache reads and cache writes cost 2x, and output costs 1.5x, for the full request.
 
+Claude Haiku 5.5 uses the same strict boundary at **100,000 input tokens** but with its published rates instead of the multipliers: above it, input, cache reads, cache writes, and output all cost 5x the base rates for the full request.
+
 For Claude Sonnet 4 and Claude Sonnet 4.5, Anthropic charges a premium when total input exceeds 200K tokens:
 
 - Input rate: **2x** standard
 - Output rate: **1.5x** standard
 
-The framework detects this automatically based on the model name and total input token count. Normalized input already includes cache reads/writes, which are counted once when checking the long-context threshold.
+The framework detects this automatically based on the model name and total input token count. Normalized input already includes cache reads/writes, which are counted once when checking the long-context threshold. Thresholds apply per provider request: validation retries and a streaming validation fallback are priced request by request and then added up, so two 60K-token Claude Haiku 5.5 attempts both pay the up-to-100K rates.
 
 ### Budget Enforcement
 

@@ -75,7 +75,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/ai-bedrock`
 
-`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.2.x`; peer `@plumbus/core` `0.8.x`; **runtime floor ≥ 0.7.0**). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
+`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.2.x`; peer `@plumbus/core` `0.8.x`; **runtime floor ≥ 0.7.0**; prompt caching through `ctx.ai` is included in this beta family and needs core ≥ 0.7.9 on the stable line). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
 
 ```
 pnpm add @plumbus/ai-bedrock
@@ -87,11 +87,25 @@ Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `A
 
 ### Optional add-ons: typed decision providers
 
-`@plumbus/ai-decision-typesafe` (Jev) and `@plumbus/ai-decision-laya` (self-hosted Laya)
-share `@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
-HTTP transport. All three start at `0.2.x` and peer on core `0.7.x`. Install only the
-provider you need; the shared package is a dependency. Laya ships a separate Python
-reference service; Python/model dependencies are not installed by pnpm.
+`@plumbus/ai-decision-typesafe` (Jev), `@plumbus/ai-decision-laya` (self-hosted Laya), and
+`@plumbus/ai-decision-openai` (OpenAI Decisions API, `gpt-6-luna`) share
+`@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
+HTTP transport. The beta-family decision packages are on `0.3.x` and peer on core
+`>=0.8.0-beta.0 <0.9.0`.
+Install only the provider you need; the shared package is a dependency:
+
+```
+pnpm add @plumbus/ai-decision-typesafe   # TypeSafe/Jev
+pnpm add @plumbus/ai-decision-laya       # self-hosted Laya
+pnpm add @plumbus/ai-decision-openai     # OpenAI Decisions API (public beta)
+```
+
+Laya ships a separate Python reference service; Python/model dependencies are not
+installed by pnpm. Register the OpenAI adapter under a decision key such as
+`openai-decisions`, distinct from the `openai` text provider. Core re-validates its
+answers with the `@plumbus/ai-decision` copy core loads. The beta family shares
+`~0.3.0-beta.0`, including OpenAI rounding support. On the stable 0.7 line use
+core **0.7.9+** with shared contracts **0.2.3+**.
 
 Core 0.7.3+ provides `ctx.ai.decide()` with cost recording, identity, validation,
 security, budgets, and flow cancellation. `defineDecision` and `DecisionRegistry`
@@ -102,7 +116,8 @@ Core **0.7.4+** also routes `ctx.ai.classify({ text, labels, provider, model, th
 to generative or decision models. Start with
 `packages/plumbus-core/instructions/ai-classification.md` for provider registration,
 model defaults, and multi-label thresholds. Generated agent wiring **v17** links
-this recipe; refresh consumer apps with `plumbus init --patch --agent all`.
+this recipe and the TypeSafe/Laya indexes; **v19** (core 0.7.9) adds the OpenAI
+Decisions index; this beta family includes v19. Refresh consumer apps with `plumbus init --patch --agent all`.
 Use `onAICostRecorded` to persist `decide` and `classify` rows, including failed calls.
 Do not register decision adapters as text-generation providers or bypass Plumbus
 primitives for application business logic. Guide: `docs/ai/decision-providers.md`.
@@ -172,7 +187,17 @@ pnpm add @plumbus/auth
 pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers + server-attested sign-in
 ```
 
-Pass `createServer({ authenticationRuntime })` from core **0.6.8+**. With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.3.x`). Its `./server` + `./triggers` subpaths (0.3.0-beta.1+) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+Pass `createServer({ authenticationRuntime })` from core **0.6.8+**, or export `authenticationRuntime` from `app/server.ts` for apps run by `plumbus dev` / `plumbus start` (included in this beta family; stable core **0.7.8+**). With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.3.x`). Its `./server` + `./triggers` subpaths (0.3.0-beta.1+) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+
+### Optional add-on: `@plumbus/payments` (+ `@plumbus/payments-stripe`)
+
+`@plumbus/payments` moves money for an app through a payment provider, as capabilities/entities/events with signed webhooks: its users or tenants charge their own clients with the app as the platform (seller accounts; direct or destination charges; payment pages, invoices, holds, saved cards, links, subscriptions, disputes, payouts, transfers), and the app bills its own customers for plans (`billing`: seats, usage meters, entitlements, AI usage bridge). It peer-depends on `@plumbus/core` (version-locked `0.8.x`; **runtime floor ≥ 0.7.7** for `field.bigint()` and discovery of exported collections), and optionally `fastify` for the webhook route. `@plumbus/payments-stripe` is the Stripe provider (Connect with Accounts v2 merchant/recipient configurations, Checkout, Billing, Balance Settings, snapshot + thin webhooks, API `2026-08-26.dahlia`); it peer-depends on `@plumbus/payments` (`0.3.x`) and brings the `stripe` SDK as a dependency — apps never add `stripe` themselves:
+
+```
+pnpm add @plumbus/payments @plumbus/payments-stripe
+```
+
+Apps export `payments` from `app/payments/index.ts`, export `payments.capabilities`, `paymentEntities`, and `paymentEvents` as collections (one line each), and call `registerPaymentRoutes()` from `app/server.ts`. `plumbus payments doctor|webhooks setup|catalog sync|catalog check` load that module dynamically; core never imports the add-on. Money moves only through the payments capabilities and the `payments.platform` / `payments.billing` helpers. Start with `docs/payments/` (every option in `docs/payments/options.md`, kinds of apps in `use-cases.md`, plans in `billing.md`).
 
 ### From `@plumbus/ui`
 
@@ -282,7 +307,8 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
-- `docs/ai/` — prompts, RAG, cost tracking, 0.6.0 ledger upgrade
+- `docs/payments/` — sellers charging their clients and the app billing its own customers (`@plumbus/payments`, `@plumbus/payments-stripe`); every option in `options.md`, use cases, billing, Stripe, webhooks
+- `docs/ai/` — prompts, RAG, cost tracking, prompt caching, Bedrock, decision providers (TypeSafe/Jev, Laya, OpenAI Decisions), 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
 - `docs/ui/` — client generation, hooks, Next.js scaffolding
 - `docs/agents/` — agent setup, framework-first guardrails

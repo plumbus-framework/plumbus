@@ -71,9 +71,9 @@ const invoice = await ctx.ai.extract({
 ### Classify
 
 **Start with [the classification recipe](ai-classification.md)** for provider/model
-selection, TypeSafe/Jev and Laya registration, defaults, thresholds, and cost hooks
-(core **0.7.4+** / **0.8.0-beta.6+**). Use `classify()` for matching labels and `decide()` for richer
-typed questions. Keep calls inside capabilities/flows.
+selection, TypeSafe/Jev, Laya, and OpenAI Decisions registration, defaults, thresholds,
+and cost hooks (core **0.7.4+** / **0.8.0-beta.6+**). Use `classify()` for matching labels and `decide()`
+for richer typed questions. Keep calls inside capabilities/flows.
 
 Classify text into provided categories:
 
@@ -130,7 +130,21 @@ await ctx.ai.generateWithUsage({
 
 A per-call `timeoutMs` (on `generate`, `generateWithUsage`, `streamGenerate`, `extract`, `classify`, `retrieve` and `runToolLoop`; `timeout` on `EmbeddingRequest`, `timeoutMs` on RAG `ingest`/`retrieve`) overrides the prompt's `model.timeoutMs` and the provider's `requestTimeout` for that call; see `prompts.md`. A request its timeout ends throws a non-retryable `ProviderAPIError` carrying `timeoutMs`; detect it with `isProviderTimeoutError(error)` from `@plumbus/core` (`isProviderAPIError` for any provider HTTP failure) instead of checking the error's shape, and raise the timeout rather than retrying.
 
-Omit `reasoning` to inherit prompt/config; use `null` to restore the provider/model default for one call, clearing both inherited `reasoning` and inherited legacy `reasoningEffort`. Explicit modes are `{ mode:'disabled' }`, `{ mode:'effort', effort:'minimal'|'low'|'medium'|'high'|'xhigh'|'max' }`, and `{ mode:'budget', maxTokens }`. Built-in core adapters translate the intent: OpenAI uses Chat Completions normally and switches caller-tool requests, and the `structuredOutputTransport:'tool'` function, that need active/default GPT-5.6 or GPT-6 reasoning to the Responses API; Anthropic uses `thinking` + `output_config.effort`. GPT-6 Chat Completions use `max_completion_tokens`; GPT-6 requests omit sampling temperature unless reasoning is explicitly disabled. Responses tool continuations are stateless (`store:false`) and preserve encrypted reasoning items through server-owned `providerState`. Custom providers translate the contract in their own `AIProviderAdapter`. Unsupported modes fail with `AIInvalidRequestError` before provider I/O when the adapter can identify the incompatibility. Deprecated `reasoningEffort` remains the unchanged OpenAI-only `'low' | 'medium' | 'high'` shorthand.
+Omit `reasoning` to inherit prompt/config; use `null` to restore the provider/model default for one call, clearing both inherited `reasoning` and inherited legacy `reasoningEffort`. Explicit modes are `{ mode:'disabled' }`, `{ mode:'effort', effort:'minimal'|'low'|'medium'|'high'|'xhigh'|'max' }`, and `{ mode:'budget', maxTokens }`. Built-in core adapters translate the intent: OpenAI uses Chat Completions normally and switches caller-tool requests, and the `structuredOutputTransport:'tool'` function, that need active/default GPT-5.6 or GPT-6 reasoning to the Responses API; Anthropic uses `thinking` + `output_config.effort`. GPT-6 Chat Completions use `max_completion_tokens`; GPT-6 requests omit sampling temperature unless reasoning is explicitly disabled. Responses tool continuations are stateless (`store:false`) and preserve encrypted reasoning items through server-owned `providerState`. Custom providers translate the contract in their own `AIProviderAdapter`. Unsupported modes fail with `AIInvalidRequestError` before provider I/O when the adapter can identify the incompatibility. No GPT-6 model accepts effort `minimal`, and `gpt-6-astra` / `gpt-6.1-sol` have no off switch (`{ mode:'disabled' }` fails; use `low`). Claude Fable 5.1/5, Mythos 5.1/5/Preview, Opus 5.5/5/4.8/4.7, Sonnet 5.5/5, and Haiku 5.5 reject any `temperature` other than 1, so Plumbus omits both its `0.7` default and any explicitly configured temperature for them. On those models disabled is sent as `thinking: { type: 'between_tools' }` on `claude-sonnet-5-5` and fails on Opus 5.5, Fable, and Mythos (thinking cannot be turned off; lower the effort), and budgets fail on all but `claude-mythos-preview`. Deprecated `reasoningEffort` remains the unchanged OpenAI-only `'low' | 'medium' | 'high'` shorthand.
+
+### Prompt caching (Anthropic / Bedrock)
+
+Included in this beta family (stable core **0.7.9+**). Pass `cache: true` (system + tools) or `{ system?, tools?, messages? }` on `generate` / `generateWithUsage` / `streamGenerate` / `runToolLoop`. To make it the default for every call, set `AI_PROMPT_CACHE=true` (or sections such as `system,messages`); a per-call `cache` overrides it. Anthropic gets `cache_control`; Bedrock Claude gets Converse `cachePoint` (`@plumbus/ai-bedrock` from this beta family, or stable 0.2.2+), except Claude 3 Haiku / Sonnet / Opus and Claude 3.5 Sonnet `20240620`, which reject it, and Claude 3.5 Sonnet v2 (Preview-only on Bedrock). OpenAI and non-Claude Bedrock models ignore the option. Shorter prompts may not meet provider minima — the call still succeeds.
+
+`cache: true` marks only the system prompt and tools. In a single-turn call, a prompt's `description` and its input go into the user message, so keep long, stable instructions in `system`. In multi-turn mode (`messages` set), the description and `Input: {...}` are merged into the system prompt, so an input that changes between turns writes a new cache entry every turn.
+
+```ts
+await ctx.ai.generateWithUsage({
+  prompt: 'classifyTicket',
+  input: { ticketText },
+  cache: true,
+});
+```
 
 ### Tool calling (provider-native)
 
@@ -184,7 +198,7 @@ const { final, messages, rounds } = await runToolLoop(ctx.ai, {
 // final is a flat AIFinalGenerateResult; final.data is the answer.
 ```
 
-`runToolLoop` defaults to `maxRounds: 8` (hard cap 20). On round exhaustion it makes ONE final request that **omits both `tools` and `toolChoice`** (never `toolChoice: 'none'`), so it always resolves to a non-tool answer. Invalid-argument tool calls are **never** executed — they surface to the model as a bounded `tool_arguments_invalid` observation. Observations are byte-bounded and wrapped in an `untrusted_tool_result` envelope.
+`runToolLoop` defaults to `maxRounds: 8` (hard cap 20). On round exhaustion it makes ONE final request that **omits both `tools` and `toolChoice`** (never `toolChoice: 'none'`), so it always resolves to a non-tool answer. Invalid-argument tool calls are **never** executed — they surface to the model as a bounded `tool_arguments_invalid` observation. Observations are byte-bounded and wrapped in an `untrusted_tool_result` envelope. Pass `cache: true` to reuse the cached system prompt and tools across rounds (core 0.7.9+); it is forwarded to every request.
 
 An external `AIProviderAdapter` that omits the optional `capabilities` field is treated as declaring every capability `false` (no tool support).
 
@@ -284,7 +298,7 @@ Each provider slot (`AI_` single-provider, `AI_OPENAI_`, `AI_ANTHROPIC_`, `AI_BE
 
 ### Amazon Bedrock
 
-Requires `@plumbus/core` **≥ 0.6.16** (provider slot, env discovery, adapter `cost`, wiring v13).
+Requires `@plumbus/core` **≥ 0.7.0** (prompt caching needs core **≥ 0.7.9** and `@plumbus/ai-bedrock` **≥ 0.2.2**).
 
 ```bash
 pnpm add @plumbus/ai-bedrock
@@ -317,6 +331,14 @@ Set a global fallback model that all prompts use unless overridden:
 
 ```bash
 AI_DEFAULT_MODEL=gpt-4o
+```
+
+### Default Prompt Caching
+
+Turn on Anthropic / Bedrock prompt caching for every call (see [Prompt caching](#prompt-caching-anthropic--bedrock)):
+
+```bash
+AI_PROMPT_CACHE=true            # system + tools; or e.g. system,tools,messages
 ```
 
 ### Per-Prompt Overrides
@@ -409,11 +431,12 @@ See `docs/ai/ai-integration.md` and `docs/upgrading-contract-alignment.md` §12.
 For choices, scores, and probabilities, use `ctx.ai.decide()` inside capabilities
 and flows. Define reusable contracts with `defineDecision` from
 `@plumbus/ai-decision`; CLI startup discovers `app/decisions/`. The shared contract
-package is provided by core; install only the TypeSafe/Laya provider required by
-the app. Export `decisions = { providers, defaultProvider }` from `app/server.ts`
-for both API and workers, using `createTypeSafeDecisionAdapter` or
-`createLayaDecisionAdapter` at that server-owned boundary. Do not register these
-adapters as text-completion providers or call them directly for app business logic.
+package is provided by core; install only the TypeSafe, Laya, or OpenAI Decisions
+provider required by the app. Export `decisions = { providers, defaultProvider }` from
+`app/server.ts` for both API and workers, using `createTypeSafeDecisionAdapter`,
+`createLayaDecisionAdapter`, or `createOpenAIDecisionAdapter` at that server-owned
+boundary. Do not register these adapters as text-completion providers or call them
+directly for app business logic.
 
 Core records `operation: 'decide'` with actual model, usage, cost, tenant/actor,
 optional `decisionName`, and the caller's `costContext`. Existing

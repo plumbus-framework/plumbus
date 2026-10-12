@@ -11,6 +11,8 @@ for text responses and vector inference.
 
 Public exports: `DecisionProviderAdapter`, request/result/question/answer types; `validateDecisionRequest`, `parseDecisionResponse`, `toSystemOneQuestions`, `createDecisionHttpTransport`, `DecisionProviderError`.
 
+From 0.2.3, `createDecisionHttpTransport(provider, config, { path })` appends a relative endpoint path to `baseUrl` (default `systemone`). An adapter whose provider rounds more coarsely than four decimal places sets `rounding` (its decimal step, at most 0.01) so the runtime's distribution, top-choice, and score checks allow for it. `DecisionProviderError.refusedQuestions` is set only when a provider declines to answer and lists the refused question keys.
+
 File map: `src/index.ts` is the public barrel, `src/__tests__/` exercises the public
 API, `instructions/` contains these recipes. Laya alone also ships `service/`.
 

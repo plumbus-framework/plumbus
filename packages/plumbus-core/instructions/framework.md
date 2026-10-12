@@ -117,6 +117,10 @@ package.json          # Private root — delegates scripts via pnpm -r
 
 In monorepo mode the `app/` and `config/` directories live under `backend/`. The CLI auto-detects the layout.
 
+### Discovery
+
+The CLI registers every capability, entity, flow, event, prompt, and translation **exported** from a file under the matching `app/` directory (file names and nesting are free). An exported array, or a plain object without a `name` field, is expanded one level, so an add-on's collections register with one line each — for example `export const paymentCapabilities = payments.capabilities` and `export { paymentEntities } from '@plumbus/payments'`. A definition exported both alone and inside a collection is registered once.
+
 ## Framework-Provided Dependencies
 
 The framework provides common dependencies — **consumer apps must NOT install them separately**. Import through the framework's subpath exports:
@@ -141,14 +145,14 @@ The framework provides common dependencies — **consumer apps must NOT install 
 
 ## Server Extensions (`app/server.ts`)
 
-The optional `app/server.ts` file exports hooks that customize server behavior. The framework auto-discovers this file on `plumbus dev` and `plumbus start`.
+The optional `app/server.ts` file exports hooks that customize server behavior. The framework auto-discovers this file on `plumbus dev`, `plumbus start`, and `plumbus worker`.
 
 ### Available Hooks
 
 | Hook | When it fires | Use for |
 |------|--------------|---------|
 | `onRoutesRegistered` | After capability routes are registered | Adding custom routes (e.g. streaming endpoints) |
-| `onCapabilityError` | After a capability returns a non-success result | Logging capability failures to a system log table |
+| `onCapabilityError` | After a capability returns a non-success result in an HTTP route, flow step, job, or event handler (`info.source`: `'http'`, `'flow'`, `'job'`, `'event'`) | Logging capability failures to a system log table |
 | `onFlowError` | After a flow fails permanently (retries exhausted) | Logging flow failures to a system log table |
 | `onProcessError` | On uncaught exceptions, unhandled rejections, and Fastify-level errors | Logging process-level crashes that bypass capability/flow hooks |
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
@@ -158,6 +162,7 @@ The optional `app/server.ts` file exports hooks that customize server behavior. 
 | `onAIProviderSpan` | After each provider attempt | Export provider client spans |
 | `enableStrictStructuredOutputs` | Server bootstrap | Global toggle for strict structured-output mode |
 | `credentials` | Server bootstrap | Optional host credential catalog (`export const credentials`). Passed to `createServer({ credentials })`. Names, types, refs, and public labels only — secrets stay in the host resolver. |
+| `authenticationRuntime` | Server bootstrap (included in the 0.8 beta family; stable core 0.7.8+) | Browser sign-in with `@plumbus/auth` (`createAuthRuntime(...)`): the same value `createServer({ authenticationRuntime })` takes |
 
 ### Error Capture Coverage
 
@@ -165,11 +170,13 @@ The framework provides hooks for **every error category**:
 
 | Error Type | Hook | Source Field |
 |------------|------|-------------|
-| Capability failure (handler throw, validation, access) | `onCapabilityError` | capability name, domain, error code |
+| Capability failure (handler throw, validation, access) in HTTP routes, flow steps, jobs, and event handlers | `onCapabilityError` | capability name, domain, error code, `source` |
 | Flow permanent failure (retries exhausted) | `onFlowError` | flow name, step, execution ID |
 | Uncaught exception (process crash) | `onProcessError` | `source: 'uncaughtException'` |
 | Unhandled promise rejection | `onProcessError` | `source: 'unhandledRejection'` |
 | Fastify request error (malformed request, timeout) | `onProcessError` | `source: 'fastify'` |
+
+`onCapabilityError` fires once per failed attempt: an event handler that fails on all N delivery attempts fires N times, and a retried flow step fires once per failed attempt. A failed job fires once. `sourceIp` and `userAgent` are set only for `source: 'http'`. Rejections before the capability runs (HTTP authentication, the worker's event/job payload and access checks) and nested `ctx.capabilities.invoke()` calls do not fire it.
 
 ### Example: Full Error Logging
 

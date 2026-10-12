@@ -44,7 +44,7 @@ describe('Bedrock native structured outputs', () => {
         ],
       },
     ],
-  ])('sends %s as it is, without an envelope', async (_label, responseSchema) => {
+  ])('preserves %s with prompt caching enabled, without an envelope', async (_label, responseSchema) => {
     const send = vi.fn().mockResolvedValue({
       output: { message: { role: 'assistant', content: [{ text: '[]' }] } },
       stopReason: 'end_turn',
@@ -58,11 +58,25 @@ describe('Bedrock native structured outputs', () => {
       structuredOutputs: 'native',
     });
 
-    const result = await adapter.complete({ prompt: 'hi', responseFormat: 'json', responseSchema });
+    const result = await adapter.complete({
+      prompt: 'hi',
+      system: 'Return the requested structure.',
+      responseFormat: 'json',
+      responseSchema,
+      cache: { system: true, messages: true },
+    });
 
     const input = (send.mock.calls[0]?.[0] as { input: Record<string, any> }).input;
     const sent = input.outputConfig?.textFormat?.structure?.jsonSchema?.schema;
     expect(JSON.parse(String(sent))).toEqual(responseSchema);
+    expect(input.system).toEqual([
+      { text: 'Return the requested structure.' },
+      { cachePoint: { type: 'default' } },
+    ]);
+    expect(input.messages[0].content).toEqual([
+      { text: 'hi' },
+      { cachePoint: { type: 'default' } },
+    ]);
     // The answer is passed on as the model wrote it.
     expect(result.content).toBe('[]');
   });

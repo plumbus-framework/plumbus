@@ -11,6 +11,6 @@ Amazon Cognito for Plumbus apps. Read when the app's OIDC provider is a Cognito 
 | [attested-sign-in.md](./attested-sign-in.md) | Server-attested sign-in: `./server`, `./triggers`, pool administration, keys, errors. |
 | [testing.md](./testing.md) | Unit test patterns for integration options; `startFakeCognito()` for everything that talks to Cognito. |
 
-Hosted login requires `@plumbus/auth` **`0.3.x`** installed; the server-attested entry points do not use it.
+Hosted login requires `@plumbus/auth` **`>=0.3.0-beta.0 <0.4.0`** installed; the server-attested entry points do not use it.
 
 Package quickstart: [../README.md](../README.md).

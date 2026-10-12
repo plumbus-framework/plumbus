@@ -7,7 +7,7 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 | Symbol | Kind | Description |
 |--------|------|-------------|
 | `Kind` | type | `'text' \| 'embedding' \| 'moderation' \| 'image' \| 'audio'` |
-| `ModelRate` | interface | `{ inputPerMTok; outputPerMTok; cachedInputPerMTok?; longContextThreshold?; kind? }` — USD per 1M tokens |
+| `ModelRate` | interface | `{ inputPerMTok; outputPerMTok; cachedInputPerMTok?; longContextThreshold?; longContextRates?; kind? }` — USD per 1M tokens |
 | `findModelRate()` | function | Looks up a model's rate, with date-suffix fallback |
 | `allKnownModels()` | function | All `[id, rate]` pairs, for `listModels()` joins |
 | `calculateModelCost()` | function | Computes USD cost for a single AI request |
@@ -31,7 +31,7 @@ File: `packages/plumbus-core/src/ai/model-pricing.ts`
 
 Add new entries under the matching section comment. Use the model's API identifier as the key (e.g. `'gpt-5.4'`, `'claude-opus-4-6'`). Every entry populates `kind`.
 
-**Only standard-tier rates are recorded.** For models the page prices by context length, use the *short* (base) context columns — the long-context columns are a separate rate the cost calculator models for GPT-5.6 Sol via its explicit 272,000-token threshold. Other OpenAI models still use base rates.
+**Only standard-tier rates are recorded.** For models the page prices by context length, use the *short* (base) context columns — the long-context columns are a separate rate the cost calculator models with an explicit 272,000-token `longContextThreshold` (2× input/cache, 1.5× output) on every entry whose row lists them (`gpt-5.4`, `gpt-5.4-pro`, `gpt-5.5`, `gpt-5.5-pro`, GPT-5.6 Sol/Terra/Luna, and the GPT-6 models). Give a new model the threshold when its row's long-context prices are exactly 2× / 1.5×; otherwise use `longContextRates`. Models without long-context prices use base rates. Claude Haiku 5.5 has two Anthropic rows (prompts up to / over 100,000 tokens): the script reports the first, and the over-100K row lives in the entry's `longContextRates`, kept in sync by hand.
 
 ### `LONG_CONTEXT_PREMIUM_MODELS`
 
@@ -53,8 +53,8 @@ Checks `LONG_CONTEXT_PREMIUM_MODELS` with the same date-stripping logic.
 
 Applies:
 - **Cached input**: published `cachedInputPerMTok`, defaulting to 0.1× input
-- **Cache writes**: 1.25× base input rate (Anthropic 5-min cache)
-- **Long context premium**: 2× input / 1.5× output for eligible models over 200K input
+- **Cache writes**: 1.25× base input rate (Anthropic 5-min cache; OpenAI GPT-5.6 and later)
+- **Long context premium**: 2× input / 1.5× output for eligible models over 200K input, or over an entry's `longContextThreshold`; entries with `longContextRates` (Haiku 5.5) use those rates instead
 
 The legacy `calculateModelCost()` returns numeric zero for unknown models. `estimateModelCost()` returns `undefined`; framework ledger/budget code uses this unknown-aware path. Explicitly free rates remain zero.
 

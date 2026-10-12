@@ -1,0 +1,17 @@
+{
+  "name": "payments-connect-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Test app for @plumbus/payments + @plumbus/payments-stripe on the real Plumbus runtime (Postgres, API, worker, outbox) against a local Stripe simulator.",
+  "scripts": {
+    "link": "node scripts/link.mjs",
+    "e2e": "node scripts/e2e.mjs",
+    "dev": "node scripts/dev.mjs"
+  },
+  "dependencies": {
+    "@plumbus/core": "link:../../packages/plumbus-core",
+    "@plumbus/payments": "link:../../packages/payments",
+    "@plumbus/payments-stripe": "link:../../packages/payments-stripe"
+  }
+}

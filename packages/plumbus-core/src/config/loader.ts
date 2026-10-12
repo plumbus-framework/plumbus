@@ -15,6 +15,7 @@ import type {
   PromptModelOverride,
   QueueConfig,
 } from '../types/config.js';
+import type { AICacheConfig, AIPromptCacheOption } from '../ai/provider.js';
 import type { AISecurityConfig } from '../ai/security.js';
 import { FieldClassification } from '../types/enums.js';
 import type { FieldClassification as FieldClassificationType } from '../types/enums.js';
@@ -119,6 +120,7 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
     model: env.AI_MODEL ?? undefined,
     baseUrl: env.AI_BASE_URL ?? undefined,
     ...readProviderLimits(env, 'AI_'),
+    cache: loadPromptCacheConfig(env),
   };
 }
 
@@ -136,6 +138,32 @@ function readProviderLimits(
     dailyCostLimit: readEnvNumber(env, `${prefix}DAILY_COST_LIMIT`, PROVIDER_DAILY_COST_LIMIT_RULE),
     requestTimeout: readEnvNumber(env, `${prefix}REQUEST_TIMEOUT`, PROVIDER_REQUEST_TIMEOUT_RULE),
   };
+}
+
+const PROMPT_CACHE_SECTIONS = ['system', 'tools', 'messages'] as const;
+
+/**
+ * Parse `AI_PROMPT_CACHE`: `true` / `1` (system + tools), `false` / `0`, or a
+ * comma-separated list of sections such as `system,messages`.
+ */
+function loadPromptCacheConfig(
+  env: Record<string, string | undefined>,
+): AIPromptCacheOption | undefined {
+  const raw = env.AI_PROMPT_CACHE?.trim().toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  const cache: AICacheConfig = {};
+  for (const section of raw.split(',').map((s) => s.trim())) {
+    if (!(PROMPT_CACHE_SECTIONS as readonly string[]).includes(section)) {
+      console.warn(
+        `[plumbus] Invalid AI_PROMPT_CACHE="${raw}" — expected true, false, or a comma-separated list of ${PROMPT_CACHE_SECTIONS.join(', ')}; prompt caching stays off`,
+      );
+      return undefined;
+    }
+    cache[section as keyof AICacheConfig] = true;
+  }
+  return cache;
 }
 
 // ── Multi-Provider AI Config ──
@@ -238,6 +266,7 @@ export function loadMultiProviderConfig(
     providers,
     promptOverrides: loadPromptOverrides(env),
     security: loadAiSecurityConfig(env),
+    cache: loadPromptCacheConfig(env),
   };
 }
 

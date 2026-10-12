@@ -800,6 +800,77 @@ describe('GET query param coercion', () => {
   });
 });
 
+describe('onCapabilityError', () => {
+  it.each([
+    false,
+    true,
+  ])('reports the resolved request database for failures (idempotency: %s)', async (idempotent) => {
+    const app = makeMockApp();
+    const baseConfig = makeMockConfig();
+    const tenantDb = { execute: vi.fn() } as unknown as PostgresJsDatabase;
+    const onCapabilityError = vi.fn();
+    const config = {
+      ...baseConfig,
+      onCapabilityError,
+      resolveDependencies: async () => ({
+        dependencies: baseConfig.createDependencies(),
+        db: tenantDb,
+      }),
+    };
+    const cap = makeCapability({
+      kind: 'action',
+      ...(idempotent && { api: { idempotency: { required: true } } }),
+      handler: async (ctx) => {
+        throw ctx.errors.conflict('Already taken');
+      },
+    });
+    registerCapabilityRoute(app as any, cap, config);
+    const request = makeMockRequest({}, { id: '1' });
+    const reply = makeMockReply();
+    await app.post.mock.calls[0]?.[1](
+      { ...request, headers: { ...request.headers, 'idempotency-key': 'attempt-1' } },
+      reply,
+    );
+
+    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'http', db: tenantDb, errorCode: 'conflict' }),
+    );
+  });
+
+  it('fires with source http after the error response is sent', async () => {
+    const app = makeMockApp();
+    const onCapabilityError = vi.fn();
+    const config = { ...makeMockConfig(), onCapabilityError };
+    const cap = makeCapability({
+      handler: async (ctx) => {
+        throw ctx.errors.conflict('Already taken', { key: 'k1' });
+      },
+    });
+
+    registerCapabilityRoute(app as any, cap, config);
+    const reply = makeMockReply();
+    await app.get.mock.calls[0]?.[1](makeMockRequest({ id: '1' }), reply);
+
+    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(onCapabilityError).toHaveBeenCalledTimes(1);
+    expect(onCapabilityError).toHaveBeenCalledWith({
+      capabilityName: 'getUser',
+      domain: 'users',
+      errorCode: 'conflict',
+      errorMessage: 'Already taken',
+      metadata: { key: 'k1' },
+      userId: 'u1',
+      tenantId: 'tenant-1',
+      sourceIp: '127.0.0.1',
+      userAgent: undefined,
+      db: config.db,
+      source: 'http',
+    });
+  });
+});
+
 describe('resolveRequestLocale', () => {
   it('prefers plumbus-ui-locale cookie over Accept-Language', () => {
     const locale = resolveRequestLocale(

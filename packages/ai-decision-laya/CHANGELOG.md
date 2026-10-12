@@ -8,7 +8,13 @@
 - Same adapter and Python reference service as 0.2.2; the `@plumbus/core` peer is `>=0.8.0-beta.0 <0.9.0` and the shared contracts dependency is `@plumbus/ai-decision` `~0.3.0-beta.0`.
 - The connection-capacity service test reads the over-capacity 503 without sending a request. The server refuses at accept before reading, so a client still writing its body could be reset first; the test failed about one run in ten.
 
-## 0.2.2 — Unreleased
+## 0.2.3 — 2026-10-08
+
+- The README now uses the standard Plumbus package format (badges, Why?, What you get, When to use this vs alternatives, Status, Pricing, Configuration, Key gotchas, Links), keeping all of its earlier content. Runtime behavior, the Python reference service, and the core peer range are unchanged from 0.2.2.
+- The published dependency on `@plumbus/ai-decision` is now `~0.2.3` (was `~0.2.2`), following the shared package's current version. Shared 0.2.3 validates Laya answers exactly as 0.2.2 did.
+- The packaged offline service test `service/test_audit_round_two.py` checks connection capacity by reading the 503 response without sending a request body, so it no longer races the server closing the rejected connection. `service/server.py` is unchanged.
+
+## 0.2.2 — 2026-09-23
 
 - Document core 0.7.4+ classification with per-call provider/model and probability threshold. Link the packaged classification recipe from agent instructions and correct stale package-only guidance. Core peer compatibility remains `0.7.x`.
 

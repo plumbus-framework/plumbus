@@ -56,10 +56,21 @@ function retryDelay(headers: Headers, attempts: number): number {
   return Math.min(Math.max(0, ms), 2_147_483_647);
 }
 
-/** Bounded JSON transport shared by the two System One protocol adapters. */
-export function createDecisionHttpTransport(provider: string, config: DecisionHttpConfig) {
+const PathSchema = z
+  .string()
+  .regex(/^[a-z0-9_-]+(?:\/[a-z0-9_-]+)*$/i)
+  .default('systemone');
+
+/** Bounded JSON transport shared by decision protocol adapters. */
+export function createDecisionHttpTransport(
+  provider: string,
+  config: DecisionHttpConfig,
+  /** Endpoint path appended to `baseUrl`; defaults to the System One `systemone`. */
+  endpoint: { path?: string } = {},
+) {
   const parsed = HttpConfigSchema.safeParse(config);
-  if (!parsed.success)
+  const path = PathSchema.safeParse(endpoint.path);
+  if (!parsed.success || !path.success)
     throw new DecisionProviderError(
       provider,
       'configuration',
@@ -80,7 +91,7 @@ export function createDecisionHttpTransport(provider: string, config: DecisionHt
       'Use an HTTP(S) base URL without credentials, query, or fragment',
     );
   }
-  url.pathname = `${url.pathname.replace(/\/+$/, '')}/systemone`;
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/${path.data}`;
   const fetchImpl = config.fetch ?? globalThis.fetch;
 
   return async (

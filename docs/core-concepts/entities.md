@@ -31,8 +31,9 @@ export const Customer = defineEntity({
 |-----------|---------|-----------------|-------|
 | `id` | `field.id()` | `string` | Auto-generated unique identifier |
 | `string` | `field.string()` | `string` | Text data |
-| `number` | `field.number()` | `number` | Integer numeric data |
-| `decimal` | `field.decimal()` | `number` | Decimal numeric data (mapped to a precise SQL decimal type) |
+| `number` | `field.number()` | `number` | 32-bit integer (PostgreSQL `integer`, up to 2,147,483,647) |
+| `number` (64-bit) | `field.bigint()` | `number` | 64-bit integer (PostgreSQL `bigint`), safe integers up to 2^53 − 1. Use for money in minor units and totals (core 0.7.7+) |
+| `decimal` | `field.decimal()` | `number` | Floating point (PostgreSQL `double precision`) — never use for money |
 | `boolean` | `field.boolean()` | `boolean` | True/false |
 | `timestamp` | `field.timestamp()` | `Date` | Date/time values |
 | `json` | `field.json()` | `Record<string, unknown>` | Arbitrary JSON |

@@ -62,6 +62,8 @@ export {
   joinAndFilterModels,
   normalizeFinishReason,
   ProviderAPIError,
+  type AICacheConfig,
+  type AIPromptCacheOption,
   type AIProviderAdapter,
   type AIProviderCapabilities,
   type AITool,

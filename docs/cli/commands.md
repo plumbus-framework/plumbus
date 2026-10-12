@@ -25,6 +25,7 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus verify` | Run governance rules |
 | `plumbus certify` | Run compliance profile assessment (`certify policy <name>`) |
 | `plumbus api` | Partner API manifest validate, OpenAPI/docs export, diff |
+| `plumbus payments` | Payments add-on: `doctor` (config + provider checks), `webhooks setup`, `catalog sync` / `catalog check` (billing plans at the provider) |
 | `plumbus voice worker` | LiveKit realtime voice worker |
 | `plumbus e2e` | Run Playwright browser E2E suites |
 | `plumbus migrate` | Database migration commands |
@@ -231,7 +232,7 @@ Behavior:
 
 - Loads `plumbus.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `bodyLimit`, `schedulePlanes`, and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `schedulePlanes`, and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
 - Exposes `GET /health` and `GET /ready`.
@@ -268,6 +269,8 @@ Exposes:
 | `GET /metrics` | Prometheus-format metrics |
 
 Does **not** start the main Fastify API. Requires the same `app/`, `config/`, database, and Redis configuration as the API process.
+
+Loads `app/server.ts`; its `onCapabilityError` fires in this process for failed flow steps, jobs, and event handlers (`source` `'flow'`, `'job'`, `'event'`). See [Configuration](../sdk-reference/configuration.md#oncapabilityerror-hook).
 
 #### `plumbus worker status`
 
@@ -714,6 +717,28 @@ plumbus api test-fixtures validate [--json]
 
 ---
 
+### plumbus payments
+
+Checks and setup for the optional [`@plumbus/payments`](../payments/README.md) add-on. The command loads `app/payments/index.ts` (or `.js`), which must export `payments` (the `createPayments()` result) as a named or default export. Core does not depend on the add-on.
+
+```bash
+plumbus payments doctor [--live] [--webhook-url <url>] [--fail-on-warning] [--json]
+plumbus payments webhooks setup --url <url> [--json]
+plumbus payments catalog sync [--json]
+plumbus payments catalog check [--json]
+```
+
+| Subcommand | Exit code | What it does |
+|---|---|---|
+| `doctor` | 1 on error findings (or warnings with `--fail-on-warning`) | Prints config findings (provider rules, advice). With `--live`, also asks the provider: key mode vs `NODE_ENV`, Connect/Accounts v2 access (only when the config has sellers), webhook destinations (existence, URL, sources, events, API version), and, with `billing` configured, whether the provider's catalog matches it |
+| `webhooks setup` | 0 | Creates the provider's webhook destinations for `--url` (what the config needs: without sellers, Stripe gets one destination for the platform's own events) and prints each signing secret once. Existing destinations get any events a newer release needs; one that cannot be fixed in place (Stripe cannot change where a destination takes events from) is replaced by a new one, and `doctor --live` says which old one to delete |
+| `catalog sync` | 0 | Creates or updates the provider's products, prices, entitlement features, and usage meters so they match `billing` in the payments config, and prints what changed and the price ids. Safe to run on every deploy. A changed price becomes a new provider price; existing subscribers keep theirs |
+| `catalog check` | 1 when the catalog differs | Read-only: lists what `catalog sync` would change. Use it in CI |
+
+`--webhook-url` is the public URL of the payments webhook route (default path `/payments/webhooks/<provider>`). See [docs/payments/webhooks.md](../payments/webhooks.md).
+
+---
+
 ### plumbus voice worker
 
 Join a LiveKit room as the realtime voice agent. Requires `@plumbus/voice` and `@plumbus/voice-livekit` (`pnpm add @plumbus/voice @plumbus/voice-livekit`).
@@ -886,6 +911,7 @@ Config discovery (first match wins): `frontend/e2e/vitest.config.e2e.ts`, `e2e/v
 - **Heap cap** — the server is spawned with `NODE_OPTIONS=--max-old-space-size=4096` (not applied when the caller already sets a `--max-old-space-size`). A runaway dev-server compile crashes the run loudly instead of exhausting machine memory.
 - **Signal cleanup** — Ctrl-C / SIGTERM / SIGHUP on the CLI kills the detached server process group before exiting (previously the detached group never received the terminal's signal and survived as an immortal orphan).
 - **Orphan watchdog** — a tiny detached watchdog reaps the server group if the CLI process disappears without cleanup (SIGKILL, crash, killed session): SIGTERM first, SIGKILL after a 5 s grace. It exits by itself once the server group is gone and never interferes with a normal shutdown.
+- **Server output (0.7.9+)** — the server's stderr is relayed as `[frontend]` lines; its stdout (Next's per-request log) is read and discarded. Before 0.7.9 stdout was never read, so the server froze for the rest of the run once about 80 KB of request lines filled the pipe.
 
 ---
 

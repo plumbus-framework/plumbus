@@ -5,6 +5,7 @@ import { type ParseError, parse as parseJsonc } from 'jsonc-parser';
 import { z } from 'zod';
 import type { AIValidationOptions } from '../types/context.js';
 import { restoreOmittedOptionalProperties } from './openai-strict-schema.js';
+import { estimateModelCost } from './model-pricing.js';
 import type {
   AIProviderAdapter,
   ProviderRequest,
@@ -21,9 +22,10 @@ export interface ValidatedResponse<T> {
   attempts: number;
   usage: TokenUsage;
   /**
-   * Sum of adapter-supplied `ProviderResponse.cost` across attempts, when every
-   * successful attempt provided a cost. Otherwise omitted so callers fall back
-   * to `calculateModelCost`.
+   * Sum of per-attempt costs: each attempt's `ProviderResponse.cost`, else the
+   * catalog price of that attempt's own usage, so long-context tiers apply per
+   * request. Omitted when an attempt's cost is unknown so callers fall back to
+   * `calculateModelCost`.
    */
   cost?: number;
 }
@@ -44,6 +46,8 @@ export class AIValidationError extends Error {
   readonly model: string;
   /** Resolved provider name when the error was thrown (empty string if unknown). */
   readonly provider: string;
+  /** Cost of the attempts in `usage`, priced per attempt like `ValidatedResponse.cost`. */
+  readonly cost?: number;
 
   constructor(input: {
     attempts: number;
@@ -52,6 +56,7 @@ export class AIValidationError extends Error {
     usage?: TokenUsage;
     model?: string;
     provider?: string;
+    cost?: number;
   }) {
     super(
       `AI output validation failed after ${input.attempts} attempts: ${input.lastError?.message}`,
@@ -63,6 +68,7 @@ export class AIValidationError extends Error {
     this.usage = input.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     this.model = input.model ?? '';
     this.provider = input.provider ?? '';
+    this.cost = input.cost;
   }
 }
 
@@ -285,7 +291,7 @@ export async function generateWithValidation<T>(
   const textOutput = isStringOutputSchema(schema);
 
   let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  let totalProviderCost: number | undefined;
+  let totalCost: number | undefined = 0;
   let lastError: Error | null = null;
   let lastRawOutput: string | null = null;
   let currentPrompt = request.prompt;
@@ -325,12 +331,17 @@ export async function generateWithValidation<T>(
     }
 
     totalUsage = addAttemptUsage(totalUsage, response.usage);
-    if (response.cost != null) {
-      totalProviderCost = (totalProviderCost ?? 0) + response.cost;
-    } else {
-      // Mixed / missing adapter costs → force catalog fallback at the service layer.
-      totalProviderCost = undefined;
-    }
+    // Price each attempt on its own usage: a long-context threshold applies per
+    // request, so pricing the summed usage once could cross one no request crossed.
+    const attemptCost =
+      response.cost ??
+      estimateModelCost(
+        response.usage.inputTokens,
+        response.usage.outputTokens,
+        config?.model ?? response.model,
+        response.usage,
+      );
+    totalCost = totalCost == null || attemptCost == null ? undefined : totalCost + attemptCost;
 
     try {
       const parsed = textOutput ? response.content : parseStructuredResponse(response.content);
@@ -347,7 +358,7 @@ export async function generateWithValidation<T>(
         attempts: attempt,
         usage: totalUsage,
       };
-      if (totalProviderCost != null) validated.cost = totalProviderCost;
+      if (totalCost != null) validated.cost = totalCost;
       return validated;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -365,5 +376,6 @@ export async function generateWithValidation<T>(
     usage: totalUsage,
     model: config?.model ?? '',
     provider: config?.provider ?? provider.name,
+    cost: totalCost,
   });
 }

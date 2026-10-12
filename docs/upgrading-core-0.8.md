@@ -27,10 +27,49 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 | `@plumbus/ai-decision` | 0.2.2 | 0.3.0-beta.0 (joins the family with core 0.8.0-beta.6, which depends on it) |
 | `@plumbus/ai-decision-typesafe` | 0.2.2 | 0.3.0-beta.0 |
 | `@plumbus/ai-decision-laya` | 0.2.2 | 0.3.0-beta.0 |
+| `@plumbus/ai-decision-openai` | 0.2.0 | 0.3.0-beta.0 (OpenAI Decisions API provider) |
+| `@plumbus/payments` | 0.2.2 | 0.3.0-beta.0 (payment capabilities, billing, entities, events and webhooks) |
+| `@plumbus/payments-stripe` | 0.2.2 | 0.3.0-beta.0 (Stripe provider; payments peer `>=0.3.0-beta.0 <0.4.0`) |
 
-All 21 packages move outside their previous caret range, including add-ons whose only change is the peer literal: every add-on peers on core, and a `0.7.x` peer would reject core 0.8. Canonical peer literals are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
+All 24 packages move outside their previous caret range, including add-ons whose only change is the peer literal: every add-on peers on core, and a `0.7.x` peer would reject core 0.8. Canonical peer literals are in [peer dependencies](../packages/plumbus-core/instructions/peer-dependencies.md).
 
 Since 0.8.0-beta.6 core has a regular dependency on `@plumbus/ai-decision` (`~0.3.0-beta.0`, the shared decision contracts). The publish workflow publishes that package before core; a core 0.8.0-beta.6 install cannot resolve until `@plumbus/ai-decision@0.3.0-beta.0` is on npm. The TypeSafe and Laya adapters stay optional installs.
+
+## Updates merged from main
+
+This branch includes the later main-line fixes and features below without changing
+the existing beta version numbers. The stable release numbers in changelogs record
+where those changes originated; they do not change this branch's peer ranges.
+
+- Core includes the stable 0.7.7–0.7.9 additions: `field.bigint()`, exported collection
+  discovery, payments CLI commands, `authenticationRuntime` loading from
+  `app/server.ts`, agent wiring v19, OpenAI Decisions integration, prompt caching,
+  per-attempt validation cost accounting, and updated model compatibility and pricing.
+  Later main fixes include capability error hooks for flow/job/event execution and
+  draining the e2e dev server's output. Existing beta security, tenant data planes,
+  credential hooks, strict-output handling, request timeouts and failed-call budgets
+  are retained.
+- `@plumbus/ai-decision-openai`, `@plumbus/payments`, and `@plumbus/payments-stripe`
+  join as `0.3.0-beta.0`, with the same `plumbus-next` publication tag as the rest of
+  the family. Install them explicitly only when used; never mix their stable
+  versions with core 0.8. The shared decision package includes endpoint-path and
+  rounding support for OpenAI.
+- Payment webhooks resolve tenant dependencies asynchronously. Seller-account
+  routing and platform-object fallback lookups still require rows visible on the
+  control plane; they do not scan tenant databases. Hosts must separately wire
+  outbox dispatch and payment consumers for each database holding payment data;
+  the default consumers stay on their configured database. See
+  [payment webhook data planes](payments/webhooks.md#tenant-data-planes) before
+  placing payment entities on separate planes.
+- Bedrock includes Converse prompt caching; Cognito includes hosted-directory
+  helpers and the guidance to provision a pool from one place; LiveKit retains its
+  20 ms PCM framing and stream fixes while pinning compatible native dependencies
+  (`@livekit/agents` 1.9.0 and `@livekit/rtc-node` ^0.13.34).
+
+Refresh consumer-agent wiring with `plumbus init --patch --agent all`. See
+[decision providers](ai/decision-providers.md), [payments](payments/README.md),
+[AI integration](ai/ai-integration.md), and the
+[capability error hook](sdk-reference/configuration.md#oncapabilityerror-hook).
 
 ## Prerelease peers
 

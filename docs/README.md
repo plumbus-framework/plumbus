@@ -5,6 +5,9 @@ Welcome to the Plumbus framework documentation. Use the navigation below to find
 For classification provider/model selection and agent wiring v17, see the
 [classification upgrade guide](./upgrading-classification.md) and
 [packaged agent recipe](../packages/plumbus-core/instructions/ai-classification.md).
+Core 0.7.9 generates wiring v19, which also links the OpenAI Decisions provider
+(`@plumbus/ai-decision-openai`); see [Agent setup](./agents/agent-setup.md#openai-decisions-provider--wiring-v19)
+and [Decision providers](./ai/decision-providers.md).
 
 See the [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) for package versions and paired upgrades.
 
@@ -49,6 +52,16 @@ docs/
 │   └── commands.md
 ├── security/                  Security model, auth, tenant isolation
 │   └── security-model.md
+├── payments/                  Optional @plumbus/payments + @plumbus/payments-stripe (sellers charge their clients; the app bills its customers)
+│   ├── README.md
+│   ├── getting-started.md
+│   ├── options.md             Every option and Stripe choice, and what is not offered
+│   ├── use-cases.md           Which features to combine for your kind of app
+│   ├── billing.md             The app's own plans: catalog, seats, meters, entitlements
+│   ├── stripe.md
+│   ├── webhooks.md
+│   ├── testing.md
+│   └── security.md
 ├── auth/                      Optional @plumbus/auth package (OIDC RP, server sessions, CSRF)
 │   ├── README.md
 │   ├── getting-started.md
@@ -63,7 +76,7 @@ docs/
 ├── ai/                        Prompts, RAG, cost tracking, governance, Bedrock
 │   ├── ai-integration.md      Prompts, RAG, cost tracking, governed model calls
 │   ├── bedrock.md             Optional @plumbus/ai-bedrock (detailed guide)
-│   ├── decision-providers.md  Typed decisions, core cost recording, and live test environment
+│   ├── decision-providers.md  Typed decisions (TypeSafe/Jev, Laya, OpenAI Decisions), cost recording, live tests
 │   └── decision-provider-audit.md  First adversarial audit
 ├── testing/                   Test utilities, patterns, examples
 │   └── testing-guide.md
@@ -167,8 +180,8 @@ docs/
 | Apply schema to a per-tenant database | [SDK → Tenant data planes](sdk-reference/tenant-data-planes.md) |
 | Declare named credential types without logging secrets | [SDK → Credential catalog](sdk-reference/credential-catalog.md) |
 | Add federated OIDC login with server sessions | [Auth → README](auth/README.md) |
-| Classify with a selected provider/model (Jev, Laya, or generative) | [Agent recipe](../packages/plumbus-core/instructions/ai-classification.md) |
-| Test Jev or self-hosted Laya decisions | [AI → Decision providers](ai/decision-providers.md) |
+| Classify with a selected provider/model (Jev, Laya, OpenAI Decisions, or generative) | [Agent recipe](../packages/plumbus-core/instructions/ai-classification.md) |
+| Test Jev, self-hosted Laya, or OpenAI Decisions | [AI → Decision providers](ai/decision-providers.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

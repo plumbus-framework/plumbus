@@ -22,6 +22,7 @@ The previous family remains on core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and
 | `@plumbus/chat-ui` | `@plumbus/chat` | `">=0.3.0-beta.0 <0.4.0"` (stable: `"0.3.x"`) |
 | `@plumbus/auth-cognito` | `@plumbus/auth` | `">=0.3.0-beta.0 <0.4.0"` (stable: `"0.3.x"`) |
 | Every `@plumbus/voice-*` provider | `@plumbus/voice` | `">=0.6.0-beta.0 <0.7.0"` (stable: `"0.6.x"`) |
+| `@plumbus/payments-stripe` | `@plumbus/payments` | `">=0.3.0-beta.0 <0.4.0"` (stable: `"0.3.x"`) |
 
 UI 0.9.x keeps the required core peer (no direct core dependency) and uses `workspace:*` only for development. This prevents npm from accepting old application core plus a hidden new core nested inside UI. Install core and UI together. All Plumbus packages share the application runtime through peers.
 
@@ -43,4 +44,4 @@ Run lint, format checking, typechecking, tests, and packed npm install checks be
 
 ## Consumer upgrade
 
-Read [upgrading-security-release.md](./upgrading-security-release.md) and the 0.8 notes in the root docs, explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch --agent all` for current agent wiring (**v17** with core 0.7.4+ / 0.8.0-beta.6+). For classification/provider/model selection, read [ai-classification.md](./ai-classification.md). Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.
+Read [upgrading-security-release.md](./upgrading-security-release.md) and the 0.8 notes in the root docs, explicitly select the new package versions for every installed Plumbus add-on, and run `plumbus init --patch --agent all` for current agent wiring (**v19** in this beta family and stable core 0.7.9+; v17 added the classification recipe). For classification/provider/model selection, read [ai-classification.md](./ai-classification.md). Keep application business logic in Plumbus primitives and `ctx.*`; do not bypass security checks to make a migration pass.

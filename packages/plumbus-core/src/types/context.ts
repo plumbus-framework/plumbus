@@ -5,6 +5,7 @@ import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
 import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 import type {
+  AIPromptCacheOption,
   AITool,
   AIToolCall,
   AIToolChoice,
@@ -15,6 +16,8 @@ import type {
 
 // Re-export the provider tool-calling protocol types on the context surface.
 export type {
+  AICacheConfig,
+  AIPromptCacheOption,
   AITool,
   AIToolCall,
   AIToolChoice,
@@ -451,6 +454,11 @@ export interface AIGenerateWithUsageConfig {
    * carrying `timeoutMs`.
    */
   timeoutMs?: number;
+  /**
+   * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+   * default when set. OpenAI ignores this option.
+   */
+  cache?: AIPromptCacheOption;
 }
 
 export interface AIValidationOptions {
@@ -539,6 +547,11 @@ export interface AIService {
     reasoningEffort?: ReasoningEffort | null;
     /** Per-call provider request timeout in ms; overrides the prompt's `model.timeoutMs`. */
     timeoutMs?: number;
+    /**
+     * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+     * default when set. OpenAI ignores this option.
+     */
+    cache?: AIPromptCacheOption;
   }): Promise<Record<string, any>>;
 
   /** Like generate(), but also returns actual token usage. No tools → flat result; `.data` unconditional (C1). */
@@ -583,6 +596,11 @@ export interface AIService {
      * covers the whole stream, not just its start.
      */
     timeoutMs?: number;
+    /**
+     * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
+     * default when set. OpenAI ignores this option.
+     */
+    cache?: AIPromptCacheOption;
   }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {

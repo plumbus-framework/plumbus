@@ -42,6 +42,8 @@ export type {
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
+  AICacheConfig,
+  AIPromptCacheOption,
   AnthropicAdapterConfig,
   BudgetCheckResult,
   BudgetConfig,
@@ -330,6 +332,7 @@ export {
 } from './events/index.js';
 export type {
   AuthorizationResult,
+  CapabilityErrorInfo,
   CapabilityResult,
   ContextDependencies,
   ExecutionFailure,

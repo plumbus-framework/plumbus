@@ -9,6 +9,7 @@
 // with maxToolRounds default 5 (C10).
 
 import type {
+  AIPromptCacheOption,
   AITool,
   AIToolCall,
   AIToolChoice,
@@ -62,6 +63,8 @@ export interface RunToolLoopParams {
    * own); overrides the prompt's `model.timeoutMs`, as on `generateWithUsage`.
    */
   timeoutMs?: number;
+  /** Prompt caching for Anthropic / Bedrock, forwarded to every round and the final request. */
+  cache?: AIPromptCacheOption;
 }
 
 export interface RunToolLoopResult<T = Record<string, unknown>> {
@@ -237,6 +240,7 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
       costContext: params.costContext,
       seed: params.seed,
       timeoutMs: params.timeoutMs,
+      cache: params.cache,
     });
     addUsage(aggregatedUsage, result.usage);
     aggregatedCost += result.cost ?? 0;
@@ -302,6 +306,7 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
     costContext: params.costContext,
     seed: params.seed,
     timeoutMs: params.timeoutMs,
+    cache: params.cache,
   });
   addUsage(aggregatedUsage, final.usage);
   aggregatedCost += final.cost ?? 0;

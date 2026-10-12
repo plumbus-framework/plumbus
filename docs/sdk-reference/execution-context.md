@@ -256,7 +256,7 @@ handler: async (ctx, input) => {
 ## ctx.ai
 
 AI operations — generate, extract, classify, decide, and retrieve. For classification
-provider/model selection and TypeSafe/Jev or Laya, start with the
+provider/model selection and TypeSafe/Jev, Laya, or OpenAI Decisions, start with the
 [classification recipe](../../packages/plumbus-core/instructions/ai-classification.md).
 
 ```typescript

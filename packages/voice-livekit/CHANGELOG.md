@@ -13,6 +13,16 @@ Carries 0.2.2 from `main` into the beta family.
 
 - Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the branch-named npm dist-tag `plumbus-next` (`latest` stays on the 0.7 family). Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
 
+## 0.2.3 — 2026-09-30
+
+### Fixed
+
+- Pin `@livekit/agents` to **1.9.0** and raise `@livekit/rtc-node` to `^0.13.34`. The old `^1.4.6` range admitted `@livekit/agents` 1.9.1, which needs `@livekit/rtc-node` 1.x: a fresh install (npm in particular, as in a backend Docker image) then put a second rtc-node beside this package's 0.13, and the worker's room objects and our audio code ran on different native bindings. 1.9.0 is the newest release whose rtc-node peer (`^0.13.34`) this package satisfies.
+
+### Security
+
+- `@livekit/agents` 1.9.0 brings the patched `sharp` (0.35.4) and OpenTelemetry 2.x packages, clearing the high-severity `sharp` (libvips/libheif) and `@opentelemetry/propagator-jaeger` advisories that 1.4.x pulled in.
+
 ## 0.2.2 — 2026-09-23
 
 - Frame provider PCM into at most 20 ms native captures in both transports, preserving samples and stream boundaries; prevents complete-reply audio chunks from wedging the LiveKit capture queue.

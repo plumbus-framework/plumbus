@@ -12,6 +12,7 @@
   - `CognitoServerError` with stable reasons (`user-disabled`, `challenge-refused`, `provider-unavailable`, …).
 - **`@plumbus/auth-cognito/triggers`**: `createAttestedSignInTrigger()`, one dependency-free Lambda handler for the Define/Create/Verify custom-auth triggers. The attestation binds pool id, username and nonce; keyrings rotate by key id.
 - **`@plumbus/auth-cognito/testing`**: `startFakeCognito()`, an in-process Cognito for the AWS SDK (endpoint override). It runs the real trigger and serves per-pool JWKS, OIDC discovery and a minimal hosted login for `@plumbus/auth`, with fault injection; `deliveries(poolId)` lists the invitation emails it would have sent, and a first hosted sign-in confirms a user still on a temporary password. `port`/`host` options pin the endpoint when issuers must stay stable across restarts.
+- **`instructions/attested-sign-in.md`** for coding agents. `plumbus init --patch` links it from core 0.7.7 (agent wiring v18).
 
 ### Dependencies
 

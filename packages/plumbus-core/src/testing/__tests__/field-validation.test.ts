@@ -58,6 +58,14 @@ describe('validateRecord', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('accepts safe integers beyond int32 in a bigint field and rejects floats or unsafe values', () => {
+    const ledger = { amountMinor: field.bigint({ required: true }) };
+    expect(validateRecord('Ledger', ledger, { amountMinor: 9_000_000_000_000 })).toHaveLength(0);
+    expect(validateRecord('Ledger', ledger, { amountMinor: 1.5 })[0]?.expected).toBe('integer');
+    const unsafe = validateRecord('Ledger', ledger, { amountMinor: Number.MAX_SAFE_INTEGER + 2 });
+    expect(unsafe[0]?.expected).toBe('safe integer');
+  });
+
   it('accepts a float in a decimal field', () => {
     const errors = validateRecord('TimelineEvent', fields, {
       score: 0.7,

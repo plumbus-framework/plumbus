@@ -265,6 +265,26 @@ describe('CLI dev command', () => {
       expect(serverConfig.db).toBe(mockDb);
     });
 
+    it('passes an authenticationRuntime exported from app/server.ts to createServer', async () => {
+      const authenticationRuntime = {
+        authenticator: {},
+        initialize: vi.fn(),
+        registerRoutes: vi.fn(),
+      };
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+        authenticationRuntime: authenticationRuntime as never,
+      });
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.authenticationRuntime).toBe(authenticationRuntime);
+    });
+
+    it('leaves authenticationRuntime unset when app/server.ts exports none', async () => {
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.authenticationRuntime).toBeUndefined();
+    });
+
     it('starts the worker pool when flows need background work (C1)', async () => {
       // A flow with an event trigger forces the worker pool to start.
       // evaluateFlowCondition wiring into stepDeps is covered in runtime/bootstrap.test.ts.

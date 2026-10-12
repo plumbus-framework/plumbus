@@ -136,12 +136,32 @@ function sameKeys(actual: object, expected: readonly string[]): boolean {
   );
 }
 
+export const DecisionRoundingSchema = z.number().positive().max(0.01);
+
+/** Rounding allowances; the default fits Laya, which rounds to four decimal places. */
+function roundingTolerance(rounding: number | undefined): {
+  step: number;
+  half: number;
+  sumTerms: number;
+} {
+  // A rounded value is off by at most half a step; 2% slack absorbs float error.
+  // A coarse step's sum allowance stops at ten values, or a large choice could sum to 0.
+  return rounding === undefined
+    ? { step: 0.0001, half: 0.000051, sumTerms: Infinity }
+    : { step: rounding * 1.02, half: rounding * 0.51, sumTerms: 10 };
+}
+
 /** Validates provider wire answers against the original question contract. */
 export function parseDecisionResponse<Q extends DecisionQuestions>(
   value: unknown,
   questions: Q,
   provider: string,
+  /** `rounding`: the provider's decimal step when coarser than four decimals (OpenAI: 0.01). */
+  options: { rounding?: number } = {},
 ): Omit<DecisionResult<Q>, 'cost' | 'costAvailable' | 'latencyMs'> {
+  if (!DecisionRoundingSchema.optional().safeParse(options.rounding).success)
+    throw new DecisionProviderError(provider, 'configuration', 'Invalid decision rounding');
+  const { step, half, sumTerms } = roundingTolerance(options.rounding);
   const envelope = EnvelopeSchema.safeParse(value);
   if (!envelope.success) {
     const metadata = MetadataSchema.safeParse(value);
@@ -199,8 +219,8 @@ export function parseDecisionResponse<Q extends DecisionQuestions>(
         ? Object.keys(question.criteria)
         : question.criteria.map((_, i) => String(i));
     const values = Object.values(answer.probabilities);
-    // Laya rounds each value to four decimal places. Tolerance scales with option count.
-    const tolerance = Math.max(0.0001, keys.length * 0.000051);
+    // Each value carries its own rounding error. Tolerance scales with option count.
+    const tolerance = Math.max(step, Math.min(keys.length, sumTerms) * half);
     if (
       !sameKeys(answer.probabilities, keys) ||
       Math.abs(values.reduce((a, b) => a + b, 0) - 1) > tolerance
@@ -211,7 +231,7 @@ export function parseDecisionResponse<Q extends DecisionQuestions>(
       if (
         !Object.hasOwn(answer.probabilities, answer.choice) ||
         chosen === undefined ||
-        chosen + 0.0001 < Math.max(...values)
+        chosen + step < Math.max(...values)
       )
         throw invalid();
     } else {
@@ -222,7 +242,7 @@ export function parseDecisionResponse<Q extends DecisionQuestions>(
         0,
       );
       // Rounding error is weighted by the ordinal index, plus the score's own rounding.
-      const scoreTolerance = 0.000051 * (1 + (keys.length * (keys.length - 1)) / 2);
+      const scoreTolerance = half * (1 + (keys.length * (keys.length - 1)) / 2);
       if (Math.abs(answer.score - expected) > scoreTolerance) throw invalid();
       if (
         question.type !== 'score' ||
@@ -308,7 +328,10 @@ export function validateDecisionResult<Q extends DecisionQuestions>(
   value: unknown,
   questions: Q,
   provider: string,
+  options: { rounding?: number } = {},
 ): DecisionResult<Q> {
+  if (!DecisionRoundingSchema.optional().safeParse(options.rounding).success)
+    throw new DecisionProviderError(provider, 'configuration', 'Invalid decision rounding');
   const metadata = readDecisionFailureMetadata(value);
   const invalid = () =>
     new DecisionProviderError(
@@ -345,6 +368,7 @@ export function validateDecisionResult<Q extends DecisionQuestions>(
       },
       questions,
       provider,
+      options,
     );
     return {
       ...normalized,

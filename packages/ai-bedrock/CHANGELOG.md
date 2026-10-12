@@ -15,6 +15,16 @@
 
 - Beta prerelease of the coordinated core 0.8 family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x), published under the branch-named npm dist-tag `plumbus-next` (`latest` stays on the 0.7 family). Previous caret ranges exclude it; install the whole family together and follow the [0.8 upgrade notes](../../docs/upgrading-core-0.8.md). Internal peers use prerelease-inclusive ranges (for example `>=0.8.0-beta.0 <0.9.0`) until the family goes stable.
 
+## 0.2.2 — 2026-10-08
+
+### Added
+
+- Prompt caching on Converse / ConverseStream (#63). When a request sets `cache` (core 0.7.9+ passes it from `ctx.ai`, `runToolLoop`, and `AI_PROMPT_CACHE`), the adapter appends `cachePoint` after the system text, at the end of `toolConfig.tools`, and on the last message when requested. Only Claude model ids get marks, with or without an inference-profile prefix (`us.`, `jp.`, `us-gov.`, …); a model ARN gets none. Claude 3 Haiku, Claude 3 Sonnet, Claude 3 Opus, and Claude 3.5 Sonnet `20240620` get no marks because Bedrock rejects `cachePoint` for them with a ValidationException, and neither does Claude 3.5 Sonnet v2 (`20241022`), whose explicit caching AWS lists as Preview; other model families get none either, so those requests still succeed.
+
+### Compatibility
+
+- Loads and runs on any core 0.7.x. The `cache` option is resolved inside this package, which imports nothing from `@plumbus/core` that 0.7.0 lacks. On cores before 0.7.9, `ctx.ai` never sets `cache`, so requests are unchanged. The peer range stays `0.7.x`.
+
 ## 0.2.1 — 2026-09-10
 
 ### Fixed

@@ -184,6 +184,30 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
+      # Publish @plumbus/payments AFTER @plumbus/core (peer: core 0.8 beta family).
+      - name: Publish @plumbus/payments
+        working-directory: packages/payments
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
+          fi
+
+      # Publish @plumbus/payments-stripe AFTER @plumbus/payments (peer: payments 0.3 beta family).
+      - name: Publish @plumbus/payments-stripe
+        working-directory: packages/payments-stripe
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
+          fi
+
       - name: Publish @plumbus/voice
         working-directory: packages/voice
         run: |
@@ -320,6 +344,19 @@ jobs:
 
       - name: Publish @plumbus/browser-extension
         working-directory: packages/browser-extension
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version already published — skipping"
+          else
+            pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
+          fi
+
+      # Last, so a first-run 404 cannot stop other packages: trusted publishing needs the package
+      # on npm. Bootstrap it after ai-decision with pnpm and the resolved dist-tag (not npm).
+      - name: Publish @plumbus/ai-decision-openai
+        working-directory: packages/ai-decision-openai
         run: |
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")

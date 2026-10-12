@@ -24,6 +24,10 @@ import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
 import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
+import {
+  type CapabilityErrorInfo,
+  fireCapabilityErrorHook,
+} from '../execution/capability-error-hook.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -49,6 +53,7 @@ import { registerCapabilityConsumers } from '../runtime/register-consumers.js';
 import type { AuditService } from '../types/audit.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, DataService, LoggerService } from '../types/context.js';
+import type { PlumbusErrorLike } from '../types/errors.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { AuthContext } from '../types/security.js';
 
@@ -110,6 +115,40 @@ function claimedTenantRef(row: { tenantId?: string | null }): string | undefined
   const columns = row as unknown as Record<string, unknown>;
   const value = columns.tenantId ?? columns.tenant_id;
   return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+// ── Flow step capability errors ──
+// buildStepDeps names the capability on a failure that came from executeCapability;
+// unknown names and rejected job targets carry no name and are not reported.
+// An aborted step (flow cancelled or lease lost) is discarded by the engine, so
+// its failure is not reported either.
+function withCapabilityErrorHook(
+  stepDeps: StepExecutorDeps,
+  hook: WorkerPoolConfig['onCapabilityError'],
+  resolveDb: (auth: AuthContext) => PostgresJsDatabase,
+): StepExecutorDeps {
+  if (!hook) return stepDeps;
+  return {
+    ...stepDeps,
+    executeCapability: async (capabilityName, ctx, input) => {
+      const result = await stepDeps.executeCapability(capabilityName, ctx, input);
+      if (!result.success && result.capability && !ctx.signal?.aborted) {
+        const error = result.error as PlumbusErrorLike;
+        fireCapabilityErrorHook(hook, {
+          capabilityName: result.capability.name,
+          domain: result.capability.domain,
+          errorCode: error.code,
+          errorMessage: error.message,
+          metadata: error.metadata,
+          userId: ctx.auth.userId,
+          tenantId: ctx.auth.tenantId,
+          db: resolveDb(ctx.auth),
+          source: 'flow',
+        });
+      }
+      return result;
+    },
+  };
 }
 
 // ── Lease-column preflight ──
@@ -230,6 +269,14 @@ export interface WorkerPoolConfig {
   eventRegistry?: EventRegistry;
   /** Called when a flow fails permanently (after retries exhausted). */
   onFlowError?: FlowEngineConfig['onFlowError'];
+  /**
+   * Called when a flow step, job, or event handler capability returns a non-success
+   * result. Fire-and-forget: hook errors are logged and never change retries or
+   * failure handling. Flow steps are reported when `stepDeps` comes from `buildStepDeps`;
+   * jobs and event handlers when the pool registers their consumers (`capabilities`,
+   * `entities` and `eventRegistry` set).
+   */
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   /** Lease duration in milliseconds for flow execution claims. Default: 300,000 (5 min). */
   flowLeaseDurationMs?: number;
   /** Heartbeat interval in milliseconds for extending flow leases. Default: leaseDurationMs / 3. */
@@ -517,7 +564,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const flowEngineConfig: FlowEngineConfig = {
     db,
     registry: flows,
-    stepDeps,
+    stepDeps: withCapabilityErrorHook(stepDeps, poolConfig.onCapabilityError, dataPlaneForAuth),
     audit,
     queue,
     onFlowError: poolConfig.onFlowError,
@@ -588,6 +635,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       onMcpJobComplete: poolConfig.onMcpJobComplete,
       approvals: poolConfig.approvals,
       authorizationProvider: poolConfig.authorizationProvider,
+      onCapabilityError: poolConfig.onCapabilityError,
     });
   }
 

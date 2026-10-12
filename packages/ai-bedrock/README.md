@@ -46,7 +46,7 @@ An opt-in peer keeps core lean while giving AWS shops a first-class `provider: '
 
 ## Status
 
-Optional peer of `@plumbus/core` (version-locked **`0.2.x`**; required peer `@plumbus/core` **`0.8.x`**). **Runtime floor:** `@plumbus/core` **≥ 0.6.16** (Bedrock provider slot, env discovery, adapter-supplied `cost`, agent wiring v13). Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
+Optional peer of `@plumbus/core` (beta family version **`0.3.0-beta.0`**, npm dist-tag `plumbus-next`; required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**). The beta includes prompt caching through `ctx.ai`; on the stable 0.7 line caching needs core **≥ 0.7.9** and Bedrock **≥ 0.2.2**. Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
 
 ## Install
 
@@ -129,11 +129,12 @@ Full curl, normalize script, ConfigMap sketch: **[instructions/pricing.md](./ins
 - **Model access** — Converse fails with `AccessDenied` until the account enables the model (and Anthropic use-case forms where required).
 - **Embeddings** — Converse does not embed; use InvokeModel (Titan) via `createRAGPipeline({ provider })` + `ctx.ai.retrieve` / `ragPipeline.ingest`. There is no `ctx.ai.embed`. `plumbus rag ingest` does not auto-select Bedrock. Mantle typically has no embeddings.
 - **Tools** — use `runToolLoop` / `generateWithUsage({ tools })`; do not call the Bedrock SDK. Stream accumulates partial tool JSON. Parallel tool results are coalesced into the single user turn Converse requires.
+- **Prompt caching** — set `cache` on `ctx.ai.*` / `runToolLoop`, or `AI_PROMPT_CACHE=true` (core ≥ 0.7.9). Claude models get Converse `cachePoint` marks, except Claude 3 Haiku / Sonnet / Opus and Claude 3.5 Sonnet `20240620`, which reject them, and Claude 3.5 Sonnet v2 (Preview-only on Bedrock); other families get none.
 - **`toolChoice: 'none'`** — Bedrock has no true none; Plumbus omits `toolConfig` entirely. `'auto'` omits just the `toolChoice` field (model-dependent support).
 - **Missing pricing file** — file mode throws on first call; auto-download failure warns, leaves cost unknown, and backs off 5 minutes before retrying.
 - **Unmapped / unkeyed models** — inference works; **no `cost` field** is set until the pricing file has an explicit family-key row (auto-download is best-effort, not a complete AWS catalog). Core then falls back to its own catalog rather than recording the call as free.
 - **IAM** — Converse itself requires `bedrock:InvokeModel`; do not scope that action to embedding models only.
-- **Wiring** — after install, `plumbus init --patch` (core ≥ 0.6.16 / wiring v13) so agents see `instructions/`.
+- **Wiring** — after install, `plumbus init --patch` (wiring v13+, any core 0.7.x) so agents see `instructions/`.
 
 ## Documentation / Agent recipes
 

@@ -47,6 +47,10 @@ vi.mock('../../flows/scheduler.js', () => ({
   createFlowScheduler: vi.fn(() => mockScheduler),
 }));
 
+vi.mock('../../runtime/register-consumers.js', () => ({
+  registerCapabilityConsumers: vi.fn(),
+}));
+
 vi.mock('../../events/idempotency.js', () => ({
   createIdempotencyService: vi.fn(() => ({
     check: vi.fn(async () => false),
@@ -54,6 +58,7 @@ vi.mock('../../events/idempotency.js', () => ({
   })),
 }));
 
+import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { defineFlow } from '../../define/defineFlow.js';
 import { compileFlowDefinition } from '../../flows/compile-flow.js';
@@ -61,6 +66,12 @@ import { createFlowEngine } from '../../flows/engine.js';
 import { CompiledFlowRegistry } from '../../flows/compiled-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
 import { FlowStepType } from '../../types/enums.js';
+import { EventRegistry } from '../../events/registry.js';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
+import { buildStepDeps } from '../../runtime/bootstrap.js';
+import { registerCapabilityConsumers } from '../../runtime/register-consumers.js';
+import { createTestContext } from '../../testing/context.js';
+import type { CapabilityContract } from '../../types/capability.js';
 import type { WorkerPoolConfig } from '../bootstrap.js';
 import { assertFlowLeaseColumns, createWorkerPool } from '../bootstrap.js';
 
@@ -301,6 +312,77 @@ describe('Worker Bootstrap', () => {
       };
       const pool = createWorkerPool(makePoolConfig({ audit }));
       expect(pool).toBeDefined();
+    });
+  });
+
+  describe('onCapabilityError', () => {
+    function flowStepDeps(onCapabilityError: WorkerPoolConfig['onCapabilityError']) {
+      const registry = new CapabilityRegistry();
+      registry.register({
+        name: 'startReport',
+        kind: 'action',
+        domain: 'reports',
+        input: z.object({}),
+        output: z.object({ ok: z.boolean() }),
+        effects: { data: [], events: [], external: [], ai: false },
+        access: { roles: ['admin'] },
+        handler: async (ctx) => {
+          throw ctx.errors.conflict('Already running');
+        },
+      } as CapabilityContract);
+      const db = makeDb();
+      createWorkerPool(
+        makePoolConfig({ db, stepDeps: buildStepDeps(registry), onCapabilityError }),
+      );
+      const stepDeps = vi.mocked(createFlowEngine).mock.calls[0]?.[0].stepDeps;
+      const ctx = createTestContext({
+        auth: { userId: 'u1', tenantId: 'tenant-1', roles: ['admin'] },
+      });
+      return { stepDeps, ctx, db };
+    }
+
+    it('reports a failed flow step capability once, with source flow', async () => {
+      const onCapabilityError = vi.fn();
+      const { stepDeps, ctx, db } = flowStepDeps(onCapabilityError);
+
+      const result = await stepDeps?.executeCapability('reports.startReport', ctx, {});
+      await stepDeps?.executeCapability('reports.missing', ctx, {});
+      // Cancelled flow / lost lease: the engine discards the attempt.
+      await stepDeps?.executeCapability(
+        'reports.startReport',
+        { ...ctx, signal: AbortSignal.abort() },
+        {},
+      );
+
+      expect(result?.success).toBe(false);
+      expect(onCapabilityError).toHaveBeenCalledTimes(1);
+      expect(onCapabilityError).toHaveBeenCalledWith({
+        capabilityName: 'startReport',
+        domain: 'reports',
+        errorCode: 'conflict',
+        errorMessage: 'Already running',
+        metadata: undefined,
+        userId: 'u1',
+        tenantId: 'tenant-1',
+        db,
+        source: 'flow',
+      });
+    });
+
+    it('passes the hook to capability consumers (jobs and event handlers)', () => {
+      const onCapabilityError = vi.fn();
+      createWorkerPool(
+        makePoolConfig({
+          capabilities: new CapabilityRegistry(),
+          entities: new EntityRegistry(),
+          eventRegistry: new EventRegistry(),
+          onCapabilityError,
+        }),
+      );
+
+      expect(registerCapabilityConsumers).toHaveBeenCalledWith(
+        expect.objectContaining({ onCapabilityError }),
+      );
     });
   });
 

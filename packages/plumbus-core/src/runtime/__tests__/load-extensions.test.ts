@@ -87,4 +87,27 @@ describe('loadServerExtensions', () => {
     expect(extensions.workerDataPlane).toBeUndefined();
     expect(extensions.listTenantRefs).toBeUndefined();
   });
+
+  it('loads an authenticationRuntime exported by name', async () => {
+    const root = await writeServerModule(
+      'export const authenticationRuntime = { authenticator: { kind: "named" } };\n',
+    );
+    const extensions = await loadServerExtensions(root);
+    expect(extensions.authenticationRuntime).toEqual({ authenticator: { kind: 'named' } });
+  });
+
+  it('loads an authenticationRuntime from the default export', async () => {
+    const root = await writeServerModule(
+      'export default { authenticationRuntime: { authenticator: { kind: "default" } } };\n',
+    );
+    const extensions = await loadServerExtensions(root);
+    expect(extensions.authenticationRuntime).toEqual({ authenticator: { kind: 'default' } });
+  });
+
+  it('leaves authenticationRuntime unset when app/server.js does not export one', async () => {
+    const root = await writeServerModule('export const onRoutesRegistered = () => {};\n');
+    const extensions = await loadServerExtensions(root);
+    expect(extensions).not.toHaveProperty('authenticationRuntime');
+    expect(typeof extensions.onRoutesRegistered).toBe('function');
+  });
 });

@@ -102,6 +102,11 @@ export interface DecisionResult<Q extends DecisionQuestions = DecisionQuestions>
 /** Independent of core's text-completion AIProviderAdapter. */
 export interface DecisionProviderAdapter {
   readonly name: string;
+  /**
+   * Decimal step the provider rounds probabilities and scores to (at most 0.01). The
+   * runtime widens its consistency checks to match. Omit for four-decimal precision.
+   */
+  readonly rounding?: number;
   decide<const Q extends DecisionQuestions>(
     request: DecisionRequest<Q>,
   ): Promise<DecisionResult<Q>>;

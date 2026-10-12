@@ -1,6 +1,6 @@
 // ── Fields Module ──
 // Field constructor factory for entity definitions.
-// Provides field.string(), field.number(), field.enum(), field.relation(), etc.
+// Provides field.string(), field.number(), field.bigint(), field.enum(), field.relation(), etc.
 //
 // Key exports: field (namespace object with typed constructors)
 
@@ -33,6 +33,16 @@ export const field = {
 
   number(options?: BaseFieldOptions): NumberFieldDescriptor {
     return { type: 'number', options: opts(options) };
+  },
+
+  /**
+   * 64-bit integer stored as PostgreSQL `bigint`, read and written as a JS number.
+   * Values must be safe integers (±2^53 − 1). Prefer this over `number()` for
+   * amounts in minor units (cents) and totals; never store money in `decimal()`,
+   * which is floating point.
+   */
+  bigint(options?: BaseFieldOptions): NumberFieldDescriptor {
+    return { type: 'number', options: opts(options), size: 'bigint' };
   },
 
   decimal(options?: BaseFieldOptions): DecimalFieldDescriptor {

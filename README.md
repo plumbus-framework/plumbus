@@ -352,7 +352,7 @@ Plumbus is designed to work seamlessly with AI coding agents (GitHub Copilot, Cu
 
 The framework ships agent instruction files inside npm packages. Start with the index files — they link every topic file and stay current as new instructions are added:
 
-- [AI classification: provider/model selection, TypeSafe/Jev and Laya](packages/plumbus-core/instructions/ai-classification.md) — core 0.7.4+, linked by agent wiring v17
+- [AI classification: provider/model selection, TypeSafe/Jev, Laya and OpenAI Decisions](packages/plumbus-core/instructions/ai-classification.md) — core 0.7.4+, linked by agent wiring v17 (OpenAI Decisions provider: v19)
 - [`@plumbus/core` instructions index](packages/plumbus-core/instructions/README.md) (`node_modules/@plumbus/core/instructions/README.md`)
 - [`@plumbus/ui` instruction files](packages/ui/README.md#instruction-files) (`node_modules/@plumbus/ui/instructions/`)
 
@@ -404,11 +404,14 @@ For a fuller explanation of the framework-first policy and destructive git safet
 | [`@plumbus/ui`](packages/ui/) | Next.js/React UI — typed API clients, auth helpers, form metadata, scaffolds |
 | [`@plumbus/auth`](packages/auth/) | Optional peer `0.7.x` on core — OIDC RP runtime; hosted login, server sessions, CSRF |
 | [`@plumbus/auth-cognito`](packages/auth-cognito/) | Optional — Cognito integration for `@plumbus/auth` (peer `0.2.x`) |
+| [`@plumbus/payments`](packages/payments/) | Optional `0.2.x` — sellers (users or tenants) charge their own clients (payment pages, invoices, holds, saved cards, links, subscriptions, payouts, transfers, disputes), and the app bills its own customers (plans, seats, usage meters, entitlements), as capabilities/entities/events with signed webhooks; peer `@plumbus/core` `0.7.x` (**runtime ≥ 0.7.7**) |
+| [`@plumbus/payments-stripe`](packages/payments-stripe/) | Optional `0.2.x` — Stripe provider for `@plumbus/payments` (Connect with Accounts v2, direct and destination charges, Checkout, Billing, Balance Settings, snapshot + thin webhooks); peer `@plumbus/payments` `0.2.x` |
 | [`@plumbus/api`](packages/api/) | Optional peer `0.2.x` — partner external API; manifest, OpenAPI, docs, compatibility diff, test intent |
-| [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.2.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.7.x` (**runtime ≥ 0.7.0**). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
+| [`@plumbus/ai-bedrock`](packages/ai-bedrock/) | Optional peer `0.2.x` — Amazon Bedrock Converse + embeddings; AWS Price List pricing (file or region auto-download); peer `@plumbus/core` `0.7.x` (**runtime ≥ 0.7.0**; prompt caching through `ctx.ai` needs ≥ 0.7.9). See [`instructions/pricing.md`](packages/ai-bedrock/instructions/pricing.md) for pull URLs |
 | [`@plumbus/ai-decision`](packages/ai-decision/) | Shared typed decision contracts, validation and transport; core `0.7.3+` integrates `ctx.ai.decide()` and cost recording |
 | [`@plumbus/ai-decision-typesafe`](packages/ai-decision-typesafe/) | Optional TypeSafe/Jev decision adapter; choices, scores, probabilities and input pricing |
 | [`@plumbus/ai-decision-laya`](packages/ai-decision-laya/) | Optional self-hosted Laya decision adapter and Python reference service |
+| [`@plumbus/ai-decision-openai`](packages/ai-decision-openai/) | Optional OpenAI Decisions API adapter (`gpt-6-luna`, public beta); choices, scores, probabilities and input pricing; use with core **≥ 0.7.9** |
 | [`@plumbus/mcp`](packages/mcp/) | Optional peer `0.6.x` — MCP runtime; expose capabilities to AI agents over the Model Context Protocol |
 | [`@plumbus/chat`](packages/chat/) | Optional peer `0.2.x` — conversational runtime; `defineChat`, policy guards, context sources, streamed events |
 | [`@plumbus/chat-ui`](packages/chat-ui/) | Optional — React hooks and `<ChatPanel />` for the `@plumbus/chat` turn protocol (peer of `@plumbus/chat`) |
@@ -427,6 +430,8 @@ The optional packages are version-locked peer add-ons — install them explicitl
 For core 0.7.4, decision packages 0.2.2, and agent wiring v17, see the
 [classification upgrade guide](docs/upgrading-classification.md). Earlier paired
 upgrades are listed in the [voice and decision release guide](docs/upgrading-voice-and-decision-release.md).
+Core 0.7.9 (agent wiring v19) adds prompt caching, worker `onCapabilityError`, and support
+for `@plumbus/ai-decision-openai`; see the [core changelog](packages/plumbus-core/CHANGELOG.md).
 
 ---
 

@@ -52,9 +52,12 @@ function adapterWith(send: unknown, requestTimeout?: number) {
 }
 
 describe('Bedrock request timeouts', () => {
-  it('fails a request its timeout ended as a non-retryable ProviderAPIError', async () => {
-    const adapter = adapterWith(slowSend(60_000, converseAnswer));
-    const error = await adapter.complete({ prompt: 'hi', timeout: 100 }).catch((e: unknown) => e);
+  it('keeps a cached request timeout as a non-retryable ProviderAPIError', async () => {
+    const send = slowSend(60_000, converseAnswer);
+    const adapter = adapterWith(send);
+    const error = await adapter
+      .complete({ prompt: 'hi', timeout: 100, cache: { messages: true } })
+      .catch((e: unknown) => e);
     expect(error).toMatchObject({
       name: 'ProviderAPIError',
       message: 'Bedrock request timed out after 100 ms',
@@ -64,6 +67,13 @@ describe('Bedrock request timeouts', () => {
       timeoutMs: 100,
     });
     expect(((error as Error).cause as Error).name).toBe('AbortError');
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      input: {
+        messages: [
+          { role: 'user', content: [{ text: 'hi' }, { cachePoint: { type: 'default' } }] },
+        ],
+      },
+    });
   });
 
   it('uses the request timeout over a shorter adapter requestTimeout', async () => {

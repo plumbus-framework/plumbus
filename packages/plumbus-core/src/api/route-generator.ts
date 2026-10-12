@@ -12,7 +12,6 @@ import {
 } from '../errors/http.js';
 import { capabilityHttpMethod } from './exposure.js';
 import { isPlumbusError } from '../errors/index.js';
-import { logHookError } from '../errors/hook-log.js';
 import type { EventQueue } from '../events/queue.js';
 import { JobExecutionSource } from '../jobs/schema.js';
 import { dispatchQueuedJob } from '../jobs/dispatch.js';
@@ -31,6 +30,10 @@ import {
   type IdempotencyStore,
   type IdempotencyStoreOptions,
 } from './idempotency.js';
+import {
+  type CapabilityErrorInfo,
+  fireCapabilityErrorHook,
+} from '../execution/capability-error-hook.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import type { CapabilityContract } from '../types/capability.js';
@@ -114,18 +117,7 @@ export interface RouteGeneratorConfig {
   /** Locales supported by registered translation definitions */
   supportedLocales?: string[];
   /** Called when a capability execution fails */
-  onCapabilityError?: (info: {
-    capabilityName: string;
-    domain: string;
-    errorCode: string;
-    errorMessage: string;
-    metadata?: Record<string, unknown>;
-    userId?: string;
-    tenantId?: string;
-    sourceIp?: string;
-    userAgent?: string;
-    db?: PostgresJsDatabase;
-  }) => void | Promise<void>;
+  onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
 }
 
 /**
@@ -420,24 +412,19 @@ export function registerCapabilityRoute(
         await store.abort(storeKey);
         const httpError = errorToHttpResponse(claimed.error);
         reply.status(httpError.statusCode).send(httpError.body);
-        if (config.onCapabilityError) {
-          const failed = claimed.error;
-          void (async () =>
-            config.onCapabilityError?.({
-              capabilityName: capability.name,
-              domain: capability.domain,
-              errorCode: failed.code,
-              errorMessage: failed.message,
-              metadata: failed.metadata,
-              userId: ctx.auth.userId,
-              tenantId: ctx.auth.tenantId,
-              sourceIp: request.ip,
-              userAgent: request.headers['user-agent'],
-              db: requestDb,
-            }))().catch((hookErr) => {
-            logHookError('onCapabilityError', hookErr);
-          });
-        }
+        fireCapabilityErrorHook(config.onCapabilityError, {
+          capabilityName: capability.name,
+          domain: capability.domain,
+          errorCode: claimed.error.code,
+          errorMessage: claimed.error.message,
+          metadata: claimed.error.metadata,
+          userId: ctx.auth.userId,
+          tenantId: ctx.auth.tenantId,
+          sourceIp: request.ip,
+          userAgent: request.headers['user-agent'],
+          db: requestDb,
+          source: 'http',
+        });
         return;
       }
     }
@@ -451,24 +438,19 @@ export function registerCapabilityRoute(
       reply.status(httpError.statusCode).send(httpError.body);
 
       // Fire error hook (fire-and-forget, never blocks the response).
-      // IIFE so a sync throw inside the hook is caught by .catch.
-      if (config.onCapabilityError) {
-        void (async () =>
-          config.onCapabilityError?.({
-            capabilityName: capability.name,
-            domain: capability.domain,
-            errorCode: result.error.code,
-            errorMessage: result.error.message,
-            metadata: result.error.metadata,
-            userId: ctx.auth.userId,
-            tenantId: ctx.auth.tenantId,
-            sourceIp: request.ip,
-            userAgent: request.headers['user-agent'],
-            db: requestDb,
-          }))().catch((hookErr) => {
-          logHookError('onCapabilityError', hookErr);
-        });
-      }
+      fireCapabilityErrorHook(config.onCapabilityError, {
+        capabilityName: capability.name,
+        domain: capability.domain,
+        errorCode: result.error.code,
+        errorMessage: result.error.message,
+        metadata: result.error.metadata,
+        userId: ctx.auth.userId,
+        tenantId: ctx.auth.tenantId,
+        sourceIp: request.ip,
+        userAgent: request.headers['user-agent'],
+        db: requestDb,
+        source: 'http',
+      });
     }
   };
 

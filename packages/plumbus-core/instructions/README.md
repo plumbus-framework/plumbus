@@ -15,7 +15,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [flows.md](./flows.md) | `defineFlow()`, steps, triggers, retries. |
 | [prompts.md](./prompts.md) | `definePrompt()`, `system`/`description`, model resolution. |
 | [ai.md](./ai.md) | `ctx.ai` operations (incl. provider-native tool calling + `runToolLoop`), cost tracking, env-based provider config. |
-| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev or Laya, `classify()` vs `decide()`** (core 0.7.4+ / 0.8.0-beta.6+). |
+| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev, Laya or OpenAI Decisions, `classify()` vs `decide()`** (core 0.7.4+ / 0.8.0-beta.6+). |
 | [translations.md](./translations.md) | `defineTranslation()`, `ctx.translations`. |
 | [security.md](./security.md) | Access policies, tenant isolation, auth adapters. |
 | [governance.md](./governance.md) | Advisory rules, `plumbus verify`, compliance profiles. |
@@ -29,6 +29,8 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [upgrading-0.5-capabilities.md](./upgrading-0.5-capabilities.md) | Canonical capability names, invoke policy, flow auth snapshot. |
 
 Optional AI provider: after `pnpm add @plumbus/ai-bedrock`, read `node_modules/@plumbus/ai-bedrock/instructions/README.md` (framework + pricing pull).
+
+Optional decision providers (TypeSafe/Jev, self-hosted Laya, OpenAI Decisions API): read [ai-classification.md](./ai-classification.md), then after `pnpm add @plumbus/ai-decision-typesafe`, `@plumbus/ai-decision-laya`, or `@plumbus/ai-decision-openai`, read that package's `instructions/README.md`. The OpenAI provider needs core 0.7.9+.
 
 Package quickstart: [../README.md](../README.md).
 
