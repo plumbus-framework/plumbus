@@ -27,6 +27,8 @@ beforeAll(async () => {
   const address = server.address();
   if (typeof address !== 'object' || address === null) throw new Error('no server address');
   baseUrl = `http://127.0.0.1:${address.port}/v1`;
+  // Initialize Node's lazy undici dispatcher even when just one dispatcher test is selected.
+  await (await fetch('data:,initialize-dispatcher')).text();
 });
 
 afterAll(async () => {
@@ -54,6 +56,40 @@ afterEach(async () => {
 });
 
 const stall: Handler = () => undefined;
+
+const DISPATCHER_V1 = Symbol.for('undici.globalDispatcher.1');
+const DISPATCHER_V2 = Symbol.for('undici.globalDispatcher.2');
+const dispatcherGlobals = globalThis as unknown as Record<symbol, unknown>;
+type Dispatcher = {
+  dispatch(options: Record<string, unknown>, handler: unknown): boolean;
+  close(): Promise<void>;
+};
+
+function activeDispatcher(): { key: symbol; dispatcher: Dispatcher } {
+  const key = dispatcherGlobals[DISPATCHER_V2] ? DISPATCHER_V2 : DISPATCHER_V1;
+  return { key, dispatcher: dispatcherGlobals[key] as Dispatcher };
+}
+
+function preserveDispatchers(): () => void {
+  const originals = [DISPATCHER_V1, DISPATCHER_V2].map((key) => ({
+    key,
+    descriptor: Object.getOwnPropertyDescriptor(globalThis, key),
+  }));
+  return () => {
+    for (const { key, descriptor } of originals) {
+      if (descriptor) {
+        // Node 24 defines both slots as non-configurable but writable. Restore their values
+        // and attributes; only a slot absent before the test may be deleted.
+        Object.defineProperty(globalThis, key, descriptor);
+      } else {
+        delete dispatcherGlobals[key];
+      }
+    }
+    for (const { key, descriptor } of originals) {
+      expect(Object.getOwnPropertyDescriptor(globalThis, key)).toEqual(descriptor);
+    }
+  };
+}
 
 function openAIChatAnswer(res: ServerResponse): void {
   res.writeHead(200, { 'content-type': 'application/json' });
@@ -226,20 +262,15 @@ describe("Node fetch's own header and body limits", () => {
   // These tests install a global dispatcher with those limits at 250 ms (undici's timers fire
   // about a second late at that size) and a provider that takes two seconds, standing in for a
   // 300 s limit and a longer answer.
-  const GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
-  type Dispatcher = {
-    dispatch(options: Record<string, unknown>, handler: unknown): boolean;
-    close(): Promise<void>;
-  };
-  let original: unknown;
-  let lowLimits: Dispatcher;
+  let restoreDispatchers: (() => void) | undefined;
+  let lowLimits: Dispatcher | undefined;
   const dispatched: Record<string, unknown>[] = [];
 
   beforeEach(() => {
-    void globalThis.fetch;
-    const globals = globalThis as unknown as Record<symbol, unknown>;
-    original = globals[GLOBAL_DISPATCHER];
-    const Agent = (original as { constructor: new (options: object) => Dispatcher }).constructor;
+    restoreDispatchers = preserveDispatchers();
+    const { key, dispatcher } = activeDispatcher();
+    const Agent = (dispatcher as unknown as { constructor: new (options: object) => Dispatcher })
+      .constructor;
     lowLimits = new Agent({ headersTimeout: 250, bodyTimeout: 250 });
     const dispatch = lowLimits.dispatch.bind(lowLimits);
     dispatched.length = 0;
@@ -247,12 +278,16 @@ describe("Node fetch's own header and body limits", () => {
       dispatched.push(options);
       return dispatch(options, dispatchHandler);
     };
-    globals[GLOBAL_DISPATCHER] = lowLimits;
+    dispatcherGlobals[key] = lowLimits;
   });
 
   afterEach(async () => {
-    (globalThis as unknown as Record<symbol, unknown>)[GLOBAL_DISPATCHER] = original;
-    await lowLimits.close();
+    try {
+      restoreDispatchers?.();
+    } finally {
+      await lowLimits?.close();
+      lowLimits = undefined;
+    }
   });
 
   it('do not cut a non-streamed answer that the request timeout still allows', async () => {
@@ -279,6 +314,8 @@ describe("Node fetch's own header and body limits", () => {
     for await (const event of adapter.stream({ prompt: 'x', timeout: 10_000 })) events.push(event);
     expect(events.filter((event) => event.type === 'content_delta')).toHaveLength(2);
     expect(events.at(-1)).toMatchObject({ type: 'done', finishReason: 'stop' });
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({ headersTimeout: 11_000, bodyTimeout: 11_000 });
   }, 15_000);
 });
 
@@ -305,28 +342,74 @@ describe("Node fetch's own limits on a reused connection", () => {
 });
 
 describe('the dispatcher a request goes through', () => {
+  it('uses the legacy dispatcher when only v1 is available, then restores both globals', async () => {
+    handler = (_req, res) => openAIChatAnswer(res);
+    const restoreDispatchers = preserveDispatchers();
+    const { dispatcher } = activeDispatcher();
+    const dispatch = vi.fn(dispatcher.dispatch.bind(dispatcher));
+    try {
+      // Assignment also works when Node 24's existing v2 slot cannot be deleted.
+      dispatcherGlobals[DISPATCHER_V2] = undefined;
+      dispatcherGlobals[DISPATCHER_V1] = { dispatch };
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', baseUrl });
+      expect((await adapter.complete({ prompt: 'x', timeout: 7_000 })).content).toBe('ok');
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+        headersTimeout: 8_000,
+        bodyTimeout: 8_000,
+      });
+    } finally {
+      restoreDispatchers();
+    }
+  });
+
   it("prefers undici 7.27+'s `undici.globalDispatcher.2` when the process has one", async () => {
     handler = (_req, res) => openAIChatAnswer(res);
-    const globals = globalThis as unknown as Record<symbol, unknown>;
-    const legacy = globals[Symbol.for('undici.globalDispatcher.1')] as {
-      dispatch(options: Record<string, unknown>, handler: unknown): boolean;
-    };
+    const restoreDispatchers = preserveDispatchers();
+    const { dispatcher } = activeDispatcher();
+    const legacyDispatch = vi.fn(dispatcher.dispatch.bind(dispatcher));
     const seen: Record<string, unknown>[] = [];
-    // Node 22's undici reads only `.1`; this stands in for a newer one that keeps its agent
-    // under `.2` (and may keep a different, legacy-API object under `.1`).
-    globals[Symbol.for('undici.globalDispatcher.2')] = {
-      dispatch(options: Record<string, unknown>, dispatchHandler: unknown) {
-        seen.push(options);
-        return legacy.dispatch(options, dispatchHandler);
-      },
-    };
+    // Deliberately distinguish the two slots. Node 24's v2 property is non-configurable;
+    // Node 22 temporarily gains a v2 property that must be removed on restoration.
     try {
+      dispatcherGlobals[DISPATCHER_V1] = { dispatch: legacyDispatch };
+      dispatcherGlobals[DISPATCHER_V2] = {
+        dispatch(options: Record<string, unknown>, dispatchHandler: unknown) {
+          seen.push(options);
+          return dispatcher.dispatch(options, dispatchHandler);
+        },
+      };
       const adapter = createOpenAIAdapter({ apiKey: 'sk-test', baseUrl });
       expect((await adapter.complete({ prompt: 'x', timeout: 7_000 })).content).toBe('ok');
     } finally {
-      delete globals[Symbol.for('undici.globalDispatcher.2')];
+      restoreDispatchers();
     }
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ headersTimeout: 8_000, bodyTimeout: 8_000 });
+    expect(legacyDispatch).not.toHaveBeenCalled();
+  });
+
+  it('restores the process dispatcher after a request rejects', async () => {
+    const restoreDispatchers = preserveDispatchers();
+    const failure = new Error('fixture dispatch failed');
+    const { key } = activeDispatcher();
+    try {
+      dispatcherGlobals[key] = {
+        dispatch() {
+          throw failure;
+        },
+      };
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', baseUrl });
+      const error = await rejectionOf(adapter.complete({ prompt: 'x', timeout: 7_000 }));
+      expect((error as Error & { cause: unknown }).cause).toBe(failure);
+    } finally {
+      restoreDispatchers();
+    }
+
+    handler = (_req, res) => openAIChatAnswer(res);
+    const adapter = createOpenAIAdapter({ apiKey: 'sk-test', baseUrl });
+    expect((await adapter.complete({ prompt: 'after restoration', timeout: 7_000 })).content).toBe(
+      'ok',
+    );
   });
 });

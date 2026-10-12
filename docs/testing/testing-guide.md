@@ -22,6 +22,25 @@ The default suite never starts Laya model inference or downloads weights. The
 stops servers it starts for a one-off run. Use its explicit `start`/`smoke`/`stop`
 commands when a persistent test endpoint is needed.
 
+## Matching the publication runtime
+
+The npm publish workflow runs on **Node.js 24**. Run release validation with that
+Node major locally as well (`node --version`), and use `pnpm test --force` after
+switching runtimes so Turborepo does not reuse results produced by another Node
+version. Passing the suite on Node 22 alone does not verify the publication job.
+
+The provider timeout tests use a local HTTP server and Node's real `fetch`.
+Their dispatcher fixtures cover both `undici.globalDispatcher.1` and
+`undici.globalDispatcher.2`: instrument the slot the provider selects, and restore
+each original property descriptor even when a request fails. A dispatcher slot
+that Node created can be writable but non-configurable; it must be restored, not
+deleted. Check both the non-streaming and streaming requests reach the fixture.
+Run this regression file with Node 22 and Node 24 when changing those fixtures:
+
+```bash
+pnpm --filter @plumbus/core exec vitest run src/ai/__tests__/provider-timeout.test.ts
+```
+
 ## Setup
 
 ```typescript

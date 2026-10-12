@@ -7,7 +7,9 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 Prepared on **2026-10-12** for repository release **`v0.8.0-beta.10`**. The stable
 `latest` values below were verified against npm on that date. Seven existing
 packages receive new beta versions; three packages publish their first beta.
-Other package versions remain unchanged.
+Other package versions remain unchanged. The first publication attempt failed
+before publishing; the current retry uses repository tag **`v0.8.0-beta.11`** with
+these same package versions. See [Retry after beta.10](#retry-after-beta10).
 
 | Package | Previous (latest) | Beta |
 | --- | --- | --- |
@@ -126,7 +128,7 @@ The three identifiers serve different purposes:
 
 | Identifier | Meaning for this release |
 | --- | --- |
-| Git tag `v0.8.0-beta.10` | One repository snapshot; pushing it starts `.github/workflows/publish.yml`. |
+| Git tag `v0.8.0-beta.11` | The corrected repository snapshot for the retry; pushing it starts `.github/workflows/publish.yml`. The original `v0.8.0-beta.10` tag remains unchanged. |
 | Package version | Each package's immutable `package.json` version, as listed above. Add-ons do not all become `0.8.0-beta.10`. |
 | npm dist-tag `plumbus-next` | The movable install alias for each package's beta version. `latest` stays on the stable 0.7 family. |
 
@@ -153,8 +155,11 @@ is not the package set for this release.
 The generic `scripts/bump-version.sh` only handles core, UI and voice and accepts
 stable `patch`/`minor`/`major` bumps; it does not prepare this beta release.
 
-Review `git status` and `git diff` on `plumbus-next`. Once the working tree contains
-only the intended, validated release changes, the operator release sequence is:
+### Original beta.10 attempt (historical)
+
+The following sequence created the original release tag. It is retained as history;
+do not run it again. Use [Retry after beta.10](#retry-after-beta10) for the corrected
+release.
 
 ```bash
 git add -A
@@ -163,6 +168,31 @@ git push origin plumbus-next
 git tag -a v0.8.0-beta.10 -m "Plumbus core 0.8 beta 10"
 git push origin refs/tags/v0.8.0-beta.10
 ```
+
+### Retry after beta.10
+
+The [original publish run](https://github.com/plumbus-framework/plumbus/actions/runs/38216103657)
+used **Node 24.21.0** and failed two fetch-dispatcher tests after lint, format,
+build and typecheck passed. All 24 publication steps were skipped, and npm checks
+confirmed that none of the ten planned new package versions was published. Those
+package versions remain valid for the retry, including core **`0.8.0-beta.10`**.
+
+Rerunning the old tag's workflow tests its original commit, not the corrected
+branch. Never move or recreate `v0.8.0-beta.10`. After the fixes pass the checks
+above on Node 24, review `git status` and `git diff` on `plumbus-next` and confirm
+that only the intended fixes and release documentation are present. The operator
+sequence uses a fresh repository tag:
+
+```bash
+git add -A
+git commit -m "fix(test): support Node 24 fetch dispatchers"
+git push origin plumbus-next
+git tag -a v0.8.0-beta.11 -m "Retry core 0.8 beta release"
+git push origin refs/tags/v0.8.0-beta.11
+```
+
+The repository tag advances to identify the corrected snapshot; the package
+versions in the table and the `plumbus-next` npm dist-tag stay as planned.
 
 Agents need explicit per-command approval for these Git writes under `AGENTS.md`.
 Never move or reuse an existing release tag. Push the branch before the tag: the
