@@ -4,6 +4,7 @@
 import { type ParseError, parse as parseJsonc } from 'jsonc-parser';
 import { z } from 'zod';
 import type { AIValidationOptions } from '../types/context.js';
+import { restoreOmittedOptionalProperties } from './openai-strict-schema.js';
 import type {
   AIProviderAdapter,
   ProviderRequest,
@@ -240,6 +241,25 @@ function parseStructuredResponse(content: string): unknown {
   }
 }
 
+/**
+ * The usage of the attempts so far plus one more. `reasoningTokens` is summed once any attempt
+ * reports it (OpenAI reasoning models), and left out when none does.
+ */
+function addAttemptUsage(total: TokenUsage, next: TokenUsage): TokenUsage {
+  const reasoning =
+    total.reasoningTokens === undefined && next.reasoningTokens === undefined
+      ? undefined
+      : (total.reasoningTokens ?? 0) + (next.reasoningTokens ?? 0);
+  return {
+    inputTokens: total.inputTokens + next.inputTokens,
+    outputTokens: total.outputTokens + next.outputTokens,
+    totalTokens: total.totalTokens + next.totalTokens,
+    cachedInputTokens: (total.cachedInputTokens ?? 0) + (next.cachedInputTokens ?? 0),
+    cacheWriteTokens: (total.cacheWriteTokens ?? 0) + (next.cacheWriteTokens ?? 0),
+    ...(reasoning === undefined ? {} : { reasoningTokens: reasoning }),
+  };
+}
+
 export async function generateWithValidation<T>(
   provider: AIProviderAdapter,
   request: ProviderRequest,
@@ -299,27 +319,12 @@ export async function generateWithValidation<T>(
         provider: config?.provider ?? provider.name,
         model: config?.model ?? response.model,
         partialText: response.content,
-        usage: {
-          inputTokens: totalUsage.inputTokens + response.usage.inputTokens,
-          outputTokens: totalUsage.outputTokens + response.usage.outputTokens,
-          totalTokens: totalUsage.totalTokens + response.usage.totalTokens,
-          cachedInputTokens:
-            (totalUsage.cachedInputTokens ?? 0) + (response.usage.cachedInputTokens ?? 0),
-          cacheWriteTokens:
-            (totalUsage.cacheWriteTokens ?? 0) + (response.usage.cacheWriteTokens ?? 0),
-        },
+        usage: addAttemptUsage(totalUsage, response.usage),
         finishReason: response.finishReason,
       });
     }
 
-    totalUsage = {
-      inputTokens: totalUsage.inputTokens + response.usage.inputTokens,
-      outputTokens: totalUsage.outputTokens + response.usage.outputTokens,
-      totalTokens: totalUsage.totalTokens + response.usage.totalTokens,
-      cachedInputTokens:
-        (totalUsage.cachedInputTokens ?? 0) + (response.usage.cachedInputTokens ?? 0),
-      cacheWriteTokens: (totalUsage.cacheWriteTokens ?? 0) + (response.usage.cacheWriteTokens ?? 0),
-    };
+    totalUsage = addAttemptUsage(totalUsage, response.usage);
     if (response.cost != null) {
       totalProviderCost = (totalProviderCost ?? 0) + response.cost;
     } else {
@@ -329,7 +334,13 @@ export async function generateWithValidation<T>(
 
     try {
       const parsed = textOutput ? response.content : parseStructuredResponse(response.content);
-      const result = schema.parse(parsed);
+      // OpenAI strict mode answers an omitted optional property with null; drop those nulls so
+      // `.optional()` fields validate (identity for answers that already fit the schema).
+      const result = schema.parse(
+        request.responseSchema && !textOutput
+          ? restoreOmittedOptionalProperties(parsed, request.responseSchema)
+          : parsed,
+      );
       const validated: ValidatedResponse<T> = {
         data: result,
         raw: response.content,

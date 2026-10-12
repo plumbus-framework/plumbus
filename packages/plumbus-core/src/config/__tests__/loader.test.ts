@@ -460,6 +460,15 @@ describe('Config Loader', () => {
       });
     });
 
+    it('should parse PROMPT_{NAME}_TIMEOUT_MS env var', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_TIMEOUT_MS: '900000',
+      });
+      expect(result).toEqual({
+        writer: { timeoutMs: 900_000 },
+      });
+    });
+
     it('should combine multiple fields for same prompt', () => {
       const result = loadPromptOverrides({
         PROMPT_WRITER_PROVIDER: 'anthropic',
@@ -515,9 +524,84 @@ describe('Config Loader', () => {
       });
       expect(Object.keys(result ?? {})).toEqual(['writer']);
     });
+
+    it.each([
+      'abc',
+      '-5',
+      '0',
+      '1.5',
+      '30s',
+      '2147483648',
+    ])('rejects PROMPT_{NAME}_TIMEOUT_MS=%s, naming the variable', (value) => {
+      expect(() => loadPromptOverrides({ PROMPT_WRITER_TIMEOUT_MS: value })).toThrow(
+        `Invalid PROMPT_WRITER_TIMEOUT_MS="${value}": expected a whole number of milliseconds from 1 to 2147483647`,
+      );
+    });
+
+    it('accepts PROMPT_{NAME}_TIMEOUT_MS at both ends of its range', () => {
+      expect(
+        loadPromptOverrides({ PROMPT_A_TIMEOUT_MS: '1', PROMPT_B_TIMEOUT_MS: '2147483647' }),
+      ).toEqual({ a: { timeoutMs: 1 }, b: { timeoutMs: 2_147_483_647 } });
+    });
+
+    it.each([
+      'abc',
+      '0',
+      '-1',
+      '1.5',
+      '4k',
+    ])('rejects PROMPT_{NAME}_MAX_TOKENS=%s, naming the variable', (value) => {
+      expect(() => loadPromptOverrides({ PROMPT_WRITER_MAX_TOKENS: value })).toThrow(
+        `Invalid PROMPT_WRITER_MAX_TOKENS="${value}": expected a whole number of tokens, at least 1`,
+      );
+    });
+
+    it.each([
+      'abc',
+      'NaN',
+      '-0.1',
+      '2.5',
+    ])('rejects PROMPT_{NAME}_TEMPERATURE=%s, naming the variable', (value) => {
+      expect(() => loadPromptOverrides({ PROMPT_WRITER_TEMPERATURE: value })).toThrow(
+        `Invalid PROMPT_WRITER_TEMPERATURE="${value}": expected a number from 0 to 2`,
+      );
+    });
+
+    it('accepts PROMPT_{NAME}_TEMPERATURE from 0 to 2', () => {
+      expect(
+        loadPromptOverrides({
+          PROMPT_A_TEMPERATURE: '0',
+          PROMPT_B_TEMPERATURE: '.5',
+          PROMPT_C_TEMPERATURE: '2',
+        }),
+      ).toEqual({ a: { temperature: 0 }, b: { temperature: 0.5 }, c: { temperature: 2 } });
+    });
+
+    it('treats an empty numeric PROMPT_{NAME}_* value as unset', () => {
+      const result = loadPromptOverrides({
+        PROMPT_WRITER_MODEL: 'gpt-4o',
+        PROMPT_WRITER_TIMEOUT_MS: '',
+        PROMPT_WRITER_MAX_TOKENS: ' ',
+        PROMPT_WRITER_TEMPERATURE: '',
+      });
+      expect(result?.writer).toEqual({ model: 'gpt-4o' });
+    });
   });
 
   describe('loadConfig with multi-provider and prompt overrides', () => {
+    it('fails to load when a PROMPT_{NAME}_TIMEOUT_MS is not a usable timeout', () => {
+      expect(() =>
+        loadConfig({
+          environment: 'development',
+          env: {
+            AI_DEFAULT_PROVIDER: 'openai',
+            AI_OPENAI_API_KEY: 'sk-test',
+            PROMPT_REPORT_DRAFT_TIMEOUT_MS: '15m',
+          },
+        }),
+      ).toThrow('Invalid PROMPT_REPORT_DRAFT_TIMEOUT_MS="15m"');
+    });
+
     it('should include defaultModel from AI_DEFAULT_MODEL', () => {
       const config = loadConfig({
         environment: 'development',

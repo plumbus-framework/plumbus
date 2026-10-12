@@ -98,6 +98,8 @@ AI_BEDROCK_PRICING_FILE=/config/bedrock-pricing.json
 
 \*Discovery enables Bedrock when `AI_BEDROCK_REGION` is set, or `AI_BEDROCK_ENABLED=1`/`true` + `AWS_REGION` / `AWS_DEFAULT_REGION`. There is **no** `AI_BEDROCK_API_KEY` — inference uses the AWS default credential chain (env keys, shared config, IRSA, instance role). Optional `AWS_BEARER_TOKEN_BEDROCK` is honored by the AWS SDK when set. Optional `AI_BEDROCK_MAX_TOKENS` / `AI_BEDROCK_DAILY_COST_LIMIT` are core AI guards (same pattern as OpenAI/Anthropic), not Converse request fields by themselves.
 
+The numeric variables take plain numbers, no unit suffixes: `AI_BEDROCK_REQUEST_TIMEOUT` whole ms from 1 to 2147483647, `AI_BEDROCK_MAX_TOKENS` whole tokens (0 or more), `AI_BEDROCK_DAILY_COST_LIMIT` USD (0 or more), `AI_BEDROCK_PRICING_TTL_MS` whole ms (0 or more). `15m`, `24h` or `abc` make core's `loadConfig()` throw naming the variable.
+
 ### Programmatic
 
 ```typescript

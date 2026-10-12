@@ -145,6 +145,8 @@ export {
   generateWithValidation,
   governedReviewSubject,
   invokeGovernedAi,
+  isProviderAPIError,
+  isProviderTimeoutError,
   joinAndFilterModels,
   runToolLoop,
   safeJsonStringify,
@@ -157,6 +159,7 @@ export {
   AIRefusalError,
   AIValidationError,
   GovernedArtifactConflictError,
+  ProviderAPIError,
 } from './ai/index.js';
 export type {
   IdempotencyClaimResult,

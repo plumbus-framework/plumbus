@@ -42,6 +42,15 @@ export interface ModelConfig {
   reasoning?: AIReasoningConfig;
   /** @deprecated Use `reasoning`. Retained as a source-compatible shorthand. */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * How long one provider request for this prompt may take, in milliseconds: from sending it to
+   * the last byte of the answer, a streamed answer included. A whole number from 1 to
+   * 2_147_483_647. Unset keeps the provider's `requestTimeout` (default 120_000). Raise it for
+   * long answers (large `maxTokens`, reasoning); lower it for prompts that must answer fast.
+   * Each validation retry and each retried 408/429/5xx answer gets its own. A per-call
+   * `timeoutMs` overrides it; `promptOverrides` / `PROMPT_{NAME}_TIMEOUT_MS` override it too.
+   */
+  timeoutMs?: number;
 }
 
 // ── Prompt Definition ──

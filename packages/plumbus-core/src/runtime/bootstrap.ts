@@ -178,6 +178,10 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       defaultModel: config.aiProviders.defaultModel,
       costTracker,
       promptRegistry,
+      // PROMPT_{NAME}_* env overrides, as the server applies them; resolveAiOverrides merges over them.
+      promptOverrides: config.aiProviders.promptOverrides
+        ? { ...config.aiProviders.promptOverrides }
+        : undefined,
       onAICostRecorded: workerOnAICostRecorded,
       enableStrictStructuredOutputs,
       providerConcurrency: aiProviderConcurrency,

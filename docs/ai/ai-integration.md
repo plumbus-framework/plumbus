@@ -65,6 +65,7 @@ export const classifyTicket = definePrompt({
     temperature: 0.2,
     maxTokens: 256,
     // reasoning: { mode: "effort", effort: "medium" },
+    // timeoutMs: 30_000, // per provider request; see "Request Timeouts"
   },
 });
 ```
@@ -130,7 +131,9 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 
 `generate()` returns only the data; `generateWithUsage()` returns `{ data, usage, model, provider, cost }`.
 
-For a one-off override, `generateWithUsage` accepts `provider`, `model`, and provider-neutral `reasoning`. Leaving a field undefined preserves normal prompt/config resolution; `reasoning:null` restores the provider/model default for that call and clears both inherited `reasoning` and inherited legacy `reasoningEffort`. Use `{ mode:'disabled' }`, `{ mode:'effort', effort }`, or `{ mode:'budget', maxTokens }`. The selected adapter translates the intent into its native wire format and explicitly rejects modes it cannot represent. Legacy `reasoningEffort` remains exactly `'low' | 'medium' | 'high'` with its previous OpenAI-only behavior.
+On OpenAI reasoning models (o-series, `gpt-5*`, `gpt-6*`) `usage.reasoningTokens` is the part of `outputTokens` the model spent reasoning, on Chat Completions (`completion_tokens_details.reasoning_tokens`, streamed or not) and on the Responses API (`output_tokens_details.reasoning_tokens`) alike. It is already counted in `outputTokens`, which is what is priced, so it never adds to `cost`. It is summed over validation retries, tool-loop rounds and a streaming validation fallback, and kept on the `AICostRecord.usage` ledger row; it is absent when the provider does not report the split.
+
+For a one-off override, `generateWithUsage` accepts `provider`, `model`, provider-neutral `reasoning`, and `timeoutMs` (see [Request Timeouts](#request-timeouts)); `generate` and `streamGenerate` accept the same. Leaving a field undefined preserves normal prompt/config resolution; `reasoning:null` restores the provider/model default for that call and clears both inherited `reasoning` and inherited legacy `reasoningEffort`. Use `{ mode:'disabled' }`, `{ mode:'effort', effort }`, or `{ mode:'budget', maxTokens }`. The selected adapter translates the intent into its native wire format and explicitly rejects modes it cannot represent. Legacy `reasoningEffort` remains exactly `'low' | 'medium' | 'high'` with its previous OpenAI-only behavior.
 
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 
@@ -187,6 +190,14 @@ Pass `tools` (and optionally `toolChoice`, `toolExecution`) to `generate` /
 via `tool_use` / `tool_result` + `input_schema`, OpenAI via `tools` / `tool_calls`. Build
 each `AITool.parameters` from `zodToProviderJsonSchema(schema).schema`.
 
+OpenAI caller tools are not strict: their parameters go out as declared and optional
+arguments stay optional, so the model can leave out one it has no value for. On the
+Responses API (used for caller tools under reasoning, see [Multi-Provider Setup](#multi-provider-setup)) each tool is sent with
+`strict: false`, because with `strict` omitted OpenAI "will attempt to normalize your schema
+into strict mode when possible" and does so by making every property required: an optional
+`unit` the user never named came back as `"unit": "celsius"`, which an input schema cannot tell
+from a real value. Chat Completions tools are non-strict by default.
+
 ```typescript
 import type { AITool } from "@plumbus/core";
 
@@ -224,7 +235,8 @@ if (result.finishReason === "tool_calls") {
 (`packages/plumbus-core/src/ai/tool-loop.ts`): default `maxRounds` 8, hard maximum 20. On
 round exhaustion the final request **omits both `tools` and `toolChoice`** (never
 `toolChoice: 'none'`). Invalid-argument calls are never executed and surface as a
-`tool_arguments_invalid` observation.
+`tool_arguments_invalid` observation. A `timeoutMs` passed to `runToolLoop` applies to every
+round and to that final request ([Request Timeouts](#request-timeouts)).
 
 > `@plumbus/chat`'s Path B tool calling is a **separate** loop (default `maxToolRounds`
 > 5); chat does **not** call `runToolLoop`. See [chat policies →
@@ -246,6 +258,8 @@ const orderDetails = await ctx.ai.extract({
   }),
 });
 ```
+
+`extract`, `classify` and `retrieve` take a per-call `timeoutMs` like `generate` ([Request Timeouts](#request-timeouts)).
 
 ### Classify (Categorization)
 
@@ -297,6 +311,8 @@ const docs = await ctx.ai.retrieve({
 // → [{ content: "...", source: "docs/auth.md", score: 0.94, metadata: {...} }]
 ```
 
+`retrieve` takes `signal` (aborts the query's embedding request; see [RAG](#ingestion)) and `timeoutMs` like the other calls.
+
 ## AI Providers
 
 ### Multi-Provider Setup
@@ -315,7 +331,8 @@ the configured temperature.
 
 Optional `model.reasoning` is provider-neutral. OpenAI retains Chat Completions
 for compatible requests and uses the Responses API when caller tools require
-active reasoning, including GPT-5.6 default reasoning. Core 0.7.5+ (0.8 family: 0.8.0-beta.7+) applies the same routing to
+active reasoning, including GPT-5.6 default reasoning (the forced tool of
+`structuredOutputTransport: "tool"` moves only on GPT-5.6/GPT-6, see below). Core 0.7.5+ (0.8 family: 0.8.0-beta.7+) applies the same routing to
 GPT-6 default reasoning. Stateless tool rounds request and replay encrypted reasoning items
 through provider continuation state.
 Anthropic maps disabled/effort/budget to `thinking` and
@@ -383,15 +400,19 @@ specifies `provider`; decision adapters are selected from `decisions.providers`.
 | `AI_OPENAI_*` / `AI_ANTHROPIC_*` | Per-provider API keys, base URLs, and default models |
 | `AI_BEDROCK_REGION` / `AI_BEDROCK_MODEL` / `AI_BEDROCK_PRICING_FILE` | Bedrock (IAM auth; optional mounted pricing JSON — recommended in containers) |
 | `AI_DEFAULT_MODEL` | Global model fallback for all prompts |
-| `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`; dots → underscores, uppercased) |
+| `PROMPT_{NAME}_{FIELD}` | Per-prompt overrides (`PROVIDER`, `MODEL`, `TEMPERATURE`, `MAX_TOKENS`, `TIMEOUT_MS`; dots → underscores, uppercased), applied by the HTTP server and the worker pool alike |
 
 Env discovery supports `AI_OPENAI_*`, `AI_ANTHROPIC_*`, and `AI_BEDROCK_*`. Other `AI_{NAME}_API_KEY` values log a warning and are ignored — wire custom providers programmatically through `createAIService`. Bedrock requires `pnpm add @plumbus/ai-bedrock`.
 
 A present-but-empty OpenAI or Anthropic API-key slot is treated as unset: the slot is skipped so a leftover blank dotenv line does not crash worker boot. If that provider is the default, set a real key.
 
+The numeric `PROMPT_{NAME}_*` fields are checked when the config loads: `TEMPERATURE` must be a number from 0 to 2, `MAX_TOKENS` a whole number of at least 1, and `TIMEOUT_MS` a whole number of milliseconds from 1 to 2 147 483 647. Anything else (`abc`, `0`, `4k`, `15m`) makes `loadConfig()` throw an error naming the variable, e.g. `Invalid PROMPT_WRITER_MAX_TOKENS="4k": expected a whole number of tokens, at least 1`; a blank value is no override. Earlier releases read such values with `parseInt`/`parseFloat`, so `15m` became 15 ms and `abc` became `NaN`, and the mistake only showed on every call to that prompt.
+
+The provider limits are checked the same way, for each provider slot that is configured (`AI_` in single-provider mode, `AI_OPENAI_`, `AI_ANTHROPIC_`, `AI_BEDROCK_`): `REQUEST_TIMEOUT` must be a whole number of milliseconds from 1 to 2 147 483 647, `MAX_TOKENS` a whole number of tokens (0 or more), `DAILY_COST_LIMIT` a number of US dollars (0 or more, decimals allowed, e.g. `10.5`), and `AI_BEDROCK_PRICING_TTL_MS` a whole number of milliseconds (0 or more). Write plain numbers: there are no unit suffixes. `abc`, `15m`, `4k`, `$50` or `1e3` make `loadConfig()` throw, e.g. `Invalid AI_OPENAI_REQUEST_TIMEOUT="15m": expected a whole number of milliseconds from 1 to 2147483647`; a blank value is unset. Earlier releases read them with `parseInt`/`parseFloat`: `15m` became a 15 ms timeout, and `abc` failed every call later.
+
 When an adapter returns `cost` on `ProviderResponse` / stream `done` (Bedrock), `createAIService` uses that value instead of the hardcoded OpenAI/Anthropic `MODEL_PRICING` catalog.
 
-**Resolution order** for each call: `resolveAiOverrides` hook (from `app/server.ts`) → per-prompt env vars → prompt `model` fields → `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`.
+**Resolution order** for each call, field by field (`provider`, `model`, `temperature`, `maxTokens`, `reasoning`, `timeoutMs`): the per-call value (`provider`, `model`, `reasoning`, `timeoutMs` on `generate` / `generateWithUsage` / `streamGenerate`) → the `resolveAiOverrides` hook's `promptOverrides` (from `app/server.ts`) → the per-prompt env vars (`PROMPT_{NAME}_*`) → the prompt's `model` fields → the defaults (the hook's `defaultModel` / `defaultProvider`, else `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`). A layer only decides the fields it sets: a hook answer of `{ model: "gpt-4.1-mini" }` for a prompt keeps that prompt's `PROMPT_{NAME}_MAX_TOKENS` and `PROMPT_{NAME}_TIMEOUT_MS`. So when an override changes the provider, set the model with it. `reasoning` and the deprecated `reasoningEffort` count as one field: the highest layer that sets either decides both (an override's `reasoningEffort` replaces the prompt's `reasoning`). Key the hook's `promptOverrides` by the prompt's name (`report.summarize`) or by its env-style key (`report_summarize`, lower case, dots → underscores); when both are present, the entry under the name wins. The hook is called before each call and its answer replaces the previous one, so an override it stops returning no longer applies. Earlier releases replaced the prompt's whole env entry with the hook's entry (dropping its env `TIMEOUT_MS` and `MAX_TOKENS`), let an env override beat a hook entry keyed by the prompt's name, kept an override after the hook stopped returning it, and ignored the hook's `defaultProvider`.
 
 Hardcoding `model.provider` and `model.name` in `definePrompt()` is valid when you want the contract to pin a model; omit them when you prefer env-driven resolution.
 
@@ -543,6 +564,52 @@ Plumbus automatically retries transient upstream provider responses for AI reque
 
 If those retries are exhausted, the capability returns a retryable internal error with HTTP status `503` so clients can tell the user the AI provider is temporarily unavailable and invite them to try again.
 
+### Request Timeouts
+
+Every provider request has a timeout, from sending it to the last byte of the answer — a streamed answer included. It applies to each HTTP attempt: every validation retry, every retried `408`/`429`/`5xx` answer and the non-streaming fallback of `streamGenerate` get their own. The first one set wins:
+
+1. the call: `timeoutMs` on `generate`, `generateWithUsage`, `streamGenerate`, `extract`, `classify`, `retrieve` or `runToolLoop` (every round of the loop and its final request), `timeoutMs` on a RAG pipeline's `ingest` or `retrieve` (each embedding request), or `timeout` on an adapter's `embed()`;
+2. the prompt at runtime: `timeoutMs` from the `resolveAiOverrides` hook's `promptOverrides`, else `PROMPT_{NAME}_TIMEOUT_MS` (the HTTP server and the worker pool both apply them; a hook override that does not set `timeoutMs` keeps the env one — see [Configuration and model resolution](#configuration-and-model-resolution));
+3. the prompt definition: `model.timeoutMs`;
+4. the provider: the adapter's `requestTimeout` (`AI_OPENAI_REQUEST_TIMEOUT`, `AI_ANTHROPIC_REQUEST_TIMEOUT`, `AI_BEDROCK_REQUEST_TIMEOUT`, or `AI_REQUEST_TIMEOUT` in single-provider mode), default 120 000 ms.
+
+```typescript
+// A long structured answer with reasoning: give it fifteen minutes.
+export const draftReport = definePrompt({
+  name: "report.draftSections",
+  input: draftInput,
+  output: sectionsOutput,
+  model: { maxTokens: 64_000, reasoning: { mode: "effort", effort: "high" }, timeoutMs: 900_000 },
+});
+
+// A prompt that must answer fast, or not at all, for this call:
+await ctx.ai.generateWithUsage({ prompt: "support.classify", input, timeoutMs: 15_000 });
+```
+
+`extract`, `classify`, `retrieve` and embeddings have no prompt, so steps 2 and 3 do not apply to them. `classify` with a decision provider (`decisions.providers`) passes `timeoutMs` to that provider as its own `timeoutMs`, which allows at most 300 000 ms.
+
+A timeout is a whole number of milliseconds from 1 to 2 147 483 647. `definePrompt` rejects other values. `loadConfig()` rejects a `PROMPT_{NAME}_TIMEOUT_MS` that is not a plain whole number in that range — `abc`, `0`, `-5`, `15m` — by throwing `Invalid PROMPT_{NAME}_TIMEOUT_MS="15m": expected a whole number of milliseconds from 1 to 2147483647`, so `plumbus dev`, `start` and `worker` stop at startup instead of failing every call later (see [Configuration and model resolution](#configuration-and-model-resolution)). A per-call or `resolveAiOverrides` value outside that range fails with `AIInvalidRequestError` (`reason: "timeout_invalid"`) before anything is sent; so does one given to a RAG pipeline's `ingest`/`retrieve` (checked by the pipeline, whatever the adapter), an adapter's `timeout`, or a built-in adapter's `requestTimeout` (the OpenAI and Anthropic adapters and `@plumbus/ai-bedrock` check it before sending each completion or embedding request).
+
+**Timeouts above five minutes.** A non-streamed answer only arrives once the model has finished, and Node's `fetch` (undici) stops waiting by itself after 300 s without response headers, or without the next body chunk (its `headersTimeout` / `bodyTimeout`). The built-in OpenAI and Anthropic adapters set both limits one second above the request's timeout on every request, through the process's own dispatcher, so the request's timeout always ends it first and a proxy or agent installed with undici's `setGlobalDispatcher` still applies. (The margin matters: undici runs these limits on a coarse timer that can fire up to half a second early.) Earlier releases failed such a request at 300 s with `TypeError: fetch failed` (`UND_ERR_HEADERS_TIMEOUT`), whatever `requestTimeout` allowed. Bedrock's AWS SDK client has no response timeout of its own.
+
+**When the timeout ends a request**, the call fails with a `ProviderAPIError` (`name: "ProviderAPIError"`) that carries `timeoutMs` (the limit reached), `retryable: false` and no `statusCode`, with a message such as `OpenAI API request timed out after 900000 ms` (`OpenAI Responses API`, `OpenAI Embedding API`, `Anthropic API`, `Bedrock`). The adapter does not retry it, and callers should not either: the provider may have billed the work, and asking again with the same limit usually ends the same way — raise the prompt's `timeoutMs` instead. In a capability it surfaces like other non-retryable failures (`Capability execution failed`), not as the retryable `503` above. A `streamGenerate` call cut off mid-stream throws it after the deltas already yielded (Bedrock, which reports every stream failure as an event, ends with an `error` event instead); one cut off before the first byte ends with an `error` event carrying its message. The ledger row is `status: "failed"` with `cost: null` and an `estimatedCost` (see [Failed calls and unknown cost](#failed-calls-and-unknown-cost)). The caller's `signal` stays separate: an abort it raises is rethrown as raised, and when both fire, the first decides.
+
+**Telling a timeout apart.** `@plumbus/core` exports `ProviderAPIError` and two guards. `isProviderAPIError(error)` is true for any provider HTTP failure (`providerName`, `retryable`, `attempts`, and `statusCode` when the provider answered); `isProviderTimeoutError(error)` is true only when the request's own timeout ended it, and narrows `timeoutMs` to a number. Use the guards rather than `instanceof ProviderAPIError`: `@plumbus/ai-bedrock` builds its errors with the same shape, not as instances.
+
+```typescript
+import { isProviderTimeoutError } from "@plumbus/core";
+
+try {
+  return await ctx.ai.generateWithUsage({ prompt: "report.draftSections", input });
+} catch (error) {
+  if (isProviderTimeoutError(error)) {
+    // Not retryable with the same limit: raise the prompt's timeoutMs instead.
+    ctx.logger.warn("draft timed out", { provider: error.providerName, timeoutMs: error.timeoutMs });
+  }
+  throw error;
+}
+```
+
 ### Single Provider (Legacy)
 
 For single-provider setups, use `singleProviderConfig()`:
@@ -662,11 +729,23 @@ When using `responseFormat: 'json'` (OpenAI's json_object mode), the framework a
 Set `enableStrictStructuredOutputs: true` on `createAIService()` to have Plumbus convert each registered prompt's Zod output schema into provider-compatible JSON Schema and pass it to providers that support constrained decoding.
 
 - OpenAI-compatible providers receive `response_format: { type: "json_schema", json_schema: { strict: true, ... } }`.
-- Anthropic receives `output_config.format: { type: "json_schema", schema: ... }`.
+- OpenAI strict mode cannot leave a property out, so every OpenAI structured-output path (`response_format`, the `structuredOutputTransport: "tool"` function, and Responses `text.format`) sends each optional property as required and nullable: `["string", "null"]` for scalars, an extra `{ "type": "null" }` branch for enums, objects, arrays and unions. Nested objects, array items and union branches are converted the same way. Before the prompt's Zod schema validates the answer, the AI service turns a `null` in an optional property back into an absent property (so `.default()` applies); a `.nullable()` or `.nullish()` property keeps its `null`. `streamGenerate` `delta` events carry OpenAI's raw text, so they still contain those nulls; the final `done` data does not.
+- OpenAI strict mode accepts only the string formats `date-time`, `time`, `date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6` and `uuid` ([Structured Outputs, supported properties](https://developers.openai.com/api/docs/guides/structured-outputs)); any other format fails the whole request (`'uri' is not a valid format`). On every OpenAI structured-output path Plumbus leaves such a format out of the sent schema and names it in the property's description instead (`"Expected string format: uri."`), so `z.string().url()` fields work. The prompt's Zod schema still validates the answer, so a value that is not a URL fails validation and is retried as usual. Anthropic and Bedrock receive the `uri` format as before.
+- OpenAI strict mode does not support `allOf` (Structured Outputs guide: "Composition: allOf, not, … are not yet supported"), which the converter produces for intersections (`a.and(b)`) and for a string with more than one pattern (`.regex(a).regex(b)`, `.startsWith(a).endsWith(b)`). An intersection of objects is already merged by the converter for every provider (see the converter bullet below), and `z.string().cidr()` arrives as an `anyOf` of its IPv4 and IPv6 patterns. Any `allOf` left is merged into one schema on every OpenAI structured-output path: types and enums are intersected, one union inside another is spread into the branches of both, and keywords next to a union go into each branch. What one schema cannot say is named in the description: every pattern of a string with several (`"Must match pattern: …."`), or the second of two different patterns or formats a shared property has. The prompt's Zod schema still validates the original.
+- OpenAI strict mode has no `default` keyword. On every OpenAI structured-output path a `.default(…)` is named in the description instead (`"Defaults to \"untitled\"."`); the property is optional, so it goes out nullable like any other optional property, its `null` is dropped before validation, and Zod fills in the default. Anthropic and Bedrock receive `default` as it is (Anthropic documents it).
+- OpenAI strict mode needs an object at the root ("Root objects must not be anyOf and must be an object"). An output whose root is something else — `classify()` (an array of labels), an `extract()` schema or prompt `output` that is a `z.array(...)`, a union or discriminated union, an enum, a number, a nullable object — goes out on OpenAI as the single required property `value` of an object, and the adapter takes the answer out of `{"value": …}` before anything else sees it: the AI service, `ProviderResponse.content`, and `streamGenerate` `delta` events (a stream holds back only the envelope's opening `{"value":`) all carry the bare answer, as on Anthropic, and so does the `partialText` of an `AIIncompleteOutputError` when the answer is cut off at `maxTokens`. An intersection of objects is merged into an object first, so it is not wrapped.
+- Anthropic receives `output_config.format: { type: "json_schema", schema: ... }`, with optional properties left optional (its limit of 24 optional properties still applies).
+- The converter (`zodToProviderJsonSchema`, the schema Anthropic and `@plumbus/ai-bedrock` `structuredOutputs: "native"` receive as it is) keeps to the subset both document (Anthropic "JSON Schema limitations", Bedrock "Supported JSON Schema features"), and OpenAI's strict projection starts from it. Neither asks for an object root, so an array, union or enum output goes to them unwrapped. Where zod-to-json-schema emits something outside that subset, or something no answer satisfies, the converter rewrites it for every provider; the prompt's Zod schema still validates the original:
+  - An intersection of objects (`a.and(b)`) becomes one object with the properties and `required` keys of both (a property both declare gets the merge of its two schemas); an object intersected with a union (`z.object({...}).and(z.discriminatedUnion(...))`) goes into each branch. A branch the intersection rules out is dropped rather than sent: the absent value of `b.optional()` and the `null` of `b.nullable()` (so `a.and(b.optional())` and `a.and(b.nullable())` go out as the one object `a & b`), and, for two discriminated unions on the same key, the pairs whose discriminators differ. Sent as `allOf`, each member carried `additionalProperties: false` and refused the other member's keys, so no answer could satisfy it on a provider that reads the schema strictly.
+  - `z.string().cidr()` goes out as an `anyOf` of its IPv4 and IPv6 patterns. zod-to-json-schema lists them in `allOf` (both required), and the IPv4 pattern was only described, so providers allowed IPv6 networks alone.
+  - A non-capturing group `(?:…)` in a pattern goes out as a plain group `(…)`, which matches the same strings (patterns with a backreference are still only described).
+  - A `.optional()` that is not an object property (the output root, an array item, a union member) loses its never-matching `{ "not": {} }` branch: an optional object output goes out as the object. `not` is in no provider's documented subset.
+  - A keyword next to a union (the `type` of `z.string().ip()`) goes into each branch, and a string's `type` into each member of the `allOf` that lists its patterns (`.regex(a).regex(b)`, `.cidr().startsWith(…)`), so every branch and member is a whole schema with a `type`, the shape Anthropic's SDK helpers send.
+  - A tuple (`z.tuple([...])`, sent as `prefixItems`, which no provider documents) goes out as an array whose `items` is its item schemas (an `anyOf` when they differ, counted as one union parameter), with the order and length in the description (`"Must hold exactly 2 items, in this order: (1) string; (2) number."`).
 - Single-string-field outputs such as `z.object({ content: z.string() })` **and bare `z.string()` outputs** stay in plain text mode for `generate` / `streamGenerate` and are not constrained.
 - Prompts can opt out with `disableStrictStructuredOutputs: true` when their schema cannot fit the provider JSON Schema subset.
 - Prompts can require strict mode with `requireStrictStructuredOutputs: true` — the AI service refuses to run the prompt unless it can send a provider JSON Schema, preventing silent fallback to prompt-only JSON instructions.
-- Transport can be switched with `structuredOutputTransport: "tool"` to use strict tool-call arguments instead of `response_format`, for provider/prompt combinations where JSON-schema response content is weak but tool calls are reliable.
+- Transport can be switched with `structuredOutputTransport: "tool"` to use strict tool-call arguments instead of `response_format`, for provider/prompt combinations where JSON-schema response content is weak but tool calls are reliable. On OpenAI the forced tool goes to the Responses API only on GPT-5.6 and GPT-6 models with reasoning not disabled (an explicit effort, the legacy `reasoningEffort`, or the model's default reasoning), because their Chat Completions refuse function tools under reasoning (`Function tools with reasoning_effort are not supported for gpt-6-luna in /v1/chat/completions`). With reasoning disabled, and on every other model (o-series and earlier `gpt-5` lines included, explicit effort or not), it stays on Chat Completions as before, so an OpenAI-compatible `baseUrl` without `/responses` keeps working. The reasoning setting is sent as configured; a `budget` reasoning mode is refused locally with `AIInvalidRequestError`, as for every OpenAI request.
 
 The conversion is also exposed as a standalone helper:
 
@@ -768,11 +847,11 @@ The October 1 sync adds `claude-sonnet-5-5` ($2 input / $0.20 cached input / $10
 When providers return cache information, the framework adjusts pricing automatically:
 
 - **Cached input tokens** (prompt cache hits) use the published model-specific price when available, defaulting to **0.1x** input. Opus 5.5 and GPT-6.1 Sol use **0.05x**; Fable 5.1 and Mythos 5.1 use **0.025x**; several older OpenAI models use **0.25x** or **0.5x**.
-- **Cache write tokens** (new cache entries) are charged at **1.25x** the base input rate, matching five-minute caching. One-hour cache-write pricing is not separately modelled.
+- **Cache write tokens** (new cache entries) are counted inside the input tokens, like cache reads, and priced once: at **1.25x** the base input rate on Claude (five-minute caching; one-hour cache-write pricing is not separately modelled) and on OpenAI GPT-5.6 and later (the pricing page's "Cache writes" column, e.g. `gpt-6-luna` $0.125 per MTok), and at the base input rate on earlier OpenAI models, which OpenAI bills no extra for a cache write ("No additional cache-write charge").
 - Standard (non-cached) input tokens are charged at the full base rate
 
 The framework parses cache data from provider responses:
-- **OpenAI**: `usage.prompt_tokens_details.cached_tokens`
+- **OpenAI**: `usage.prompt_tokens_details.cached_tokens` and `cache_write_tokens` (Chat Completions), `usage.input_tokens_details.cached_tokens` and `cache_write_tokens` (Responses API); `cacheWriteTokens` is set only when OpenAI reports the field
 - **Anthropic**: `usage.cache_read_input_tokens` and `usage.cache_creation_input_tokens`
 - **Bedrock**: cache token fields on Converse usage (when present); `@plumbus/ai-bedrock` applies the same ~0.1× / 1.25× multipliers against Bedrock rates
 ### Long Context Premium
@@ -790,7 +869,22 @@ The framework detects this automatically based on the model name and total input
 
 Successful generation (including streaming and validation fallback), extraction, and classification record adapter-supplied USD cost, falling back to catalog estimates for known models. Both stream and fallback usage/cost are included in the final streaming result and ledger row. Explicit zero cost is valid for free/local providers. Unpriced providers record `null` and remain usable without dollar caps; an adapter for a known-free provider can report `cost: 0` to participate in a shared dollar budget.
 
-When a dollar cap is configured, any prior unpriced row in its scope prevents further requests, including when other rows have known costs. A fresh budget starts at zero; a zero-dollar cap blocks calls. Token pre-checks estimate input from UTF-8 request bytes divided by four plus the requested output cap, including validation retries. These are estimates, not tokenizer-exact bounds. In-memory budgets are process-local pre-checks, not atomic spend reservations across concurrent workers; persist and coordinate a ledger for a deployment-wide hard cap.
+A fresh budget starts at zero; a zero-dollar cap blocks calls. Token pre-checks estimate input from UTF-8 request bytes divided by four plus the requested output cap, including validation retries. These are estimates, not tokenizer-exact bounds. In-memory budgets are process-local pre-checks, not atomic spend reservations across concurrent workers; persist and coordinate a ledger for a deployment-wide hard cap.
+
+#### Failed calls and unknown cost
+
+A failed call is charged by what it can have cost, and one failure never stops the budget being enforced:
+
+| Failure | Ledger row | What the dollar budget counts |
+| --- | --- | --- |
+| Never reached the provider: DNS failure (`ENOTFOUND`, `EAI_AGAIN`), refused or timed-out connect (`ECONNREFUSED`, undici's `Connect Timeout Error`), TLS handshake failure, a signal aborted before the call, a budget or concurrency refusal of a retry attempt (a refusal before the first attempt leaves no row). Applies to `streamGenerate` too, where the built-in adapters report these as an opening `error` event | `cost: 0` | nothing |
+| Turned away by the provider with a 4xx (bad key, rate limit, invalid or oversized request). 408 and 424 are not included: they can follow work the model already did (Bedrock's model timeout and model error) | `cost: 0` | nothing |
+| Usage never came back (the connection dropped after the request was sent, a read timeout or the request's own [timeout](#request-timeouts), a 5xx, a 408 or 424, an unrecognised error), or a stream was cut off before its `done` event | `cost: null`, `estimatedCost` | the estimate: the request's input estimate plus its `maxTokens` (4,096 when the request sets none) at the model's catalog price — never less than the usage or cost a cut-off stream had already reported (Anthropic reports input at the start, output only at the end) — plus the known cost of any attempts the provider did answer |
+| Provider answered (validation failure, refusal, truncation) | `cost` from the reported usage | that cost |
+
+Calls keep running while the day's known costs and estimates stay under the limit; past it the refusal is the usual `Daily cost limit reached`. Answered validation attempts are not lost when a later attempt of the same call fails in transit. `estimatedCost` is a budget charge, not a billed amount: `cost` stays `null`, and `getDailyUsage()` reports only known costs (`costAvailable: false`). A custom adapter that reports a failed request as a stream `error` event instead of throwing should set the event's `cause` to the caught error; without it the AI service cannot tell that the request never reached the provider and charges the estimate.
+
+When cost cannot even be estimated, the budget still fails closed, but only for the model whose spend it cannot count. A model with no catalog price whose provider answered without a cost (a local or custom model, a decision provider without pricing) leaves an unpriced row: later calls to that same provider and model are refused with `Cost data unavailable for prior <provider> <model> requests`, while calls to priced models carry on. Checks that cannot name a model (`checkProviderCostBudget()` for voice and media, decisions, governed calls) are refused by unpriced spend on any model. An attempt that dropped in transit on an unpriced model adds only what the provider had reported before the drop and does not block later calls: it is one call's unknown spend, not a reason to stop the rest of the day.
 
 ```typescript
 import { createCostTracker } from "@plumbus/core";
@@ -907,11 +1001,12 @@ The same runtime also exposes `invokeCapability`, `startFlow`, `inspectExecution
 
 Cost records (`AICostRecord`) include:
 - `promptName`, `provider`, `model`, `operation` (`"generate" | "extract" | "classify" | "embed" | "transcribe" | "synthesize" | "transport"`)
-- `usage` — input/output token counts including `cachedInputTokens` / `cacheWriteTokens`
+- `usage` — input/output token counts including `cachedInputTokens` / `cacheWriteTokens`, and `reasoningTokens` when the provider reports them (part of `outputTokens`, not priced again)
 - `mediaUsage` — optional voice/media billing units (`audioInputSeconds`, `audioOutputSeconds`, `characters`, `connectionMinutes`, `participantMinutes`)
 - `cost` (USD) and `latencyMs`
 - `timestamp`, `tenantId`, `actor`
-- `status` — `"success" | "failed" | "refused" | "incomplete"`. Failed rows still represent real provider-side spend and count toward `dailyCostLimit`. Defaults to `"success"` for records created without an explicit status.
+- `estimatedCost?` — set only while `cost` is `null` on a failed call whose usage never came back (or whose stream was cut off): what dollar budgets charge for it (see [Failed calls and unknown cost](#failed-calls-and-unknown-cost)). Not a billed amount.
+- `status` — `"success" | "failed" | "refused" | "incomplete"`. Failed rows still represent real provider-side spend and count toward `dailyCostLimit`; a call that never reached the provider, or that it turned away with a 4xx other than 408/424, is recorded at `cost: 0`. Defaults to `"success"` for records created without an explicit status.
 - `errorMessage` — short description when `status !== "success"`
 - `fallbackUsed?: boolean` — set when a streaming `generate` call fell back to a non-streaming retry after the streamed text failed JSON/schema validation. Both attempts are billed; this flag is the duplicate-billing signal.
 
@@ -1085,6 +1180,10 @@ await rag.ingest({
   metadata: { category: "help" },
 });
 ```
+
+`ingest` and `retrieve` take an optional `timeoutMs` for each embedding request (sent to the adapter as `EmbeddingRequest.timeout`); unset keeps the adapter's `requestTimeout`. A value that is not a whole number of milliseconds from 1 to 2 147 483 647 fails with `AIInvalidRequestError` (`reason: "timeout_invalid"`) before anything is embedded.
+
+They also take an optional `signal` (`AbortSignal`), passed to every embedding request as `EmbeddingRequest.signal`: when it fires, the in-flight embedding request is aborted (the OpenAI adapter aborts its fetch, `@plumbus/ai-bedrock` its `InvokeModel` calls and sends no further text), and the call rejects with the abort. The pipeline also checks it itself, for adapters that ignore it: an already-aborted `retrieve` embeds nothing, a `retrieve` aborted during the embedding does not search the vector store (the embedding's cost is still reported to `onEmbeddingCost`), and an `ingest` embeds no further batch and stores nothing. `ctx.ai.retrieve({ signal })` passes its signal on (inside flow steps it defaults to `ctx.signal`); earlier releases accepted it and dropped it, so a cancelled request still waited for the embedding. A custom adapter's `embed()` should pass `request.signal` to its transport.
 
 ### Chunking
 

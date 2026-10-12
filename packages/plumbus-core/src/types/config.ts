@@ -96,6 +96,8 @@ export interface PromptModelOverride {
   reasoning?: AIReasoningConfig;
   /** @deprecated Use `reasoning`. */
   reasoningEffort?: ReasoningEffort;
+  /** Provider request timeout in ms (`PROMPT_{NAME}_TIMEOUT_MS`); see `ModelConfig.timeoutMs`. */
+  timeoutMs?: number;
 }
 
 // ── MCP agent config ──

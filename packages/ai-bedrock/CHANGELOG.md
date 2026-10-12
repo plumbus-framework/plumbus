@@ -1,5 +1,14 @@
 # @plumbus/ai-bedrock
 
+## Unreleased
+
+### Fixed
+
+- **A request its timeout ends is reported as a timeout.** When `requestTimeout`, or the request's own `timeout` (a prompt's `model.timeoutMs` or a call's `timeoutMs` in core), ended a Converse call, it failed with the AWS SDK's bare `AbortError: Request aborted`, the same as a caller's cancellation. It now fails with core's `ProviderAPIError` shape (`name: 'ProviderAPIError'`, `providerName: 'bedrock'`, `retryable: false`, `timeoutMs`), message `Bedrock request timed out after <ms> ms`, which core's `isProviderAPIError` recognises; a stream ends with an `error` event carrying that message, also when the timeout cuts it off after some deltas — whether the SDK's event stream then breaks or just ends, which could otherwise be reported as some other error or as a finished answer. A caller's abort is still rethrown as raised.
+- **Embeddings honour a per-call timeout.** `embed()` gave every InvokeModel call the adapter's `requestTimeout`, ignoring the request, and a call it ended failed with a bare `AbortError`. `EmbeddingRequest.timeout` (core's RAG `ingest`/`retrieve` and `ctx.ai.retrieve` `timeoutMs`) now sets it, per InvokeModel call, and a call the timeout ends fails with the same `ProviderAPIError` shape as Converse (`Bedrock request timed out after <ms> ms`, `timeoutMs`), which core's `isProviderTimeoutError` recognises.
+- **An unusable timeout is refused before anything is sent.** A `requestTimeout` or request `timeout` that was not a whole number of milliseconds from 1 to 2 147 483 647 went straight to `AbortSignal.timeout`, which threw a bare `RangeError` for `-1`, `1.5` or `NaN` (an `AI_BEDROCK_REQUEST_TIMEOUT` that is not a number), ended the request at once for `0`, and fired after 1 ms above the maximum. `complete()`, `stream()` and `embed()` now fail with core's `AIInvalidRequestError` (`reason: 'timeout_invalid'`) before loading pricing or calling Bedrock, as core's OpenAI and Anthropic adapters do.
+- **Embeddings stop when the caller cancels.** `embed()` ignored the request's signal (core had none on `EmbeddingRequest`), so a cancelled `ctx.ai.retrieve` or RAG `ingest` kept every InvokeModel call running and sent the remaining texts. `embed()` now honours `EmbeddingRequest.signal` (core's new field): the calls in flight are aborted and fail as `complete()` does on a caller abort (the AWS SDK's `AbortError`, the caller's reason as its `cause`), no further text is sent once it fires between texts (rejecting with the caller's reason as raised), and an already-aborted signal rejects with its reason before pricing is loaded or Bedrock is called. Needs the `@plumbus/core` release that adds `EmbeddingRequest.signal`.
+
 ## 0.3.0-beta.0 — 2026-09-11 — core 0.8 beta family
 
 ### Upgrade boundary

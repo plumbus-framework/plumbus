@@ -140,6 +140,56 @@ describe('provider tool calling', () => {
       }
     });
 
+    it.each([
+      'chat',
+      'responses',
+    ] as const)('sends an optional final-response property required and nullable on %s', async (transport) => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValue(
+          transport === 'chat'
+            ? mockOpenAIResponse({ finish_reason: 'stop', content: '{"content":"hi","note":null}' })
+            : mockOpenAIResponsesResponse({ output: [] }),
+        );
+      vi.stubGlobal('fetch', mockFetch);
+      try {
+        const adapter = createOpenAIAdapter({
+          apiKey: 'sk-test',
+          model: transport === 'chat' ? 'gpt-4o' : 'gpt-6-luna',
+        });
+        await adapter.complete({
+          prompt: 'Return JSON',
+          tools: [sampleTool],
+          responseFormat: 'json',
+          responseSchema: {
+            type: 'object',
+            properties: { content: { type: 'string' }, note: { type: 'string' } },
+            required: ['content'],
+            additionalProperties: false,
+          },
+        });
+        const strictSchema = {
+          type: 'object',
+          properties: { content: { type: 'string' }, note: { type: ['string', 'null'] } },
+          required: ['content', 'note'],
+          additionalProperties: false,
+        };
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        if (transport === 'chat') {
+          expect(body.response_format.json_schema.schema).toEqual(strictSchema);
+        } else {
+          expect(mockFetch.mock.calls[0][0]).toBe('https://api.openai.com/v1/responses');
+          expect(body.text.format.schema).toEqual(strictSchema);
+        }
+        // Caller tools are not strict, so their parameters go out exactly as declared.
+        const toolParameters =
+          transport === 'chat' ? body.tools[0].function.parameters : body.tools[0].parameters;
+        expect(toolParameters).toEqual(sampleTool.parameters);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it('sets parallel_tool_calls false when toolExecution disables it', async () => {
       const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponse({ finish_reason: 'stop' }));
       vi.stubGlobal('fetch', mockFetch);

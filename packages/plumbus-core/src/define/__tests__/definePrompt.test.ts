@@ -85,6 +85,27 @@ describe('definePrompt', () => {
     ).toThrow('cannot both disable and require strict structured outputs');
   });
 
+  it('accepts model.timeoutMs and exposes it on the definition', () => {
+    const prompt = definePrompt({
+      ...validConfig(),
+      model: { maxTokens: 64_000, timeoutMs: 900_000 },
+    });
+    expect(prompt.model?.timeoutMs).toBe(900_000);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    2_147_483_648,
+  ])('rejects model.timeoutMs %s, which no timer can wait for', (timeoutMs) => {
+    expect(() => definePrompt({ ...validConfig(), model: { timeoutMs } })).toThrow(
+      'model.timeoutMs must be a whole number of milliseconds from 1 to 2147483647',
+    );
+  });
+
   it('leaves optional behavior flags undefined when not provided (preserves existing defaults)', () => {
     const prompt = definePrompt(validConfig());
     expect(prompt.skipStreamValidationFallback).toBeUndefined();

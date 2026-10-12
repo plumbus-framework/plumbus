@@ -99,6 +99,6 @@ All must pass with zero errors before considering the update complete.
 ## Important Notes
 
 - Only **standard** tier pricing is tracked (not batch, flex, priority, or fast-mode)
-- Cache pricing multipliers (0.1× for reads, 1.25× for 5-min writes) are hardcoded in `calculateModelCost()` and rarely change
+- Cache reads default to 0.1× input (override with `cachedInputPerMTok`). Cache writes are a rule in `cacheWriteMultiplier()` (`model-pricing.ts`), not a catalog field: 1.25× input for Claude (5-min writes) and OpenAI GPT-5.6+, 1× for earlier OpenAI models (the OpenAI page shows "-" in their "Cache writes" column). If the page's "Cache writes" column ever stops being 1.25× input for a GPT-5.6+ model, or gains a value for an earlier one, change that rule
 - The `findModelRate()` function strips trailing 8-digit date suffixes (e.g. `-20250514`), so dated variants don't need separate entries
 - Unknown models return cost `$0` — this is intentional for Ollama/custom endpoints

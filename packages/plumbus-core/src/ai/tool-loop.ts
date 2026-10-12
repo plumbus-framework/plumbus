@@ -57,6 +57,11 @@ export interface RunToolLoopParams {
   signal?: AbortSignal;
   costContext?: AICostContext;
   seed?: number;
+  /**
+   * Provider request timeout in ms for every round, the final request included (each gets its
+   * own); overrides the prompt's `model.timeoutMs`, as on `generateWithUsage`.
+   */
+  timeoutMs?: number;
 }
 
 export interface RunToolLoopResult<T = Record<string, unknown>> {
@@ -186,6 +191,9 @@ function addUsage(acc: AITokenUsage, next: AITokenUsage): void {
   if (next.cacheWriteTokens != null) {
     acc.cacheWriteTokens = (acc.cacheWriteTokens ?? 0) + next.cacheWriteTokens;
   }
+  if (next.reasoningTokens != null) {
+    acc.reasoningTokens = (acc.reasoningTokens ?? 0) + next.reasoningTokens;
+  }
 }
 
 /**
@@ -228,6 +236,7 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
       signal: params.signal,
       costContext: params.costContext,
       seed: params.seed,
+      timeoutMs: params.timeoutMs,
     });
     addUsage(aggregatedUsage, result.usage);
     aggregatedCost += result.cost ?? 0;
@@ -292,6 +301,7 @@ export async function runToolLoop<T extends Record<string, any> = Record<string,
     signal: params.signal,
     costContext: params.costContext,
     seed: params.seed,
+    timeoutMs: params.timeoutMs,
   });
   addUsage(aggregatedUsage, final.usage);
   aggregatedCost += final.cost ?? 0;

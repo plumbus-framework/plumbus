@@ -7,7 +7,7 @@ import type { AICostRecord, AICostRecordInput, CostTracker } from '../cost-track
 import { createCostTracker } from '../cost-tracker.js';
 import { createExplainabilityTracker } from '../explainability.js';
 import { PromptRegistry } from '../prompt-registry.js';
-import type { AIProviderAdapter } from '../provider.js';
+import { type AIProviderAdapter, createOpenAIAdapter } from '../provider.js';
 import { createInMemoryVectorStore, createRAGPipeline } from '../rag/pipeline.js';
 import { AIIncompleteOutputError, AIRefusalError } from '../refusal.js';
 import { createMockProvider } from './provider.test.js';
@@ -1801,6 +1801,222 @@ describe('AI Service (ctx.ai)', () => {
         latencyMs: 0,
       });
       expect(seen).toHaveLength(1);
+    });
+  });
+
+  describe('OpenAI strict mode and optional output properties', () => {
+    // OpenAI strict mode cannot omit a property: an optional one goes out required-but-nullable
+    // and comes back as null. The service drops those nulls before the prompt's Zod schema runs,
+    // and keeps null where the schema itself allows it.
+    const outputSchema = z.object({
+      title: z.string(),
+      note: z.string().optional(),
+      reviewer: z.string().nullable(),
+      steps: z.array(z.object({ label: z.string(), weight: z.number().optional() })),
+    });
+    const openAIAnswer = {
+      title: 'Fractions',
+      note: null,
+      reviewer: null,
+      steps: [{ label: 'warm-up', weight: null }],
+    };
+    const restored = { title: 'Fractions', reviewer: null, steps: [{ label: 'warm-up' }] };
+
+    function registry(): PromptRegistry {
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'lesson',
+          description: 'Plan a lesson as JSON.',
+          input: z.object({}),
+          output: outputSchema,
+        }),
+      );
+      return promptRegistry;
+    }
+
+    it('generate() validates an OpenAI strict answer on the first attempt', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(openAIAnswer) }, finish_reason: 'stop' }],
+          model: 'gpt-6-luna',
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      try {
+        const service = createAIService(
+          singleProviderConfig(createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' }), {
+            promptRegistry: registry(),
+            enableStrictStructuredOutputs: true,
+          }),
+        );
+
+        await expect(service.generate({ prompt: 'lesson', input: {} })).resolves.toEqual(restored);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+        expect(body.response_format.json_schema.schema.required).toEqual([
+          'title',
+          'note',
+          'reviewer',
+          'steps',
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('streamGenerate() restores omitted properties without the non-streaming fallback', async () => {
+      const complete = vi.fn();
+      const provider = createMockProvider({
+        complete,
+        async *stream() {
+          yield { type: 'content_delta' as const, delta: JSON.stringify(openAIAnswer) };
+          yield { type: 'done' as const, finishReason: 'stop' };
+        },
+      });
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          promptRegistry: registry(),
+          enableStrictStructuredOutputs: true,
+        }),
+      );
+
+      const events: Record<string, unknown>[] = [];
+      for await (const event of service.streamGenerate({ prompt: 'lesson', input: {} })) {
+        events.push(event as Record<string, unknown>);
+      }
+
+      const done = events.find((event) => event.type === 'done');
+      expect(done?.data).toEqual(restored);
+      expect(done?.validationFallbackFired).toBe(false);
+      expect(complete).not.toHaveBeenCalled();
+    });
+
+    it('validates a strict final answer returned alongside caller tools', async () => {
+      const provider = createMockProvider({
+        complete: vi.fn(async () => ({
+          content: JSON.stringify(openAIAnswer),
+          model: 'gpt-6-luna',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          finishReason: 'stop',
+        })),
+      });
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          promptRegistry: registry(),
+          enableStrictStructuredOutputs: true,
+        }),
+      );
+
+      const result = await service.generateWithUsage({
+        prompt: 'lesson',
+        input: {},
+        tools: [{ name: 'lookup', description: 'Look up', parameters: { type: 'object' } }],
+        outputValidation: 'prompt',
+      });
+
+      expect(result.finishReason).toBe('stop');
+      if (result.finishReason !== 'tool_calls') expect(result.data).toEqual(restored);
+    });
+
+    it('leaves nulls alone when no provider schema was sent', async () => {
+      const provider = createMockProvider({
+        complete: vi.fn(async () => ({
+          content: JSON.stringify(openAIAnswer),
+          model: 'mock-model',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          finishReason: 'stop',
+        })),
+      });
+      const service = createAIService(
+        singleProviderConfig(provider, {
+          promptRegistry: registry(),
+          validation: { maxRetries: 0 },
+        }),
+      );
+
+      await expect(service.generate({ prompt: 'lesson', input: {} })).rejects.toThrow(
+        'AI output validation failed',
+      );
+    });
+  });
+
+  describe('OpenAI structured-output tool with a url field under GPT-6 reasoning', () => {
+    // Two OpenAI 400s used to stop this prompt: Chat Completions refuses function tools under
+    // GPT-6 reasoning, and strict mode refuses the `uri` format of `z.string().url()`.
+    const outputSchema = z.object({ title: z.string(), link: z.string().url() });
+
+    function registry(): PromptRegistry {
+      const promptRegistry = new PromptRegistry();
+      promptRegistry.register(
+        definePrompt({
+          name: 'resource',
+          description: 'Name one resource as JSON.',
+          input: z.object({}),
+          output: outputSchema,
+          structuredOutputTransport: 'tool',
+        }),
+      );
+      return promptRegistry;
+    }
+
+    function responsesAnswer(args: Record<string, unknown>) {
+      return {
+        ok: true,
+        json: async () => ({
+          status: 'completed',
+          model: 'gpt-6-luna',
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'return_structured_response',
+              arguments: JSON.stringify(args),
+            },
+          ],
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        }),
+      };
+    }
+
+    it('sends the tool to Responses without the uri format and still validates the url', async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(responsesAnswer({ title: 'Docs', link: 'not a url' }))
+        .mockResolvedValueOnce(responsesAnswer({ title: 'Docs', link: 'https://example.com' }));
+      vi.stubGlobal('fetch', mockFetch);
+      try {
+        const service = createAIService(
+          singleProviderConfig(createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' }), {
+            promptRegistry: registry(),
+            enableStrictStructuredOutputs: true,
+            validation: { maxRetries: 1 },
+          }),
+        );
+
+        await expect(service.generate({ prompt: 'resource', input: {} })).resolves.toEqual({
+          title: 'Docs',
+          link: 'https://example.com',
+        });
+        // The first answer failed the Zod url check and was retried.
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        for (const [url, init] of mockFetch.mock.calls) {
+          expect(url).toBe('https://api.openai.com/v1/responses');
+          const body = JSON.parse(init.body);
+          expect(body.tools[0].parameters.properties.link).toEqual({
+            type: 'string',
+            description: 'Expected string format: uri.',
+          });
+          expect(body.tool_choice).toEqual({
+            type: 'function',
+            name: 'return_structured_response',
+          });
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 });

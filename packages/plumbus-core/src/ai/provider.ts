@@ -14,6 +14,11 @@ import {
   estimateModelCost as calculateModelCost,
   type Kind,
 } from './model-pricing.js';
+import {
+  createOpenAIStrictOutputStreamUnwrapper,
+  toOpenAIStrictOutputSchema,
+  unwrapOpenAIStrictOutput,
+} from './openai-strict-schema.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
@@ -123,13 +128,19 @@ export interface ProviderRequest {
   responseSchema?: Record<string, unknown>;
   /** Transport used for provider-side structured outputs. Defaults to response_format. */
   structuredOutputTransport?: 'response_format' | 'tool';
-  /** Request timeout in milliseconds (default: 120_000) */
+  /**
+   * How long one HTTP attempt of this request may take, in milliseconds, from sending it to the
+   * last byte of the answer (streamed answers included); the adapter's `requestTimeout`
+   * (default 120_000) when unset. A whole number from 1 to 2_147_483_647. Each retry of a
+   * 408/429/5xx answer gets its own. A request this timeout ends fails with a non-retryable
+   * `ProviderAPIError` carrying `timeoutMs`.
+   */
   timeout?: number;
   /**
    * External AbortSignal (e.g. `ctx.signal`). When fired, the in-flight
    * fetch(es) for this request abort immediately. Combined with the internal
    * timeout signal via `AbortSignal.any([...])`, so whichever triggers first
-   * wins.
+   * wins: a caller's abort is rethrown as it was raised.
    */
   signal?: AbortSignal;
   /** Trusted host-supplied propagation headers. Provider adapters never accept credential overrides. */
@@ -148,16 +159,6 @@ export interface ProviderRequest {
   toolChoice?: AIToolChoice;
   /** Tool-execution options (e.g. disable parallel tool calls). */
   toolExecution?: AIToolExecutionOptions;
-}
-
-/** Compose a request's optional user signal with a timeout, returning a single AbortSignal. */
-export function combineRequestSignals(
-  userSignal: AbortSignal | undefined,
-  timeoutMs: number,
-): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  if (!userSignal) return timeoutSignal;
-  return AbortSignal.any([userSignal, timeoutSignal]);
 }
 
 // ── Provider Response ──
@@ -185,8 +186,18 @@ export interface TokenUsage {
   totalTokens: number;
   /** Tokens served from provider cache (charged at reduced rate). */
   cachedInputTokens?: number;
-  /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
-  cacheWriteTokens?: number /** Tokens the model spent reasoning, when the provider reports the split (OpenAI o-series / gpt-5). */;
+  /**
+   * Tokens written to the provider's prompt cache, counted inside `inputTokens` (Anthropic
+   * `cache_creation_input_tokens`; OpenAI `cache_write_tokens` on Chat Completions and the
+   * Responses API). Priced at 1.25× input for Claude and OpenAI GPT-5.6 and later, at the input
+   * rate for earlier OpenAI models, which bill no extra for them.
+   */
+  cacheWriteTokens?: number;
+  /**
+   * Tokens the model spent reasoning, when the provider reports the split (OpenAI reasoning
+   * models, on Chat Completions and the Responses API). Counted inside `outputTokens`, which is
+   * what is priced, so never added to a cost again.
+   */
   reasoningTokens?: number;
 }
 
@@ -204,6 +215,13 @@ export interface ProviderStreamEvent {
   /** Error message (for error events) */
   error?: string;
   /**
+   * The error an adapter caught and reported as an `error` event (e.g. the fetch that never
+   * connected, or a 4xx answer). The AI service reads it to tell a request the provider never
+   * took, which costs nothing, from one that may have been billed; it is not passed on to
+   * `streamGenerate` callers.
+   */
+  cause?: unknown;
+  /**
    * Optional USD cost on `done` (and optionally `usage`) events. When set,
    * `createAIService` prefers this over `calculateModelCost`.
    */
@@ -214,6 +232,17 @@ export interface ProviderStreamEvent {
 export interface EmbeddingRequest {
   texts: string[];
   model?: string;
+  /**
+   * How long one HTTP attempt of this request may take, in milliseconds; the adapter's
+   * `requestTimeout` (default 120_000) when unset. Same rules as `ProviderRequest.timeout`.
+   */
+  timeout?: number;
+  /**
+   * External AbortSignal (e.g. `ctx.signal`, passed on by `ctx.ai.retrieve` and the RAG
+   * pipeline). When it fires the in-flight embedding request(s) abort; as with
+   * `ProviderRequest.signal`, the caller's abort is rethrown as raised.
+   */
+  signal?: AbortSignal;
 }
 
 // ── Embedding Response ──
@@ -396,6 +425,13 @@ export class ProviderAPIError extends Error {
   readonly statusCode?: number;
   readonly retryable: boolean;
   readonly attempts: number;
+  /**
+   * Set when the request's own timeout ended it (`ProviderRequest.timeout`, a prompt's
+   * `model.timeoutMs`, or the adapter's `requestTimeout`): the limit that was reached, in
+   * milliseconds. Such a failure is not retryable — the provider may have billed the work, and
+   * asking again with the same limit usually ends the same way.
+   */
+  readonly timeoutMs?: number;
 
   constructor(args: {
     providerName: string;
@@ -403,16 +439,23 @@ export class ProviderAPIError extends Error {
     retryable: boolean;
     attempts: number;
     statusCode?: number;
+    timeoutMs?: number;
+    cause?: unknown;
   }) {
-    super(args.message);
+    super(args.message, args.cause === undefined ? undefined : { cause: args.cause });
     this.name = 'ProviderAPIError';
     this.providerName = args.providerName;
     this.statusCode = args.statusCode;
     this.retryable = args.retryable;
     this.attempts = args.attempts;
+    if (args.timeoutMs !== undefined) this.timeoutMs = args.timeoutMs;
   }
 }
 
+/**
+ * True for a provider HTTP failure from any adapter: a `ProviderAPIError` instance, or an error
+ * of the same shape built by an adapter package with its own copy of core (`@plumbus/ai-bedrock`).
+ */
 export function isProviderAPIError(value: unknown): value is ProviderAPIError {
   if (value instanceof ProviderAPIError) return true;
   if (typeof value !== 'object' || value === null) return false;
@@ -424,6 +467,17 @@ export function isProviderAPIError(value: unknown): value is ProviderAPIError {
     typeof candidate.retryable === 'boolean' &&
     typeof candidate.attempts === 'number'
   );
+}
+
+/**
+ * True when the request's own timeout ended it (`timeoutMs` on the call, a prompt override, the
+ * prompt's `model.timeoutMs`, or the adapter's `requestTimeout`): a `ProviderAPIError` carrying
+ * the limit reached as `timeoutMs`. Not retryable; raise the timeout rather than asking again.
+ */
+export function isProviderTimeoutError(
+  value: unknown,
+): value is ProviderAPIError & { readonly timeoutMs: number } {
+  return isProviderAPIError(value) && typeof value.timeoutMs === 'number';
 }
 
 const retryableStatusCodes = new Set([408, 429, 500, 502, 503, 504]);
@@ -456,6 +510,13 @@ function computeRetryDelayMs(attempt: number, retryAfterHeader: string | null): 
   return Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs);
 }
 
+// Every OpenAI structured-output path is strict, and strict mode refuses optional properties:
+// each one goes out as required-but-nullable. The AI service drops the nulls again before the
+// prompt's Zod schema validates the answer (`restoreOmittedOptionalProperties`). String formats
+// strict mode does not support (`uri`) are left out of the sent schema, and `allOf` is merged
+// into one schema; Zod still checks the original. A root that is not an object (an array, a
+// union) goes inside a `{ "value": ... }` envelope that `unwrapOpenAIStructuredContent` (or, on a
+// stream, `unwrapOpenAIStructuredStream`) takes off the answer again.
 function buildOpenAIResponseFormat(request: ProviderRequest): Record<string, unknown> | undefined {
   if (request.responseFormat !== 'json') return undefined;
   if (!request.responseSchema) return { type: 'json_object' };
@@ -464,9 +525,48 @@ function buildOpenAIResponseFormat(request: ProviderRequest): Record<string, unk
     json_schema: {
       name: 'response',
       strict: true,
-      schema: request.responseSchema,
+      schema: toOpenAIStrictOutputSchema(request.responseSchema).schema,
     },
   };
+}
+
+/** Whether the request's strict structured output went out inside the root envelope. */
+function hasOpenAIStructuredEnvelope(request: ProviderRequest): boolean {
+  return (
+    request.responseFormat === 'json' &&
+    !!request.responseSchema &&
+    toOpenAIStrictOutputSchema(request.responseSchema).enveloped
+  );
+}
+
+/** The answer as the caller's schema describes it: out of the root envelope if it was sent in one. */
+function unwrapOpenAIStructuredContent(request: ProviderRequest, content: string): string {
+  return hasOpenAIStructuredEnvelope(request) ? unwrapOpenAIStrictOutput(content) : content;
+}
+
+/** A Chat Completions stream with the root envelope taken out of its text deltas. */
+async function* unwrapOpenAIStructuredStream(
+  events: AsyncIterable<ProviderStreamEvent>,
+): AsyncIterable<ProviderStreamEvent> {
+  const unwrapper = createOpenAIStrictOutputStreamUnwrapper();
+  let ended = false;
+  for await (const event of events) {
+    if (event.type === 'content_delta' && typeof event.delta === 'string') {
+      const delta = unwrapper.push(event.delta);
+      if (delta) yield { ...event, delta };
+      continue;
+    }
+    if (event.type === 'done' && !ended) {
+      ended = true;
+      const rest = unwrapper.end();
+      if (rest) yield { type: 'content_delta', delta: rest };
+    }
+    yield event;
+  }
+  if (!ended) {
+    const rest = unwrapper.end();
+    if (rest) yield { type: 'content_delta', delta: rest };
+  }
 }
 
 const OPENAI_STRUCTURED_OUTPUT_TOOL_NAME = 'return_structured_response';
@@ -479,16 +579,18 @@ function shouldUseOpenAIStructuredTool(args: { request: ProviderRequest }): bool
   );
 }
 
-function buildOpenAIStructuredOutputTool(schema: Record<string, unknown>): Record<string, unknown> {
+/** The structured-output function; Chat Completions nests it under `function`, Responses does not. */
+function openAIStructuredOutputFunction(schema: Record<string, unknown>): Record<string, unknown> {
   return {
-    type: 'function',
-    function: {
-      name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
-      description: 'Return the complete structured response for this request.',
-      strict: true,
-      parameters: schema,
-    },
+    name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
+    description: 'Return the complete structured response for this request.',
+    strict: true,
+    parameters: toOpenAIStrictOutputSchema(schema).schema,
   };
+}
+
+function buildOpenAIStructuredOutputTool(schema: Record<string, unknown>): Record<string, unknown> {
+  return { type: 'function', function: openAIStructuredOutputFunction(schema) };
 }
 
 function extractOpenAIMessageContent(message: {
@@ -545,15 +647,20 @@ function openAIUsageToTokenUsage(usage: {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-  prompt_tokens_details?: { cached_tokens?: number };
+  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
   completion_tokens_details?: { reasoning_tokens?: number };
 }): TokenUsage {
   const reasoning = usage.completion_tokens_details?.reasoning_tokens;
+  const cacheWrites = usage.prompt_tokens_details?.cache_write_tokens;
   return {
     inputTokens: usage.prompt_tokens,
     outputTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
     cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    // Prompt tokens written to the cache, counted inside `prompt_tokens` like cache reads. GPT-5.6
+    // and later bill them at 1.25× input (`estimateModelCost`); unread they were priced as
+    // ordinary input.
+    ...(typeof cacheWrites === 'number' ? { cacheWriteTokens: cacheWrites } : {}),
     // Reasoning models count their thinking inside `completion_tokens`. Without this split a
     // caller that hit `max_completion_tokens` cannot tell a long answer from a long deliberation,
     // and can only guess at which knob to turn.
@@ -722,26 +829,188 @@ function buildProviderErrorMessage(
   return `${label} error (${statusCode})${suffix}: ${detail}`;
 }
 
-async function executeRequestWithRetry(args: {
+// ── Request deadlines ──
+
+/** The longest delay Node's timers keep: `AbortSignal.timeout` fires at once above it. */
+const MAX_REQUEST_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Where Node's fetch (undici, bundled or installed) keeps the process's dispatcher: undici 7.27+
+ * under `.2` (and the same agent under `.1`), earlier versions under `.1` only.
+ */
+const UNDICI_GLOBAL_DISPATCHERS = [
+  Symbol.for('undici.globalDispatcher.2'),
+  Symbol.for('undici.globalDispatcher.1'),
+];
+
+interface UndiciDispatcher {
+  dispatch(options: Record<string, unknown>, handler: unknown): boolean;
+  readonly isMockActive?: boolean;
+}
+
+function globalUndiciDispatcher(): UndiciDispatcher | undefined {
+  for (const key of UNDICI_GLOBAL_DISPATCHERS) {
+    const dispatcher = (globalThis as Record<symbol, unknown>)[key];
+    if (typeof (dispatcher as Partial<UndiciDispatcher> | undefined)?.dispatch === 'function') {
+      return dispatcher as UndiciDispatcher;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * How far above the request's timeout undici's own limits are set. Undici runs them on coarse
+ * timers (a 499 ms tick) that can fire up to half a second before their delay, so limits equal
+ * to the timeout beat the request's own timer on a reused connection and the call failed as a
+ * bare `fetch failed` instead of the timeout. One second keeps undici's limits strictly behind.
+ */
+const TRANSPORT_LIMIT_MARGIN_MS = 1_000;
+
+/**
+ * Node's fetch gives up by itself after 300 s without response headers, or without the next
+ * body chunk (undici's `headersTimeout` / `bodyTimeout`). A non-streamed answer that took longer
+ * to generate failed with `fetch failed` (`UND_ERR_HEADERS_TIMEOUT`) whatever the request's
+ * timeout allowed. This dispatcher passes each request to the process's dispatcher — a proxy or
+ * agent the application installed included — with both limits set just above the request's
+ * timeout, so that timeout alone decides. Fetch implementations other than undici ignore
+ * `dispatcher`.
+ */
+function deadlineDispatcher(timeoutMs: number): UndiciDispatcher {
+  const transportLimitMs = Math.min(timeoutMs + TRANSPORT_LIMIT_MARGIN_MS, MAX_REQUEST_TIMEOUT_MS);
+  return {
+    get isMockActive() {
+      return globalUndiciDispatcher()?.isMockActive;
+    },
+    dispatch(options, handler) {
+      const dispatcher = globalUndiciDispatcher();
+      if (!dispatcher) throw new Error('Node fetch has no global dispatcher');
+      return dispatcher.dispatch(
+        { ...options, headersTimeout: transportLimitMs, bodyTimeout: transportLimitMs },
+        handler,
+      );
+    },
+  };
+}
+
+/** What one HTTP attempt passes to `fetch`: its abort signal and transport limits. */
+interface RequestTransport {
+  signal: AbortSignal;
+  /** Undici's `RequestInit.dispatcher`, which the fetch types in this build do not declare. */
+  dispatcher: UndiciDispatcher;
+}
+
+/** The time one provider request may take, per HTTP attempt, and how its end is reported. */
+interface RequestDeadline {
+  readonly providerName: string;
+  readonly errorLabel: string;
+  readonly timeoutMs: number;
+  /** Starts an HTTP attempt: the caller's signal joined with a fresh timeout. */
+  attempt(): RequestTransport;
+  /** `error` as callers see it: a `ProviderAPIError` with `timeoutMs` when the timeout ended it. */
+  classify(error: unknown): unknown;
+}
+
+/** `error` and the errors it wraps (`cause`), outermost first. */
+function errorChain(error: unknown): unknown[] {
+  const chain: unknown[] = [];
+  let current = error;
+  for (let depth = 0; depth < 5 && typeof current === 'object' && current !== null; depth += 1) {
+    chain.push(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return chain;
+}
+
+/** Throws `AIInvalidRequestError` (before any I/O) unless `timeoutMs` is a usable request timeout. */
+export function assertRequestTimeout(timeoutMs: number): void {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_REQUEST_TIMEOUT_MS) {
+    throw new AIInvalidRequestError({
+      reason: 'timeout_invalid',
+      message: `AI request timeout must be a whole number of milliseconds from 1 to ${MAX_REQUEST_TIMEOUT_MS}; got ${String(timeoutMs)}`,
+    });
+  }
+}
+
+function createRequestDeadline(args: {
   providerName: string;
   errorLabel: string;
-  send: () => Promise<Response>;
+  signal: AbortSignal | undefined;
+  timeout: number | undefined;
+  defaultTimeout: number;
+}): RequestDeadline {
+  const timeoutMs = args.timeout ?? args.defaultTimeout;
+  assertRequestTimeout(timeoutMs);
+  let attempts = 0;
+  let timer: AbortSignal | undefined;
+  return {
+    providerName: args.providerName,
+    errorLabel: args.errorLabel,
+    timeoutMs,
+    attempt() {
+      attempts += 1;
+      timer = AbortSignal.timeout(timeoutMs);
+      return {
+        signal: args.signal ? AbortSignal.any([args.signal, timer]) : timer,
+        dispatcher: deadlineDispatcher(timeoutMs),
+      };
+    },
+    classify(error) {
+      if (!timer?.aborted || isProviderAPIError(error)) return error;
+      const chain = errorChain(error);
+      const aborted = chain.some((link) => {
+        const name = (link as { name?: unknown }).name;
+        return link === timer?.reason || name === 'TimeoutError' || name === 'AbortError';
+      });
+      if (!aborted) return error;
+      // The caller's own cancellation is rethrown as raised, unless the timeout fired first.
+      if (args.signal?.aborted && !chain.includes(timer.reason)) return error;
+      return new ProviderAPIError({
+        providerName: args.providerName,
+        message: `${args.errorLabel} request timed out after ${timeoutMs} ms`,
+        retryable: false,
+        attempts,
+        timeoutMs,
+        cause: error,
+      });
+    },
+  };
+}
+
+/** Reads a JSON answer; a body the request's timeout cut off fails as that timeout. */
+async function readResponseJson(response: Response, deadline: RequestDeadline): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (error) {
+    throw deadline.classify(error);
+  }
+}
+
+async function executeRequestWithRetry(args: {
+  deadline: RequestDeadline;
+  send: (transport: RequestTransport) => Promise<Response>;
 }): Promise<Response> {
+  const { deadline } = args;
   for (let attempt = 1; attempt <= maxProviderAttempts; attempt++) {
-    const response = await args.send();
-    if (response.ok) {
-      return response;
+    let response: Response;
+    let body: string;
+    try {
+      response = await args.send(deadline.attempt());
+      if (response.ok) {
+        return response;
+      }
+      body = await response.text();
+    } catch (error) {
+      throw deadline.classify(error);
     }
 
-    const body = await response.text();
     const retryable = isRetryableStatusCode(response.status);
     if (!retryable || attempt === maxProviderAttempts) {
       throw new ProviderAPIError({
-        providerName: args.providerName,
+        providerName: deadline.providerName,
         statusCode: response.status,
         retryable,
         attempts: attempt,
-        message: buildProviderErrorMessage(args.errorLabel, response.status, body, attempt),
+        message: buildProviderErrorMessage(deadline.errorLabel, response.status, body, attempt),
       });
     }
 
@@ -749,10 +1018,10 @@ async function executeRequestWithRetry(args: {
   }
 
   throw new ProviderAPIError({
-    providerName: args.providerName,
+    providerName: deadline.providerName,
     retryable: false,
     attempts: maxProviderAttempts,
-    message: `${args.errorLabel} request failed`,
+    message: `${deadline.errorLabel} request failed`,
   });
 }
 
@@ -916,7 +1185,8 @@ interface OpenAIResponsesData {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
-    input_tokens_details?: { cached_tokens?: number };
+    input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+    output_tokens_details?: { reasoning_tokens?: number };
   };
 }
 
@@ -940,18 +1210,27 @@ function isGpt6Family(model: string): boolean {
 
 /**
  * Chat Completions cannot combine function tools with active reasoning on
- * GPT-5.6 or GPT-6. Keep every compatible request on the existing transport,
- * but use Responses for explicit reasoning effort, these families' default
- * reasoning, and continuation rounds that already carry Responses output state.
+ * GPT-5.6 or GPT-6 ("Function tools with reasoning_effort are not supported for
+ * gpt-6-luna in /v1/chat/completions. To use function tools, use /v1/responses or
+ * set reasoning_effort to 'none'."). Keep every compatible request on the existing
+ * transport. Caller tools use Responses for explicit reasoning effort, these families'
+ * default reasoning, and continuation rounds that already carry Responses output
+ * state. The structured-output tool of `structuredOutputTransport: 'tool'` is one
+ * forced call with no continuation, so it moves only where Chat Completions refuses
+ * it: these families with reasoning not disabled. On other models (o-series, earlier
+ * gpt-5 lines, an OpenAI-compatible `baseUrl` that may have no `/responses`) it stays
+ * on Chat Completions, with its reasoning effort, as before.
  */
 function shouldUseOpenAIResponses(request: ProviderRequest, model: string): boolean {
   if (hasOpenAIResponsesContinuation(request)) return true;
-  if (!request.tools || request.tools.length === 0) return false;
-
   const reasoning = normalizeProviderRequestReasoning(request);
   if (reasoning?.mode === 'disabled') return false;
-  if (reasoning?.mode === 'effort' || request.reasoningEffort !== undefined) return true;
-  return reasoning === undefined && (isGpt56Family(model) || isGpt6Family(model));
+  const chatRefusesToolsUnderReasoning = isGpt56Family(model) || isGpt6Family(model);
+  if (request.tools && request.tools.length > 0) {
+    if (reasoning?.mode === 'effort' || request.reasoningEffort !== undefined) return true;
+    return reasoning === undefined && chatRefusesToolsUnderReasoning;
+  }
+  return shouldUseOpenAIStructuredTool({ request }) && chatRefusesToolsUnderReasoning;
 }
 
 function toOpenAIResponsesInput(request: ProviderRequest): Record<string, unknown>[] {
@@ -1020,11 +1299,18 @@ function applyOpenAIResponsesReasoning(
 function openAIResponsesUsageToTokenUsage(usage: OpenAIResponsesData['usage']): TokenUsage {
   const inputTokens = usage?.input_tokens ?? 0;
   const outputTokens = usage?.output_tokens ?? 0;
+  const reasoning = usage?.output_tokens_details?.reasoning_tokens;
+  const cacheWrites = usage?.input_tokens_details?.cache_write_tokens;
   return {
     inputTokens,
     outputTokens,
     totalTokens: usage?.total_tokens ?? inputTokens + outputTokens,
     cachedInputTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
+    // As on Chat Completions: the share of `input_tokens` written to the cache.
+    ...(typeof cacheWrites === 'number' ? { cacheWriteTokens: cacheWrites } : {}),
+    // As on Chat Completions (`openAIUsageToTokenUsage`): the reasoning share of `output_tokens`,
+    // which already counts it and is what is priced.
+    ...(typeof reasoning === 'number' ? { reasoningTokens: reasoning } : {}),
   };
 }
 
@@ -1071,6 +1357,11 @@ async function completeOpenAIResponses(args: {
     assertNoStructuredOutputToolConflict(request);
     validateCallerTools(request.tools);
   }
+  // `structuredOutputTransport: 'tool'` under active reasoning: the same forced strict function
+  // as on Chat Completions, in the Responses tool shape (its fields sit on the tool itself).
+  const structuredToolSchema = shouldUseOpenAIStructuredTool({ request })
+    ? request.responseSchema
+    : undefined;
 
   const body: Record<string, unknown> = {
     model,
@@ -1082,29 +1373,49 @@ async function completeOpenAIResponses(args: {
   applyOpenAITemperature(body, model, request);
   applyOpenAIResponsesReasoning(body, request);
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
-  if (request.responseFormat === 'json') {
+  if (structuredToolSchema) {
+    body.tools = [{ type: 'function', ...openAIStructuredOutputFunction(structuredToolSchema) }];
+    body.tool_choice = { type: 'function', name: OPENAI_STRUCTURED_OUTPUT_TOOL_NAME };
+  } else if (request.responseFormat === 'json') {
     body.text = {
       format: request.responseSchema
-        ? { type: 'json_schema', name: 'response', strict: true, schema: request.responseSchema }
+        ? {
+            type: 'json_schema',
+            name: 'response',
+            strict: true,
+            schema: toOpenAIStrictOutputSchema(request.responseSchema).schema,
+          }
         : { type: 'json_object' },
     };
   }
   if (request.tools && request.tools.length > 0) {
+    // `strict: false` keeps caller tools as they are on Chat Completions. With `strict` omitted,
+    // Responses "will attempt to normalize your schema into strict mode when possible", and does
+    // so by listing every property as required: an optional argument the user never gave
+    // (`unit` of `get_weather`) came back filled in (`"unit": "celsius"`), and the app's input
+    // check cannot tell it from a real one.
     body.tools = request.tools.map((tool) => ({
       type: 'function',
       name: tool.name,
       description: tool.description,
       parameters: tool.parameters,
+      strict: false,
     }));
     const toolChoice = buildOpenAIResponsesToolChoice(request.toolChoice);
     if (toolChoice !== undefined) body.tool_choice = toolChoice;
     if (request.toolExecution?.parallelToolCalls === false) body.parallel_tool_calls = false;
   }
 
-  const response = await executeRequestWithRetry({
+  const deadline = createRequestDeadline({
     providerName: 'openai',
     errorLabel: 'OpenAI Responses API',
-    send: () =>
+    signal: request.signal,
+    timeout: request.timeout,
+    defaultTimeout: args.defaultTimeout,
+  });
+  const response = await executeRequestWithRetry({
+    deadline,
+    send: (transport) =>
       fetch(`${args.baseUrl}/responses`, {
         method: 'POST',
         headers: {
@@ -1113,14 +1424,24 @@ async function completeOpenAIResponses(args: {
           Authorization: `Bearer ${args.apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: combineRequestSignals(request.signal, request.timeout ?? args.defaultTimeout),
+        ...transport,
       }),
   });
-  const data = (await response.json()) as OpenAIResponsesData;
+  const data = (await readResponseJson(response, deadline)) as OpenAIResponsesData;
   const usage = openAIResponsesUsageToTokenUsage(data.usage);
   const output = data.output ?? [];
   const extracted = extractOpenAIResponsesContent(output);
-  const content = extracted.content || data.output_text || '';
+  const structuredArguments = structuredToolSchema
+    ? output.find(
+        (item) => item.type === 'function_call' && item.name === OPENAI_STRUCTURED_OUTPUT_TOOL_NAME,
+      )?.arguments
+    : undefined;
+  const content = unwrapOpenAIStructuredContent(
+    request,
+    typeof structuredArguments === 'string' && structuredArguments.length > 0
+      ? structuredArguments
+      : extracted.content || data.output_text || '',
+  );
   const responseModel = data.model ?? model;
 
   if (data.status === 'failed' || data.error) {
@@ -1140,7 +1461,8 @@ async function completeOpenAIResponses(args: {
     });
   }
 
-  const toolCalls = parseOpenAIResponsesToolCalls(output);
+  // The structured-output call is the answer, not a tool call for the caller to run.
+  const toolCalls = structuredToolSchema ? [] : parseOpenAIResponsesToolCalls(output);
   if (toolCalls.length > 0) {
     return {
       content,
@@ -1315,10 +1637,16 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         body.seed = request.seed;
       }
 
-      const resp = await executeRequestWithRetry({
+      const deadline = createRequestDeadline({
         providerName: 'openai',
         errorLabel: 'OpenAI API',
-        send: () =>
+        signal: request.signal,
+        timeout: request.timeout,
+        defaultTimeout,
+      });
+      const resp = await executeRequestWithRetry({
+        deadline,
+        send: (transport) =>
           fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
@@ -1327,11 +1655,11 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
               Authorization: `Bearer ${config.apiKey}`,
             },
             body: JSON.stringify(body),
-            signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
+            ...transport,
           }),
       });
 
-      const data = (await resp.json()) as {
+      const data = (await readResponseJson(resp, deadline)) as {
         choices: Array<{
           message: {
             content: string | null;
@@ -1349,14 +1677,17 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
           prompt_tokens: number;
           completion_tokens: number;
           total_tokens: number;
-          prompt_tokens_details?: { cached_tokens?: number };
+          prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
         };
       };
 
       const choice = data.choices[0];
       if (!choice) throw new Error('OpenAI returned no choices');
       const usage = openAIUsageToTokenUsage(data.usage);
-      const content = extractOpenAIMessageContent(choice.message);
+      const content = unwrapOpenAIStructuredContent(
+        request,
+        extractOpenAIMessageContent(choice.message),
+      );
       if (choice.message.refusal) {
         throw new AIRefusalError({
           provider: 'openai',
@@ -1434,12 +1765,18 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         body.seed = request.seed;
       }
 
+      const deadline = createRequestDeadline({
+        providerName: 'openai',
+        errorLabel: 'OpenAI API',
+        signal: request.signal,
+        timeout: request.timeout,
+        defaultTimeout,
+      });
       let resp: Response;
       try {
         resp = await executeRequestWithRetry({
-          providerName: 'openai',
-          errorLabel: 'OpenAI API',
-          send: () =>
+          deadline,
+          send: (transport) =>
             fetch(`${baseUrl}/chat/completions`, {
               method: 'POST',
               headers: {
@@ -1448,18 +1785,20 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
                 Authorization: `Bearer ${config.apiKey}`,
               },
               body: JSON.stringify(body),
-              signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
+              ...transport,
             }),
         });
       } catch (error) {
         yield {
           type: 'error',
           error: error instanceof Error ? error.message : String(error),
+          cause: error,
         };
         return;
       }
 
-      yield* parseSSEStream(resp, parseOpenAISSEChunk);
+      const events = parseSSEStream(resp, parseOpenAISSEChunk, deadline);
+      yield* hasOpenAIStructuredEnvelope(request) ? unwrapOpenAIStructuredStream(events) : events;
     },
 
     async embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
@@ -1468,10 +1807,16 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         input: request.texts,
       };
 
-      const resp = await executeRequestWithRetry({
+      const deadline = createRequestDeadline({
         providerName: 'openai',
         errorLabel: 'OpenAI Embedding API',
-        send: () =>
+        signal: request.signal,
+        timeout: request.timeout,
+        defaultTimeout,
+      });
+      const resp = await executeRequestWithRetry({
+        deadline,
+        send: (transport) =>
           fetch(`${baseUrl}/embeddings`, {
             method: 'POST',
             headers: {
@@ -1479,11 +1824,11 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
               Authorization: `Bearer ${config.apiKey}`,
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(defaultTimeout),
+            ...transport,
           }),
       });
 
-      const data = (await resp.json()) as {
+      const data = (await readResponseJson(resp, deadline)) as {
         data: Array<{ embedding: number[] }>;
         model: string;
         usage: { total_tokens: number };
@@ -1604,10 +1949,16 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         if (callerToolChoice !== undefined) body.tool_choice = callerToolChoice;
       }
 
-      const resp = await executeRequestWithRetry({
+      const deadline = createRequestDeadline({
         providerName: 'anthropic',
         errorLabel: 'Anthropic API',
-        send: () =>
+        signal: request.signal,
+        timeout: request.timeout,
+        defaultTimeout,
+      });
+      const resp = await executeRequestWithRetry({
+        deadline,
+        send: (transport) =>
           fetch(`${baseUrl}/messages`, {
             method: 'POST',
             headers: {
@@ -1617,11 +1968,11 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify(body),
-            signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
+            ...transport,
           }),
       });
 
-      const data = (await resp.json()) as {
+      const data = (await readResponseJson(resp, deadline)) as {
         content: Array<{
           type: string;
           text?: string;
@@ -1719,12 +2070,18 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
       }
       applyAnthropicReasoning(body, request);
 
+      const deadline = createRequestDeadline({
+        providerName: 'anthropic',
+        errorLabel: 'Anthropic API',
+        signal: request.signal,
+        timeout: request.timeout,
+        defaultTimeout,
+      });
       let resp: Response;
       try {
         resp = await executeRequestWithRetry({
-          providerName: 'anthropic',
-          errorLabel: 'Anthropic API',
-          send: () =>
+          deadline,
+          send: (transport) =>
             fetch(`${baseUrl}/messages`, {
               method: 'POST',
               headers: {
@@ -1734,19 +2091,20 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify(body),
-              signal: combineRequestSignals(request.signal, request.timeout ?? defaultTimeout),
+              ...transport,
             }),
         });
       } catch (error) {
         yield {
           type: 'error',
           error: error instanceof Error ? error.message : String(error),
+          cause: error,
         };
         return;
       }
 
       let initialUsage: TokenUsage | undefined;
-      for await (const event of parseSSEStream(resp, parseAnthropicSSEChunk)) {
+      for await (const event of parseSSEStream(resp, parseAnthropicSSEChunk, deadline)) {
         if (event.type === 'usage' && event.usage) initialUsage = event.usage;
         if (event.type === 'done' && event.usage && initialUsage) {
           event.usage = {
@@ -1836,6 +2194,7 @@ type SSEChunkParser = (
 async function* parseSSEStream(
   resp: Response,
   parseChunk: SSEChunkParser,
+  deadline: RequestDeadline,
 ): AsyncIterable<ProviderStreamEvent> {
   if (!resp.body) {
     yield { type: 'error', error: 'No response body for streaming' };
@@ -1849,7 +2208,10 @@ async function* parseSSEStream(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      // The request's timeout covers the whole stream: a cut-off read fails as that timeout.
+      const { done, value } = await reader.read().catch((error: unknown) => {
+        throw deadline.classify(error);
+      });
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -1895,7 +2257,8 @@ function parseOpenAISSEChunk(
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
-        prompt_tokens_details?: { cached_tokens?: number };
+        prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+        completion_tokens_details?: { reasoning_tokens?: number };
       };
     };
 
@@ -1904,15 +2267,7 @@ function parseOpenAISSEChunk(
       parsed.usage &&
       (!parsed.choices || parsed.choices.length === 0 || !parsed.choices[0]?.delta?.content)
     ) {
-      return {
-        type: 'usage',
-        usage: {
-          inputTokens: parsed.usage.prompt_tokens,
-          outputTokens: parsed.usage.completion_tokens,
-          totalTokens: parsed.usage.total_tokens,
-          cachedInputTokens: parsed.usage.prompt_tokens_details?.cached_tokens ?? 0,
-        },
-      };
+      return { type: 'usage', usage: openAIUsageToTokenUsage(parsed.usage) };
     }
 
     const choice = parsed.choices?.[0];

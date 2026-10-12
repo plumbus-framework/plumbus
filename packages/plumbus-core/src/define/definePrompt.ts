@@ -66,6 +66,17 @@ export function definePrompt<TInput extends z.ZodTypeAny, TOutput extends z.ZodT
       { field: 'structuredOutputs' },
     );
   }
+  const timeoutMs = config.model?.timeoutMs;
+  // Node's timers cap a delay at 2^31 - 1 ms; a longer one would fire at once.
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647)
+  ) {
+    throwDefineValidationError(
+      `Prompt "${config.name}": model.timeoutMs must be a whole number of milliseconds from 1 to 2147483647`,
+      { field: 'model.timeoutMs' },
+    );
+  }
 
   return deepFreeze({ ...config });
 }

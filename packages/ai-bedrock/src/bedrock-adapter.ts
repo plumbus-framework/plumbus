@@ -28,6 +28,7 @@ import type {
   ProviderStreamEvent,
   TokenUsage,
 } from '@plumbus/core';
+import { AIInvalidRequestError } from '@plumbus/core';
 import { BEDROCK_DEFAULT_EMBEDDING_MODEL, type BedrockAdapterConfig } from './types.js';
 import {
   createPricingStore,
@@ -41,6 +42,61 @@ function combineAbort(
 ): AbortSignal {
   if (!userSignal) return timeoutSignal;
   return AbortSignal.any([userSignal, timeoutSignal]);
+}
+
+/** The longest delay Node's timers keep: `AbortSignal.timeout` fires at once above it. */
+const MAX_REQUEST_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Returns `timeoutMs` when it is a usable request timeout; otherwise throws core's
+ * `AIInvalidRequestError` (`reason: 'timeout_invalid'`) before any I/O, as core's OpenAI and
+ * Anthropic adapters do. `AbortSignal.timeout` would throw a bare `RangeError` for `-1`, `1.5`
+ * or `NaN`, end the request at once for `0`, and fire after 1 ms above 2 147 483 647.
+ */
+function checkedRequestTimeout(timeoutMs: number): number {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_REQUEST_TIMEOUT_MS) {
+    throw new AIInvalidRequestError({
+      reason: 'timeout_invalid',
+      message: `AI request timeout must be a whole number of milliseconds from 1 to ${MAX_REQUEST_TIMEOUT_MS}; got ${String(timeoutMs)}`,
+    });
+  }
+  return timeoutMs;
+}
+
+/**
+ * One request's deadline: the caller's signal joined with the request's timeout
+ * (`ProviderRequest.timeout`, else the adapter's `requestTimeout`).
+ */
+function requestDeadline(userSignal: AbortSignal | undefined, timeoutMs: number) {
+  const timer = AbortSignal.timeout(timeoutMs);
+  const signal = combineAbort(userSignal, timer);
+  /** The timeout, not the caller, ended the request: the joined signal keeps the first reason. */
+  const timedOut = () => timer.aborted && signal.reason === timer.reason;
+  return {
+    signal,
+    timedOut,
+    /**
+     * The error to report. When the timeout, not the caller, ended the request: core's
+     * `ProviderAPIError` with `timeoutMs`, built by shape (core recognises it with
+     * `isProviderAPIError`). Not retryable — Bedrock may have billed the work, and asking again
+     * with the same limit usually ends the same way. Decided by the signals, not the error's
+     * shape: before the answer the AWS SDK throws an `AbortError`, but an event stream it cuts
+     * off fails as a broken stream.
+     */
+    classify(err: unknown): Error {
+      if (!timedOut()) return mapBedrockError(err);
+      return Object.assign(
+        new Error(`Bedrock request timed out after ${timeoutMs} ms`, { cause: err }),
+        {
+          name: 'ProviderAPIError',
+          providerName: 'bedrock',
+          retryable: false,
+          attempts: 1,
+          timeoutMs,
+        },
+      );
+    },
+  };
 }
 
 function emptyUsage(): TokenUsage {
@@ -426,6 +482,7 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
+      const timeoutMs = checkedRequestTimeout(request.timeout ?? defaultTimeout);
       await ensurePricing();
       const modelId = request.model ?? defaultModel;
       const messages = toBedrockMessages(request);
@@ -439,6 +496,7 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
       if (request.maxTokens != null) inferenceConfig.maxTokens = request.maxTokens;
       if (request.temperature != null) inferenceConfig.temperature = request.temperature;
 
+      const deadline = requestDeadline(request.signal, timeoutMs);
       try {
         const out = await client.send(
           new ConverseCommand({
@@ -449,12 +507,7 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
             toolConfig,
             outputConfig: buildOutputConfig(request, structuredOutputs),
           }),
-          {
-            abortSignal: combineAbort(
-              request.signal,
-              AbortSignal.timeout(request.timeout ?? defaultTimeout),
-            ),
-          },
+          { abortSignal: deadline.signal },
         );
 
         const { text, toolCalls } = extractTextAndTools(out.output?.message?.content);
@@ -476,11 +529,12 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
         }
         return response;
       } catch (err) {
-        throw mapBedrockError(err);
+        throw deadline.classify(err);
       }
     },
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
+      const timeoutMs = checkedRequestTimeout(request.timeout ?? defaultTimeout);
       await ensurePricing();
       const modelId = request.model ?? defaultModel;
       const messages = toBedrockMessages(request);
@@ -498,6 +552,9 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
       /** Accumulate streamed tool-use input JSON by content-block index. */
       const toolInputByIndex = new Map<number, { id: string; name: string; raw: string }>();
 
+      /** Whether the stream reached `messageStop`, i.e. the model finished its answer. */
+      let stopped = false;
+      const deadline = requestDeadline(request.signal, timeoutMs);
       try {
         const out = await client.send(
           new ConverseStreamCommand({
@@ -508,12 +565,7 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
             toolConfig,
             outputConfig: buildOutputConfig(request, structuredOutputs),
           }),
-          {
-            abortSignal: combineAbort(
-              request.signal,
-              AbortSignal.timeout(request.timeout ?? defaultTimeout),
-            ),
-          },
+          { abortSignal: deadline.signal },
         );
 
         if (!out.stream) {
@@ -574,10 +626,13 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
             usage = mapUsage(event.metadata.usage);
             yield { type: 'usage', usage };
           }
+          if (event.messageStop) stopped = true;
           if (event.messageStop?.stopReason) {
             finishReason = mapStopReason(event.messageStop.stopReason);
           }
         }
+        // A stream the timeout cut off may just end: report the timeout, not a truncated answer.
+        if (!stopped && deadline.timedOut()) throw deadline.signal.reason;
 
         // Flush any tool starts that never got a contentBlockStop (name-only stubs).
         for (const entry of toolInputByIndex.values()) {
@@ -603,27 +658,39 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
       } catch (err) {
         yield {
           type: 'error',
-          error: mapBedrockError(err).message,
+          error: deadline.classify(err).message,
         };
       }
     },
 
     async embed(request: EmbeddingRequest): Promise<EmbeddingResponse> {
+      const timeoutMs = checkedRequestTimeout(request.timeout ?? defaultTimeout);
+      // An already-cancelled request loads no pricing and calls nothing.
+      request.signal?.throwIfAborted();
       await ensurePricing();
       const modelId = request.model ?? defaultEmbeddingModel;
       const embeddings: number[][] = new Array<number[]>(request.texts.length);
       let totalTokens = 0;
 
       async function embedOne(text: string, index: number): Promise<void> {
-        const out = await client.send(
-          new InvokeModelCommand({
-            modelId,
-            contentType: 'application/json',
-            accept: 'application/json',
-            body: new TextEncoder().encode(JSON.stringify(embeddingBody(modelId, text, inputType))),
-          }),
-          { abortSignal: AbortSignal.timeout(defaultTimeout) },
-        );
+        // Each InvokeModel call is one request and gets the whole timeout; the caller's
+        // signal aborts every one in flight.
+        const deadline = requestDeadline(request.signal, timeoutMs);
+        const out = await client
+          .send(
+            new InvokeModelCommand({
+              modelId,
+              contentType: 'application/json',
+              accept: 'application/json',
+              body: new TextEncoder().encode(
+                JSON.stringify(embeddingBody(modelId, text, inputType)),
+              ),
+            }),
+            { abortSignal: deadline.signal },
+          )
+          .catch((err: unknown) => {
+            throw deadline.classify(err);
+          });
         const parsed = parseEmbeddingResponse(out.body);
         embeddings[index] = parsed.embedding;
         totalTokens += parsed.tokens;
@@ -639,6 +706,8 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
         await Promise.all(
           Array.from({ length: workers }, async () => {
             while (cursor < queue.length) {
+              // Once the caller cancels, no further text is sent.
+              request.signal?.throwIfAborted();
               const item = queue[cursor++];
               if (!item) break;
               await embedOne(item.text, item.index);
@@ -646,6 +715,9 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
           }),
         );
       } catch (err) {
+        // The caller's reason from the check above, as raised (an already-aborted signal
+        // rejects the same way); mapping would turn a non-Error reason into a new Error.
+        if (request.signal?.aborted && err === request.signal.reason) throw err;
         throw mapBedrockError(err);
       }
 

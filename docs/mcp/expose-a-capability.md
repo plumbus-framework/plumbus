@@ -65,7 +65,7 @@ Avoid `public: true` on destructive MCP tools.
 }
 ```
 
-- `inputSchema` comes from `zodInputToJsonSchema(cap.input)`.
+- `inputSchema` comes from `zodInputToJsonSchema(cap.input)`, which is the structured-output converter `zodToProviderJsonSchema`: an intersection of objects is one object, a tuple is an array of its item schemas with the order and length in the description (not `items: [...]`/`prefixItems`), and unsupported constraints are named in descriptions (see [Strict Structured Outputs](../ai/ai-integration.md#strict-structured-outputs)). The capability's Zod input schema still validates each call.
 - `readOnlyHint` is `true` when `kind === 'query'`.
 - `agentTags` appear in the manifest and skill files, not in the MCP SDK `ListTools` payload (unless folded into description).
 

@@ -157,7 +157,7 @@ That dynamically `require`s `@plumbus/ai-bedrock` and forwards those fields into
 | `credentials` | no | Explicit AWS credentials or provider; else default chain |
 | `defaultModel` | no | Converse model when request omits `model` |
 | `defaultEmbeddingModel` | no | Default Titan V2 id |
-| `requestTimeout` | no | ms (default `120_000`) |
+| `requestTimeout` | no | ms (default `120_000`); a request's `timeout` (a prompt's `model.timeoutMs`, a call's `timeoutMs`, an embedding request's `timeout`) overrides it. A request its timeout ends fails with core's `ProviderAPIError` shape (`timeoutMs`, `retryable: false`; `isProviderTimeoutError` from `@plumbus/core` recognises it). A timeout that is not a whole number of ms from 1 to 2 147 483 647 (this one or the request's) fails with core's `AIInvalidRequestError` (`reason: 'timeout_invalid'`) before anything is sent — see [Request Timeouts](./ai-integration.md#request-timeouts) |
 | `endpoint` | no | VPC / GovCloud Runtime endpoint override |
 | `pricingFilePath` | no | Normalized JSON; skips Price List download |
 | `pricingCacheTtlMs` | no | In-memory TTL for auto-download (default 24h) |
@@ -183,11 +183,13 @@ Discovered by `@plumbus/core` when `@plumbus/ai-bedrock` is installed and Bedroc
 | `AI_BEDROCK_EMBEDDING_MODEL` | no | Default embedding model (else Titan V2) |
 | `AI_BEDROCK_PRICING_FILE` | **yes in k8s** | Absolute path to normalized pricing JSON |
 | `AI_BEDROCK_PRICING_TTL_MS` | no | Auto-download in-memory TTL (default ~24h) |
-| `AI_BEDROCK_REQUEST_TIMEOUT` | no | Adapter request timeout ms (default `120000`) |
+| `AI_BEDROCK_REQUEST_TIMEOUT` | no | Adapter request timeout ms (default `120000`); prompts and calls can override it per request |
 | `AI_BEDROCK_MAX_TOKENS` | no | Core per-request max-tokens guard (not a Bedrock SDK field by itself) |
 | `AI_BEDROCK_DAILY_COST_LIMIT` | no | Core daily USD cost guard |
 
 \*Bedrock env discovery activates when `AI_BEDROCK_REGION` is set, **or** `AI_BEDROCK_ENABLED=1`/`true` with `AWS_REGION` / `AWS_DEFAULT_REGION`. There is **no** `AI_BEDROCK_API_KEY`.
+
+The numeric variables take plain numbers, without unit suffixes: `AI_BEDROCK_REQUEST_TIMEOUT` a whole number of milliseconds from 1 to 2 147 483 647, `AI_BEDROCK_MAX_TOKENS` a whole number of tokens (0 or more), `AI_BEDROCK_DAILY_COST_LIMIT` a number of US dollars (0 or more), `AI_BEDROCK_PRICING_TTL_MS` a whole number of milliseconds (0 or more). Anything else (`abc`, `15m`, `24h`) makes `loadConfig()` throw naming the variable, e.g. `Invalid AI_BEDROCK_PRICING_TTL_MS="24h": expected a whole number of milliseconds, 0 or more`; a blank value is unset.
 
 Standard AWS credential env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` / `AWS_DEFAULT_REGION`, profile, IRSA web identity) apply to the SDK. Optional `AWS_BEARER_TOKEN_BEDROCK` is picked up by the AWS SDK when present.
 
@@ -281,11 +283,13 @@ createBedrockAdapter({ region: 'us-east-1', structuredOutputs: 'native' });
 
 **Opt-in on purpose:** `outputConfig` support is model-dependent, and a model that does not accept it rejects the entire request. Verify against your model before enabling it in a deployment. When a prompt sets `structuredOutputTransport: 'tool'`, the adapter skips `outputConfig` so the response is not double-constrained.
 
+The schema is core's provider-neutral one (`zodToProviderJsonSchema`), sent as it is. It keeps to the features Bedrock's [structured outputs page](https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html) lists: an intersection of objects is merged into one object, `z.string().cidr()` is an `anyOf` of its IPv4 and IPv6 patterns, a tuple is an array of its item schemas with the order in the description, and an optional output root is the value itself (see [Strict Structured Outputs](./ai-integration.md#strict-structured-outputs)). Bedrock asks for no object root, so an array, union or enum output is not wrapped. The page does not list `default` or `pattern`, which core keeps because Anthropic documents them; if a model refuses one, turn `structuredOutputs` off for it.
+
 ---
 
 ## Embeddings
 
-`adapter.embed({ texts, model? })` calls **InvokeModel** per text (default model `amazon.titan-embed-text-v2:0`).
+`adapter.embed({ texts, model?, timeout?, signal? })` calls **InvokeModel** per text (default model `amazon.titan-embed-text-v2:0`); each call gets `timeout` (else `requestTimeout`). When `signal` fires, the calls in flight are aborted (failing as `complete()` does, with the AWS SDK's `AbortError` whose `cause` is the caller's reason), no further text is sent, and `embed()` rejects; a signal that fired before the first text or between texts rejects with its reason as raised, before pricing is loaded or Bedrock is called when it was already aborted. The RAG pipeline and `ctx.ai.retrieve({ signal })` pass the caller's signal here.
 
 | Model family | Request body | Response field |
 |---|---|---|

@@ -58,12 +58,13 @@ By default, any input keys not referenced as `{{key}}` in `system`/`description`
 | `maxTokens` | number? | Max output tokens |
 | `reasoning` | `{ mode:'disabled' } \| { mode:'effort', effort } \| { mode:'budget', maxTokens }?` | Provider-neutral reasoning intent; the selected adapter translates or explicitly rejects it |
 | `reasoningEffort` | `'low' \| 'medium' \| 'high'?` | Deprecated OpenAI-only shorthand; unchanged for source/runtime compatibility |
+| `timeoutMs` | number? | How long one provider request may take, in ms (whole number, 1–2147483647), the whole answer included; unset keeps the provider's `requestTimeout` (default 120 000). Raise it for long answers (large `maxTokens`, reasoning); a request it ends fails with a non-retryable `ProviderAPIError` carrying `timeoutMs` |
 
 **Recommended convention:** omit `provider` and `name` in the prompt definition and resolve them via env (`AI_DEFAULT_PROVIDER`, `AI_DEFAULT_MODEL`, `PROMPT_{NAME}_*`) or the `resolveAiOverrides` hook in `app/server.ts`. Set only `temperature`, `maxTokens`, and (when needed) `reasoning` in the prompt when you want per-prompt tuning baked into the contract.
 
 Bare `z.string()` prompt `output` schemas run in plain text mode (same as a single-string-field object). Prefer that for free-text prompts; use an object schema when you need structured fields.
 
-Resolution order: `resolveAiOverrides` → per-prompt env vars → prompt `model` fields → `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`.
+Resolution order, field by field (each of `provider`, `model`, `temperature`, `maxTokens`, `reasoning`, `timeoutMs` on its own): per-call value → `resolveAiOverrides` → per-prompt env vars → prompt `model` fields → defaults (the hook's `defaultModel` / `defaultProvider`, else `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`). A layer decides only the fields it sets, so a hook override of `model` keeps `PROMPT_{NAME}_TIMEOUT_MS` and `_MAX_TOKENS`; the hook's `promptOverrides` may be keyed by the prompt name or its env-style key (`report_summarize`), the name winning.
 
 ## Structured output and streaming flags
 

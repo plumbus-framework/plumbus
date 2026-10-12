@@ -358,7 +358,10 @@ export interface AITokenUsage {
   totalTokens: number;
   /** Tokens served from provider cache (charged at reduced rate). */
   cachedInputTokens?: number;
-  /** Tokens written to provider cache (charged at elevated rate — Anthropic only). */
+  /**
+   * Tokens written to provider cache, counted inside `inputTokens` (Anthropic, OpenAI); charged
+   * at 1.25× input for Claude and OpenAI GPT-5.6+, at the input rate for earlier OpenAI models.
+   */
   cacheWriteTokens?: number;
   /** Tokens the model spent reasoning, when the provider reports the split; counted inside `outputTokens`. */
   reasoningTokens?: number;
@@ -442,6 +445,12 @@ export interface AIGenerateWithUsageConfig {
    * `'low' | 'medium' | 'high'` values.
    */
   reasoningEffort?: ReasoningEffort | null;
+  /**
+   * Override the prompt/config provider request timeout for this call, in milliseconds (see
+   * `ModelConfig.timeoutMs`). A request it ends fails with a non-retryable `ProviderAPIError`
+   * carrying `timeoutMs`.
+   */
+  timeoutMs?: number;
 }
 
 export interface AIValidationOptions {
@@ -528,6 +537,8 @@ export interface AIService {
     reasoning?: AIReasoningConfig | null;
     /** @deprecated Use `reasoning`. */
     reasoningEffort?: ReasoningEffort | null;
+    /** Per-call provider request timeout in ms; overrides the prompt's `model.timeoutMs`. */
+    timeoutMs?: number;
   }): Promise<Record<string, any>>;
 
   /** Like generate(), but also returns actual token usage. No tools → flat result; `.data` unconditional (C1). */
@@ -567,6 +578,11 @@ export interface AIService {
     reasoning?: AIReasoningConfig | null;
     /** @deprecated Use `reasoning`. */
     reasoningEffort?: ReasoningEffort | null;
+    /**
+     * Per-call provider request timeout in ms; overrides the prompt's `model.timeoutMs`. It
+     * covers the whole stream, not just its start.
+     */
+    timeoutMs?: number;
   }): AsyncIterable<AIStreamEvent>;
 
   extract(config: {
@@ -577,6 +593,12 @@ export interface AIService {
     signal?: AbortSignal;
     /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
     costContext?: AICostContext;
+    /**
+     * Per-call provider request timeout in ms (each validation retry gets its own); unset keeps
+     * the adapter's `requestTimeout`. A request it ends fails with a non-retryable
+     * `ProviderAPIError` carrying `timeoutMs`.
+     */
+    timeoutMs?: number;
   }): Promise<Record<string, any>>;
 
   classify(config: {
@@ -591,6 +613,12 @@ export interface AIService {
     threshold?: number;
     /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
     costContext?: AICostContext;
+    /**
+     * Per-call provider request timeout in ms; unset keeps the provider's default. A text
+     * provider request it ends fails with a non-retryable `ProviderAPIError` carrying
+     * `timeoutMs`; a decision provider takes it as its `timeoutMs` (at most 300 000).
+     */
+    timeoutMs?: number;
   }): Promise<string[]>;
 
   /** Validated decisions with shared security, budgets, identity, and cost recording. */
@@ -603,6 +631,12 @@ export interface AIService {
     limit?: number;
     minScore?: number;
     signal?: AbortSignal;
+    /**
+     * Provider request timeout in ms for embedding the query; unset keeps the adapter's
+     * `requestTimeout`. A request it ends fails with a non-retryable `ProviderAPIError`
+     * carrying `timeoutMs`.
+     */
+    timeoutMs?: number;
   }): Promise<AIDocument[]>;
 }
 

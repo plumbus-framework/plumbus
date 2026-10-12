@@ -48,12 +48,21 @@ export interface AICostRecord {
   };
   /** Provider-reported or catalog-estimated USD cost; null when unknown. */
   cost: number | null;
+  /**
+   * What dollar budgets charge while `cost` is null: the call's known spend plus, for each
+   * attempt whose usage never came back (e.g. the connection dropped after the request was
+   * sent), its input estimate and output cap at the model's price. An attempt on a model
+   * with no price adds nothing. Not a billed amount, so `cost` stays null.
+   */
+  estimatedCost?: number;
   latencyMs: number;
   tenantId?: string;
   actor?: string;
   /**
    * Whether the underlying provider call completed successfully. Failed rows
-   * still represent real provider-side spend and count toward budget caps.
+   * still represent real provider-side spend and count toward budget caps;
+   * a call that never reached the provider, or that it turned away, is
+   * recorded at zero cost.
    * Defaults to 'success' inside `createCostTracker` when the caller does
    * not set it, preserving pre-0.3.0 behavior for existing consumers.
    */
@@ -96,6 +105,13 @@ export interface CostTracker {
      * layers can compute this ahead of time and pre-check shared daily caps.
      */
     estimatedCostUsd?: number;
+    /**
+     * Provider and model the call will use. Unpriced spend (a row with neither a cost nor an
+     * estimate) then refuses only calls to that provider and model; a check without them is
+     * refused by unpriced spend on any model.
+     */
+    provider?: string;
+    model?: string;
   }): BudgetCheckResult;
   getDailyUsage(tenantId?: string): DailyUsage;
   getRecords(): AICostRecord[];
@@ -156,6 +172,29 @@ export function createCostTracker(
     return { total, available };
   }
 
+  /** What a row costs the dollar budgets: its known cost, else its recorded estimate. */
+  function sumCharges(recs: AICostRecord[]): number {
+    let total = 0;
+    for (const r of recs) total += r.cost ?? r.estimatedCost ?? 0;
+    return total;
+  }
+
+  /**
+   * Spend the budgets cannot count: no cost and no estimate on a call the provider answered,
+   * i.e. a model nobody can price. More calls to it would add more uncountable spend, so the
+   * budget refuses them. A failed row without any usage is a call whose attempt never brought
+   * an answer back; it cannot be priced either, but it is one call and must not lock out the
+   * rest of the day.
+   */
+  function isUnpriced(record: AICostRecord): boolean {
+    if (record.cost != null || record.estimatedCost != null) return false;
+    return (
+      record.status !== 'failed' ||
+      record.usage.totalTokens > 0 ||
+      Object.values(record.mediaUsage ?? {}).some((amount) => (amount ?? 0) > 0)
+    );
+  }
+
   return {
     record(entry) {
       const identity = z
@@ -163,9 +202,14 @@ export function createCostTracker(
         .safeParse(entry);
       if (!identity.success)
         throw createErrorService().validation('Invalid AI cost record identity');
+      const { estimatedCost: rawEstimate, ...rest } = entry;
+      const cost = normalizeCost(entry.cost);
+      // A known cost supersedes any estimate; an invalid estimate is dropped like an invalid cost.
+      const estimatedCost = cost == null ? normalizeCost(rawEstimate) : null;
       records.push({
-        ...entry,
-        cost: normalizeCost(entry.cost),
+        ...rest,
+        cost,
+        ...(estimatedCost != null ? { estimatedCost } : {}),
         usage: validateTokenUsage(entry.usage),
         status: entry.status ?? 'success',
         id: identity.data.id ?? crypto.randomUUID(),
@@ -178,9 +222,27 @@ export function createCostTracker(
         .object({
           estimatedTokens: z.number().finite().nonnegative().optional(),
           estimatedCostUsd: z.number().finite().nonnegative().optional(),
+          provider: z.string().optional(),
+          model: z.string().optional(),
         })
         .safeParse(config);
       if (!estimate.success) return { allowed: false, reason: 'Invalid budget estimate' };
+      const { provider, model } = estimate.data;
+      // Unpriced spend refuses only the calls that would add to it: a scoped check is blocked
+      // by its own provider and model, an unscoped one (media, decisions) by any.
+      const unpricedReason = (recs: AICostRecord[], budgetName: string): string | undefined => {
+        const blocked = recs.some(
+          (record) =>
+            isUnpriced(record) &&
+            (provider == null ||
+              (record.provider === provider && (model == null || record.model === model))),
+        );
+        if (!blocked) return undefined;
+        if (provider == null)
+          return `Cost data unavailable for prior requests — ${budgetName} budget cannot be enforced.`;
+        const subject = model == null ? provider : `${provider} ${model}`;
+        return `Cost data unavailable for prior ${subject} requests — ${budgetName} budget cannot be enforced for them.`;
+      };
       if (budget?.maxTokensPerRequest != null && config.estimatedTokens != null) {
         if (config.estimatedTokens > budget.maxTokensPerRequest) {
           return {
@@ -192,14 +254,9 @@ export function createCostTracker(
 
       if (budget?.dailyCostLimit != null) {
         const daily = getTodayRecords();
-        const { total } = sumCost(daily);
-        const projectedTotal = total + (config.estimatedCostUsd ?? 0);
-        if (daily.some((record) => record.cost == null)) {
-          return {
-            allowed: false,
-            reason: 'Cost data unavailable for prior requests — daily budget cannot be enforced.',
-          };
-        }
+        const projectedTotal = sumCharges(daily) + (config.estimatedCostUsd ?? 0);
+        const unavailable = unpricedReason(daily, 'daily');
+        if (unavailable) return { allowed: false, reason: unavailable };
         if (projectedTotal >= budget.dailyCostLimit) {
           return {
             allowed: false,
@@ -210,14 +267,9 @@ export function createCostTracker(
 
       if (budget?.perTenantDailyLimit != null && config.tenantId) {
         const tenantDaily = getTodayRecords(config.tenantId);
-        const { total } = sumCost(tenantDaily);
-        const projectedTotal = total + (config.estimatedCostUsd ?? 0);
-        if (tenantDaily.some((record) => record.cost == null)) {
-          return {
-            allowed: false,
-            reason: 'Cost data unavailable for prior requests — tenant budget cannot be enforced.',
-          };
-        }
+        const projectedTotal = sumCharges(tenantDaily) + (config.estimatedCostUsd ?? 0);
+        const unavailable = unpricedReason(tenantDaily, 'tenant');
+        if (unavailable) return { allowed: false, reason: unavailable };
         if (projectedTotal >= budget.perTenantDailyLimit) {
           return {
             allowed: false,

@@ -284,6 +284,25 @@ function hasLongContextPremium(model: string): boolean {
   return withoutDate !== model && LONG_CONTEXT_PREMIUM_MODELS.has(withoutDate);
 }
 
+/** OpenAI's GPT-5.6 generation and later: `gpt-5.6*`, `gpt-5.7*`…, `gpt-6*`, `gpt-6.1*`…. */
+function isGpt56OrLater(model: string): boolean {
+  return /^gpt-(?:5\.(?:[6-9]|[1-9]\d)|[6-9]|[1-9]\d)(?:\.\d+)?(?:$|-)/.test(model);
+}
+
+/**
+ * What one cache-write token costs, as a multiple of the input rate:
+ * - Claude: 1.25×, Anthropic's five-minute cache write (one-hour writes are not modelled).
+ * - OpenAI GPT-5.6 and later: 1.25× ("For GPT-5.6 and later, cache writes cost 1.25× the
+ *   standard, uncached input-token rate", https://developers.openai.com/api/docs/guides/prompt-caching;
+ *   the pricing page's "Cache writes" column for `gpt-6-*` and `gpt-5.6-*`).
+ * - Every other OpenAI model: 1× ("No additional cache-write charge"; the pricing page shows "-"
+ *   for its cache writes, and "Cache-write pricing does not apply" to `gpt-rosalind-research`):
+ *   the token is billed as ordinary input.
+ */
+function cacheWriteMultiplier(model: string): number {
+  return model.startsWith('claude-') || isGpt56OrLater(model) ? 1.25 : 1;
+}
+
 /** Legacy numeric cost helper. Use estimateModelCost when unknown must differ from free. */
 export function calculateModelCost(
   inputTokens: number,
@@ -299,7 +318,9 @@ export function calculateModelCost(
  *
  * Pricing adjustments applied:
  * - **Cached input tokens**: published per-model rate, defaulting to 0.1× input.
- * - **Cache write tokens**: charged at 1.25× the base input rate.
+ * - **Cache write tokens**: 1.25× the base input rate for Claude and for OpenAI GPT-5.6 and
+ *   later, the base input rate for earlier OpenAI models (`cacheWriteMultiplier`). Both providers
+ *   count cache writes inside the input tokens, so they are priced once.
  * - **Long context premium**: for Claude Sonnet 4 / 4.5, when total input exceeds
  *   200K tokens, or OpenAI models with a `longContextThreshold` (272K), charge 2×
  *   input/cache and 1.5× output.
@@ -348,8 +369,8 @@ export function estimateModelCost(
   // Use the published cache-read rate where it differs from the default.
   const cachedCost = cached * cachedInputRate;
 
-  // Cache writes: 1.25× base input rate (five-minute cache pricing).
-  const cacheWriteCost = cacheWrites * inputRate * 1.25;
+  // Cache writes: the model's cache-write rate (long-context premium included).
+  const cacheWriteCost = cacheWrites * inputRate * cacheWriteMultiplier(model);
 
   // Output tokens at standard (or long-context-premium) rate
   const outputCost = outputTokens * outputRate;

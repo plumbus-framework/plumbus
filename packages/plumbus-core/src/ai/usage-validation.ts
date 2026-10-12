@@ -10,13 +10,18 @@ const usageSchema = z.object({
   totalTokens: amount,
   cachedInputTokens: amount.optional(),
   cacheWriteTokens: amount.optional(),
+  // Informational: already counted in `outputTokens`, which is what is priced. Kept so a ledger
+  // row carries the same usage the call reported; an unusable value (a custom adapter's NaN or
+  // null) is dropped rather than failing a call that is priced without it.
+  reasoningTokens: amount.optional().catch(undefined),
 });
 
 export function validateTokenUsage(usage: TokenUsage): TokenUsage {
   const parsed = usageSchema.safeParse(usage);
   if (!parsed.success) throw createErrorService().validation('Invalid provider token usage');
+  const { reasoningTokens, ...counted } = parsed.data;
   // Also supports the standalone declaration emitter without strictNullChecks.
-  return parsed.data as TokenUsage;
+  return (reasoningTokens === undefined ? counted : parsed.data) as TokenUsage;
 }
 
 export function normalizeCost(cost: unknown): number | null {

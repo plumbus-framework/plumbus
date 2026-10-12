@@ -118,9 +118,23 @@ function loadAIConfig(env: Record<string, string | undefined>): AIProviderConfig
     apiKey,
     model: env.AI_MODEL ?? undefined,
     baseUrl: env.AI_BASE_URL ?? undefined,
-    maxTokensPerRequest: env.AI_MAX_TOKENS ? parseInt(env.AI_MAX_TOKENS, 10) : undefined,
-    dailyCostLimit: env.AI_DAILY_COST_LIMIT ? parseFloat(env.AI_DAILY_COST_LIMIT) : undefined,
-    requestTimeout: env.AI_REQUEST_TIMEOUT ? parseInt(env.AI_REQUEST_TIMEOUT, 10) : undefined,
+    ...readProviderLimits(env, 'AI_'),
+  };
+}
+
+/**
+ * The numeric limits of one provider slot, from `{prefix}MAX_TOKENS`, `{prefix}DAILY_COST_LIMIT`
+ * and `{prefix}REQUEST_TIMEOUT`. Throws naming the variable when one is not a plain number in
+ * range; a blank one is unset.
+ */
+function readProviderLimits(
+  env: Record<string, string | undefined>,
+  prefix: string,
+): Pick<AIProviderConfig, 'maxTokensPerRequest' | 'dailyCostLimit' | 'requestTimeout'> {
+  return {
+    maxTokensPerRequest: readEnvNumber(env, `${prefix}MAX_TOKENS`, PROVIDER_MAX_TOKENS_RULE),
+    dailyCostLimit: readEnvNumber(env, `${prefix}DAILY_COST_LIMIT`, PROVIDER_DAILY_COST_LIMIT_RULE),
+    requestTimeout: readEnvNumber(env, `${prefix}REQUEST_TIMEOUT`, PROVIDER_REQUEST_TIMEOUT_RULE),
   };
 }
 
@@ -146,18 +160,12 @@ function readOpenAiOrAnthropicConfig(
     return undefined;
   }
 
-  const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
-  const dailyCostRaw = env[`${prefix}DAILY_COST_LIMIT`];
-  const timeoutRaw = env[`${prefix}REQUEST_TIMEOUT`];
-
   return {
     provider: name,
     apiKey,
     model: env[`${prefix}MODEL`] ?? undefined,
     baseUrl: env[`${prefix}BASE_URL`] ?? undefined,
-    maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
-    dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
-    requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
+    ...readProviderLimits(env, prefix),
   };
 }
 
@@ -171,11 +179,6 @@ function readBedrockConfig(env: Record<string, string | undefined>): AIProviderC
     return undefined;
   }
 
-  const maxTokensRaw = env.AI_BEDROCK_MAX_TOKENS;
-  const dailyCostRaw = env.AI_BEDROCK_DAILY_COST_LIMIT;
-  const timeoutRaw = env.AI_BEDROCK_REQUEST_TIMEOUT;
-  const ttlRaw = env.AI_BEDROCK_PRICING_TTL_MS;
-
   return {
     provider: 'bedrock',
     // Bedrock authenticates through the AWS credential chain (IAM / IRSA /
@@ -186,10 +189,8 @@ function readBedrockConfig(env: Record<string, string | undefined>): AIProviderC
     model: env.AI_BEDROCK_MODEL ?? undefined,
     embeddingModel: env.AI_BEDROCK_EMBEDDING_MODEL ?? undefined,
     pricingFilePath: env.AI_BEDROCK_PRICING_FILE ?? undefined,
-    maxTokensPerRequest: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
-    dailyCostLimit: dailyCostRaw != null ? parseFloat(dailyCostRaw) : undefined,
-    requestTimeout: timeoutRaw != null ? parseInt(timeoutRaw, 10) : undefined,
-    pricingCacheTtlMs: ttlRaw != null ? parseInt(ttlRaw, 10) : undefined,
+    ...readProviderLimits(env, 'AI_BEDROCK_'),
+    pricingCacheTtlMs: readEnvNumber(env, 'AI_BEDROCK_PRICING_TTL_MS', BEDROCK_PRICING_TTL_MS_RULE),
   };
 }
 
@@ -288,7 +289,90 @@ function loadAiSecurityConfig(
 
 // \u2500\u2500 Prompt Model Overrides \u2500\u2500
 
-/** Scan for PROMPT_{NAME}_* env vars and build per-prompt model overrides */
+/** The longest provider request timeout Node's timers keep (see `ModelConfig.timeoutMs`). */
+const MAX_PROMPT_TIMEOUT_MS = 2_147_483_647;
+
+/** How a numeric env setting (PROMPT_{NAME}_*, AI provider limits) is read and what it must be. */
+interface EnvNumberRule {
+  pattern: RegExp;
+  min: number;
+  max: number;
+  expected: string;
+}
+
+const PROMPT_TIMEOUT_MS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 1,
+  max: MAX_PROMPT_TIMEOUT_MS,
+  expected: `a whole number of milliseconds from 1 to ${MAX_PROMPT_TIMEOUT_MS}`,
+};
+
+const PROMPT_MAX_TOKENS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 1,
+  max: Number.MAX_SAFE_INTEGER,
+  expected: 'a whole number of tokens, at least 1',
+};
+
+const PROMPT_TEMPERATURE_RULE: EnvNumberRule = {
+  pattern: /^(?:\d+(?:\.\d*)?|\.\d+)$/,
+  min: 0,
+  max: 2,
+  expected: 'a number from 0 to 2',
+};
+
+/** `AI_REQUEST_TIMEOUT` / `AI_{PROVIDER}_REQUEST_TIMEOUT`: the adapter's `requestTimeout`. */
+const PROVIDER_REQUEST_TIMEOUT_RULE: EnvNumberRule = PROMPT_TIMEOUT_MS_RULE;
+
+/** `AI_MAX_TOKENS` / `AI_{PROVIDER}_MAX_TOKENS`: the per-request token guard (0 refuses all). */
+const PROVIDER_MAX_TOKENS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: Number.MAX_SAFE_INTEGER,
+  expected: 'a whole number of tokens, 0 or more',
+};
+
+/** `AI_DAILY_COST_LIMIT` / `AI_{PROVIDER}_DAILY_COST_LIMIT`: US dollars a day (0 refuses all). */
+const PROVIDER_DAILY_COST_LIMIT_RULE: EnvNumberRule = {
+  pattern: /^(?:\d+(?:\.\d*)?|\.\d+)$/,
+  min: 0,
+  max: Number.MAX_VALUE,
+  expected: 'a number of US dollars, 0 or more',
+};
+
+/** `AI_BEDROCK_PRICING_TTL_MS`: how long downloaded Bedrock prices are kept. */
+const BEDROCK_PRICING_TTL_MS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: Number.MAX_SAFE_INTEGER,
+  expected: 'a whole number of milliseconds, 0 or more',
+};
+
+/**
+ * Reads one numeric env setting. Unset or blank is no value. Anything else must be a plain
+ * number (digits, and a decimal point where the rule allows one; no unit suffix) in range, or
+ * loading fails naming the variable: `parseInt`/`parseFloat` turned `abc` into NaN and `15m`
+ * into 15, which every later call then sent or failed on.
+ */
+function readEnvNumber(
+  env: Record<string, string | undefined>,
+  variable: string,
+  rule: EnvNumberRule,
+): number | undefined {
+  const raw = env[variable];
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === '') return undefined;
+  const value = rule.pattern.test(trimmed) ? Number(trimmed) : Number.NaN;
+  if (!Number.isFinite(value) || value < rule.min || value > rule.max) {
+    throw new Error(`Invalid ${variable}="${raw}": expected ${rule.expected}`);
+  }
+  return value;
+}
+
+/**
+ * Scan for PROMPT_{NAME}_* env vars and build per-prompt model overrides. Throws when a numeric
+ * one (`TEMPERATURE`, `MAX_TOKENS`, `TIMEOUT_MS`) is not a usable value, naming the variable.
+ */
 export function loadPromptOverrides(
   env: Record<string, string | undefined>,
 ): Record<string, PromptModelOverride> | undefined {
@@ -297,7 +381,8 @@ export function loadPromptOverrides(
   // Scan for PROMPT_{NAME}_PROVIDER or PROMPT_{NAME}_MODEL patterns
   const promptNames = new Set<string>();
   for (const key of Object.keys(env)) {
-    const match = /^PROMPT_([A-Z][A-Z0-9_]*)_(PROVIDER|MODEL|TEMPERATURE|MAX_TOKENS)$/.exec(key);
+    const match =
+      /^PROMPT_([A-Z][A-Z0-9_]*)_(PROVIDER|MODEL|TEMPERATURE|MAX_TOKENS|TIMEOUT_MS)$/.exec(key);
     if (match?.[1] != null) {
       promptNames.add(match[1].toLowerCase());
     }
@@ -305,14 +390,13 @@ export function loadPromptOverrides(
 
   for (const name of promptNames) {
     const prefix = `PROMPT_${name.toUpperCase()}_`;
-    const tempRaw = env[`${prefix}TEMPERATURE`];
-    const maxTokensRaw = env[`${prefix}MAX_TOKENS`];
 
     overrides[name] = {
       provider: env[`${prefix}PROVIDER`] ?? undefined,
       model: env[`${prefix}MODEL`] ?? undefined,
-      temperature: tempRaw != null ? parseFloat(tempRaw) : undefined,
-      maxTokens: maxTokensRaw != null ? parseInt(maxTokensRaw, 10) : undefined,
+      temperature: readEnvNumber(env, `${prefix}TEMPERATURE`, PROMPT_TEMPERATURE_RULE),
+      maxTokens: readEnvNumber(env, `${prefix}MAX_TOKENS`, PROMPT_MAX_TOKENS_RULE),
+      timeoutMs: readEnvNumber(env, `${prefix}TIMEOUT_MS`, PROMPT_TIMEOUT_MS_RULE),
     };
   }
 

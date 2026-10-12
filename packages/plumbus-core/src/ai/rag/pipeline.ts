@@ -2,7 +2,7 @@
 // Ingestion, embedding, storage, and retrieval
 
 import type { AIDocument } from '../../types/context.js';
-import type { AIProviderAdapter } from '../provider.js';
+import { type AIProviderAdapter, assertRequestTimeout } from '../provider.js';
 import { chunkDocument, type ChunkConfig, type DocumentChunk } from './chunking.js';
 
 // ── Ingestion Input ──
@@ -19,6 +19,16 @@ export interface IngestDocumentInput {
   classification?: string;
   /** Additional metadata */
   metadata?: Record<string, unknown>;
+  /**
+   * Provider request timeout in ms for each embedding batch; unset keeps the adapter's
+   * `requestTimeout` (`EmbeddingRequest.timeout`).
+   */
+  timeoutMs?: number;
+  /**
+   * Cancels the ingest: passed to each embedding request (`EmbeddingRequest.signal`), and once
+   * it fires no further batch is embedded and nothing is stored. Its abort is rethrown as raised.
+   */
+  signal?: AbortSignal;
 }
 
 // ── Stored Chunk ──
@@ -48,6 +58,16 @@ export interface RetrievalQuery {
   limit?: number;
   /** Minimum similarity score (default: 0.0) */
   minScore?: number;
+  /**
+   * Provider request timeout in ms for embedding the query; unset keeps the adapter's
+   * `requestTimeout` (`EmbeddingRequest.timeout`).
+   */
+  timeoutMs?: number;
+  /**
+   * Cancels the retrieval: passed to the query's embedding request (`EmbeddingRequest.signal`),
+   * and once it fires the vector store is not searched. Its abort is rethrown as raised.
+   */
+  signal?: AbortSignal;
 }
 
 // ── Vector Store Interface ──
@@ -101,16 +121,23 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
 
   return {
     async ingest(input: IngestDocumentInput) {
+      // Refused before any embedding request, whichever adapter (some never check it).
+      if (input.timeoutMs !== undefined) assertRequestTimeout(input.timeoutMs);
+
       // 1. Chunk the document
       const chunks: DocumentChunk[] = chunkDocument(input.content, config.chunkConfig);
 
       // 2. Generate embeddings in batches
       const storedChunks: StoredChunk[] = [];
       for (let i = 0; i < chunks.length; i += batchSize) {
+        // Also stops adapters that ignore `EmbeddingRequest.signal` between batches.
+        input.signal?.throwIfAborted();
         const batch = chunks.slice(i, i + batchSize);
         const embeddingResponse = await provider.embed({
           texts: batch.map((c) => c.content),
           model: config.embeddingModel,
+          ...(input.timeoutMs !== undefined ? { timeout: input.timeoutMs } : {}),
+          ...(input.signal !== undefined ? { signal: input.signal } : {}),
         });
 
         if (config.onEmbeddingCost) {
@@ -142,6 +169,7 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
       }
 
       // 3. Store chunks with embeddings
+      input.signal?.throwIfAborted();
       await vectorStore.insert(storedChunks);
 
       return { documentId: input.documentId, chunkCount: storedChunks.length };
@@ -150,11 +178,16 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
     async retrieve(query: RetrievalQuery): Promise<AIDocument[]> {
       const limit = query.limit ?? 5;
       const minScore = query.minScore ?? 0.0;
+      if (query.timeoutMs !== undefined) assertRequestTimeout(query.timeoutMs);
+      // An already-cancelled retrieval costs nothing, whichever adapter.
+      query.signal?.throwIfAborted();
 
       // 1. Embed the query
       const embeddingResponse = await provider.embed({
         texts: [query.query],
         model: config.embeddingModel,
+        ...(query.timeoutMs !== undefined ? { timeout: query.timeoutMs } : {}),
+        ...(query.signal !== undefined ? { signal: query.signal } : {}),
       });
 
       if (config.onEmbeddingCost) {
@@ -170,7 +203,8 @@ export function createRAGPipeline(config: RAGPipelineConfig): RAGPipeline {
       const queryEmbedding = embeddingResponse.embeddings[0];
       if (!queryEmbedding) return [];
 
-      // 2. Search vector store
+      // 2. Search vector store (its embedding spend is reported above, cancelled or not)
+      query.signal?.throwIfAborted();
       const results = await vectorStore.search(queryEmbedding, {
         tenantId: query.tenantId,
         maxClassification: query.maxClassification,

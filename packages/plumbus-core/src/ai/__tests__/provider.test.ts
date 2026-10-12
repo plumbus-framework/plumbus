@@ -468,6 +468,591 @@ describe('AI Provider Adapters', () => {
       vi.unstubAllGlobals();
     });
 
+    describe('optional properties under OpenAI strict mode', () => {
+      // OpenAI strict mode answers 400 "'required' ... including every key in properties.
+      // Missing 'b'" for this schema as it is; it has to go out required-but-nullable.
+      function schemaWithOptional(): Record<string, unknown> {
+        return {
+          type: 'object',
+          properties: {
+            a: { type: 'string' },
+            b: { type: 'string' },
+            steps: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: { label: { type: 'string' }, weight: { type: 'number' } },
+                required: ['label'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['a'],
+          additionalProperties: false,
+        };
+      }
+      const strictSchema = {
+        type: 'object',
+        properties: {
+          a: { type: 'string' },
+          b: { type: ['string', 'null'] },
+          steps: {
+            anyOf: [
+              {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    label: { type: 'string' },
+                    weight: { type: ['number', 'null'] },
+                  },
+                  required: ['label', 'weight'],
+                  additionalProperties: false,
+                },
+              },
+              { type: 'null' },
+            ],
+          },
+        },
+        required: ['a', 'b', 'steps'],
+        additionalProperties: false,
+      };
+
+      it('sends them required and nullable in response_format, leaving the request schema alone', async () => {
+        const mockFetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            choices: [
+              { message: { content: '{"a":"x","b":null,"steps":null}' }, finish_reason: 'stop' },
+            ],
+            model: 'gpt-6-luna',
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const responseSchema = schemaWithOptional();
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          const result = await adapter.complete({
+            prompt: 'Return JSON',
+            responseFormat: 'json',
+            responseSchema,
+          });
+
+          const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+          expect(body.response_format).toEqual({
+            type: 'json_schema',
+            json_schema: { name: 'response', strict: true, schema: strictSchema },
+          });
+          expect(responseSchema).toEqual(schemaWithOptional());
+          // The adapter returns OpenAI's answer as sent; the AI service restores the omissions.
+          expect(result.content).toBe('{"a":"x","b":null,"steps":null}');
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('sends them required and nullable in the Chat Completions structured-output tool', async () => {
+        const mockFetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: null,
+                  tool_calls: [
+                    {
+                      type: 'function',
+                      function: {
+                        name: 'return_structured_response',
+                        arguments: '{"a":"x","b":null,"steps":null}',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            model: 'gpt-6-luna',
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          await adapter.complete({
+            prompt: 'Return JSON',
+            responseFormat: 'json',
+            structuredOutputTransport: 'tool',
+            responseSchema: schemaWithOptional(),
+            // GPT-6 takes function tools on Chat Completions only with reasoning off; under
+            // reasoning the tool goes to Responses (see the structured-output tool tests).
+            reasoning: { mode: 'disabled' },
+          });
+
+          expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
+          const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+          expect(body.response_format).toBeUndefined();
+          expect(body.tools).toEqual([
+            {
+              type: 'function',
+              function: {
+                name: 'return_structured_response',
+                description: 'Return the complete structured response for this request.',
+                strict: true,
+                parameters: strictSchema,
+              },
+            },
+          ]);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('sends them required and nullable on the streaming response_format', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(
+          new Response('data: [DONE]\n\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          }),
+        );
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          for await (const _event of adapter.stream({
+            prompt: 'Return JSON',
+            responseFormat: 'json',
+            responseSchema: schemaWithOptional(),
+          })) {
+            // drain
+          }
+
+          const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+          expect(body.response_format.json_schema.schema).toEqual(strictSchema);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    });
+
+    describe('structured-output tool under reasoning', () => {
+      // gpt-6-luna on Chat Completions answers 400 "Function tools with reasoning_effort are not
+      // supported for gpt-6-luna in /v1/chat/completions. To use function tools, use
+      // /v1/responses or set reasoning_effort to 'none'." for the forced structured-output tool.
+      const schema = {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+      };
+      const structuredTool = {
+        type: 'function',
+        name: 'return_structured_response',
+        description: 'Return the complete structured response for this request.',
+        strict: true,
+        parameters: schema,
+      };
+
+      function responsesFetch(overrides: Record<string, unknown> = {}) {
+        return vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            id: 'resp_1',
+            status: 'completed',
+            model: 'gpt-6-luna',
+            output: [
+              { id: 'rs_1', type: 'reasoning', encrypted_content: 'encrypted', summary: [] },
+              {
+                id: 'fc_1',
+                type: 'function_call',
+                status: 'completed',
+                call_id: 'call_1',
+                name: 'return_structured_response',
+                arguments: '{"name":"Alice"}',
+              },
+            ],
+            usage: { input_tokens: 12, output_tokens: 7, total_tokens: 19 },
+            ...overrides,
+          }),
+        });
+      }
+
+      it('sends the tool to Responses under GPT-6 default reasoning and answers with its arguments', async () => {
+        const mockFetch = responsesFetch();
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          const result = await adapter.complete({
+            system: 'Extract the name.',
+            prompt: 'Alice wrote this.',
+            responseFormat: 'json',
+            structuredOutputTransport: 'tool',
+            responseSchema: schema,
+            maxTokens: 300,
+            temperature: 0.2,
+          });
+
+          expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+          const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+          expect(body).toEqual({
+            model: 'gpt-6-luna',
+            input: [{ role: 'user', content: 'Alice wrote this.' }],
+            instructions: 'Extract the name.',
+            store: false,
+            include: ['reasoning.encrypted_content'],
+            max_output_tokens: 300,
+            tools: [structuredTool],
+            tool_choice: { type: 'function', name: 'return_structured_response' },
+          });
+          expect(result).toEqual({
+            content: '{"name":"Alice"}',
+            model: 'gpt-6-luna',
+            usage: { inputTokens: 12, outputTokens: 7, totalTokens: 19, cachedInputTokens: 0 },
+            finishReason: 'stop',
+          });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it.each([
+        [
+          'reasoning effort',
+          'gpt-6-luna',
+          { reasoning: { mode: 'effort' as const, effort: 'high' as const } },
+          'high',
+        ],
+        [
+          'legacy reasoningEffort',
+          'gpt-5.6-terra',
+          { reasoningEffort: 'medium' as const },
+          'medium',
+        ],
+      ])('keeps an explicit %s on the Responses tool request (%s)', async (_label, model, reasoning, effort) => {
+        const mockFetch = responsesFetch();
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model });
+          const result = await adapter.complete({
+            prompt: 'Alice wrote this.',
+            responseFormat: 'json',
+            structuredOutputTransport: 'tool',
+            responseSchema: schema,
+            ...reasoning,
+          });
+
+          expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+          const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+          expect(body.reasoning).toEqual({ effort });
+          expect(body.reasoning_effort).toBeUndefined();
+          expect(body.tools).toEqual([structuredTool]);
+          expect(result.content).toBe('{"name":"Alice"}');
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('keeps the tool on Chat Completions with its effort on models outside GPT-5.6/GPT-6', async () => {
+        // Only GPT-5.6/GPT-6 Chat Completions refuse the forced function under reasoning. Other
+        // models keep the transport they always had, so an OpenAI-compatible baseUrl without
+        // /responses is not sent there and `seed` still reaches the provider.
+        const mockFetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: null,
+                  tool_calls: [
+                    {
+                      type: 'function',
+                      function: {
+                        name: 'return_structured_response',
+                        arguments: '{"name":"Alice"}',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            model: 'gpt-5.4-mini',
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({
+            apiKey: 'sk-test',
+            model: 'gpt-5.4-mini',
+            baseUrl: 'https://compatible.example/v1',
+          });
+          const result = await adapter.complete({
+            prompt: 'Alice wrote this.',
+            responseFormat: 'json',
+            structuredOutputTransport: 'tool',
+            responseSchema: schema,
+            reasoning: { mode: 'effort', effort: 'high' },
+            seed: 7,
+          });
+
+          expect(mockFetch.mock.calls[0]?.[0]).toBe(
+            'https://compatible.example/v1/chat/completions',
+          );
+          const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+          expect(body.reasoning_effort).toBe('high');
+          expect(body.seed).toBe(7);
+          expect(body.tools).toEqual([
+            {
+              type: 'function',
+              function: {
+                name: 'return_structured_response',
+                description: 'Return the complete structured response for this request.',
+                strict: true,
+                parameters: schema,
+              },
+            },
+          ]);
+          expect(result.content).toBe('{"name":"Alice"}');
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('reports a tool call cut off at max_output_tokens as length', async () => {
+        const mockFetch = responsesFetch({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'return_structured_response',
+              arguments: '{"na',
+            },
+          ],
+        });
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          const result = await adapter.complete({
+            prompt: 'Alice wrote this.',
+            responseFormat: 'json',
+            structuredOutputTransport: 'tool',
+            responseSchema: schema,
+          });
+
+          expect(result.content).toBe('{"na');
+          expect(result.finishReason).toBe('length');
+          expect(result.toolCalls).toBeUndefined();
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('refuses a reasoning budget instead of dropping it', async () => {
+        const mockFetch = responsesFetch();
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          await expect(
+            adapter.complete({
+              prompt: 'Alice wrote this.',
+              responseFormat: 'json',
+              structuredOutputTransport: 'tool',
+              responseSchema: schema,
+              reasoning: { mode: 'budget', maxTokens: 2048 },
+            }),
+          ).rejects.toBeInstanceOf(AIInvalidRequestError);
+          expect(mockFetch).not.toHaveBeenCalled();
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    });
+
+    describe('string formats under OpenAI strict mode', () => {
+      // OpenAI strict mode answers 400 "Invalid schema for response_format 'response': In
+      // context=('properties', 'link'), 'uri' is not a valid format." (`z.string().url()`).
+      function schemaWithFormats(): Record<string, unknown> {
+        return {
+          type: 'object',
+          properties: {
+            link: { type: 'string', format: 'uri' },
+            email: { type: 'string', format: 'email' },
+          },
+          required: ['link', 'email'],
+          additionalProperties: false,
+        };
+      }
+      const strictSchema = {
+        type: 'object',
+        properties: {
+          link: { type: 'string', description: 'Expected string format: uri.' },
+          email: { type: 'string', format: 'email' },
+        },
+        required: ['link', 'email'],
+        additionalProperties: false,
+      };
+      const answer = '{"link":"https://example.com","email":"a@example.com"}';
+      const callerTool = {
+        name: 'fetch_page',
+        description: 'Fetch a page',
+        parameters: {
+          type: 'object',
+          properties: { url: { type: 'string', format: 'uri' } },
+          required: ['url'],
+        },
+      };
+
+      function openAIFetch() {
+        return vi.fn(async (url: string, init: RequestInit) => {
+          if (url.endsWith('/responses')) {
+            return new Response(
+              JSON.stringify({
+                status: 'completed',
+                model: 'gpt-6-luna',
+                output: [
+                  {
+                    type: 'function_call',
+                    call_id: 'call_1',
+                    name: 'return_structured_response',
+                    arguments: answer,
+                  },
+                ],
+                usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+              }),
+            );
+          }
+          if (JSON.parse(String(init.body)).stream) {
+            return new Response('data: [DONE]\n\n', {
+              headers: { 'Content-Type': 'text/event-stream' },
+            });
+          }
+          return new Response(
+            JSON.stringify({
+              choices: [{ message: { content: answer }, finish_reason: 'stop' }],
+              model: 'gpt-6-luna',
+              usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            }),
+          );
+        });
+      }
+
+      const paths: Array<{
+        path: string;
+        url: string;
+        run: (adapter: AIProviderAdapter, responseSchema: Record<string, unknown>) => Promise<void>;
+        sentSchema: (body: Record<string, any>) => unknown;
+      }> = [
+        {
+          path: 'Chat Completions response_format',
+          url: 'https://api.openai.com/v1/chat/completions',
+          run: async (adapter, responseSchema) => {
+            await adapter.complete({
+              prompt: 'Return JSON',
+              responseFormat: 'json',
+              responseSchema,
+            });
+          },
+          sentSchema: (body) => body.response_format.json_schema.schema,
+        },
+        {
+          path: 'streaming response_format',
+          url: 'https://api.openai.com/v1/chat/completions',
+          run: async (adapter, responseSchema) => {
+            for await (const _event of adapter.stream({
+              prompt: 'Return JSON',
+              responseFormat: 'json',
+              responseSchema,
+            })) {
+              // drain
+            }
+          },
+          sentSchema: (body) => body.response_format.json_schema.schema,
+        },
+        {
+          path: 'Chat Completions structured-output tool',
+          url: 'https://api.openai.com/v1/chat/completions',
+          run: async (adapter, responseSchema) => {
+            await adapter.complete({
+              prompt: 'Return JSON',
+              responseFormat: 'json',
+              responseSchema,
+              structuredOutputTransport: 'tool',
+              reasoning: { mode: 'disabled' },
+            });
+          },
+          sentSchema: (body) => body.tools[0].function.parameters,
+        },
+        {
+          path: 'Responses structured-output tool',
+          url: 'https://api.openai.com/v1/responses',
+          run: async (adapter, responseSchema) => {
+            await adapter.complete({
+              prompt: 'Return JSON',
+              responseFormat: 'json',
+              responseSchema,
+              structuredOutputTransport: 'tool',
+            });
+          },
+          sentSchema: (body) => body.tools[0].parameters,
+        },
+        {
+          path: 'Responses text.format',
+          url: 'https://api.openai.com/v1/responses',
+          run: async (adapter, responseSchema) => {
+            await adapter.complete({
+              prompt: 'Return JSON',
+              responseFormat: 'json',
+              responseSchema,
+              tools: [callerTool],
+            });
+          },
+          sentSchema: (body) => body.text.format.schema,
+        },
+      ];
+
+      it.each(paths)('drops the uri format on the $path', async ({ url, run, sentSchema }) => {
+        const mockFetch = openAIFetch();
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const responseSchema = schemaWithFormats();
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          await run(adapter, responseSchema);
+
+          expect(mockFetch.mock.calls[0]?.[0]).toBe(url);
+          const body = JSON.parse(String(mockFetch.mock.calls[0]?.[1].body));
+          expect(sentSchema(body)).toEqual(strictSchema);
+          expect(responseSchema).toEqual(schemaWithFormats());
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('sends caller tools as declared and not strict, so OpenAI does not reject the format', async () => {
+        const mockFetch = openAIFetch();
+        vi.stubGlobal('fetch', mockFetch);
+        try {
+          const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' });
+          await adapter.complete({ prompt: 'Fetch it', tools: [callerTool] });
+
+          const body = JSON.parse(String(mockFetch.mock.calls[0]?.[1].body));
+          expect(body.tools).toEqual([
+            {
+              type: 'function',
+              name: 'fetch_page',
+              description: 'Fetch a page',
+              parameters: callerTool.parameters,
+              strict: false,
+            },
+          ]);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    });
+
     it('uses strict tool-call arguments for Grok structured output', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -963,6 +1548,35 @@ describe('AI Provider Adapters', () => {
       expect(call?.[1].headers).not.toHaveProperty('anthropic-beta');
 
       vi.unstubAllGlobals();
+    });
+
+    it('keeps optional properties optional in the Anthropic schema', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: '{"a":"x"}' }],
+          model: 'claude-sonnet-4-5',
+          usage: { input_tokens: 10, output_tokens: 8 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      try {
+        const responseSchema = {
+          type: 'object',
+          properties: { a: { type: 'string' }, b: { type: 'string' } },
+          required: ['a'],
+          additionalProperties: false,
+        };
+        const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+        await adapter.complete({ prompt: 'Return JSON', responseFormat: 'json', responseSchema });
+
+        const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+        // Only OpenAI's strict mode needs the required-and-nullable projection.
+        expect(body.output_config.format.schema).toEqual(responseSchema);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('maps reasoning intent and preserves thinking blocks across tool rounds', async () => {

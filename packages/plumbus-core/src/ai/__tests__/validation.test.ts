@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AIIncompleteOutputError } from '../refusal.js';
 import { AIValidationError, generateWithValidation } from '../validation.js';
+import { zodToProviderJsonSchema } from '../zod-to-provider-schema.js';
 import { createMockProvider } from './provider.test.js';
 
 describe('generateWithValidation', () => {
@@ -484,6 +485,81 @@ describe('generateWithValidation', () => {
 
       expect(result.data).toBe('raw text payload');
       expect(observed[0]?.responseFormat).toBe('text');
+    });
+  });
+
+  describe('with a provider schema (OpenAI strict nulls)', () => {
+    // OpenAI strict mode sends optional properties as required-but-nullable, so an omitted one
+    // comes back as null. Only those nulls may be dropped; everything else must still fail.
+    const lessonSchema = z.object({
+      title: z.string(),
+      note: z.string().optional(),
+      reviewer: z.string().nullable(),
+    });
+    const responseSchema = zodToProviderJsonSchema(lessonSchema).schema;
+
+    function providerAnswering(...contents: string[]) {
+      const prompts: string[] = [];
+      const provider = createMockProvider({
+        complete: vi.fn(async (req) => {
+          prompts.push(req.prompt);
+          return {
+            content: contents[Math.min(prompts.length - 1, contents.length - 1)] ?? '',
+            model: 'mock',
+            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+            finishReason: 'stop',
+          };
+        }),
+      });
+      return { provider, prompts };
+    }
+
+    it('drops the null of an omitted optional property and keeps a nullable null', async () => {
+      const { provider } = providerAnswering('{"title":"Fractions","note":null,"reviewer":null}');
+
+      const result = await generateWithValidation(
+        provider,
+        { prompt: 'Plan a lesson', responseSchema },
+        lessonSchema,
+      );
+
+      expect(result.attempts).toBe(1);
+      expect(result.data).toEqual({ title: 'Fractions', reviewer: null });
+      expect(result.data).not.toHaveProperty('note');
+    });
+
+    it('still rejects a null in a required property and feeds the error back', async () => {
+      const { provider, prompts } = providerAnswering('{"title":null,"note":null,"reviewer":null}');
+
+      let caught: unknown;
+      try {
+        await generateWithValidation(
+          provider,
+          { prompt: 'Plan a lesson', responseSchema },
+          lessonSchema,
+          { maxRetries: 1 },
+        );
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(AIValidationError);
+      expect((caught as AIValidationError).attempts).toBe(2);
+      expect((caught as AIValidationError).rawOutput).toBe(
+        '{"title":null,"note":null,"reviewer":null}',
+      );
+      expect(prompts[1]).toContain('Your previous response was invalid.');
+      expect(prompts[1]).toContain('title');
+    });
+
+    it('does not touch nulls when no provider schema was sent', async () => {
+      const { provider } = providerAnswering('{"title":"Fractions","note":null,"reviewer":null}');
+
+      await expect(
+        generateWithValidation(provider, { prompt: 'Plan a lesson as json' }, lessonSchema, {
+          maxRetries: 0,
+        }),
+      ).rejects.toThrow('AI output validation failed after 1 attempts');
     });
   });
 });

@@ -97,15 +97,17 @@ tracker is in memory and does not create a durable database ledger by itself.
 Failed responses and cancellations also record rows. Known model, token usage, and
 billed cost survive answer-validation errors. If a transport failure supplies no
 billing metadata, usage is zero **as an unavailable measurement**, cost is `null`,
-and status is `failed`. Raw provider error bodies are excluded from ledger error
+and status is `failed`; such a row does not block later calls under a dollar budget
+(one failed call must not stop the rest of the day). Raw provider error bodies are excluded from ledger error
 messages. Local definition/state/security/budget rejection before dispatch produces
 no spend row. A persistence-hook failure follows the existing core policy: log it
 without retrying inference or changing the result.
 
 The runtime validates custom adapter results as well as built-in adapters. Unknown
 cost remains `null`, even if a similarly named text model exists in the pricing
-catalog; explicit zero remains available/free. Unpriced prior calls block further
-calls when a dollar budget is configured. The byte-based token estimate checks the
+catalog; explicit zero remains available/free. An answered call with unknown cost
+blocks further decisions when a dollar budget is configured (see
+[Failed calls and unknown cost](./ai-integration.md#failed-calls-and-unknown-cost)). The byte-based token estimate checks the
 per-request cap before dispatch; this is an approximate framework estimate, not a
 provider tokenizer. Provider retries retain the adapters' existing semantics; a
 logical ledger row is not an exactly-once billing guarantee.

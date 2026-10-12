@@ -93,6 +93,8 @@ const docs = await ctx.ai.retrieve({ query: "refund policy for enterprise custom
 // docs: Array<{ content: string, source: string, score: number, metadata?: Record<string, unknown> }>
 ```
 
+`retrieve` passes its `signal` (inside flow steps `ctx.signal` by default) through the RAG pipeline to the adapter's `embed()` as `EmbeddingRequest.signal`: an abort ends the in-flight embedding request and skips the vector search. RAG `ingest`/`retrieve` take `signal` too. A custom `AIProviderAdapter.embed()` must pass `request.signal` to its transport.
+
 Ingest documents with `plumbus rag ingest <path>` (see `cli.md`).
 
 ### Generate With Usage
@@ -108,6 +110,12 @@ const { data, usage, model, provider, cost } = await ctx.ai.generateWithUsage({
 
 `generateWithUsage` is **overloaded**: called without `tools` (as above) it returns the flat `AIFinalGenerateResult` — `.data` is always present, plus a `finishReason`. Called **with** `tools` it returns the discriminated `AIToolEnabledGenerateResult` (see [Tool calling](#tool-calling-provider-native)).
 
+On OpenAI reasoning models `usage.reasoningTokens` is the reasoning share of `outputTokens` (Chat Completions and the Responses API alike, summed over validation retries); it is already priced inside `outputTokens`, so never add it to a cost yourself.
+
+With `enableStrictStructuredOutputs`, the OpenAI adapter sends an output whose root is not an object (`classify()`, a `z.array`/union/enum `extract()` schema or prompt `output`) inside a `{"value": …}` envelope and unwraps the answer itself, merges an `allOf` of several `.regex()`s into one schema, and names a `.default()` in the description (strict mode has no `default`); Zod still validates the original. For every provider the schema converter merges intersections of objects (`a.and(b)`, `a.and(b.optional())`, `a.and(b.nullable())`) into one object, sends `z.string().cidr()` as IPv4-or-IPv6 patterns, a tuple as an array of its item schemas (order in the description), and an optional output root as the value itself. Nothing to do in app code.
+
+`usage.cacheWriteTokens` counts prompt tokens written to the provider cache (Anthropic, and OpenAI's `cache_write_tokens` on Chat Completions and the Responses API); like `cachedInputTokens` it is part of `inputTokens`. Cost charges them 1.25× input on Claude and OpenAI GPT-5.6+, and the input rate on earlier OpenAI models.
+
 `generateWithUsage` also accepts per-call `provider`, `model`, and provider-neutral `reasoning` overrides:
 
 ```ts
@@ -120,11 +128,13 @@ await ctx.ai.generateWithUsage({
 });
 ```
 
-Omit `reasoning` to inherit prompt/config; use `null` to restore the provider/model default for one call, clearing both inherited `reasoning` and inherited legacy `reasoningEffort`. Explicit modes are `{ mode:'disabled' }`, `{ mode:'effort', effort:'minimal'|'low'|'medium'|'high'|'xhigh'|'max' }`, and `{ mode:'budget', maxTokens }`. Built-in core adapters translate the intent: OpenAI uses Chat Completions normally and switches caller-tool requests that need active/default GPT-5.6 or GPT-6 reasoning to the Responses API; Anthropic uses `thinking` + `output_config.effort`. GPT-6 Chat Completions use `max_completion_tokens`; GPT-6 requests omit sampling temperature unless reasoning is explicitly disabled. Responses tool continuations are stateless (`store:false`) and preserve encrypted reasoning items through server-owned `providerState`. Custom providers translate the contract in their own `AIProviderAdapter`. Unsupported modes fail with `AIInvalidRequestError` before provider I/O when the adapter can identify the incompatibility. Deprecated `reasoningEffort` remains the unchanged OpenAI-only `'low' | 'medium' | 'high'` shorthand.
+A per-call `timeoutMs` (on `generate`, `generateWithUsage`, `streamGenerate`, `extract`, `classify`, `retrieve` and `runToolLoop`; `timeout` on `EmbeddingRequest`, `timeoutMs` on RAG `ingest`/`retrieve`) overrides the prompt's `model.timeoutMs` and the provider's `requestTimeout` for that call; see `prompts.md`. A request its timeout ends throws a non-retryable `ProviderAPIError` carrying `timeoutMs`; detect it with `isProviderTimeoutError(error)` from `@plumbus/core` (`isProviderAPIError` for any provider HTTP failure) instead of checking the error's shape, and raise the timeout rather than retrying.
+
+Omit `reasoning` to inherit prompt/config; use `null` to restore the provider/model default for one call, clearing both inherited `reasoning` and inherited legacy `reasoningEffort`. Explicit modes are `{ mode:'disabled' }`, `{ mode:'effort', effort:'minimal'|'low'|'medium'|'high'|'xhigh'|'max' }`, and `{ mode:'budget', maxTokens }`. Built-in core adapters translate the intent: OpenAI uses Chat Completions normally and switches caller-tool requests, and the `structuredOutputTransport:'tool'` function, that need active/default GPT-5.6 or GPT-6 reasoning to the Responses API; Anthropic uses `thinking` + `output_config.effort`. GPT-6 Chat Completions use `max_completion_tokens`; GPT-6 requests omit sampling temperature unless reasoning is explicitly disabled. Responses tool continuations are stateless (`store:false`) and preserve encrypted reasoning items through server-owned `providerState`. Custom providers translate the contract in their own `AIProviderAdapter`. Unsupported modes fail with `AIInvalidRequestError` before provider I/O when the adapter can identify the incompatibility. Deprecated `reasoningEffort` remains the unchanged OpenAI-only `'low' | 'medium' | 'high'` shorthand.
 
 ### Tool calling (provider-native)
 
-Pass `tools` to `generate` / `generateWithUsage` to let the model call functions natively. Both built-in adapters implement caller tools on the wire (OpenAI `tools`/`tool_calls`; Anthropic `tool_use`/`tool_result` + `input_schema`). Build each `AITool.parameters` from `zodToProviderJsonSchema(schema).schema`:
+Pass `tools` to `generate` / `generateWithUsage` to let the model call functions natively. Both built-in adapters implement caller tools on the wire (OpenAI `tools`/`tool_calls`; Anthropic `tool_use`/`tool_result` + `input_schema`). OpenAI caller tools are non-strict on both transports (the Responses API gets an explicit `strict: false`, since it would otherwise make every property required and the model would invent values for optional arguments), so optional arguments stay optional; still validate `call.arguments` with the tool's Zod input schema. Build each `AITool.parameters` from `zodToProviderJsonSchema(schema).schema`:
 
 ```ts
 import type { AITool } from "@plumbus/core";
@@ -270,6 +280,8 @@ AI_ANTHROPIC_BASE_URL=https://custom-anthropic.com  # optional
 AI_ANTHROPIC_MODEL=claude-sonnet-4-20250514
 ```
 
+Each provider slot (`AI_` single-provider, `AI_OPENAI_`, `AI_ANTHROPIC_`, `AI_BEDROCK_`) also reads `REQUEST_TIMEOUT` (a whole number of ms from 1 to 2147483647), `MAX_TOKENS` (a whole number of tokens, 0 or more) and `DAILY_COST_LIMIT` (US dollars, 0 or more, e.g. `10.5`); Bedrock also `AI_BEDROCK_PRICING_TTL_MS` (whole ms, 0 or more). Write plain numbers, never units: `15m`, `4k`, `$50` or `abc` make `loadConfig()` throw naming the variable (e.g. `Invalid AI_OPENAI_REQUEST_TIMEOUT="15m": expected a whole number of milliseconds from 1 to 2147483647`), so the process does not start; a blank value is unset.
+
 ### Amazon Bedrock
 
 Requires `@plumbus/core` **≥ 0.6.16** (provider slot, env discovery, adapter `cost`, wiring v13).
@@ -309,12 +321,12 @@ AI_DEFAULT_MODEL=gpt-4o
 
 ### Per-Prompt Overrides
 
-Override model, provider, temperature, or maxTokens for any specific prompt via env vars:
+Override model, provider, temperature, maxTokens, or the request timeout for any specific prompt via env vars:
 
 ```bash
 # Format: PROMPT_{NAME}_{FIELD}
 # Name = prompt name with dots → underscores, UPPERCASED
-# Fields: PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS
+# Fields: PROVIDER, MODEL, TEMPERATURE, MAX_TOKENS, TIMEOUT_MS
 
 # Route "writer.write_chapter" to Anthropic:
 PROMPT_WRITER_WRITE_CHAPTER_PROVIDER=anthropic
@@ -324,16 +336,19 @@ PROMPT_WRITER_WRITE_CHAPTER_MODEL=claude-sonnet-4-20250514
 PROMPT_INTERVIEW_EXTRACT_METADATA_MODEL=gpt-4o-mini
 ```
 
+The HTTP server and the worker pool (flows, jobs, event handlers) both apply these. Numeric fields are checked when the config loads — `TIMEOUT_MS` a whole number of ms from 1 to 2147483647, `MAX_TOKENS` a whole number ≥ 1, `TEMPERATURE` 0–2 — and anything else (`abc`, `0`, `15m`) makes `loadConfig()` throw naming the variable, so the process does not start; a blank value is no override.
+
 ### Model Resolution Chain
 
-When a prompt is invoked, the model is resolved in this order:
+When a prompt is invoked, each field (`provider`, `model`, `temperature`, `maxTokens`, `reasoning`, `timeoutMs`) is resolved on its own, first set wins:
 
-1. **Dynamic overrides** (`resolveAiOverrides` hook) — highest priority
-2. **Per-prompt env override** (`PROMPT_{NAME}_MODEL`)
-3. **Prompt definition** (`model.name` in `definePrompt`) — if set
-4. **Default model** (`AI_DEFAULT_MODEL`) — global fallback
+1. **Per-call value** (`provider`, `model`, `reasoning`, `timeoutMs` on `generate` / `generateWithUsage` / `streamGenerate`)
+2. **Dynamic overrides** (`resolveAiOverrides` hook's `promptOverrides`)
+3. **Per-prompt env override** (`PROMPT_{NAME}_*`)
+4. **Prompt definition** (`model` in `definePrompt`) — if set
+5. **Defaults** — the hook's `defaultModel` / `defaultProvider`, else `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`
 
-Provider resolution follows the same chain: dynamic override → per-prompt env → prompt definition → `AI_DEFAULT_PROVIDER`.
+A layer decides only the fields it sets: a hook override `{ model: 'gpt-4.1-mini' }` keeps the prompt's `PROMPT_{NAME}_MAX_TOKENS` and `PROMPT_{NAME}_TIMEOUT_MS`. When an override changes `provider`, set `model` with it, or the model of a lower layer goes to the new provider. `reasoning` and the deprecated `reasoningEffort` count as one field: the highest layer that sets either decides both.
 
 ## Dynamic AI Config (DB Overrides)
 
@@ -349,14 +364,14 @@ export const resolveAiOverrides: NonNullable<ServerConfig['resolveAiOverrides']>
   return {
     defaultModel: 'gpt-4o',        // override global default
     defaultProvider: 'openai',      // override global provider
-    promptOverrides: {              // per-prompt overrides (key = lowercase, dots → underscores)
-      interview_ask_next_question: { model: 'gpt-4o', temperature: 0.7 },
+    promptOverrides: {              // per-prompt overrides, keyed by prompt name
+      'interview.ask_next_question': { model: 'gpt-4o', temperature: 0.7 },
     },
   };
 };
 ```
 
-The framework calls this hook before each `generate()`, `generateWithUsage()`, and `streamGenerate()` call. Dynamic overrides merge with and take priority over env-based config.
+The framework calls this hook before each `generate()`, `generateWithUsage()`, and `streamGenerate()` call, on the HTTP server and the worker pool alike. Its answer replaces the previous one (an override it stops returning no longer applies) and sits above the env config field by field, as in the chain above; unset fields keep the env and prompt values. Key `promptOverrides` by the prompt's name (`interview.ask_next_question`) or its env-style key (`interview_ask_next_question`, lower case, dots → underscores); when both are present, the entry under the name wins.
 
 **Important**: The resolver should implement caching (e.g. 60-second TTL) to avoid querying the database on every AI call. API credentials (API keys) always come from environment variables — only model selection, temperature, and maxTokens should be stored in the database.
 

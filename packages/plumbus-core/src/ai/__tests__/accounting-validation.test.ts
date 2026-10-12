@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { calculateModelCost } from '../model-pricing.js';
 import { createCostTracker } from '../cost-tracker.js';
+import { calculateModelCost } from '../model-pricing.js';
+import { validateTokenUsage } from '../usage-validation.js';
 
 describe('accounting validation', () => {
+  it('keeps reasoningTokens, and drops an unusable one instead of failing the call', () => {
+    const counted = { inputTokens: 3, outputTokens: 9, totalTokens: 12 };
+    expect(validateTokenUsage({ ...counted, reasoningTokens: 6 })).toEqual({
+      ...counted,
+      reasoningTokens: 6,
+    });
+    // Informational only (already inside outputTokens): a custom adapter's bad value is not a
+    // reason to refuse a call that is priced without it.
+    for (const bad of [-1, Number.NaN, null, '6']) {
+      const usage = validateTokenUsage({ ...counted, reasoningTokens: bad as unknown as number });
+      expect(usage).toEqual(counted);
+      expect(usage).not.toHaveProperty('reasoningTokens');
+    }
+  });
+
   it.each([
     -1,
     NaN,

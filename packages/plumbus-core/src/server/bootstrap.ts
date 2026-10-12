@@ -192,8 +192,12 @@ export interface ServerConfig {
   /**
    * Optional async hook to resolve AI config overrides dynamically (e.g. from DB).
    * Called before each AI generate/stream call. The framework passes the DB connection.
-   * Return default model/provider and per-prompt overrides.
-   * Merges with (and takes priority over) env-based config.
+   * Return default model/provider and per-prompt overrides; each answer replaces the last.
+   * Takes priority over env-based config field by field: for each prompt a field is taken
+   * from the per-call value, else this hook's override, else `PROMPT_{NAME}_*` env, else the
+   * prompt definition, else the defaults (this hook's, else `AI_DEFAULT_*`). Key
+   * `promptOverrides` by the prompt's name (`report.summarize`) or its env-style key
+   * (`report_summarize`); the name wins when both are present.
    */
   resolveAiOverrides?: (db: PostgresJsDatabase) => Promise<{
     defaultModel?: string;
@@ -208,6 +212,8 @@ export interface ServerConfig {
         reasoning?: AIReasoningConfig;
         /** @deprecated Use `reasoning`. */
         reasoningEffort?: ReasoningEffort;
+        /** Provider request timeout in ms; see `ModelConfig.timeoutMs`. */
+        timeoutMs?: number;
       }
     >;
   }>;
@@ -817,10 +823,19 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
 
 // ── Dynamic Prompt Overrides Wrapper ──
 
+/** The configured (env) defaults a dynamic override falls back to when it sets none. */
+interface ConfiguredAIDefaults {
+  defaultModel: string | undefined;
+  defaultProvider: string;
+}
+
 /**
  * Wraps an AI service to call a resolver before each AI invocation.
- * The resolver returns dynamic overrides (e.g. from DB) that are merged
- * into the AI service config, taking priority over env-based config.
+ * The resolver's answer replaces the previous one each time and sits above the
+ * configured (env) values without changing them: `defaultModel` / `defaultProvider`
+ * fall back to the configured ones when it sets none, and its `promptOverrides` are
+ * merged over the `PROMPT_{NAME}_*` env overrides field by field, per prompt
+ * (see `resolvePromptOverride`). Per-call values still win over both.
  */
 export function wrapAIServiceWithDynamicOverrides(
   base: AIService,
@@ -828,30 +843,37 @@ export function wrapAIServiceWithDynamicOverrides(
   resolver: NonNullable<ServerConfig['resolveAiOverrides']>,
   db: PostgresJsDatabase,
 ): AIService {
+  return wrapWithDynamicOverrides(base, aiServiceConfig, resolver, db, {
+    defaultModel: aiServiceConfig.defaultModel,
+    defaultProvider: aiServiceConfig.defaultProvider,
+  });
+}
+
+function wrapWithDynamicOverrides(
+  base: AIService,
+  aiServiceConfig: import('../ai/ai-service.js').AIServiceConfig,
+  resolver: NonNullable<ServerConfig['resolveAiOverrides']>,
+  db: PostgresJsDatabase,
+  configured: ConfiguredAIDefaults,
+): AIService {
   async function refreshOverrides(): Promise<void> {
     const dynamic = await resolver(db);
-    if (dynamic.defaultModel) {
-      aiServiceConfig.defaultModel = dynamic.defaultModel;
-    }
-    if (dynamic.defaultProvider) {
-      aiServiceConfig.defaultProvider = dynamic.defaultProvider;
-    }
-    if (dynamic.promptOverrides) {
-      aiServiceConfig.promptOverrides = {
-        ...aiServiceConfig.promptOverrides,
-        ...dynamic.promptOverrides,
-      };
-    }
+    // Each answer replaces the last: an override the resolver stops returning no longer applies.
+    aiServiceConfig.defaultModel = dynamic.defaultModel || configured.defaultModel;
+    aiServiceConfig.defaultProvider = dynamic.defaultProvider || configured.defaultProvider;
+    aiServiceConfig._dynamicPromptOverrides = dynamic.promptOverrides;
   }
 
   return {
     withContext(identity) {
       const scopedConfig = { ...aiServiceConfig, budget: { ...identity } };
-      return wrapAIServiceWithDynamicOverrides(
+      // Pass the configured defaults on: scopedConfig may hold the last dynamic ones.
+      return wrapWithDynamicOverrides(
         createAIService(scopedConfig),
         scopedConfig,
         resolver,
         db,
+        configured,
       );
     },
     features: base.features,

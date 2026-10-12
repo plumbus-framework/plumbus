@@ -243,6 +243,8 @@ AI_BEDROCK_EMBEDDING_MODEL=amazon.titan-embed-text-v2:0
 # AI_BEDROCK_REQUEST_TIMEOUT=120000
 ```
 
+`*_REQUEST_TIMEOUT` (whole ms, 1–2147483647), `*_MAX_TOKENS` (whole tokens, ≥ 0), `*_DAILY_COST_LIMIT` (USD, ≥ 0) and `AI_BEDROCK_PRICING_TTL_MS` (whole ms, ≥ 0) take plain numbers, no unit suffixes; anything else (`15m`, `4k`, `abc`) makes `loadConfig()` throw naming the variable. The same holds for `AI_MAX_TOKENS`, `AI_DAILY_COST_LIMIT` and `AI_REQUEST_TIMEOUT` in single-provider mode.
+
 Env discovery supports **`AI_OPENAI_*`**, **`AI_ANTHROPIC_*`**, and **`AI_BEDROCK_*`**. Other `AI_{NAME}_API_KEY` values are ignored with a warning. Wire Ollama / custom providers programmatically via `createOpenAIAdapter` / `createAIService`. Bedrock lives in a separate package because it needs the AWS SDK — see [Amazon Bedrock](../ai/bedrock.md).
 
 ### Per-Prompt Overrides
@@ -261,13 +263,15 @@ PROMPT_INTERVIEW_EXTRACT_METADATA_MODEL=gpt-4o-mini
 
 ### Model Resolution Chain
 
-When a prompt is invoked, model and provider are resolved in this order:
+When a prompt is invoked, each field (`provider`, `model`, `temperature`, `maxTokens`, `reasoning`, `timeoutMs`) is resolved on its own, first set wins:
 
-1. **Per-prompt env override** (`PROMPT_{NAME}_MODEL`) — highest priority
-2. **Prompt definition** (`model.name` in `definePrompt`) — if set
-3. **Default model** (`AI_DEFAULT_MODEL`) — global fallback
+1. **Per-call value** (`provider`, `model`, `reasoning`, `timeoutMs` on `generate` / `generateWithUsage` / `streamGenerate`)
+2. **Dynamic override** (`ServerConfig.resolveAiOverrides` → `promptOverrides`, keyed by prompt name or env-style key; the name wins)
+3. **Per-prompt env override** (`PROMPT_{NAME}_*`)
+4. **Prompt definition** (`model` in `definePrompt`) — if set
+5. **Defaults** — `resolveAiOverrides` → `defaultModel` / `defaultProvider`, else `AI_DEFAULT_MODEL` / `AI_DEFAULT_PROVIDER`
 
-Provider resolution: per-prompt override → prompt definition → `AI_DEFAULT_PROVIDER`.
+A layer decides only the fields it sets, so a dynamic `{ model }` keeps the prompt's env `MAX_TOKENS` and `TIMEOUT_MS`. See [AI integration](../ai/ai-integration.md#configuration-and-model-resolution).
 
 When `aiProviders` is configured in `PlumbusConfig`, it takes precedence over the legacy single `ai` field.
 

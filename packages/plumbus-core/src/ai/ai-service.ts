@@ -29,9 +29,13 @@ import type { AIExplainabilityTracker } from './explainability.js';
 import { fillPromptTemplate } from './fill-prompt-template.js';
 import { normalizeCost, validateTokenUsage } from './usage-validation.js';
 import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
+import { restoreOmittedOptionalProperties } from './openai-strict-schema.js';
+import { type PromptOverrideMap, resolvePromptOverride } from './prompt-overrides.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import { createPromptRegistry } from './prompt-registry.js';
+import { isCostFreeProviderFailure } from './provider-failure.js';
 import {
+  assertRequestTimeout,
   type AIProviderAdapter,
   type AITool,
   type AIToolCall,
@@ -99,6 +103,155 @@ interface AIProviderConcurrencyState {
   readonly active: Map<string, number>;
 }
 
+/**
+ * Output a request without `maxTokens` is assumed to have produced when its usage never came
+ * back. Matches the Anthropic adapter's default `max_tokens`.
+ */
+const UNMETERED_OUTPUT_TOKENS = 4096;
+
+/** One provider attempt as the budget sees it before dispatch. */
+interface ProviderAttempt {
+  readonly model: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+}
+
+/** What an attempt had reported by the time it failed (always empty for `complete`). */
+interface AttemptReport {
+  /** A stream event other than `error` arrived first, so the provider took the request. */
+  streamed: boolean;
+  /** A `done` event arrived: the provider finished, so the usage it reported is the bill. */
+  finished: boolean;
+  usage?: TokenUsage;
+  cost?: number;
+}
+
+/**
+ * Spend of one logical call across its provider attempts — validation retries and the
+ * streaming fallback reuse the call's resolved provider. Failure rows read it, so a call that
+ * died in transit is charged what it may have cost and one that never left is charged nothing.
+ */
+interface ProviderCallSpend {
+  /** Usage of attempts the provider answered, refusals and truncations included. */
+  answered: TokenUsage;
+  /** USD for those answers; null once one of them could not be priced. */
+  answeredCost: number | null;
+  /** Attempts that may have reached the provider but whose full usage never came back. */
+  unmetered: number;
+  /** Usage those attempts reported before they were cut off; already inside the estimate. */
+  unmeteredUsage: TokenUsage;
+  /**
+   * Conservative USD for those attempts: input estimate plus output cap at the model's price,
+   * and never less than what the attempt had reported.
+   */
+  unmeteredEstimate: number;
+}
+
+function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
+  // Reasoning tokens are part of outputTokens (and priced there); summed once either side has them.
+  const reasoning =
+    left.reasoningTokens === undefined && right.reasoningTokens === undefined
+      ? undefined
+      : (left.reasoningTokens ?? 0) + (right.reasoningTokens ?? 0);
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    totalTokens: left.totalTokens + right.totalTokens,
+    cachedInputTokens: (left.cachedInputTokens ?? 0) + (right.cachedInputTokens ?? 0),
+    cacheWriteTokens: (left.cacheWriteTokens ?? 0) + (right.cacheWriteTokens ?? 0),
+    ...(reasoning === undefined ? {} : { reasoningTokens: reasoning }),
+  };
+}
+
+/** Catalog price, or undefined for an unpriced model or usage the catalog rejects. */
+function catalogCost(usage: TokenUsage, model: string): number | undefined {
+  try {
+    return calculateModelCost(usage.inputTokens, usage.outputTokens, model, {
+      cachedInputTokens: usage.cachedInputTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function meterAnsweredAttempt(
+  spend: ProviderCallSpend,
+  attempt: ProviderAttempt,
+  usage: TokenUsage,
+  providerCost: number | null,
+): void {
+  spend.answered = addUsage(spend.answered, usage);
+  const cost = providerCost ?? catalogCost(usage, attempt.model) ?? null;
+  spend.answeredCost =
+    spend.answeredCost == null || cost == null ? null : spend.answeredCost + cost;
+}
+
+function meterUnansweredAttempt(
+  spend: ProviderCallSpend,
+  attempt: ProviderAttempt,
+  partial: { usage?: TokenUsage; cost?: number } = {},
+): void {
+  spend.unmetered += 1;
+  if (partial.usage) spend.unmeteredUsage = addUsage(spend.unmeteredUsage, partial.usage);
+  // A model with no price adds only what the provider had reported: the rest cannot be
+  // estimated. The attempt has already failed; refusing later calls on its account would be a
+  // lockout for the rest of the day.
+  const estimate =
+    catalogCost(
+      {
+        inputTokens: attempt.inputTokens,
+        outputTokens: attempt.outputTokens,
+        totalTokens: attempt.inputTokens + attempt.outputTokens,
+      },
+      attempt.model,
+    ) ?? 0;
+  // Usage reported mid-stream (Anthropic's opening input count) leaves out the output.
+  const reportedSoFar =
+    partial.cost ?? (partial.usage ? catalogCost(partial.usage, attempt.model) : undefined) ?? 0;
+  spend.unmeteredEstimate += Math.max(estimate, reportedSoFar);
+}
+
+/**
+ * Meter an attempt that threw or ended in a provider `error` event. Free when nothing came back
+ * and the request never reached the provider or was turned away; the reported usage when the
+ * provider answered (refusal, truncation) or had finished; an estimate otherwise.
+ */
+function meterFailedAttempt(
+  spend: ProviderCallSpend,
+  attempt: ProviderAttempt,
+  failure: unknown,
+  dispatched: boolean,
+  report: AttemptReport,
+): void {
+  const errorUsage = getTypedAIErrorUsage(failure);
+  if (errorUsage && errorUsage.totalTokens > 0) {
+    meterAnsweredAttempt(spend, attempt, errorUsage, null);
+    return;
+  }
+  const reportedSpend = report.usage !== undefined || report.cost !== undefined;
+  if (!report.streamed && !reportedSpend && (!dispatched || isCostFreeProviderFailure(failure))) {
+    return;
+  }
+  if (report.finished && reportedSpend) {
+    meterAnsweredAttempt(
+      spend,
+      attempt,
+      report.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      report.cost ?? null,
+    );
+    return;
+  }
+  meterUnansweredAttempt(spend, attempt, report);
+}
+
+function getTypedAIErrorUsage(err: unknown): TokenUsage | undefined {
+  if (err instanceof AIRefusalError || err instanceof AIIncompleteOutputError) {
+    return err.usage;
+  }
+  return undefined;
+}
+
 // ── AI Service Config ──
 export interface AIServiceConfig {
   /** Multiple provider adapters keyed by name (e.g. "openai", "anthropic") */
@@ -134,6 +287,8 @@ export interface AIServiceConfig {
       reasoning?: AIReasoningConfig;
       /** @deprecated Use `reasoning`. */
       reasoningEffort?: ReasoningEffort;
+      /** Provider request timeout in ms; see `ModelConfig.timeoutMs`. */
+      timeoutMs?: number;
     }
   > /** Budget enforcement settings */;
   budget?: {
@@ -158,6 +313,12 @@ export interface AIServiceConfig {
   onProviderSpan?: (span: AIProviderSpan) => void | Promise<void>;
   /** @internal Shared by services rebound with `withContext`. */
   _providerConcurrencyState?: AIProviderConcurrencyState;
+  /**
+   * @internal Per-prompt overrides from `resolveAiOverrides`, replaced before each call by
+   * `wrapAIServiceWithDynamicOverrides`. Merged over `promptOverrides` field by field
+   * (see `resolvePromptOverride`).
+   */
+  _dynamicPromptOverrides?: PromptOverrideMap;
 }
 
 /** Convenience: create config from a single provider (backward compat) */
@@ -183,7 +344,6 @@ function resolveReasoningOverride(
 export function createAIService(config: AIServiceConfig): AIService {
   const {
     providers,
-    defaultProvider,
     promptRegistry: configuredPromptRegistry,
     prompts,
     costTracker,
@@ -203,6 +363,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         })()
       : configuredPromptRegistry;
   const responseSchemaCache = new WeakMap<z.ZodTypeAny, Record<string, unknown>>();
+  // Keyed by the per-call wrapper `resolveProvider` returns, so each logical call has its own.
+  const providerCallSpend = new WeakMap<AIProviderAdapter, ProviderCallSpend>();
   const concurrencyState = config._providerConcurrencyState ?? {
     active: new Map<string, number>(),
   };
@@ -312,15 +474,24 @@ export function createAIService(config: AIServiceConfig): AIService {
     operation: AIProviderOperation,
     costContext?: AICostContext,
   ): AIProviderAdapter {
-    const name = providerName ?? defaultProvider;
+    // Read at call time: `resolveAiOverrides` may replace the default provider between calls.
+    const name = providerName ?? config.defaultProvider;
     const adapter = providers[name];
     if (!adapter) {
       const available = Object.keys(providers).join(', ');
       throw new Error(`AI provider "${name}" not configured. Available: ${available}`);
     }
     const context = callContext(adapter.name, operation, costContext);
+    const providerLabel = adapter.name;
+    const spend: ProviderCallSpend = {
+      answered: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      answeredCost: 0,
+      unmetered: 0,
+      unmeteredUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      unmeteredEstimate: 0,
+    };
     // Every provider attempt, including validation retries, checks the budget.
-    const checkRequest = (request: ProviderRequest): void => {
+    const checkRequest = (request: ProviderRequest): ProviderAttempt => {
       const input = JSON.stringify({
         system: request.system,
         prompt: request.prompt,
@@ -328,22 +499,40 @@ export function createAIService(config: AIServiceConfig): AIService {
         tools: request.tools,
         responseSchema: request.responseSchema,
       });
-      checkBudget(Math.ceil(Buffer.byteLength(input, 'utf8') / 4) + (request.maxTokens ?? 0));
+      const inputTokens = Math.ceil(Buffer.byteLength(input, 'utf8') / 4);
+      // The same model the call's ledger rows carry, so unpriced spend is matched to it.
+      const model = request.model ?? providerLabel;
+      checkBudget(inputTokens + (request.maxTokens ?? 0), undefined, {
+        provider: providerLabel,
+        model,
+      });
+      const cap = request.maxTokens;
+      return {
+        model,
+        inputTokens,
+        outputTokens:
+          cap !== undefined && Number.isSafeInteger(cap) && cap > 0 ? cap : UNMETERED_OUTPUT_TOKENS,
+      };
     };
-    return {
+    const wrapper: AIProviderAdapter = {
       ...adapter,
       name: adapter.name,
       embed: (request) => adapter.embed(request),
       async complete(request) {
-        checkRequest(request);
+        const attempt = checkRequest(request);
         const release = acquireProviderSlot(context);
         const startedAt = new Date();
         let traceparent: string | undefined;
+        // Refusals above (budget, concurrency) and header failures never reach the provider.
+        let dispatched = false;
         try {
           const transportHeaders = await trustedProviderHeaders(context);
           traceparent = transportHeaders.traceparent;
+          // An already-fired abort makes the adapter's fetch reject without opening a connection.
+          dispatched = !request.signal?.aborted;
           const response = await adapter.complete({ ...request, transportHeaders });
           validateTokenUsage(response.usage);
+          meterAnsweredAttempt(spend, attempt, response.usage, normalizeCost(response.cost));
           await reportProviderSpan(
             context,
             startedAt,
@@ -353,6 +542,10 @@ export function createAIService(config: AIServiceConfig): AIService {
           );
           return { ...response, cost: normalizeCost(response.cost) ?? undefined };
         } catch (error) {
+          meterFailedAttempt(spend, attempt, error, dispatched, {
+            streamed: false,
+            finished: false,
+          });
           await reportProviderSpan(
             context,
             startedAt,
@@ -367,16 +560,48 @@ export function createAIService(config: AIServiceConfig): AIService {
         }
       },
       async *stream(request) {
-        checkRequest(request);
+        const attempt = checkRequest(request);
         const release = acquireProviderSlot(context);
         const startedAt = new Date();
         let traceparent: string | undefined;
+        let dispatched = false;
+        let metered = false;
+        const reported: AttemptReport = { streamed: false, finished: false };
         try {
           const transportHeaders = await trustedProviderHeaders(context);
           traceparent = transportHeaders.traceparent;
+          dispatched = !request.signal?.aborted;
           for await (const event of adapter.stream({ ...request, transportHeaders })) {
-            if (event.usage) validateTokenUsage(event.usage);
-            yield { ...event, cost: normalizeCost(event.cost) ?? undefined };
+            if (event.usage) reported.usage = validateTokenUsage(event.usage);
+            const cost = normalizeCost(event.cost) ?? undefined;
+            if (cost !== undefined) reported.cost = cost;
+            if (event.type === 'error') {
+              // Built-in adapters report a failed fetch (never connected, 4xx) as an opening
+              // error event carrying the caught error. Metered before the yield: the caller
+              // stops at a provider error event, so this generator never resumes past it.
+              if (!metered) {
+                metered = true;
+                meterFailedAttempt(spend, attempt, event.cause, dispatched, reported);
+              }
+            } else {
+              reported.streamed = true;
+              if (event.type === 'done') reported.finished = true;
+            }
+            yield { ...event, cost };
+          }
+          if (!metered) {
+            metered = true;
+            // A stream that ended normally without usage still cost something: estimate it.
+            if (reported.usage === undefined && reported.cost === undefined) {
+              meterUnansweredAttempt(spend, attempt);
+            } else {
+              meterAnsweredAttempt(
+                spend,
+                attempt,
+                reported.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                reported.cost ?? null,
+              );
+            }
           }
           await reportProviderSpan(
             context,
@@ -386,6 +611,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             traceparent,
           );
         } catch (error) {
+          if (!metered) meterFailedAttempt(spend, attempt, error, dispatched, reported);
           await reportProviderSpan(
             context,
             startedAt,
@@ -400,6 +626,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         }
       },
     };
+    providerCallSpend.set(wrapper, spend);
+    return wrapper;
   }
 
   function getSingleTextFieldName(schema: z.ZodTypeAny): string | undefined {
@@ -457,13 +685,6 @@ export function createAIService(config: AIServiceConfig): AIService {
     return 'failed';
   }
 
-  function getTypedAIErrorUsage(err: unknown): TokenUsage | undefined {
-    if (err instanceof AIRefusalError || err instanceof AIIncompleteOutputError) {
-      return err.usage;
-    }
-    return undefined;
-  }
-
   /**
    * Centralized cost recorder: updates the in-memory tracker and fires the
    * optional `onAICostRecorded` hook. Hook errors are swallowed so a
@@ -476,13 +697,18 @@ export function createAIService(config: AIServiceConfig): AIService {
     costContext: AICostContext | undefined,
     inferCatalogCost = true,
   ): Promise<void> {
+    const { estimatedCost: rawEstimate, ...rest } = entry;
+    const estimatedCost = normalizeCost(rawEstimate);
     entry = {
-      ...entry,
+      ...rest,
       tenantId: config.budget ? config.budget.tenantId : entry.tenantId,
       actor: config.budget ? config.budget.actor : entry.actor,
       cost:
         (entry.cost == null ? undefined : normalizeCost(entry.cost)) ??
+        // An estimate means part of the call's spend is unknown; pricing only the answered
+        // usage would present the call as fully priced.
         (inferCatalogCost &&
+        estimatedCost == null &&
         entry.operation !== 'decide' &&
         entry.cost == null &&
         entry.usage.totalTokens > 0 &&
@@ -493,11 +719,13 @@ export function createAIService(config: AIServiceConfig): AIService {
             })
           : null),
     };
+    const cost = normalizeCost(entry.cost);
     const finalEntry: AICostRecord = {
       ...entry,
       usage: { ...entry.usage },
       ...(entry.mediaUsage ? { mediaUsage: { ...entry.mediaUsage } } : {}),
-      cost: normalizeCost(entry.cost),
+      cost,
+      ...(cost == null && estimatedCost != null ? { estimatedCost } : {}),
       status: entry.status ?? 'success',
       id: crypto.randomUUID(),
       timestamp: new Date(),
@@ -514,23 +742,59 @@ export function createAIService(config: AIServiceConfig): AIService {
   }
 
   function sumUsage(a: TokenUsage | undefined, b: TokenUsage | undefined): TokenUsage {
-    const left = a ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-    const right = b ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    return addUsage(
+      a ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      b ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    );
+  }
+
+  /**
+   * Usage and cost for the ledger row of a logical call that failed, from the attempts its
+   * resolved provider metered: everything the provider answered (including validation attempts
+   * a later transport error would otherwise drop) and, while any attempt's usage never came
+   * back, an `estimatedCost` in place of a cost so dollar budgets stay enforced. A call whose
+   * attempts never reached the provider, or were turned away, costs zero.
+   */
+  function failedCallCost(
+    provider: AIProviderAdapter,
+    usage: TokenUsage,
+    model: string,
+  ): Pick<AICostRecordInput, 'usage' | 'cost' | 'estimatedCost'> {
+    const spend = providerCallSpend.get(provider);
+    if (!spend) {
+      return { usage, cost: usage.totalTokens > 0 ? (catalogCost(usage, model) ?? null) : null };
+    }
+    // The provider's view covers every attempt, including usage a cut-off stream had reported;
+    // the call site's own figure only shows on the row if it is larger.
+    const metered = addUsage(spend.answered, spend.unmeteredUsage);
+    const rowUsage = metered.totalTokens >= usage.totalTokens ? metered : usage;
+    if (spend.unmetered === 0) {
+      return {
+        usage: rowUsage,
+        cost: rowUsage === metered ? spend.answeredCost : (catalogCost(usage, model) ?? null),
+      };
+    }
+    // Usage of the cut-off attempts is already inside their estimate; do not price it twice.
     return {
-      inputTokens: left.inputTokens + right.inputTokens,
-      outputTokens: left.outputTokens + right.outputTokens,
-      totalTokens: left.totalTokens + right.totalTokens,
-      cachedInputTokens: (left.cachedInputTokens ?? 0) + (right.cachedInputTokens ?? 0),
-      cacheWriteTokens: (left.cacheWriteTokens ?? 0) + (right.cacheWriteTokens ?? 0),
+      usage: rowUsage,
+      cost: null,
+      ...(spend.answeredCost != null
+        ? { estimatedCost: spend.answeredCost + spend.unmeteredEstimate }
+        : {}),
     };
   }
 
-  function checkBudget(estimatedTokens?: number, estimatedCostUsd?: number): void {
+  function checkBudget(
+    estimatedTokens?: number,
+    estimatedCostUsd?: number,
+    scope?: { provider: string; model: string },
+  ): void {
     if (!costTracker) return;
     const result = costTracker.checkBudget({
       tenantId: config.budget?.tenantId,
       estimatedTokens,
       estimatedCostUsd,
+      ...scope,
     });
     if (!result.allowed) {
       throw new AIBudgetExceededError(result.reason ?? 'budget exceeded');
@@ -549,6 +813,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     maxTokens?: number;
     reasoning?: AIReasoningConfig;
     reasoningEffort?: ReasoningEffort;
+    timeoutMs?: number;
     appendUnsubstitutedInput?: boolean;
     /**
      * Set of input keys that had a `{{key}}` placeholder in the prompt
@@ -578,10 +843,19 @@ export function createAIService(config: AIServiceConfig): AIService {
     const system = systemFilled?.text;
     const text = textFilled.text;
 
-    // Resolution chain: config/env override → prompt-level → defaults
-    // Look up override by prompt name (dots replaced with underscores for env var matching)
-    const overrideKey = promptName.toLowerCase().replaceAll('.', '_');
-    const override = config.promptOverrides?.[overrideKey] ?? config.promptOverrides?.[promptName];
+    // Field by field: resolveAiOverrides → PROMPT_{NAME}_* env → prompt definition → defaults
+    // (per-call values are applied over this by the caller). Each layer is looked up by the
+    // prompt's own name and by its env-style key (`report.summarize` → `report_summarize`), the
+    // name winning when both set a field.
+    const override = resolvePromptOverride(promptName, [
+      config.promptOverrides,
+      config._dynamicPromptOverrides,
+    ]);
+    // `reasoning` and its deprecated shorthand `reasoningEffort` are one setting: an override
+    // that sets either replaces the definition's pair (adapters prefer `reasoning` when both are
+    // sent, so mixing them would let the definition's `reasoning` beat the override).
+    const reasoningSource =
+      override?.reasoning != null || override?.reasoningEffort != null ? override : def.model;
 
     return {
       system,
@@ -590,8 +864,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       provider: override?.provider ?? def.model?.provider,
       temperature: override?.temperature ?? def.model?.temperature,
       maxTokens: override?.maxTokens ?? def.model?.maxTokens,
-      reasoning: override?.reasoning ?? def.model?.reasoning,
-      reasoningEffort: override?.reasoningEffort ?? def.model?.reasoningEffort,
+      reasoning: reasoningSource?.reasoning,
+      reasoningEffort: reasoningSource?.reasoningEffort,
+      timeoutMs: override?.timeoutMs ?? def.model?.timeoutMs,
       appendUnsubstitutedInput: def.appendUnsubstitutedInput,
       substitutedKeys,
     };
@@ -662,13 +937,11 @@ export function createAIService(config: AIServiceConfig): AIService {
     model?: string;
     reasoning?: AIReasoningConfig | null;
     reasoningEffort?: ReasoningEffort | null;
+    timeoutMs?: number;
   }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
     const { inputForAI, securityResult } = applyPromptSecurity(params.input);
-
-    // Budget pre-check
-    checkBudget();
 
     // Build prompt
     const hasPromptDef = promptRegistry?.has(params.prompt);
@@ -682,6 +955,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       'generate',
       params.costContext,
     );
+    const resolvedModel =
+      params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+
+    // Budget pre-check, scoped to the model so unpriced spend elsewhere does not refuse it.
+    // A refusal here leaves no ledger row.
+    checkBudget(undefined, undefined, { provider: activeProvider.name, model: resolvedModel });
 
     // Check if we have a schema to validate against
     const promptDef = hasPromptDef ? promptRegistry?.get(params.prompt) : undefined;
@@ -726,14 +1005,18 @@ export function createAIService(config: AIServiceConfig): AIService {
       signal: params.signal,
       seed: params.seed,
     };
+    // Per call → prompt override → prompt definition; unset keeps the adapter's requestTimeout.
+    const timeoutMs =
+      params.timeoutMs ?? ('timeoutMs' in promptInfo ? promptInfo.timeoutMs : undefined);
+    if (timeoutMs !== undefined) {
+      assertRequestTimeout(timeoutMs);
+      request.timeout = timeoutMs;
+    }
     if (toolsEnabled) {
       request.tools = params.tools;
       if (params.toolChoice !== undefined) request.toolChoice = params.toolChoice;
       if (params.toolExecution !== undefined) request.toolExecution = params.toolExecution;
     }
-
-    const resolvedModel =
-      params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
 
     let result: any;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -771,7 +1054,11 @@ export function createAIService(config: AIServiceConfig): AIService {
             const candidate = singleTextField
               ? { [singleTextField]: response.content }
               : JSON.parse(response.content);
-            result = promptDef.output.parse(candidate);
+            result = promptDef.output.parse(
+              request.responseSchema
+                ? restoreOmittedOptionalProperties(candidate, request.responseSchema)
+                : candidate,
+            );
           } catch (error) {
             if (error instanceof AIIncompleteOutputError) throw error;
             throw new AIValidationError({
@@ -817,29 +1104,21 @@ export function createAIService(config: AIServiceConfig): AIService {
       }
     } catch (err) {
       // Failure-path cost recording: capture whatever usage we know about
-      // (from AIValidationError or zero for opaque fetch errors) so the
-      // sunk provider-side spend is still visible to budgets and ledgers.
+      // (from AIValidationError, or what the provider metered per attempt)
+      // so the sunk provider-side spend is still visible to budgets and ledgers.
       const latencyMs = performance.now() - start;
       const failureUsage: TokenUsage =
         err instanceof AIValidationError
           ? err.usage
           : (getTypedAIErrorUsage(err) ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
       const errorMessage = err instanceof Error ? err.message : String(err);
-      const failureCost =
-        failureUsage.totalTokens > 0
-          ? calculateModelCost(failureUsage.inputTokens, failureUsage.outputTokens, resolvedModel, {
-              cachedInputTokens: failureUsage.cachedInputTokens,
-              cacheWriteTokens: failureUsage.cacheWriteTokens,
-            })
-          : null;
       await recordProviderCost(
         {
           model: resolvedModel,
           provider: activeProvider.name,
           promptName: hasPromptDef ? params.prompt : undefined,
           operation: 'generate',
-          usage: failureUsage,
-          cost: failureCost,
+          ...failedCallCost(activeProvider, failureUsage, resolvedModel),
           latencyMs,
           tenantId: config.budget?.tenantId,
           actor: config.budget?.actor,
@@ -1040,6 +1319,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       model?: string;
       reasoning?: AIReasoningConfig | null;
       reasoningEffort?: ReasoningEffort | null;
+      timeoutMs?: number;
     }): Promise<Record<string, any>> {
       const result = await _generateCore(params);
       if (result.finishReason === 'tool_calls') {
@@ -1070,6 +1350,8 @@ export function createAIService(config: AIServiceConfig): AIService {
       model?: string;
       reasoning?: AIReasoningConfig | null;
       reasoningEffort?: ReasoningEffort | null;
+      /** Per-call provider request timeout in ms; covers the whole stream. */
+      timeoutMs?: number;
       /**
        * Deterministic sampling seed forwarded to providers that support it
        * (OpenAI-compatible, including xAI/Grok). Combined with temperature 0
@@ -1081,9 +1363,6 @@ export function createAIService(config: AIServiceConfig): AIService {
       const streamStart = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity(params.input);
       const streamSecurityWarnings = securityResult?.warnings.map((w) => w.message);
-
-      // Budget pre-check
-      checkBudget();
 
       // Build prompt
       const hasPromptDef = promptRegistry?.has(params.prompt);
@@ -1097,6 +1376,11 @@ export function createAIService(config: AIServiceConfig): AIService {
         'stream',
         params.costContext,
       );
+      const resolvedModel =
+        params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+
+      // Budget pre-check, scoped to the model; a refusal here leaves no ledger row.
+      checkBudget(undefined, undefined, { provider: activeProvider.name, model: resolvedModel });
 
       // Detect if the output schema is a simple single-string-field object
       // (e.g. z.object({ question: z.string() })). If so, stream plain text
@@ -1164,9 +1448,14 @@ export function createAIService(config: AIServiceConfig): AIService {
         signal: params.signal,
         seed: params.seed,
       };
-
-      const resolvedModel =
-        params.model ?? promptInfo.model ?? config.defaultModel ?? activeProvider.name;
+      // Per call → prompt override → prompt definition; unset keeps the adapter's requestTimeout.
+      // The non-streaming validation fallback below reuses this request, timeout included.
+      const timeoutMs =
+        params.timeoutMs ?? ('timeoutMs' in promptInfo ? promptInfo.timeoutMs : undefined);
+      if (timeoutMs !== undefined) {
+        assertRequestTimeout(timeoutMs);
+        request.timeout = timeoutMs;
+      }
 
       // Stream from provider, collecting full text and usage
       let fullText = '';
@@ -1185,6 +1474,9 @@ export function createAIService(config: AIServiceConfig): AIService {
               totalTokens: event.usage.totalTokens,
               cachedInputTokens: event.usage.cachedInputTokens,
               cacheWriteTokens: event.usage.cacheWriteTokens,
+              ...(event.usage.reasoningTokens !== undefined
+                ? { reasoningTokens: event.usage.reasoningTokens }
+                : {}),
             };
             if (event.cost != null) streamProviderCost = event.cost;
           } else if (event.type === 'done') {
@@ -1203,30 +1495,25 @@ export function createAIService(config: AIServiceConfig): AIService {
                 totalTokens: event.usage.totalTokens,
                 cachedInputTokens: event.usage.cachedInputTokens,
                 cacheWriteTokens: event.usage.cacheWriteTokens,
+                ...(event.usage.reasoningTokens !== undefined
+                  ? { reasoningTokens: event.usage.reasoningTokens }
+                  : {}),
               };
             }
           } else if (event.type === 'error') {
             // Provider-reported mid-stream error — record whatever usage we
             // have so the sunk spend is visible, then yield error to caller.
-            const errCost = streamUsage
-              ? calculateModelCost(
-                  streamUsage.inputTokens,
-                  streamUsage.outputTokens,
-                  resolvedModel,
-                  {
-                    cachedInputTokens: streamUsage.cachedInputTokens,
-                    cacheWriteTokens: streamUsage.cacheWriteTokens,
-                  },
-                )
-              : null;
             await recordProviderCost(
               {
                 model: resolvedModel,
                 provider: activeProvider.name,
                 promptName: hasPromptDef ? params.prompt : undefined,
                 operation: 'generate',
-                usage: streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-                cost: errCost,
+                ...failedCallCost(
+                  activeProvider,
+                  streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                  resolvedModel,
+                ),
                 latencyMs: 0,
                 tenantId: config.budget?.tenantId,
                 actor: config.budget?.actor,
@@ -1243,21 +1530,13 @@ export function createAIService(config: AIServiceConfig): AIService {
         // Transport-level failure mid-stream (fetch error, abort, etc.).
         const errUsage = getTypedAIErrorUsage(err) ??
           streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-        const errCost =
-          errUsage.totalTokens > 0
-            ? calculateModelCost(errUsage.inputTokens, errUsage.outputTokens, resolvedModel, {
-                cachedInputTokens: errUsage.cachedInputTokens,
-                cacheWriteTokens: errUsage.cacheWriteTokens,
-              })
-            : null;
         await recordProviderCost(
           {
             model: resolvedModel,
             provider: activeProvider.name,
             promptName: hasPromptDef ? params.prompt : undefined,
             operation: 'generate',
-            usage: errUsage,
-            cost: errCost,
+            ...failedCallCost(activeProvider, errUsage, resolvedModel),
             latencyMs: 0,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1368,7 +1647,13 @@ export function createAIService(config: AIServiceConfig): AIService {
         let fallbackCost: number | undefined;
         try {
           const parsed = JSON.parse(fullText);
-          validatedData = promptDef.output.parse(parsed);
+          // Same null-to-absent step as non-streaming validation: OpenAI strict mode streams an
+          // omitted optional property as null.
+          validatedData = promptDef.output.parse(
+            request.responseSchema
+              ? restoreOmittedOptionalProperties(parsed, request.responseSchema)
+              : parsed,
+          );
         } catch (parseErr) {
           // Streamed output failed local validation. The default behaviour
           // is to fall back to a non-streaming JSON-mode retry — but that
@@ -1381,26 +1666,13 @@ export function createAIService(config: AIServiceConfig): AIService {
               `[stream:${params.prompt}] validation-fallback SKIPPED by prompt config — stream produced invalid JSON (${errMsg}); throwing. streamedChars=${fullText.length} finishReason=${providerFinishReason ?? 'unknown'}`,
             );
             const failureUsage = streamUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-            const failureCost =
-              failureUsage.totalTokens > 0
-                ? calculateModelCost(
-                    failureUsage.inputTokens,
-                    failureUsage.outputTokens,
-                    resolvedModel,
-                    {
-                      cachedInputTokens: failureUsage.cachedInputTokens,
-                      cacheWriteTokens: failureUsage.cacheWriteTokens,
-                    },
-                  )
-                : null;
             await recordProviderCost(
               {
                 model: resolvedModel,
                 provider: activeProvider.name,
                 promptName: hasPromptDef ? params.prompt : undefined,
                 operation: 'generate',
-                usage: failureUsage,
-                cost: failureCost,
+                ...failedCallCost(activeProvider, failureUsage, resolvedModel),
                 latencyMs: 0,
                 tenantId: config.budget?.tenantId,
                 actor: config.budget?.actor,
@@ -1451,26 +1723,13 @@ export function createAIService(config: AIServiceConfig): AIService {
                     totalTokens: 0,
                   });
             const combinedUsage = sumUsage(streamUsage, fallbackErrorUsage);
-            const combinedCost =
-              combinedUsage.totalTokens > 0
-                ? calculateModelCost(
-                    combinedUsage.inputTokens,
-                    combinedUsage.outputTokens,
-                    resolvedModel,
-                    {
-                      cachedInputTokens: combinedUsage.cachedInputTokens,
-                      cacheWriteTokens: combinedUsage.cacheWriteTokens,
-                    },
-                  )
-                : null;
             await recordProviderCost(
               {
                 model: resolvedModel,
                 provider: activeProvider.name,
                 promptName: hasPromptDef ? params.prompt : undefined,
                 operation: 'generate',
-                usage: combinedUsage,
-                cost: combinedCost,
+                ...failedCallCost(activeProvider, combinedUsage, resolvedModel),
                 latencyMs: 0,
                 tenantId: config.budget?.tenantId,
                 actor: config.budget?.actor,
@@ -1541,16 +1800,17 @@ export function createAIService(config: AIServiceConfig): AIService {
       text: string;
       signal?: AbortSignal;
       costContext?: AICostContext;
+      timeoutMs?: number;
     }): Promise<Record<string, any>> {
       const start = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
       const textForAI = String(inputForAI.text);
 
-      checkBudget();
-
       // extract uses default provider (no prompt-level routing)
       const activeProvider = resolveProvider(undefined, 'extract', params.costContext);
       const resolvedModel = config.defaultModel ?? activeProvider.name;
+
+      checkBudget(undefined, undefined, { provider: activeProvider.name, model: resolvedModel });
 
       const systemPrompt =
         'Extract structured data from the following text. Return valid JSON matching the required schema.';
@@ -1564,6 +1824,11 @@ export function createAIService(config: AIServiceConfig): AIService {
           : undefined,
         signal: params.signal,
       };
+      // Unset keeps the adapter's requestTimeout; each validation retry gets its own.
+      if (params.timeoutMs !== undefined) {
+        assertRequestTimeout(params.timeoutMs);
+        request.timeout = params.timeoutMs;
+      }
 
       let validated: import('./validation.js').ValidatedResponse<Record<string, any>>;
       try {
@@ -1583,8 +1848,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             model: resolvedModel,
             provider: activeProvider.name,
             operation: 'extract',
-            usage: failureUsage,
-            cost: null,
+            ...failedCallCost(activeProvider, failureUsage, resolvedModel),
             latencyMs,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1687,6 +1951,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             provider,
             model,
             signal: params.signal,
+            timeoutMs: params.timeoutMs,
             costContext: params.costContext,
           },
           'classify',
@@ -1704,12 +1969,12 @@ export function createAIService(config: AIServiceConfig): AIService {
       const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
       const textForAI = String(inputForAI.text);
 
-      checkBudget();
-
       // Text classification retains its existing path, with optional per-call routing.
       const activeProvider = resolveProvider(provider, 'classify', params.costContext);
       const requestedModel = model ?? config.defaultModel;
       const resolvedModel = requestedModel ?? activeProvider.name;
+
+      checkBudget(undefined, undefined, { provider: activeProvider.name, model: resolvedModel });
 
       const systemPrompt =
         'Classify the following text into one or more of the provided labels. Return a JSON array of matching label strings.';
@@ -1723,6 +1988,11 @@ export function createAIService(config: AIServiceConfig): AIService {
           : undefined,
         signal: params.signal,
       };
+      // Unset keeps the adapter's requestTimeout; each validation retry gets its own.
+      if (params.timeoutMs !== undefined) {
+        assertRequestTimeout(params.timeoutMs);
+        request.timeout = params.timeoutMs;
+      }
 
       const schema = z.array(z.string());
       let validated: Awaited<ReturnType<typeof generateWithValidation<string[]>>>;
@@ -1743,8 +2013,7 @@ export function createAIService(config: AIServiceConfig): AIService {
             model: resolvedModel,
             provider: activeProvider.name,
             operation: 'classify',
-            usage: failureUsage,
-            cost: null,
+            ...failedCallCost(activeProvider, failureUsage, resolvedModel),
             latencyMs,
             tenantId: config.budget?.tenantId,
             actor: config.budget?.actor,
@@ -1810,6 +2079,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       limit?: number;
       minScore?: number;
       signal?: AbortSignal;
+      timeoutMs?: number;
     }): Promise<AIDocument[]> {
       if (!ragPipeline) {
         throw new Error('RAG pipeline not configured — cannot perform retrieval');
@@ -1818,6 +2088,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       const start = performance.now();
 
       checkBudget();
+      if (params.timeoutMs !== undefined) assertRequestTimeout(params.timeoutMs);
 
       const results = await ragPipeline.retrieve({
         query: params.query,
@@ -1826,6 +2097,8 @@ export function createAIService(config: AIServiceConfig): AIService {
         filter: params.filter,
         limit: params.limit,
         minScore: params.minScore,
+        ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
+        ...(params.signal !== undefined ? { signal: params.signal } : {}),
       });
 
       const latencyMs = performance.now() - start;
