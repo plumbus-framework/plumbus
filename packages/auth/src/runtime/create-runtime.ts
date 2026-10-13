@@ -32,6 +32,17 @@ export interface CreateAuthRuntimeOptions {
   metrics?: AuthMetrics;
 }
 
+/** Run one background expiry sweep; a store failure is logged and retried on the next sweep. */
+export async function sweepExpired(label: string, sweep: () => Promise<number>): Promise<void> {
+  try {
+    await sweep();
+  } catch (err) {
+    console.warn(`[@plumbus/auth] expired ${label} sweep failed; retrying next sweep`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function createAuthRuntime(
   config: AuthRuntimeConfig,
   opts?: CreateAuthRuntimeOptions,
@@ -138,8 +149,10 @@ export function createAuthRuntime(
 
       sweepTimer = setInterval(() => {
         const now = clock();
-        void normalized.sessionStore.deleteExpired(now);
-        void normalized.transactionStore.deleteExpired(now);
+        void sweepExpired('sessions', () => normalized.sessionStore.deleteExpired(now));
+        void sweepExpired('login transactions', () =>
+          normalized.transactionStore.deleteExpired(now),
+        );
       }, 60_000);
       sweepTimer.unref?.();
     },

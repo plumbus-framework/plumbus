@@ -6,6 +6,7 @@
 
 - **Auth audit events are saved.** The runtime wrote events with only `action` and `metadata`, so `createDatabaseAuditWriter` (the documented wiring) failed on every login, logout, and session replacement: `audit_records.component` and `audit_records.outcome` are `NOT NULL`. Events now carry `component: 'plumbus.auth'` (exported as `AUTH_AUDIT_COMPONENT`) and an `outcome`: `denied` for `auth.login.denied`, `failure` for `auth.login.failed` and `auth.login.cancelled`, `success` for the rest. The emitter's writer is now typed as `AuditWriter` from `@plumbus/core`, so a missing field is a type error. (#79)
 - **Failed audit writes say why.** `[@plumbus/auth] audit write failed for <event>` now includes the error message and code (from the driver error when Drizzle wraps it). Requests still never fail because of the audit write.
+- **The expiry sweep no longer causes unhandled promise rejections.** Every minute the runtime deletes expired sessions and login transactions with `void store.deleteExpired(now)`. While the database was unreachable, each failed delete became an unhandled rejection. A failed sweep now logs one warning (`[@plumbus/auth] expired sessions sweep failed; retrying next sweep`, with the error message) and runs again on the next sweep. (#80)
 
 ## 0.3.0 — Stabilization compatibility family
 

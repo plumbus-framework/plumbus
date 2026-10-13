@@ -1,5 +1,10 @@
 # @plumbus/core changelog
 
+## 0.8.1 — 2026-10-13
+
+- The Redis delayed-wake promoter no longer crashes with an unhandled promise rejection on every tick while Redis is unreachable. Its timer started each tick with `void promoteOnce()`, so a failed command (`ECONNREFUSED`) became an unhandled rejection until Redis came back. Each tick now catches the error, logs one warning (`Delayed flow wake promotion failed; retrying next tick`, with the error message), and tries again on the next tick. (#80)
+- A failed flow scheduler poll now logs why: `Scheduler poll failed; durable ticks remain recoverable` carries the error message. (#80)
+
 ## 0.8.0 — Stabilization compatibility family
 
 - Install Redis and PostgreSQL 16 explicitly in PR-test and publish CI before running real-server integration tests; document the matching local prerequisites. Fixes `spawn redis-server ENOENT` on runners without Redis preinstalled.

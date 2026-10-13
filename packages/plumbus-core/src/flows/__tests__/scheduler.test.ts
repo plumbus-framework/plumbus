@@ -45,6 +45,31 @@ describe('scheduler lifecycle', () => {
     await stop;
     expect(await first).toBe(0);
   });
+  it('logs a failed poll with its reason and keeps polling', async () => {
+    vi.useFakeTimers();
+    try {
+      const db = { transaction: vi.fn().mockRejectedValue(new Error('CONNECT_TIMEOUT')) };
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const scheduler = createFlowScheduler({
+        db: db as any,
+        registry: new FlowRegistry(),
+        engine: { wake: vi.fn() } as any,
+        logger,
+        pollIntervalMs: 1_000,
+      });
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await scheduler.stop();
+      expect(db.transaction).toHaveBeenCalledTimes(2);
+      expect(logger.error).toHaveBeenCalledTimes(2);
+      expect(logger.error).toHaveBeenCalledWith(
+        'Scheduler poll failed; durable ticks remain recoverable',
+        { error: 'CONNECT_TIMEOUT' },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('one cron implementation', () => {

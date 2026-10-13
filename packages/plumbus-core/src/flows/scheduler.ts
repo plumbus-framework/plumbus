@@ -291,8 +291,10 @@ export function createFlowScheduler(config: SchedulerConfig) {
     poll,
     start() {
       timer ??= setInterval(() => {
-        void poll().catch(() =>
-          logger.error('Scheduler poll failed; durable ticks remain recoverable'),
+        void poll().catch((err: unknown) =>
+          logger.error('Scheduler poll failed; durable ticks remain recoverable', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
         );
       }, pollIntervalMs);
     },

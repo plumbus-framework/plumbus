@@ -34,7 +34,10 @@ export interface FlowDelayedPromoterConfig {
   flowsQueue: EventQueue;
   pollIntervalMs?: number;
   batchSize?: number;
-  logger?: { info?(msg: string, meta?: Record<string, unknown>): void };
+  logger?: {
+    info?(msg: string, meta?: Record<string, unknown>): void;
+    warn?(msg: string, meta?: Record<string, unknown>): void;
+  };
 }
 
 /**
@@ -70,14 +73,26 @@ export function createFlowDelayedPromoter(config: FlowDelayedPromoterConfig): {
     return promoted;
   }
 
+  async function tick(): Promise<void> {
+    try {
+      await promoteOnce();
+    } catch (err: unknown) {
+      const details = { error: err instanceof Error ? err.message : String(err), delayedKey };
+      if (logger?.warn)
+        logger.warn('Delayed flow wake promotion failed; retrying next tick', details);
+      else
+        console.warn('[plumbus] delayed flow wake promotion failed; retrying next tick', details);
+    }
+  }
+
   return {
     promoteOnce,
     start() {
       if (timer) return;
       timer = setInterval(() => {
-        void promoteOnce();
+        void tick();
       }, pollIntervalMs);
-      void promoteOnce();
+      void tick();
     },
     stop() {
       if (timer) {

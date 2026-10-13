@@ -172,7 +172,7 @@ All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` 
 
 The flow step queue consumer calls `claimExecution(executionId)` before `runNext` to prevent double execution alongside the DB poll loop.
 
-**Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback.
+**Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue; a failed poll (Redis unreachable) logs `Delayed flow wake promotion failed; retrying next tick` with the error message and tries again on the next tick. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback.
 
 ## Capability Auto-Registration
 

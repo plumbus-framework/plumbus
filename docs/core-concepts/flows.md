@@ -292,7 +292,7 @@ export const nightlyCleanup = defineFlow({
 });
 ```
 
-Register the flow in your app registry (same as event-triggered flows). Worker startup seeds the initial schedule set only when no schedule rows exist. For subsequent additions, changes, and removals, preview `plumbus flow schedule sync`, then apply with `--apply --expected-revision <revision>` from the complete intended deployment registry. The scheduler polls adopted, enabled definitions for due runs.
+Register the flow in your app registry (same as event-triggered flows). Worker startup seeds the initial schedule set only when no schedule rows exist. For subsequent additions, changes, and removals, preview `plumbus flow schedule sync`, then apply with `--apply --expected-revision <revision>` from the complete intended deployment registry. The scheduler polls adopted, enabled definitions for due runs. A failed poll (for example, the database is unreachable) logs `Scheduler poll failed; durable ticks remain recoverable` with the error message, and the next poll picks the due runs up.
 
 **Cron formats**
 

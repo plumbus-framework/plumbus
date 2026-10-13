@@ -398,7 +398,7 @@ For a fuller explanation of the framework-first policy and destructive git safet
 
 ## Packages
 
-Current release: core **0.8.0**, UI **0.9.0**, MCP **0.7.0**, voice **0.6.0**, and other add-ons **0.3.0**. Read the [stabilization upgrade guide](docs/upgrading-stabilization.md) for migrations, worker cutover, and agent wiring **v21**. The [core changelog](packages/plumbus-core/CHANGELOG.md) maps fixes to PLB-01 through PLB-10.
+Current release: core **0.8.1**, UI **0.9.0**, MCP **0.7.0**, voice **0.6.0**, auth **0.3.1**, and other add-ons **0.3.0**. Read the [stabilization upgrade guide](docs/upgrading-stabilization.md) for migrations, worker cutover, and agent wiring **v21**. The [core changelog](packages/plumbus-core/CHANGELOG.md) maps fixes to PLB-01 through PLB-10.
 
 | Package | Description |
 |---------|-------------|

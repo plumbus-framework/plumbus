@@ -28,7 +28,7 @@ import { createPostgresSessionStore, createPostgresLoginTransactionStore } from 
 
 3. Use distinct **`applicationId`** per deployed app sharing a cluster.
 
-Expired row cleanup runs on a 60s sweep timer inside the runtime — ensure multiple instances are safe (delete queries are idempotent).
+Expired row cleanup runs on a 60s sweep timer inside the runtime — ensure multiple instances are safe (delete queries are idempotent). A failed sweep (for example, the database is unreachable) logs `[@plumbus/auth] expired sessions sweep failed; retrying next sweep` (or `login transactions`) with the error message and runs again a minute later.
 
 ---
 
