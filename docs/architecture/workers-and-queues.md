@@ -318,3 +318,13 @@ Redis event envelopes are schema-validated before subscribers receive them. Malf
 A polling worker claims one execution immediately before running it. It drains at most `flowClaimBatchSize` executions per cycle (default 50), acquiring each next lease only after the prior execution has completed its drain. Poll ticks do not overlap an active cycle, and shutdown prevents claiming further work. Thus a slow step cannot consume the lease time of rows prefetched behind it. Other workers can claim those still-pending rows normally; active-step heartbeats continue extending both tenant execution leases and authoritative spine hints. The engine's explicit `claimNext(batchSize)` API remains available to hosts that manage their own concurrency/lease lifecycle.
 
 See [flow lifecycle](execution-lifecycle.md) and [tenant data planes](../sdk-reference/tenant-data-planes.md). The worker integration regression uses two real polling pools and checks that queued work remains pending beyond multiple lease periods, a peer executes it once, and both hints retain attempt 1.
+
+### Tenant flow delay correctness (0.8.0-beta.11)
+
+For tenant-placed flows, an ordinary delay uses the existing durable schedule/outbox path to
+publish the next step with its persisted `notBefore` time. The prior hint is acknowledged and its
+worker lease is not transferred to the sleeping step. Another worker can claim the next step
+when due, without waiting for a five-minute lease expiry or an application polling loop. A lost
+guarded tenant checkpoint fails before any delayed notification is sent. The original auth
+snapshot and existing dispatch/wait schemas are unchanged. A delay as the last flow step still
+wakes to final completion.

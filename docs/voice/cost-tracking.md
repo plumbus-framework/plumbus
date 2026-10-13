@@ -135,3 +135,7 @@ Realtime transport is often estimated rather than measured as exact provider bil
 - [testing.md](./testing.md)
 - [security.md](./security.md)
 - [../ai/ai-integration.md](../ai/ai-integration.md)
+
+## Uploaded-file transcription
+
+Use `recordFileTranscriptionCost` from `@plumbus/voice/transcription` for token-billed file jobs, not the realtime duration approximation. It preserves actual aggregate tokens/audio duration and returns separate audio/text usage for a tenant ledger adapter. Unknown usage or prices stay null and must keep durable reservations unsettled. See [file transcription](file-transcription.md).

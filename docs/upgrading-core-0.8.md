@@ -4,7 +4,7 @@ Core 0.8 is the next coordinated release family after the 0.7 security release. 
 
 ## Packages to publish
 
-Prepared on **2026-10-12** for repository release **`v0.8.0-beta.10`**. The stable
+Prepared on **2026-10-12** for repository release **`v0.8.0-beta.11`**. The stable
 `latest` values below were verified against npm on that date. Seven existing
 packages receive new beta versions; three packages publish their first beta.
 Other package versions remain unchanged. The first publication attempt failed
@@ -16,7 +16,7 @@ these same package versions. See [Retry after beta.10](#retry-after-beta10).
 | `@plumbus/core` | 0.7.9 | 0.8.0-beta.10 (beta.5 + core 0.7.2–0.7.6 from `main`: typed decisions through `ctx.ai.decide()`, `ctx.ai.classify()` provider/model routing, agent wiring v17, structured answers with native tools, Claude Opus 5.5 and GPT-6 pricing, GPT-6 request compatibility, best-effort event pipeline audit and stale outbox claim release; generated OpenAPI documents a declared `api.method`; beta.8: database connections honour `ssl`; beta.9: GPT-6 reasoning levels, 2026-10-01 price sync with `claude-sonnet-5-5` and the 272K long-context premium on every OpenAI model priced that way; beta.10: the main integration and AI timeout, strict-output and failed-call budget fixes below) |
 | `@plumbus/ui` | 0.8.1 | 0.9.0-beta.1 (beta.0 + flow triggers only for descriptors with an explicit `startPath`) |
 | `@plumbus/mcp` | 0.6.1 | 0.7.0-beta.0 |
-| `@plumbus/voice` | 0.5.2 | 0.6.0-beta.1 (beta.0 + voice 0.5.2: `resolveSttContext`, `tts.responseMode: 'reply'`, STT error recovery, `transcript.maxChars`) |
+| `@plumbus/voice` | 0.5.2 | 0.6.0-beta.2 (locally staged file transcription; beta.1 carries voice 0.5.2: `resolveSttContext`, `tts.responseMode: 'reply'`, STT error recovery, `transcript.maxChars`) |
 | `@plumbus/ai-bedrock` | 0.2.2 | 0.3.0-beta.1 (prompt caching, timeout errors and embedding cancellation) |
 | `@plumbus/api` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/auth` | 0.2.1 | 0.3.0-beta.0 |
@@ -30,7 +30,7 @@ these same package versions. See [Retry after beta.10](#retry-after-beta10).
 | `@plumbus/voice-livekit` | 0.2.3 | 0.3.0-beta.2 (beta.1: 20 ms PCM framing and text streams for events above 15 KiB; beta.2: compatible LiveKit native dependencies) |
 | `@plumbus/voice-minimax` | 0.2.1 | 0.3.0-beta.0 |
 | `@plumbus/voice-openai` | 0.2.1 | 0.3.0-beta.1 (beta.0 + `gpt-realtime-whisper` at $0.017 per minute) |
-| `@plumbus/voice-soniox` | 0.2.2 | 0.3.0-beta.1 (beta.0 + per-session recognition context, STT error callback) |
+| `@plumbus/voice-soniox` | 0.2.2 | 0.3.0-beta.2 (locally staged async file transcription; beta.1 carries per-session recognition context and STT error callback) |
 | `@plumbus/ai-decision` | 0.2.3 | 0.3.0-beta.1 (beta.0 joined with core 0.8.0-beta.6; beta.1 adds endpoint paths and rounding support for OpenAI Decisions) |
 | `@plumbus/ai-decision-typesafe` | 0.2.3 | 0.3.0-beta.1 |
 | `@plumbus/ai-decision-laya` | 0.2.3 | 0.3.0-beta.1 |
@@ -243,3 +243,5 @@ pnpm exec plumbus doctor
 
 Promoting the beta to `latest` is a separate release decision after the entire
 family and consumer staging checks pass.
+
+Locally staged core `0.8.0-beta.11` corrects tenant delay hint scheduling without a schema or public API change. The next hint releases the previous lease and carries the persisted wake time; original flow authorization is preserved. Publication remains separate.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0-beta.2 — 2026-10-13 (locally staged)
+
+- Add bounded uploaded-file transcription contracts, explicit provider registration, short invoking-context operations and actual token/media cost recording. App capabilities and flows retain durable state, rights, reservations and recovery; realtime APIs are unchanged.
+- No registry publication is included; see [file transcription](../../docs/voice/file-transcription.md).
+
 ## 0.6.0-beta.1 — 2026-09-23
 
 Carries 0.5.2 from `main` into the beta family.

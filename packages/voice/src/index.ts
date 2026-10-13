@@ -63,3 +63,8 @@ export type {
   VoiceCloneAuth,
 } from './types/http.js';
 export * from './types/index.js';
+export {
+  createFileTranscriptionRuntime,
+  recordFileTranscriptionCost,
+} from './transcription/index.js';
+export type * from './transcription/types.js';

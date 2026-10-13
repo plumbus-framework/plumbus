@@ -119,3 +119,9 @@ For CLI/workers, export the same `voiceProviderRegistry` from `app/voice/registr
 ## License
 
 MIT
+
+## Uploaded-file transcription (0.3.0-beta.2)
+
+Add `SONIOX_FILE_TRANSCRIPTION_REGISTRATION` through the official SDK, explicit regional endpoints, bounded input/output and pagination, opaque references, uncertain POST reconciliation, actual usage-log tokens and safe processing-delete recovery. Realtime STT/TTS are unchanged.
+
+Start with `node_modules/@plumbus/voice/instructions/file-transcription.md`; see the [full file-transcription guide](../../docs/voice/file-transcription.md) for setup, exact usage, recovery and security. This staged extension uses `@plumbus/voice` 0.6.0-beta.2 and `@plumbus/voice-soniox` 0.3.0-beta.2; it does not require a core change.

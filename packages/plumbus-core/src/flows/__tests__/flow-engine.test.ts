@@ -149,6 +149,37 @@ describe('FlowEngine', () => {
     expect(db._inserts[0].flowName).toBe('order-processing');
   });
 
+  it('refuses to announce a delay when its guarded checkpoint loses the lease', async () => {
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'delay-lease-loss',
+        domain: 'test',
+        input: z.object({}),
+        steps: [
+          { name: 'pause', type: FlowStepType.Delay, duration: '1s' },
+          { name: 'after', type: FlowStepType.Capability },
+        ],
+      }),
+    );
+    const db = mockDb(),
+      schedule = vi.fn();
+    const engine = createFlowEngine({
+      db,
+      registry,
+      stepDeps: makeStepDeps(),
+      onFlowDelayedSchedule: schedule,
+      audit: {
+        record: async (action: string) => {
+          if (action === 'flow.step.completed.pause') db._state.updateRowCount = 0;
+        },
+      } as never,
+    });
+    const started = await engine.start('delay-lease-loss', {}, makeAuth());
+    await expect(engine.runNext(started.id, makeCtx())).rejects.toBeInstanceOf(LeaseLostError);
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
   it('parks a failed step until its retry backoff instead of draining it immediately', async () => {
     const registry = new FlowRegistry();
     registry.register(

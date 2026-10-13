@@ -364,6 +364,76 @@ describe('flow engine spine dispatch: heartbeats and retry backoff', () => {
     expect((await running).status).toBe(FlowStatus.Completed);
   });
 
+  it.each([
+    false,
+    true,
+  ])('releases an ordinary delay hint until its exact wake, including terminal=%s', async (terminal) => {
+    harness = await createDurableTestHarness();
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'durable-delay',
+        domain: 'durable',
+        input: z.object({}),
+        steps: [
+          { name: 'pause', type: FlowStepType.Delay, duration: '1s' },
+          ...(terminal
+            ? []
+            : [{ name: 'continue', type: FlowStepType.Capability, capability: 'durable.noop' }]),
+        ],
+      }),
+    );
+    const resolver = createSingleDataPlaneResolver(harness.tenantDb, {
+      coreSchema: harness.coreSchema,
+    });
+    let calls = 0;
+    const makeEngine = (workerId: string) =>
+      createFlowEngine({
+        db: harness.spineDb,
+        registry,
+        workerId,
+        stepDeps: {
+          executeCapability: async () => {
+            calls++;
+            return { success: true as const, data: {} };
+          },
+          evaluateCondition: () => true,
+        },
+        spineDispatch: { db: harness.spineDb, resolver, coreSchema: harness.coreSchema },
+        flowLeaseDurationMs: 300000,
+      });
+    const first = makeEngine('delay-worker-one'),
+      next = makeEngine('delay-worker-two');
+    const started = await first.start(
+      'durable-delay',
+      {},
+      { userId: 'tester', roles: ['system'], scopes: [], provider: 'test', tenantId: 'tenant-a' },
+    );
+    expect((await first.claimNext(1)).map((row) => row.id)).toEqual([started.id]);
+    expect((await first.runNext(started.id, workerCtx())).status).toBe(FlowStatus.Waiting);
+    const hints =
+      (await harness.spineDb.execute(sql`SELECT delivery_state, not_before, lease_ref_id, lease_expires_at, step_id
+      FROM opaque_dispatch WHERE execution_id = ${started.id} ORDER BY expected_revision`)) as unknown as Array<{
+        delivery_state: string;
+        not_before: Date;
+        lease_ref_id: string | null;
+        lease_expires_at: Date | null;
+        step_id: string;
+      }>;
+    expect(hints.map((row) => row.delivery_state)).toEqual(['acknowledged', 'retry-scheduled']);
+    expect(hints[1]).toMatchObject({
+      lease_ref_id: null,
+      lease_expires_at: null,
+      step_id: terminal ? 'pause' : 'continue',
+    });
+    expect(await next.claimNext(1)).toEqual([]);
+    const wakeAt = new Date(String(hints[1]?.not_before)).getTime();
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, wakeAt - Date.now() + 30)));
+    expect((await next.claimNext(1)).map((row) => row.id)).toEqual([started.id]);
+    expect((await next.runNext(started.id, workerCtx())).status).toBe(FlowStatus.Completed);
+    expect(calls).toBe(terminal ? 0 : 1);
+  });
+
   it('persists a future retry hint and does not reclaim it before the backoff', async () => {
     harness = await createDurableTestHarness();
     const registry = new FlowRegistry();

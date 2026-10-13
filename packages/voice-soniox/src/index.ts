@@ -13,3 +13,4 @@ export {
   SONIOX_CLONE_CAPABILITIES,
   SonioxVoiceCloneProvider,
 } from './soniox-voice-clone.js';
+export { SONIOX_FILE_TRANSCRIPTION_REGISTRATION } from './file-transcription.js';

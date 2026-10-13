@@ -116,3 +116,5 @@ export type {
   VoiceTransportConfig,
   VoiceTtsConfig,
 } from '../types/voice.js';
+
+export type * from '../transcription/types.js';

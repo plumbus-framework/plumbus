@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0-beta.2 — 2026-10-13 (locally staged)
+
+- Add `SONIOX_FILE_TRANSCRIPTION_REGISTRATION` through the official SDK, explicit regional endpoints, bounded input/output and pagination, opaque references, uncertain POST reconciliation, actual usage-log tokens and safe processing-delete recovery. Realtime STT/TTS are unchanged.
+- No registry publication is included; see [file transcription](../../docs/voice/file-transcription.md).
+
 ## 0.3.0-beta.1 — 2026-09-23
 
 Carries 0.2.2 from `main` into the beta family.

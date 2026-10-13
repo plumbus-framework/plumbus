@@ -1127,16 +1127,28 @@ export function createFlowEngine(config: FlowEngineConfig) {
         );
       }
       const wakeAt = new Date(Date.now() + delayMs);
-      await guardedUpdate(executionId, {
+      const updated = await guardedUpdate(executionId, {
         status: FlowStatus.Waiting,
         state: nextState,
         stepHistory: history,
-        currentStep: nextStep,
+        currentStep: nextStep ?? null,
         waitingForEvent: null,
         wakeAt,
         leaseOwner: null,
         leaseExpiresAt: null,
       });
+      if (!updated) {
+        throw new LeaseLostError(
+          `Lease lost scheduling delay for flow execution "${executionId}"`,
+          { executionId, workerId, step: currentStepName },
+        );
+      }
+      if (spineDispatch) {
+        scheduledRetries.set(executionId, {
+          stepId: nextStep ?? currentStepName,
+          notBefore: wakeAt.toISOString(),
+        });
+      }
       if (onFlowDelayedSchedule) {
         await onFlowDelayedSchedule(executionId, wakeAt, row.correlationId ?? executionId);
       }

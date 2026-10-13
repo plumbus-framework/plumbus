@@ -97,3 +97,7 @@ Voice handshake JWT lifetimes must be finite positive whole seconds (default 90,
 ### Configurable transcript bounds
 
 `transcript.maxChars` defaults to 4,000 and is validated by `defineVoice`. It changes the per-turn text bound only; client/server trust tags, cost/budget checks and inbound audio/control limits remain enforced. LiveKit's large-event text-stream path is outbound from the agent; it does not increase the client's control-message limit or grant client speech authoritative status. The browser bounds stream size/time and aborts readers on disconnect. See [configuration](./configuration.md).
+
+## Uploaded files
+
+File transcription is a server-only extension used inside authorized Plumbus capabilities and flows. The app owns inspected input, current processing rights, tenant scope, durable budget reservations, result adoption and cleanup. Never treat a client reference as provider idempotency. Unknown external outcomes require reconciliation before any new paid request. See [file transcription](file-transcription.md) for bounded streams, explicit regions, sanitized errors, unknown bills and deletion semantics.

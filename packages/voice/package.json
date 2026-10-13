@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice",
-  "version": "0.6.0-beta.1",
+  "version": "0.6.0-beta.2",
   "description": "Plumbus realtime voice runtime — defineVoice, provider registry, session routes, and cost ledger integration.",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,6 +29,10 @@
     "./provider-kit": {
       "types": "./dist/provider-kit/index.d.ts",
       "default": "./dist/provider-kit/index.js"
+    },
+    "./transcription": {
+      "types": "./dist/transcription/index.d.ts",
+      "default": "./dist/transcription/index.js"
     }
   },
   "scripts": {

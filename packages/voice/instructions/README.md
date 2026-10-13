@@ -32,6 +32,7 @@ Read these files in order when you need to add, modify, or extend a voice surfac
 | [`defining-voices.md`](./defining-voices.md) | When adding a new `defineVoice` config or mounting `registerVoiceRoutes()`. |
 | [`continuous-sessions.md`](./continuous-sessions.md) | Continuous / always-listening server-STT: talk-over re-queue, stitched transcripts, sentence chunker, opt-in backchannel. |
 | [`providers.md`](./providers.md) | When choosing STT/TTS/transport combinations or adding custom provider registration. |
+| [`file-transcription.md`](./file-transcription.md) | Uploaded-file jobs with explicit provider registration, durable app flows, exact usage and unknown-outcome recovery. |
 | [`cost-tracking.md`](./cost-tracking.md) | When tagging STT/TTS/transport spend into the shared AI ledger. |
 | [`testing.md`](./testing.md) | When writing smoke, route, websocket, or e2e coverage. |
 | [`extending.md`](./extending.md) | When the built-ins are not enough and you need tone hooks, custom providers, or runtime extension points. |

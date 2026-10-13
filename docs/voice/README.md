@@ -19,6 +19,7 @@ These docs are split in three:
 | [noise-cancellation.md](./noise-cancellation.md) | You're configuring Krisp/RNNoise/DTLN on LiveKit or WebSocket transports. |
 | [client-stt.md](./client-stt.md) | You're considering `web-speech` or other browser-side transcript relay. |
 | [local-providers.md](./local-providers.md) | You want a self-hosted Whisper sidecar or browser-native TTS. |
+| [file-transcription.md](./file-transcription.md) | Uploaded audio/video jobs in durable app capabilities and flows; exact usage and uncertainty recovery. |
 | [cost-tracking.md](./cost-tracking.md) | You need STT/TTS/transport spend to land in the shared AI ledger. |
 | [testing.md](./testing.md) | You're writing smoke, route, websocket, or e2e tests. |
 | [livekit-continuous-voice.md](./livekit-continuous-voice.md) | Continuous LiveKit + server-STT (talk-over re-queue, stitch, chunker). Agents: `packages/voice/instructions/continuous-sessions.md`. |

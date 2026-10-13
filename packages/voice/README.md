@@ -276,3 +276,9 @@ For consumer-app tests, import `mockVoiceRuntime`, `createVoiceTestContext`, and
 ## License
 
 MIT
+
+## Uploaded-file transcription (0.6.0-beta.2)
+
+Add bounded uploaded-file transcription contracts, explicit provider registration, short invoking-context operations and actual token/media cost recording. App capabilities and flows retain durable state, rights, reservations and recovery; realtime APIs are unchanged.
+
+Start with the shipped [file transcription recipe](instructions/file-transcription.md); see the [full guide](../../docs/voice/file-transcription.md) for setup, exact usage, recovery and security. This staged extension uses `@plumbus/voice` 0.6.0-beta.2 and `@plumbus/voice-soniox` 0.3.0-beta.2; it does not require a core change.
