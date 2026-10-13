@@ -155,6 +155,8 @@ When `auditWriter` is configured, the runtime emits:
 
 Metadata is passed through `sanitizeAuditMetadata()` — never log raw cookies or CSRF tokens.
 
+Every event is written with `component: 'plumbus.auth'` (exported as `AUTH_AUDIT_COMPONENT`) and an `outcome`: `denied` for `auth.login.denied`, `failure` for `auth.login.failed` and `auth.login.cancelled`, and `success` for the rest. A failed write never fails the request; it logs `[@plumbus/auth] audit write failed for <event>` with the writer's error message and code, and calls `metrics.onAuditFailure`.
+
 ---
 
 ## Plumbus access policies

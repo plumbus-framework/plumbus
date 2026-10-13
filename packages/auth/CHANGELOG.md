@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-10-13
+
+### Fixed
+
+- **Auth audit events are saved.** The runtime wrote events with only `action` and `metadata`, so `createDatabaseAuditWriter` (the documented wiring) failed on every login, logout, and session replacement: `audit_records.component` and `audit_records.outcome` are `NOT NULL`. Events now carry `component: 'plumbus.auth'` (exported as `AUTH_AUDIT_COMPONENT`) and an `outcome`: `denied` for `auth.login.denied`, `failure` for `auth.login.failed` and `auth.login.cancelled`, `success` for the rest. The emitter's writer is now typed as `AuditWriter` from `@plumbus/core`, so a missing field is a type error. (#79)
+- **Failed audit writes say why.** `[@plumbus/auth] audit write failed for <event>` now includes the error message and code (from the driver error when Drizzle wraps it). Requests still never fail because of the audit write.
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

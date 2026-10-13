@@ -1,3 +1,5 @@
+import type { AuditEvent, AuditWriter } from '@plumbus/core';
+
 export const AuthAuditEvents = {
   LoginStarted: 'auth.login.started',
   LoginCancelled: 'auth.login.cancelled',
@@ -33,12 +35,34 @@ export function sanitizeAuditMetadata(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+export const AUTH_AUDIT_COMPONENT = 'plumbus.auth';
+
+export function auditOutcomeFor(event: string): AuditEvent['outcome'] {
+  if (event === AuthAuditEvents.LoginDenied) return 'denied';
+  if (event === AuthAuditEvents.LoginFailed || event === AuthAuditEvents.LoginCancelled) {
+    return 'failure';
+  }
+  return 'success';
+}
+
+/**
+ * Message and code of a failed write. Drizzle wraps driver errors in a
+ * "Failed query: …" error whose `cause` carries the database reason.
+ */
+export function describeAuditWriteError(err: unknown): { error: string; code?: string } {
+  const cause = err instanceof Error && err.cause instanceof Error ? err.cause : undefined;
+  const source = cause ?? err;
+  const error = source instanceof Error ? source.message : String(source);
+  const code = (source as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? { error, code } : { error };
+}
+
 export interface AuthAuditEmitter {
   emit(event: string, metadata?: AuthAuditMetadata): Promise<void>;
 }
 
 export function createAuthAuditEmitter(opts: {
-  writer?: { write(event: { action: string; metadata?: Record<string, unknown> }): Promise<void> };
+  writer?: AuditWriter;
   onFailure?: () => void;
 }): AuthAuditEmitter {
   return {
@@ -46,11 +70,16 @@ export function createAuthAuditEmitter(opts: {
       try {
         if (!opts.writer) return;
         await opts.writer.write({
+          component: AUTH_AUDIT_COMPONENT,
           action: event,
+          outcome: auditOutcomeFor(event),
           metadata: sanitizeAuditMetadata(metadata),
         });
-      } catch {
-        console.error(`[@plumbus/auth] audit write failed for ${event}`);
+      } catch (err) {
+        console.error(
+          `[@plumbus/auth] audit write failed for ${event}`,
+          describeAuditWriteError(err),
+        );
         opts.onFailure?.();
       }
     },

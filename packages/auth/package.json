@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/auth",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Plumbus OIDC relying-party runtime \u2014 hosted login, opaque server sessions, CSRF, and protected stores.",
   "type": "module",
   "main": "./dist/index.js",
