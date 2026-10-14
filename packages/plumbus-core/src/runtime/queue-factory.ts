@@ -4,6 +4,8 @@
 import type { EventQueue } from '../events/queue.js';
 import { createInMemoryQueue, createRedisQueue, type RedisClient } from '../events/queue.js';
 import type { PlumbusConfig, QueueConfig } from '../types/config.js';
+import { DataInternalError, DataValidationError } from '../errors/index.js';
+import { z } from 'zod';
 
 export const QueueBackend = {
   Memory: 'memory',
@@ -52,94 +54,140 @@ export function shouldUseRedisBackend(
   config: PlumbusConfig,
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  const forced = explicitBackend(env);
+  const forced = config.queue.backend ?? explicitBackend(env);
   if (forced === QueueBackend.Memory) return false;
   if (forced === QueueBackend.Redis) return true;
-  if (queueUrlFromEnv(env)) return true;
+  if (config.queue.url ?? queueUrlFromEnv(env)) return true;
   // Auto-detect: non-default Redis host/port or explicit password implies intent
   const host = config.queue.host;
   const hasNonDefaultHost = host !== 'localhost' && host !== '127.0.0.1';
-  return hasNonDefaultHost || config.queue.password !== undefined;
+  return hasNonDefaultHost || config.queue.port !== 6379 || config.queue.password !== undefined;
 }
 
-/** Lazy-load redis package; returns null when not installed. */
+/** Redis selection is fail-closed; errors never produce memory queues. */
 export async function tryCreateRedisClient(
   queueConfig: QueueConfig,
   env: Record<string, string | undefined> = process.env,
-): Promise<RedisClient | null> {
+  onWarning: (message: string) => void = console.warn,
+): Promise<RedisClient> {
+  let redis: typeof import('redis');
   try {
-    const redisMod = (await import('redis')) as {
-      createClient: (opts: {
-        url?: string;
-        socket?: { host: string; port: number };
-        password?: string;
-      }) => {
-        connect: () => Promise<void>;
-        lPush: (key: string, ...values: string[]) => Promise<number>;
-        rPopLPush: (source: string, dest: string) => Promise<string | null>;
-        lRem: (key: string, count: number, value: string) => Promise<number>;
-        lRange: (key: string, start: number, stop: number) => Promise<string[]>;
-        lLen?: (key: string) => Promise<number>;
-        zAdd?: (key: string, members: { score: number; value: string }[]) => Promise<number>;
-        zRangeByScore?: (
-          key: string,
-          min: number | string,
-          max: number | string,
-          options?: { LIMIT?: { offset: number; count: number } },
-        ) => Promise<string[]>;
-        zRem?: (key: string, member: string) => Promise<number>;
-        ping?: () => Promise<string>;
-        eval?: (
-          script: string,
-          options: { keys: string[]; arguments: string[] },
-        ) => Promise<unknown>;
-        quit: () => Promise<unknown>;
-      };
-    };
-    const url = queueUrlFromEnv(env);
-    const client = url
-      ? redisMod.createClient({ url })
-      : redisMod.createClient({
-          socket: { host: queueConfig.host, port: queueConfig.port },
-          password: queueConfig.password,
-        });
-    await client.connect();
-    return {
-      lpush: (key, ...values) => client.lPush(key, ...values),
-      rpoplpush: (source, dest) => client.rPopLPush(source, dest),
-      lrem: (key, count, value) => client.lRem(key, count, value),
-      lrange: (key, start, stop) => client.lRange(key, start, stop),
-      llen: (key) => (client.lLen ? client.lLen(key) : Promise.resolve(0)),
-      zadd: (key, score, member) =>
-        client.zAdd
-          ? client.zAdd(key, [{ score, value: member }])
-          : Promise.reject(new Error('Redis client does not support ZADD')),
-      zrangebyscore: (key, min, max, options) => {
-        if (!client.zRangeByScore) {
-          return Promise.reject(new Error('Redis client does not support ZRANGEBYSCORE'));
-        }
-        const limit = options?.limit;
-        return client.zRangeByScore(
+    redis = await import('redis');
+  } catch {
+    throw new DataInternalError('Redis driver unavailable; install redis@^4.7.0', {
+      reason: 'redis_driver_missing',
+    });
+  }
+  const startupTimeoutMs = queueConfig.startupTimeoutMs ?? 5000;
+  const operationTimeoutMs = queueConfig.operationTimeoutMs ?? 5000;
+  for (const value of [startupTimeoutMs, operationTimeoutMs]) {
+    if (!z.number().finite().positive().safeParse(value).success) {
+      throw new DataValidationError('Redis timeouts must be positive finite numbers');
+    }
+  }
+  async function bounded<T>(operation: Promise<T>, timeoutMs: number, reason: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new DataInternalError('Redis operation timed out', { reason })),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const url = queueConfig.url ?? queueUrlFromEnv(env);
+  let client: ReturnType<typeof redis.createClient>;
+  try {
+    client = redis.createClient({
+      ...(url ? { url } : { password: queueConfig.password }),
+      socket: {
+        ...(url ? {} : { host: queueConfig.host, port: queueConfig.port }),
+        connectTimeout: startupTimeoutMs,
+        reconnectStrategy: (retries: number) => Math.min(100 * 2 ** Math.min(retries, 8), 5000),
+      },
+      disableOfflineQueue: true,
+    });
+  } catch {
+    throw new DataValidationError('Invalid Redis connection configuration', {
+      reason: 'redis_configuration',
+    });
+  }
+  let lastWarning = -Infinity;
+  let authenticationFailed = false;
+  client.on('error', (error) => {
+    const parsed = z.object({ message: z.string() }).safeParse(error);
+    if (parsed.success && /WRONGPASS|NOAUTH|AUTH/i.test(parsed.data.message))
+      authenticationFailed = true;
+    if (Date.now() - lastWarning >= 5000) {
+      lastWarning = Date.now();
+      try {
+        onWarning('Redis connection error; backend remains Redis and readiness is unavailable');
+      } catch {
+        /* observer */
+      }
+    }
+  });
+  try {
+    await bounded(client.connect(), startupTimeoutMs, 'redis_startup_timeout');
+  } catch (error) {
+    await client.disconnect().catch(() => {});
+    const parsed = z
+      .object({
+        message: z.string().optional(),
+        metadata: z.object({ reason: z.string() }).optional(),
+      })
+      .safeParse(error);
+    const reason = authenticationFailed
+      ? 'redis_authentication'
+      : parsed.success && parsed.data.metadata?.reason === 'redis_startup_timeout'
+        ? 'redis_startup_timeout'
+        : parsed.success && /WRONGPASS|NOAUTH|AUTH/i.test(parsed.data.message ?? '')
+          ? 'redis_authentication'
+          : 'redis_connection';
+    throw new DataInternalError(`Redis initialization failed (${reason})`, { reason });
+  }
+  const call = <T>(operation: Promise<T>) =>
+    bounded(operation, operationTimeoutMs, 'redis_operation_timeout');
+  let closing: Promise<unknown> | undefined;
+  return {
+    lpush: (key, ...values) => call(client.lPush(key, ...values)),
+    rpoplpush: (source, dest) => call(client.rPopLPush(source, dest)),
+    lrem: (key, count, value) => call(client.lRem(key, count, value)),
+    lrange: (key, start, stop) => call(client.lRange(key, start, stop)),
+    llen: (key) => call(client.lLen(key)),
+    zadd: (key, score, member) => call(client.zAdd(key, [{ score, value: member }])),
+    zrangebyscore: (key, min, max, options) =>
+      call(
+        client.zRangeByScore(
           key,
           min,
           max,
-          limit != null ? { LIMIT: { offset: 0, count: limit } } : undefined,
-        );
-      },
-      zrem: (key, member) =>
-        client.zRem
-          ? client.zRem(key, member)
-          : Promise.reject(new Error('Redis client does not support ZREM')),
-      ping: () => (client.ping ? client.ping() : Promise.resolve('PONG')),
-      eval: (script, options) =>
-        client.eval
-          ? client.eval(script, { keys: options.keys, arguments: options.arguments })
-          : Promise.resolve(null),
-      quit: () => client.quit(),
-    };
-  } catch {
-    return null;
-  }
+          options?.limit != null ? { LIMIT: { offset: 0, count: options.limit } } : undefined,
+        ),
+      ),
+    zrem: (key, member) => call(client.zRem(key, member)),
+    ping: () => {
+      if (!client.isReady) return Promise.reject(new DataInternalError('Redis is not ready'));
+      return call(client.ping());
+    },
+    eval: (script, options) => call(client.eval(script, options)),
+    quit: () => {
+      closing ??= (async () => {
+        try {
+          if (client.isReady) await call(client.quit());
+        } finally {
+          if (client.isOpen) await client.disconnect().catch(() => {});
+        }
+      })();
+      return closing;
+    },
+  };
 }
 
 function memoryQueues(): RuntimeQueues {
@@ -167,9 +215,12 @@ export async function resolveRuntimeQueues(
   options?: ResolveRuntimeQueuesOptions,
 ): Promise<RuntimeQueues> {
   const env = process.env;
-  const warn = options?.onWarning ?? (() => {});
+  const warn = options?.onWarning ?? console.warn;
 
-  if (options?.preferInMemory || explicitBackend(env) === QueueBackend.Memory) {
+  if (
+    options?.preferInMemory ||
+    (config.queue.backend ?? explicitBackend(env)) === QueueBackend.Memory
+  ) {
     return memoryQueues();
   }
 
@@ -184,18 +235,14 @@ export async function resolveRuntimeQueues(
     return memoryQueues();
   }
 
-  const redisClient = await tryCreateRedisClient(config.queue, env);
-  if (!redisClient) {
-    warn(
-      'Redis queue requested but the "redis" package is not installed. Falling back to in-memory queue. Run: pnpm add redis',
-    );
-    return memoryQueues();
-  }
-
+  const redisClient = await tryCreateRedisClient(config.queue, env, warn);
   const client = redisClient;
   const basePrefix = config.queue.prefix ?? `plumbus:${config.environment}`;
   const queueOpts = {
     visibilityTimeoutSec: config.queue.visibilityTimeoutSec,
+    pollIntervalMs: config.queue.pollIntervalMs,
+    reclaimIntervalMs: config.queue.reclaimIntervalMs,
+    shutdownTimeoutMs: config.queue.shutdownTimeoutMs,
     ownsClient: false,
   };
   const eventsPrefix = `${basePrefix}:events`;

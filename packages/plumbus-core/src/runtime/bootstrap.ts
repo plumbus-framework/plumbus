@@ -270,6 +270,8 @@ export type ServerExtensions = Pick<
   | 'frameworkSchema'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
+  /** Called after an event delivery is dead-lettered (`export const onEventDeadLetter`). */
+  onEventDeadLetter?: WorkerPoolConfig['onEventDeadLetter'];
   /** Tenant planes for the flow scheduler, from `app/server.ts` (`export const schedulePlanes`). */
   schedulePlanes?: WorkerPoolConfig['schedulePlanes'];
   /**

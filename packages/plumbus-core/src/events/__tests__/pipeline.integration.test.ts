@@ -331,7 +331,11 @@ describe('event pipeline with the real audit service', () => {
       expect.objectContaining({ eventId: 'evt-201', consumerId: 'strict-consumer' }),
     ]);
     // Every entry reached the writer: none was refused for its outcome.
-    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledOnce();
+    expect(logger.error).toHaveBeenCalledWith(
+      'Event delivery dead-lettered',
+      expect.objectContaining({ eventId: 'evt-201' }),
+    );
     const entriesFor = (eventId: string) =>
       written
         .filter((e) => e.metadata?.eventId === eventId)

@@ -72,7 +72,9 @@ function createMockAudioTrack(): MockAudioTrack {
 }
 
 vi.mock('livekit-client', () => ({
-  Room: vi.fn(() => mockRoom),
+  Room: vi.fn(function MockRoom() {
+    return mockRoom;
+  }),
   RoomEvent: {
     DataReceived: 'dataReceived',
     TrackSubscribed: 'trackSubscribed',

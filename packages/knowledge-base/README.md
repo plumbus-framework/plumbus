@@ -1,11 +1,13 @@
 # @plumbus/knowledge-base
 
+Release **0.4.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+
 > **Audience-scoped, queryable knowledge for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** One provider contract, multiple content backends, composed through an explicit registry — so chat, tooltips, capabilities, and admin search all see the same facts under the same scope rules.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/knowledge-base.svg)](https://www.npmjs.com/package/@plumbus/knowledge-base)
 [![license](https://img.shields.io/npm/l/@plumbus/knowledge-base.svg)](./LICENSE)
-[![peer: @plumbus/core ^0.5](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%5E0.5-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/chat 0.3.x](https://img.shields.io/badge/peer-%40plumbus%2Fchat%200.2.x-blue)](https://www.npmjs.com/package/@plumbus/chat)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/chat >=0.4.0-beta.0 <0.5.0](https://img.shields.io/badge/peer-%40plumbus%2Fchat%20%3E%3D0.4.0--beta.0%20%3C0.5.0-blue)](https://www.npmjs.com/package/@plumbus/chat)
 
 ## What is this?
 
@@ -52,17 +54,17 @@ This package gives you a single answer: declare each knowledge source once with 
 
 ## Status
 
-Optional peer of `@plumbus/chat` (version-locked `0.3.x`). Implements the `defineKnowledgeSource` / registry contract, all five built-in providers, the scope model, and the chat `knowledgeContext` integration. Auto-discovery, file watching for `documentCollection`, governance hooks, and chat tier-2 tool execution are not implemented — see [Out of scope](#out-of-scope).
+Optional peer of `@plumbus/chat`, version `0.4.0-beta.0` (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family). Implements the `defineKnowledgeSource` / registry contract, all five built-in providers, the scope model, and the chat `knowledgeContext` integration. Auto-discovery, file watching for `documentCollection`, governance hooks, and chat tier-2 tool execution are not implemented — see [Out of scope](#out-of-scope).
 
 ## Install
 
 ```bash
-pnpm add @plumbus/knowledge-base
+pnpm add @plumbus/knowledge-base@plumbus-next
 ```
 
 Peers:
-- `@plumbus/core` `0.8.x` — required (`ctx`, RAG, capabilities, translations)
-- `@plumbus/chat` `^0.1.4 <0.2.0` — required only if you wire knowledge into chat via `knowledgeContext`
+- `@plumbus/core` `>=0.9.0-beta.0 <0.10.0` — required (`ctx`, RAG, capabilities, translations)
+- `@plumbus/chat` `>=0.4.0-beta.0 <0.5.0` — required only if you wire knowledge into chat via `knowledgeContext`
 
 ## Quickstart
 

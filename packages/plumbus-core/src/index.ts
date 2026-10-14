@@ -230,6 +230,8 @@ export {
   verifyPassword,
   wrapAuthAdapter,
 } from './auth/index.js';
+export { loadAppConfig } from './config/index.js';
+export type { ConfigOverrides } from './config/index.js';
 export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
 // ── Config Loader ──
 export { loadConfig, parseDurationToMs, validateConfig } from './config/index.js';
@@ -737,3 +739,7 @@ export type {
   ProvisionDataPlaneOptions,
   SingleDataPlaneResolverOptions,
 } from './tenancy/index.js';
+
+// ── Retry policy and event delivery options ──
+export type { RetryPolicy } from './config/index.js';
+export type { EventDeadLetterInfo, EventDeliveryOptions } from './events/index.js';

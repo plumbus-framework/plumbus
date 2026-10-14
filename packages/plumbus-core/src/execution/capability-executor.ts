@@ -83,7 +83,11 @@ function buildHandlerContext(
   const flows =
     scope && deferred && ctx.flows ? createDeferredFlowService(ctx.flows, deferred) : ctx.flows;
   const jobs =
-    scope && deferred && ctx.jobs ? createDeferredJobDispatchService(ctx.jobs, deferred) : ctx.jobs;
+    scope && deferred && ctx.jobs
+      ? scope.db && ctx.jobs.inTransaction
+        ? ctx.jobs.inTransaction(scope.db, deferred)
+        : createDeferredJobDispatchService(ctx.jobs, deferred)
+      : ctx.jobs;
   const handlerCtx: ExecutionContext = {
     ...ctx,
     ...(scope ? { data: scope.data, events: scope.events } : {}),

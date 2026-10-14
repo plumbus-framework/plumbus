@@ -83,6 +83,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      # The release gate runs the same real-server integration tests as PR CI.
+      - name: Install integration test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends redis-server postgresql-16
+          redis-server --version
+          /usr/lib/postgresql/16/bin/initdb --version
+          /usr/lib/postgresql/16/bin/pg_ctl --version
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check
@@ -160,7 +169,7 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
-      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.8.x / >=0.8.0-beta.0).
+      # Publish @plumbus/auth AFTER @plumbus/core (peer: @plumbus/core 0.8.x stable / >=0.9.0-beta.0 <0.10.0 beta).
       - name: Publish @plumbus/auth
         working-directory: packages/auth
         run: |
@@ -172,7 +181,7 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
-      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.3.x / >=0.3.0-beta.0).
+      # Publish @plumbus/auth-cognito AFTER @plumbus/auth (peer: @plumbus/auth 0.3.x stable / >=0.4.0-beta.0 <0.5.0 beta).
       - name: Publish @plumbus/auth-cognito
         working-directory: packages/auth-cognito
         run: |
@@ -184,7 +193,7 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
-      # Publish @plumbus/payments AFTER @plumbus/core (peer: core 0.8 beta family).
+      # Publish @plumbus/payments AFTER @plumbus/core (peer: core 0.8 stable / 0.9 beta family).
       - name: Publish @plumbus/payments
         working-directory: packages/payments
         run: |
@@ -196,7 +205,7 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
-      # Publish @plumbus/payments-stripe AFTER @plumbus/payments (peer: payments 0.3 beta family).
+      # Publish @plumbus/payments-stripe AFTER @plumbus/payments (peer: payments 0.3 stable / 0.4 beta family).
       - name: Publish @plumbus/payments-stripe
         working-directory: packages/payments-stripe
         run: |
@@ -219,7 +228,7 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
-      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.6.x / >=0.6.0-beta.0).
+      # Publish voice provider add-ons AFTER @plumbus/voice (peer: @plumbus/voice 0.6.x stable / >=0.7.0-beta.0 <0.8.0 beta).
       - name: Publish @plumbus/voice-openai
         working-directory: packages/voice-openai
         run: |
@@ -286,7 +295,7 @@ jobs:
             pnpm publish --access public --no-git-checks --tag "$DIST_TAG"
           fi
 
-      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.8.x / >=0.8.0-beta.0).
+      # Publish @plumbus/api AFTER @plumbus/core (peer: @plumbus/core 0.8.x stable / >=0.9.0-beta.0 <0.10.0 beta).
       - name: Publish @plumbus/api
         working-directory: packages/api
         run: |

@@ -202,8 +202,9 @@ export function createJobService(db: PostgresJsDatabase) {
         .where(eq(jobExecutionsTable.id, id));
     },
 
-    async markDeadLettered(id: string, error: { code: string; message: string }): Promise<void> {
-      await db
+    /** Mark a job dead-lettered; resolves false when this database holds no such job. */
+    async markDeadLettered(id: string, error: { code: string; message: string }): Promise<boolean> {
+      const result = await db
         .update(jobExecutionsTable)
         .set({
           status: JobExecutionStatus.DeadLettered,
@@ -211,6 +212,7 @@ export function createJobService(db: PostgresJsDatabase) {
           completedAt: new Date(),
         })
         .where(eq(jobExecutionsTable.id, id));
+      return getRowsAffected(result) > 0;
     },
   };
 }

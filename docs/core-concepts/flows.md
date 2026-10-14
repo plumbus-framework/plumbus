@@ -291,14 +291,14 @@ Use `schedule.cron` when work should run on a timer (nightly cleanup, hourly syn
 
 ```typescript
 import { defineFlow } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const nightlyCleanup = defineFlow({
   name: "nightlyCleanup",
   domain: "maintenance",
   description: "Purge expired records every day at midnight",
   input: z.object({}), // scheduler starts the flow with {} — no event payload
-  schedule: { cron: "0 0 * * *" }, // every day at 00:00 (5-field cron)
+  schedule: { cron: "0 0 * * *", timezone: "UTC", firstRun: "next", overlap: "skip" },
   steps: [
     {
       name: "purgeExpired",
@@ -309,7 +309,7 @@ export const nightlyCleanup = defineFlow({
 });
 ```
 
-Register the flow in your app registry (same as event-triggered flows). On worker startup, the scheduler syncs registered schedules into `flow_schedules` and polls for due runs. Hosts can call that same pair through `createPlumbusRuntime({ timers: scheduler }).syncTimers()` and `pollTimers()`.
+Register the flow in your app registry (same as event-triggered flows). Worker startup seeds the initial schedule set only when no schedule rows exist. For subsequent additions, changes, and removals, preview `plumbus flow schedule sync`, then apply with `--apply --expected-revision <revision>` from the complete intended deployment registry. The scheduler polls adopted, enabled definitions for due runs. Hosts that drive timers themselves call the same startup seed and poll through `createPlumbusRuntime({ timers: scheduler }).syncTimers()` and `pollTimers()`. A failed poll (for example, the database is unreachable) logs `Scheduler poll failed; durable ticks remain recoverable` with the error message, and the next poll picks the due runs up.
 
 **Cron formats**
 
@@ -321,18 +321,13 @@ Register the flow in your app registry (same as event-triggered flows). On worke
 | Interval | `"every:24h"` | Every 24 hours |
 | Interval | `"every:1d"` | Every 1 day |
 
-Fields: minute (0–59), hour (0–23), day-of-month (1–31), month (1–12), day-of-week (0–6, Sunday = 0). Wildcards, ranges, steps, and lists are supported. With `cron-parser` installed, expressions are delegated to that library first.
+Fields: minute (0–59), hour (0–23), day-of-month (1–31), month (1–12), day-of-week (0–6, Sunday = 0). Wildcards, ranges, steps, and lists are supported by the core-owned `cron-parser` dependency. Invalid schedules fail validation; there is no fallback to an hourly schedule. Set an IANA `timezone` explicitly for consistent deployments.
 
 **Runtime requirements**
 
 1. **Worker pool** — `plumbus dev` / `plumbus start` (role `all`) or a dedicated `plumbus worker start` process. See [Workers and queues](../architecture/workers-and-queues.md).
-2. **`cron-parser` (recommended)** — accurate `nextRunAt` for production cron:
-
-   ```bash
-   pnpm add cron-parser
-   ```
-
-3. **Migrations** — `flow_schedules` is included in generated migrations; run `plumbus migrate generate` then `plumbus migrate apply`.
+2. **Cron parsing** — provided by core; consumers do not install `cron-parser` separately.
+3. **Migrations** — `flow_schedules`, `flow_schedule_ticks`, and flow ownership/replay metadata are included in generated migrations; run `plumbus migrate generate` then `plumbus migrate apply`. Follow the [coordinated cutover guide](../upgrading-stabilization.md) for existing deployments.
 
 **Auth and capabilities**
 
@@ -351,7 +346,9 @@ User-scoped data in scheduled steps still respects tenant rules on `ctx.data`; t
 
 - Inspect schedules: `plumbus flow schedule list` (or `--json`). Merges app definitions with `flow_schedules` run state.
 - Default poll interval: `schedulerPollIntervalMs` = 60_000 (1 minute). Tune in worker config — see [configuration](../sdk-reference/configuration.md#worker-pool-configuration).
-- First sync of a new schedule sets `nextRunAt` to **now**, so the first run happens on the next poll (not necessarily exactly at cron boundary).
+- New schedules default to `firstRun: 'immediate'`: the first run is due on the next poll. Set `firstRun: 'next'` to wait for the first cron boundary, as in the example above.
+- Default overlap is `allow`; `overlap: 'skip'` records a skipped tick while a previous scheduled execution is created, running, or waiting. An expired lease is still recoverable work. Overdue ticks coalesce into one run before computing the next future occurrence.
+- Tick creation, execution creation, and schedule advancement share one database transaction. Queue notifications are recoverable hints. Operator-disabled schedules stay disabled during reconciliation, and removals retain tombstones and history.
 - Verify the scheduler is active: `plumbus worker status` reports a `scheduler` component when scheduled flows are registered.
 - Split deployments (API-only + worker-only) need Redis for durable queues when running multiple replicas — see [upgrading-workers](../upgrading-workers.md).
 
@@ -359,7 +356,7 @@ User-scoped data in scheduled steps still respects tenant rules on `ctx.data`; t
 
 ```typescript
 retry: {
-  attempts: 3,            // total attempts including the first
+  maxAttempts: 3,         // total calls per step activation (core 0.8+)
   backoff: "exponential", // "fixed" | "exponential"
 }
 ```
@@ -376,11 +373,11 @@ persist-before-ack: `execution_state`, the retry `wait_state`, and a future-date
 
 ## Multi-Worker Safety & Leasing
 
-Plumbus is built for horizontal scale: any number of worker processes can share one database without executing the same step twice. Safety is enforced at the row level — each flow execution is held by at most one worker at a time via a time-bounded lease.
+Plumbus uses fenced database transitions for horizontal scale. Execution and external side effects remain at-least-once; capability effects must be idempotent. Safety is enforced at the row level — each flow execution is held by at most one worker at a time via a time-bounded lease.
 
 **How claims work.** Each poll cycle, `claimNext()` runs a single atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` against `flow_executions`. Postgres' `SKIP LOCKED` guarantees that concurrent workers never lock the same row, so each returned execution is owned by exactly the worker that claimed it. Expired leases (from a crashed worker) are picked up by the same query.
 
-**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each tick issues a guarded `UPDATE … WHERE id = $1 AND lease_owner = $workerId`; tenant-placed flows first extend the same worker's opaque spine hint, then the tenant row. If either guarded update matches zero rows, the lease has been stolen and the worker aborts the step. Transient infrastructure failures on extend (or best-effort audit writes) are logged and retried on the next tick — they do not abort the step or surface as unhandled rejections.
+**Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each update checks execution ID, worker ID, claim token, running status, and an unexpired lease; tenant-placed flows first extend the same worker's opaque spine hint, then the tenant row. If either guarded update matches zero rows, ownership is lost and the worker aborts the step. Transient infrastructure failures on extend (or best-effort audit writes) are logged and retried on the next tick — they do not abort the step, surface as unhandled rejections, or permit a commit after the lease expires.
 
 **Manual heartbeat.** Long-running step handlers that span multiple lease intervals can call `ctx.flows.heartbeat()` to extend the lease explicitly. Outside of flow execution it's a no-op, so helper code that calls it stays portable.
 
@@ -443,7 +440,7 @@ plumbus migrate apply
 
 The preflight runs automatically when workers start. For custom worker bootstraps, import `assertFlowLeaseColumns` from `@plumbus/core` (re-exported via `worker/index.ts`) and call it against your Drizzle database before starting the pool.
 
-`auth_snapshot_json` is included in generated migrations for new installs and upgrades. Rows created before the column exists fall back to worker auth for roles until migrated; run `plumbus migrate generate` and `plumbus migrate apply` after upgrading framework versions that add this column.
+`auth_snapshot_json` is included in generated migrations. Current core rejects missing or invalid snapshots; recover legacy work from a verified initiating identity and never inject worker/system roles. Core 0.8 additionally requires claim tokens, wait/replay metadata, schedule definitions/ticks, and pending job dispatch fields. The older lease-column preflight does not replace the [full stabilization migration](../upgrading-stabilization.md).
 
 ## Flow State Machine
 
@@ -491,21 +488,24 @@ Failed flows that exhaust retries are sent to the `flow_dead_letter` table.
 
 ```bash
 plumbus flow dead-letter list [--limit 20] [--json]
-plumbus flow dead-letter retry <executionId>
+plumbus flow dead-letter retry <executionId> [--actor <id>] [--in-place]
 ```
 
-`retry` re-enqueues the next step on the flows queue after an operator fix.
+`retry` creates a new execution at the failed step using the original verified caller and saved state. The source remains terminal; repeated requests reuse its recorded replay ID. The replay keeps the source's compiled-definition pin, and the dead letter records `replayedBy` (the `--actor`, defaulting to `$USER`). `--in-place` instead resets the same execution to `created` at the failed step and records `retriedBy`; it is refused once the dead letter was replayed or already retried. A sweeper recovers missing dead-letter snapshots. External effects must be idempotent.
 
 ### Programmatic API
 
 ```typescript
-import { sweepFailedFlows, deadLetterFlow } from "@plumbus/core";
+import { sweepFailedFlows, deadLetterFlow, retryDeadLetteredFlow } from "@plumbus/core";
 
-// Manually dead-letter a flow
-await deadLetterFlow(executionId, "Manual intervention required");
+// Manually dead-letter a failed flow
+await deadLetterFlow(db, executionId);
+
+// Reset a dead-lettered execution in place (what `retry --in-place` does)
+await retryDeadLetteredFlow(db, executionId, { actor: "ops-user", reason: "fixed upstream" });
 
 // Sweep all failed flows past retry limit
-await sweepFailedFlows(flowService);
+await sweepFailedFlows(db);
 ```
 
 ## File Convention
@@ -525,3 +525,12 @@ For every `defineFlow` option, the full step-type list, and the `FlowRetryPolicy
 
 
 Legacy executions without a valid auth snapshot now fail before step execution. Restart them with a verified initiating identity after reviewing the execution's prior side effects. Snapshot parsing requires roles, scopes, and provider plus matching actor/tenant fields; the worker identity is never a fallback. New snapshots omit session IDs and authentication timestamps.
+
+
+## Core 0.8 stabilization
+
+See [the upgrade guide](../upgrading-stabilization.md) before migration. Retry waits persist deadlines and release claims. Legacy `retry.attempts: N` retains N retries after the first call; `maxAttempts` counts total calls, and aliases cannot be combined. Budgets reset on successful advancement. Cancellation clears the claim token and prevents in-flight commits; external effects already started may still complete.
+
+Schedules support `firstRun: 'immediate' | 'next'`, `overlap: 'allow' | 'skip'`, and IANA `timezone`. Defaults preserve immediate initial execution, allowed overlap and local time. Scheduled input is `{}`. Core owns cron-parser. Startup seeds the initial schedule set; `plumbus flow schedule sync` previews reconciliation and `--apply --expected-revision <revision>` applies a complete deployment manifest. Tick/execution creation and timing updates share a database transaction. Redis wakes are recoverable hints.
+
+Automatic flow dead letters copy the final attempt/history; a sweeper recovers failed copies. CLI retry creates a new execution from the failed step and preserves the source terminal record and caller identity. `ctx.jobs.enqueue()` is wired for flow capabilities and transactionally persists dispatch intent. With a worker data-plane resolver, flow steps that run on a resolved tenant plane do not have a job queue yet (`enqueue` throws); see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md). See the upgrade guide for cutover, retry, replay, and publication guarantees.

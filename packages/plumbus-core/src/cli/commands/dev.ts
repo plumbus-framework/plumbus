@@ -10,7 +10,7 @@ import {
   type DatabaseConnection,
 } from '../../data/connection.js';
 import { PromptRegistry } from '../../ai/prompt-registry.js';
-import { loadConfig, validateConfig } from '../../config/loader.js';
+import { loadAppConfig, loadConfig, validateConfig } from '../../config/index.js';
 import { EntityRegistry } from '../../data/registry.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { EventRegistry } from '../../events/registry.js';
@@ -73,13 +73,15 @@ export function resolveDevPort(
  *
  * Returns config and validation result. Call startDevServer() to start the actual server.
  */
-export function runDev(options: DevOptions): {
+export function runDev(
+  options: DevOptions,
+  config = loadConfig({ environment: 'development' }),
+): {
   config: ReturnType<typeof loadConfig>;
   validation: ReturnType<typeof validateConfig>;
   serverUrl: string;
   port: number;
 } {
-  const config = loadConfig({ environment: 'development' });
   const validation = validateConfig(config);
 
   const port = resolveDevPort(options.port);
@@ -131,7 +133,10 @@ export async function startDevServer(
   server: PlumbusServer;
   shutdown: () => Promise<void>;
 }> {
-  const { config, validation, serverUrl, port } = runDev(options);
+  const { config, validation, serverUrl, port } = runDev(
+    options,
+    await loadAppConfig({ environment: 'development' }),
+  );
 
   if (!validation.valid) {
     throw new Error(`Config validation failed: ${validation.errors.join(', ')}`);
@@ -218,6 +223,7 @@ export async function startDevServer(
     ...(extensions.resolveTenantRef && { resolveTenantRef: extensions.resolveTenantRef }),
     ...(extensions.requestDataPlane && { requestDataPlane: extensions.requestDataPlane }),
     jobQueue: jobQueueNeeded ? queues.jobs : undefined,
+    checkQueueReadiness: queues.isDurable ? queues.pingRedis : undefined,
     metrics,
     ...(process.env.TRUST_PROXY && {
       trustProxy: process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY,

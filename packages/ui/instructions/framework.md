@@ -1,15 +1,15 @@
 # @plumbus/ui — UI Code Generation Framework
 
-## Release family 0.8.0
+## Release family 0.10.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x` (required shared peer). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0` (required shared peer). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 ## Security release guidance (0.8.0)
 
-Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+Read `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading this family. The earlier security fixes remain required. Run `plumbus init --patch --agent all` after installation for wiring **v21**.
 
-The packed dependency uses core 0.7.0. Consume stable error codes instead of private role/scope messages. Do not label a zero cost as free when `costAvailable` is false. Keep frontend business actions on generated capability clients and framework auth helpers.
+Use the application's shared core peer (`>=0.9.0-beta.0 <0.10.0` in the core 0.9 beta family); do not install a hidden nested runtime. Consume stable error codes instead of private role/scope messages. Do not label a zero cost as free when `costAvailable` is false. Keep frontend business actions on generated capability clients and framework auth helpers.
 
 `@plumbus/ui` is the frontend source-code generation layer for Plumbus. Its purpose is to project backend Plumbus contracts into frontend source files without turning Plumbus into a visual UI framework.
 

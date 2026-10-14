@@ -264,12 +264,12 @@ export function generateE2EVitestConfig(baseUrl: string): string {
   return `export default {
   test: {
     include: ["**/*.e2e.ts"],
+    exclude: ["**/node_modules/**", "**/.git/**", "**/vitest.config.*"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: "forks",
-    poolOptions: {
-      forks: { singleFork: true },
-    },
+    maxWorkers: 1,
+    fileParallelism: false,
   },
 };
 

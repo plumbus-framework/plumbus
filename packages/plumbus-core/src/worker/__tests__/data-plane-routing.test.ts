@@ -77,6 +77,7 @@ import { EntityRegistry } from '../../data/registry.js';
 import { wireContextDependencies } from '../../execution/context-deps.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { createOutboxDispatcher } from '../../events/dispatcher.js';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { createFlowEngine } from '../../flows/engine.js';
 import { createEventWorker } from '../../events/worker.js';
 import { EventRegistry } from '../../events/registry.js';
@@ -244,6 +245,153 @@ describe('worker per-unit data-plane routing', () => {
     expect(claimNext).toHaveBeenCalledTimes(1);
   });
 
+  it('waits in stop() for a claim query in flight, so the host can close the database after', async () => {
+    let finishClaim = (_rows: Record<string, unknown>[]) => {};
+    claimNext.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishClaim = resolve;
+        }),
+    );
+    const pool = createWorkerPool(makePoolConfig());
+    await pool.start();
+    await vi.waitFor(() => expect(claimNext).toHaveBeenCalledTimes(1));
+    let stopped = false;
+    const stopping = pool.stop().then(() => {
+      stopped = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stopped).toBe(false);
+    finishClaim([]);
+    await stopping;
+    expect(claimNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps claiming while a tenant plane of the dead-letter sweep does not answer, and stop() waits for that plane only', async () => {
+    let answerPlane = (_error: Error) => {};
+    const resolvedRefs: string[] = [];
+    const resolver: DataPlaneResolver = {
+      resolve: async (tenantRef: string) => {
+        resolvedRefs.push(tenantRef);
+        if (tenantRef === 'tenant-down') {
+          // An unreachable plane: the connection attempt hangs until its connect timeout.
+          await new Promise<never>((_resolve, reject) => {
+            answerPlane = reject;
+          });
+        }
+        return makeResolver().resolve(tenantRef);
+      },
+    };
+    const pool = createWorkerPool(
+      makePoolConfig({
+        dataPlaneResolver: resolver,
+        listTenantRefs: () => ['tenant-down', 'tenant-a'],
+      }),
+    );
+    await pool.start();
+    await vi.waitFor(() => expect(resolvedRefs).toEqual(['tenant-down']));
+    // The claim cycle did not wait for the sweep.
+    await vi.waitFor(() => expect(claimNext).toHaveBeenCalled());
+
+    let stopped = false;
+    const stopping = pool.stop().then(() => {
+      stopped = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stopped).toBe(false);
+    answerPlane(new Error('CONNECT_TIMEOUT'));
+    await stopping;
+    // The sweep ended at the next plane once the pool stopped.
+    expect(resolvedRefs).toEqual(['tenant-down']);
+  });
+
+  it('starts no tenant dead-letter sweep once stop() has begun, even when the pool sweep ends after it', async () => {
+    let finishPoolSweep = (_rows: unknown[]) => {};
+    // The pool sweep's SELECT (select().from().where().limit()) stays open until released.
+    const sweepingPoolDb = {
+      name: 'pool',
+      execute: vi.fn(async () => undefined),
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () =>
+              new Promise<unknown[]>((resolve) => {
+                finishPoolSweep = resolve;
+              }),
+          }),
+        }),
+      }),
+    } as unknown as PostgresJsDatabase;
+    const listTenantRefs = vi.fn(() => ['tenant-a']);
+    const pool = createWorkerPool(
+      makePoolConfig({ db: sweepingPoolDb, dataPlaneResolver: makeResolver(), listTenantRefs }),
+    );
+    await pool.start();
+    // First cycle: the pool sweep is in flight and a tenant sweep is due right after it.
+    expect(listTenantRefs).not.toHaveBeenCalled();
+
+    const stopping = pool.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    finishPoolSweep([]);
+    await stopping;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Nothing reaches the host's tenant list (or any plane) after stop() returned.
+    expect(listTenantRefs).not.toHaveBeenCalled();
+    expect(silentLogger.warn).not.toHaveBeenCalledWith(
+      'Flow dead-letter sweep failed',
+      expect.anything(),
+    );
+  });
+
+  it('rate-limits dead-letter sweep warnings per source, so a failing pool or plane hides no other', async () => {
+    // The pool db has no select(), so the pool sweep fails; neither listed tenant resolves.
+    const pool = createWorkerPool(
+      makePoolConfig({
+        dataPlaneResolver: makeResolver(),
+        listTenantRefs: () => ['tenant-gone', 'tenant-lost'],
+      }),
+    );
+    await pool.start();
+    const sweepWarnings = () =>
+      vi
+        .mocked(silentLogger.warn)
+        .mock.calls.filter(([message]) => message === 'Flow dead-letter sweep failed')
+        .map(([, meta]) => {
+          const { source, tenantRef } = meta as { source?: string; tenantRef?: string };
+          return tenantRef ? `${source}:${tenantRef}` : source;
+        });
+    await vi.waitFor(() => expect(sweepWarnings()).toHaveLength(3));
+    await pool.stop();
+    expect(sweepWarnings()).toEqual([
+      'pool',
+      'tenant-plane:tenant-gone',
+      'tenant-plane:tenant-lost',
+    ]);
+  });
+
+  it('names a tenant-list failure as such, apart from a pool sweep failure', async () => {
+    const pool = createWorkerPool(
+      makePoolConfig({
+        dataPlaneResolver: makeResolver(),
+        listTenantRefs: () => {
+          throw new Error('control plane unreachable');
+        },
+      }),
+    );
+    await pool.start();
+    const sweepWarnings = () =>
+      vi
+        .mocked(silentLogger.warn)
+        .mock.calls.filter(([message]) => message === 'Flow dead-letter sweep failed')
+        .map(([, meta]) => meta as { source?: string; error?: string });
+    await vi.waitFor(() => expect(sweepWarnings()).toHaveLength(2));
+    await pool.stop();
+    expect(sweepWarnings()).toEqual([
+      expect.objectContaining({ source: 'pool' }),
+      expect.objectContaining({ source: 'tenant-list', error: 'control plane unreachable' }),
+    ]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     claimNext.mockResolvedValue([]);
@@ -377,6 +525,40 @@ describe('worker per-unit data-plane routing', () => {
     expect(runNextDatabases()).toEqual({ 'exec-a': poolDb, 'exec-untenanted': poolDb });
   });
 
+  // Job publication, recovery and the job consumer read the pool, so only a unit that runs on the
+  // pool's database may enqueue jobs; a unit on a resolved tenant plane gets the throwing default.
+  it.each([
+    ['no resolver', {}, [true, true]],
+    [
+      'unitDataPlane control-plane',
+      { unitDataPlane: 'control-plane' as const, dataPlaneResolver: makeResolver() },
+      [true, true],
+    ],
+    ['resolved unit planes', { dataPlaneResolver: makeResolver() }, [false, true]],
+  ])('wires a flow unit’s job queue only on the pool database (%s)', async (_name, overrides, expected) => {
+    claimNext.mockResolvedValueOnce([
+      { id: 'exec-a', tenant_id: 'tenant-a' },
+      { id: 'exec-untenanted', tenant_id: null },
+    ]);
+
+    await runOneCycle(
+      makePoolConfig({
+        capabilities: new CapabilityRegistry(),
+        untenantedDataPlane: 'control-plane',
+        ...overrides,
+      }),
+      2,
+    );
+
+    const jobs = vi
+      .mocked(wireContextDependencies)
+      .mock.calls.map((call) => (call as unknown[])[1] as { jobs?: unknown });
+    expect(jobs.map((extras) => extras.jobs !== undefined)).toEqual(
+      // Without a resolver both rows share one context, built once.
+      'dataPlaneResolver' in overrides ? expected : [expected[0]],
+    );
+  });
+
   it('reads the tenant from the camel-cased column spelling too', async () => {
     claimNext.mockResolvedValueOnce([{ id: 'exec-a', tenantId: 'tenant-a' }]);
 
@@ -387,23 +569,37 @@ describe('worker per-unit data-plane routing', () => {
 
   it('fails a unit whose tenant the resolver does not recognise, leaving the batch alone', async () => {
     claimNext.mockResolvedValueOnce([
-      { id: 'exec-unknown', tenant_id: 'tenant-that-was-never-placed' },
+      {
+        id: 'exec-unknown',
+        tenant_id: 'tenant-that-was-never-placed',
+        leaseToken: 'lease-unknown',
+      },
       { id: 'exec-a', tenant_id: 'tenant-a' },
     ]);
 
     await runOneCycle(makePoolConfig({ dataPlaneResolver: makeResolver() }), 1);
 
     expect(runNextDatabases()).toEqual({ 'exec-a': tenantADb });
-    expect(markFailedFromRunner).toHaveBeenCalledWith('exec-unknown', expect.anything());
+    expect(markFailedFromRunner).toHaveBeenCalledWith(
+      'exec-unknown',
+      expect.anything(),
+      'lease-unknown',
+    );
   });
 
   it('refuses untenanted work by default rather than running it on the pool database', async () => {
-    claimNext.mockResolvedValueOnce([{ id: 'exec-untenanted', tenant_id: null }]);
+    claimNext.mockResolvedValueOnce([
+      { id: 'exec-untenanted', tenant_id: null, leaseToken: 'lease-untenanted' },
+    ]);
 
     await runOneCycle(makePoolConfig({ dataPlaneResolver: makeResolver() }), 0);
 
     expect(runNext).not.toHaveBeenCalled();
-    expect(markFailedFromRunner).toHaveBeenCalledWith('exec-untenanted', expect.anything());
+    expect(markFailedFromRunner).toHaveBeenCalledWith(
+      'exec-untenanted',
+      expect.anything(),
+      'lease-untenanted',
+    );
   });
 
   it('runs untenanted work on the pool database when configured to', async () => {

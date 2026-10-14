@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Plumbus applications are configured through a typed `PlumbusConfig` object, loaded from environment variables and validated at startup.
+Plumbus applications are configured through a typed `PlumbusConfig` object. CLI startup loads `config/app.config.ts`, `.js`, or `.mjs` and merges defaults < file < environment < explicit options. CLI-forced development/production mode wins. Unknown keys and invalid settings fail validation.
 
 ## PlumbusConfig
 
@@ -9,6 +9,7 @@ interface PlumbusConfig {
   environment: "development" | "staging" | "production";
   database: DatabaseConfig;
   queue: QueueConfig;
+  workers?: { enableScheduler?: boolean; eventDelivery?: EventDeliveryOptions };
   execution?: {
     /** Global kill switch for transactional outbox (default: true). Env: PLUMBUS_TRANSACTIONAL_OUTBOX=false */
     transactionalOutbox?: boolean;
@@ -117,6 +118,13 @@ interface QueueConfig {
   password?: string;
   prefix?: string;
   visibilityTimeoutSec?: number;  // Redis visibility timeout (default 30)
+  url?: string;
+  backend?: "memory" | "redis";
+  pollIntervalMs?: number;
+  reclaimIntervalMs?: number;
+  startupTimeoutMs?: number;
+  operationTimeoutMs?: number;
+  shutdownTimeoutMs?: number;
 }
 ```
 
@@ -131,7 +139,24 @@ QUEUE_URL=redis://localhost:6379    # preferred — also REDIS_URL
 QUEUE_BACKEND=redis                 # force memory or redis
 ```
 
-The runtime creates three logical queues (`events`, `flows`, `jobs`) sharing the same backend. `plumbus dev` always uses in-memory queues regardless of Redis configuration.
+The runtime creates three logical queues (`events`, `flows`, `jobs`) sharing the same backend. `plumbus dev` always uses in-memory queues regardless of Redis configuration. Once Redis is selected outside that deliberate development mode, connection/driver failures fail startup; runtime disconnects never switch to memory. Redis readiness covers API and worker processes wired by the CLI.
+
+Timing environment variables are `QUEUE_VISIBILITY_TIMEOUT_SEC`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_RECLAIM_INTERVAL_MS`, `QUEUE_STARTUP_TIMEOUT_MS`, and `QUEUE_OPERATION_TIMEOUT_MS`. Configure `shutdownTimeoutMs` through the file or programmatic options. Timings must be positive.
+
+### Event delivery and scheduler activation
+
+```typescript
+workers: {
+  enableScheduler: true, // PLUMBUS_ENABLE_SCHEDULER=false disables it during cutover
+  eventDelivery: {
+    retry: { maxAttempts: 3, backoff: "exponential", baseDelayMs: 1000, maxDelayMs: 30000 },
+    unrouted: "deadLetter", // default; "acknowledge" is explicit legacy behavior
+    ignoredEventTypes: [], // intentionally unhandled event types
+  },
+}
+```
+
+`maxAttempts` counts total calls. A capability's `trigger.retry` overrides the pool policy. Legacy event `maxRetries`/`defaultMaxRetries` also count total calls; legacy flow `retry.attempts` counts retries after the initial call. Do not combine aliases. All workers sharing a queue must have compatible consumer registries; these options do not route between specialized pools.
 
 ## Optional Peer Dependencies
 
@@ -140,14 +165,15 @@ Install only when your deployment needs them:
 | Package | Purpose |
 |---------|---------|
 | `redis` | Durable shared queues for production / split deployments |
-| `cron-parser` | Flow `schedule` trigger `nextRunAt` computation |
 | `@plumbus/mcp` | MCP server and MCP job completion sync in workers |
 | `@plumbus/api` | Partner API contract layer |
 | `@plumbus/ai-bedrock` | Amazon Bedrock adapter (AWS SDK; not bundled in core) |
 
 ```bash
-pnpm add redis cron-parser
+pnpm add 'redis@^4.7.0'
 ```
+
+Core 0.8 owns the supported cron parser as a dependency; consumers do not install it.
 
 ## AI Provider Configuration
 
@@ -351,16 +377,22 @@ AUTH_SECRET=
 ## Loading Configuration
 
 ```typescript
-import { loadConfig, validateConfig } from "@plumbus/core";
+import { loadAppConfig, loadConfig, validateConfig } from "@plumbus/core";
 
 // Load from environment
 const config = loadConfig();
 
 // Load with explicit environment
-const config = loadConfig({ environment: "production" });
+const productionConfig = loadConfig({ environment: "production" });
 
 // Load with custom env vars
-const config = loadConfig({ env: process.env });
+const customEnvConfig = loadConfig({ env: process.env });
+
+// Merge a validated nested override
+const prefixedConfig = loadConfig({ queue: { prefix: "myapp" } });
+
+// Load the application file as CLI startup does
+const appConfig = await loadAppConfig();
 
 // Validate
 const result = validateConfig(config);
@@ -385,7 +417,7 @@ interface ConfigValidationResult {
 ## Example Configuration File
 
 ```typescript
-// app.config.ts
+// config/app.config.ts (or backend/config/app.config.ts in a monorepo)
 export default {
   environment: "development",
   database: {
@@ -407,7 +439,7 @@ export default {
   },
   ai: {
     provider: "openai",
-    apiKey: process.env["OPENAI_API_KEY"]!,
+    apiKey: process.env["OPENAI_API_KEY"] ?? "",
     model: "gpt-4o-mini",
     dailyCostLimit: 10,
   },
@@ -415,8 +447,8 @@ export default {
   // aiProviders: {
   //   defaultProvider: "openai",
   //   providers: {
-  //     openai: { apiKey: process.env["OPENAI_API_KEY"]!, model: "gpt-4o-mini" },
-  //     anthropic: { apiKey: process.env["ANTHROPIC_API_KEY"]!, model: "claude-sonnet-4-20250514" },
+  //     openai: { apiKey: process.env["OPENAI_API_KEY"] ?? "", model: "gpt-4o-mini" },
+  //     anthropic: { apiKey: process.env["ANTHROPIC_API_KEY"] ?? "", model: "claude-sonnet-4-20250514" },
   //   },
   // },
   complianceProfiles: ["soc2", "gdpr"],
@@ -504,7 +536,7 @@ When the server is already connected to PostgreSQL, the same live Drizzle connec
 
 When `createServer()` is started through `plumbus dev` or `plumbus start`, the framework also binds discovered `app/translations/*` catalogs into each HTTP execution context. That means generated capability routes and custom `app/server.ts` routes can safely call `ctx.translations.t('errors.someKey')` without falling back to the raw translation key.
 
-> **Production requirement:** `auth.secret` must be set when `environment` is `"production"`. The server will throw on startup if no secret is configured in production. In development/staging, a fallback secret is used with a warning.
+> **Authentication requirement:** outside development, supply `auth.secret`, a custom `authAdapter`, or an `authenticationRuntime` (for example `@plumbus/auth`). With none configured, staging/production startup fails. Development without authentication wiring is anonymous with a warning; no fallback JWT secret is created.
 
 The server wires capability routes automatically. Event consumers, flow triggers, and entity repositories are the caller's responsibility to wire into the application lifecycle.
 
@@ -528,7 +560,7 @@ await server.start();
 
 ## Worker Pool Configuration
 
-The worker pool starts automatically when the server boots via `plumbus dev` or `plumbus start`. If any registered flows have event triggers, the framework creates an in-memory queue, registers flow trigger consumers, and starts the background workers (outbox dispatcher, event worker, flow runner, flow scheduler).
+CLI startup (`plumbus dev` / `plumbus start`, role `all`) starts the worker pool when background work is registered. `plumbus worker` runs a dedicated pool; role `api` leaves workers to a separate process. The runtime selects the configured shared backend outside deliberate development/memory mode. The settings below are programmatic `WorkerPoolConfig` options; application files expose `workers.enableScheduler` and `workers.eventDelivery`, while the other pool settings are supplied to `createWorkerPool()` or the documented worker environment variables.
 
 No manual wiring is required. The following config options are available when using `createWorkerPool()` directly:
 
@@ -554,6 +586,8 @@ interface WorkerPoolConfig {
   onMcpJobComplete?: (jobId, result, payload?, error?) => Promise<void>;
   onFlowError?: (info) => void | Promise<void>;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
+  onEventDeadLetter?: (info: EventDeadLetterInfo) => void | Promise<void>;
+  eventDelivery?: EventDeliveryOptions;
   outboxPollIntervalMs?: number;      // Default: 1000
   schedulerPollIntervalMs?: number;   // Default: 60000
   flowPollIntervalMs?: number;        // Default: 1000
@@ -580,3 +614,14 @@ The flow runner uses lease-based row claiming (`FOR UPDATE SKIP LOCKED`) so mult
 - **`flowClaimBatchSize`** (default `50`) — Max executions a single `claimNext()` poll cycle will lock. Larger batches amortize the poll cost; smaller batches spread work more evenly across workers.
 - **Worker identity** — Each worker auto-generates a unique `workerId` of the form `<hostname>:<pid>:<short-uuid>` via `generateWorkerId()`. The pool does not expose a `workerId` knob on `WorkerPoolConfig`; if you need stable identity for observability, pass a `workerId` directly when constructing the engine with `createFlowEngine()`.
 
+
+
+## Core 0.8 configuration resolution
+
+`loadConfig({ queue: { prefix: 'app' } })` applies validated nested overrides. `loadAppConfig()` also imports `config/app.config.ts`/`.js`/`.mjs` (named `config` or default), as used by CLI API/worker/operational startup. Precedence: defaults < file < environment < explicit options; CLI-forced environment wins. Unknown keys are errors.
+
+Queue tuning: `pollIntervalMs`, `visibilityTimeoutSec`, `reclaimIntervalMs`, `startupTimeoutMs`, `operationTimeoutMs`, `shutdownTimeoutMs`, `url`, `backend`, `prefix`. `QUEUE_PREFIX` works across all three queues. `workers.enableScheduler` (or `PLUMBUS_ENABLE_SCHEDULER=false`) controls scheduler startup. `workers.eventDelivery` contains `retry`, `unrouted: 'deadLetter' | 'acknowledge'`, and `ignoredEventTypes`. `retry.maxAttempts` counts total calls. `onEventDeadLetter` is an `app/server.ts` worker extension hook.
+
+See [stabilization](../upgrading-stabilization.md) for defaults, legacy retry aliases, migrations, and durable dispatch/replay guarantees.
+
+The CLI wires Redis into API readiness automatically. Custom `createServer` bootstrap can supply `checkQueueReadiness: queues.pingRedis`. Within Redis connection settings, a URL takes precedence over separate host/port credentials. TypeScript config compilation loads lazily when an actual config file is read.

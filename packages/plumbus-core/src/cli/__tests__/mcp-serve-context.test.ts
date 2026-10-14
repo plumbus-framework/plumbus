@@ -22,7 +22,7 @@ vi.mock('../discover.js', () => ({
   })),
 }));
 
-vi.mock('../../config/loader.js', () => ({ loadConfig: vi.fn() }));
+vi.mock('../../config/app-config.js', () => ({ loadAppConfig: vi.fn() }));
 
 vi.mock('../../data/connection.js', () => ({
   resolveDatabaseConnection: vi.fn(async () => ({
@@ -34,7 +34,7 @@ vi.mock('../../data/connection.js', () => ({
 
 import { createExecutionContext } from '../../execution/context-factory.js';
 import { signJwt } from '../../auth/index.js';
-import { loadConfig } from '../../config/index.js';
+import { loadAppConfig } from '../../config/index.js';
 import { resolveDatabaseConnection } from '../../data/connection.js';
 import { discoverResources } from '../discover.js';
 import { buildMcpServeContext } from '../mcp-serve-context.js';
@@ -43,7 +43,7 @@ const { loadConfig: realLoadConfig } =
   await vi.importActual<typeof import('../../config/loader.js')>('../../config/loader.js');
 
 beforeEach(() => {
-  vi.mocked(loadConfig)
+  vi.mocked(loadAppConfig)
     .mockReset()
     .mockImplementation((options) => realLoadConfig({ ...options, env: {} }));
   vi.mocked(resolveDatabaseConnection).mockClear();
@@ -67,9 +67,8 @@ describe('buildMcpServeContext authentication', () => {
     { NODE_ENV: 'production' },
     { PLUMBUS_ENV: 'production', NODE_ENV: 'development' },
     { PLUMBUS_ENV: 'staging', NODE_ENV: 'development' },
-    { PLUMBUS_ENV: 'unexpected' },
   ])('rejects unconfigured authentication before acquiring resources: %j', async (env) => {
-    vi.mocked(loadConfig).mockImplementation((options) => realLoadConfig({ ...options, env }));
+    vi.mocked(loadAppConfig).mockImplementation((options) => realLoadConfig({ ...options, env }));
 
     await expect(buildMcpServeContext()).rejects.toMatchObject({
       code: 'validation',
@@ -80,6 +79,14 @@ describe('buildMcpServeContext authentication', () => {
     expect(resolveRuntimeQueues).not.toHaveBeenCalled();
   });
 
+  it('rejects an invalid environment before acquiring resources', async () => {
+    vi.mocked(loadAppConfig).mockImplementation(
+      () => realLoadConfig({ env: { PLUMBUS_ENV: 'unexpected' } }) as any,
+    );
+    await expect(buildMcpServeContext()).rejects.toMatchObject({ code: 'validation' });
+    expect(resolveDatabaseConnection).not.toHaveBeenCalled();
+  });
+
   it.each([
     '',
     'short-secret',
@@ -88,7 +95,7 @@ describe('buildMcpServeContext authentication', () => {
     placeholder,
     ` ${placeholder} `,
   ])('rejects invalid production secret %j', async (authSecret) => {
-    vi.mocked(loadConfig).mockImplementation((options) =>
+    vi.mocked(loadAppConfig).mockImplementation((options) =>
       realLoadConfig({ ...options, env: { NODE_ENV: 'production', AUTH_SECRET: authSecret } }),
     );
 
@@ -114,7 +121,7 @@ describe('buildMcpServeContext authentication', () => {
   });
 
   it('honors PLUMBUS_ENV precedence and verifies explicit JWT credentials', async () => {
-    vi.mocked(loadConfig).mockImplementation((options) =>
+    vi.mocked(loadAppConfig).mockImplementation((options) =>
       realLoadConfig({
         ...options,
         env: { NODE_ENV: 'development', PLUMBUS_ENV: 'production', AUTH_SECRET: secret },
@@ -143,7 +150,7 @@ describe('buildMcpServeContext authentication', () => {
     const agents = { 'agent-token': { serviceAccountId: 'agent', scopes: ['billing:read'] } };
     const adapter = { authenticate: vi.fn(async () => null) };
     createMcpAuthAdapter.mockReturnValue(adapter);
-    vi.mocked(loadConfig).mockReturnValue({
+    vi.mocked(loadAppConfig).mockReturnValue({
       ...realLoadConfig({ env: { NODE_ENV: 'production' } }),
       mcp: { agents },
     });

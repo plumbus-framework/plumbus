@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.8.0-beta.11",
+  "version": "0.9.0-beta.0",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -86,7 +86,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "dependencies": {
     "@noble/hashes": "1.8.0",
@@ -99,18 +99,19 @@
     "playwright": "^1.52.0",
     "postgres": "^3.4.8",
     "tsx": "^4.19.0",
-    "vitest": "^3.0.0",
+    "vitest": "5.0.4",
     "xml-crypto": "^6.1.2",
     "xpath": "^0.0.34",
     "zod": "^3.24.0",
     "zod-to-json-schema": "^3.25.2",
-    "@plumbus/ai-decision": "workspace:~"
+    "@plumbus/ai-decision": "workspace:~",
+    "cron-parser": "^4.9.0",
+    "vite": "^7.3.7"
   },
   "peerDependencies": {
-    "@plumbus/api": ">=0.3.0-beta.0 <0.4.0",
-    "@plumbus/ai-bedrock": ">=0.3.0-beta.0 <0.4.0",
-    "@plumbus/mcp": ">=0.7.0-beta.0 <0.8.0",
-    "cron-parser": "^4.9.0",
+    "@plumbus/api": ">=0.4.0-beta.0 <0.5.0",
+    "@plumbus/ai-bedrock": ">=0.4.0-beta.0 <0.5.0",
+    "@plumbus/mcp": ">=0.8.0-beta.0 <0.9.0",
     "redis": "^4.7.0"
   },
   "peerDependenciesMeta": {
@@ -121,9 +122,6 @@
       "optional": true
     },
     "@plumbus/mcp": {
-      "optional": true
-    },
-    "cron-parser": {
       "optional": true
     },
     "redis": {
@@ -137,8 +135,8 @@
     "@plumbus/mcp": "workspace:*",
     "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",
-    "@vitest/browser": "^3.0.0",
     "esbuild": "^0.25.12",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "@vitest/browser-playwright": "5.0.4"
   }
 }

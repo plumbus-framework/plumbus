@@ -5,7 +5,7 @@ Recipe for wiring `@plumbus/auth` into a Plumbus app bootstrap.
 ## 1. Install and migrate
 
 ```bash
-pnpm add @plumbus/auth
+pnpm add @plumbus/auth@plumbus-next
 # production: apply packages/auth/migrations/0001_auth_init.sql via plumbus migrate
 ```
 

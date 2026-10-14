@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-livekit",
-  "version": "0.3.0-beta.2",
+  "version": "0.4.0-beta.0",
   "description": "LiveKit transport, agent worker, and browser session helpers for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
@@ -43,11 +43,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "peerDependencies": {
-    "@plumbus/core": ">=0.8.0-beta.0 <0.9.0",
-    "@plumbus/voice": ">=0.6.0-beta.0 <0.7.0",
+    "@plumbus/core": ">=0.9.0-beta.0 <0.10.0",
+    "@plumbus/voice": ">=0.7.0-beta.0 <0.8.0",
     "fastify": "^5.0.0",
     "livekit-client": "^2.0.0",
     "@livekit/krisp-noise-filter": "^0.4.0"
@@ -78,7 +78,7 @@
     "fastify": "^5.0.0",
     "livekit-client": "^2.19.2",
     "tsx": "^4.21.0",
-    "vitest": "^3.2.4"
+    "vitest": "5.0.4"
   },
   "license": "MIT"
 }

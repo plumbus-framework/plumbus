@@ -1,3 +1,4 @@
+import { resolveRetryPolicy, type RetryPolicy } from '../config/index.js';
 import { z } from 'zod';
 import {
   getCanonicalCapabilityName,
@@ -62,7 +63,7 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   exposeAs?: readonly ('mcp' | 'api')[];
   mcp?: McpExposureConfig;
   api?: ApiExposureConfig;
-  trigger?: { event: string; versionConstraint?: string };
+  trigger?: { event: string; versionConstraint?: string; retry?: RetryPolicy };
   /** When `false`, opts out of transactional outbox for this capability. */
   transactional?: boolean;
   /**
@@ -268,6 +269,13 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   validateMcpExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
   validateApiExposure(config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>);
 
+  if (config.trigger?.retry)
+    resolveRetryPolicy(config.trigger.retry, {
+      maxAttempts: 3,
+      backoff: 'exponential',
+      baseDelayMs: 100,
+      maxDelayMs: 5000,
+    });
   if (config.trigger !== undefined && config.kind !== 'eventHandler') {
     throwDefineValidationError(
       `Capability "${config.name}": trigger is only valid for eventHandler capabilities`,

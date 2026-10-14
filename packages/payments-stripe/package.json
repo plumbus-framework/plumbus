@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/payments-stripe",
-  "version": "0.3.0-beta.0",
+  "version": "0.4.0-beta.0",
   "description": "Stripe provider for @plumbus/payments — Connect with Accounts v2 sellers (direct and destination charges, transfers, payouts), Checkout, invoices, subscriptions, Stripe Billing plans and meters, and snapshot + thin webhook verification.",
   "type": "module",
   "main": "./dist/index.js",
@@ -47,21 +47,21 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "dependencies": {
     "stripe": "^22.6.2"
   },
   "peerDependencies": {
-    "@plumbus/core": ">=0.8.0-beta.0 <0.9.0",
-    "@plumbus/payments": ">=0.3.0-beta.0 <0.4.0"
+    "@plumbus/core": ">=0.9.0-beta.0 <0.10.0",
+    "@plumbus/payments": ">=0.4.0-beta.0 <0.5.0"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",
     "@plumbus/payments": "workspace:*",
     "@types/node": "^25.4.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.2.4"
+    "vitest": "5.0.4"
   },
   "license": "MIT"
 }

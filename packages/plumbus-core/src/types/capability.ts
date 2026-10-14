@@ -1,4 +1,5 @@
 import type { ActionRiskTier } from '../approvals/action-risk.js';
+import type { RetryPolicy } from '../config/index.js';
 import type { z } from 'zod';
 import type { ExecutionContext } from './context.js';
 import type { CapabilityKind } from './enums.js';
@@ -105,6 +106,7 @@ export interface ApiExposureConfig {
 
 // ── Event Handler Trigger (optional — auto-registers consumer when present) ──
 export interface EventHandlerTrigger {
+  retry?: RetryPolicy;
   event: string;
   versionConstraint?: string;
   /** Inactive subscriptions skip delivery. Default true. */

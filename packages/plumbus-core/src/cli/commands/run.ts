@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig } from '../../config/index.js';
 import { postgresConnectionOptions } from '../../data/connection.js';
 import { info, error as logError, resolvePath, success, warn } from '../utils.js';
 
@@ -28,7 +28,7 @@ async function connectDb(): Promise<{
   close: () => Promise<void>;
 } | null> {
   try {
-    const config = loadConfig({});
+    const config = await loadAppConfig({});
     const { drizzle } = await import('drizzle-orm/postgres-js');
     const postgres = (await import('postgres')).default;
     const sql = postgres(postgresConnectionOptions(config.database));

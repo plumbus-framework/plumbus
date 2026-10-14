@@ -1,3 +1,6 @@
+import { z } from 'zod';
+import { resolveRetryPolicy, type RetryPolicy } from '../config/index.js';
+import { DataValidationError } from '../errors/index.js';
 import type { EventEnvelope } from '../types/event.js';
 
 /**
@@ -22,6 +25,7 @@ export interface EventConsumer {
   handler: EventConsumerHandler;
   /** Max retry attempts before dead-lettering (default: 3) */
   maxRetries?: number;
+  retry?: RetryPolicy;
 }
 
 /**
@@ -36,6 +40,19 @@ export class ConsumerRegistry {
    * Register an event consumer. Throws on duplicate consumer ID.
    */
   register(consumer: EventConsumer): void {
+    if (
+      consumer.maxRetries !== undefined &&
+      !z.number().int().positive().safeParse(consumer.maxRetries).success
+    )
+      throw new DataValidationError('maxRetries must be a positive total attempt count');
+    if (consumer.maxRetries !== undefined && consumer.retry?.maxAttempts !== undefined)
+      throw new DataValidationError('Use maxRetries or retry.maxAttempts, not both');
+    resolveRetryPolicy(consumer.retry, {
+      maxAttempts: consumer.maxRetries ?? 3,
+      backoff: 'exponential',
+      baseDelayMs: 100,
+      maxDelayMs: 5000,
+    });
     if (this.consumersById.has(consumer.id)) {
       throw new Error(`Event consumer "${consumer.id}" is already registered`);
     }

@@ -1,5 +1,7 @@
 # @plumbus/payments — Framework Instructions for AI Agents
 
+Current release: **0.4.0-beta.0**, in the core **0.9** beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). Follow `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading, then run `plumbus init --patch --agent all` for wiring **v21**. Historical feature introduction versions below do not replace the current peer requirements.
+
 `@plumbus/payments` moves money for a Plumbus app through a payment provider, in two independent ways:
 
 - **Sellers** — the people who use the app (users or tenants) **charge their own clients**, with the app as the platform in between (a marketplace/Connect setup): payment pages, invoices, saved cards, holds, links, subscriptions, payouts, disputes, and transfers.
@@ -7,7 +9,7 @@
 
 It is provider-neutral; the provider adapter (`@plumbus/payments-stripe`) does the vendor calls.
 
-**Peers:** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` (copy literally; see `node_modules/@plumbus/core/instructions/peer-dependencies.md`) and optional `"fastify": "^5.0.0"` for the webhook route. The matching core **0.8 beta** is required; it includes the stable core 0.7.7 additions (`field.bigint()` for amounts, and discovery of exported collections such as `payments.capabilities`).
+**Peers:** `"@plumbus/core": ">=0.9.0-beta.0 <0.10.0"` (copy literally; see `node_modules/@plumbus/core/instructions/peer-dependencies.md`) and optional `"fastify": "^5.0.0"` for the webhook route. The matching core **0.9 beta** is required; it includes the stable core 0.7.7 additions (`field.bigint()` for amounts, and discovery of exported collections such as `payments.capabilities`).
 
 ## What it gives you
 

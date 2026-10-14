@@ -33,7 +33,7 @@ Flow capability steps run under the **caller's stored auth snapshot**, not the w
 - **User-triggered flows** (HTTP, API, manual `ctx.flows.start`) — steps enforce the original caller's roles and scopes. Capabilities must list those roles in `access.roles` (or `public: true`). There is no implicit `system` elevation on every step.
 - **Scheduled / worker-owned flows** — still run under explicit `system` auth from the scheduler or worker bootstrap.
 
-If flow steps return **403** after upgrading to 0.5.x, audit `access.roles` on step target capabilities. See `upgrading-0.5-capabilities.md` for the migration checklist.
+If flow steps return **403** after upgrading to 0.6.x, audit `access.roles` on step target capabilities. See `upgrading-0.5-capabilities.md` for the migration checklist.
 
 ## Auth Context (`ctx.auth`)
 
@@ -55,7 +55,7 @@ If flow steps return **403** after upgrading to 0.5.x, audit `access.roles` on s
 
 **Cross-tenant admin bypass:** capabilities with `access.tenantScoped: false` pass `bypassTenantScope: true` into `createDependencies()`, allowing explicitly cross-tenant admin routes while role/scope checks still apply.
 
-Events carry `tenantId` and are only delivered to matching consumers.
+Consumers match event type/version, not tenant-specific worker routing. The outbox row supplies the authoritative tenant for handler auth; repositories enforce tenant scope. Workers sharing a queue must have compatible registrations.
 
 **Database-per-tenant:** `provisionDataPlane` creates the database plus owner/runtime roles. Apply generated `drizzle/` SQL as the **owner** (`applyDataPlaneMigrations` or `plumbus migrate apply --database <name>`). Request traffic opens the same database as the **runtime** role through `openDataPlaneConnection`. See `docs/sdk-reference/tenant-data-planes.md`.
 

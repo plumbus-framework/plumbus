@@ -7,10 +7,12 @@
 
 **Classification, categorization, provider/model selection, TypeSafe/Jev or Laya:**
 read `node_modules/@plumbus/core/instructions/ai-classification.md` first (core
-**0.8.0-beta.6+**), then [framework.md](framework.md) for this package.
+**0.7.4+**; beta line **0.8.0-beta.6+**; every 0.8 stable and 0.9 beta release includes
+it), then [framework.md](framework.md) for this package.
 
-Core 0.8.0-beta.6+ provides `ctx.ai.decide()` and also routes `ctx.ai.classify()`
-to explicitly registered decision adapters. Keep app business logic in Plumbus
+Core 0.7.3+ provides `ctx.ai.decide()`; core 0.7.4+ also routes `ctx.ai.classify()`
+to explicitly registered decision adapters (both on the beta line from 0.8.0-beta.6,
+and in every 0.8 stable and 0.9 beta release). Keep app business logic in Plumbus
 primitives and `ctx.*`. Never route predictions around capability access checks
 or confirmation policy. Provider registration is explicit in `app/server.ts`.
 

@@ -7,6 +7,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | File | When to read |
 |------|--------------|
 | [upgrading-security-release.md](./upgrading-security-release.md) | Core 0.7.0 security migration, coordinated package versions, and agent wiring v16. |
+| [stabilization.md](./stabilization.md) | Core 0.8 migration (also required for the core 0.9 beta family), queue/flow/schedule semantics, wiring v21. |
 | [guardrails.md](./guardrails.md) | First. Framework-first rules, forbidden escape hatches, git safety. |
 | [framework.md](./framework.md) | Core abstractions, `ctx`, consumption surfaces, project layout, server hooks. |
 | [capabilities.md](./capabilities.md) | `defineCapability()`, kinds, access, effects, MCP/API exposure. |
@@ -15,7 +16,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [flows.md](./flows.md) | `defineFlow()`, steps, triggers, retries. |
 | [prompts.md](./prompts.md) | `definePrompt()`, `system`/`description`, model resolution. |
 | [ai.md](./ai.md) | `ctx.ai` operations (incl. provider-native tool calling + `runToolLoop`), cost tracking, env-based provider config. |
-| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev, Laya or OpenAI Decisions, `classify()` vs `decide()`** (core 0.7.4+ / 0.8.0-beta.6+). |
+| [ai-classification.md](./ai-classification.md) | **Classification, categorization, provider/model selection, TypeSafe/Jev, Laya or OpenAI Decisions, `classify()` vs `decide()`** (core 0.7.4+; beta line 0.8.0-beta.6+). |
 | [translations.md](./translations.md) | `defineTranslation()`, `ctx.translations`. |
 | [security.md](./security.md) | Access policies, tenant isolation, auth adapters. |
 | [governance.md](./governance.md) | Advisory rules, `plumbus verify`, compliance profiles. |

@@ -12,6 +12,8 @@ This guide explains how to configure AI coding agents (GitHub Copilot, Cursor, W
 
 See [docs/agents/guardrails.md](guardrails.md) for the full policy and for the difference between instruction-based guidance and hard enforcement.
 
+Current core 0.8 and the core 0.9 beta family generate wiring **v21**, including deployment and stabilization guidance. `--inline` embeds the installed core recipes. Earlier wiring sections below record when recipes were introduced. See [the upgrade guide](../upgrading-stabilization.md).
+
 ## Quick Setup
 
 ```bash
@@ -33,9 +35,9 @@ plumbus init --patch --dry-run
 
 That's it. Your AI agent now understands Plumbus conventions.
 
-**Finding recipes after install:** open `node_modules/@plumbus/<package>/instructions/README.md` first. That index lists exact topic files (also written into `AGENTS.md` / `CLAUDE.md` / Copilot wiring by `plumbus init`). Do not invent package wiring from memory.
+**Finding recipes after install:** open `node_modules/@plumbus/<package>/instructions/README.md` first. That index lists exact topic files (also referenced from generated `AGENTS.md`, Copilot, and Cursor wiring; `CLAUDE.md` imports `AGENTS.md`). Do not invent package wiring from memory.
 
-By default, `plumbus init` is non-destructive: it creates missing wiring files and skips existing ones. Use `plumbus init --patch` to update Plumbus-managed sections in generated files while preserving surrounding custom notes. Use `plumbus init --force` only when you want to replace an existing generated file outright.
+By default, `plumbus init` creates missing wiring files and skips existing ones. When Claude is selected, an app-owned `AGENTS.md` without a generated block receives an appended Plumbus block so the Claude import has complete framework guidance; existing text is preserved. Use `plumbus init --patch` to update Plumbus-managed sections in generated files while preserving surrounding custom notes. Use `plumbus init --force` only when you want to replace an existing generated file outright.
 
 After upgrading `@plumbus/core`, prefer `plumbus init --patch` first. If doctor reports an old or unmanaged file that cannot be patched safely, use `plumbus init --force` for that full refresh.
 
@@ -130,7 +132,13 @@ Creates `AGENTS.md` at the project root — a generic format supported by multip
 plumbus init --agent claude
 ```
 
-Creates `CLAUDE.md` at the project root from the **same generator** as `AGENTS.md` (identical body; Claude-specific title and wiring marker). Claude Code reads `CLAUDE.md` natively and does **not** load `AGENTS.md` automatically — so default `plumbus init` writes both.
+Creates canonical `AGENTS.md` instructions and a small `CLAUDE.md` containing a managed `@AGENTS.md` import. Selecting `claude` alone creates both files. Selecting `all` writes each once. With `--inline`, the core recipes are embedded in `AGENTS.md`; the Claude file remains an import. Keep shared notes in `AGENTS.md` and Claude-specific notes outside the managed block in `CLAUDE.md`.
+
+Claude Code expands `@AGENTS.md` at startup, relative to the importing file. Keep the import outside code fences/backticks. Recent Claude Code versions can also discover `AGENTS.md` directly under certain settings; the explicit import works without relying on that fallback. See [Claude Code's import documentation](https://code.claude.com/docs/en/memory#share-one-file-with-other-coding-tools).
+
+Run `plumbus init --patch --agent claude` (or `--agent all`) to replace a v20 cloned managed block with the import while refreshing the canonical target. Notes outside each file's managed block are preserved, and subsequent patches are idempotent. An existing unmanaged Claude import and its custom notes are preserved. Files with malformed or unversioned generated blocks require review; the tool does not replace the old Claude body until a complete canonical block exists.
+
+Do not import `CLAUDE.md` back from `AGENTS.md`, or import `AGENTS.md` into itself. Such pairs are skipped to avoid cycles. Symlinks are preserved rather than written through, including with `--force`; update their targets explicitly. A valid `CLAUDE.md` symlink to `AGENTS.md` still works. Doctor checks missing/empty/non-file targets, reverse/self imports, dangling symlinks, and stale target versions. After refreshing, run `plumbus doctor`; in Claude Code, `/context` shows loaded memory files.
 
 ## What Agents Learn
 
@@ -266,8 +274,9 @@ This embeds the full instruction content directly into the wiring file instead o
 | `node_modules/@plumbus/core/instructions/governance.md` | Governance rules |
 | `node_modules/@plumbus/core/instructions/testing.md` | Testing utilities |
 | `node_modules/@plumbus/core/instructions/patterns.md` | Code patterns |
-| `node_modules/@plumbus/core/instructions/deployment.md` | Production deployment |
 | `node_modules/@plumbus/core/instructions/peer-dependencies.md` | Add-on peer literals (framework devs) |
+| `node_modules/@plumbus/core/instructions/stabilization.md` | Core 0.8 migration (also required for the core 0.9 beta family), schedule reconciliation, and worker cutover |
+| `node_modules/@plumbus/core/instructions/deployment.md` | Queue topology, production deployment, and readiness |
 | `node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md` | 0.5.x capability migration |
 | `node_modules/@plumbus/ui/instructions/framework.md` | UI generation overview |
 | `node_modules/@plumbus/ui/instructions/client-generator.md` | Client and hook generation |
@@ -403,7 +412,7 @@ This refreshes the Plumbus-managed wiring sections with the latest instructions 
 
 ## OpenAI Decisions provider — wiring v19
 
-Core **0.7.9+** generates wiring **v19**. All agent formats (reference and inline, flat
+Core **0.7.9** introduced wiring **v19**. All agent formats (reference and inline, flat
 and monorepo) also list `node_modules/@plumbus/ai-decision-openai/instructions/README.md`
 next to the TypeSafe/Jev and Laya decision provider indexes, and Cursor's capability rule
 names OpenAI Decisions in its classification line. Apps that install
@@ -414,13 +423,13 @@ Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
 
 ## Payments guidance — wiring v18
 
-Core **0.7.7+** generates wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. They also list `@plumbus/auth-cognito`'s `attested-sign-in.md` (auth-cognito 0.2.2+). Apps without payments are unaffected apart from the version marker.
+Core **0.7.7** introduced wiring **v18**. All agent formats (reference and inline, flat and monorepo) list the `@plumbus/payments` and `@plumbus/payments-stripe` instruction files, so agents in apps that install them find the wiring, options, and Stripe recipes. They also list `@plumbus/auth-cognito`'s `attested-sign-in.md` (auth-cognito 0.2.2+). Apps without payments are unaffected apart from the version marker.
 
 Run `plumbus init --patch --agent all` after upgrading, then `plumbus doctor`.
 
 ## Classification and decision guidance — wiring v17
 
-Core **0.7.4+** generates wiring **v17**. Copilot, Cursor, AGENTS.md, and CLAUDE.md
+Core **0.7.4** introduced wiring **v17**. Copilot, Cursor, AGENTS.md, and CLAUDE.md
 point directly to `node_modules/@plumbus/core/instructions/ai-classification.md`
 for classification/categorization, provider/model selection, TypeSafe/Jev and Laya,
 and choosing `classify()` versus `decide()`. The references appear in inline and
@@ -436,3 +445,13 @@ Patching preserves surrounding app-owned text. See the
 Core 0.7.0 introduced wiring version **16**. All root agent formats (reference and inline, flat and monorepo) and the Cursor capability rule point at `node_modules/@plumbus/core/instructions/upgrading-security-release.md`. The checklist ships in the npm package and covers coordinated versions, credentials/SAML, legacy flow recovery, unknown-cost flags, audit behavior, and voice limits. The framework-first guardrails remain mandatory.
 
 After updating the app's packages, run `plumbus init --patch`, then `plumbus doctor`. Patching updates only managed wiring blocks and retains custom text outside them. See [the release migration guide](../upgrading-security-release.md).
+
+
+## Stabilization wiring v20
+
+Core 0.8.0 adds direct deployment and stabilization recipe references to every agent format. Inline mode embeds the shipped core Markdown instructions; optional add-on recipes remain references to their installed packages. Refresh with `plumbus init --patch --agent all`. Follow [stabilization](../upgrading-stabilization.md) for retry semantics, schedule adoption, migration, and process cutover.
+
+
+## Canonical root instructions — wiring v21
+
+Wiring v21 makes `AGENTS.md` the shared instruction file and `CLAUDE.md` its import. Copilot and Cursor continue using their native files. Reference and inline guidance still includes the stabilization and Vitest 5 upgrade recipes. Use `plumbus init --patch --agent all` to migrate generated v20 clones while preserving app-owned notes.

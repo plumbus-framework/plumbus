@@ -44,7 +44,7 @@ defineCapability({
 | `@plumbus/core` | Contract fields, `plumbus generate` manifest/skills, CLI `plumbus mcp *` | Always |
 | `@plumbus/mcp` | Runtime server (stdio + Streamable HTTP), `createMcpAuthAdapter` | `pnpm add @plumbus/mcp` when you want to serve agents |
 
-`@plumbus/mcp` is an optional peer of `@plumbus/core` (version-locked `0.5.x || 0.6.x`). `plumbus mcp serve` prints an install hint if the package is missing.
+`@plumbus/mcp` 0.7.x is an optional peer of core 0.8.x; its required `@plumbus/core` peer is exactly `0.8.x`. In the core 0.9 beta family, `@plumbus/mcp` 0.8 betas are core's optional peer (`>=0.8.0-beta.0 <0.9.0`) and require `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. `plumbus mcp serve` prints an install hint if the package is missing.
 
 ## Two reading paths
 

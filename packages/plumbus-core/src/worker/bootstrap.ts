@@ -18,8 +18,10 @@ import { createEventEmitter } from '../events/emitter.js';
 import { createIdempotencyService } from '../events/idempotency.js';
 import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
+import type { EventDeadLetterInfo, EventDeliveryOptions } from '../events/index.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
+import { createJobDispatchService, publishPendingJobs } from '../jobs/index.js';
 import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
 import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
@@ -38,6 +40,7 @@ import {
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
+import { sweepFailedFlows } from '../flows/index.js';
 import { FlowStatus } from '../flows/state-machine.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
@@ -151,12 +154,15 @@ function withCapabilityErrorHook(
   };
 }
 
-// ── Lease-column preflight ──
+// ── Flow-execution column preflight ──
 //
-// 0.3.0 added `lease_owner` and `lease_expires_at` columns to flow_executions
-// to support lease-based claiming across workers. If a consumer upgrades
+// The engine selects every column the framework added to flow_executions:
+// the claim lease (`lease_owner`, `lease_expires_at`, 0.3.0), the claim token
+// and wait kind (`lease_token`, `wait_kind`), replay and schedule provenance
+// (`replay_of`, `schedule_id`, `schedule_tick_id`) and the compiled-definition
+// pin (`definition_version`, `definition_digest`). If a consumer upgrades
 // `@plumbus/core` but forgets to run `plumbus migrate generate` +
-// `plumbus migrate apply`, the first claim-cycle UPDATE fails with PG error
+// `plumbus migrate apply`, the first claim-cycle query fails with PG error
 // 42703 (undefined_column) deep inside drizzle, producing logs that don't
 // point at the real fix. This probe runs one cheap `LIMIT 0` SELECT against
 // those columns and rethrows a clear, actionable error when they're missing.
@@ -164,7 +170,9 @@ function withCapabilityErrorHook(
 // Exported for direct testing.
 export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<void> {
   try {
-    await db.execute(sql`SELECT lease_owner, lease_expires_at FROM flow_executions LIMIT 0`);
+    await db.execute(
+      sql`SELECT lease_owner, lease_expires_at, lease_token, wait_kind, replay_of, schedule_id, schedule_tick_id, definition_version, definition_digest FROM flow_executions LIMIT 0`,
+    );
   } catch (err) {
     const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
     const pgCode =
@@ -173,7 +181,7 @@ export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<vo
         : undefined;
     if (pgCode === '42703') {
       throw new Error(
-        'Plumbus 0.3.0 requires new columns on flow_executions (lease_owner, lease_expires_at).\n' +
+        'Plumbus requires migrated flow_executions (lease_owner, lease_expires_at, lease_token, wait_kind, replay_of, schedule_id, schedule_tick_id, definition_version, definition_digest).\n' +
           'Run `plumbus migrate generate` then `plumbus migrate apply` before starting workers.',
       );
     }
@@ -192,6 +200,10 @@ export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<vo
 export type UntenantedDataPlanePolicy = 'refuse' | 'control-plane';
 
 export interface WorkerPoolConfig {
+  /** Event delivery policy (retry, unrouted, ignored event types). Default: `config.workers.eventDelivery`. */
+  eventDelivery?: EventDeliveryOptions;
+  /** Called after an event delivery is dead-lettered (best-effort; failures are logged). */
+  onEventDeadLetter?: (info: EventDeadLetterInfo) => void | Promise<void>;
   /** Plumbus framework config */
   config: PlumbusConfig;
   /**
@@ -329,8 +341,9 @@ export interface WorkerPoolConfig {
   /**
    * Tenant planes for the flow scheduler alone: one schedule row per tenant for flows
    * scheduled on `tenants`, started with that tenant on auth. Flows, events and the outbox keep
-   * the pool's data plane — for a host that routes tenant data itself and has no
-   * `dataPlaneResolver`. Ignored when `dataPlaneResolver` is set (it already covers the scheduler).
+   * the pool's data plane (the schedule's durable ticks and executions are written to the pool
+   * too) — for a host that routes tenant data itself and has no `dataPlaneResolver`. Ignored when
+   * `dataPlaneResolver` is set (it already covers the scheduler).
    */
   schedulePlanes?: {
     resolver: DataPlaneResolver;
@@ -401,7 +414,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     frameworkSchema,
     enableDispatcher = true,
     enableEventWorker = true,
-    enableScheduler = true,
+    enableScheduler = poolConfig.config.workers?.enableScheduler ?? true,
     enableFlowRunner = true,
   } = poolConfig;
 
@@ -534,6 +547,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   // Event delivery worker
   const eventWorkerConfig: WorkerConfig = {
+    ...(poolConfig.eventDelivery ?? poolConfig.config.workers?.eventDelivery),
+    onEventDeadLetter: poolConfig.onEventDeadLetter,
     db,
     queue,
     consumers,
@@ -548,6 +563,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const jobEventWorker =
     enableEventWorker && jobsQueue !== queue
       ? createEventWorker({
+          ...(poolConfig.eventDelivery ?? poolConfig.config.workers?.eventDelivery),
+          onEventDeadLetter: poolConfig.onEventDeadLetter,
           db,
           queue: jobsQueue,
           consumers,
@@ -561,6 +578,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   // Flow engine + scheduler
   const { createDataService } = poolConfig;
+  /** The data plane each execution in the current flow cycle runs against, keyed by execution id. */
+  const unitPlanes = new Map<string, PostgresJsDatabase>();
   const flowEngineConfig: FlowEngineConfig = {
     db,
     registry: flows,
@@ -604,6 +623,14 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       compiledRegistry: poolConfig.compiledRegistry,
       compiledFlowsDirectory: poolConfig.compiledFlowsDirectory,
     }),
+    // Each step runs with the flow's caller identity and correlation, wired against the data
+    // plane the runner resolved for this execution (the pool's own `db` without a resolver).
+    createContext: (auth, metadata) =>
+      buildFlowRunnerContext(
+        auth,
+        unitPlanes.get(metadata.flowId) ?? dataPlaneForAuth(auth),
+        metadata,
+      ),
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
     createEventService: eventRegistry
       ? (auth) => {
@@ -665,10 +692,20 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     engine: flowEngine,
     pollIntervalMs: schedulerPollIntervalMs,
     logger,
+    // Under a resolver tenant-plane schedules start their flows on that plane; with schedule
+    // planes alone the flows keep the pool plane, so their ticks and executions live there.
     ...(dataPlaneResolver
-      ? { resolver: dataPlaneResolver, listTenantRefs: listedTenantRefs }
+      ? {
+          resolver: dataPlaneResolver,
+          listTenantRefs: listedTenantRefs,
+          tenantExecutions: 'schedule-plane' as const,
+        }
       : schedulePlanes
-        ? { resolver: schedulePlanes.resolver, listTenantRefs: schedulePlanes.listTenantRefs }
+        ? {
+            resolver: schedulePlanes.resolver,
+            listTenantRefs: schedulePlanes.listTenantRefs,
+            tenantExecutions: 'pool' as const,
+          }
         : {}),
   };
   if (!dataPlaneResolver && schedulePlanes) {
@@ -678,15 +715,109 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;
 
   let flowCycleRunning = false;
+  /**
+   * The cycle's sweep or claim query in flight. stop() waits for it so the host can close the
+   * database right after; a step already running is left to finish on its own, as before.
+   */
+  let pollInFlight: Promise<unknown> | null = null;
+  function polling<T>(work: Promise<T>): Promise<T> {
+    pollInFlight = work;
+    return work.finally(() => {
+      if (pollInFlight === work) pollInFlight = null;
+    });
+  }
+  let lastTenantSweepAt = -Infinity;
+  /**
+   * The tenant-plane dead-letter sweep in flight. It runs beside the claim cycle, never inside
+   * it, so an unreachable plane cannot hold up claiming; stop() waits for it like a poll.
+   */
+  let tenantSweepInFlight: Promise<void> | null = null;
+  /** When each sweep source last warned: the pool, the tenant list, and every tenant plane apart. */
+  const lastSweepWarningAt = new Map<string, number>();
+
+  function warnSweepFailed(
+    err: unknown,
+    source: 'pool' | 'tenant-list' | { tenantRef: string },
+  ): void {
+    // A missing dead-letter table fails every cycle; say so once a minute, not once a second.
+    // Counted per source, so one failing source never hides another.
+    const key = typeof source === 'string' ? source : `tenant-plane:${source.tenantRef}`;
+    if (Date.now() - (lastSweepWarningAt.get(key) ?? -Infinity) < 60_000) return;
+    lastSweepWarningAt.set(key, Date.now());
+    logger.warn('Flow dead-letter sweep failed', {
+      ...(typeof source === 'string'
+        ? { source }
+        : { source: 'tenant-plane', tenantRef: source.tenantRef }),
+      ...describeError(err),
+    });
+  }
+
+  /**
+   * Snapshot failed pool executions that have no dead letter yet. Runs every cycle, before the
+   * claims. Never throws: a sweep failure must not stop the cycle from claiming work.
+   */
+  async function sweepPoolDeadLetters(): Promise<void> {
+    try {
+      await sweepFailedFlows(db);
+    } catch (err) {
+      warnSweepFailed(err, 'pool');
+    }
+  }
+
+  /**
+   * The same snapshot on each listed tenant plane (where tenant flows live), one plane after
+   * another. A backstop only: `failFlow` already writes the dead letter on the execution's plane.
+   * Never throws, and stops at the next plane once the pool is stopping.
+   */
+  async function sweepTenantDeadLetters(resolver: DataPlaneResolver): Promise<void> {
+    let tenantRefs: string[];
+    try {
+      tenantRefs = await listedTenantRefs();
+    } catch (err) {
+      warnSweepFailed(err, 'tenant-list');
+      return;
+    }
+    for (const tenantRef of tenantRefs) {
+      if (!running) return;
+      try {
+        const handle = await resolver.resolve(tenantRef);
+        await sweepFailedFlows(handle.db);
+      } catch (err) {
+        warnSweepFailed(err, { tenantRef });
+      }
+    }
+  }
+
+  /**
+   * With a resolver, start the tenant-plane sweep once a minute (counted from the end of the
+   * previous one) without awaiting it: an unreachable plane can take a connect timeout per
+   * sweep, and the cycle keeps claiming on every plane meanwhile. One sweep at a time, and none
+   * once stop() has begun: stop() reads `tenantSweepInFlight` only once, after the cycle's poll.
+   */
+  function startTenantSweepWhenDue(): void {
+    if (!dataPlaneResolver || !running || tenantSweepInFlight) return;
+    if (Date.now() - lastTenantSweepAt < 60_000) return;
+    lastTenantSweepAt = Date.now();
+    const sweep = sweepTenantDeadLetters(dataPlaneResolver)
+      .catch((err) => warnSweepFailed(err, 'tenant-list'))
+      .finally(() => {
+        lastTenantSweepAt = Date.now();
+        if (tenantSweepInFlight === sweep) tenantSweepInFlight = null;
+      });
+    tenantSweepInFlight = sweep;
+  }
+
   async function runFlowCycle(): Promise<void> {
     if (!enableFlowRunner || !running || flowCycleRunning) return;
     flowCycleRunning = true;
     try {
+      await polling(sweepPoolDeadLetters());
+      startTenantSweepWhenDue();
       // Lease only work that can start now. Prefetched rows otherwise wait behind
       // long steps without a heartbeat, and another poll can reclaim them.
       const cycleLimit = poolConfig.flowClaimBatchSize ?? 50;
       for (let count = 0; count < cycleLimit && running; count += 1) {
-        const claimed = await flowEngine.claimNext(1);
+        const claimed = await polling(flowEngine.claimNext(1));
         if (claimed.length === 0) break;
 
         const systemAuth = {
@@ -701,6 +832,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         const baseCtx = dataPlaneResolver ? undefined : buildFlowRunnerContext(systemAuth);
 
         for (const row of claimed) {
+          // The claim's fencing token: every write the engine makes for this run carries it,
+          // and a runner that lost it can no longer finalize the execution.
+          const leaseToken = row.leaseToken ?? undefined;
           try {
             // Resolving inside the per-row try means an unknown or absent tenant
             // fails this execution the same way a failing step does, instead of
@@ -714,9 +848,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             const unitAuth = unitTenantRef
               ? { ...systemAuth, tenantId: unitTenantRef }
               : systemAuth;
-            const ctx =
-              baseCtx ??
-              buildFlowRunnerContext(unitAuth, await resolveUnitDataPlane(unitTenantRef));
+            const unitDb = baseCtx ? db : await resolveUnitDataPlane(unitTenantRef);
+            unitPlanes.set(row.id, unitDb);
+            const ctx = baseCtx ?? buildFlowRunnerContext(unitAuth, unitDb);
             // Drain consecutive in-flow steps in a single tick.
             //
             // Why: claimNext() acquires a lease (status='running',
@@ -743,7 +877,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             const maxStepsPerCycle = 1000;
             let stepsRun = 0;
             while (stepsRun < maxStepsPerCycle) {
-              const result = await flowEngine.runNext(row.id, ctx);
+              const result = await flowEngine.runNext(row.id, ctx, leaseToken);
               stepsRun += 1;
               if (result.status !== FlowStatus.Running) {
                 break;
@@ -766,10 +900,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             // Finalize the row as failed so the next poll cycle doesn't re-claim
             // it via the `status='running' AND lease_expires_at < now()`
             // crash-recovery branch in claimNext and spin forever. The engine
-            // method is idempotent and guards on status, so this is safe even
-            // if the row was concurrently finalized by cancel() or a peer worker.
+            // fences the write with this claim's token, so a runner whose lease
+            // was lost (or whose flow was cancelled) never fails another
+            // worker's execution.
             try {
-              await flowEngine.markFailedFromRunner(row.id, err);
+              await flowEngine.markFailedFromRunner(row.id, err, leaseToken);
             } catch (finalizeErr) {
               logger.error('Failed to finalize flow execution after run error', {
                 executionId: row.id,
@@ -777,6 +912,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
                 ...describeError(finalizeErr),
               });
             }
+          } finally {
+            unitPlanes.delete(row.id);
           }
         }
       }
@@ -802,7 +939,24 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       provider: 'worker',
     },
     contextDb: PostgresJsDatabase = db,
+    metadata?: { correlationId: string; flowId: string },
   ): import('../types/context.js').ExecutionContext {
+    // A unit on a resolved tenant plane gets no job queue: its transaction would write the job
+    // intent on the plane while publication, recovery and the job consumer all read the pool, so
+    // the job would never run (or would run against the pool with the tenant's auth). Its
+    // `ctx.jobs.enqueue` throws until the job pipeline is plane-aware.
+    const jobs =
+      poolConfig.capabilities && contextDb === db
+        ? createJobDispatchService({
+            db,
+            jobQueue: jobsQueue,
+            resolveCapability: (name) => poolConfig.capabilities?.get(name),
+            auth: systemAuth,
+            source: 'flow',
+            correlationId: metadata?.correlationId,
+            logger,
+          })
+        : undefined;
     if (poolConfig.entities && eventRegistry) {
       const tenantRef = resolveTenantRef(systemAuth);
       const durableSchema =
@@ -812,6 +966,10 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           {
             db: contextDb,
             auth: systemAuth,
+            correlationId: metadata?.correlationId,
+            getCausationId: () => metadata?.flowId,
+            // The host audit records on the pool; a tenant unit keeps its plane-local audit.
+            ...(contextDb === db && audit ? { audit } : {}),
             entities: poolConfig.entities,
             events: eventRegistry,
             encryptionKey: resolveEncryptionKey(),
@@ -819,6 +977,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
               dataPlaneResolver && !unitsOnControlPlane ? { schemaName: durableSchema } : undefined,
           },
           {
+            jobs,
             flows: createFlowService(flowEngine, systemAuth, flows),
             ai: poolConfig.aiService,
             logger,
@@ -839,6 +998,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       ? createEventEmitter({
           db: contextDb,
           auth: systemAuth,
+          correlationId: metadata?.correlationId,
+          causationId: metadata?.flowId,
           registry: eventRegistry,
           audit: systemAudit,
         })
@@ -847,6 +1008,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       auth: systemAuth,
       data: dataService,
       events: eventService,
+      jobs,
       flows: createFlowService(flowEngine, systemAuth, flows),
       ai: poolConfig.aiService,
       audit: systemAudit,
@@ -894,6 +1056,16 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   let depthRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let running = false;
+  let jobPublishTimer: ReturnType<typeof setInterval> | undefined;
+  let publishingJobs: Promise<unknown> | undefined;
+  function recoverJobs() {
+    if (publishingJobs) return;
+    publishingJobs = publishPendingJobs(db, jobsQueue, undefined, 50, logger)
+      .catch(() => logger.error('Pending job publication recovery failed'))
+      .finally(() => {
+        publishingJobs = undefined;
+      });
+  }
 
   return {
     get flowEngine() {
@@ -903,16 +1075,14 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     async start() {
       if (running) return;
 
-      // Schema preflight: 0.3.0 added `lease_owner` and `lease_expires_at`
-      // to flow_executions. Consumers who upgrade `@plumbus/core` but skip
-      // `plumbus migrate apply` would otherwise hit a cryptic UPDATE error
-      // on the first claim cycle. Probe the columns once at startup and
-      // emit an actionable error instead.
+      // Schema preflight: the engine reads the claim, wait, provenance and
+      // definition-pin columns the framework added to flow_executions.
+      // Consumers who upgrade `@plumbus/core` but skip `plumbus migrate apply`
+      // would otherwise hit a cryptic query error on the first claim cycle.
+      // Probe the columns once at startup and emit an actionable error instead.
       if (enableFlowRunner) {
         await assertFlowLeaseColumns(db);
       }
-
-      running = true;
 
       // Sync flow schedules to DB
       if (scheduler) {
@@ -920,6 +1090,12 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         logger.info(`Synced ${synced} flow schedules`);
         scheduler.start();
         logger.info('Flow scheduler started');
+      }
+
+      running = true;
+      if (poolConfig.capabilities?.getAll().some((capability) => capability.kind === 'job')) {
+        jobPublishTimer = setInterval(recoverJobs, 1000);
+        recoverJobs();
       }
 
       if (enableFlowRunner) {
@@ -978,16 +1154,21 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       if (!running) return;
       running = false;
       logger.info('Shutting down worker pool...');
+      clearInterval(jobPublishTimer);
+      await publishingJobs;
 
       // Stop in reverse order: new work first, then in-flight
       if (scheduler) {
-        scheduler.stop();
+        await scheduler.stop();
         logger.info('Flow scheduler stopped');
       }
 
       if (flowRunnerTimer) {
         clearInterval(flowRunnerTimer);
         flowRunnerTimer = null;
+        await pollInFlight?.catch(() => undefined);
+        // The tenant sweep ends at its next plane now that `running` is false.
+        await tenantSweepInFlight?.catch(() => undefined);
         logger.info('Flow execution runner stopped');
       }
 

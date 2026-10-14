@@ -13,6 +13,18 @@ import {
   writeAgentFiles,
 } from '../commands/init.js';
 
+function readGeneratedClaudeInstructions(inline: boolean, monorepo = false): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'plumbus-claude-import-'));
+  try {
+    writeAgentFiles(root, ['claude'], inline, false, monorepo);
+    const claude = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
+    expect(claude).toMatch(/^@AGENTS\.md$/m);
+    return `${claude}\n${readFileSync(path.join(root, 'AGENTS.md'), 'utf8')}`;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe('plumbus init', () => {
   describe('Copilot instructions', () => {
     it('generates reference-mode instructions', () => {
@@ -138,12 +150,14 @@ describe('plumbus init', () => {
       expect(content).toContain('Plumbus Framework');
       expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
       expect(content).toContain('Non-Negotiable Guardrails');
-      expect(content).toContain('bundled Plumbus instruction files');
+      expect(content).toContain('<!-- bundled instruction: flows.md -->');
+      expect(content).toContain('## Retry Policy');
+      expect(content).toContain('<!-- bundled instruction: stabilization.md -->');
       expect(content).toContain('ai-bedrock');
       expect(content).toContain(
         'open `node_modules/@plumbus/<package>/instructions/README.md` first',
       );
-      expect(content).not.toContain('node_modules/@plumbus/core/instructions/framework.md');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/deployment.md');
       expect(content).toContain('Documentation Maintenance');
     });
   });
@@ -203,30 +217,22 @@ describe('plumbus init', () => {
       const content = generateAgentsMd(true);
       expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
       expect(content).toContain('Non-Negotiable Guardrails');
-      expect(content).toContain('bundled Plumbus instruction files');
-      expect(content).not.toContain('node_modules/@plumbus/core/instructions/framework.md');
+      expect(content).toContain('<!-- bundled instruction: flows.md -->');
+      expect(content).toContain('## Retry Policy');
+      expect(content).toContain('<!-- bundled instruction: stabilization.md -->');
+      expect(content).toContain('node_modules/@plumbus/core/instructions/deployment.md');
       expect(content).toContain('Documentation Maintenance');
     });
   });
 
   describe('CLAUDE.md', () => {
-    it('shares the AGENTS.md body with a Claude-specific title and marker', () => {
-      const agents = generateAgentsMd(false);
+    it('imports AGENTS.md inside a managed block without duplicating guidance', () => {
       const claude = generateClaudeMd(false);
-      expect(claude).toContain('# CLAUDE.md — Plumbus Framework');
       expect(claude).toContain('format=claude');
       expect(claude).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
-      expect(claude).toContain('Non-Negotiable Guardrails');
-      expect(claude).toContain('node_modules/@plumbus/core/instructions/guardrails.md');
+      expect(claude).toMatch(/^@AGENTS\.md$/m);
+      expect(claude).not.toContain('Non-Negotiable Guardrails');
       expect(claude).toContain('<!-- /plumbus:agent-wiring -->');
-
-      const agentsBody = agents
-        .replace('# AGENTS.md — Plumbus Framework', '')
-        .replace('format=agents-md', '');
-      const claudeBody = claude
-        .replace('# CLAUDE.md — Plumbus Framework', '')
-        .replace('format=claude', '');
-      expect(claudeBody).toBe(agentsBody);
     });
 
     it('writes CLAUDE.md via writeAgentFiles', () => {
@@ -235,7 +241,10 @@ describe('plumbus init', () => {
         const written = writeAgentFiles(tempDir, ['claude'], false, false);
         expect(written.map((result) => result.path)).toContain('CLAUDE.md');
         const content = readFileSync(path.join(tempDir, 'CLAUDE.md'), 'utf-8');
-        expect(content).toContain('# CLAUDE.md — Plumbus Framework');
+        expect(content).toMatch(/^@AGENTS\.md$/m);
+        expect(readFileSync(path.join(tempDir, 'AGENTS.md'), 'utf8')).toContain(
+          'Non-Negotiable Guardrails',
+        );
         expect(content).toContain('format=claude');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
@@ -458,12 +467,10 @@ describe('plumbus init', () => {
       expect(content).toContain('Non-Negotiable Guardrails');
     });
 
-    it('generates CLAUDE.md with monorepo structure', () => {
+    it('generates a Claude import with monorepo metadata', () => {
       const content = generateClaudeMd(false, true);
-      expect(content).toContain('backend/app/capabilities/');
-      expect(content).toContain('frontend/');
-      expect(content).toContain('libs/shared/types/');
-      expect(content).toContain('Non-Negotiable Guardrails');
+      expect(content).toMatch(/^@AGENTS\.md$/m);
+      expect(content).toContain('layout=monorepo');
     });
 
     it('passes monorepo flag through writeAgentFiles', () => {
@@ -498,7 +505,7 @@ describe('security release agent wiring', () => {
         generateCopilotInstructions,
         generateCursorRule,
         generateAgentsMd,
-        generateClaudeMd,
+        readGeneratedClaudeInstructions,
       ]) {
         const content = generate(inline, monorepo);
         expect(content).toContain(`plumbus:agent-wiring version=${AGENT_WIRING_VERSION}`);
@@ -542,7 +549,7 @@ describe('classification agent discovery', () => {
         generateCopilotInstructions,
         generateCursorRule,
         generateAgentsMd,
-        generateClaudeMd,
+        readGeneratedClaudeInstructions,
       ]) {
         const content = generate(inline, monorepo);
         expect(content).toContain(recipe);
@@ -609,4 +616,22 @@ describe('classification agent discovery', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+it.each([
+  generateAgentsMd,
+  readGeneratedClaudeInstructions,
+  generateCopilotInstructions,
+  generateCursorRule,
+])('ships deployment guidance and full inline recipes through %s', (generate) => {
+  for (const monorepo of [false, true]) {
+    const reference = generate(false, monorepo);
+    expect(reference).toContain('node_modules/@plumbus/core/instructions/deployment.md');
+    expect(reference).toContain('node_modules/@plumbus/core/instructions/stabilization.md');
+    const inline = generate(true, monorepo);
+    expect(inline).toContain('<!-- bundled instruction: events.md -->');
+    expect(inline).toContain('## Delivery policy and worker topology');
+    expect(inline).toContain('## Cancellation, retries, and replay');
+    expect(inline).toContain('Plumbus primitives');
+  }
 });

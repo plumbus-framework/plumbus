@@ -1,12 +1,12 @@
 # @plumbus/voice
 
-Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
+Release notes: [changelog](./CHANGELOG.md), [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and [stabilization upgrade guide](../../docs/upgrading-stabilization.md).
 
 > **Real-time voice runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Define a voice once, pick a transport + STT + TTS stack, and mount governed session routes with shared cost tracking — your brain stays in normal Plumbus primitives.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice.svg)](https://www.npmjs.com/package/@plumbus/voice)
 [![license](https://img.shields.io/npm/l/@plumbus/voice.svg)](./LICENSE)
-[![peer: @plumbus/core 0.8.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.8.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -56,28 +56,28 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Optional add-on of `@plumbus/core` (version-locked `0.8.x`). Ships `defineVoice`, `registerVoiceRoutes`, the provider registry, built-in websocket / web-speech / browser-tts adapters, cost helpers, client Web Speech wrappers, and the testing surface. Cloud/vendor adapters are **not** bundled — install `@plumbus/voice-*` and register each `*_REGISTRATION` explicitly.
+Optional add-on of `@plumbus/core`, version `0.7.0-beta.0` (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.6.x` in the core 0.8 stabilization family). Ships `defineVoice`, `registerVoiceRoutes`, the provider registry, built-in websocket / web-speech / browser-tts adapters, cost helpers, client Web Speech wrappers, and the testing surface. Cloud/vendor adapters are **not** bundled — install `@plumbus/voice-*` and register each `*_REGISTRATION` explicitly.
 
 ## Install
 
 ```bash
-pnpm add @plumbus/voice
+pnpm add @plumbus/voice@plumbus-next
 # plus any optional provider add-ons you actually use
 ```
 
-Required peer: `@plumbus/core` `0.8.x` (copy the literal from `package.json` — do not invent caret ranges). `@plumbus/voice` does **not** peer-depend on the `@plumbus/voice-*` add-ons.
+Required peer: `@plumbus/core` `>=0.9.0-beta.0 <0.10.0` (copy the literal from `package.json` — do not invent caret ranges). `@plumbus/voice` does **not** peer-depend on the `@plumbus/voice-*` add-ons.
 
 ### Optional provider add-ons
 
 Install only what you use, then pass each package's `*_REGISTRATION` into `createProviderRegistry()` and pass that registry to routes/workers. **Install alone does not register.**
 
 ```bash
-pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
-pnpm add @plumbus/voice-livekit    # livekit transport + agent worker + browser session
-pnpm add @plumbus/voice-soniox     # soniox STT + TTS
-pnpm add @plumbus/voice-deepdub    # deepdub TTS
-pnpm add @plumbus/voice-elevenlabs # elevenlabs TTS
-pnpm add @plumbus/voice-minimax    # minimax TTS
+pnpm add @plumbus/voice-openai@plumbus-next     # openai-whisper / openai-realtime STT + openai TTS
+pnpm add @plumbus/voice-livekit@plumbus-next    # livekit transport + agent worker + browser session
+pnpm add @plumbus/voice-soniox@plumbus-next     # soniox STT + TTS
+pnpm add @plumbus/voice-deepdub@plumbus-next    # deepdub TTS
+pnpm add @plumbus/voice-elevenlabs@plumbus-next # elevenlabs TTS
+pnpm add @plumbus/voice-minimax@plumbus-next    # minimax TTS
 ```
 
 | Provider id | Kind | Package |
@@ -222,7 +222,7 @@ There is no `createRegistryForVoices`, no `VOICE_ADDON_PACKAGES` soft-load, and 
   - [`defining-voices.md`](../../docs/voice/defining-voices.md) — `defineVoice`, routes, worker wiring
   - [`configuration.md`](../../docs/voice/configuration.md) — credential shapes, config loading, catalog endpoints
   - [`providers.md`](../../docs/voice/providers.md) — built-ins, provider add-ons, catalog API, custom registration
-  - [`upgrading-voice-provider-packages.md`](../../docs/upgrading-voice-provider-packages.md) — 0.3.x → 0.5.x provider add-on migration
+  - [`upgrading-voice-provider-packages.md`](../../docs/upgrading-voice-provider-packages.md) — 0.3.x → 0.4.x provider add-on migration
   - [`transports.md`](../../docs/voice/transports.md) — LiveKit vs raw WebSocket
   - [`livekit-continuous-voice.md`](../../docs/voice/livekit-continuous-voice.md) — continuous LiveKit voice stacks
   - [`client-stt.md`](../../docs/voice/client-stt.md) — Web Speech trust boundary + wire protocol
@@ -277,8 +277,8 @@ For consumer-app tests, import `mockVoiceRuntime`, `createVoiceTestContext`, and
 
 MIT
 
-## Uploaded-file transcription (0.6.0-beta.2)
+## Uploaded-file transcription (0.7.0-beta.0)
 
 Add bounded uploaded-file transcription contracts, explicit provider registration, short invoking-context operations and actual token/media cost recording. App capabilities and flows retain durable state, rights, reservations and recovery; realtime APIs are unchanged.
 
-Start with the shipped [file transcription recipe](instructions/file-transcription.md); see the [full guide](../../docs/voice/file-transcription.md) for setup, exact usage, recovery and security. This staged extension uses `@plumbus/voice` 0.6.0-beta.2 and `@plumbus/voice-soniox` 0.3.0-beta.2; it does not require a core change.
+Start with the shipped [file transcription recipe](instructions/file-transcription.md); see the [full guide](../../docs/voice/file-transcription.md) for setup, exact usage, recovery and security. This extension ships in `@plumbus/voice` 0.7.0-beta.0 and `@plumbus/voice-soniox` 0.4.0-beta.0 (core 0.9 beta family, npm dist-tag `plumbus-next`); it adds no core API.

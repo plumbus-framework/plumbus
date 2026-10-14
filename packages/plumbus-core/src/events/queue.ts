@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { DataInternalError, DataValidationError } from '../errors/index.js';
+import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 
 /**
@@ -72,6 +74,8 @@ export interface RedisQueueConfig {
   pollIntervalMs?: number;
   /** Visibility timeout in seconds — how long a message is hidden after dequeue (default: 30) */
   visibilityTimeoutSec?: number;
+  reclaimIntervalMs?: number;
+  shutdownTimeoutMs?: number;
 }
 
 /** Minimal Redis client interface — compatible with ioredis and node-redis */
@@ -98,6 +102,7 @@ export interface RedisClient {
 export interface RedisQueueOptions extends Partial<RedisQueueConfig> {
   /** When false, close() does not quit the shared Redis client (default: true). */
   ownsClient?: boolean;
+  logger?: Pick<LoggerService, 'error' | 'warn'>;
 }
 
 /**
@@ -112,27 +117,6 @@ export interface RedisQueueOptions extends Partial<RedisQueueConfig> {
  * if the consumer crashes, unacknowledged events remain in the
  * processing list and can be recovered.
  */
-interface ProcessingEntry {
-  raw: string;
-  dequeuedAt: number;
-}
-
-function parseProcessingEntry(raw: string): ProcessingEntry {
-  try {
-    const parsed = JSON.parse(raw) as { envelope?: string; dequeuedAt?: number };
-    if (typeof parsed.envelope === 'string' && typeof parsed.dequeuedAt === 'number') {
-      return { raw, dequeuedAt: parsed.dequeuedAt };
-    }
-  } catch {
-    /* legacy plain envelope payload */
-  }
-  return { raw, dequeuedAt: 0 };
-}
-
-function wrapForProcessing(envelopeJson: string): string {
-  return JSON.stringify({ envelope: envelopeJson, dequeuedAt: Date.now() });
-}
-
 function unwrapEnvelope(raw: string): string {
   try {
     const parsed = JSON.parse(raw) as { envelope?: string };
@@ -145,159 +129,244 @@ function unwrapEnvelope(raw: string): string {
   return raw;
 }
 
+// All transitions validate types before writing. Redis scripts are atomic, but
+// do not roll back earlier writes if a later command fails.
+const listCheck = `
+for _, key in ipairs(KEYS) do
+  local kind = redis.call('TYPE', key).ok
+  if kind ~= 'none' and kind ~= 'list' then
+    return redis.error_reply('Queue key must be a list')
+  end
+end
+`;
+export const RedisQueueScripts = {
+  claim: `${listCheck}
+local raw = redis.call('LINDEX', KEYS[1], -1)
+if not raw then return nil end
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+local wrapped = cjson.encode({ envelope = raw, dequeuedAt = now, deliveryId = ARGV[2] })
+redis.call('LPUSH', KEYS[2], wrapped)
+redis.call('RPOP', KEYS[1])
+return wrapped
+`,
+  transfer: `${listCheck}
+for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
+  if entry == ARGV[1] then
+    redis.call('LPUSH', KEYS[2], ARGV[2])
+    redis.call('LREM', KEYS[1], 1, ARGV[1])
+    return 1
+  end
+end
+return 0
+`,
+  reclaim: `${listCheck}
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+local moved = 0
+for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
+  local ok, decoded = pcall(cjson.decode, entry)
+  local wrapped = ok and type(decoded) == 'table' and type(decoded.envelope) == 'string'
+  local dequeuedAt = wrapped and tonumber(decoded.dequeuedAt) or 0
+  if not dequeuedAt or dequeuedAt == 0 or now - dequeuedAt >= tonumber(ARGV[1]) then
+    redis.call('LPUSH', KEYS[2], wrapped and decoded.envelope or entry)
+    redis.call('LREM', KEYS[1], 1, entry)
+    moved = moved + 1
+  end
+end
+return moved
+`,
+  renew: `${listCheck}
+for index, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
+  if entry == ARGV[1] then
+    local decoded = cjson.decode(entry)
+    local clock = redis.call('TIME')
+    decoded.dequeuedAt = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+    local renewed = cjson.encode(decoded)
+    redis.call('LSET', KEYS[1], index - 1, renewed)
+    return renewed
+  end
+end
+return 0
+`,
+} as const;
+
+const envelopeSchema = z.object({
+  id: z.string().min(1),
+  eventType: z.string().min(1),
+  version: z.string().min(1),
+  occurredAt: z.coerce.date(),
+  actor: z.string().min(1),
+  tenantId: z.string().optional(),
+  correlationId: z.string(),
+  causationId: z.string().optional(),
+  payload: z.unknown(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
 export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions): EventQueue {
+  if (!client.eval) throw new DataValidationError('Redis queues require atomic script support');
+  const evaluate = client.eval.bind(client);
   const prefix = config?.prefix ?? 'plumbus:events';
   const pollIntervalMs = config?.pollIntervalMs ?? 1000;
   const visibilityTimeoutMs = (config?.visibilityTimeoutSec ?? 30) * 1000;
+  const reclaimIntervalMs = config?.reclaimIntervalMs ?? Math.min(visibilityTimeoutMs, 5000);
+  const shutdownTimeoutMs = config?.shutdownTimeoutMs ?? 5000;
+  for (const value of [pollIntervalMs, visibilityTimeoutMs, reclaimIntervalMs, shutdownTimeoutMs]) {
+    if (!z.number().finite().positive().safeParse(value).success) {
+      throw new DataValidationError('Queue timing values must be positive finite numbers');
+    }
+  }
   const ownsClient = config?.ownsClient ?? true;
+  const logger = config?.logger ?? console;
   const queueKey = `${prefix}:pending`;
   const processingKey = `${prefix}:processing`;
-
-  const REWRAP_SCRIPT = `
-local raw = redis.call('RPOPLPUSH', KEYS[1], KEYS[2])
-if not raw then return nil end
-local wrapped = cjson.encode({ envelope = raw, dequeuedAt = tonumber(ARGV[1]) })
-redis.call('LREM', KEYS[2], 1, raw)
-redis.call('LPUSH', KEYS[2], wrapped)
-return wrapped
-`;
-
-  async function dequeueWrapped(): Promise<string | null> {
-    if (client.eval) {
-      const result = await client.eval(REWRAP_SCRIPT, {
-        keys: [queueKey, processingKey],
-        arguments: [String(Date.now())],
-      });
-      return typeof result === 'string' ? result : null;
-    }
-
-    let raw: string | null = null;
-    if (client.rpoplpush) {
-      raw = await client.rpoplpush(queueKey, processingKey);
-    } else if (client.brpoplpush) {
-      raw = await client.brpoplpush(queueKey, processingKey, 0);
-    }
-    if (!raw) return null;
-
-    const wrapped = wrapForProcessing(raw);
-    await client.lrem(processingKey, 1, raw);
-    await client.lpush(processingKey, wrapped);
-    return wrapped;
-  }
-
   const subscribers: Array<(envelope: EventEnvelope) => Promise<void>> = [];
   let closed = false;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let polling = false;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let activePoll: Promise<void> | undefined;
+  let activeRenewal: ReturnType<typeof setInterval> | undefined;
+  let nextReclaim = 0;
+  let lastErrorLog = -Infinity;
+  let nextPoll = 0;
+  let failures = 0;
+  let closePromise: Promise<void> | undefined;
+
+  function report(operation: string): void {
+    failures++;
+    nextPoll =
+      Date.now() + Math.min(30000, Math.max(pollIntervalMs, 100) * 2 ** Math.min(failures - 1, 8));
+    // Errors may contain application payloads or Redis credentials. Log identifiers only.
+    if (Date.now() - lastErrorLog < 5000) return;
+    lastErrorLog = Date.now();
+    logger.error('Redis queue operation failed; delivery remains recoverable', {
+      prefix,
+      operation,
+    });
+  }
 
   async function recoverStaleProcessing(): Promise<void> {
-    const processing = await client.lrange(processingKey, 0, -1);
-    const now = Date.now();
-    for (const entry of processing) {
-      const { raw, dequeuedAt } = parseProcessingEntry(entry);
-      const isLegacy = dequeuedAt === 0;
-      const isStale = isLegacy || (dequeuedAt > 0 && now - dequeuedAt >= visibilityTimeoutMs);
-      if (isStale) {
-        await client.lrem(processingKey, 1, raw);
-        await client.lpush(queueKey, unwrapEnvelope(raw));
-      }
-    }
+    if (Date.now() < nextReclaim) return;
+    nextReclaim = Date.now() + reclaimIntervalMs;
+    await evaluate(RedisQueueScripts.reclaim, {
+      keys: [processingKey, queueKey],
+      arguments: [String(visibilityTimeoutMs)],
+    });
   }
 
   async function pollOnce(): Promise<void> {
-    if (closed || polling || subscribers.length === 0) return;
-    polling = true;
-
     try {
       await recoverStaleProcessing();
-
-      const raw = await dequeueWrapped();
-      if (!raw) {
-        polling = false;
+      if (closed || subscribers.length === 0) return;
+      const claimed = await evaluate(RedisQueueScripts.claim, {
+        keys: [queueKey, processingKey],
+        arguments: [String(Date.now()), crypto.randomUUID()],
+      });
+      if (typeof claimed !== 'string') {
+        failures = 0;
         return;
       }
-
-      const envelopeJson = unwrapEnvelope(raw);
+      let raw = claimed;
       let decoded: unknown;
       try {
-        decoded = JSON.parse(envelopeJson);
+        decoded = JSON.parse(unwrapEnvelope(raw));
       } catch {
         decoded = undefined;
       }
-      const parsed = z
-        .object({
-          id: z.string().min(1),
-          eventType: z.string().min(1),
-          version: z.string().min(1),
-          occurredAt: z.coerce.date(),
-          actor: z.string().min(1),
-          tenantId: z.string().optional(),
-          correlationId: z.string(),
-          causationId: z.string().optional(),
-          payload: z.unknown(),
-          metadata: z.record(z.unknown()).optional(),
-        })
-        .safeParse(decoded);
+      const parsed = envelopeSchema.safeParse(decoded);
       if (!parsed.success) {
-        console.error('[plumbus:queue] Discarding invalid event envelope');
-        await client.lrem(processingKey, 1, raw);
+        await evaluate(RedisQueueScripts.transfer, {
+          keys: [processingKey, `${prefix}:invalid`],
+          arguments: [raw, unwrapEnvelope(raw)],
+        });
+        logger.warn('Invalid queue envelope quarantined', { prefix });
         return;
       }
-      const envelope: EventEnvelope = { ...parsed.data, payload: parsed.data.payload };
-
-      // Deliver to all subscribers
-      const results = await Promise.allSettled(subscribers.map((handler) => handler(envelope)));
-
-      // If at least one subscriber succeeded, acknowledge the message
-      const anySuccess = results.some((r) => r.status === 'fulfilled');
-      if (anySuccess) {
+      const envelope = { ...parsed.data, payload: parsed.data.payload } as EventEnvelope;
+      let lost = false;
+      let renewing: Promise<void> | undefined;
+      const renewalTimer = setInterval(
+        () => {
+          if (renewing || closed || lost) return;
+          renewing = (async () => {
+            const updated = await evaluate(RedisQueueScripts.renew, {
+              keys: [processingKey],
+              arguments: [raw],
+            });
+            if (typeof updated === 'string') raw = updated;
+            else lost = true;
+          })()
+            .catch(() => {
+              lost = true;
+              report('renew');
+            })
+            .finally(() => {
+              renewing = undefined;
+            });
+        },
+        Math.max(1, Math.floor(visibilityTimeoutMs / 3)),
+      );
+      activeRenewal = renewalTimer;
+      let results: PromiseSettledResult<void>[];
+      try {
+        results = await Promise.allSettled([...subscribers].map((handler) => handler(envelope)));
+      } finally {
+        clearInterval(renewalTimer);
+        activeRenewal = undefined;
+        await renewing;
+      }
+      if (!lost && results.length > 0 && results.every((result) => result.status === 'fulfilled')) {
         await client.lrem(processingKey, 1, raw);
+        failures = 0;
+      } else {
+        report('delivery');
       }
     } catch {
-      // Poll errors are transient — will retry next cycle
-    } finally {
-      polling = false;
+      report('poll');
     }
   }
 
-  function startPolling(): void {
-    if (pollTimer) return;
-    pollTimer = setInterval(() => {
-      void pollOnce();
-    }, pollIntervalMs);
-  }
-
   return {
-    async publish(envelope: EventEnvelope): Promise<void> {
-      if (closed) throw new Error('Queue is closed');
-      const serialized = JSON.stringify(envelope);
-      await client.lpush(queueKey, serialized);
+    async publish(envelope) {
+      if (closed) throw new DataInternalError('Queue is closed');
+      await client.lpush(queueKey, JSON.stringify(envelope));
     },
-
-    subscribe(handler: (envelope: EventEnvelope) => Promise<void>): () => void {
-      if (closed) throw new Error('Queue is closed');
+    subscribe(handler) {
+      if (closed) throw new DataInternalError('Queue is closed');
       subscribers.push(handler);
-      startPolling();
-      return () => {
-        const idx = subscribers.indexOf(handler);
-        if (idx !== -1) subscribers.splice(idx, 1);
-        if (subscribers.length === 0 && pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = null;
+      pollTimer ??= setInterval(() => {
+        if (!activePoll && !closed && subscribers.length > 0 && Date.now() >= nextPoll) {
+          activePoll = pollOnce().finally(() => {
+            activePoll = undefined;
+          });
         }
+      }, pollIntervalMs);
+      return () => {
+        const index = subscribers.indexOf(handler);
+        if (index >= 0) subscribers.splice(index, 1);
       };
     },
-
-    async close(): Promise<void> {
-      closed = true;
-      if (pollTimer) {
+    close() {
+      closePromise ??= (async () => {
+        closed = true;
         clearInterval(pollTimer);
-        pollTimer = null;
-      }
-      subscribers.length = 0;
-      if (ownsClient) {
-        await client.quit();
-      }
+        clearInterval(activeRenewal);
+        activeRenewal = undefined;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            activePoll,
+            new Promise<void>((resolve) => {
+              timeout = setTimeout(resolve, shutdownTimeoutMs);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timeout);
+        }
+        subscribers.length = 0;
+        if (ownsClient) await client.quit();
+      })();
+      return closePromise;
     },
   };
 }

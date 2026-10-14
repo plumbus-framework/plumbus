@@ -1,7 +1,11 @@
 import { parseNoiseCancellation } from '@plumbus/voice/provider-kit';
 import { describe, expect, it, vi } from 'vitest';
 
-const audioStreamMock = vi.fn();
+const audioStreamMock = vi.fn(
+  class MockAudioStream {
+    getReader = vi.fn();
+  },
+);
 
 vi.mock('@livekit/rtc-node', async () => {
   const actual = await vi.importActual<typeof import('@livekit/rtc-node')>('@livekit/rtc-node');
@@ -18,7 +22,6 @@ vi.mock('../noise-cancellation/resolve-noise-cancellation.js', () => ({
 describe('createInboundAudioStream', () => {
   it('passes noiseCancellation to AudioStream for agent Krisp config', async () => {
     audioStreamMock.mockReset();
-    audioStreamMock.mockReturnValue({ getReader: vi.fn() });
 
     const { createInboundAudioStream } = await import(
       '../noise-cancellation/create-inbound-audio-stream.js'

@@ -1,9 +1,10 @@
 # File transcription
 
-`@plumbus/voice` 0.6.0-beta.2 adds short, server-only file operations under
-`@plumbus/voice/transcription`. `@plumbus/voice-soniox` 0.3.0-beta.2 supplies
+`@plumbus/voice` 0.7.0-beta.0 adds short, server-only file operations under
+`@plumbus/voice/transcription`. `@plumbus/voice-soniox` 0.4.0-beta.0 supplies
 `SONIOX_FILE_TRANSCRIPTION_REGISTRATION` using the existing official Soniox SDK.
-These versions are locally staged; package publication is a separate action.
+They ship in the core 0.9 beta family under the npm dist-tag `plumbus-next`; the stable 0.8
+family on npm `latest` (voice 0.6.0, voice-soniox 0.3.0) does not include file transcription.
 Realtime sessions and their provider contracts are unchanged.
 
 The application owns durable state through Plumbus capabilities, entities, events and

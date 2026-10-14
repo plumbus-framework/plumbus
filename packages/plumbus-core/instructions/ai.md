@@ -6,7 +6,7 @@ Plumbus provides structured AI interactions through prompts and the `ctx.ai` ser
 
 ```ts
 import { definePrompt } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const summarizeTicket = definePrompt({
   name: "summarizeTicket",
@@ -301,7 +301,7 @@ Each provider slot (`AI_` single-provider, `AI_OPENAI_`, `AI_ANTHROPIC_`, `AI_BE
 Requires `@plumbus/core` **≥ 0.7.0** (prompt caching needs core **≥ 0.7.9** and `@plumbus/ai-bedrock` **≥ 0.2.2**).
 
 ```bash
-pnpm add @plumbus/ai-bedrock
+pnpm add @plumbus/ai-bedrock@plumbus-next
 ```
 
 ```bash

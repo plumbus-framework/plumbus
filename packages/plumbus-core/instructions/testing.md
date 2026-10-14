@@ -1,5 +1,13 @@
 # Testing
 
+## Vitest 5 migration
+
+Plumbus supplies Vitest **5.0.4** and Vite. Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Do not install `vitest` or `vite` separately in consumer apps; run `plumbus test`, and import config helpers from `@plumbus/core/vitest`.
+
+Replace `poolOptions`/`singleFork` with top-level `maxWorkers: 1` and `fileParallelism: false` for serial E2E files. Use `VITEST_MAX_WORKERS` for the framework checkout; `minWorkers` and the old thread/fork environment variables are removed. Newly generated E2E configs already use the new options; review existing app-owned configs before editing them. Exclude `**/vitest.config.*` while retaining node_modules/git exclusions: the config file itself matches `**/*.e2e.ts`.
+
+Vitest 5 clears mock call history before each test by default. Put per-test setup in `beforeEach`, await `.resolves`/`.rejects` assertions, keep `vi.mock`/`vi.hoisted` at module scope, and use normal functions/classes for constructor mocks. Node-based Playwright E2E tests continue to use `@plumbus/core/testing`; Vitest Browser Mode requires the new Playwright provider factory instead of `provider: "playwright"`.
+
 Plumbus provides test utilities for testing capabilities, flows, and AI interactions in isolation.
 
 ## Test Utilities

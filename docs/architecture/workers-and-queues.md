@@ -80,7 +80,7 @@ QUEUE_PORT=6379
 Force the backend explicitly:
 
 ```bash
-QUEUE_BACKEND=redis   # always Redis (falls back to in-memory if redis package missing)
+QUEUE_BACKEND=redis   # select Redis (startup fails if unavailable)
 QUEUE_BACKEND=memory  # always in-memory
 ```
 
@@ -172,7 +172,7 @@ All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` 
 
 The flow step queue consumer calls `claimExecution(executionId)` before `runNext` to prevent double execution alongside the DB poll loop.
 
-**Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback.
+**Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue; a failed poll (Redis unreachable) logs `Delayed flow wake promotion failed; retrying next tick` with the error message and tries again on the next tick. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback.
 
 ## Capability Auto-Registration
 
@@ -205,7 +205,7 @@ Job capabilities are registered as consumers on the jobs queue. HTTP `POST` and 
 
 **Crash recovery:** if a worker dies while a job is `running`, delivery is not acknowledged. After `queue.visibilityTimeoutSec` (default 30s), another worker reclaims the stale `running` row and retries execution. Duplicate deliveries for terminal jobs (`completed`, `failed`, `dead_lettered`) are acknowledged without re-running the handler.
 
-If queue publish fails after the DB insert, the row is marked `failed`. If delivery retries are exhausted, the row is marked `dead_lettered`.
+The direct HTTP/MCP `dispatchQueuedJob` path marks the row `failed` if its initial queue publish fails. Built-in `ctx.jobs.enqueue()` instead persists pending dispatch intent and recovers publication failures through worker polling; inside a transaction intent commits with the data. If delivery retries are exhausted, the row is marked `dead_lettered`.
 
 ## Job Executions
 
@@ -253,12 +253,12 @@ The table is included automatically in `plumbus migrate generate` output — do 
 
 | Package | Install when | Symptom if missing |
 |---------|--------------|-------------------|
-| `redis` | Production queues, split deployments | Falls back to in-memory with a startup warning |
-| `cron-parser` | Flows with `schedule` (cron triggers) | Scheduler cannot compute `nextRunAt` |
+| `redis` | Production queues, split deployments | Fails startup if Redis is selected |
+| `cron-parser` | Provided by core 0.8+ | Consumers do not install it |
 | `@plumbus/mcp` | MCP server, MCP job completion sync | MCP features unavailable; worker still runs jobs |
 
 ```bash
-pnpm add redis cron-parser        # production worker deployment
+pnpm add 'redis@^4.7.0'        # production worker deployment
 pnpm add @plumbus/mcp             # MCP integration
 ```
 
@@ -273,8 +273,9 @@ pnpm add @plumbus/mcp             # MCP integration
 | `plumbus events dead-letter retry <id>` | Re-publish a dead-letter row |
 | `plumbus events replay <eventId>` | Re-dispatch an outbox event (`--consumer` clears idempotency for that consumer first) |
 | `plumbus flow dead-letter list` | List failed flow executions |
-| `plumbus flow dead-letter retry <executionId>` | Re-enqueue a flow step |
+| `plumbus flow dead-letter retry <executionId>` | Create/reuse a replay execution at the failed step; retain the terminal source |
 | `plumbus flow schedule list` | List scheduled flows with cron, next/last run, and sync status |
+| `plumbus flow schedule sync` | Preview or apply revision-checked deployment reconciliation |
 
 See [CLI → Commands](../cli/commands.md) for full option reference.
 
@@ -311,7 +312,15 @@ When `jobQueue` is omitted, MCP falls back to in-process execution (backward com
 - [Upgrading Workers](../upgrading-workers.md) — 0.5.0 migration notes
 - [Deployment instructions](../../packages/plumbus-core/instructions/deployment.md) — Docker and Kubernetes worker containers
 
-Redis event envelopes are schema-validated before subscribers receive them. Malformed JSON, invalid control fields, and invalid event timestamps are discarded from processing with a diagnostic, preventing recurring poison-envelope delivery. Payload contracts are still validated by the consuming primitive; Redis remains an operator-controlled trust boundary.
+Redis event envelopes are schema-validated before subscribers receive them. Malformed JSON, invalid control fields, and invalid event timestamps are moved to `{prefix}:invalid` with a diagnostic, preserving them for inspection without recurring poison-envelope delivery. Payload contracts are still validated by the consuming primitive; Redis remains an operator-controlled trust boundary.
+
+## Stabilized ownership and recovery (core 0.8)
+
+Read [the migration guide](../upgrading-stabilization.md). Redis initialization is fail-closed after selection, with bounded startup/operations, error listeners, readiness and reconnect behavior. Atomic scripts claim, renew and reclaim processing entries. All participating subscribers must complete disposition before acknowledgement; invalid envelopes are retained in `{prefix}:invalid`.
+
+Queue replicas compete for envelopes and require compatible registries. They do not route between specialized worker pools. Unrouted messages default to persistent dead letters; configure explicit intentional ignores or observable legacy acknowledgement. `onEventDeadLetter` is a best-effort terminal notification after persistence, separate from per-attempt `onCapabilityError`.
+
+Flow commits are fenced by per-claim tokens, active status and lease validity. Retries wait durably. Scheduled ticks and execution creation are transactional; explicit revision-checked schedule reconciliation owns changes/removal. Built-in transactional job dispatch stores intent before commit and recovers failed post-commit publication through bounded worker polling. No exactly-once external-effect guarantee is implied. The core 0.9 beta family keeps these guarantees and adds the one-lease-at-a-time polling and tenant-plane behavior below.
 
 ## Flow polling and lease ownership
 
@@ -319,7 +328,7 @@ A polling worker claims one execution immediately before running it. It drains a
 
 See [flow lifecycle](execution-lifecycle.md) and [tenant data planes](../sdk-reference/tenant-data-planes.md). The worker integration regression uses two real polling pools and checks that queued work remains pending beyond multiple lease periods, a peer executes it once, and both hints retain attempt 1.
 
-### Tenant flow delay correctness (0.8.0-beta.11)
+### Tenant flow delay correctness (0.9.0-beta.0)
 
 For tenant-placed flows, an ordinary delay uses the existing durable schedule/outbox path to
 publish the next step with its persisted `notBefore` time. The prior hint is acknowledged and its

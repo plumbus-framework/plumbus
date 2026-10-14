@@ -8,6 +8,5 @@ export default defineConfig({
     // Keep their process trees separate on developer desktops.
     fileParallelism: false,
     maxWorkers: 1,
-    minWorkers: 1,
   },
 });

@@ -2,14 +2,20 @@
 
 Welcome to the Plumbus framework documentation. Use the navigation below to find what you need.
 
+For the current stable core **0.8** family (npm `latest`), start with the [stabilization upgrade guide](./upgrading-stabilization.md): database migrations, coordinated worker cutover, schedule reconciliation, and agent wiring **v21**. The [core changelog](../packages/plumbus-core/CHANGELOG.md) maps each fix to the original PLB issue.
+
+For the core **0.9** beta family (branch and npm dist-tag `plumbus-next`: core 0.9.x, UI 0.10.x, MCP 0.8.x, voice 0.7.x, other add-ons 0.4.x), read the [core 0.9 beta upgrade guide](./upgrading-core-0.9.md): version table, breaking changes, and the beta dist-tag. The beta family includes everything in the 0.8 stabilization family.
+
 For classification provider/model selection and agent wiring v17, see the
 [classification upgrade guide](./upgrading-classification.md) and
 [packaged agent recipe](../packages/plumbus-core/instructions/ai-classification.md).
-Core 0.7.9 generates wiring v19, which also links the OpenAI Decisions provider
+Core 0.7.9 introduced wiring v19, which also links the OpenAI Decisions provider
 (`@plumbus/ai-decision-openai`); see [Agent setup](./agents/agent-setup.md#openai-decisions-provider--wiring-v19)
 and [Decision providers](./ai/decision-providers.md).
 
-See the [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) for package versions and paired upgrades.
+The [2026-09-23 voice and decision release guide](./upgrading-voice-and-decision-release.md) records earlier package versions and paired upgrades.
+
+The [Vitest 5 migration guide](./upgrading-vitest.md) covers the bundled test-runner upgrade, Node requirements, worker limits, and existing app test configs.
 
 ## Documentation Map
 
@@ -26,6 +32,9 @@ docs/
 │   ├── execution-lifecycle.md
 │   ├── dispatch-state-protocol.md  Protocol A (durable dispatch)
 │   └── diagrams.md
+├── upgrading-core-0.9.md      Core 0.9 beta family: versions, breaking changes, dist-tag
+├── upgrading-stabilization.md  Core 0.8 family, migrations, cutover, and wiring v21
+├── upgrading-vitest.md        Vitest 5.0.4, Node requirements, worker limits
 ├── upgrading-workers.md       0.5.0 workers/queues migration guide
 ├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
 ├── upgrading-voice-provider-packages.md  0.4.0 voice provider add-on packages
@@ -154,6 +163,9 @@ docs/
 | Understand how the system works | [Architecture → Overview](architecture/overview.md) |
 | Read the vNext dispatch/state protocol | [Architecture → Dispatch/state protocol](architecture/dispatch-state-protocol.md) |
 | Configure workers and queues | [Architecture → Workers and Queues](architecture/workers-and-queues.md) |
+| Upgrade to the core 0.9 beta family | [Upgrading to Core 0.9 (beta)](upgrading-core-0.9.md) |
+| Upgrade to the core 0.8 stabilization family | [Upgrading for Stabilization](upgrading-stabilization.md) |
+| Upgrade app tests to Vitest 5 | [Upgrading Vitest](upgrading-vitest.md) |
 | Migrate to 0.5.0 workers model | [Upgrading Workers](upgrading-workers.md) |
 | Migrate to canonical capability names | [Upgrading Capability Names](upgrading-capability-names.md) |
 | Migrate voice cloud providers to add-on packages (0.4.0) | [Upgrading Voice Provider Packages](upgrading-voice-provider-packages.md) |
@@ -183,5 +195,5 @@ docs/
 | Classify with a selected provider/model (Jev, Laya, OpenAI Decisions, or generative) | [Agent recipe](../packages/plumbus-core/instructions/ai-classification.md) |
 | Test Jev, self-hosted Laya, or OpenAI Decisions | [AI → Decision providers](ai/decision-providers.md) |
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
-| Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusaibedrock) |
+| Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusai-bedrock) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |

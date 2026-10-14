@@ -4,6 +4,7 @@
 import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { z } from 'zod';
 import {
   detectMonorepoLayout,
   info,
@@ -14,10 +15,11 @@ import {
 } from '../utils.js';
 import {
   AGENT_WIRING_VERSION,
+  hasAgentFileImport,
   hasPatchableAgentWiringBlock,
   parseAgentWiringVersion,
 } from './init.js';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig, loadConfig } from '../../config/index.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { buildMcpManifest, isMcpExposed } from '../../mcp/index.js';
 import { discoverResources } from '../discover.js';
@@ -55,15 +57,49 @@ export function checkAgentWiring(): DoctorCheck {
   ] as const;
 
   const detected: Array<{ path: string; version?: number; label: string; patchable: boolean }> = [];
+  const issues: string[] = [];
+  let claudeImportsAgents = false;
 
   for (const file of files) {
     const absolutePath = resolvePath(file.path);
     if (!fs.existsSync(absolutePath)) {
+      if (fs.lstatSync(absolutePath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        issues.push(`${file.path} is a dangling symbolic link; repair its target`);
+      }
       continue;
     }
 
+    if (!fs.statSync(absolutePath).isFile()) continue;
     const content = fs.readFileSync(absolutePath, 'utf-8');
-    if (!file.alwaysCandidate && !isGeneratedRootAgentMd(content)) {
+    const generated = isGeneratedRootAgentMd(content);
+    if (file.label === 'claude' && hasAgentFileImport(content, 'AGENTS.md')) {
+      claudeImportsAgents = true;
+      const agentsPath = resolvePath('AGENTS.md');
+      if (!fs.existsSync(agentsPath) || !fs.statSync(agentsPath).isFile()) {
+        issues.push('CLAUDE.md imports AGENTS.md, but the target is missing or is not a file');
+      } else {
+        const canonical = fs.readFileSync(agentsPath, 'utf8');
+        if (!canonical.trim()) issues.push('CLAUDE.md imports an empty AGENTS.md');
+        if (
+          hasAgentFileImport(canonical, 'CLAUDE.md') ||
+          hasAgentFileImport(canonical, 'AGENTS.md')
+        ) {
+          issues.push('AGENTS.md has a root instruction import cycle; keep shared guidance there');
+        }
+        if (generated && !hasPatchableAgentWiringBlock(canonical)) {
+          issues.push(
+            'The generated CLAUDE.md import requires a complete Plumbus block in AGENTS.md',
+          );
+        }
+      }
+    } else if (
+      file.label === 'claude' &&
+      (parseAgentWiringVersion(content) ?? 0) >= 21 &&
+      /\bformat=claude\b/.test(content)
+    ) {
+      issues.push('Generated CLAUDE.md is missing its active @AGENTS.md import');
+    }
+    if (!file.alwaysCandidate && !generated) {
       continue;
     }
 
@@ -75,18 +111,18 @@ export function checkAgentWiring(): DoctorCheck {
     });
   }
 
-  if (detected.length === 0) {
+  if (detected.length === 0 && issues.length === 0) {
     return {
       name: 'agent-wiring',
       status: 'ok',
-      message:
-        'No generated agent wiring detected — run `plumbus init` if you use AI coding agents',
+      message: claudeImportsAgents
+        ? 'CLAUDE.md imports the canonical AGENTS.md; no generated wiring to update'
+        : 'No generated agent wiring detected — run `plumbus init` if you use AI coding agents',
     };
   }
 
   const cursorMain = detected.some((file) => file.label === 'cursor');
   const cursorCapabilities = detected.some((file) => file.label === 'cursor-capabilities');
-  const issues: string[] = [];
   let recommendedCommand = 'plumbus init --patch';
 
   if (cursorMain !== cursorCapabilities) {
@@ -133,16 +169,21 @@ export function checkAgentWiring(): DoctorCheck {
 }
 
 /** Check Node.js version */
-export function checkNodeVersion(): DoctorCheck {
-  const version = process.versions.node ?? '';
-  const major = parseInt(version.split('.')[0] ?? '0', 10);
-  if (major >= 20) {
+export function checkNodeVersion(version = process.versions.node ?? ''): DoctorCheck {
+  const parsed = z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/)
+    .transform((value) => value.split('.').map(Number))
+    .safeParse(version);
+  const [major = 0, minor = 0] = parsed.success ? parsed.data : [];
+  if (parsed.success && ((major === 22 && minor >= 12) || major === 24 || major >= 26)) {
     return { name: 'node', status: 'ok', message: `Node.js v${version}` };
   }
-  if (major >= 18) {
-    return { name: 'node', status: 'warn', message: `Node.js v${version} (v20+ recommended)` };
-  }
-  return { name: 'node', status: 'fail', message: `Node.js v${version} (v20+ required)` };
+  return {
+    name: 'node',
+    status: 'fail',
+    message: `Node.js v${version} (22.12+ on Node 22, Node 24, or Node 26+ required for Vitest 5)`,
+  };
 }
 
 /** Check TypeScript availability */
@@ -187,10 +228,11 @@ function isMcpInstalled(): boolean {
 }
 
 /** Warn if @plumbus/mcp is installed but mcp.agents is empty. */
-export function checkMcpAgentsConfigured(): DoctorCheck | null {
+export function checkMcpAgentsConfigured(
+  config = loadConfig({ environment: 'development' }),
+): DoctorCheck | null {
   if (!isMcpInstalled()) return null;
   try {
-    const config = loadConfig({ environment: 'development' });
     const agents = config.mcp?.agents ?? {};
     if (Object.keys(agents).length === 0) {
       return {
@@ -456,8 +498,8 @@ export async function checkPostgreSQL(): Promise<DoctorCheck> {
       };
     }
     // Attempt a TCP connection to the configured host:port
-    const { loadConfig } = await import('../../config/loader.js');
-    const config = loadConfig();
+    const { loadAppConfig } = await import('../../config/index.js');
+    const config = await loadAppConfig();
     const net = await import('node:net');
     return await new Promise<DoctorCheck>((resolve) => {
       const socket = new net.Socket();
@@ -552,9 +594,8 @@ export async function checkEventHandlerTriggers(): Promise<DoctorCheck> {
 }
 
 /** Warn when production uses in-memory queue (single-instance only). */
-export function checkProductionQueueBackend(): DoctorCheck {
+export function checkProductionQueueBackend(config = loadConfig()): DoctorCheck {
   try {
-    const config = loadConfig();
     if (config.environment !== 'production' && config.environment !== 'staging') {
       return {
         name: 'queue-backend',
@@ -593,8 +634,8 @@ export async function checkRedis(): Promise<DoctorCheck> {
     if (!fs.existsSync(configPath)) {
       return { name: 'redis', status: 'warn', message: 'Config not found — cannot test Redis' };
     }
-    const { loadConfig } = await import('../../config/loader.js');
-    const config = loadConfig();
+    const { loadAppConfig } = await import('../../config/index.js');
+    const config = await loadAppConfig();
     const net = await import('node:net');
     return await new Promise<DoctorCheck>((resolve) => {
       const socket = new net.Socket();
@@ -631,8 +672,8 @@ export async function checkRedis(): Promise<DoctorCheck> {
 }
 
 /** Run all doctor checks (sync checks only) */
-export function runDoctorChecks(): DoctorCheck[] {
-  const mcpAgentsCheck = checkMcpAgentsConfigured();
+export function runDoctorChecks(resolvedConfig = loadConfig()): DoctorCheck[] {
+  const mcpAgentsCheck = checkMcpAgentsConfigured(resolvedConfig);
   return [
     checkNodeVersion(),
     checkTypeScript(),
@@ -643,14 +684,14 @@ export function runDoctorChecks(): DoctorCheck[] {
     checkAppStructure(),
     checkAgentWiring(),
     checkLegacyArtifacts(),
-    checkProductionQueueBackend(),
+    checkProductionQueueBackend(resolvedConfig),
     ...(mcpAgentsCheck ? [mcpAgentsCheck] : []),
   ];
 }
 
 /** Run all doctor checks including async connectivity tests */
 export async function runFullDoctorChecks(): Promise<DoctorCheck[]> {
-  const syncChecks = runDoctorChecks();
+  const syncChecks = runDoctorChecks(await loadAppConfig());
   const [pgCheck, redisCheck, mcpPublicCheck, mcpSkillsCheck, splitDeploy, eventHandlers] =
     await Promise.all([
       checkPostgreSQL(),

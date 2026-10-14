@@ -1,16 +1,18 @@
 # @plumbus/auth
 
+Release **0.4.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+
 OIDC relying-party runtime for Plumbus applications: hosted login redirect, authorization code + PKCE callback, opaque **`__Host-plumbus_session`** cookies, CSRF for mutating requests, and protected session/transaction stores (memory or PostgreSQL).
 
-Peer: `@plumbus/core` at **`0.8.x`**.
+Peer: `@plumbus/core` at **`>=0.9.0-beta.0 <0.10.0`** (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family).
 
 ## Install
 
 ```bash
-pnpm add @plumbus/auth
+pnpm add @plumbus/auth@plumbus-next
 ```
 
-Optional Cognito helpers: `pnpm add @plumbus/auth-cognito`
+Optional Cognito helpers: `pnpm add @plumbus/auth-cognito@plumbus-next`
 
 ## Quick start
 

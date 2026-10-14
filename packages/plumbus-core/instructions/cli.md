@@ -4,6 +4,9 @@ The Plumbus CLI scaffolds and manages application primitives. **Always run CLI c
 
 ## Project Setup
 
+Wiring v21 uses canonical `AGENTS.md` plus a managed `@AGENTS.md` import in `CLAUDE.md`. `--agent claude` creates both; `--inline` embeds recipes in the canonical file. Use `--patch` to migrate old generated clones and preserve app-owned notes. Existing custom `AGENTS.md` content is retained when appending a missing Plumbus block. Reverse imports and symlinks require explicit repair rather than automatic overwrite.
+
+
 ```bash
 # Create a new Plumbus project (flat — default)
 plumbus create <project-name> [--auth jwt|auth0|clerk] [--ai openai|anthropic] [--compliance GDPR|HIPAA] [--skip-install] [--git]
@@ -14,7 +17,7 @@ plumbus create <project-name> --monorepo [--auth jwt|auth0|clerk] [--ai openai|a
 # Initialize AI agent wiring (all formats by default; use --agent to narrow)
 plumbus init
 plumbus init --agent copilot
-plumbus init --agent claude   # CLAUDE.md for Claude Code (same body as AGENTS.md)
+plumbus init --agent claude   # AGENTS.md plus a CLAUDE.md import
 
 # Check project health
 plumbus doctor
@@ -190,7 +193,12 @@ Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify
 ```bash
 plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT   # split deployments
 plumbus events status             # outbox / queue health
-plumbus flow dead-letter list     # failed flow executions
+plumbus flow dead-letter list     # persisted failed-flow snapshots
+plumbus flow dead-letter retry <executionId> [--actor <id>] # new replay execution ID
+plumbus flow dead-letter retry <executionId> --in-place     # reset the same execution
+plumbus flow schedule list --json # effective persisted schedules
+plumbus flow schedule sync        # preview complete deployment manifest
+plumbus flow schedule sync --apply --expected-revision <revision>
 plumbus seed                      # populate initial data
 ```
 
@@ -306,3 +314,5 @@ Run `plumbus agent sync` after adding capabilities/entities so coding agents see
 - **Use the framework's `define*()` functions**: Never create primitives by hand. Use the CLI to scaffold, then fill in the contracts using `defineEntity()`, `defineCapability()`, `defineFlow()`, `defineEvent()`, `definePrompt()`.
 - **`plumbus ui generate` is safe to re-run**: It only regenerates contract-derived data files (`lib/client.ts`, `hooks/hooks.ts`, `lib/auth.ts`, `lib/form-hints.ts`, i18n). Fetch clients, hooks, and form hints are emitted only for `exposeAs: ['api']` capabilities (event handlers omitted). It never touches custom pages.
 - **`plumbus ui nextjs` protects existing files**: Scaffold files (`page.tsx`, `layout.tsx`, `globals.css`, login, signup, etc.) are skipped if they already exist. Only contract-derived module files are overwritten. Use `--force` to overwrite scaffold files.
+
+Core 0.8 and the core 0.9 beta family load `config/app.config.ts` at startup. Read `stabilization.md` before migration; refresh agent wiring with `plumbus init --patch --agent all` (v21). `--inline` embeds core recipes; optional package recipes remain references.

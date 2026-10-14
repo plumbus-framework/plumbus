@@ -1,8 +1,8 @@
 # Uploaded-file transcription
 
-Use `@plumbus/voice/transcription` (0.6.0-beta.2+) and an explicit
+Use `@plumbus/voice/transcription` (0.7.0-beta.0+) and an explicit
 `FileTranscriptionProviderRegistration` from a vendor add-on. Soniox's registration is
-`SONIOX_FILE_TRANSCRIPTION_REGISTRATION` from `@plumbus/voice-soniox` 0.3.0-beta.2+.
+`SONIOX_FILE_TRANSCRIPTION_REGISTRATION` from `@plumbus/voice-soniox` 0.4.0-beta.0+.
 Do not install or import the vendor SDK in an application.
 
 `createFileTranscriptionRuntime({ registration, credentials, config })` takes a server-owned

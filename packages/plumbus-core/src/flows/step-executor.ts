@@ -1,3 +1,4 @@
+import { isPermanentFailure } from '../config/index.js';
 import { AIBudgetExceededError } from '../errors/data-errors.js';
 import type { ExecutionContext } from '../types/context.js';
 import { FlowStepType } from '../types/enums.js';
@@ -29,6 +30,7 @@ export interface StepResult {
   parallelBranches?: string[];
   /** Error message if the step failed */
   error?: string;
+  permanent?: boolean;
 }
 
 export interface StepExecutorDeps {
@@ -145,6 +147,7 @@ async function executeCapabilityStep(
     }
     return {
       status: StepStatus.Failed,
+      permanent: isPermanentFailure(result.error),
       error:
         typeof result.error === 'object' && result.error !== null
           ? JSON.stringify(result.error)
@@ -155,11 +158,13 @@ async function executeCapabilityStep(
       return {
         status: StepStatus.Failed,
         error: `budget-exhausted: ${err.message}`,
+        permanent: isPermanentFailure(err),
       };
     }
     return {
       status: StepStatus.Failed,
       error: err instanceof Error ? err.message : String(err),
+      permanent: isPermanentFailure(err),
     };
   }
 }

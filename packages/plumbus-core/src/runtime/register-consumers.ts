@@ -1,3 +1,9 @@
+import {
+  DataValidationError,
+  DataForbiddenError,
+  DataInternalError,
+  PlumbusError,
+} from '../errors/index.js';
 // ── Capability Consumer Registration ──
 // Auto-wires eventHandler and job capabilities into the ConsumerRegistry.
 
@@ -212,16 +218,19 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
         versionConstraint: cap.trigger.versionConstraint,
         capabilityVersion: cap.version ?? '1',
         active: cap.trigger.active !== false,
+        retry: cap.trigger.retry,
         handler: async (envelope) => {
           const tenantId = await resolveEventHandlerTenantId(opts.db, envelope, opts.logger);
           const auth = eventWorkerAuth(cap, envelope, tenantId);
           const authz = evaluateAccess(cap.access, auth);
           if (!authz.allowed) {
-            throw new Error(authz.reason ?? 'Event handler access denied');
+            throw new DataForbiddenError(authz.reason ?? 'Event handler access denied');
           }
           const parsed = cap.input.safeParse(envelope.payload);
           if (!parsed.success) {
-            throw new Error(`Event payload validation failed for handler "${cap.name}"`);
+            throw new DataValidationError(
+              `Event payload validation failed for handler "${cap.name}"`,
+            );
           }
           const ctx = buildConsumerContext(opts, auth, {
             correlationId: envelope.correlationId,
@@ -236,7 +245,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
           if (!result.success) {
             opts.metrics?.eventFailed.inc({ consumer: cap.name });
             reportCapabilityError(opts, cap, ctx, result.error, 'event');
-            throw new Error(result.error.message);
+            throw new PlumbusError(result.error.code, result.error.message, result.error.metadata);
           }
           opts.metrics?.eventDelivered.inc({ consumer: cap.name });
         },
@@ -301,7 +310,10 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
             return;
           }
           if (claimResult === JobClaimResult.Retry) {
-            throw new Error(`Job "${payload.jobExecutionId}" claim failed — will retry`);
+            throw new DataInternalError(
+              `Job "${payload.jobExecutionId}" claim failed — will retry`,
+              { deliveryDeferred: true },
+            );
           }
 
           const ctx = buildConsumerContext(opts, auth, {
@@ -351,7 +363,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
               // Report even if the bookkeeping above throws: the capability still failed.
               reportCapabilityError(opts, cap, ctx, result.error, 'job');
             }
-            throw new Error(result.error.message);
+            throw new PlumbusError(result.error.code, result.error.message, result.error.metadata);
           }
         },
       });

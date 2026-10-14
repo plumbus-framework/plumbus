@@ -1,6 +1,6 @@
 # AI Integration Guide
 
-Core **0.7.3+** (0.8 family: **0.8.0-beta.6+**) also provides `ctx.ai.decide()` for typed decision providers
+Core **0.7.3+** (included in the core 0.8 and 0.9 families) also provides `ctx.ai.decide()` for typed decision providers
 (`@plumbus/ai-decision-typesafe`, `@plumbus/ai-decision-laya`, and, in this beta family or with stable core 0.7.9+,
 `@plumbus/ai-decision-openai`). It records `operation: 'decide'` through the existing cost tracker and
 `onAICostRecorded` hook, including billed validation failures and cancellations.
@@ -307,7 +307,7 @@ const labels = await ctx.ai.classify({
 // → ["billing"]
 ```
 
-From core **0.7.4+** (0.8 family: **0.8.0-beta.6+**), classification supports per-call `provider` and `model`.
+From core **0.7.4+** (included in the core 0.8 and 0.9 families), classification supports per-call `provider` and `model`.
 See the [packaged agent recipe](../../packages/plumbus-core/instructions/ai-classification.md).
 
 By default, classification uses the configured text provider. Set `provider` to a
@@ -360,10 +360,10 @@ Plumbus supports multiple AI providers simultaneously. Each prompt can specify w
 
 For OpenAI chat completions, Plumbus maps prompt `maxTokens` to the provider-specific request
 field expected by the selected model. Older models receive `max_tokens`; newer completion models
-such as `gpt-5*` and `o*` receive `max_completion_tokens`. Core 0.7.5+ (0.8 family: 0.8.0-beta.7+) adds this handling for
+such as `gpt-5*` and `o*` receive `max_completion_tokens`. Core 0.7.5+ (included in the core 0.8 and 0.9 families) adds this handling for
 `gpt-6*`. Separately, OpenAI `gpt-5.5+` models only accept the API default temperature (`1`), so
 Plumbus omits `temperature`
-from the request for those models. In core 0.7.5+ (0.8 family: 0.8.0-beta.7+), GPT-6 models omit `temperature` while
+from the request for those models. In core 0.7.5+ (included in the core 0.8 and 0.9 families), GPT-6 models omit `temperature` while
 reasoning is active or left at the model default, but retain a configured temperature when
 reasoning is explicitly disabled. Earlier `gpt-5` lines (for example `gpt-5.4-mini`) still receive
 the configured temperature.
@@ -371,7 +371,7 @@ the configured temperature.
 Optional `model.reasoning` is provider-neutral. OpenAI retains Chat Completions
 for compatible requests and uses the Responses API when caller tools require
 active reasoning, including GPT-5.6 default reasoning (the forced tool of
-`structuredOutputTransport: "tool"` moves only on GPT-5.6/GPT-6, see below). Core 0.7.5+ (0.8 family: 0.8.0-beta.7+) applies the same routing to
+`structuredOutputTransport: "tool"` moves only on GPT-5.6/GPT-6, see below). Core 0.7.5+ (included in the core 0.8 and 0.9 families) applies the same routing to
 GPT-6 default reasoning. Stateless tool rounds request and replay encrypted reasoning items
 through provider continuation state.
 Anthropic maps disabled/effort/budget to `thinking` and
@@ -525,7 +525,7 @@ Optional ProviderResponse.cost ◄────── sets cost from usage × rat
 MODEL_PRICING (OpenAI/Anthropic only)
 ```
 
-Core’s optional peer: `"@plumbus/ai-bedrock": ">=0.3.0-beta.0 <0.4.0"`. The add-on’s required peer: `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` (copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs core **≥ 0.7.9** (earlier cores never pass `cache` to the adapter) and `@plumbus/ai-bedrock` **≥ 0.2.2**.
+Core’s optional peer: `"@plumbus/ai-bedrock": ">=0.4.0-beta.0 <0.5.0"` in the core 0.9 beta family (`"0.3.x"` in the stable 0.8 family). The add-on’s required peer: `"@plumbus/core": ">=0.9.0-beta.0 <0.10.0"` (stable: `"0.8.x"`; copy literals — see `packages/plumbus-core/instructions/peer-dependencies.md`). **Runtime floor:** `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs core **≥ 0.7.9** (earlier cores never pass `cache` to the adapter) and `@plumbus/ai-bedrock` **≥ 0.2.2**.
 
 #### Install and wire
 
@@ -879,7 +879,7 @@ Every AI call is metered. Cost resolution:
 2. Otherwise `estimateModelCost()` uses the built-in OpenAI/Anthropic `MODEL_PRICING` table.
 3. Unknown models (e.g. local Ollama) → no catalog price (`cost: 0, costAvailable: false` in legacy numeric results; `null` in ledger rows); explicitly free providers may report `cost: 0`.
 
-Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusaibedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
+Bedrock APIs never include dollars — only token usage. See [Amazon Bedrock](#amazon-bedrock-plumbusai-bedrock) and `packages/ai-bedrock/instructions/pricing.md` for Price List URLs and the mounted pricing-file recipe.
 
 ### Automatic Per-Request Cost
 
@@ -1231,7 +1231,7 @@ For the voice-specific runtime, provider, and security guidance, see:
 3. Route voice/media spend through `ctx.ai.recordProviderCost(...)` so `onAICostRecorded` stays the single hook.
 4. Pre-check shared USD caps with `ctx.ai.checkProviderCostBudget({ estimatedCostUsd })` before opening realtime sessions or calling STT/TTS.
 
-`@plumbus/voice` `0.3.x` peers on `@plumbus/core` `0.6.x`. `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` declare `0.5.x || 0.6.x` and install alongside core **0.6.x**. `@plumbus/chat` **0.1.11+** needs core **≥ 0.6.11** at runtime (tool protocol / `updateWhere`) even though its declared peer is wider.
+For that historical 0.6.0 release, `@plumbus/voice` `0.3.x` peered on `@plumbus/core` `0.6.x`. `@plumbus/chat`, `@plumbus/knowledge-base`, `@plumbus/browser-extension`, `@plumbus/mcp`, and `@plumbus/api` declare `0.5.x || 0.6.x` and install alongside core **0.6.x**. `@plumbus/chat` **0.1.11+** needs core **≥ 0.6.11** at runtime (tool protocol / `updateWhere`) even though its declared peer was wider. These are historical ranges; current installations use the [stabilization family](../upgrading-stabilization.md).
 
 ### Deterministic sampling with `seed`
 

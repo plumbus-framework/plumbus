@@ -9,6 +9,6 @@ Stripe provider for `@plumbus/payments`, on Stripe's newest APIs: Connect for se
 | [webhooks.md](./webhooks.md) | Event destinations, signing secrets, upgrades, local forwarding with the Stripe CLI. |
 | [testing.md](./testing.md) | Signed test events, the HTTP stub, and live test-mode runs. |
 
-Requires `@plumbus/payments` **`>=0.3.0-beta.0 <0.4.0`** (wire it first: `node_modules/@plumbus/payments/instructions/wiring.md`).
+Requires `@plumbus/payments` **`>=0.4.0-beta.0 <0.5.0`** (wire it first: `node_modules/@plumbus/payments/instructions/wiring.md`).
 
 Package quickstart: [../README.md](../README.md) · Human docs: [docs/payments/stripe.md](https://github.com/plumbus-framework/plumbus/blob/main/docs/payments/stripe.md)

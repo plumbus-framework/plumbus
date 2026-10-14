@@ -15,7 +15,7 @@ This walks through letting your users charge their clients with Stripe Connect. 
 pnpm add @plumbus/payments@plumbus-next @plumbus/payments-stripe@plumbus-next
 ```
 
-Needs the matching `@plumbus/core` 0.8 beta, which includes `field.bigint()` and collection discovery from stable core 0.7.7. Select the `plumbus-next` dist-tag for every Plumbus package; see the [0.8 upgrade notes](../upgrading-core-0.8.md).
+Needs the matching `@plumbus/core` 0.9 beta, which includes `field.bigint()` and collection discovery from stable core 0.7.7. Select the `plumbus-next` dist-tag for every Plumbus package; see the [0.9 upgrade notes](../upgrading-core-0.9.md). On the stable family (npm `latest`) install `@plumbus/payments@0.3.x` and `@plumbus/payments-stripe@0.3.x` with core 0.8.x.
 
 ## 3. Configure — `app/payments/index.ts`
 

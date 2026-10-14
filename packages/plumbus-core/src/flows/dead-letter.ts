@@ -1,8 +1,14 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { DataValidationError } from '../errors/index.js';
+import type { FlowRegistry } from './registry.js';
+import { createFlowExecutionRecord, flowAuthSchema } from './execution-record.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import {
+  type DispatchOutboxRow,
   insertDispatchOutbox,
+  persistAcceptanceOnDb,
   publishOutboxToSpine,
   reopenExecutionState,
 } from '../durable/index.js';
@@ -89,7 +95,12 @@ export async function sweepFailedFlows(db: PostgresJsDatabase, limit = 100): Pro
   const failedRows = await db
     .select({ id: flowExecutionsTable.id })
     .from(flowExecutionsTable)
-    .where(eq(flowExecutionsTable.status, FlowStatus.Failed))
+    .where(
+      and(
+        eq(flowExecutionsTable.status, FlowStatus.Failed),
+        sql`NOT EXISTS (SELECT 1 FROM ${flowDeadLetterTable} WHERE ${flowDeadLetterTable.executionId} = ${flowExecutionsTable.id}::text)`,
+      ),
+    )
     .limit(limit);
 
   let moved = 0;
@@ -109,6 +120,11 @@ export async function sweepFailedFlows(db: PostgresJsDatabase, limit = 100): Pro
  * Operator recovery: reset a dead-lettered execution so it can run again.
  * Attribution is recorded on the dead-letter row and execution state.
  * Failed → Created is an operator exception (not a normal state-machine edge).
+ *
+ * The guards, the reset and the attribution commit in one transaction that holds the dead
+ * letter `FOR UPDATE` — the lock `replayDeadLetterFlow` takes — so an in-place retry and a
+ * replay of the same failure serialise: whichever commits second is refused (the replay sees a
+ * source that is no longer failed; the retry sees the recorded `replayExecutionId`).
  */
 export async function retryDeadLetteredFlow(
   db: PostgresJsDatabase,
@@ -119,103 +135,258 @@ export async function retryDeadLetteredFlow(
   if (!opts.actor?.trim()) {
     throw new Error('Operator retry requires an actor');
   }
+  const schemaName = placement?.coreSchema ?? FRAMEWORK_SCHEMA;
 
-  const dlqRows = await db
-    .select()
-    .from(flowDeadLetterTable)
-    .where(eq(flowDeadLetterTable.executionId, executionId))
-    .limit(1);
-  const dlq = dlqRows[0];
-  if (!dlq) {
-    throw new Error(`Dead-letter row for execution "${executionId}" not found`);
-  }
+  const reset = await db.transaction(async (txn) => {
+    const tx = txn as unknown as PostgresJsDatabase;
+    const [dlq] = await tx
+      .select()
+      .from(flowDeadLetterTable)
+      .where(eq(flowDeadLetterTable.executionId, executionId))
+      .for('update');
+    if (!dlq) {
+      throw new Error(`Dead-letter row for execution "${executionId}" not found`);
+    }
 
-  const existingMeta =
-    dlq.metadata && typeof dlq.metadata === 'object' && !Array.isArray(dlq.metadata)
-      ? (dlq.metadata as Record<string, unknown>)
-      : {};
-  if (existingMeta.retriedAt) {
-    throw new Error(
-      `Execution "${executionId}" was already retried by ${String(existingMeta.retriedBy)}`,
-    );
-  }
+    const existingMeta =
+      dlq.metadata && typeof dlq.metadata === 'object' && !Array.isArray(dlq.metadata)
+        ? (dlq.metadata as Record<string, unknown>)
+        : {};
+    if (existingMeta.retriedAt) {
+      throw new Error(
+        `Execution "${executionId}" was already retried by ${String(existingMeta.retriedBy)}`,
+      );
+    }
+    if (existingMeta.replayExecutionId) {
+      throw new Error(
+        `Execution "${executionId}" was already replayed as "${String(existingMeta.replayExecutionId)}"`,
+      );
+    }
 
-  const execRows = await db
-    .select()
-    .from(flowExecutionsTable)
-    .where(eq(flowExecutionsTable.id, executionId))
-    .limit(1);
-  const row = execRows[0];
-  if (!row) throw new Error(`Flow execution "${executionId}" not found`);
+    const [row] = await tx
+      .select()
+      .from(flowExecutionsTable)
+      .where(eq(flowExecutionsTable.id, executionId))
+      .limit(1);
+    if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
-  const retriedAt = new Date().toISOString();
-  const attribution = {
-    retriedBy: opts.actor,
-    retriedAt,
-    reason: opts.reason ?? 'operator-retry',
-  };
-  const priorState =
-    row.state && typeof row.state === 'object' && !Array.isArray(row.state)
-      ? (row.state as Record<string, unknown>)
-      : {};
+    const retriedAt = new Date().toISOString();
+    const attribution = {
+      retriedBy: opts.actor,
+      retriedAt,
+      reason: opts.reason ?? 'operator-retry',
+    };
+    const priorState =
+      row.state && typeof row.state === 'object' && !Array.isArray(row.state)
+        ? (row.state as Record<string, unknown>)
+        : {};
 
-  await db
-    .update(flowExecutionsTable)
-    .set({
-      status: FlowStatus.Created,
-      retryCount: 0,
-      lastError: null,
-      completedAt: null,
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      state: { ...priorState, __operatorRetry: attribution },
-      updatedAt: new Date(),
-    })
-    .where(eq(flowExecutionsTable.id, executionId));
+    // Fenced on `failed`: a row a worker or another operator already moved on is not reset.
+    const updated = await tx
+      .update(flowExecutionsTable)
+      .set({
+        status: FlowStatus.Created,
+        retryCount: 0,
+        lastError: null,
+        completedAt: null,
+        leaseOwner: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        waitKind: null,
+        state: { ...priorState, __operatorRetry: attribution },
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(flowExecutionsTable.id, executionId),
+          eq(flowExecutionsTable.status, FlowStatus.Failed),
+        ),
+      )
+      .returning({ id: flowExecutionsTable.id });
+    if (updated.length === 0) {
+      throw new Error(
+        row.status === FlowStatus.Failed
+          ? `Execution "${executionId}" is no longer failed (it changed during the retry)`
+          : `Execution "${executionId}" is no longer failed (status "${row.status}")`,
+      );
+    }
 
-  await db
-    .update(flowDeadLetterTable)
-    .set({
-      metadata: { ...existingMeta, ...attribution },
-    })
-    .where(eq(flowDeadLetterTable.executionId, executionId));
+    await tx
+      .update(flowDeadLetterTable)
+      .set({
+        metadata: { ...existingMeta, ...attribution },
+      })
+      .where(eq(flowDeadLetterTable.executionId, executionId));
+
+    // Under spine dispatch: reopen the durable state and record its dispatch outbox row with
+    // the reset, so a committed reset always has a hint to publish (the dispatcher's outbox
+    // pump publishes it should the spine hand-off below fail). A plane without state for this
+    // execution has nothing to reopen: the row is claimed from its own table as before.
+    let outbox: DispatchOutboxRow | undefined;
+    let revision: number | undefined;
+    if (placement) {
+      const reopened = await reopenExecutionState(
+        tx,
+        { executionId, stepId: row.currentStep ?? '', nowIso: retriedAt },
+        schemaName,
+      );
+      if (reopened) {
+        outbox = await insertDispatchOutbox(
+          tx,
+          reopened,
+          reopened.currentStepId,
+          retriedAt,
+          schemaName,
+        );
+        revision = reopened.revision;
+      }
+    }
+    return { row, retriedAt, outbox, revision };
+  });
 
   let republished = false;
-  if (placement) {
-    // Reopen the durable state and hand the spine a fresh hint, so a worker claims the
-    // reset row again. A plane without state for this execution has nothing to reopen: the
-    // row is claimed from its own table as before.
-    const schemaName = placement.coreSchema ?? FRAMEWORK_SCHEMA;
-    const reopened = await reopenExecutionState(
+  if (placement && reset.outbox && reset.revision !== undefined) {
+    // After commit: hand the spine a fresh hint, so a worker claims the reset row again.
+    await publishOutboxToSpine(
       db,
-      { executionId, stepId: row.currentStep ?? '', nowIso: retriedAt },
+      placement.spineDb,
+      reset.outbox,
+      `disp:${executionId}:${reset.revision}`,
+      reset.retriedAt,
       schemaName,
     );
-    if (reopened) {
-      const outbox = await insertDispatchOutbox(
-        db,
-        reopened,
-        reopened.currentStepId,
-        retriedAt,
-        schemaName,
-      );
-      await publishOutboxToSpine(
-        db,
-        placement.spineDb,
-        outbox,
-        `disp:${executionId}:${reopened.revision}`,
-        retriedAt,
-        schemaName,
-      );
-      republished = true;
-    }
+    republished = true;
   }
 
   return {
     executionId,
-    flowName: row.flowName,
+    flowName: reset.row.flowName,
     retriedBy: opts.actor,
-    retriedAt,
+    retriedAt: reset.retriedAt,
     republished,
   };
+}
+
+export interface ReplayDeadLetterOptions {
+  /** Operator recorded on the dead letter as `replayedBy`. */
+  actor?: string;
+  /** Recorded on the dead letter as `replayReason`. */
+  reason?: string;
+  /**
+   * Under spine dispatch: where the replay's hint goes. A tenant-placed replay gets its
+   * acceptance (durable state + outbox row) in the replay transaction and a spine hint after
+   * commit; without one the row on a tenant plane would never be claimed.
+   */
+  placement?: OperatorRetryPlacement;
+}
+
+/** Replay the failed step as a new execution; the original remains terminal. */
+export async function replayDeadLetterFlow(
+  db: PostgresJsDatabase,
+  registry: FlowRegistry,
+  executionId: string,
+  options: ReplayDeadLetterOptions = {},
+): Promise<string> {
+  const schemaName = options.placement?.coreSchema ?? FRAMEWORK_SCHEMA;
+  const replayed: { id: string; outbox?: DispatchOutboxRow; nowIso?: string } =
+    await db.transaction(async (tx) => {
+      const [deadLetter] = await tx
+        .select()
+        .from(flowDeadLetterTable)
+        .where(eq(flowDeadLetterTable.executionId, executionId))
+        .for('update');
+      if (!deadLetter) throw new DataValidationError('Flow dead letter not found', { executionId });
+      const metadata = z.record(z.unknown()).parse(deadLetter.metadata ?? {});
+      const previous = z.string().uuid().safeParse(metadata.replayExecutionId);
+      if (previous.success) return { id: previous.data };
+      const [row] = await tx
+        .select()
+        .from(flowExecutionsTable)
+        .where(eq(flowExecutionsTable.id, executionId));
+      if (!row || row.status !== FlowStatus.Failed)
+        throw new DataValidationError('Replay requires a failed source execution');
+      const auth = flowAuthSchema.safeParse(row.authSnapshotJson);
+      if (
+        !auth.success ||
+        (auth.data.tenantId ?? null) !== row.tenantId ||
+        (auth.data.userId != null && auth.data.userId !== row.actor)
+      ) {
+        throw new DataValidationError('Replay requires the original verified caller identity');
+      }
+      const flow = registry.get(row.flowName);
+      if (!flow || !flow.steps.some((step) => step.name === row.currentStep))
+        throw new DataValidationError('Failed step is absent from the current flow definition');
+      if (flow.state && !flow.state.safeParse(row.state).success)
+        throw new DataValidationError(
+          'Stored state is incompatible with the current flow definition',
+        );
+      const replay = await createFlowExecutionRecord(
+        tx as unknown as PostgresJsDatabase,
+        flow,
+        row.input,
+        auth.data,
+        {
+          correlationId: row.correlationId ?? undefined,
+          triggerEventId: executionId,
+          scheduleId: row.scheduleId ?? undefined,
+        },
+      );
+      // The replay runs on the source's pinned definition (a compiled deployment resolves it by pin).
+      await tx
+        .update(flowExecutionsTable)
+        .set({
+          currentStep: row.currentStep,
+          state: row.state,
+          replayOf: row.id,
+          definitionVersion: row.definitionVersion,
+          definitionDigest: row.definitionDigest,
+        })
+        .where(eq(flowExecutionsTable.id, replay.id));
+      const nowIso = new Date().toISOString();
+      let outbox: DispatchOutboxRow | undefined;
+      if (options.placement && row.tenantId) {
+        outbox = (
+          await persistAcceptanceOnDb(
+            tx as unknown as PostgresJsDatabase,
+            {
+              executionId: replay.id,
+              tenantRef: row.tenantId,
+              definitionId: row.flowName,
+              definitionVersion: row.definitionVersion ?? '0.0.0',
+              firstStepId: row.currentStep ?? 'terminal',
+              correlationId: row.correlationId ?? replay.id,
+              nowIso,
+            },
+            schemaName,
+          )
+        ).outbox;
+      }
+      await tx
+        .update(flowDeadLetterTable)
+        .set({
+          metadata: {
+            ...metadata,
+            replayExecutionId: replay.id,
+            replayedAt: nowIso,
+            replaySource: 'operator',
+            ...(options.actor ? { replayedBy: options.actor } : {}),
+            ...(options.reason ? { replayReason: options.reason } : {}),
+          },
+        })
+        .where(eq(flowDeadLetterTable.id, deadLetter.id));
+      return { id: replay.id, outbox, nowIso };
+    });
+  if (options.placement && replayed.outbox && replayed.nowIso) {
+    // After commit: hand the spine the replay's hint. A failure propagates; the recorded replay
+    // id is returned by a repeated call and the dispatcher's outbox pump publishes the row.
+    await publishOutboxToSpine(
+      db,
+      options.placement.spineDb,
+      replayed.outbox,
+      `disp:${replayed.id}:1`,
+      replayed.nowIso,
+      schemaName,
+    );
+  }
+  return replayed.id;
 }

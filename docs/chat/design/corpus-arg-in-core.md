@@ -66,6 +66,10 @@ Corpus ingestion remains the consumer's responsibility (via `plumbus rag ingest`
 
 ---
 
+## Current compatibility
+
+Current stable chat 0.3.x requires core 0.8.x; beta chat 0.4.x requires the core 0.9 beta family. The ranges below record the original design and historical rollout; copy current literals from `packages/plumbus-core/instructions/peer-dependencies.md`.
+
 ## Addendum (2026-07-08)
 
 **API rename:** Direct corpus RAG in chat is `ragContext({ corpus, query, filter?, … })`. Registry-backed KB uses `knowledgeContext({ registry, source, … })`. The old `knowledgeContext({ corpus, query })` shape is the deprecated alias `knowledgeContextLegacy`.

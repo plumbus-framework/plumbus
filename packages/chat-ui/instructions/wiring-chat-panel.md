@@ -11,10 +11,10 @@ The default path. Use this when the consumer wants a working chat surface and do
 ## 1. Install
 
 ```bash
-pnpm add @plumbus/chat-ui
+pnpm add @plumbus/chat-ui@plumbus-next
 ```
 
-Peers: `@plumbus/chat` `0.3.x`, `@plumbus/core` `0.8.x`, `react` `>=19` (provided by `@plumbus/ui` in Plumbus apps).
+Peers: `@plumbus/chat` `>=0.4.0-beta.0 <0.5.0`, `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`, `react` `>=19` (provided by `@plumbus/ui` in Plumbus apps).
 
 ## 2. Mount the panel
 

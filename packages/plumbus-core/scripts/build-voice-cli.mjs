@@ -76,6 +76,7 @@ const deriveDecl = spawnSync(
     '--target',
     'ES2022',
     '--skipLibCheck',
+    '--strict',
   ],
   { cwd: packageRoot, stdio: 'inherit' },
 );

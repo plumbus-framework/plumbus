@@ -102,6 +102,7 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__flow_executions'))).toBe('flow_executions');
     expect(getTableName(getSchema(schemas, '__flow_dead_letter'))).toBe('flow_dead_letter');
     expect(getTableName(getSchema(schemas, '__flow_schedules'))).toBe('flow_schedules');
+    expect(getTableName(getSchema(schemas, '__flow_schedule_ticks'))).toBe('flow_schedule_ticks');
   });
 
   it('includes RAG document tables', () => {
@@ -124,10 +125,10 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__approval_decision'))).toBe('approval_decision');
   });
 
-  it('includes all 19 framework tables with zero entities', () => {
+  it('includes all 20 framework tables with zero entities', () => {
     const schemas = collectSchemas([]);
     const frameworkKeys = Object.keys(schemas).filter((k) => k.startsWith('__'));
-    expect(frameworkKeys).toHaveLength(19);
+    expect(frameworkKeys).toHaveLength(20);
   });
 
   it('throws when an extra schema collides with an entity table name', () => {

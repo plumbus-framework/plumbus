@@ -1,3 +1,6 @@
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { JobDispatchService } from '../jobs/index.js';
+export type { JobDispatchService } from '../jobs/index.js';
 import type { DecisionCall, DecisionQuestions, DecisionResult } from '@plumbus/ai-decision/types';
 import type { z } from 'zod';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
@@ -212,6 +215,8 @@ export interface DurableAcceptanceInput {
 }
 
 export interface TransactionScope {
+  /** @internal Database handle for durable job intent within this transaction. */
+  db?: PostgresJsDatabase;
   data: DataService;
   events: EventService;
   /** Side effects queued during the transaction; run only after commit succeeds */
@@ -300,15 +305,6 @@ export interface FlowService {
 }
 
 // ── Job Dispatch Service ──
-export interface JobDispatchService {
-  /** Enqueue a `kind: 'job'` capability by canonical name. Returns the job execution id. */
-  enqueue(
-    capabilityName: string,
-    input: Record<string, unknown>,
-    opts?: { jobId?: string },
-  ): Promise<string>;
-}
-
 // ── AI Document (RAG retrieval result) ──
 export interface AIDocument {
   content: string;

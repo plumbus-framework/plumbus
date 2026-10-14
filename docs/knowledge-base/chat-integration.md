@@ -1,6 +1,6 @@
 # Chat integration
 
-Requires optional peer `@plumbus/knowledge-base@^0.1.0`.
+Requires `@plumbus/chat` 0.3.x and its optional peer `@plumbus/knowledge-base` 0.3.x, with core 0.8.x (stable family); in the core 0.9 beta family use chat 0.4.x and knowledge-base 0.4.x with core 0.9.x.
 
 ## Registry-backed context source
 

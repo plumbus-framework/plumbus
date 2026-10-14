@@ -7,7 +7,7 @@ export {
   createMemoryLoginTransactionStore,
   createMemorySessionStore,
 } from './stores/memory.js';
-export { AuthAuditEvents, sanitizeAuditMetadata } from './runtime/audit.js';
+export { AUTH_AUDIT_COMPONENT, AuthAuditEvents, sanitizeAuditMetadata } from './runtime/audit.js';
 export type { AuthAuditMetadata, AuthAuditEmitter } from './runtime/audit.js';
 export type { AuthMetrics } from './runtime/metrics.js';
 export type { AuthDiagnosticsReport, AuthDiagnosticFinding } from './diagnostics/diagnostics.js';

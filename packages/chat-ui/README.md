@@ -1,11 +1,13 @@
 # @plumbus/chat-ui
 
+Release **0.4.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+
 > **React UI for [`@plumbus/chat`](../chat/).** Drop in a working AI chat surface in 5 lines — message stream, input, source citations, refusal notices, cooldowns, and confirmation slot — all wired to the framework's `ChatEvent` protocol.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat-ui.svg)](https://www.npmjs.com/package/@plumbus/chat-ui)
 [![license](https://img.shields.io/npm/l/@plumbus/chat-ui.svg)](./LICENSE)
-[![peer: @plumbus/chat ≥0.1.11](https://img.shields.io/badge/peer-%40plumbus%2Fchat%20%E2%89%A50.1.11-blue)](https://www.npmjs.com/package/@plumbus/chat)
-[![peer: @plumbus/core ≥0.6.11](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%E2%89%A50.6.11-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/chat >=0.4.0-beta.0 <0.5.0](https://img.shields.io/badge/peer-%40plumbus%2Fchat%20%3E%3D0.4.0--beta.0%20%3C0.5.0-blue)](https://www.npmjs.com/package/@plumbus/chat)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![peer: react ≥19](https://img.shields.io/badge/peer-react%20%E2%89%A519-61dafb)](https://react.dev)
 
 ## What is this?
@@ -50,17 +52,17 @@ The server owns policy, retrieval, audit; the UI just renders state derived from
 
 ## Status
 
-Peer-locked to `@plumbus/chat` `0.3.x`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
+Peer-locked to `@plumbus/chat` `>=0.4.0-beta.0 <0.5.0`. **`useChat.confirm()` performs the real `POST /chat/:name/confirm` round-trip** (plus `decline` and `lastConfirmResult`) — see [Key gotchas](#key-gotchas).
 
 ## Install
 
 ```bash
-pnpm add @plumbus/chat-ui
+pnpm add @plumbus/chat-ui@plumbus-next
 ```
 
 Peers:
-- `@plumbus/chat` `0.3.x` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
-- `@plumbus/core` `0.8.x` (**≥ 0.6.11** via chat 0.1.11)
+- `@plumbus/chat` `>=0.4.0-beta.0 <0.5.0` (**≥ 0.1.11** — `./protocol` subpath + Path B confirm route)
+- `@plumbus/core` `>=0.9.0-beta.0 <0.10.0` (**≥ 0.6.11** via chat 0.1.11)
 - `react` `>=19` — provided transitively by [`@plumbus/ui`](../ui/) in Plumbus apps; do not add React to your own `package.json`
 
 Prerequisites: a server-side `defineChat({...})` declaration and `registerChatRoutes(app, routeConfig, [chat])` from `@plumbus/chat`.

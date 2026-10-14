@@ -1,13 +1,17 @@
 # Plumbus Framework
 
-## Release family 0.7.0
+## Release family 0.9.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/api` `0.3.x`, `@plumbus/ai-bedrock` `0.3.x`, `@plumbus/mcp` `0.7.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/api` `>=0.4.0-beta.0 <0.5.0`, `@plumbus/ai-bedrock` `>=0.4.0-beta.0 <0.5.0`, `@plumbus/mcp` `>=0.8.0-beta.0 <0.9.0`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read `instructions/stabilization.md` and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 Plumbus is an AI-native, contract-driven TypeScript application framework. You build applications by composing six primitives — **Capabilities**, **Entities**, **Events**, **Flows**, **Prompts**, and **Translations** — through a controlled execution context (`ctx`). Optional add-on packages extend the surface when installed explicitly: `@plumbus/api` (partner HTTP API), `@plumbus/mcp` (AI agent tools), `@plumbus/chat` (+ `@plumbus/chat-ui`), `@plumbus/voice`, `@plumbus/knowledge-base`, `@plumbus/ui` (web UI generation), and `@plumbus/browser-extension`.
 
-For core **0.7.0** upgrades, read [the security release checklist](./upgrading-security-release.md), then run `plumbus init --patch` to refresh agent wiring to **v16**.
+For core **0.8** and core **0.9** beta upgrades, read [the stabilization checklist](./stabilization.md) and refresh wiring with `plumbus init --patch --agent all` (**v21**). Apps upgrading from before core 0.7 must also apply [the earlier security checklist](./upgrading-security-release.md).
+
+## Shared agent instructions
+
+With wiring v21, `AGENTS.md` is canonical and `CLAUDE.md` imports it with `@AGENTS.md`. Edit shared notes in `AGENTS.md`; keep Claude-specific notes outside its managed import block. Do not duplicate the shared instructions or add a reverse import. `plumbus init --patch --agent all` migrates generated clones while preserving notes outside managed blocks. Claude-only setup creates the canonical target too. Inline recipes live in `AGENTS.md`. Run `plumbus doctor` after updating; it checks the import and target version.
 
 ## Non-Negotiable Guardrails
 
@@ -37,6 +41,7 @@ Every capability handler receives `ctx` — the scoped runtime context:
 | `ctx.auth` | Authenticated identity — userId, roles, scopes, tenantId |
 | `ctx.data` | Entity repositories — `ctx.data.User.findById(id)` |
 | `ctx.events` | Event emission — `ctx.events.emit("order.placed", payload)` |
+| `ctx.jobs` | Queue a job with caller auth; built-in transactions persist intent before post-commit publication |
 | `ctx.flows` | Flow orchestration — `ctx.flows.start("processRefund", input)` |
 | `ctx.ai` | AI operations — generate, extract, classify, retrieve |
 | `ctx.audit` | Audit logging — `ctx.audit.record("user.updated", meta)` |
@@ -147,12 +152,15 @@ The framework provides common dependencies — **consumer apps must NOT install 
 
 The optional `app/server.ts` file exports hooks that customize server behavior. The framework auto-discovers this file on `plumbus dev`, `plumbus start`, and `plumbus worker`.
 
+Read [stabilization.md](./stabilization.md) for the core 0.8 / 0.9 beta migration and wiring v21.
+
 ### Available Hooks
 
 | Hook | When it fires | Use for |
 |------|--------------|---------|
 | `onRoutesRegistered` | After capability routes are registered | Adding custom routes (e.g. streaming endpoints) |
 | `onCapabilityError` | After a capability returns a non-success result in an HTTP route, flow step, job, or event handler (`info.source`: `'http'`, `'flow'`, `'job'`, `'event'`) | Logging capability failures to a system log table |
+| `onEventDeadLetter` | After event dead-letter persistence; best-effort identifiers-only notification | Terminal delivery alerts |
 | `onFlowError` | After a flow fails permanently (retries exhausted) | Logging flow failures to a system log table |
 | `onProcessError` | On uncaught exceptions, unhandled rejections, and Fastify-level errors | Logging process-level crashes that bypass capability/flow hooks |
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
@@ -162,11 +170,11 @@ The optional `app/server.ts` file exports hooks that customize server behavior. 
 | `onAIProviderSpan` | After each provider attempt | Export provider client spans |
 | `enableStrictStructuredOutputs` | Server bootstrap | Global toggle for strict structured-output mode |
 | `credentials` | Server bootstrap | Optional host credential catalog (`export const credentials`). Passed to `createServer({ credentials })`. Names, types, refs, and public labels only — secrets stay in the host resolver. |
-| `authenticationRuntime` | Server bootstrap (included in the 0.8 beta family; stable core 0.7.8+) | Browser sign-in with `@plumbus/auth` (`createAuthRuntime(...)`): the same value `createServer({ authenticationRuntime })` takes |
+| `authenticationRuntime` | Server bootstrap (core 0.7.8+; included in every 0.8 and 0.9 release) | Browser sign-in with `@plumbus/auth` (`createAuthRuntime(...)`): the same value `createServer({ authenticationRuntime })` takes |
 
 ### Error Capture Coverage
 
-The framework provides hooks for **every error category**:
+The framework provides the following hooks. Queue/persistence failures also have separate logs and delivery audits:
 
 | Error Type | Hook | Source Field |
 |------------|------|-------------|
@@ -199,4 +207,4 @@ export const onProcessError: NonNullable<ServerConfig['onProcessError']> = async
 };
 ```
 
-All hooks are fire-and-forget — exceptions inside hooks are caught and swallowed to prevent logging from breaking the application.
+Hook failures are isolated and logged to prevent logging from breaking the application.

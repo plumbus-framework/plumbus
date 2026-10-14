@@ -1,3 +1,4 @@
+import type { EventDeliveryOptions } from '../events/index.js';
 import type { PolicyProfile } from './enums.js';
 import type { AISecurityConfig } from '../ai/security.js';
 import type { AIPromptCacheOption } from '../ai/provider.js';
@@ -22,6 +23,13 @@ export interface QueueConfig {
   prefix?: string;
   /** Visibility timeout for Redis queue processing recovery (seconds, default 30). */
   visibilityTimeoutSec?: number;
+  url?: string;
+  backend?: 'memory' | 'redis';
+  pollIntervalMs?: number;
+  reclaimIntervalMs?: number;
+  startupTimeoutMs?: number;
+  operationTimeoutMs?: number;
+  shutdownTimeoutMs?: number;
 }
 
 // ── AI Provider Config ──
@@ -137,6 +145,7 @@ export interface PlumbusConfig {
   database: DatabaseConfig;
   queue: QueueConfig;
   execution?: ExecutionConfig;
+  workers?: { eventDelivery?: EventDeliveryOptions; enableScheduler?: boolean };
   mcp?: McpConfig;
   /** Single-provider AI config (legacy) */
   ai?: AIProviderConfig;

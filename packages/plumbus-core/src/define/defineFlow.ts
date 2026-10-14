@@ -1,4 +1,5 @@
-import type { z } from 'zod';
+import { z } from 'zod';
+import { resolveRetryPolicy } from '../config/index.js';
 import type {
   FlowBudget,
   FlowDefinition,
@@ -7,6 +8,7 @@ import type {
   FlowStep,
   FlowTrigger,
 } from '../types/flow.js';
+import { validateSchedule } from '../flows/index.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { throwDefineValidationError } from './validation-error.js';
 
@@ -57,5 +59,22 @@ export function defineFlow<TInput extends z.ZodTypeAny, TState extends z.ZodType
     });
   }
 
+  if (config.schedule) validateSchedule(config.schedule, config.name);
+  if (config.retry) {
+    if (config.retry.attempts !== undefined && config.retry.maxAttempts !== undefined)
+      throwDefineValidationError('Use attempts or maxAttempts, not both', { field: 'retry' });
+    if (
+      config.retry.attempts !== undefined &&
+      !z.number().int().nonnegative().max(999).safeParse(config.retry.attempts).success
+    )
+      throwDefineValidationError('Invalid legacy retry attempts', { field: 'retry.attempts' });
+    const { attempts, ...policy } = config.retry;
+    resolveRetryPolicy(policy, {
+      maxAttempts: (attempts ?? 0) + 1,
+      backoff: 'exponential',
+      baseDelayMs: 1000,
+      maxDelayMs: 60000,
+    });
+  }
   return deepFreeze({ ...config });
 }

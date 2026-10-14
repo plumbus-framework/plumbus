@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { PromptRegistry } from '../ai/prompt-registry.js';
 import type { RouteGeneratorConfig } from '../api/route-generator.js';
 import { type AuthAdapter, createJwtAdapter } from '../auth/index.js';
-import { loadConfig } from '../config/index.js';
+import { loadAppConfig } from '../config/index.js';
 import { createErrorService } from '../errors/index.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../data/connection.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
@@ -85,7 +85,7 @@ async function resolveMcpServeAuthAdapter(config: PlumbusConfig): Promise<AuthAd
 }
 
 export async function buildMcpServeContext(): Promise<McpServeContext> {
-  const config = loadConfig();
+  const config = await loadAppConfig();
   // Reject unsafe auth configuration before discovery or opening DB/queue connections.
   const authAdapter = await resolveMcpServeAuthAdapter(config);
   const resources = await discoverResources();

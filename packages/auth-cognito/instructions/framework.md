@@ -1,18 +1,18 @@
 # @plumbus/auth-cognito — Framework
 
-## Release family 0.2.0
+## Release family 0.4.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/auth` `0.3.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/auth` `>=0.4.0-beta.0 <0.5.0`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 `@plumbus/auth-cognito` supplies a **`cognito()`** `OidcProviderIntegration` for `@plumbus/auth`. It customizes Cognito hosted UI authorize params, builds logout URLs from the hosted UI domain, and emits registration warnings — **without** altering OIDC protocol validation in `@plumbus/auth`.
 
-**Peer:** `"@plumbus/auth": ">=0.3.0-beta.0 <0.4.0"` — copy literally from `packages/auth-cognito/package.json`.
+**Peer:** `"@plumbus/auth": ">=0.4.0-beta.0 <0.5.0"` — copy literally from `packages/auth-cognito/package.json`.
 
 ## When to install
 
 ```bash
-pnpm add @plumbus/auth-cognito
+pnpm add @plumbus/auth-cognito@plumbus-next
 ```
 
 Only when using **Amazon Cognito** as the OIDC provider. Generic OIDC IdPs do not need this package.

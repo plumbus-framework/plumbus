@@ -144,14 +144,17 @@ export const resolveTenantRef = (auth) => auth.tenantId;              // optiona
 | `requestDataPlane` | `'resolved'`: every request's repositories, events, audit and transactions are wired against the resolved plane (a `tenantScoped: false` capability still reads the control plane). `'control-plane'`: repositories stay on the boot connection; only the flows are placed | — |
 | `workerDataPlane` | — | `'resolved'`: a claimed tenant unit's repositories, events and audit are wired against its plane. `'control-plane'`: they stay on the pool's database — for a host that routes tenant data itself and reaches the plane from its handlers; the unit's auth still carries the tenant, and its flow row is still on the plane |
 | `untenantedDataPlane` | requests and flow starts with no tenant reference: `'refuse'` fails closed; `'control-plane'` serves them from the boot connection, and a control-plane flow is a classic `flow_executions` row on the spine, claimed beside the tenant hints | same policy for claimed work with no tenant |
-| `listTenantRefs` | — | the planes whose `event_outbox` and `flow_schedules` are pumped, plus every tenant resolved for claimed work |
+| `listTenantRefs` | — | the planes whose `event_outbox` and `flow_schedules` are pumped, plus every tenant resolved for claimed work; also the tenant planes `plumbus flow schedule sync` reconciles (required by it when a flow is scheduled on `tenants`; a tenant the worker only resolved for claimed work is not reconciled) |
 
 A request-side engine that neither started nor claimed an execution locates its plane through
 the spine hint (`status`, `cancel`, `resume`), so an operator capability on the control plane
 can act on a tenant's execution without opening the plane itself.
 
-How a tenant-placed execution moves: the start writes the row and its durable state on the
-plane and one hint on the spine; a worker claims the hint, runs the step, advances the
+How a tenant-placed execution moves: the start writes the row, its durable state and its
+acceptance outbox row on the plane in one transaction, then publishes one hint on the spine
+(best-effort: if publication fails the start still succeeds and the outbox pump publishes the
+hint); a worker claims the hint, mints a claim token on the tenant row (the same fencing as
+control-plane rows, so a stale runner cannot commit), runs the step, advances the
 durable state and acknowledges the hint (closing the outbox row behind it); when the flow
 has more steps the worker publishes the next hint *under its own lease* and drains the next
 step without claiming again, so no second worker runs the same step — a worker that dies
@@ -179,6 +182,14 @@ only runs when the spine holds a ready hint for it:
   the execution again; the result's `republished` says whether that happened. Without it — or
   when the plane holds no durable state for the execution (a control-plane flow, or a row
   started before placement) — the row is reset as before and claimed from its own table.
+  An in-place retry is refused for a dead letter that was already retried or replayed.
+  `plumbus flow dead-letter retry` (a new replay execution by default, `--in-place` for this
+  reset) works on the boot database only.
+
+Jobs from flow steps are not plane-aware yet. A flow step that runs on a resolved tenant plane
+has no job queue: `ctx.jobs.enqueue()` throws `Job queue not configured on this execution
+context` and the step fails. Flow steps on the pool database (no resolver,
+`workerDataPlane: 'control-plane'`, untenanted control-plane work) keep the flow job wiring.
 
 ## What this does not apply
 

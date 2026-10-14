@@ -35,6 +35,12 @@ const noopEvents: EventService = {
 };
 
 const noopJobs: JobDispatchService = {
+  assertAvailable() {
+    throw new PlumbusError(
+      ErrorCode.Internal,
+      'Job queue not configured on this execution context',
+    );
+  },
   async enqueue() {
     throw new PlumbusError(
       ErrorCode.Internal,

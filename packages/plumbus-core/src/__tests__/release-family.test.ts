@@ -10,20 +10,20 @@ function readManifest(name: string): {
   return JSON.parse(readFileSync(new URL(`packages/${name}/package.json`, repositoryRoot), 'utf8'));
 }
 
-describe('packages integrated into the core 0.8 family', () => {
+describe('packages integrated into the core 0.9 family', () => {
   it.each([
     'ai-decision-openai',
     'payments',
     'payments-stripe',
   ])('%s requires the beta core family and stays outside legacy release ranges', (name) => {
     const manifest = readManifest(name);
-    expect(manifest.version).toMatch(/^0\.3\.0-beta\.\d+$/);
-    expect(manifest.peerDependencies['@plumbus/core']).toBe('>=0.8.0-beta.0 <0.9.0');
+    expect(manifest.version).toMatch(/^0\.4\.0-beta\.\d+$/);
+    expect(manifest.peerDependencies['@plumbus/core']).toBe('>=0.9.0-beta.0 <0.10.0');
   });
 
   it('the Stripe provider requires the matching payments family', () => {
     expect(readManifest('payments-stripe').peerDependencies['@plumbus/payments']).toBe(
-      '>=0.3.0-beta.0 <0.4.0',
+      '>=0.4.0-beta.0 <0.5.0',
     );
   });
 

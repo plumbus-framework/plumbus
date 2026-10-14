@@ -22,6 +22,6 @@ Package overview: [../README.md](../README.md). Conceptual voice docs: `docs/voi
 - **Single-language sessions send `language_hints_strict`.** Override with `stt.options.languageHintsStrict`. Do not invent a second language-lock flag.
 - **Voice cloning** — UUID `voice` ids are clones; use `createVoiceCloneProvider` / `waitUntilReady`. Requires `@soniox/node` ^2.2.0. See `docs/voice/voice-cloning.md`.
 
-## Uploaded files (0.3.0-beta.2)
+## Uploaded files (0.4.0-beta.0)
 
-For uploaded audio/video use `SONIOX_FILE_TRANSCRIPTION_REGISTRATION` with `createFileTranscriptionRuntime` from `@plumbus/voice/transcription` (0.6.0-beta.2). This is separate from realtime provider registration. Read `node_modules/@plumbus/voice/instructions/file-transcription.md` for explicit regions, bounded operations, unknown POST recovery and exact token usage; capabilities/flows own rights, durable state, budgets and cleanup.
+For uploaded audio/video use `SONIOX_FILE_TRANSCRIPTION_REGISTRATION` with `createFileTranscriptionRuntime` from `@plumbus/voice/transcription` (0.7.0-beta.0). This is separate from realtime provider registration. Read `node_modules/@plumbus/voice/instructions/file-transcription.md` for explicit regions, bounded operations, unknown POST recovery and exact token usage; capabilities/flows own rights, durable state, budgets and cleanup.

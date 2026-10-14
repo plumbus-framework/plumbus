@@ -17,14 +17,8 @@ export function testRunOptions(args = [], environment = process.env) {
     args: ['run', 'test', ...(explicitConcurrency ? [] : ['--concurrency=2']), ...args],
     env: {
       ...environment,
-      VITEST_MAX_THREADS:
-        environment.VITEST_MAX_THREADS ?? (hasWorkerOption('maxWorkers') ? undefined : '2'),
-      VITEST_MIN_THREADS:
-        environment.VITEST_MIN_THREADS ?? (hasWorkerOption('minWorkers') ? undefined : '1'),
-      VITEST_MAX_FORKS:
-        environment.VITEST_MAX_FORKS ?? (hasWorkerOption('maxWorkers') ? undefined : '2'),
-      VITEST_MIN_FORKS:
-        environment.VITEST_MIN_FORKS ?? (hasWorkerOption('minWorkers') ? undefined : '1'),
+      VITEST_MAX_WORKERS:
+        environment.VITEST_MAX_WORKERS ?? (hasWorkerOption('maxWorkers') ? undefined : '2'),
     },
   };
 }

@@ -6,7 +6,7 @@ Events represent domain facts that have occurred. They are emitted by capabiliti
 
 ```ts
 import { defineEvent } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const orderPlaced = defineEvent({
   name: "order.placed",
@@ -45,7 +45,7 @@ handler: async (ctx, input) => {
 
 ## Outbox Pattern
 
-Events are **not** dispatched immediately. They are written to an outbox table in the **same database transaction** as the capability's data changes. This guarantees at-least-once delivery with no data/event inconsistency.
+Events are **not** dispatched immediately. They are written to an outbox table in the **same database transaction** as the capability's data changes. This atomically persists data and event intent when transactional outbox applies. End-to-end handling also depends on durable queues, compatible consumer registrations, and the delivery policy.
 
 For `action` / `eventHandler` capabilities this is the default (**transactional outbox ON**). Opt out with `execution.transactionalOutbox: false`, `PLUMBUS_TRANSACTIONAL_OUTBOX=false`, or per-capability `transactional: false`. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. See `capabilities.md` § Transactional outbox.
 
@@ -104,3 +104,14 @@ Consumers should be idempotent — processing the same event twice must produce 
 ## Versioning
 
 Include `version` in event definitions. When schemas evolve, bump the version. Consumers can specify version constraints.
+
+
+## Delivery policy and worker topology
+
+Core 0.8: see `stabilization.md`. Workers sharing a queue prefix compete for envelopes and need compatible consumer registries. Matching uses event type/version; tenant authorization comes from the authoritative outbox-bound context. The queue does not route to a different pool based on handler availability, and separate prefixes do not create fan-out.
+
+Default delivery is three total attempts. Configure `workers.eventDelivery.retry` in application config or `trigger.retry` on an event-handler capability with `{ maxAttempts, backoff, baseDelayMs, maxDelayMs }`. Manual consumers support `retry`; legacy `maxRetries` means total attempts. Permanent validation/access/dependency errors stop retries, as do errors explicitly marked `metadata.retryable: false`; unknown application errors retry.
+
+No-match is an observable `unrouted` outcome and defaults to a persisted dead letter. Declare `ignoredEventTypes` for intentional omissions or explicitly set `workers.eventDelivery.unrouted: 'acknowledge'`. Deploy consumers before producers introduce new event types.
+
+Successful handling is acknowledged after all participating subscribers finish. Terminal failed handling is acknowledged after dead-letter persistence. Failed persistence retains the Redis entry. `event.consumer.*` audits and delivery metrics distinguish these outcomes. `onCapabilityError` reports each failed capability attempt, excluding pre-execution checks; `onEventDeadLetter` reports persisted terminal delivery identifiers. Its failures are logged and notifications may be missed/repeated across crashes. Neither hook is a guarantee of every queue error being reported through a callback.

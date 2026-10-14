@@ -210,7 +210,8 @@ See [approvals](./approvals.md).
 - **Opt out globally:** `execution.transactionalOutbox: false` or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`.
 - **Opt out per capability:** `transactional: false` on `defineCapability({ ... })`.
 - **Auto-excluded:** `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`, and `query` capabilities keep the prior non-transactional behavior.
-- **Deferred side effects:** `ctx.flows.start()` and `ctx.jobs.enqueue()` inside a transaction defer until after commit. `flows.start` returns a placeholder execution id with `status: 'pending'`; `enqueue` returns a pre-allocated job id immediately.
+- **Deferred flow starts:** `ctx.flows.start()` defers until after commit and returns a placeholder execution id with `status: 'pending'`.
+- **Durable job intent:** built-in `ctx.jobs.enqueue()` validates the target/input/access and writes the job record inside the transaction, returning its ID. Publication happens after commit; rollback publishes nothing. A committed publication failure stays pending for worker recovery. See the [stabilization guide](../upgrading-stabilization.md#flows-and-jobs).
 
 See [Upgrading for contract alignment → transactional outbox](../upgrading-contract-alignment.md#1-transactional-outbox-default-on-a1).
 

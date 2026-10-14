@@ -1,13 +1,13 @@
 # @plumbus/voice-livekit — Framework
 
-## Release family 0.2.0
+## Release family 0.4.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`, `@plumbus/voice` `0.6.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`, `@plumbus/voice` `>=0.7.0-beta.0 <0.8.0`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 ## Security release guidance (0.2.0)
 
-Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+Read `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading this family. The earlier security fixes remain required. Run `plumbus init --patch --agent all` after installation for wiring **v21**.
 
 Deploy with voice 0.5.0 for automatic tenant propagation. Default room names include tenant identity; use returned room names. Explicit shared rooms/resolvers remain app-authorized choices. Do not import vendor SDKs to recreate a parallel voice runtime.
 
@@ -26,8 +26,8 @@ Index: `node_modules/@plumbus/voice-livekit/instructions/README.md`
 **Peers (copy literals):**
 
 ```json
-"@plumbus/core": ">=0.8.0-beta.0 <0.9.0",
-"@plumbus/voice": ">=0.6.0-beta.0 <0.7.0"
+"@plumbus/core": ">=0.9.0-beta.0 <0.10.0",
+"@plumbus/voice": ">=0.7.0-beta.0 <0.8.0"
 ```
 
 Optional peers: `livekit-client` `^2.0.0` (browser), `@livekit/krisp-noise-filter` `^0.4.0` (client Krisp), `fastify` `^5.0.0`.
@@ -35,7 +35,7 @@ Optional peers: `livekit-client` `^2.0.0` (browser), `@livekit/krisp-noise-filte
 ## Install
 
 ```bash
-pnpm add @plumbus/voice @plumbus/voice-livekit
+pnpm add @plumbus/voice@plumbus-next @plumbus/voice-livekit@plumbus-next
 ```
 
 For browser PTT/continuous clients also install `livekit-client`.

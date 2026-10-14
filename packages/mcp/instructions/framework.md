@@ -1,19 +1,19 @@
 # @plumbus/mcp — Framework
 
-## Release family 0.6.0
+## Release family 0.8.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 ## Security release guidance (0.6.0)
 
-Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+Read `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading this family. The earlier security fixes remain required. Run `plumbus init --patch --agent all` after installation for wiring **v21**.
 
 Send explicit credentials on every HTTP transport request, including initialization/listing. Public discovery remains separate. Invalid headers never fall back to `PLUMBUS_MCP_TOKEN`. Validate input through the capability contract and preserve per-call task ownership/tenant boundaries; do not bypass them in custom handlers.
 
-`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version-locked `0.8.x`).
+`@plumbus/mcp` is the **MCP runtime** for Plumbus apps. It serves capabilities marked `exposeAs: ['mcp']` to AI agents over stdio or Streamable HTTP. It is an **optional peer** of `@plumbus/core` (version `0.8.0-beta.0` in the core 0.9 beta family, which declares `@plumbus/mcp` `>=0.8.0-beta.0 <0.9.0`).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.9.0-beta.0 <0.10.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 

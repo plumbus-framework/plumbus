@@ -35,14 +35,14 @@ This page is the detailed integration guide. For the broader AI stack (prompts, 
 
 | | |
 |---|---|
-| **Package** | `@plumbus/ai-bedrock` `0.2.x` |
-| **Peer** | `@plumbus/core` `0.7.x` (literal range — copy from `packages/plumbus-core/instructions/peer-dependencies.md`) |
+| **Package** | `@plumbus/ai-bedrock` `0.3.x` (stable family); `0.4.x` betas in the core 0.9 beta family |
+| **Peer** | `@plumbus/core` `0.8.x` (stable) / `>=0.9.0-beta.0 <0.10.0` (beta) (literal range — copy from `packages/plumbus-core/instructions/peer-dependencies.md`) |
 | **Runtime floor** | `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs core **≥ 0.7.9** and `@plumbus/ai-bedrock` **≥ 0.2.2** |
 | **SDK** | `@aws-sdk/client-bedrock-runtime` |
 | **Plumbus surface** | `AIProviderAdapter` registered as `providers.bedrock` on `createAIService` |
 | **Not included** | Bedrock Agents, Knowledge Bases Retrieve API, Guardrails config UI, image generation, Mantle OpenAI proxy |
 
-Apps that never call Bedrock never install the AWS SDK. Core’s optional peer declares `"@plumbus/ai-bedrock": ">=0.3.0-beta.0 <0.4.0"`; `createProviderAdapter('bedrock')` dynamically loads the package and prints `pnpm add @plumbus/ai-bedrock` when missing.
+Apps that never call Bedrock never install the AWS SDK. Core’s optional peer declares `"@plumbus/ai-bedrock": ">=0.4.0-beta.0 <0.5.0"` in the core 0.9 beta family (`"0.3.x"` in the stable 0.8 family); `createProviderAdapter('bedrock')` dynamically loads the package and prints `pnpm add @plumbus/ai-bedrock` when missing.
 
 Business logic still uses `definePrompt`, `ctx.ai.generateWithUsage`, chat, and RAG. App code does **not** import the Bedrock SDK directly — only register the adapter.
 
@@ -96,8 +96,8 @@ pnpm add @plumbus/ai-bedrock
 
 | Dependency | Range | Notes |
 |------------|-------|-------|
-| `@plumbus/core` (peer) | `>=0.8.0-beta.0 <0.9.0` (includes prompt caching) | Copy literal; never a caret range |
-| Core optional peer on this package | `>=0.3.0-beta.0 <0.4.0` | Declared in `@plumbus/core` `peerDependencies` / `peerDependenciesMeta` |
+| `@plumbus/core` (peer) | `>=0.9.0-beta.0 <0.10.0` in the beta family; `0.8.x` in the stable family (**≥ 0.7.0** at runtime; **≥ 0.7.9** for prompt caching, which both families include) | Copy literal; never a caret range |
+| Core optional peer on this package | `>=0.4.0-beta.0 <0.5.0` (beta) / `0.3.x` (stable) | Declared in `@plumbus/core` `peerDependencies` / `peerDependenciesMeta` |
 | Publish order | ai-bedrock **before** core | See `.github/workflows/publish.yml` |
 
 Refresh agent wiring so consumer agents discover package instructions:
@@ -584,7 +584,7 @@ Contributions that stay within the `AIProviderAdapter` contract are welcome; do 
 
 ## Checklist before production
 
-- [ ] `@plumbus/ai-bedrock@plumbus-next` installed with the matching core 0.8 beta; core peer `>=0.8.0-beta.0 <0.9.0` satisfied (this family includes prompt caching) (npm Docker installs verify peers — pnpm alone is insufficient)
+- [ ] `@plumbus/ai-bedrock@0.3.x` installed with stable core `0.8.x`, or `@plumbus/ai-bedrock@plumbus-next` with the matching core 0.9 beta (peer `>=0.9.0-beta.0 <0.10.0`); runtime **≥ 0.7.0** (core **≥ 0.7.9** and ai-bedrock **≥ 0.2.2** for prompt caching; both families include it) (npm Docker installs verify peers — pnpm alone is insufficient)
 - [ ] Adapter registered (env discovery or `createBedrockAdapter`)
 - [ ] Correct product path chosen: **Runtime** vs **Mantle**
 - [ ] Models enabled in the account (Anthropic forms if needed)

@@ -109,4 +109,4 @@ The resolver issues stable runtime handles (`src_a`, `src_b`, …) to each conte
 
 ## Corpus prerequisite (Decision 0010)
 
-`ctx.ai.retrieve({ corpus, query, filter? })` requires `@plumbus/core` `0.5.x || 0.6.x`. The `corpus` arg was added to core specifically for this package. If you're on an older core, either upgrade or write a custom `ContextSource` that calls your retriever directly.
+`ctx.ai.retrieve({ corpus, query, filter? })` supplies corpus RAG through core. Current stable chat 0.3.x requires core 0.8.x; use the matching [stabilization family](../upgrading-stabilization.md). The beta chat 0.4.x requires the core 0.9 beta family ([upgrade guide](../upgrading-core-0.9.md)). Keep application retrieval in framework context sources and `ctx.ai` subsystems.

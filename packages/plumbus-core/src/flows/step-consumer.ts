@@ -44,7 +44,7 @@ export function createFlowStepConsumer(config: FlowStepConsumerConfig): {
     const started = Date.now();
     try {
       while (stepsRun < maxSteps) {
-        const result = await engine.runNext(executionId, baseCtx);
+        const result = await engine.runNext(executionId, baseCtx, claimed.leaseToken ?? undefined);
         stepsRun += 1;
         if (result.status !== FlowStatus.Running) {
           metrics?.flowCompleted.inc({ source: 'queue' });
@@ -61,7 +61,7 @@ export function createFlowStepConsumer(config: FlowStepConsumerConfig): {
         error: err instanceof Error ? err.message : String(err),
       });
       try {
-        await engine.markFailedFromRunner(executionId, err);
+        await engine.markFailedFromRunner(executionId, err, claimed.leaseToken ?? undefined);
       } catch (finalizeErr) {
         logger?.error('Failed to finalize flow after step consumer error', {
           executionId,

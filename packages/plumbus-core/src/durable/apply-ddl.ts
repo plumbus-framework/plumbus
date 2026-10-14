@@ -209,12 +209,18 @@ CREATE TABLE flow_executions (
   updated_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
   lease_owner text,
+  lease_token uuid,
+  wait_kind text,
+  replay_of uuid,
+  schedule_id uuid,
+  schedule_tick_id uuid,
   lease_expires_at timestamptz,
   definition_version text,
   definition_digest text
 );
 CREATE INDEX flow_exec_status_idx ON flow_executions (status);
 CREATE INDEX flow_exec_lease_idx ON flow_executions (status, lease_expires_at);
+CREATE INDEX flow_exec_schedule_idx ON flow_executions (schedule_id, status);
 CREATE TABLE flow_dead_letter (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   execution_id text NOT NULL UNIQUE,

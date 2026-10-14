@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Command } from 'commander';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig } from '../../config/index.js';
 import { postgresConnectionOptions } from '../../data/connection.js';
 import { openDataPlaneConnection } from '../../tenancy/data-plane-connection.js';
 import { DATA_PLANE_MIGRATE_APPLICATION_NAME } from '../../tenancy/data-plane-migrate.js';
@@ -69,7 +69,7 @@ function formatReconcileRecoveryMessage(): string {
 async function connectDb(
   database: string,
 ): Promise<{ db: PostgresJsDatabase; close: () => Promise<void> }> {
-  const config = loadConfig({});
+  const config = await loadAppConfig({});
   const password = config.database.password;
   return openDataPlaneConnection({
     target: {
@@ -85,12 +85,15 @@ async function connectDb(
   });
 }
 
-/** Optional connect for generate's drift rewrite — missing driver is not fatal. */
+/**
+ * Optional connect for generate's drift rewrite — a missing driver or an
+ * unloadable app config is not fatal. Defaults to the configured database.
+ */
 async function tryConnectDb(
-  database: string,
+  database?: string,
 ): Promise<{ db: PostgresJsDatabase; close: () => Promise<void> } | null> {
   try {
-    return await connectDb(database);
+    return await connectDb(database ?? (await loadAppConfig({})).database.database);
   } catch {
     return null;
   }
@@ -102,7 +105,7 @@ async function tryConnectDb(
  */
 async function ensureDatabase(dbName: string): Promise<boolean> {
   try {
-    const config = loadConfig({});
+    const config = await loadAppConfig({});
     const postgres = (await import('postgres')).default;
     const sql = postgres(postgresConnectionOptions(config.database, 'postgres'));
     try {
@@ -230,7 +233,7 @@ export function registerMigrateCommand(program: Command): void {
         // If we can also reach the DB, augment with framework-drift detection
         // so CREATE TABLE for existing framework tables is rewritten, not
         // just blocked at apply-time.
-        const conn = await tryConnectDb(loadConfig({}).database.database);
+        const conn = await tryConnectDb();
         let driftReportForRewrite: Awaited<ReturnType<typeof inspectFrameworkDrift>> | null = null;
         if (conn) {
           try {
@@ -335,7 +338,7 @@ export function registerMigrateCommand(program: Command): void {
     .action(async (opts: MigrateOptions & { dryRun?: boolean }) => {
       info('Reconciling migration history against the live schema...');
 
-      const config = loadConfig({});
+      const config = await loadAppConfig({});
       let dbName: string;
       try {
         dbName = resolveCliDatabaseName(opts.database, config.database.database);
@@ -501,7 +504,7 @@ export function registerMigrateCommand(program: Command): void {
       'Named database to apply to (defaults to config.database.database)',
     )
     .action(async (opts: MigrateOptions & { createDb?: boolean }) => {
-      const config = loadConfig({});
+      const config = await loadAppConfig({});
       let dbName: string;
       try {
         dbName = resolveCliDatabaseName(opts.database, config.database.database);
@@ -667,7 +670,7 @@ export function registerMigrateCommand(program: Command): void {
     .option('--create-db', 'Create the database if it does not exist')
     .option('--database <name>', 'Named database to push to (defaults to config.database.database)')
     .action(async (opts: MigrateOptions & { createDb?: boolean }) => {
-      const config = loadConfig({});
+      const config = await loadAppConfig({});
       let dbName: string;
       try {
         dbName = resolveCliDatabaseName(opts.database, config.database.database);
@@ -855,7 +858,7 @@ export function registerMigrateCommand(program: Command): void {
     .action(async (opts: MigrateOptions) => {
       info('Rolling back last migration...');
 
-      const config = loadConfig({});
+      const config = await loadAppConfig({});
       let dbName: string;
       try {
         dbName = resolveCliDatabaseName(opts.database, config.database.database);
@@ -925,7 +928,7 @@ export function registerDbCommand(program: Command): void {
     .option('--json', 'Output as JSON')
     .option('--test', 'Also create a separate test database (<dbname>_test)')
     .action(async (opts: MigrateOptions & { test?: boolean }) => {
-      const config = loadConfig({});
+      const config = await loadAppConfig({});
       const dbName = config.database.database;
 
       try {
@@ -971,7 +974,7 @@ export function registerDbCommand(program: Command): void {
     .option('--json', 'Output as JSON')
     .option('--test', 'Reset the test database instead')
     .action(async (opts: MigrateOptions & { test?: boolean }) => {
-      const config = loadConfig({});
+      const config = await loadAppConfig({});
       const baseDbName = config.database.database;
       const dbName = opts.test ? `${baseDbName}_test` : baseDbName;
 

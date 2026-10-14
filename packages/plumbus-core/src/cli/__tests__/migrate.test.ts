@@ -48,8 +48,8 @@ vi.mock('../discover.js', () => ({
   })),
 }));
 
-vi.mock('../../config/loader.js', () => ({
-  loadConfig: vi.fn(() => ({
+vi.mock('../../config/app-config.js', () => ({
+  loadAppConfig: vi.fn(() => ({
     database: {
       host: 'localhost',
       port: 5432,

@@ -312,6 +312,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'jobExecutionsTable',
   'joinAndFilterModels',
   'like',
+  'loadAppConfig',
   'loadCompiledFlowRegistryFromDirectory',
   'loadConfig',
   'lte',

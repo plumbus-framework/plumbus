@@ -1,13 +1,13 @@
 # @plumbus/voice-deepdub
 
-Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
+Release notes: [changelog](./CHANGELOG.md), [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and [stabilization upgrade guide](../../docs/upgrading-stabilization.md).
 
 > **Deepdub TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `tts.provider: 'deepdub'` for streaming synthesis with full delivery-tone support and strong Hebrew quality via `@deepdub/node`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-deepdub.svg)](https://www.npmjs.com/package/@plumbus/voice-deepdub)
 [![license](https://img.shields.io/npm/l/@plumbus/voice-deepdub.svg)](./LICENSE)
-[![peer: @plumbus/core 0.8.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.8.x-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/voice 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/voice >=0.7.0-beta.0 <0.8.0](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%20%3E%3D0.7.0--beta.0%20%3C0.8.0-blue)](https://www.npmjs.com/package/@plumbus/voice)
 
 ## What is this?
 
@@ -30,15 +30,15 @@ Deepdub's Node SDK is a heavy, vendor-specific dependency. Shipping it as an opt
 
 ## Status
 
-Optional add-on of `@plumbus/voice` `0.6.x` and `@plumbus/core` `0.8.x`. Implements streaming Deepdub TTS with delivery-tone mapping. Install alone does not register the provider.
+Optional add-on of `@plumbus/voice` `>=0.7.0-beta.0 <0.8.0` and `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. Implements streaming Deepdub TTS with delivery-tone mapping. Install alone does not register the provider.
 
 ## Install
 
 ```bash
-pnpm add @plumbus/voice @plumbus/voice-deepdub
+pnpm add @plumbus/voice@plumbus-next @plumbus/voice-deepdub@plumbus-next
 ```
 
-Peers (copy literals): `@plumbus/core` `0.8.x`, `@plumbus/voice` `0.6.x`.
+Peers (copy literals): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`, `@plumbus/voice` `>=0.7.0-beta.0 <0.8.0`.
 
 Env: `DEEPDUB_API_KEY` (optional `DEEPDUB_BASE_URL`, default `https://restapi.deepdub.ai/api/v1`). Default TTS model: `dd-etts-3.2`.
 

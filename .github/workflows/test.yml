@@ -44,6 +44,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Integration fixtures launch their own isolated Redis/PostgreSQL processes.
+      - name: Install integration test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends redis-server postgresql-16
+          redis-server --version
+          /usr/lib/postgresql/16/bin/initdb --version
+          /usr/lib/postgresql/16/bin/pg_ctl --version
+
       - run: pnpm install --frozen-lockfile
 
       - name: Build

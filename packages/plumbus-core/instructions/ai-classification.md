@@ -1,10 +1,11 @@
 # AI classification: provider and model selection
 
 Read this when implementing classification, categorization, label selection, or
-TypeSafe/Jev, Laya, and OpenAI Decisions integration. Requires **@plumbus/core 0.7.4+** (0.8 family: **0.8.0-beta.6+**)
+TypeSafe/Jev, Laya, and OpenAI Decisions integration. Requires **@plumbus/core 0.7.4+** (on the beta line **0.8.0-beta.6+**; every 0.8 stable and 0.9 beta release includes it)
 for the `classify()` provider/model options (OpenAI Decisions is included in this beta family; stable core **0.7.9+**). Use this
 recipe inside Plumbus capabilities and flows; preserve their access policies and declare
-`effects.ai: true`.
+`effects.ai: true`. This beta family uses core **0.9** (`>=0.9.0-beta.0 <0.10.0`) and decision packages **0.4** (`~0.4.0-beta.0`); the stable 0.8 stabilization family uses core **0.8.x** and decision packages **0.3.x**;
+read [stabilization.md](stabilization.md) before upgrading an existing app.
 
 ## Choose the operation
 
@@ -23,11 +24,11 @@ cancellation, and accounting. Predictions never replace authorization.
 Install only the decision provider needed by the app:
 
 ```bash
-pnpm add @plumbus/core@~0.7.4 @plumbus/ai-decision-typesafe@~0.2.2
-# For self-hosted Laya, use @plumbus/ai-decision-laya@~0.2.2 instead.
-# 0.8 beta family: pnpm add @plumbus/core@plumbus-next @plumbus/ai-decision-typesafe@plumbus-next
-# OpenAI Decisions in the 0.8 beta: pnpm add @plumbus/core@plumbus-next @plumbus/ai-decision-openai@plumbus-next
-# Stable 0.7 line: pnpm add @plumbus/core@~0.7.9 @plumbus/ai-decision-openai@~0.2.0
+pnpm add @plumbus/core@plumbus-next @plumbus/ai-decision-typesafe@plumbus-next
+# For self-hosted Laya, use @plumbus/ai-decision-laya@plumbus-next instead.
+# For the OpenAI Decisions API: pnpm add @plumbus/core@plumbus-next @plumbus/ai-decision-openai@plumbus-next
+# Stable 0.8 stabilization family (npm latest): pnpm add @plumbus/core@~0.8.1 @plumbus/ai-decision-typesafe@~0.3.0
+#   (Laya: @plumbus/ai-decision-laya@~0.3.0; OpenAI Decisions: @plumbus/ai-decision-openai@~0.3.0)
 ```
 
 Export registration at the server boundary so API and workers share it:
@@ -55,12 +56,13 @@ bootstrap, pass `decisions` to `createServer()` / `buildWorkerAiService()` or
 text-completion `providers` map. Use distinct names across those two maps.
 
 For the [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions),
-install `@plumbus/ai-decision-openai@~0.2.0` and register
+install `@plumbus/ai-decision-openai@plumbus-next` (stable 0.8 family: `@~0.3.0`) and register
 `'openai-decisions': createOpenAIDecisionAdapter({ apiKey: process.env.OPENAI_API_KEY ?? '' })`
 (default model `gpt-6-luna`). Do not reuse the key `openai` when the app also registers
-the OpenAI text provider. Use core 0.7.9+: core re-validates answers with its own
-`@plumbus/ai-decision`, which must be 0.2.3+ for OpenAI's two-decimal rounding (the
-package README covers older cores). OpenAI's Decisions API is in public beta. Read
+the OpenAI text provider. Core re-validates answers with its own `@plumbus/ai-decision`
+(`~0.4.0-beta.0` in this beta family, `~0.3.0` on stable core 0.8), matching the provider's
+dependency and retaining OpenAI rounding support introduced in 0.2.3. OpenAI's Decisions
+API is in public beta. Read
 `node_modules/@plumbus/ai-decision-openai/instructions/README.md`.
 
 ## Select a provider and model per call
@@ -125,7 +127,7 @@ Use `mockAI({ classify: ['billing'] })` through `createTestContext` and
 out of routine tests.
 
 After upgrading core, run `plumbus init --patch --agent all` and `plumbus doctor`
-to refresh agent wiring (**v17** added this recipe; **v19**, core 0.7.9+, links the
+to refresh agent wiring to **v21** (**v17** added this recipe; **v19** added the
 OpenAI Decisions provider), preserving app-owned text outside managed blocks.
 
 See [AI operations](ai.md), [instruction index](README.md), and the

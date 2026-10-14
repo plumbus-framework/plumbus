@@ -4,11 +4,6 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     pool: "threads",
-    poolOptions: {
-      threads: {
-        maxThreads: 2,
-        minThreads: 1,
-      },
-    },
+    maxWorkers: process.env.VITEST_MAX_WORKERS ? undefined : 2,
   },
 });

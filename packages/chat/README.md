@@ -1,12 +1,12 @@
 # @plumbus/chat
 
-Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
+Release notes: [changelog](./CHANGELOG.md), [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and [stabilization upgrade guide](../../docs/upgrading-stabilization.md).
 
 > **Policy-first conversation runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Declare a chat, plug in context sources, set guards — get a fully-governed AI conversation with cited sources, budgets, refusals, and an event-streamed UI.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/chat.svg)](https://www.npmjs.com/package/@plumbus/chat)
 [![license](https://img.shields.io/npm/l/@plumbus/chat.svg)](./LICENSE)
-[![peer: @plumbus/core 0.7.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -36,15 +36,15 @@ If you're not using Plumbus, this package won't make sense in isolation — `def
 
 ## Status
 
-Declared peer: `@plumbus/core` `0.8.x`. **Ship with `@plumbus/core` ≥ 0.6.11** — 0.1.11 loads the provider tool protocol (`safeJsonStringify`, `AITool*`, unique entity indexes, `Repository.updateWhere`) from the turn pipeline, so older 0.5.x / early 0.7.x cores fail at import or first turn. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
+Chat 0.4.0-beta.0 (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family) requires the declared peer `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. This family includes the provider tool protocol (`safeJsonStringify`, `AITool*`, unique entity indexes, `Repository.updateWhere`) introduced in core 0.6.11 for chat 0.1.11. The surface is implemented end-to-end: the `defineChat` declaration, policy DSL, context-source contract, streamed event protocol, `mockChatRuntime` testing helper, the deterministic evaluation harness (`defineChatEvaluation` / `runChatEvaluation` / `TraceRecorder`), and the runtime's domain events.
 
 ## Install
 
 ```bash
-pnpm add @plumbus/chat
+pnpm add @plumbus/chat@plumbus-next
 ```
 
-Required peer: `@plumbus/core` `0.8.x` (**runtime ≥ 0.6.11** for existing Chat behavior; **≥ 0.6.18** only when using `policy.toolCalling.ai` overrides). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
+Required peer: `@plumbus/core` `>=0.9.0-beta.0 <0.10.0` (**runtime ≥ 0.6.11** for existing Chat behavior; **≥ 0.6.18** only when using `policy.toolCalling.ai` overrides). The framework provides Zod, Vitest, Playwright, and Drizzle transitively — do not add them to your own `package.json`.
 
 For the React UI, also install [`@plumbus/chat-ui`](../chat-ui/). For registry-backed knowledge sources, [`@plumbus/knowledge-base`](../knowledge-base/).
 

@@ -8,7 +8,7 @@ Follow every step; payments only works when all pieces are registered.
 pnpm add @plumbus/payments@plumbus-next @plumbus/payments-stripe@plumbus-next
 ```
 
-Requires the matching `@plumbus/core` **0.8 beta**; install the whole family with the `plumbus-next` dist-tag. Do not add `stripe` to the app — the provider package brings it.
+Requires the matching `@plumbus/core` **0.9 beta** (`>=0.9.0-beta.0 <0.10.0`); install the whole family with the `plumbus-next` dist-tag. Do not add `stripe` to the app — the provider package brings it.
 
 ## 2. Create the payments object — `app/payments/index.ts`
 

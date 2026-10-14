@@ -1,13 +1,13 @@
 # @plumbus/auth — Framework
 
-## Release family 0.2.0
+## Release family 0.4.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
-`@plumbus/auth` is the **OIDC relying-party runtime** for Plumbus browser applications: hosted login redirect, authorization code + PKCE callback, opaque server sessions, CSRF, and protected PostgreSQL or memory stores. It is an **optional add-on** peer of `@plumbus/core` (version-locked **`0.8.x`**).
+`@plumbus/auth` is the **OIDC relying-party runtime** for Plumbus browser applications: hosted login redirect, authorization code + PKCE callback, opaque server sessions, CSRF, and protected PostgreSQL or memory stores. It is an **optional add-on** peer of `@plumbus/core` (version **`0.4.0-beta.0`**, core 0.9 beta family; peer `>=0.9.0-beta.0 <0.10.0`).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.9.0-beta.0 <0.10.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 
@@ -22,7 +22,7 @@ This package requires an explicit upgrade from its previous minor line. Current 
 ## When to install
 
 ```bash
-pnpm add @plumbus/auth
+pnpm add @plumbus/auth@plumbus-next
 ```
 
 Install when the app needs **browser login** with **HttpOnly session cookies**. Skip when all traffic uses bearer JWT/OIDC adapters only (`createJwtAdapter`, `createOidcAdapter`).

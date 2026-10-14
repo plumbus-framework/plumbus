@@ -1,6 +1,6 @@
 # Chat Integration — Agent Recipe
 
-Requires `@plumbus/chat@0.1.4+` and optional `@plumbus/knowledge-base@^0.1.0`. Full detail: `docs/knowledge-base/chat-integration.md` in the Plumbus monorepo.
+Requires `@plumbus/chat` and optional `@plumbus/knowledge-base` from the core 0.9 beta family (`>=0.4.0-beta.0 <0.5.0`), with core `>=0.9.0-beta.0 <0.10.0`. Full detail: `docs/knowledge-base/chat-integration.md` in the Plumbus monorepo.
 
 ## Registry-backed (preferred when multiple sources or reuse)
 

@@ -4,6 +4,7 @@
 import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   detectMonorepoLayout,
   error as logError,
@@ -38,7 +39,7 @@ export interface InitWriteResult {
   message: string;
 }
 
-export const AGENT_WIRING_VERSION = 19;
+export const AGENT_WIRING_VERSION = 21;
 export const AGENT_WIRING_END_MARKER = '<!-- /plumbus:agent-wiring -->';
 
 const AGENT_WIRING_VERSION_PATTERN = /plumbus:agent-wiring version=(\d+)\b/i;
@@ -88,6 +89,23 @@ export function hasPatchableAgentWiringBlock(content: string): boolean {
   return getAgentWiringManagedBlockRange(content) !== undefined;
 }
 
+/** Recognize a sibling instruction import, excluding comments and Markdown code. */
+export function hasAgentFileImport(content: string, file: 'AGENTS.md' | 'CLAUDE.md'): boolean {
+  const pattern = new RegExp(`(?:^|[\\s(])@(?:\\./)?${file.replace('.', '\\.')}($|[\\s),;])`);
+  let fence: string | undefined;
+  for (const line of content.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)) {
+    const delimiter = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    if (delimiter) {
+      if (!fence) fence = delimiter;
+      else if (delimiter[0] === fence[0] && delimiter.length >= fence.length) fence = undefined;
+      continue;
+    }
+    if (fence || /^(?: {4}|\t)/.test(line)) continue;
+    if (pattern.test(line.replace(/(`+).*?\1/g, ''))) return true;
+  }
+  return false;
+}
+
 function extractAgentWiringManagedBlock(content: string): string | undefined {
   const range = getAgentWiringManagedBlockRange(content);
   if (!range) {
@@ -116,6 +134,8 @@ function patchAgentWiringContent(
 const CORE_INSTRUCTION_TOPICS = [
   'guardrails',
   'framework',
+  'deployment',
+  'stabilization',
   'cli',
   'capabilities',
   'flows',
@@ -596,11 +616,21 @@ function addInstructionReferenceLines(lines: string[], inline: boolean): void {
     '',
   );
   if (inline) {
+    const directory = fileURLToPath(new URL('../../../instructions/', import.meta.url));
+    for (const file of fs
+      .readdirSync(directory)
+      .filter((name) => name.endsWith('.md'))
+      .sort()) {
+      lines.push(
+        '',
+        `<!-- bundled instruction: ${file} -->`,
+        fs.readFileSync(path.join(directory, file), 'utf8'),
+      );
+    }
     lines.push(
-      'Refer to the bundled Plumbus instruction files in node_modules (@plumbus/core, @plumbus/ui, and optional add-ons such as chat, chat-ui, voice, voice-openai, voice-livekit, voice-soniox, voice-deepdub, voice-elevenlabs, voice-minimax, knowledge-base, mcp, api, ai-bedrock, auth, auth-cognito, payments, payments-stripe, and browser-extension) for full SDK documentation.',
-      'After installing any optional package, open `node_modules/@plumbus/<package>/instructions/README.md` first — that index lists the exact recipe files to read.',
+      '',
+      'Optional add-on recipes remain in their installed packages; use the references below.',
     );
-    return;
   }
 
   lines.push(
@@ -895,19 +925,12 @@ ${AGENT_WIRING_END_MARKER}
 `;
 }
 
-type RootAgentMdFormat = 'agents-md' | 'claude';
-
-/** Shared body for root agent markdown files (`AGENTS.md` / `CLAUDE.md`). */
-function generateRootAgentMd(
-  format: RootAgentMdFormat,
-  fileLabel: 'AGENTS.md' | 'CLAUDE.md',
-  inline: boolean,
-  monorepo = false,
-): string {
+/** Canonical shared instructions, imported by the Claude entry file. */
+export function generateAgentsMd(inline: boolean, monorepo = false): string {
   const appPrefix = monorepo ? 'backend/' : '';
   const lines = [
-    buildAgentWiringStartMarker(format, inline, monorepo),
-    `# ${fileLabel} — Plumbus Framework`,
+    buildAgentWiringStartMarker('agents-md', inline, monorepo),
+    '# AGENTS.md — Plumbus Framework',
     '',
     'This project is built with the Plumbus framework.',
     '',
@@ -959,17 +982,14 @@ function generateRootAgentMd(
   return lines.join('\n');
 }
 
-/** Generate AGENTS.md content (generic cross-agent format). */
-export function generateAgentsMd(inline: boolean, monorepo = false): string {
-  return generateRootAgentMd('agents-md', 'AGENTS.md', inline, monorepo);
-}
-
-/**
- * Generate CLAUDE.md content for Claude Code.
- * Same body as {@link generateAgentsMd} — Claude Code reads `CLAUDE.md`, not `AGENTS.md`.
- */
+/** Import the canonical sibling file; inline/layout settings describe that target. */
 export function generateClaudeMd(inline: boolean, monorepo = false): string {
-  return generateRootAgentMd('claude', 'CLAUDE.md', inline, monorepo);
+  return [
+    buildAgentWiringStartMarker('claude', inline, monorepo),
+    '@AGENTS.md',
+    AGENT_WIRING_END_MARKER,
+    '',
+  ].join('\n');
 }
 
 /** Generate the project brief */
@@ -1041,6 +1061,11 @@ function buildAgentFileTargets(
       }
       case 'claude': {
         targets.push({
+          path: path.join(projectRoot, 'AGENTS.md'),
+          content: generateAgentsMd(inline, monorepo),
+          kind: 'wiring',
+        });
+        targets.push({
           path: path.join(projectRoot, 'CLAUDE.md'),
           content: generateClaudeMd(inline, monorepo),
           kind: 'wiring',
@@ -1058,7 +1083,7 @@ function buildAgentFileTargets(
     });
   }
 
-  return targets;
+  return [...new Map(targets.map((target) => [target.path, target])).values()];
 }
 
 function relativeTargetPath(projectRoot: string, filePath: string): string {
@@ -1088,11 +1113,59 @@ export function writeAgentFiles(
     includeProjectBrief,
     monorepo,
   );
+  const agentsPath = path.join(projectRoot, 'AGENTS.md');
+  const claudePath = path.join(projectRoot, 'CLAUDE.md');
+  const needsClaudeImport = formats.includes('claude');
+  const canonicalIsLink = fs.lstatSync(agentsPath, { throwIfNoEntry: false })?.isSymbolicLink();
+  const planned = new Map<string, string>();
+  const recordWrite = (filePath: string, content: string) => {
+    writeTargetContent(filePath, content, dryRun);
+    planned.set(filePath, content);
+  };
+  const canonicalContent = () =>
+    planned.get(agentsPath) ??
+    (fs.existsSync(agentsPath) && fs.statSync(agentsPath).isFile()
+      ? fs.readFileSync(agentsPath, 'utf8')
+      : '');
+  const reverseImport =
+    needsClaudeImport &&
+    (hasAgentFileImport(canonicalContent(), 'CLAUDE.md') ||
+      hasAgentFileImport(canonicalContent(), 'AGENTS.md'));
 
   for (const target of targets) {
     const relPath = relativeTargetPath(projectRoot, target.path);
+    if (reverseImport && (target.path === agentsPath || target.path === claudePath)) {
+      results.push({
+        path: relPath,
+        action: 'skipped',
+        message: `Skipped ${relPath}: AGENTS.md imports a root instruction file. Move shared instructions into AGENTS.md and remove that import before migrating to avoid a cycle.`,
+      });
+      continue;
+    }
+    if (fs.lstatSync(target.path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      results.push({
+        path: relPath,
+        action: 'skipped',
+        message: `Skipped ${relPath}: symbolic link preserved; update its target explicitly.`,
+      });
+      continue;
+    }
+    if (
+      needsClaudeImport &&
+      target.path === claudePath &&
+      (canonicalIsLink || !hasPatchableAgentWiringBlock(canonicalContent()))
+    ) {
+      results.push({
+        path: relPath,
+        action: 'skipped',
+        message: canonicalIsLink
+          ? `Skipped ${relPath}: AGENTS.md is a symbolic link. Update its target explicitly before migrating the Claude instructions.`
+          : `Skipped ${relPath}: AGENTS.md has no complete Plumbus-managed block. Repair its guidance before replacing the Claude instructions.`,
+      });
+      continue;
+    }
     if (!fs.existsSync(target.path)) {
-      writeTargetContent(target.path, target.content, dryRun);
+      recordWrite(target.path, target.content);
       results.push({
         path: relPath,
         action: 'created',
@@ -1108,6 +1181,37 @@ export function writeAgentFiles(
         path: relPath,
         action: 'skipped',
         message: `Skipped ${relPath}: existing project brief preserved. Run \`plumbus agent sync\` to refresh it.`,
+      });
+      continue;
+    }
+
+    if (
+      target.path === claudePath &&
+      mode !== 'force' &&
+      hasAgentFileImport(existingContent, 'AGENTS.md') &&
+      !existingContent.includes('plumbus:agent-wiring')
+    ) {
+      results.push({
+        path: relPath,
+        action: 'unchanged',
+        message: `${relPath} already imports AGENTS.md; existing Claude-specific notes preserved.`,
+      });
+      continue;
+    }
+
+    if (
+      needsClaudeImport &&
+      target.path === agentsPath &&
+      mode !== 'force' &&
+      !hasPatchableAgentWiringBlock(existingContent) &&
+      !existingContent.includes('plumbus:agent-wiring') &&
+      !/^# AGENTS\.md — Plumbus Framework$/m.test(existingContent)
+    ) {
+      recordWrite(target.path, `${existingContent}\n\n${target.content}`);
+      results.push({
+        path: relPath,
+        action: 'patched',
+        message: `${dryRun ? 'Would add' : 'Added'} Plumbus guidance to ${relPath}, preserving existing instructions.`,
       });
       continue;
     }
@@ -1141,7 +1245,7 @@ export function writeAgentFiles(
         continue;
       }
 
-      writeTargetContent(target.path, patchedContent, dryRun);
+      recordWrite(target.path, patchedContent);
       results.push({
         path: relPath,
         action: 'patched',
@@ -1159,7 +1263,7 @@ export function writeAgentFiles(
       continue;
     }
 
-    writeTargetContent(target.path, target.content, dryRun);
+    recordWrite(target.path, target.content);
     results.push({
       path: relPath,
       action: 'replaced',

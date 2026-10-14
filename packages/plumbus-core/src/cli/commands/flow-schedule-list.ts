@@ -3,7 +3,7 @@
 
 import { asc } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig } from '../../config/index.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/connection.js';
 import { flowSchedulesTable } from '../../flows/schema.js';
 import { discoverRuntimeResources } from '../../runtime/bootstrap.js';
@@ -17,6 +17,11 @@ export interface FlowScheduleListEntry {
   nextRunAt: string | null;
   enabled: boolean;
   synced: boolean;
+  cronDrift?: boolean;
+  revision?: number;
+  removed?: boolean;
+  timezone?: string | null;
+  overlap?: string;
 }
 
 export interface FlowScheduleDbRow {
@@ -25,6 +30,10 @@ export interface FlowScheduleDbRow {
   lastRunAt: Date | null;
   nextRunAt: Date | null;
   enabled: boolean;
+  revision?: number;
+  removed?: boolean;
+  timezone?: string | null;
+  overlap?: string;
 }
 
 export interface ListFlowSchedulesDeps {
@@ -87,6 +96,15 @@ export function mergeFlowScheduleList(
       nextRunAt: row.nextRunAt?.toISOString() ?? null,
       enabled: row.enabled,
       synced: true,
+      ...(row.revision !== undefined
+        ? {
+            revision: row.revision,
+            removed: row.removed,
+            timezone: row.timezone,
+            overlap: row.overlap,
+            cronDrift: !existing || existing.cron !== row.cron,
+          }
+        : {}),
     });
   }
 
@@ -105,6 +123,14 @@ export function formatFlowScheduleLine(entry: FlowScheduleListEntry): string {
   }
   parts.push(`enabled=${entry.enabled}`);
   parts.push(`synced=${entry.synced}`);
+  if (entry.revision !== undefined)
+    parts.push(
+      `revision=${entry.revision}`,
+      `cronDrift=${entry.cronDrift}`,
+      `removed=${entry.removed}`,
+      `timezone=${entry.timezone}`,
+      `overlap=${entry.overlap}`,
+    );
   return parts.join(' ');
 }
 
@@ -116,7 +142,7 @@ export async function listFlowSchedules(
     deps.querySchedules ??
     (async (db) => db.select().from(flowSchedulesTable).orderBy(asc(flowSchedulesTable.nextRunAt)));
 
-  const config = loadConfig();
+  const config = await loadAppConfig();
   const connection = await resolveDatabaseConnection(config.database, {});
   try {
     const [resources, dbRows] = await Promise.all([

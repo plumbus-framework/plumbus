@@ -140,7 +140,7 @@ plumbus verify
 plumbus migrate generate && plumbus migrate apply
 ```
 
-Apply migrations **before** production traffic. The migration adds `auth_snapshot_json` on `flow_executions` (and `job_executions` for job queue auth). Rows created before the column exists fall back to worker auth for roles until migrated.
+Apply migrations **before** production traffic. The migration adds `auth_snapshot_json` on `flow_executions` (and `job_executions` for job queue auth). Current core rejects rows with missing or invalid auth snapshots. Restart from a verified initiating identity; never inject worker/system roles into legacy rows.
 
 Refresh agent wiring after framework upgrade:
 

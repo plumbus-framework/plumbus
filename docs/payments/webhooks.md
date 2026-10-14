@@ -31,7 +31,7 @@ Why this shape:
 
 ## Tenant data planes
 
-With core 0.8, `registerPaymentRoutes` uses the asynchronous
+With the core 0.9 beta family, `registerPaymentRoutes` uses the asynchronous
 `routeConfig.resolveDependencies` when the server supplies it. Tenant discovery
 runs as the payments service account with `bypassTenantScope: true`, using the
 control-plane database. Once the tenant is known, recording the provider-event

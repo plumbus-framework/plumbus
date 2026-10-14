@@ -1,10 +1,19 @@
+import {
+  replayDeadLetterFlow,
+  FlowRegistry,
+  createFlowScheduler,
+  createFlowEngine,
+} from '../../flows/index.js';
+import { discoverRuntimeResources, buildStepDeps } from '../../runtime/bootstrap.js';
+import { loadServerExtensions } from '../../runtime/load-extensions.js';
+import { CapabilityRegistry } from '../../execution/index.js';
 // ── plumbus flow new ──
 // Scaffold a new flow
 
 import type { Command } from 'commander';
 import * as path from 'node:path';
 import { desc } from 'drizzle-orm';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig } from '../../config/index.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/connection.js';
 import { retryDeadLetteredFlow } from '../../flows/dead-letter.js';
 import { flowDeadLetterTable } from '../../flows/schema.js';
@@ -26,7 +35,7 @@ export function registerFlowCommand(program: Command): void {
     .option('--json', 'Output JSON')
     .action(async (opts: { limit?: string; json?: boolean }) => {
       const limit = parseInt(opts.limit ?? '20', 10);
-      const config = loadConfig();
+      const config = await loadAppConfig();
       const connection = await resolveDatabaseConnection(config.database, {});
       try {
         const rows = await connection.db
@@ -72,22 +81,105 @@ export function registerFlowCommand(program: Command): void {
       }
     });
 
+  schedule
+    .command('sync')
+    .description('Preview or apply the complete deployed schedule manifest')
+    .option('--apply', 'Apply the previewed changes')
+    .option('--expected-revision <revision>', 'Revision from the preview; required with --apply')
+    .action(async (options: { apply?: boolean; expectedRevision?: string }) => {
+      const config = await loadAppConfig();
+      const connection = await resolveDatabaseConnection(config.database, {});
+      let ext: Awaited<ReturnType<typeof loadServerExtensions>> | undefined;
+      try {
+        const resources = await discoverRuntimeResources();
+        const registry = new FlowRegistry();
+        for (const flow of resources.flows) registry.register(flow);
+        const capabilities = new CapabilityRegistry();
+        capabilities.registerAll(resources.capabilities);
+        const engine = createFlowEngine({
+          db: connection.db,
+          registry,
+          stepDeps: buildStepDeps(capabilities),
+        });
+        // Reconcile every plane the worker schedules on (the same planes `app/server.ts` gives it).
+        ext = await loadServerExtensions(process.cwd());
+        if (ext.dataPlaneResolver && !ext.listTenantRefs) {
+          // The worker schedules `tenants` flows on every plane it resolves; this command can
+          // only reach the planes the host lists. Refuse rather than report a clean result.
+          const tenantScheduled = registry
+            .getScheduled()
+            .filter((flow) => (flow.schedule?.plane ?? 'tenants') === 'tenants');
+          if (tenantScheduled.length > 0) {
+            error(
+              `app/server.ts exports dataPlaneResolver without listTenantRefs; the tenant-plane schedules (${tenantScheduled
+                .map((flow) => flow.name)
+                .join(', ')}) cannot be enumerated for reconciliation. Export listTenantRefs.`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+        }
+        // Same precedence as the worker (worker/bootstrap.ts): a data-plane resolver wins over
+        // schedulePlanes, and tenant-plane runs live on their plane (spine dispatch).
+        const planes = ext.dataPlaneResolver
+          ? {
+              resolver: ext.dataPlaneResolver,
+              listTenantRefs: ext.listTenantRefs ?? (() => []),
+              tenantExecutions: 'schedule-plane' as const,
+            }
+          : ext.schedulePlanes
+            ? { ...ext.schedulePlanes, tenantExecutions: 'pool' as const }
+            : {};
+        const scheduler = createFlowScheduler({ db: connection.db, registry, engine, ...planes });
+        console.log(JSON.stringify(await scheduler.reconcileSchedules(options), null, 2));
+      } finally {
+        // A pooled resolver holds a connection per plane it resolved; release them.
+        for (const resolver of [ext?.dataPlaneResolver, ext?.schedulePlanes?.resolver]) {
+          const closable = resolver as { close?: () => Promise<void> } | undefined;
+          await closable?.close?.().catch(() => undefined);
+        }
+        await closeDatabaseConnection(connection);
+      }
+    });
+
   dlq
     .command('retry <executionId>')
-    .description('Reset a dead-lettered flow and re-enqueue after operator fix')
+    .description(
+      'Replay a failed flow step as a new execution (--in-place resets the same execution)',
+    )
     .option('--actor <id>', 'Operator identity for attribution')
-    .action(async (executionId: string, opts: { actor?: string }) => {
-      const config = loadConfig();
+    .option('--in-place', 'Reset the dead-lettered execution instead of replaying it')
+    .action(async (executionId: string, opts: { actor?: string; inPlace?: boolean }) => {
+      const config = await loadAppConfig();
       const actor = opts.actor ?? process.env.USER ?? 'operator';
       const connection = await resolveDatabaseConnection(config.database, {});
       const queues = await resolveRuntimeQueues(config);
       try {
-        const result = await retryDeadLetteredFlow(connection.db, executionId, {
+        if (opts.inPlace) {
+          const result = await retryDeadLetteredFlow(connection.db, executionId, {
+            actor,
+            reason: 'operator-retry',
+          });
+          try {
+            await enqueueFlowStep(queues.flows, executionId);
+          } catch {
+            info('Retry persisted; worker database reconciliation will recover its wake');
+          }
+          success(`Retried flow ${result.executionId} by ${result.retriedBy}; re-enqueued step`);
+          return;
+        }
+        const registry = new FlowRegistry();
+        const resources = await discoverRuntimeResources();
+        for (const flow of resources.flows) registry.register(flow);
+        const replayId = await replayDeadLetterFlow(connection.db, registry, executionId, {
           actor,
-          reason: 'operator-retry',
         });
-        await enqueueFlowStep(queues.flows, executionId);
-        success(`Retried flow ${result.executionId} by ${result.retriedBy}; re-enqueued step`);
+        try {
+          await enqueueFlowStep(queues.flows, replayId);
+        } catch {
+          info('Replay persisted; worker database reconciliation will recover its wake');
+        }
+        success(`Replay execution ${replayId} (source ${executionId})`);
       } finally {
         await queues.close();
         await closeDatabaseConnection(connection);

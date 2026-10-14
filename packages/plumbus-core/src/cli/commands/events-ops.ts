@@ -3,7 +3,7 @@
 
 import type { Command } from 'commander';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig } from '../../config/index.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/connection.js';
 import { deadLetterTable, idempotencyTable, outboxTable } from '../../events/outbox.js';
 import { TrustedReplayActor } from '../../types/event.js';
@@ -13,7 +13,7 @@ import { info, error as logError } from '../utils.js';
 async function withDb<T>(
   fn: (db: Awaited<ReturnType<typeof resolveDatabaseConnection>>['db']) => Promise<T>,
 ): Promise<T> {
-  const config = loadConfig();
+  const config = await loadAppConfig();
   const connection = await resolveDatabaseConnection(config.database, {});
   try {
     return await fn(connection.db);
@@ -36,7 +36,7 @@ export async function getEventsStatus(): Promise<Record<string, unknown>> {
       .orderBy(outboxTable.occurredAt)
       .limit(1);
 
-    const config = loadConfig();
+    const config = await loadAppConfig();
     const queues = await resolveRuntimeQueues(config, { preferInMemory: true });
     const queueDepths = queues.getDepths ? await queues.getDepths() : null;
 
@@ -119,7 +119,7 @@ export function registerEventsOpsCommands(eventsCmd: Command): void {
           if (!row) {
             throw new Error(`Dead-letter row "${id}" not found`);
           }
-          const config = loadConfig();
+          const config = await loadAppConfig();
           const queues = await resolveRuntimeQueues(config);
           const dlqMeta = row.metadata as { tenantId?: string | null } | null;
           await queues.events.publish({
@@ -150,7 +150,7 @@ export function registerEventsOpsCommands(eventsCmd: Command): void {
     .action(async (eventId: string, opts: { consumer?: string; from?: string }) => {
       try {
         await withDb(async (db) => {
-          const config = loadConfig();
+          const config = await loadAppConfig();
           const queues = await resolveRuntimeQueues(config);
           if (opts.from) {
             const rows = await db

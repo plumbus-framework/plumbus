@@ -97,4 +97,35 @@ describe('flow-delayed', () => {
     expect(await promoter.promoteOnce()).toBe(0);
     expect(client.store.get(flowDelayedKey(prefix))?.has('exec-future')).toBe(true);
   });
+
+  it('logs a failed promotion and keeps polling instead of rejecting', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = mockRedisClient();
+      const zrangebyscore = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+      client.zrangebyscore = zrangebyscore;
+      const logger = { warn: vi.fn() };
+      const prefix = 'plumbus:test:flows';
+      const promoter = createFlowDelayedPromoter({
+        client,
+        flowsPrefix: prefix,
+        flowsQueue: createInMemoryQueue(),
+        pollIntervalMs: 1_000,
+        logger,
+      });
+
+      promoter.start();
+      await vi.advanceTimersByTimeAsync(1_000);
+      promoter.stop();
+
+      expect(zrangebyscore).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Delayed flow wake promotion failed; retrying next tick',
+        { error: 'ECONNREFUSED', delayedKey: flowDelayedKey(prefix) },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

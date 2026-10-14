@@ -2,19 +2,22 @@
 
 Plumbus provides a complete testing toolkit exported from `@plumbus/core/testing`. Every testing utility is designed to work with Vitest.
 
-**Important**: Vitest, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
+Core provides **Vitest 5.0.4** and its Vite dependency. Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. See the [Vitest upgrade guide](../upgrading-vitest.md) for config and mock changes.
+
+**Important**: Vitest, Vite, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
 
 ## Framework repository resource limits
 
 When developing this repository, `pnpm test` runs at most two package tasks at a
-time and defaults each Vitest pool to two workers (minimum one). Laya uses a
+time and defaults each Vitest pool to two workers. Laya uses a
 single worker and serial files because its tests launch Python fixtures and load
 framework modules. This limits multiplied package/file parallelism on desktops.
 All tests still run; only scheduling changes.
 
 `pnpm test --concurrency=1` runs one package task at a time. Explicit Vitest worker
-settings (`VITEST_MAX_THREADS` / `VITEST_MAX_FORKS`, with their matching minimums)
-are preserved, as are arguments forwarded after `--`. These limits apply to the
+settings (`VITEST_MAX_WORKERS` or forwarded `--maxWorkers`) are preserved, as are
+arguments forwarded after `--`. Removed `minWorkers`, thread/fork environment limits,
+and `poolOptions` must be replaced when upgrading. These limits apply to the
 framework checkout, not consumer applications' `plumbus test` command.
 
 The default suite never starts Laya model inference or downloads weights. The
@@ -574,3 +577,24 @@ plumbus test --coverage
 
 
 Custom execution-context fixtures must inject an audit service when exercising audited capabilities; missing audit wiring now fails explicitly. The E2E helper's database stub supports the audit writer's idempotent insert chain, without persisting audit records to a real database. Use an actual database/audit writer when testing persistence guarantees.
+
+
+Framework stabilization integration tests start disposable PostgreSQL and Redis instances, using separate connections for race tests. Install `redis-server` and PostgreSQL binaries; `PLUMBUS_TEST_POSTGRES_BIN` overrides `/usr/lib/postgresql/16/bin`. Fixtures use a private temporary Unix socket for PostgreSQL and stop processes they start. Tests exercise real SQL guards, tick transactions, queue scripts, replay, and job publication recovery.
+
+The PR test and publish workflows install `redis-server` and `postgresql-16` explicitly before running the suite. For local Ubuntu development, install the same prerequisites once:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes --no-install-recommends redis-server postgresql-16
+redis-server --version
+/usr/lib/postgresql/16/bin/initdb --version
+/usr/lib/postgresql/16/bin/pg_ctl --version
+```
+
+`spawn redis-server ENOENT` means the Redis executable is missing from `PATH`; installing the npm `redis` client does not install that server executable. The stabilization fixtures need no shared database service: they start isolated processes. These integration tests remain required and are not silently skipped when a prerequisite is missing.
+
+The durable dispatch, approval and tenant data-plane suites (`*.pg.test.ts` in core) are different: they connect to a reachable, isolated PostgreSQL test database with password authentication instead of starting their own server, and they fail rather than skip without one. Set `PLUMBUS_TEST_PG_HOST`, `PLUMBUS_TEST_PG_PORT` (required), `PLUMBUS_TEST_PG_DATABASE`, `PLUMBUS_TEST_PG_USER`, and `PLUMBUS_TEST_PG_PASSWORD`; never point them at application data. The PR test and publish workflows provide a `postgres:16` service container for these suites alongside the installed binaries, and `turbo.json` passes the variables through to the test tasks.
+
+The standalone voice/ledger declaration build uses strict TypeScript, matching the repository. This preserves discriminated-union narrowing when public SDK barrels pull in additional modules.
+
+The Turbo dry-run integration test allows 20 seconds around its independently bounded 15-second child process. Dependency-graph scans under concurrent test load can exceed Vitest's default five-second limit; its assertions and package/worker concurrency limits remain unchanged.

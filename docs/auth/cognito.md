@@ -15,7 +15,7 @@ Use **`@plumbus/auth-cognito`** when your identity provider is an Amazon Cognito
 pnpm add @plumbus/auth @plumbus/auth-cognito
 ```
 
-Peer: `@plumbus/auth` at **`>=0.3.0-beta.0 <0.4.0`** (stable: `0.3.x`) (only the root export and hosted login use it).
+Peer: `@plumbus/auth` at **`>=0.4.0-beta.0 <0.5.0`** in the core 0.9 beta family (stable 0.8 family: `0.3.x`) (only the root export and hosted login use it).
 
 ---
 

@@ -34,6 +34,7 @@ All commands run from the **repo root**. Monorepo managed by pnpm 10.32.0 + Turb
 | Test single file | `cd packages/plumbus-core && npx vitest run src/<module>/__tests__/<name>.test.ts` |
 | Browser tests | `cd packages/plumbus-core && pnpm test:browser` |
 | Translation status | `plumbus translation status` |
+| App-vocabulary gate | `pnpm check:no-app-vocabulary` (fixtures: `pnpm check:no-app-vocabulary:test`) — framework source must use generic vocabulary; see `docs/security/security-model.md` |
 
 Framework `pnpm test` defaults to two package tasks and two Vitest workers per
 package; Laya uses one worker with serial files. Live Laya inference is opt-in;
@@ -49,13 +50,15 @@ The framework provides these packages to consumer apps. Consumers must **never**
 |---------|----------------------|-------------|
 | zod | `@plumbus/core/zod` | `dependencies` |
 | vitest | `vitest` (at runtime) | `dependencies` |
+| vite | used by `plumbus test` | `dependencies` |
 | vitest config | `@plumbus/core/vitest` | `dependencies` |
 | playwright | `@plumbus/core/testing` | `dependencies` |
+| cron-parser | framework-owned parser for scheduled flows; consumers do not install it | `dependencies` |
 | drizzle-kit | used by `plumbus migrate` | `dependencies` |
 
 ### Optional add-on: `@plumbus/mcp`
 
-`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.6.x`). Apps that want to serve capabilities to AI agents install it explicitly:
+`@plumbus/mcp` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.8.x` in this beta family; `0.7.x` in the stable 0.8 family). Apps that want to serve capabilities to AI agents install it explicitly:
 
 ```
 pnpm add @plumbus/mcp
@@ -65,7 +68,7 @@ Apps that don't use MCP never install it. `plumbus mcp serve` prints an install 
 
 ### Optional add-on: `@plumbus/api`
 
-`@plumbus/api` is the partner-grade external API contract layer (manifest validation, OpenAPI export, docs generation, test intent, compatibility diff). It is an optional peer dependency of `@plumbus/core` (version-locked `0.2.x`). Apps that want a documented partner-facing API install it explicitly:
+`@plumbus/api` is the partner-grade external API contract layer (manifest validation, OpenAPI export, docs generation, test intent, compatibility diff). It is an optional peer dependency of `@plumbus/core` (version-locked `0.4.x` in this beta family; `0.3.x` in the stable 0.8 family). Apps that want a documented partner-facing API install it explicitly:
 
 ```
 pnpm add @plumbus/api
@@ -75,7 +78,7 @@ Then expose capabilities with `exposeAs: ['api']`, optionally maintain an `api.y
 
 ### Optional add-on: `@plumbus/ai-bedrock`
 
-`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.2.x`; peer `@plumbus/core` `0.8.x`; **runtime floor ≥ 0.7.0**; prompt caching through `ctx.ai` is included in this beta family and needs core ≥ 0.7.9 on the stable line). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
+`@plumbus/ai-bedrock` is an **optional peer dependency** of `@plumbus/core` (version-locked `0.4.x`; peer `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`; **runtime floor ≥ 0.7.0**; prompt caching through `ctx.ai` is included in this beta family and needs core ≥ 0.7.9 on older stable lines). Apps that want Amazon Bedrock chat/embeddings install it explicitly:
 
 ```
 pnpm add @plumbus/ai-bedrock
@@ -90,8 +93,8 @@ Auth is IAM / IRSA / the AWS default credential chain (the SDK may also honor `A
 `@plumbus/ai-decision-typesafe` (Jev), `@plumbus/ai-decision-laya` (self-hosted Laya), and
 `@plumbus/ai-decision-openai` (OpenAI Decisions API, `gpt-6-luna`) share
 `@plumbus/ai-decision` for typed choices, scores, probabilities, validation and
-HTTP transport. The beta-family decision packages are on `0.3.x` and peer on core
-`>=0.8.0-beta.0 <0.9.0`.
+HTTP transport. The beta-family decision packages are on `0.4.x` and peer on core
+`>=0.9.0-beta.0 <0.10.0` (stable 0.8 family: `0.3.x`, peer core `0.8.x`).
 Install only the provider you need; the shared package is a dependency:
 
 ```
@@ -104,8 +107,9 @@ Laya ships a separate Python reference service; Python/model dependencies are no
 installed by pnpm. Register the OpenAI adapter under a decision key such as
 `openai-decisions`, distinct from the `openai` text provider. Core re-validates its
 answers with the `@plumbus/ai-decision` copy core loads. The beta family shares
-`~0.3.0-beta.1`, including OpenAI rounding support. On the stable 0.7 line use
-core **0.7.9+** with shared contracts **0.2.3+**.
+`~0.4.0-beta.0`; stable core 0.8 and the 0.3 provider packages depend on `~0.3.0`.
+Both include OpenAI rounding support introduced in 0.2.3.
+Historical core 0.7 compatibility is documented in `docs/upgrading-classification.md`.
 
 Core 0.7.3+ provides `ctx.ai.decide()` with cost recording, identity, validation,
 security, budgets, and flow cancellation. `defineDecision` and `DecisionRegistry`
@@ -115,16 +119,16 @@ Core depends on the shared contract package; vendor adapters remain optional.
 Core **0.7.4+** also routes `ctx.ai.classify({ text, labels, provider, model, threshold })`
 to generative or decision models. Start with
 `packages/plumbus-core/instructions/ai-classification.md` for provider registration,
-model defaults, and multi-label thresholds. Generated agent wiring **v17** links
+model defaults, and multi-label thresholds. Generated agent wiring **v21** makes `AGENTS.md` canonical and `CLAUDE.md` an import. It retains the deployment/stabilization references and inline recipe embedding introduced in v20. Wiring **v17** links
 this recipe and the TypeSafe/Laya indexes; **v19** (core 0.7.9) adds the OpenAI
-Decisions index; this beta family includes v19. Refresh consumer apps with `plumbus init --patch --agent all`.
+Decisions index; this beta family includes v21. Refresh consumer apps with `plumbus init --patch --agent all`.
 Use `onAICostRecorded` to persist `decide` and `classify` rows, including failed calls.
 Do not register decision adapters as text-generation providers or bypass Plumbus
 primitives for application business logic. Guide: `docs/ai/decision-providers.md`.
 
 ### Optional add-on: `@plumbus/browser-extension`
 
-`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.2.x`**; peer `@plumbus/core` at **`0.8.x`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
+`@plumbus/browser-extension` is an optional dev-time scaffolder (version-lock **`0.4.x`**; peer `@plumbus/core` at **`>=0.9.0-beta.0 <0.10.0`**). Apps that want a browser extension UI install it with `@plumbus/ui`:
 
 ```
 pnpm add @plumbus/ui @plumbus/browser-extension
@@ -134,18 +138,18 @@ Then run `plumbus browser-extension scaffold`. The generated extension does not 
 
 ### Optional add-on: `@plumbus/chat` (+ `@plumbus/chat-ui`)
 
-`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.8.x`; **runtime floor ≥ 0.7.0** for chat 0.2.x). Apps that want a chat surface install it explicitly:
+`@plumbus/chat` provides the conversational runtime (`defineChat`, `runChatTurn`, `registerChatRoutes`, policy guards, context sources). It peer-depends on `@plumbus/core` (version-locked `0.9.x`; **runtime floor ≥ 0.7.0** for chat 0.4.x). Apps that want a chat surface install it explicitly:
 
 ```
 pnpm add @plumbus/chat
 pnpm add @plumbus/chat-ui   # React hooks + <ChatPanel /> for browser clients
 ```
 
-`@plumbus/chat-ui` peer-depends on `@plumbus/chat` (`0.3.x`, **≥ 0.2.0** for this UI line) and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
+`@plumbus/chat-ui` peer-depends on `@plumbus/chat` (`0.4.x`, **≥ 0.2.0** for this UI line) and reuses React from `@plumbus/ui` in Plumbus apps. Apps without a chat surface install neither.
 
 ### Optional add-on: `@plumbus/voice`
 
-`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, built-in websocket / web-speech / browser-tts providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.8.x`). Apps that want speech input/output install it explicitly:
+`@plumbus/voice` provides the real-time voice runtime (`defineVoice`, `runVoiceTurn`, `registerVoiceRoutes`, built-in websocket / web-speech / browser-tts providers, cost helpers). It peer-depends on `@plumbus/core` (version-locked `0.9.x`). Apps that want speech input/output install it explicitly:
 
 ```
 pnpm add @plumbus/voice
@@ -155,7 +159,7 @@ Use it when the product needs speech I/O around an app-owned brain hook. It comp
 
 ### Optional add-ons: `@plumbus/voice-*` providers
 
-Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.6.x` (and `@plumbus/core` `0.8.x`). Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
+Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.7.x` (and `@plumbus/core` `0.9.x`). Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
 
 ```
 pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
@@ -170,7 +174,7 @@ pnpm add @plumbus/voice-minimax    # minimax TTS
 
 ### Optional add-on: `@plumbus/knowledge-base`
 
-`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It peer-depends on `@plumbus/core` (version-locked `0.8.x`). `@plumbus/chat` optionally peer-depends on `@plumbus/knowledge-base` (`0.3.x`) when using registry-backed context sources. Apps that want named, reusable knowledge sources install it explicitly:
+`@plumbus/knowledge-base` provides scoped knowledge providers (`defineKnowledgeSource`, `createKnowledgeRegistry`, `staticBlocks`, `ragCorpus`, etc.) for registry-backed grounding in chat, capabilities, and search UIs. It peer-depends on `@plumbus/core` (version-locked `0.9.x`). `@plumbus/chat` optionally peer-depends on `@plumbus/knowledge-base` (`0.4.x`) when using registry-backed context sources. Apps that want named, reusable knowledge sources install it explicitly:
 
 ```
 pnpm add @plumbus/knowledge-base
@@ -180,18 +184,18 @@ Apps that only need a single direct RAG corpus in chat can use `ragContext` from
 
 ### Optional add-on: `@plumbus/auth` (+ `@plumbus/auth-cognito`)
 
-`@plumbus/auth` provides the OIDC relying-party runtime (`createAuthRuntime`, `/auth/*` routes, opaque server sessions, CSRF, protected PostgreSQL stores). It peer-depends on `@plumbus/core` (version-locked `0.8.x`). Apps that want federated browser login with HttpOnly session cookies install it explicitly:
+`@plumbus/auth` provides the OIDC relying-party runtime (`createAuthRuntime`, `/auth/*` routes, opaque server sessions, CSRF, protected PostgreSQL stores). It peer-depends on `@plumbus/core` (version-locked `0.9.x`). Apps that want federated browser login with HttpOnly session cookies install it explicitly:
 
 ```
 pnpm add @plumbus/auth
 pnpm add @plumbus/auth-cognito   # optional — Amazon Cognito hosted UI helpers + server-attested sign-in
 ```
 
-Pass `createServer({ authenticationRuntime })` from core **0.6.8+**, or export `authenticationRuntime` from `app/server.ts` for apps run by `plumbus dev` / `plumbus start` (included in this beta family; stable core **0.7.8+**). With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.3.x`). Its `./server` + `./triggers` subpaths (0.3.0-beta.1+) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
+Pass `createServer({ authenticationRuntime })` from core **0.6.8+**, or export `authenticationRuntime` from `app/server.ts` for apps run by `plumbus dev` / `plumbus start` (core **0.7.8+**; included in this beta family). With `authenticationRuntime` supplied, `auth.secret` is not required for browser deployments. `@plumbus/auth-cognito` peer-depends on `@plumbus/auth` (`0.4.x`). Its `./server` + `./triggers` subpaths (0.2.2+; in the beta line since 0.3.0-beta.1) sign people into a Cognito pool from the server after the app's own passwordless sign-in (magic links, passkeys), with `./testing` providing `startFakeCognito()`; those subpaths depend on the AWS SDK and `jose`, not on `@plumbus/auth`. Start with `docs/auth/` for configuration, sessions, Cognito, and migration from JWT/localStorage scaffolding.
 
 ### Optional add-on: `@plumbus/payments` (+ `@plumbus/payments-stripe`)
 
-`@plumbus/payments` moves money for an app through a payment provider, as capabilities/entities/events with signed webhooks: its users or tenants charge their own clients with the app as the platform (seller accounts; direct or destination charges; payment pages, invoices, holds, saved cards, links, subscriptions, disputes, payouts, transfers), and the app bills its own customers for plans (`billing`: seats, usage meters, entitlements, AI usage bridge). It peer-depends on `@plumbus/core` (version-locked `0.8.x`; **runtime floor ≥ 0.7.7** for `field.bigint()` and discovery of exported collections), and optionally `fastify` for the webhook route. `@plumbus/payments-stripe` is the Stripe provider (Connect with Accounts v2 merchant/recipient configurations, Checkout, Billing, Balance Settings, snapshot + thin webhooks, API `2026-08-26.dahlia`); it peer-depends on `@plumbus/payments` (`0.3.x`) and brings the `stripe` SDK as a dependency — apps never add `stripe` themselves:
+`@plumbus/payments` moves money for an app through a payment provider, as capabilities/entities/events with signed webhooks: its users or tenants charge their own clients with the app as the platform (seller accounts; direct or destination charges; payment pages, invoices, holds, saved cards, links, subscriptions, disputes, payouts, transfers), and the app bills its own customers for plans (`billing`: seats, usage meters, entitlements, AI usage bridge). It peer-depends on `@plumbus/core` (version-locked `0.9.x`; **runtime floor ≥ 0.7.7** for `field.bigint()` and discovery of exported collections), and optionally `fastify` for the webhook route. `@plumbus/payments-stripe` is the Stripe provider (Connect with Accounts v2 merchant/recipient configurations, Checkout, Billing, Balance Settings, snapshot + thin webhooks, API `2026-08-26.dahlia`); it peer-depends on `@plumbus/payments` (`0.4.x`) and brings the `stripe` SDK as a dependency — apps never add `stripe` themselves:
 
 ```
 pnpm add @plumbus/payments @plumbus/payments-stripe
@@ -220,12 +224,12 @@ Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command reso
 When editing `peerDependencies` in any `packages/*/package.json` (releases, new add-ons, compatibility bumps):
 
 - Read `packages/plumbus-core/instructions/peer-dependencies.md` first.
-- **Copy literals — do not derive ranges.** During the 0.8 beta most add-ons use exactly `">=0.8.0-beta.0 <0.9.0"` (see `packages/mcp/package.json`); at stable that becomes `"0.8.x"`. Never use `^0.x` caret ranges on `@plumbus/core` peers.
+- **Copy literals — do not derive ranges.** During the 0.9 beta most add-ons use exactly `">=0.9.0-beta.0 <0.10.0"` (see `packages/mcp/package.json`); the stable 0.8 family on `main` uses `"0.8.x"`, and at 0.9 stable the beta literal becomes `"0.9.x"`. Never use `^0.x` caret ranges on `@plumbus/core` peers.
 - **pnpm passing locally does not prove peers are correct.** Backend Docker installs with **npm**; wrong peers break production builds.
 
-## Release compatibility — core 0.8 family (beta)
+## Release compatibility — core 0.9 family (beta) and core 0.8 stabilization family
 
-Migration-requiring changes ship on new minor lines: core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, and all other add-ons 0.3.x. The family is staged as `-beta.N` prereleases under a branch-named dist-tag (`plumbus-next`; see `docs/upgrading-core-0.8.md`). The publish workflow uses `latest` only for tags whose commit is on `main`; the 0.7 security family stays on `latest` until promotion. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.9.x requires core 0.8.x as a shared peer, preventing a hidden second core runtime. Historical feature floors elsewhere are not current peer declarations.
+The core 0.8 stabilization family (core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, and all other add-ons 0.3.x) is on npm’s default `latest` dist-tag and requires migration and a coordinated cutover (see `docs/upgrading-stabilization.md`). This branch carries the next family on new minor lines: core 0.9.x, UI 0.10.x, MCP 0.8.x, voice 0.7.x, and all other add-ons 0.4.x. The 0.8 numbers went to the stable family on `main`, so the beta line moved up one minor. The family is staged as `-beta.N` prereleases under a branch-named dist-tag (`plumbus-next`; see `docs/upgrading-core-0.9.md`). The publish workflow uses `latest` only for tags whose commit is on `main`; the 0.8 stabilization family stays on `latest` until promotion. Legacy caret updates must not select these packages. New-family Plumbus peers use only the canonical ranges in `packages/plumbus-core/instructions/peer-dependencies.md`; do not widen them to old lines. UI 0.10.x requires core 0.9.x as a shared peer (UI 0.9.x requires core 0.8.x on the stable family), preventing a hidden second core runtime. Historical feature floors elsewhere are not current peer declarations.
 
 ## Coding Conventions
 
@@ -260,7 +264,11 @@ src/<module>/
 
 ## Testing
 
-- **Vitest 3.2.4** — tests in `src/<module>/__tests__/*.test.ts`
+Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Framework test parallelism uses `VITEST_MAX_WORKERS`; old thread/fork limits and `poolOptions` no longer apply. See `docs/upgrading-vitest.md`.
+
+Integration prerequisites for `pnpm test`: the stabilization fixtures start their own processes and need `redis-server` plus PostgreSQL 16 binaries (`PLUMBUS_TEST_POSTGRES_BIN` overrides `/usr/lib/postgresql/16/bin`); the core `*.pg.test.ts` suites (durable dispatch, approvals, tenant data planes) connect to an isolated PostgreSQL test database set through `PLUMBUS_TEST_PG_HOST`, `PLUMBUS_TEST_PG_PORT`, `PLUMBUS_TEST_PG_DATABASE`, `PLUMBUS_TEST_PG_USER`, and `PLUMBUS_TEST_PG_PASSWORD`, and fail without one. See `docs/testing/testing-guide.md`.
+
+- **Vitest 5.0.4** — tests in `src/<module>/__tests__/*.test.ts`
 - Use `createTestContext()` for a fully-mocked `ExecutionContext`
 - Test through `runCapability()` / `simulateFlow()`, not internals
 - Tests must be self-contained — no shared mutable state
@@ -301,7 +309,9 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/sdk-reference/` — define functions, execution context, data layer, configuration (worker observability)
 - `docs/cli/` — all CLI commands and options (incl. `browser-extension scaffold`)
 - `docs/security/` — security model, auth, tenant isolation
-- `docs/upgrading-core-0.8.md` — core 0.8 beta family: version table, breaking changes, beta dist-tag
+- `docs/upgrading-core-0.9.md` — core 0.9 beta family: version table, breaking changes, beta dist-tag
+- `docs/upgrading-stabilization.md` — core 0.8 stabilization family, migrations, worker cutover, schedule reconciliation, and agent wiring v21
+- `docs/upgrading-vitest.md` — Vitest 5.0.4 toolchain upgrade, Node floor, and `VITEST_MAX_WORKERS`
 - `docs/upgrading-security-release.md` — coordinated security release, compatibility checks, and agent wiring v16
 - `docs/upgrading-classification.md` — core 0.7.4, decision packages 0.2.2, and classification agent wiring v17
 - `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases
@@ -336,9 +346,9 @@ Before making changes, read the relevant docs under `docs/` to understand the cu
 
 After making changes, update the corresponding documentation in `docs/`. **This is mandatory — every code change must include documentation updates.** Outdated docs are worse than no docs.
 
-## Keeping Agent Files in Sync
+## Canonical Agent Instructions
 
-`AGENTS.md` and `CLAUDE.md` must stay identical. When editing one, always apply the same change to the other.
+`AGENTS.md` is the canonical framework instruction file. `CLAUDE.md` imports it with the literal line `@AGENTS.md`; do not duplicate the shared instructions. Edit shared guidance only in `AGENTS.md`. Keep the import intact and never add a reverse import from `AGENTS.md` to `CLAUDE.md`. Claude-specific notes, if needed, belong below the import.
 
 ## Agent Safety
 

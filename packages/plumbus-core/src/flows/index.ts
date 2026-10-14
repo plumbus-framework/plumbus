@@ -61,7 +61,7 @@ export type { StepExecutorDeps, StepResult } from './step-executor.js';
 
 // ── Flow Engine ──
 export { computeRetryDelay, createFlowEngine, generateWorkerId } from './engine.js';
-export type { FlowEngineConfig, FlowSpineDispatchConfig } from './engine.js';
+export type { FlowEngineConfig, FlowSpineDispatchConfig, PendingFlowExecution } from './engine.js';
 
 // ── Flow Triggers ──
 export { createFlowTriggerHandler } from './triggers.js';
@@ -73,14 +73,29 @@ export {
   createFlowScheduler,
   planMissedSchedule,
 } from './scheduler.js';
-export type { MissedSchedulePlan, SchedulerConfig } from './scheduler.js';
+export type {
+  MissedSchedulePlan,
+  SchedulerConfig,
+  ScheduleChange,
+  ScheduleReconciliation,
+} from './scheduler.js';
 
 // ── ctx.flow Service ──
 export { createFlowService } from './flow-service.js';
 
 // ── Dead Letter ──
-export { deadLetterFlow, retryDeadLetteredFlow, sweepFailedFlows } from './dead-letter.js';
-export type { OperatorRetryOptions, OperatorRetryResult } from './dead-letter.js';
+export {
+  deadLetterFlow,
+  replayDeadLetterFlow,
+  retryDeadLetteredFlow,
+  sweepFailedFlows,
+} from './dead-letter.js';
+export type {
+  OperatorRetryOptions,
+  OperatorRetryPlacement,
+  OperatorRetryResult,
+  ReplayDeadLetterOptions,
+} from './dead-letter.js';
 
 export {
   BUDGET_EXHAUSTED,
@@ -93,3 +108,5 @@ export {
   writeExecutionBudget,
 } from './budget.js';
 export type { ExecutionBudgetAmount, ExecutionBudgetLedger } from './budget.js';
+
+export { validateSchedule } from './cron.js';

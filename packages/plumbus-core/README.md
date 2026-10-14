@@ -1,6 +1,6 @@
 # @plumbus/core
 
-Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md).
+Release notes: [changelog](./CHANGELOG.md), [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and [stabilization upgrade guide](../../docs/upgrading-stabilization.md).
 
 **AI-native, contract-driven TypeScript application framework.**
 
@@ -9,14 +9,16 @@ Define your application through six composable primitives — Capabilities, Enti
 ## Install
 
 ```bash
-pnpm add @plumbus/core
+pnpm add @plumbus/core@plumbus-next
 ```
+
+This installs the core 0.9 beta family (`0.9.0-beta.0`, npm dist-tag `plumbus-next`). Plain `pnpm add @plumbus/core` installs npm `latest`, the core 0.8 stabilization family (0.8.1). Install every Plumbus package the app uses from the same family.
 
 ## Quick Start
 
 ```bash
 # Install the CLI globally
-pnpm add -g @plumbus/core
+pnpm add -g @plumbus/core@plumbus-next
 
 # Scaffold a new project
 plumbus create my-app --auth jwt --ai openai --compliance GDPR
@@ -163,14 +165,15 @@ node_modules/@plumbus/core/instructions/
 ├── mcp.md                         # Core MCP surface (exposeAs, plumbus mcp *)
 ├── api.md                         # Core partner API surface (exposeAs: ['api'])
 ├── deployment.md                  # Production deployment and workers
+├── stabilization.md               # Core 0.8/0.9 migrations, cutover, and app upgrade checklist
 ├── peer-dependencies.md           # Add-on peer range literals (framework devs)
 └── upgrading-0.5-capabilities.md  # 0.5.x capability invocation migration
 ```
 
-Wire them up with `plumbus init --agent all`. After upgrading to this 0.8 beta family (stable line: core 0.7.9+), run
-`plumbus init --patch --agent all` for wiring v19 (v17 added the classification recipe;
-v18 adds the payments packages and Cognito server-attested sign-in; v19 adds the OpenAI
-Decisions provider). For classification, provider/model selection, or TypeSafe/Jev, Laya,
+Wire them up with `plumbus init --agent all`. After upgrading to the core 0.9 beta family (or the core 0.8 stabilization family), run
+`plumbus init --patch --agent all` for wiring v21: shared root guidance in `AGENTS.md`, imported by `CLAUDE.md`.
+`--inline` embeds core recipes in the canonical file; patching preserves surrounding app notes. It retains the
+classification, payments, Cognito, and OpenAI Decisions guidance from v17–v19. For classification, provider/model selection, or TypeSafe/Jev, Laya,
 or OpenAI Decisions, start with [the classification recipe](instructions/ai-classification.md).
 
 ## Documentation
@@ -184,3 +187,5 @@ Full documentation: [github.com/plumbus-framework/plumbus/docs](https://github.c
 ## License
 
 MIT
+
+Core 0.8 and the core 0.9 beta family require the coordinated stabilization upgrade. Read [the packaged checklist](instructions/stabilization.md) before migration and process cutover.

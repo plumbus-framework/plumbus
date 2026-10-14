@@ -1,22 +1,25 @@
 # Framework boundary
 
+Current release: **0.4.0-beta.0**, in the core **0.9** beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). Follow `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading, then run `plumbus init --patch --agent all` for wiring **v21**. Historical feature introduction versions below do not replace the current peer requirements.
+
 OpenAI Decisions API provider for typed choices, scores, and probabilities. OpenAI's
 Decisions API is in public beta; this adapter follows OpenAI's documentation as of
 2026-10-08 and may need a patch release if the API changes at general availability.
 
 ## Install and ownership
 
-Install `@plumbus/ai-decision-openai` explicitly. Its core peer is exactly `">=0.8.0-beta.0 <0.9.0"`; select the `plumbus-next` dist-tag.
+Install `@plumbus/ai-decision-openai` explicitly. Its core peer is exactly `">=0.9.0-beta.0 <0.10.0"`; select the `plumbus-next` dist-tag.
 Consumers reuse Zod/testing utilities from core; do not install them separately, and
 do not install the `openai` SDK for this adapter. Use this package for bounded typed
 decisions. Use core generation and embeddings (the `openai` text provider) for text
 responses and vector inference.
 
 Core checks every `ctx.ai` result again with its own copy of `@plumbus/ai-decision`.
-This beta family shares `~0.3.0-beta.1`, including OpenAI rounding support; install
-matching beta versions together. Stable-line apps use core 0.7.9 and shared contracts
-0.2.3+. An older validator rejects OpenAI's rounded answers as `invalid_response`
-after the call is billed.
+This beta family shares `~0.4.0-beta.0`, including the OpenAI rounding support introduced
+in 0.2.3; install matching beta versions together. Do not mix beta and stable (core 0.8
+stabilization family, `~0.3.0`) packages, and do not pair this provider line with core 0.7:
+an older validator rejects OpenAI's rounded answers as `invalid_response` after the call
+is billed.
 
 Public exports: `createOpenAIDecisionAdapter` — construct an explicitly configured adapter;
 `OpenAIDecisionInputRates` — bundled input USD per million tokens; `DecisionProviderError` —

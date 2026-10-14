@@ -157,6 +157,7 @@ export interface PlumbusMetrics {
   eventEmitted: Counter;
   eventDelivered: Counter;
   eventFailed: Counter;
+  eventUnrouted: Counter;
   eventDeliveryDuration: Histogram;
   flowStarted: Counter;
   flowCompleted: Counter;
@@ -186,6 +187,10 @@ export function createPlumbusMetrics(registry?: MetricsRegistry): PlumbusMetrics
     capabilityTotal: reg.counter('plumbus_capability_total', 'Total capability executions'),
     eventEmitted: reg.counter('plumbus_event_emitted_total', 'Total events emitted'),
     eventDelivered: reg.counter('plumbus_event_delivered_total', 'Total events delivered'),
+    eventUnrouted: reg.counter(
+      'plumbus_event_unrouted_total',
+      'Events with no matching local consumer',
+    ),
     eventFailed: reg.counter('plumbus_event_failed_total', 'Total event delivery failures'),
     eventDeliveryDuration: reg.histogram(
       'plumbus_event_delivery_duration_ms',

@@ -88,6 +88,8 @@ const denyAllAuthAdapter: AuthAdapter = {
 export type UntenantedDataPlanePolicy = 'refuse' | 'control-plane';
 
 export interface ServerConfig {
+  /** Durable queue readiness probe supplied by runtime bootstrap. */
+  checkQueueReadiness?: () => Promise<void>;
   /** Plumbus framework config */
   config: PlumbusConfig;
   /**
@@ -394,6 +396,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   app.get('/ready', async (_req, reply) => {
     try {
       await db.execute(sql`SELECT 1`);
+      try {
+        await serverConfig.checkQueueReadiness?.();
+      } catch {
+        reply.status(503);
+        return { status: 'not_ready', reason: 'queue unavailable' };
+      }
       return { status: 'ready' };
     } catch {
       reply.status(503);

@@ -2,16 +2,16 @@
 
 **Previous:** [migration.md](./migration.md) · **Next:** [README](./README.md)
 
-Production checklist for `@plumbus/auth` on `@plumbus/core` 0.6.x.
+Production checklist for `@plumbus/auth` on `@plumbus/core` 0.8.x (stable family on npm `latest`) or the core 0.9 beta family (dist-tag `plumbus-next`).
 
 ---
 
 ## Package versions
 
-| Package | Peer |
-|---|---|
-| `@plumbus/auth` | `@plumbus/core` **`0.7.x`** |
-| `@plumbus/auth-cognito` | `@plumbus/auth` **`0.2.x`** |
+| Package | Peer (stable 0.8 family) | Peer (core 0.9 beta family) |
+|---|---|---|
+| `@plumbus/auth` | `@plumbus/core` **`0.8.x`** | `@plumbus/core` **`>=0.9.0-beta.0 <0.10.0`** |
+| `@plumbus/auth-cognito` | `@plumbus/auth` **`0.3.x`** | `@plumbus/auth` **`>=0.4.0-beta.0 <0.5.0`** |
 
 Install production deps with **npm** in Docker (`npm install --omit=dev`) — copy peer literals from [`peer-dependencies.md`](../../packages/plumbus-core/instructions/peer-dependencies.md).
 
@@ -28,7 +28,7 @@ import { createPostgresSessionStore, createPostgresLoginTransactionStore } from 
 
 3. Use distinct **`applicationId`** per deployed app sharing a cluster.
 
-Expired row cleanup runs on a 60s sweep timer inside the runtime — ensure multiple instances are safe (delete queries are idempotent).
+Expired row cleanup runs on a 60s sweep timer inside the runtime — ensure multiple instances are safe (delete queries are idempotent). A failed sweep (for example, the database is unreachable) logs `[@plumbus/auth] expired sessions sweep failed; retrying next sweep` (or `login transactions`) with the error message and runs again a minute later.
 
 ---
 

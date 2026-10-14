@@ -11,6 +11,7 @@ export function createDeferredJobDispatchService(
 ): JobDispatchService {
   return {
     async enqueue(capabilityName, input, opts) {
+      jobs.assertAvailable?.();
       const jobId = opts?.jobId ?? allocJobId();
       deferred.push(async () => {
         await jobs.enqueue(capabilityName, input, { jobId });

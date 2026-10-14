@@ -8,10 +8,10 @@ This guide wires the minimum OIDC relying-party runtime: install packages, confi
 
 ## Prerequisites
 
-- `@plumbus/core` **0.6.x**
+- `@plumbus/core` **0.8.x** (stable family), or the core **0.9** beta family from dist-tag `plumbus-next` with `@plumbus/auth` 0.4 betas
 - PostgreSQL (recommended for production) or in-memory stores (local dev / tests)
 - An OIDC provider (Auth0, Okta, Keycloak, Amazon Cognito, etc.)
-- `@plumbus/core` `0.6.8+` for `HttpAuthenticationRuntime` and composite request authentication
+- `HttpAuthenticationRuntime` and composite request authentication are included in this core family (introduced in 0.6.8)
 
 ---
 

@@ -368,6 +368,27 @@ describe('Server Bootstrap', () => {
       expect(response).toEqual({ status: 'ready' });
     });
 
+    it('returns 503 when the durable queue is unavailable and recovers readiness', async () => {
+      const probe = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('broker down'))
+        .mockResolvedValue(undefined);
+      const server = createServer(
+        makeServerConfig({
+          db: { execute: vi.fn(async () => []) } as any,
+          checkQueueReadiness: probe,
+        }),
+      );
+      const handler = ((server.app as any)._routes as Map<string, AnyFn>).get('/ready');
+      const reply = { status: vi.fn().mockReturnThis() };
+      expect(await handler?.({}, reply)).toEqual({
+        status: 'not_ready',
+        reason: 'queue unavailable',
+      });
+      expect(reply.status).toHaveBeenCalledWith(503);
+      expect(await handler?.({}, reply)).toEqual({ status: 'ready' });
+    });
+
     it('returns 503 when DB is unreachable', async () => {
       const db = {
         execute: vi.fn(async () => {

@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const JobExecutionStatus = {
   Queued: 'queued',
@@ -27,6 +27,11 @@ export const jobExecutionsTable = pgTable('job_executions', {
   capabilityDomain: text('capability_domain').notNull(),
   capabilityName: text('capability_name').notNull(),
   status: text('status').notNull().default(JobExecutionStatus.Queued),
+  dispatchPending: boolean('dispatch_pending').notNull().default(false),
+  dispatchAfter: timestamp('dispatch_after', { withTimezone: true }).defaultNow().notNull(),
+  dispatchAttempts: integer('dispatch_attempts').notNull().default(0),
+  dispatchLeaseToken: uuid('dispatch_lease_token'),
+  dispatchLeaseExpiresAt: timestamp('dispatch_lease_expires_at', { withTimezone: true }),
   inputJson: jsonb('input_json'),
   outputJson: jsonb('output_json'),
   errorJson: jsonb('error_json'),

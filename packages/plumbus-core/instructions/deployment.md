@@ -1,5 +1,7 @@
 # Deployment
 
+Core 0.8 (and the core 0.9 beta family) bundles Vitest 5 and requires Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Use Node 24 for new deployment images; existing Node 22 images must be at least 22.12. `plumbus doctor` checks this requirement.
+
 Plumbus applications deploy as up to four services — a **backend** (Fastify API server), an optional **worker** (background queues), a **frontend** (Next.js), and optionally an **admin dashboard** (Next.js) — backed by PostgreSQL and Redis.
 
 ## Service Topology
@@ -70,7 +72,7 @@ These rules are critical. Violating any one causes build failures or bloated ima
 - **DO**: Create a separate `proddeps` stage that removes `@plumbus/ui` from `package.json` before `npm install --omit=dev`.
 - **DO NOT**: Copy the full `node_modules` (including `@plumbus/ui`) into the backend runner.
 - **Why**: `@plumbus/ui` pulls in `next`, `react`, `react-dom`, `tailwindcss`, `lucide-react` (~300 MB). The backend only needs `@plumbus/core` at runtime.
-- **Peer deps**: npm enforces `peerDependencies` strictly in this stage. Add-on packages must declare npm-safe `@plumbus/core` peers (`0.8.x` for the new release family). See `peer-dependencies.md` in this folder — `pnpm install` passing locally does not prove Docker will build.
+- **Peer deps**: npm enforces `peerDependencies` strictly in this stage. Add-on packages must declare npm-safe `@plumbus/core` peers (`>=0.9.0-beta.0 <0.10.0` for the core 0.9 beta family; `0.8.x` on the 0.8 stabilization family). See `peer-dependencies.md` in this folder — `pnpm install` passing locally does not prove Docker will build.
 - **Target image size**: Backend should be ~500-700 MB, not 1.5 GB+.
 
 ### Rule 8: Use `ENV PATH` instead of `npx` for frontend builds
@@ -202,7 +204,7 @@ npx plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT
 
 ### Upgrading to 0.5 (workers, queues, and capability invocation)
 
-When upgrading `@plumbus/core` to **0.5.x** from 0.4.x:
+When upgrading `@plumbus/core` to **0.6.x** from 0.4.x:
 
 **Capability invocation (canonical names, invoke policy, flow auth):** read `node_modules/@plumbus/core/instructions/upgrading-0.5-capabilities.md` for the agent-facing migration playbook. Summary:
 
@@ -215,7 +217,7 @@ When upgrading `@plumbus/core` to **0.5.x** from 0.4.x:
 
 1. **Migrate** — `plumbus migrate generate && plumbus migrate apply` (adds `job_executions` and `auth_snapshot_json` on `flow_executions`). Apply **before** job routes and new flow executions receive traffic.
 2. **HTTP job clients** — `kind: 'job'` `POST` routes return **202** with `{ data: { jobId, status: "accepted" } }` when job capabilities exist; poll `GET /api/jobs/:jobId`. Pre-0.5.0 often returned **200** synchronously.
-3. **Optional peers** — `pnpm add redis` for multi-replica production; `pnpm add cron-parser` if flows use schedule triggers.
+3. **Optional peers** — `pnpm add redis` for multi-replica production; `use the framework-provided cron parser` if flows use schedule triggers.
 4. **Split deploy** — `PLUMBUS_RUNTIME_ROLE=api` on API containers plus `plumbus worker start` on worker containers; API-only without a worker enqueues but never executes.
 5. **`eventHandler`** — add `trigger: { event: "…" }` for auto-registration, or keep manual `ConsumerRegistry` wiring.
 
@@ -229,11 +231,11 @@ Full monorepo checklists: `docs/upgrading-workers.md` and `docs/upgrading-capabi
 Install optional peers in both images when needed:
 
 ```dockerfile
-RUN npm install redis cron-parser
+RUN npm install 'redis@^4.7.0'
 ```
 
 - `redis` — durable shared queues (required for split/multi-replica)
-- `cron-parser` — only if flows use `schedule` triggers
+- `cron-parser` — provided by core; consumers do not install it
 
 Worker entrypoint example:
 
@@ -319,7 +321,9 @@ After a standalone build, copy static files alongside the server:
 | `PLUMBUS_RUNTIME_ROLE` | No | `all` | `api` for API-only replicas; use `plumbus worker` separately |
 | `QUEUE_URL` | No | — | Redis connection URL (preferred over host/port) |
 | `REDIS_URL` | No | — | Alias for `QUEUE_URL` |
-| `QUEUE_BACKEND` | No | auto | Force `memory` or `redis` queue backend |
+| `QUEUE_BACKEND` | No | auto | Select backend; dev deliberately forces memory. Selected Redis fails startup on initialization errors. |
+| `QUEUE_PREFIX` | No | `plumbus:{environment}` | Shared namespace; API and workers must agree |
+| `PLUMBUS_ENABLE_SCHEDULER` | No | `true` | Disable with `false` during controlled scheduler cutover |
 
 ### Frontend / Admin
 
@@ -626,7 +630,7 @@ readinessProbe:
 - [ ] AI provider API keys configured
 - [ ] Redis available for shared queues (required for split API + worker)
 - [ ] `redis` npm package installed when using Redis backend
-- [ ] `cron-parser` installed if flows use schedule triggers
+- [ ] Schedule definitions validated and reconciled with the deployed revision
 - [ ] Worker health probes configured when running `plumbus worker` separately
 
 ### Docker — Image Size
@@ -656,4 +660,8 @@ readinessProbe:
 - [ ] `AUTH_COOKIE_SECURE` set to `"true"` (or `"false"` only for HTTP-only — security trade-off)
 
 
-Before deploying core 0.7.0, follow [the packaged security release checklist](./upgrading-security-release.md). Update API/worker dependency sets together, verify audit storage and active flow snapshots, and run `plumbus init --patch` for wiring v16. Do not interpret an absent development secret as enabling JWT authentication.
+For upgrades from before core 0.7, also follow [the earlier security checklist](./upgrading-security-release.md): verify audit storage and active flow snapshots. Current core 0.8 and core 0.9 beta deployments use [stabilization.md](./stabilization.md), matching API/worker dependencies, and `plumbus init --patch --agent all` for wiring v21. Do not interpret an absent development secret as enabling JWT authentication.
+
+## Core 0.8 cutover
+
+This cutover also applies when moving to the core 0.9 beta family. Read `stabilization.md`. Apply migrations (database-per-tenant hosts: to every named data-plane database as the owner role, via `plumbus migrate apply --database <name>` or `applyDataPlaneMigrations`) and drain legacy flow-mutating API/worker/scheduler processes before enabling new ownership/tick protocols. Share Redis and compatible consumer registries across replicas. Configured Redis never falls back after initialization failure. Publish/reclaim uses atomic scripts; readiness tracks Redis availability. Preserve additive schema and durable histories during rollback.

@@ -1,34 +1,38 @@
-import { createRequire } from 'node:module';
-import { eq, lte } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
+import { and, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { DataValidationError } from '../errors/index.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { LoggerService } from '../types/context.js';
+import { type FlowDefinition, ScheduleCatchUpPolicy } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
-import { ScheduleCatchUpPolicy } from '../types/flow.js';
-import type { createFlowEngine } from './engine.js';
+import { computeNextRun, validateSchedule } from './cron.js';
+import { databaseTime } from './database-clock.js';
+import type { PendingFlowExecution, createFlowEngine } from './engine.js';
 import type { FlowRegistry } from './registry.js';
-import { flowSchedulesTable } from './schema.js';
+import { flowExecutionsTable, flowSchedulesTable, flowScheduleTicksTable } from './schema.js';
+export { computeNextRun } from './cron.js';
 
 /** Bound on catch-up starts per poll so a missed window cannot flood the engine. */
 export const DEFAULT_SCHEDULE_CATCH_UP_MAX = 3;
 
 export interface MissedSchedulePlan {
+  /** How many executions the due schedule starts now (one per entry of `slots`). */
   starts: number;
+  /** The scheduled times the starts stand for; each becomes one durable tick. */
+  slots: Date[];
+  /** Where `nextRunAt` is parked: always after `now`. */
   nextRunAt: Date;
 }
 
-function toDate(value: Date | string | null | undefined, fallback: Date): Date {
-  if (value instanceof Date) return value;
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
-  return fallback;
-}
-
 /**
- * Decide how many times to start a due schedule and where to park `nextRunAt`.
- * `wakeAt` is `nextRunAt` on the existing `flow_schedules` row.
+ * Decide which missed slots of a due schedule to start and where to park `nextRunAt`.
+ * `nextRunAt` is the stored `flow_schedules.next_run_at` (the first missed slot).
+ *
+ * `skip` (default) and `run-once` start one execution for the overdue work; `catch-up` starts
+ * one per missed slot, at most `maxCatchUp`. Slots are stepped from `nextRunAt`; when the
+ * missed window is longer than that, the next run jumps straight to the first occurrence
+ * after `now` instead of stepping through the backlog.
  */
 export function planMissedSchedule(input: {
   cron: string;
@@ -36,63 +40,145 @@ export function planMissedSchedule(input: {
   now: Date;
   policy?: string;
   maxCatchUp?: number;
+  timezone?: string;
 }): MissedSchedulePlan {
-  const maxCatchUp = Math.max(1, input.maxCatchUp ?? DEFAULT_SCHEDULE_CATCH_UP_MAX);
-  const policy = input.policy ?? ScheduleCatchUpPolicy.Skip;
-  const take = policy === ScheduleCatchUpPolicy.CatchUp ? maxCatchUp : 1;
-
+  const take =
+    input.policy === ScheduleCatchUpPolicy.CatchUp
+      ? Math.max(1, input.maxCatchUp ?? DEFAULT_SCHEDULE_CATCH_UP_MAX)
+      : 1;
+  const slots: Date[] = [];
   let cursor = input.nextRunAt;
-  let starts = 0;
-  while (cursor.getTime() <= input.now.getTime() && starts < take) {
-    starts += 1;
-    cursor = computeNextRun(input.cron, cursor);
+  while (cursor.getTime() <= input.now.getTime() && slots.length < take) {
+    slots.push(cursor);
+    cursor = computeNextRun(input.cron, cursor, input.timezone);
   }
-  while (cursor.getTime() <= input.now.getTime()) {
-    cursor = computeNextRun(input.cron, cursor);
-  }
-  return { starts: Math.max(starts, 0), nextRunAt: cursor };
+  const nextRunAt =
+    cursor.getTime() > input.now.getTime()
+      ? cursor
+      : computeNextRun(input.cron, input.now, input.timezone);
+  return { starts: slots.length, slots, nextRunAt };
 }
-
-import type { FlowDefinition } from '../types/flow.js';
 
 export interface SchedulerConfig {
   db: PostgresJsDatabase;
   registry: FlowRegistry;
   engine: ReturnType<typeof createFlowEngine>;
-  /** Optional logger for error reporting */
+  /** Optional logger for error reporting (default: console). */
   logger?: LoggerService;
   /** Poll interval in milliseconds (default: 60000 = 1 min) */
   pollIntervalMs?: number;
   /**
-   * When set with `listTenantRefs`, sync and poll run against each tenant's
-   * `flow_schedules` (not the pool `db`). Started flows carry that tenant on auth.
+   * When set with `listTenantRefs`, sync, reconciliation and polling run against each tenant's
+   * `flow_schedules` (not the pool `db`) for flows scheduled on `tenants`. Started flows carry
+   * that tenant on auth. Flows scheduled on `spine` keep their row on the pool `db`.
    */
   resolver?: DataPlaneResolver;
   listTenantRefs?: () => Iterable<string> | Promise<Iterable<string>>;
   /** Max starts per due row when `catchUpPolicy` is `catch-up`. Default 3. */
   maxCatchUp?: number;
+  /**
+   * Where executions (and their ticks) of TENANT-plane schedules are created: `'schedule-plane'`
+   * (the engine places tenant flows on their plane, which needs its spine dispatch) or `'pool'`
+   * (schedule planes only; flows keep the pool plane, so the tick and the execution commit
+   * together on the pool, where the engine claims them). Default: `'schedule-plane'` when the
+   * engine has spine dispatch, `'pool'` otherwise. Polling refuses `'schedule-plane'` with an
+   * engine without spine dispatch (it would create executions no engine claims); reconciliation
+   * accepts it, so `plumbus flow schedule sync` can name the worker's planes with a plain engine.
+   */
+  tenantExecutions?: 'schedule-plane' | 'pool';
+}
+
+/** Changes a reconciliation reports; `tenantRef` names the tenant plane a change belongs to. */
+export interface ScheduleChange {
+  flowName: string;
+  action: 'create' | 'update' | 'remove';
+  previous?: unknown;
+  next?: unknown;
+  tenantRef?: string;
+}
+
+export interface ScheduleReconciliation {
+  revision: string;
+  changes: ScheduleChange[];
+  applied: boolean;
+}
+
+interface SchedulePlane {
+  db: PostgresJsDatabase;
+  tenantRef?: string;
+}
+
+type ScheduleTick = typeof flowScheduleTicksTable.$inferInsert;
+
+function scheduleDefinition(flow: FlowDefinition) {
+  const schedule = flow.schedule;
+  if (!schedule) throw new DataValidationError('Flow has no schedule', { flowName: flow.name });
+  validateSchedule(schedule, flow.name);
+  return {
+    cron: schedule.cron,
+    timezone: schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    overlap: schedule.overlap ?? 'allow',
+    firstRun: schedule.firstRun ?? 'immediate',
+  };
+}
+function hash(value: unknown) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
 /**
- * Simple cron-like scheduler that polls for flows whose nextRunAt has passed.
- * Uses the flow_schedules table to track run state.
+ * The persisted schedule fingerprint (`flow_schedules.definition_hash`). `catchUpPolicy` and
+ * `plane` take part only when set, so a schedule that does not use them keeps the fingerprint
+ * the 0.8 stable family stored for it.
+ */
+export function scheduleFingerprint(flow: FlowDefinition): string {
+  const schedule = flow.schedule;
+  return hash({
+    name: flow.name,
+    schedule: {
+      ...scheduleDefinition(flow),
+      ...(schedule?.catchUpPolicy ? { catchUpPolicy: schedule.catchUpPolicy } : {}),
+      ...(schedule?.plane ? { plane: schedule.plane } : {}),
+    },
+    steps: flow.steps,
+  });
+}
+
+/** The error and, when a driver wrapped it, the cause underneath — the part that names the table. */
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as { cause?: unknown }).cause;
+  return cause instanceof Error ? `${err.message} — ${cause.message}` : err.message;
+}
+
+/**
+ * Durable flow scheduler. Each poll locks the due `flow_schedules` rows, records one unique tick
+ * per started slot, creates the execution through the engine and advances the schedule in one
+ * transaction; queue wake-ups happen after commit and database polling recovers a lost one.
  *
- * Note: This is a simplified implementation. For production use, consider
- * a proper cron parser library (e.g., cron-parser) for nextRunAt computation.
+ * With `resolver` + `listTenantRefs` every schedule plane (the pool for `spine` flows, each
+ * resolved tenant plane for `tenants` flows) is synced, reconciled and polled on its own
+ * database. A failing tenant plane is logged and skipped; a failing schedule is rolled back to
+ * its savepoint and logged, so it never blocks the other schedules due with it.
  */
 export function createFlowScheduler(config: SchedulerConfig) {
   const {
     db,
     registry,
     engine,
-    logger,
-    pollIntervalMs = 60_000,
+    logger = console,
+    pollIntervalMs = 60000,
     resolver,
     listTenantRefs,
   } = config;
   const maxCatchUp = config.maxCatchUp ?? DEFAULT_SCHEDULE_CATCH_UP_MAX;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let running = false;
+  // A tenant-plane execution is claimable only through the spine hint an engine with spine
+  // dispatch publishes; a plain engine claims from its own `db`, so its runs start on the pool.
+  const placesTenantExecutions = engine.placesTenantExecutions === true;
+  const tenantExecutions =
+    config.tenantExecutions ?? (placesTenantExecutions ? 'schedule-plane' : 'pool');
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let active: Promise<number> | undefined;
+  let lastWarning = -Infinity;
 
   const systemAuth: AuthContext = {
     userId: 'system-scheduler',
@@ -101,22 +187,45 @@ export function createFlowScheduler(config: SchedulerConfig) {
     provider: 'scheduler',
   };
 
+  function warn(flowName: string, reason: string, tenantRef?: string) {
+    if (Date.now() - lastWarning < 60000) return;
+    lastWarning = Date.now();
+    logger.warn('Schedule requires reconciliation', {
+      flowName,
+      reason,
+      ...(tenantRef ? { tenantRef } : {}),
+    });
+  }
+
   const multiPlane = Boolean(resolver && listTenantRefs);
   /** Which plane a scheduled flow belongs to; without tenant planes everything is the pool's. */
   function planeOf(flow: FlowDefinition | undefined): 'spine' | 'tenants' {
     if (!multiPlane) return 'spine';
     return flow?.schedule?.plane ?? 'tenants';
   }
+  function planeKind(plane: SchedulePlane): 'spine' | 'tenants' {
+    return plane.tenantRef === undefined ? 'spine' : 'tenants';
+  }
+  function desiredOn(plane: SchedulePlane): FlowDefinition[] {
+    return registry.getScheduled().filter((flow) => planeOf(flow) === planeKind(plane));
+  }
+  /** Ticks and executions of a tenant-plane schedule live on the pool under `tenantExecutions: 'pool'`. */
+  function ticksOnPool(plane: SchedulePlane): boolean {
+    return plane.tenantRef !== undefined && tenantExecutions === 'pool';
+  }
+
   /**
-   * The planes to sync and poll: the pool database when a registered flow is scheduled on the
-   * spine, plus every resolved tenant plane when the pool has schedule planes. The pool is
-   * skipped entirely when nothing is scheduled there, so a tenant-only host never reads it.
+   * The planes to sync, reconcile and poll: the pool database when a registered flow is
+   * scheduled on the spine, plus every resolved tenant plane when the pool has schedule planes.
+   * The pool is skipped entirely when nothing is scheduled there, so a tenant-only host never
+   * reads it. A tenant plane that cannot be resolved is skipped with a warning, unless `strict`
+   * (reconciliation must cover every plane or fail).
    */
-  async function tenantPlanes(): Promise<Array<{ db: PostgresJsDatabase; tenantRef?: string }>> {
+  async function tenantPlanes(strict = false): Promise<SchedulePlane[]> {
     if (!resolver || !listTenantRefs) {
       return [{ db }];
     }
-    const planes: Array<{ db: PostgresJsDatabase; tenantRef?: string }> = [];
+    const planes: SchedulePlane[] = [];
     if (registry.getScheduled().some((flow) => planeOf(flow) === 'spine')) {
       planes.push({ db });
     }
@@ -126,7 +235,8 @@ export function createFlowScheduler(config: SchedulerConfig) {
         const handle = await resolver.resolve(tenantRef);
         planes.push({ db: handle.db, tenantRef: handle.tenantRef });
       } catch (err: unknown) {
-        logger?.warn(`Scheduler skipped a tenant plane it could not resolve`, {
+        if (strict) throw err;
+        logger.warn('Scheduler skipped a tenant plane it could not resolve', {
           tenantRef,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -135,338 +245,444 @@ export function createFlowScheduler(config: SchedulerConfig) {
     return planes;
   }
 
-  /**
-   * Sync registered flows with schedules into the database.
-   * Call once at startup to ensure all scheduled flows have a row.
-   */
-  function readDue(planeDb: PostgresJsDatabase, now: Date) {
-    return planeDb.select().from(flowSchedulesTable).where(lte(flowSchedulesTable.nextRunAt, now));
-  }
-
-  /** The error and, when a driver wrapped it, the cause underneath — the part that names the table. */
-  function describeError(err: unknown): string {
-    if (!(err instanceof Error)) return String(err);
-    const cause = (err as { cause?: unknown }).cause;
-    return cause instanceof Error ? `${err.message} — ${cause.message}` : err.message;
-  }
-
-  async function syncSchedules(): Promise<number> {
-    const scheduled = registry.getScheduled();
-    let synced = 0;
-    const planes = await tenantPlanes();
-
-    for (const plane of planes) {
-      const planeKind = plane.tenantRef === undefined ? 'spine' : 'tenants';
-      try {
-        for (const flow of scheduled) {
-          if (!flow.schedule?.cron) continue;
-          if (planeOf(flow) !== planeKind) continue;
-
-          const existing = await plane.db
-            .select()
-            .from(flowSchedulesTable)
-            .where(eq(flowSchedulesTable.flowName, flow.name))
-            .limit(1);
-
-          if (existing.length === 0) {
-            await plane.db.insert(flowSchedulesTable).values({
-              flowName: flow.name,
-              cron: flow.schedule.cron,
-              nextRunAt: new Date(), // first run immediately
-            });
-            synced++;
-          }
+  async function syncPlane(plane: SchedulePlane): Promise<number> {
+    const scheduled = desiredOn(plane);
+    return plane.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext('plumbus:schedule-reconciliation'))`,
+      );
+      const existing = await tx.select().from(flowSchedulesTable);
+      const now = await databaseTime(tx);
+      let count = 0;
+      for (const flow of scheduled) {
+        const definition = scheduleDefinition(flow);
+        const fingerprint = scheduleFingerprint(flow);
+        if (existing.length > 0) {
+          if (
+            !existing.some(
+              (row) =>
+                row.flowName === flow.name && row.definitionHash === fingerprint && !row.removed,
+            )
+          )
+            warn(flow.name, 'deployment_sync_required', plane.tenantRef);
+          continue;
         }
+        const inserted = await tx
+          .insert(flowSchedulesTable)
+          .values({
+            flowName: flow.name,
+            ...definition,
+            definitionHash: fingerprint,
+            revision: 1,
+            nextRunAt:
+              definition.firstRun === 'immediate'
+                ? now
+                : computeNextRun(definition.cron, now, definition.timezone),
+          })
+          .onConflictDoNothing({ target: flowSchedulesTable.flowName })
+          .returning({ id: flowSchedulesTable.id });
+        count += inserted.length;
+      }
+      return count;
+    });
+  }
+
+  /**
+   * Seed the initial schedule set. A plane whose table is empty gets every flow scheduled on
+   * it; an established plane is never added to or overwritten (that needs reconciliation).
+   * A plane whose schedule table is missing or behind must not stop the others, nor boot.
+   */
+  async function syncSchedules(): Promise<number> {
+    let synced = 0;
+    for (const plane of await tenantPlanes()) {
+      try {
+        synced += await syncPlane(plane);
       } catch (err: unknown) {
-        // A plane whose schedule table is missing or behind must not stop the others, nor boot.
-        logger?.error(`Scheduler could not sync schedules on a plane`, {
+        logger.error('Scheduler could not sync schedules on a plane', {
           tenantRef: plane.tenantRef,
           error: describeError(err),
         });
       }
     }
-
     return synced;
   }
 
-  /**
-   * Run a single poll cycle: find due schedules and start flows.
-   */
-  async function poll(): Promise<number> {
-    const now = new Date();
-    let triggered = 0;
-    const planes = await tenantPlanes();
+  /** Main's revision-checked reconciliation, on one plane's database. */
+  async function reconcilePlane(
+    plane: SchedulePlane,
+    options: { apply: boolean; expectedRevision?: string },
+  ): Promise<{ revision: string; changes: ScheduleChange[] }> {
+    const desired = desiredOn(plane);
+    const tenantChange = plane.tenantRef === undefined ? {} : { tenantRef: plane.tenantRef };
+    // Superseded ticks of a pool-ticked tenant plane are recorded once its plane commits.
+    const supersededOnPool: ScheduleTick[] = [];
+    const result = await plane.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext('plumbus:schedule-reconciliation'))`,
+      );
+      const stored = await tx.select().from(flowSchedulesTable).for('update');
+      const revision = hash(
+        stored
+          .sort((a, b) => a.flowName.localeCompare(b.flowName))
+          .map((row) => [
+            row.id,
+            row.revision,
+            row.definitionHash,
+            row.cron,
+            row.enabled,
+            row.removed,
+          ]),
+      );
+      if (options.apply && options.expectedRevision !== revision)
+        throw new DataValidationError('Schedule revision changed; preview reconciliation again', {
+          revision,
+        });
+      const changes: ScheduleChange[] = [];
+      const now = await databaseTime(tx);
+      for (const flow of desired) {
+        const definition = scheduleDefinition(flow);
+        const fingerprint = scheduleFingerprint(flow);
+        const row = stored.find((item) => item.flowName === flow.name);
+        if (row && row.definitionHash === fingerprint && !row.removed) continue;
+        changes.push({
+          flowName: flow.name,
+          action: row ? 'update' : 'create',
+          previous: row
+            ? {
+                cron: row.cron,
+                timezone: row.timezone,
+                overlap: row.overlap,
+                enabled: row.enabled,
+                removed: row.removed,
+                nextRunAt: row.nextRunAt,
+              }
+            : undefined,
+          next: definition,
+          ...tenantChange,
+        });
+        if (!options.apply) continue;
+        if (!row) {
+          await tx.insert(flowSchedulesTable).values({
+            flowName: flow.name,
+            ...definition,
+            definitionHash: fingerprint,
+            revision: 1,
+            nextRunAt:
+              definition.firstRun === 'immediate'
+                ? now
+                : computeNextRun(definition.cron, now, definition.timezone),
+          });
+        } else {
+          // The explicit deployment change supersedes any unmaterialized overdue tick.
+          if (row.nextRunAt && row.nextRunAt <= now) {
+            const superseded: ScheduleTick = {
+              scheduleId: row.id,
+              scheduledFor: row.nextRunAt,
+              revision: row.revision,
+              outcome: 'skipped_configuration_change',
+            };
+            if (ticksOnPool(plane)) supersededOnPool.push(superseded);
+            else await tx.insert(flowScheduleTicksTable).values(superseded).onConflictDoNothing();
+          }
+          await tx
+            .update(flowSchedulesTable)
+            .set({
+              ...definition,
+              definitionHash: fingerprint,
+              revision: row.revision + 1,
+              removed: false,
+              adoptedAt: row.definitionHash ? row.adoptedAt : now,
+              nextRunAt: computeNextRun(definition.cron, now, definition.timezone),
+            })
+            .where(eq(flowSchedulesTable.id, row.id));
+        }
+      }
+      for (const row of stored) {
+        if (row.removed || desired.some((flow) => flow.name === row.flowName)) continue;
+        changes.push({
+          flowName: row.flowName,
+          action: 'remove',
+          previous: { cron: row.cron, enabled: row.enabled, nextRunAt: row.nextRunAt },
+          ...tenantChange,
+        });
+        if (options.apply)
+          await tx
+            .update(flowSchedulesTable)
+            .set({ removed: true, revision: row.revision + 1 })
+            .where(eq(flowSchedulesTable.id, row.id));
+      }
+      return { revision, changes };
+    });
+    if (supersededOnPool.length > 0)
+      await db.insert(flowScheduleTicksTable).values(supersededOnPool).onConflictDoNothing();
+    return result;
+  }
 
+  /**
+   * One deployment applies a complete manifest. Stale applications cannot overwrite it.
+   *
+   * With schedule planes the revision covers every plane (the pool when it holds spine
+   * schedules, each tenant plane) and the changes name their `tenantRef`. Applying re-checks
+   * the combined revision, then applies plane by plane, each under its own lock and revision
+   * check: the apply is atomic per plane, not across planes — after a partial failure, preview
+   * again and re-apply; reconciliation converges.
+   */
+  async function reconcileSchedules(
+    options: { apply?: boolean; expectedRevision?: string } = {},
+  ): Promise<ScheduleReconciliation> {
+    const apply = options.apply === true;
+    if (!multiPlane) {
+      const { revision, changes } = await reconcilePlane(
+        { db },
+        { apply, expectedRevision: options.expectedRevision },
+      );
+      return { revision, changes, applied: apply };
+    }
+    const planes = await tenantPlanes(true);
+    const previews: Array<{ plane: SchedulePlane; revision: string; changes: ScheduleChange[] }> =
+      [];
     for (const plane of planes) {
-      let dueSchedules: Awaited<ReturnType<typeof readDue>>;
+      previews.push({ plane, ...(await reconcilePlane(plane, { apply: false })) });
+    }
+    const revision = hash(
+      previews
+        .map((preview): [string, string] => [preview.plane.tenantRef ?? '', preview.revision])
+        .sort((a, b) => a[0].localeCompare(b[0])),
+    );
+    if (!apply) {
+      return { revision, changes: previews.flatMap((preview) => preview.changes), applied: false };
+    }
+    if (options.expectedRevision !== revision)
+      throw new DataValidationError('Schedule revision changed; preview reconciliation again', {
+        revision,
+      });
+    const changes: ScheduleChange[] = [];
+    for (const preview of previews) {
+      const applied = await reconcilePlane(preview.plane, {
+        apply: true,
+        expectedRevision: preview.revision,
+      });
+      changes.push(...applied.changes);
+    }
+    return { revision, changes, applied: true };
+  }
+
+  /**
+   * Poll one plane: lock its due schedules, then per schedule (in a savepoint) record a tick per
+   * slot, create the executions through the engine and advance the schedule. Executions are
+   * announced and woken only once the transaction that holds them committed.
+   */
+  async function pollPlane(plane: SchedulePlane): Promise<{ created: number; error?: unknown }> {
+    const executionStore = ticksOnPool(plane) ? db : plane.db;
+    const auth: AuthContext = plane.tenantRef
+      ? { ...systemAuth, tenantId: plane.tenantRef }
+      : systemAuth;
+    const inTransaction: PendingFlowExecution[] = [];
+    const committedElsewhere: PendingFlowExecution[] = [];
+    let failure: { error: unknown } | undefined;
+    try {
+      await plane.db.transaction(async (tx) => {
+        const now = await databaseTime(tx);
+        const due = await tx
+          .select()
+          .from(flowSchedulesTable)
+          .where(
+            and(
+              eq(flowSchedulesTable.enabled, true),
+              eq(flowSchedulesTable.removed, false),
+              lte(flowSchedulesTable.nextRunAt, now),
+            ),
+          )
+          .limit(50)
+          .for('update', { skipLocked: true });
+        for (const row of due) {
+          const dueAt = row.nextRunAt;
+          if (!row.enabled || row.removed || !dueAt || dueAt > now) continue;
+          const flow = registry.get(row.flowName);
+          if (!flow?.schedule) {
+            warn(row.flowName, 'missing_local_definition', plane.tenantRef);
+            continue;
+          }
+          // A row left on the wrong plane (a flow moved between spine and tenants) is not started.
+          if (planeOf(flow) !== planeKind(plane)) continue;
+          const created: PendingFlowExecution[] = [];
+          try {
+            if (scheduleFingerprint(flow) !== row.definitionHash) {
+              warn(row.flowName, 'definition_drift', plane.tenantRef);
+              continue;
+            }
+            const plan = planMissedSchedule({
+              cron: row.cron,
+              nextRunAt: dueAt,
+              now,
+              policy: flow.schedule.catchUpPolicy,
+              maxCatchUp,
+              timezone: row.timezone ?? undefined,
+            });
+            const materialize = async (store: PostgresJsDatabase) => {
+              for (const slot of plan.slots) {
+                const running =
+                  row.overlap === 'skip'
+                    ? await store
+                        .select({ id: flowExecutionsTable.id })
+                        .from(flowExecutionsTable)
+                        .where(
+                          and(
+                            or(
+                              eq(flowExecutionsTable.scheduleId, row.id),
+                              and(
+                                isNull(flowExecutionsTable.scheduleId),
+                                eq(flowExecutionsTable.flowName, row.flowName),
+                                lt(flowExecutionsTable.createdAt, row.adoptedAt),
+                                plane.tenantRef
+                                  ? eq(flowExecutionsTable.tenantId, plane.tenantRef)
+                                  : undefined,
+                              ),
+                            ),
+                            inArray(flowExecutionsTable.status, ['created', 'running', 'waiting']),
+                          ),
+                        )
+                        .limit(1)
+                    : [];
+                const tickId = randomUUID();
+                const executionId = randomUUID();
+                const tick = await store
+                  .insert(flowScheduleTicksTable)
+                  .values({
+                    id: tickId,
+                    scheduleId: row.id,
+                    scheduledFor: slot,
+                    revision: row.revision,
+                    executionId: running.length ? null : executionId,
+                    outcome: running.length ? 'skipped_overlap' : 'started',
+                  })
+                  .onConflictDoNothing()
+                  .returning({ id: flowScheduleTicksTable.id });
+                if (tick.length && !running.length) {
+                  created.push(
+                    await engine.createExecution(store, flow.name, {}, auth, {
+                      executionId,
+                      scheduleId: row.id,
+                      scheduleTickId: tickId,
+                    }),
+                  );
+                }
+              }
+            };
+            // Savepoint: a failing schedule rolls back its own ticks and executions only.
+            await tx.transaction(async (savepoint) => {
+              if (ticksOnPool(plane)) {
+                // The tick and the execution commit together on the pool. Should the plane fail
+                // afterwards, the schedule stays due and the next poll's tick insert conflicts on
+                // (schedule_id, scheduled_for): it only advances `nextRunAt`.
+                await db.transaction(async (poolTx) =>
+                  materialize(poolTx as unknown as PostgresJsDatabase),
+                );
+                committedElsewhere.push(...created.splice(0));
+              } else {
+                await materialize(savepoint as unknown as PostgresJsDatabase);
+              }
+              await savepoint
+                .update(flowSchedulesTable)
+                .set({ lastRunAt: now, nextRunAt: plan.nextRunAt })
+                .where(eq(flowSchedulesTable.id, row.id));
+            });
+            inTransaction.push(...created);
+          } catch (err: unknown) {
+            logger.error(`Scheduler failed to start flow "${row.flowName}"`, {
+              flowName: row.flowName,
+              scheduleId: row.id,
+              tenantRef: plane.tenantRef,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      });
+    } catch (error: unknown) {
+      failure = { error };
+    }
+    const committed = failure ? committedElsewhere : [...committedElsewhere, ...inTransaction];
+    for (const pending of committed) {
       try {
-        dueSchedules = await readDue(plane.db, now);
+        await engine.announceExecution(pending, { store: executionStore, auth });
       } catch (err: unknown) {
-        logger?.error(`Scheduler could not read schedules on a plane`, {
+        logger.error('Scheduled execution persisted; start announcement failed', {
+          executionId: pending.id,
+          flowName: pending.flowName,
           tenantRef: plane.tenantRef,
           error: describeError(err),
         });
+      }
+      try {
+        await engine.wake(pending.id);
+      } catch {
+        logger.error('Scheduled execution persisted; wake awaits database reconciliation', {
+          executionId: pending.id,
+        });
+      }
+    }
+    return failure
+      ? { created: committed.length, error: failure.error }
+      : { created: committed.length };
+  }
+
+  async function runPoll(): Promise<number> {
+    // An explicit 'schedule-plane' with an engine without spine dispatch would create tenant
+    // executions no engine claims. Reconciliation (the CLI) never polls, so only polling refuses.
+    if (
+      multiPlane &&
+      tenantExecutions === 'schedule-plane' &&
+      !placesTenantExecutions &&
+      registry.getScheduled().some((flow) => planeOf(flow) === 'tenants')
+    )
+      throw new DataValidationError(
+        "Scheduler tenantExecutions 'schedule-plane' needs a flow engine with spineDispatch; without it tenant-plane executions are never claimed (use 'pool')",
+      );
+    let created = 0;
+    let poolFailure: { error: unknown } | undefined;
+    for (const plane of await tenantPlanes()) {
+      const result = await pollPlane(plane);
+      created += result.created;
+      if (!('error' in result)) continue;
+      if (plane.tenantRef === undefined) {
+        // The pool's failure rejects the poll once the other planes ran (the timer logs it).
+        poolFailure = { error: result.error };
         continue;
       }
-
-      for (const schedule of dueSchedules) {
-        if (!schedule.enabled) continue;
-
-        try {
-          const auth: AuthContext = plane.tenantRef
-            ? { ...systemAuth, tenantId: plane.tenantRef }
-            : systemAuth;
-          const flow = registry.get(schedule.flowName);
-          // A row left on the wrong plane (a flow moved between spine and tenants) is not started.
-          if (flow && planeOf(flow) !== (plane.tenantRef === undefined ? 'spine' : 'tenants'))
-            continue;
-          const dueAt = toDate(schedule.nextRunAt, now);
-          const plan = planMissedSchedule({
-            cron: schedule.cron,
-            nextRunAt: dueAt,
-            now,
-            policy: flow?.schedule?.catchUpPolicy,
-            maxCatchUp,
-          });
-          for (let i = 0; i < plan.starts; i++) {
-            await engine.start(schedule.flowName, {}, auth);
-            triggered++;
-          }
-          await plane.db
-            .update(flowSchedulesTable)
-            .set({
-              lastRunAt: now,
-              nextRunAt: plan.nextRunAt,
-            })
-            .where(eq(flowSchedulesTable.id, schedule.id));
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err);
-          logger?.error(`Scheduler failed to start flow "${schedule.flowName}"`, {
-            flowName: schedule.flowName,
-            scheduleId: schedule.id,
-            tenantRef: plane.tenantRef,
-            error: message,
-          });
-        }
-      }
+      logger.error('Scheduler could not read schedules on a plane', {
+        tenantRef: plane.tenantRef,
+        error: describeError(result.error),
+      });
     }
-
-    return triggered;
+    if (poolFailure) throw poolFailure.error;
+    return created;
   }
-
+  function poll(): Promise<number> {
+    active ??= runPoll().finally(() => {
+      active = undefined;
+    });
+    return active;
+  }
   return {
     syncSchedules,
+    reconcileSchedules,
     poll,
-
-    start(): void {
-      if (running) return;
-      running = true;
-      timer = setInterval(() => {
-        void poll();
+    start() {
+      timer ??= setInterval(() => {
+        void poll().catch((err: unknown) =>
+          logger.error('Scheduler poll failed; durable ticks remain recoverable', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
       }, pollIntervalMs);
     },
-
-    stop(): void {
-      running = false;
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
+    async stop() {
+      clearInterval(timer);
+      timer = undefined;
+      await active?.catch(() => {});
     },
-
-    get isRunning(): boolean {
-      return running;
+    get isRunning() {
+      return timer !== undefined;
     },
   };
-}
-
-/**
- * Compute the next run time from a cron expression or interval pattern.
- *
- * Supports:
- * - Simple intervals: "every:60m", "every:24h", "every:1d"
- * - Standard 5-field cron: "minute hour day-of-month month day-of-week"
- *
- * Cron fields: minute (0-59), hour (0-23), day-of-month (1-31),
- * month (1-12), day-of-week (0-6, 0=Sunday).
- * Supports wildcards, specific values, ranges (1-5), step values,
- * comma-separated lists, and day/month name abbreviations.
- */
-const localRequire = createRequire(import.meta.url);
-
-function tryCronParserNext(cron: string, from: Date): Date | undefined {
-  try {
-    const cronParser = localRequire('cron-parser') as {
-      parseExpression: (
-        expression: string,
-        options?: { currentDate?: Date },
-      ) => { next: () => { toDate: () => Date } };
-    };
-    return cronParser.parseExpression(cron, { currentDate: from }).next().toDate();
-  } catch {
-    return undefined;
-  }
-}
-
-export function computeNextRun(cron: string, from: Date): Date {
-  const parsed = tryCronParserNext(cron, from);
-  if (parsed) {
-    return parsed;
-  }
-
-  // Parse simple interval patterns like "every:60m", "every:24h", "every:1d"
-  const match = cron.match(/^every:(\d+)([mhd])$/);
-  if (match) {
-    const value = parseInt(match[1] ?? '', 10);
-    const unit = match[2] ?? 'm';
-    const ms =
-      unit === 'm' ? value * 60_000 : unit === 'h' ? value * 3_600_000 : value * 86_400_000;
-    return new Date(from.getTime() + ms);
-  }
-
-  // Standard 5-field cron expression
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length === 5) {
-    const parsed = parseCronExpression(parts as [string, string, string, string, string]);
-    if (parsed) {
-      return findNextCronMatch(parsed, from);
-    }
-  }
-
-  // Default: 1 hour from now for unparsed expressions
-  return new Date(from.getTime() + 3_600_000);
-}
-
-// ── Cron Parser ──
-
-const DAY_NAMES: Record<string, number> = {
-  SUN: 0,
-  MON: 1,
-  TUE: 2,
-  WED: 3,
-  THU: 4,
-  FRI: 5,
-  SAT: 6,
-};
-
-const MONTH_NAMES: Record<string, number> = {
-  JAN: 1,
-  FEB: 2,
-  MAR: 3,
-  APR: 4,
-  MAY: 5,
-  JUN: 6,
-  JUL: 7,
-  AUG: 8,
-  SEP: 9,
-  OCT: 10,
-  NOV: 11,
-  DEC: 12,
-};
-
-interface CronField {
-  values: Set<number>;
-}
-
-interface ParsedCron {
-  minute: CronField;
-  hour: CronField;
-  dayOfMonth: CronField;
-  month: CronField;
-  dayOfWeek: CronField;
-}
-
-function parseCronField(
-  field: string,
-  min: number,
-  max: number,
-  names?: Record<string, number>,
-): CronField | null {
-  const values = new Set<number>();
-
-  for (const part of field.split(',')) {
-    const trimmed = part.trim().toUpperCase();
-
-    // Resolve named constants
-    let resolved = trimmed;
-    if (names) {
-      for (const [name, val] of Object.entries(names)) {
-        resolved = resolved.replace(name, String(val));
-      }
-    }
-
-    // Star with optional step: */N or *
-    const starStep = resolved.match(/^\*\/(\d+)$/);
-    if (starStep) {
-      const step = parseInt(starStep[1] ?? '', 10);
-      if (step <= 0) return null;
-      for (let i = min; i <= max; i += step) values.add(i);
-      continue;
-    }
-    if (resolved === '*') {
-      for (let i = min; i <= max; i++) values.add(i);
-      continue;
-    }
-
-    // Range with optional step: N-M/S or N-M
-    const rangeStep = resolved.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
-    if (rangeStep) {
-      const start = parseInt(rangeStep[1] ?? '', 10);
-      const end = parseInt(rangeStep[2] ?? '', 10);
-      const step = rangeStep[3] ? parseInt(rangeStep[3], 10) : 1;
-      if (start < min || end > max || step <= 0) return null;
-      for (let i = start; i <= end; i += step) values.add(i);
-      continue;
-    }
-
-    // Single value
-    const num = parseInt(resolved, 10);
-    if (Number.isNaN(num) || num < min || num > max) return null;
-    values.add(num);
-  }
-
-  return values.size > 0 ? { values } : null;
-}
-
-function parseCronExpression(parts: [string, string, string, string, string]): ParsedCron | null {
-  const minute = parseCronField(parts[0], 0, 59);
-  const hour = parseCronField(parts[1], 0, 23);
-  const dayOfMonth = parseCronField(parts[2], 1, 31);
-  const month = parseCronField(parts[3], 1, 12, MONTH_NAMES);
-  const dayOfWeek = parseCronField(parts[4], 0, 6, DAY_NAMES);
-
-  if (!minute || !hour || !dayOfMonth || !month || !dayOfWeek) return null;
-  return { minute, hour, dayOfMonth, month, dayOfWeek };
-}
-
-function findNextCronMatch(cron: ParsedCron, from: Date): Date {
-  // Start from the next minute after `from`
-  const candidate = new Date(from);
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(candidate.getMinutes() + 1);
-
-  // Search up to ~2 years ahead to avoid infinite loops
-  const maxIterations = 366 * 24 * 60; // ~1 year in minutes
-  for (let i = 0; i < maxIterations; i++) {
-    const mo = candidate.getMonth() + 1; // 1-12
-    const dom = candidate.getDate(); // 1-31
-    const dow = candidate.getDay(); // 0-6
-    const hr = candidate.getHours(); // 0-23
-    const mn = candidate.getMinutes(); // 0-59
-
-    if (
-      cron.month.values.has(mo) &&
-      cron.dayOfMonth.values.has(dom) &&
-      cron.dayOfWeek.values.has(dow) &&
-      cron.hour.values.has(hr) &&
-      cron.minute.values.has(mn)
-    ) {
-      return candidate;
-    }
-
-    candidate.setMinutes(candidate.getMinutes() + 1);
-  }
-
-  // Fallback: 1 hour from now
-  return new Date(from.getTime() + 3_600_000);
 }

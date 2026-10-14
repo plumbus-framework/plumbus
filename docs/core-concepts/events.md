@@ -263,3 +263,10 @@ app/events/
 
 For every `defineEvent` option (`domain`, `version`, `tags`) and the full `EventEnvelope` shape, see [SDK Reference → defineEvent](../sdk-reference/define-functions.md#defineevent). This page covers the common case; the reference is exhaustive.
 
+
+
+## Delivery policies in core 0.8
+
+Configure `workers.eventDelivery` with `retry: { maxAttempts, backoff, baseDelayMs, maxDelayMs }`, `unrouted`, and `ignoredEventTypes`. Capability `trigger.retry` overrides the pool default. Legacy event retry names count total calls. Dead-letter persistence precedes acknowledgement and terminal notification. `onCapabilityError` remains per capability attempt; `onEventDeadLetter` reports persisted identifiers/reason without payload. Notifications may be repeated or missed across crashes.
+
+Unmatched events default to durable quarantine. Workers sharing a prefix need compatible registrations; matching uses type/version and tenant identity comes from the outbox. Under a `dataPlaneResolver` ([Tenant Data Planes](../sdk-reference/tenant-data-planes.md)), idempotency records and dead letters, including quarantined unmatched events, are written to the envelope's tenant plane. An event whose only subscriptions are inactive or skipped by policy is not unmatched and is not quarantined. See [stabilization](../upgrading-stabilization.md) for compatibility and rollout.

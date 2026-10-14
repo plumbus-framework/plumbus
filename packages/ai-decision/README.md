@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@plumbus/ai-decision.svg)](https://www.npmjs.com/package/@plumbus/ai-decision)
 [![license](https://img.shields.io/npm/l/@plumbus/ai-decision.svg)](https://github.com/plumbus-framework/plumbus/blob/main/LICENSE)
-[![peer: @plumbus/core 0.8 beta](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.8%20beta-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 
 ## What is this?
 
@@ -50,22 +50,22 @@ Typed decision models answer bounded questions (one option from a list, a level 
 
 ## Status
 
-Shared decision contracts, version `0.3.0-beta.1` (core 0.8 beta family, npm dist-tag `plumbus-next`); required peer `@plumbus/core` **`>=0.8.0-beta.0 <0.9.0`**; Node.js 20.6+. **Runtime floor:** `ctx.ai.decide()` needs `@plumbus/core` **≥ 0.7.3** and `ctx.ai.classify({ provider })` needs **≥ 0.7.4**; agent wiring **v17** (core 0.7.4+) links these instructions. Core 0.8.0-beta.10 depends on this package at `~0.3.0-beta.1`. On the stable line, core 0.7.3 depends on `~0.2.1`, 0.7.4–0.7.8 on `~0.2.2`, and 0.7.9 on `~0.2.3`.
+Shared decision contracts, version `0.4.0-beta.0` (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family); required peer `@plumbus/core` **`>=0.9.0-beta.0 <0.10.0`**; Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Core 0.9.0-beta.0 and the provider packages in this family depend on this package at `~0.4.0-beta.0`; the stable core 0.8 family uses `~0.3.0`. Refresh agent wiring to **v21** with `plumbus init --patch --agent all`.
 
 Not included: vendor model catalogs, automatic environment provider discovery, and dedicated decision CLI commands.
 
-Release notes: [changelog](./CHANGELOG.md) and [0.8 upgrade notes](../../docs/upgrading-core-0.8.md), and [classification upgrade guide](../../docs/upgrading-classification.md).
+Release notes: [changelog](./CHANGELOG.md), [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), [stabilization upgrade guide](../../docs/upgrading-stabilization.md), and [classification upgrade guide](../../docs/upgrading-classification.md).
 
 ## Install
 
 ```bash
-pnpm add @plumbus/ai-decision
+pnpm add @plumbus/ai-decision@plumbus-next
 ```
 
-Install explicitly with `pnpm add @plumbus/ai-decision`. Provider packages install
+Install explicitly with `pnpm add @plumbus/ai-decision@plumbus-next`. Provider packages install
 `@plumbus/ai-decision` transitively. It does not depend on any provider package.
 
-Peer (copy literally): `@plumbus/core` `0.7.x`. See `node_modules/@plumbus/core/instructions/peer-dependencies.md`.
+Peer (copy literally): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. See `node_modules/@plumbus/core/instructions/peer-dependencies.md`.
 
 If agent wiring predates the decision provider instructions, refresh:
 
@@ -76,8 +76,9 @@ plumbus doctor
 
 ## Quick start
 
-Core `0.8.0-beta.6+` provides `ctx.ai.decide()` with shared validation, security, budgets,
-and per-call cost recording. Define named contracts with `defineDecision` from
+Core `0.7.3+` (beta line `0.8.0-beta.6+`; included in every 0.8 stable and 0.9 beta
+release) provides `ctx.ai.decide()` with shared validation, security, budgets, and
+per-call cost recording. Define named contracts with `defineDecision` from
 `@plumbus/ai-decision`, and export explicit provider registration as `decisions`
 from `app/server.ts` for API and worker processes. See the
 [decision integration guide](../../docs/ai/decision-providers.md#application-integration-and-cost-recording).
@@ -107,7 +108,8 @@ const result = await ctx.ai.decide({
 result.answers.refund.probability; // P(true), not a boolean
 ```
 
-Core **0.8.0-beta.6+** also supports `ctx.ai.classify({ text, labels, provider, model, threshold })`
+Core **0.7.4+** (beta line **0.8.0-beta.6+**; included in every 0.8 stable and 0.9 beta
+release) also supports `ctx.ai.classify({ text, labels, provider, model, threshold })`
 for generative or decision models. Start with
 `node_modules/@plumbus/core/instructions/ai-classification.md` for registration,
 model defaults, multi-label semantics, and cost recording.

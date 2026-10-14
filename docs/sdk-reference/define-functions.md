@@ -216,7 +216,7 @@ const onboarding = defineFlow({
     { name: "assignAccountManager", type: "capability", capability: "users.assignAccountManager" },
     { name: "sendSelfServeGuide", type: "capability", capability: "users.sendSelfServeGuide" },
   ],
-  retry: { attempts: 3, backoff: "exponential" },
+  retry: { maxAttempts: 3, backoff: "exponential" },
 });
 ```
 
@@ -232,8 +232,8 @@ const onboarding = defineFlow({
 | `state` | `z.ZodTypeAny` | No | Zod schema for flow state |
 | `steps` | `FlowStep[]` | Yes | Ordered step definitions |
 | `trigger` | `FlowTrigger` | No | What initiates the flow |
-| `schedule` | `FlowSchedule` | No | Cron schedule config |
-| `retry` | `FlowRetryPolicy` | No | Retry policy |
+| `schedule` | `FlowSchedule` | No | `cron`, optional IANA `timezone`, `firstRun: 'immediate' \| 'next'`, `overlap: 'allow' \| 'skip'` |
+| `retry` | `FlowRetryPolicy` | No | `maxAttempts` total calls per step activation, `backoff`, `baseDelayMs`, `maxDelayMs`; legacy `attempts` counts retries |
 | `version` | `string` | No | Authoring version used by `compileFlowDefinition` (default `"1"`) |
 
 ### FlowSchedule
@@ -246,6 +246,8 @@ interface FlowSchedule {
 ```
 
 Use **`schedule`** instead of **`trigger`** when the flow should run on a timer. The scheduler passes `{}` as flow input, so use `input: z.object({})` (or optional fields only). Full walkthrough: [Flows → Scheduled flow example](../core-concepts/flows.md#scheduled-flow-example).
+
+Defaults are immediate first execution on the next poll, allowed overlap, and process-local timezone. Use `firstRun: 'next'` to wait for the first cron boundary. Existing schedule changes require revision-checked `plumbus flow schedule sync`. Retry aliases cannot be combined; retry deadlines persist and budgets reset after successful step advancement.
 
 ```typescript
 const nightlyCleanup = defineFlow({
@@ -426,4 +428,3 @@ Valid `RelationType` values: `'one-to-one' | 'one-to-many' | 'many-to-one' | 'ma
 ```
 "public" | "internal" | "personal" | "sensitive" | "highly_sensitive"
 ```
-

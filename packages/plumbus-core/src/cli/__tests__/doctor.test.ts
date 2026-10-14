@@ -33,9 +33,35 @@ describe('plumbus doctor', () => {
   it('checks Node.js version', () => {
     const check = checkNodeVersion();
     expect(check.name).toBe('node');
-    // We're running on Node 20+, should pass
+    // The framework runs on a supported Node release.
     expect(check.status).toBe('ok');
     expect(check.message).toContain('Node.js');
+  });
+
+  it.each([
+    '22.12.0',
+    '22.23.2',
+    '24.0.0',
+    '24.5.0',
+    '26.0.0',
+    '27.0.0',
+  ])('accepts supported Node %s', (version) => {
+    expect(checkNodeVersion(version).status).toBe('ok');
+  });
+
+  it.each([
+    '18.20.0',
+    '20.19.0',
+    '22.11.9',
+    '23.0.0',
+    '25.0.0',
+    '22.12.0-rc.1',
+    'invalid',
+  ])('rejects unsupported Node %s with an upgrade hint', (version) => {
+    expect(checkNodeVersion(version)).toMatchObject({
+      status: 'fail',
+      message: expect.stringContaining('22.12+'),
+    });
   });
 
   it('returns all expected checks', () => {
@@ -258,6 +284,7 @@ describe('plumbus doctor', () => {
     try {
       vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
       writeFileSync(path.join(tempDir, 'CLAUDE.md'), generateClaudeMd(false), 'utf-8');
+      writeFileSync(path.join(tempDir, 'AGENTS.md'), generateAgentsMd(false), 'utf-8');
 
       const check = checkAgentWiring();
       expect(check.status).toBe('ok');

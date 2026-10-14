@@ -9,6 +9,7 @@ interface ExecutionContext {
   auth: AuthContext;           // Caller identity
   data: DataService;           // Entity repositories
   events: EventService;        // Event emitter
+  jobs: JobDispatchService;    // Durable asynchronous job intent
   flows: FlowService;          // Flow orchestrator
   ai: AIService;               // AI operations
   audit: AuditService;         // Audit trail
@@ -196,6 +197,21 @@ await ctx.events.emit("order.placed", { wrong: "field" });
 ```
 
 Before generation, both fall back to `string` and `unknown` for backward compatibility.
+
+---
+
+## ctx.jobs
+
+Queue a `kind: 'job'` capability by canonical name using the caller's identity:
+
+```typescript
+const jobId = await ctx.jobs.enqueue("reports.buildReport", { reportId: input.reportId });
+// Optional third argument: { jobId: existingUuid } for a caller-owned retry key.
+```
+
+The built-in service is wired in standard HTTP capability and flow capability contexts. It validates the target, input, and access before persisting intent. In a built-in transaction, intent commits with the capability's data and publishes afterward; rollback publishes nothing. Committed publication failures remain pending for worker recovery. A returned ID means accepted intent, not completion; inside a transaction it remains conditional on that transaction committing.
+
+An explicit UUID can be reused only for the same authorized caller/tenant, target, and normalized JSON input. Random IDs do not deduplicate business requests. Input schemas must accept their JSON representation (for example, use coercion when restoring serialized dates). Jobs cannot be synchronous flow steps or `ctx.capabilities.invoke()` targets. See the [stabilization guide](../upgrading-stabilization.md#flows-and-jobs).
 
 ---
 
@@ -613,3 +629,5 @@ const ctx = createTestContext({
 
 See the [Testing Guide](../testing/testing-guide.md) for full details.
 
+
+Queued job input must survive a JSON round trip. The built-in dispatcher persists and compares the validated JSON representation (dates as ISO strings, big integers as decimal strings). Use coercing input schemas such as `z.coerce.date()` and `z.coerce.bigint()` so workers can validate the serialized payload. Unsupported non-serializable inputs fail before a job ID is accepted.

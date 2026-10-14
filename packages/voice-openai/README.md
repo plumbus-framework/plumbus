@@ -1,11 +1,13 @@
 # @plumbus/voice-openai
 
+Release **0.4.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+
 > **OpenAI Whisper / Realtime STT and OpenAI TTS for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register the three `*_REGISTRATION` exports you need — OpenAI is **not** built into `@plumbus/voice`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-openai.svg)](https://www.npmjs.com/package/@plumbus/voice-openai)
 [![license](https://img.shields.io/npm/l/@plumbus/voice-openai.svg)](./LICENSE)
-[![peer: @plumbus/core 0.8.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.8.x-blue)](https://www.npmjs.com/package/@plumbus/core)
-[![peer: @plumbus/voice 0.6.x](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%200.6.x-blue)](https://www.npmjs.com/package/@plumbus/voice)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/voice >=0.7.0-beta.0 <0.8.0](https://img.shields.io/badge/peer-%40plumbus%2Fvoice%20%3E%3D0.7.0--beta.0%20%3C0.8.0-blue)](https://www.npmjs.com/package/@plumbus/voice)
 
 ## What is this?
 
@@ -41,15 +43,15 @@ Use this package when you want Whisper (including a Whisper-compatible local `ba
 
 ## Status
 
-Optional add-on of `@plumbus/voice` `0.6.x` and `@plumbus/core` `0.8.x`. Implements Whisper batch STT, Realtime streaming STT, and OpenAI TTS with pace-only delivery tone. Install alone does not register any provider.
+Optional add-on of `@plumbus/voice` `>=0.7.0-beta.0 <0.8.0` and `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. Implements Whisper batch STT, Realtime streaming STT, and OpenAI TTS with pace-only delivery tone. Install alone does not register any provider.
 
 ## Install
 
 ```bash
-pnpm add @plumbus/voice @plumbus/voice-openai
+pnpm add @plumbus/voice@plumbus-next @plumbus/voice-openai@plumbus-next
 ```
 
-Peers (copy literals): `@plumbus/core` `0.8.x`, `@plumbus/voice` `0.6.x`.
+Peers (copy literals): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`, `@plumbus/voice` `>=0.7.0-beta.0 <0.8.0`.
 
 Env: `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`, default `https://api.openai.com/v1`). For Azure, LiteLLM, or a self-hosted OpenAI-compatible sidecar, set `baseUrl` / `OPENAI_BASE_URL` — passed as the SDK `baseURL` (Realtime also accepts `ws`/`wss` bases and normalizes them to HTTP(S)). Do not invent a parallel adapter.
 

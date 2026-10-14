@@ -48,6 +48,10 @@ async function applyStatements(client: postgres.Sql, ddl: string): Promise<void>
   }
 }
 
+/** SQLSTATE `object_in_use`: DROP DATABASE found another session still on the database. */
+const OBJECT_IN_USE = '55006';
+const DROP_ATTEMPTS = 5;
+
 async function dropHarnessDatabase(admin: TestPostgresAdmin, name: string): Promise<void> {
   const safe = assertSafeIdentifier(name, 'database', DURABLE_TEST_DB_PATTERN);
   const quoted = quoteIdentifier(safe);
@@ -56,10 +60,36 @@ async function dropHarnessDatabase(admin: TestPostgresAdmin, name: string): Prom
     await client.unsafe(
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${safe}' AND pid <> pg_backend_pid()`,
     );
-    await client.unsafe(`DROP DATABASE IF EXISTS ${quoted}`);
+    // FORCE (PG 13+) terminates under the database lock, so no late connection slips in. A
+    // backend that is still exiting (a client ended mid-query) can outlive Postgres' own ~5 s
+    // wait under load: retry the drop instead of failing the test that owns the harness.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await client.unsafe(`DROP DATABASE IF EXISTS ${quoted} WITH (FORCE)`);
+        break;
+      } catch (error) {
+        if ((error as { code?: string }).code !== OBJECT_IN_USE || attempt >= DROP_ATTEMPTS) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      }
+    }
   } finally {
     await client.end({ timeout: 5 }).catch(() => undefined);
   }
+}
+
+/** Drop every named harness database, even when an earlier drop fails; rethrow the first error. */
+async function dropHarnessDatabases(admin: TestPostgresAdmin, names: string[]): Promise<void> {
+  let failure: { error: unknown } | undefined;
+  for (const name of names) {
+    try {
+      await dropHarnessDatabase(admin, name);
+    } catch (error) {
+      failure ??= { error };
+    }
+  }
+  if (failure) throw failure.error;
 }
 
 export async function createDurableTestHarness(options?: {
@@ -99,8 +129,7 @@ export async function createDurableTestHarness(options?: {
   } catch (error) {
     await spineSql.end({ timeout: 5 }).catch(() => undefined);
     await tenantSql.end({ timeout: 5 }).catch(() => undefined);
-    await dropHarnessDatabase(admin, spineName);
-    await dropHarnessDatabase(admin, tenantName);
+    await dropHarnessDatabases(admin, [spineName, tenantName]).catch(() => undefined);
     throw error;
   }
 
@@ -117,8 +146,7 @@ export async function createDurableTestHarness(options?: {
     async close() {
       await spineSql.end({ timeout: 5 }).catch(() => undefined);
       await tenantSql.end({ timeout: 5 }).catch(() => undefined);
-      await dropHarnessDatabase(admin, spineName);
-      await dropHarnessDatabase(admin, tenantName);
+      await dropHarnessDatabases(admin, [spineName, tenantName]);
     },
   };
 }

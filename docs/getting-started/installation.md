@@ -4,15 +4,17 @@
 
 | Requirement | Minimum Version | Purpose |
 |-------------|----------------|---------|
-| Node.js | ≥ 20 | Runtime |
+| Node.js | 22.12+ on 22.x, 24.x, or 26+ | Runtime and bundled Vitest 5 |
 | pnpm | ≥ 10 | Package manager |
 | PostgreSQL | ≥ 14 | Data persistence |
 | Redis | ≥ 7 (optional) | Shared event/flow/job queues for production and split deployments |
 | `redis` npm package | optional peer | Required in app `package.json` when using Redis-backed queues |
-| `cron-parser` npm package | optional peer | Required when flows use `schedule` triggers |
+| `cron-parser` npm package | provided by core | Used by scheduled flows; consumers do not install it |
 | TypeScript | ≥ 5.7 | Type system |
 
 ## Install the CLI
+
+The current stable family (npm `latest`) is core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, and other add-ons 0.3.x. Existing applications must follow the [stabilization upgrade guide](../upgrading-stabilization.md) before adopting this family. The next family — core 0.9.x, UI 0.10.x, MCP 0.8.x, voice 0.7.x, and other add-ons 0.4.x — is published as `-beta.N` prereleases under the `plumbus-next` dist-tag (`pnpm add -g @plumbus/core@plumbus-next`); see the [core 0.9 beta upgrade guide](../upgrading-core-0.9.md).
 
 ```bash
 pnpm add -g @plumbus/core
@@ -57,7 +59,7 @@ plumbus doctor
 The doctor command checks:
 
 ```
-✅ Node.js      v20.17.0
+✅ Node.js      v24.0.0
 ✅ TypeScript    v5.7.3
 ✅ pnpm          v10.32.0
 ✅ package.json  found
@@ -167,4 +169,3 @@ export const config: PlumbusConfig = {
 - [Tutorial →](tutorial.md) — Build a complete feature end-to-end
 - [Workers and Queues →](../architecture/workers-and-queues.md) — Runtime modes, split deployments, optional peers
 - [Upgrading Workers →](../upgrading-workers.md) — Migrate to 0.5.0 workers/queues model
-

@@ -2,22 +2,32 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "test": {
-      "dependsOn": ["^build", "build"],
-      "env": ["VITEST_MAX_THREADS", "VITEST_MIN_THREADS", "VITEST_MAX_FORKS", "VITEST_MIN_FORKS"],
+      "dependsOn": [
+        "^build",
+        "build"
+      ],
+      "env": [
+        "VITEST_MAX_WORKERS"
+      ],
       "passThroughEnv": [
         "PLUMBUS_TEST_PG_HOST",
         "PLUMBUS_TEST_PG_PORT",
         "PLUMBUS_TEST_PG_DATABASE",
         "PLUMBUS_TEST_PG_USER",
-        "PLUMBUS_TEST_PG_PASSWORD"
+        "PLUMBUS_TEST_PG_PASSWORD",
+        "PLUMBUS_TEST_POSTGRES_BIN"
       ]
     },
     "lint": {},
@@ -26,7 +36,9 @@
     },
     "format:check": {},
     "typecheck": {
-      "dependsOn": ["build"]
+      "dependsOn": [
+        "build"
+      ]
     }
   }
 }

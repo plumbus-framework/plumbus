@@ -10,7 +10,7 @@ import {
   type VectorStore,
 } from '../../ai/index.js';
 import { createOpenAIAdapter } from '../../ai/provider.js';
-import { loadConfig } from '../../config/loader.js';
+import { loadAppConfig } from '../../config/index.js';
 import { info, error as logError, resolvePath, success, warn } from '../utils.js';
 
 export interface RagIngestOptions {
@@ -56,7 +56,7 @@ export function registerRagCommand(program: Command): void {
 
       // Initialize RAG pipeline from config
       try {
-        const config = loadConfig();
+        const config = await loadAppConfig();
         let provider: AIProviderAdapter | undefined;
         let vectorStore: VectorStore | undefined;
 

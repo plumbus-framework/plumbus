@@ -19,3 +19,5 @@ export {
 export { jobEventType } from './types.js';
 export type { JobExecutionRecord, JobQueuePayload } from './types.js';
 export { registerJobStatusRoute } from './routes.js';
+
+export { publishPendingJobs, persistJobIntent } from './pending-dispatch.js';

@@ -1,19 +1,19 @@
 # @plumbus/api — Framework
 
-## Release family 0.2.0
+## Release family 0.4.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/upgrading-security-release.md` checklist and refresh agent wiring with `plumbus init --patch` (v16).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 ## Security release guidance (0.2.0)
 
-Read `node_modules/@plumbus/core/instructions/upgrading-security-release.md` before upgrading. Use core **0.7.0** for the complete security fixes; Plumbus peer dependencies require the new release family; legacy ranges intentionally exclude this upgrade. Run `plumbus init --patch` after installation to refresh agent wiring to **v16**.
+Read `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading this family. The earlier security fixes remain required. Run `plumbus init --patch --agent all` after installation for wiring **v21**.
 
 Do not advertise query-string API-key schemes: the runtime does not read them and OpenAPI export rejects them. Use the configured framework authenticator and stable error codes. Keep partner business behavior in API-exposed capabilities, not custom routes.
 
-`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version-locked `0.2.x`; declared peer `@plumbus/core` `0.8.x`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`).
+`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version `0.4.0-beta.0`, core 0.9 beta family, npm dist-tag `plumbus-next`; declared peer `@plumbus/core` `>=0.9.0-beta.0 <0.10.0`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`).
 
-**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.8.0-beta.0 <0.9.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
+**`package.json` peer (framework releases):** `"@plumbus/core": ">=0.9.0-beta.0 <0.10.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
 ## Package boundary
 
@@ -37,7 +37,7 @@ Install `@plumbus/api` when the app needs a **published partner-facing HTTP API*
 - Only a typed Next.js client is needed — use `@plumbus/ui` (`pnpm add @plumbus/ui`; see `node_modules/@plumbus/ui/instructions/` when installed).
 
 ```bash
-pnpm add @plumbus/api
+pnpm add @plumbus/api@plumbus-next
 ```
 
 If agent wiring predates the current template, run `plumbus init --patch` (or `plumbus init --patch --agent agents-md` for `AGENTS.md` only) and `plumbus doctor` to confirm. Wiring already at the current version only needs the package install — instruction paths in `node_modules/@plumbus/api/instructions/` become resolvable without a patch.

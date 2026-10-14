@@ -17,10 +17,7 @@ describe('bounded framework test runner', () => {
       '--filter=@plumbus/ai-decision-laya',
     ]);
     expect(options.env).toMatchObject({
-      VITEST_MAX_FORKS: '2',
-      VITEST_MIN_FORKS: '1',
-      VITEST_MAX_THREADS: '2',
-      VITEST_MIN_THREADS: '1',
+      VITEST_MAX_WORKERS: '2',
       NODE_OPTIONS: '--max-old-space-size=512',
     });
   });
@@ -31,14 +28,14 @@ describe('bounded framework test runner', () => {
     expect(testRunOptions(args, {}).args).toEqual(['run', 'test', ...args]);
   });
   it('preserves explicit worker controls from the environment and forwarded CLI arguments', () => {
-    expect(
-      testRunOptions([], { VITEST_MAX_THREADS: '1', VITEST_MAX_FORKS: '1' }).env,
-    ).toMatchObject({ VITEST_MAX_THREADS: '1', VITEST_MAX_FORKS: '1' });
-    const args = ['--filter=@plumbus/ai-decision-laya', '--', '--maxWorkers=1', '--minWorkers=1'];
+    expect(testRunOptions([], { VITEST_MAX_WORKERS: '1' }).env).toMatchObject({
+      VITEST_MAX_WORKERS: '1',
+    });
+    const args = ['--filter=@plumbus/ai-decision-laya', '--', '--maxWorkers=1'];
     const options = testRunOptions(args, {});
     expect(options.args.slice(-args.length)).toEqual(args);
-    expect(options.env.VITEST_MAX_THREADS).toBeUndefined();
-    expect(options.env.VITEST_MIN_FORKS).toBeUndefined();
+    expect(options.env.VITEST_MAX_WORKERS).toBeUndefined();
+    expect(testRunOptions(['--', '--maxWorkers', '1'], {}).env.VITEST_MAX_WORKERS).toBeUndefined();
   });
   it('runs Turbo with filtering and a concurrency override without running any tests', () => {
     const runner = fileURLToPath(new URL('../../../../scripts/test.mjs', import.meta.url));
@@ -53,5 +50,5 @@ describe('bounded framework test runner', () => {
         (task: { taskId: string }) => task.taskId === '@plumbus/ai-decision-laya#test',
       ),
     ).toBe(true);
-  });
+  }, 20000);
 });

@@ -2,6 +2,7 @@
 // Loads PlumbusConfig from environment variables with defaults per environment.
 // Secrets from env vars (never hardcoded in source).
 
+import { mergeConfig, parseConfigOverrides, type ConfigOverrides } from './overrides.js';
 import { isValidJwtSecret } from '../auth/index.js';
 import { ErrorDocUrls, ErrorHints } from '../errors/hints.js';
 import type {
@@ -22,22 +23,32 @@ import type { FieldClassification as FieldClassificationType } from '../types/en
 
 // ── Config Loader ──
 
-export interface ConfigLoadOptions {
+export interface ConfigLoadOptions extends ConfigOverrides {
   /** Override environment (default: from PLUMBUS_ENV or NODE_ENV) */
   environment?: Environment;
   /** Custom env source (default: process.env) */
   env?: Record<string, string | undefined>;
-  /** Allow extra passthrough config (merged into result) */
-  [key: string]: unknown;
 }
 
 /** Load PlumbusConfig from environment variables */
 export function loadConfig(options?: ConfigLoadOptions): PlumbusConfig {
+  const { env, ...overrides } = options ?? {};
+  const config = mergeConfig(
+    loadEnvironmentConfig({ env, environment: options?.environment }),
+    parseConfigOverrides(overrides),
+  );
+  parseConfigOverrides({ environment: config.environment, queue: config.queue });
+  return config;
+}
+
+export function loadEnvironmentConfig(
+  options?: Pick<ConfigLoadOptions, 'env' | 'environment'>,
+): PlumbusConfig {
   const env = options?.env ?? process.env;
 
   const environment = (options?.environment ??
     env.PLUMBUS_ENV ??
-    env.NODE_ENV ??
+    (env.NODE_ENV === 'test' ? 'development' : env.NODE_ENV) ??
     'development') as Environment;
 
   return {
@@ -45,6 +56,9 @@ export function loadConfig(options?: ConfigLoadOptions): PlumbusConfig {
     database: loadDatabaseConfig(env, environment),
     queue: loadQueueConfig(env, environment),
     execution: loadExecutionConfig(env),
+    ...(env.PLUMBUS_ENABLE_SCHEDULER !== undefined
+      ? { workers: { enableScheduler: env.PLUMBUS_ENABLE_SCHEDULER !== 'false' } }
+      : {}),
     ai: loadAIConfig(env),
     aiProviders: loadMultiProviderConfig(env),
     auth: loadAuthConfig(env),
@@ -103,6 +117,21 @@ function loadQueueConfig(
     port: parseInt(env.QUEUE_PORT ?? env.REDIS_PORT ?? '6379', 10),
     password: env.QUEUE_PASSWORD ?? env.REDIS_PASSWORD ?? undefined,
     prefix: env.QUEUE_PREFIX ?? `plumbus:${environment}`,
+    url: env.QUEUE_URL ?? env.REDIS_URL,
+    backend: env.QUEUE_BACKEND as QueueConfig['backend'],
+    ...(env.QUEUE_VISIBILITY_TIMEOUT_SEC
+      ? { visibilityTimeoutSec: Number(env.QUEUE_VISIBILITY_TIMEOUT_SEC) }
+      : {}),
+    ...(env.QUEUE_POLL_INTERVAL_MS ? { pollIntervalMs: Number(env.QUEUE_POLL_INTERVAL_MS) } : {}),
+    ...(env.QUEUE_RECLAIM_INTERVAL_MS
+      ? { reclaimIntervalMs: Number(env.QUEUE_RECLAIM_INTERVAL_MS) }
+      : {}),
+    ...(env.QUEUE_STARTUP_TIMEOUT_MS
+      ? { startupTimeoutMs: Number(env.QUEUE_STARTUP_TIMEOUT_MS) }
+      : {}),
+    ...(env.QUEUE_OPERATION_TIMEOUT_MS
+      ? { operationTimeoutMs: Number(env.QUEUE_OPERATION_TIMEOUT_MS) }
+      : {}),
   };
 }
 

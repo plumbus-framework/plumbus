@@ -6,7 +6,7 @@ A capability is a discrete unit of business logic. It is the **only** way busine
 
 ```ts
 import { defineCapability } from "@plumbus/core";
-import { z } from "zod";
+import { z } from "@plumbus/core/zod";
 
 export const getUser = defineCapability({
   name: "getUser",
@@ -138,7 +138,7 @@ For `kind: 'action'` and `kind: 'eventHandler'`, handler execution and output va
 - Globally: `execution.transactionalOutbox: false` in config, or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`
 - Per capability: `transactional: false` on `defineCapability({ ... })`
 
-Inside an active transaction, `ctx.flows.start()` and `ctx.jobs.enqueue()` defer until after commit (pre-allocated ids). Nested success audits also defer until commit. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
+Inside an active transaction, `ctx.flows.start()` defers until after commit. Built-in `ctx.jobs.enqueue()` persists job intent in the active transaction and publishes after commit; rollback removes the intent. Publication failures remain queued for worker recovery. Returned job IDs mean acceptance, not completion. Nested success audits also defer until commit. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
 
 See `docs/upgrading-contract-alignment.md` (Migration stance + §1) and `docs/architecture/execution-lifecycle.md`.
 
@@ -275,3 +275,8 @@ GET /api/jobs/:jobId
 Response: `{ data: { jobId, status, output, error, … } }`. Status values include `queued`, `running`, `completed`, `failed`, and `dead_lettered` from `job_executions`. Run `plumbus migrate generate && plumbus migrate apply` **before** job traffic — routes fail at the DB layer if the table is missing.
 
 **Pre-0.5.0 note:** job routes often returned **200** with the handler output synchronously because the server did not wire a job queue. Update HTTP clients that assumed synchronous job responses. See `deployment.md` (Upgrading to 0.5) for the full checklist.
+
+
+Core 0.8 wires `ctx.jobs.enqueue()` in standard flow contexts under the original caller's tenant and authorization. An explicit UUID `jobId` is idempotent only for the same caller/tenant, target, and validated input; conflicting reuse fails. Business-level retries still require application idempotency. Custom transaction/dispatch adapters without durable transaction binding retain their explicitly configured semantics.
+
+Queued job input must survive a JSON round trip. The built-in dispatcher persists and compares the validated JSON representation (dates as ISO strings, big integers as decimal strings). Use coercing input schemas such as `z.coerce.date()` and `z.coerce.bigint()` so workers can validate the serialized payload. Unsupported non-serializable inputs fail before a job ID is accepted.

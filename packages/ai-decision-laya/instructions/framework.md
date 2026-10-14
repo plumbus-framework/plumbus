@@ -1,10 +1,12 @@
 # Framework boundary
 
+Current release: **0.4.0-beta.0**, in the core **0.9** beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). Follow `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading, then run `plumbus init --patch --agent all` for wiring **v21**. Historical feature introduction versions below do not replace the current peer requirements.
+
 Laya provider for self-hosted typed decision inference, with a persistent Python reference service.
 
 ## Install and ownership
 
-Install `@plumbus/ai-decision-laya` explicitly. Its core peer is exactly `">=0.8.0-beta.0 <0.9.0"` (core 0.8 beta family).
+Install `@plumbus/ai-decision-laya` explicitly. Its core peer is exactly `">=0.9.0-beta.0 <0.10.0"` (core 0.9 beta family).
 Consumers reuse Zod/testing utilities from core; do not install them separately.
 Use this package for bounded typed decisions. Use core generation and embeddings
 for text responses and vector inference.
@@ -14,7 +16,7 @@ Public exports: `createLayaDecisionAdapter` — construct an explicitly configur
 File map: `src/index.ts` is the public barrel, `src/__tests__/` exercises the public
 API, `instructions/` contains these recipes. Laya alone also ships `service/`.
 
-## Classification and model selection (core 0.8.0-beta.6+)
+## Classification and model selection (core 0.7.4+ / 0.8.0-beta.6+)
 
 Read `node_modules/@plumbus/core/instructions/ai-classification.md` for the complete
 registration and usage recipe. Call `ctx.ai.classify({ text, labels, provider, model,
@@ -45,7 +47,7 @@ console.log(result.answers.refund.probability);
 1. Keep capabilities, flows, access policy and `ctx.*` as the application implementation path.
 2. Construct adapters at a server-owned infrastructure boundary and inject them. Keep keys on the server.
 3. Treat direct adapter usage as protocol integration, not a replacement for core's security/budget/audit lifecycle.
-4. With core 0.8.0-beta.6+, use `ctx.ai.decide()` in capabilities/flows. Export `decisions = { providers, defaultProvider }` from `app/server.ts`; API and workers share it. Do not register decision adapters as completion providers.
+4. With core 0.7.3+ (beta line 0.8.0-beta.6+), use `ctx.ai.decide()` in capabilities/flows. Export `decisions = { providers, defaultProvider }` from `app/server.ts`; API and workers share it. Do not register decision adapters as completion providers.
 5. Preserve distributions and provider confidence separately. A high confidence value is not authorization or proof of correctness.
 6. Validate thresholds on the actual task/model/language. Unknown cost is `null`, not free.
 7. Pass `signal: ctx.signal` and `timeoutMs` where needed. Flow steps supply their signal by default.

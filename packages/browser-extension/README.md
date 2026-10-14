@@ -1,10 +1,12 @@
 # @plumbus/browser-extension
 
+Release **0.4.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+
 > **Ship a Chrome/Firefox extension wired to your [Plumbus](https://github.com/plumbus-framework/plumbus) capabilities.** Scaffold a [WXT](https://wxt.dev/) extension that authenticates with a bearer token and calls your hosted backend through an explicit, type-checked capability registry — with **no runtime change** to `@plumbus/core` or `@plumbus/ui`.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/browser-extension.svg)](https://www.npmjs.com/package/@plumbus/browser-extension)
 [![license](https://img.shields.io/npm/l/@plumbus/browser-extension.svg)](./LICENSE)
-[![peer: @plumbus/core 0.8.x](https://img.shields.io/badge/peer-%40plumbus%2Fcore%200.5.x%20%7C%7C%200.7.x-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![scaffolds: WXT · Chrome + Firefox](https://img.shields.io/badge/scaffolds-WXT%20%C2%B7%20Chrome%20%2B%20Firefox-7c5cff)](https://wxt.dev)
 
 ## What is this?
@@ -58,14 +60,14 @@ extension/
 
 ## Status
 
-Optional **dev-time** scaffolder, version-locked `0.2.x`. Peer `@plumbus/core` at `0.8.x`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
+Optional **dev-time** scaffolder, version `0.4.0-beta.0` (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family). Peer `@plumbus/core` at `>=0.9.0-beta.0 <0.10.0`; pairs with `@plumbus/ui` (which supplies the generated typed client). The generated extension is app-owned and has no runtime dependency on this package.
 
 Out of scope (the scaffold deliberately does not invent these): OAuth/cookie auth, cross-site cookies, refresh-token rotation, and offline capability execution.
 
 ## Install
 
 ```bash
-pnpm add @plumbus/ui @plumbus/browser-extension
+pnpm add @plumbus/ui@plumbus-next @plumbus/browser-extension@plumbus-next
 ```
 
 Both are dev-time peers of `@plumbus/core` — apps that don't ship an extension install neither. The CLI command lives in `@plumbus/core` and dynamically loads both packages; it prints `pnpm add @plumbus/ui @plumbus/browser-extension` if either is missing.

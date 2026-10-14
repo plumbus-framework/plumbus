@@ -50,8 +50,10 @@ describe('polling flow leases', () => {
         enableDispatcher: false,
         enableEventWorker: false,
         flowPollIntervalMs: 20,
-        flowLeaseDurationMs: 250,
-        flowHeartbeatIntervalMs: 30,
+        // Long enough that CPU starvation under a full-suite run cannot expire the slow flow's
+        // lease between heartbeats and hand it to the peer.
+        flowLeaseDurationMs: 2_000,
+        flowHeartbeatIntervalMs: 100,
         flowClaimBatchSize: 2,
         logger: { debug() {}, info() {}, warn() {}, error() {} },
         stepDeps: {
@@ -66,6 +68,12 @@ describe('polling flow leases', () => {
       });
     const a = makePool();
     const b = makePool();
+    const teardown = async () => {
+      release();
+      await a.stop();
+      await b.stop();
+      await harness.close();
+    };
     try {
       const auth = {
         userId: 'tester',
@@ -95,11 +103,11 @@ describe('polling flow leases', () => {
       );
       expect([...attempts]).toEqual([{ attempt: 1 }, { attempt: 1 }]);
       expect(calls).toEqual(['slow', 'next']);
-    } finally {
-      release();
-      await a.stop();
-      await b.stop();
-      await harness.close();
+    } catch (error) {
+      // Report the body's failure, not a teardown error it may have left behind.
+      await teardown().catch(() => undefined);
+      throw error;
     }
+    await teardown();
   }, 20_000);
 });

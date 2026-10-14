@@ -95,7 +95,7 @@ Run `plumbus migrate generate` every time you change entity fields. The migratio
 
 For rapid local iteration without migration files, use `plumbus migrate push` instead — it diffs entity schemas against the live database and applies changes directly (ideal for development, not production).
 
-> **Important:** Plumbus manages 10 internal framework tables (`audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `job_executions`, `documents`, `document_chunks`). Do not create these tables manually — they are included in generated migrations. If you see a "schema drift" error, it means a framework table already exists in the database. Drop the conflicting table(s) and re-run the migration command.
+> **Important:** Plumbus manages 20 internal framework tables (`audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `flow_schedule_ticks`, `job_executions`, `documents`, `document_chunks`, plus the durable dispatch and approval tables `execution_state`, `step_execution`, `wait_state`, `terminal_state`, `dispatch_outbox`, `side_effect_log`, `human_task`, `approval_request`, `approval_decision`). Do not create these tables manually — they are included in generated migrations. If you see a "schema drift" error, inspect the existing schema and migration history before generating a reviewed migration. Retain durable records and execution history; do not drop framework tables to make migration pass. Existing deployments must follow the [stabilization cutover guide](../upgrading-stabilization.md).
 
 ### Seed data (optional)
 
