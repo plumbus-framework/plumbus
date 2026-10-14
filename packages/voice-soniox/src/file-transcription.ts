@@ -9,7 +9,7 @@ import type {
   FileTranscriptionProviderRegistration,
   FileTranscriptionReconcileInput,
   FileTranscriptionReconcileUploadInput,
-  FileTranscriptionSubmissionResult,
+  FileTranscriptionSubmitResult,
   FileTranscriptionSubmitInput,
   FileTranscriptionTranscript,
   FileTranscriptionUploadInput,
@@ -322,7 +322,7 @@ class SonioxFileTranscriptionProvider implements FileTranscriptionProvider {
   async submit(
     input: FileTranscriptionSubmitInput,
     options: FileTranscriptionOperationOptions = {},
-  ): Promise<FileTranscriptionSubmissionResult> {
+  ): Promise<FileTranscriptionSubmitResult> {
     checked(id, input.fileId);
     checked(opaque, input.clientReference);
     options.signal?.throwIfAborted();
@@ -356,10 +356,10 @@ class SonioxFileTranscriptionProvider implements FileTranscriptionProvider {
     }
   }
 
-  async reconcileSubmission(
+  async reconcileSubmit(
     input: FileTranscriptionReconcileInput,
     options: FileTranscriptionOperationOptions = {},
-  ): Promise<FileTranscriptionSubmissionResult> {
+  ): Promise<FileTranscriptionSubmitResult> {
     checked(id, input.fileId);
     checked(opaque, input.clientReference);
     checked(windowSchema, { after: input.createdAfter, before: input.createdBefore });

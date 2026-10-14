@@ -19,7 +19,7 @@ async function seller() {
 /** A client with a card saved through the setup page. */
 async function clientWithCard(env: Awaited<ReturnType<typeof seller>>) {
   const saved = await env.run<any>('saveClientPaymentMethod', {
-    client: { reference: 'student-1', email: 'parent@example.com' },
+    client: { reference: 'client-1', email: 'parent@example.com' },
   });
   const session = [...env.fake.setupSessions.values()].at(-1);
   if (!session) throw new Error('no setup session');
@@ -32,7 +32,7 @@ describe('saving a payment method', () => {
   it('sends the client to a setup page and records the card when it is saved', async () => {
     const env = await seller();
     const saved = await env.run<any>('saveClientPaymentMethod', {
-      client: { reference: 'student-1', email: 'parent@example.com' },
+      client: { reference: 'client-1', email: 'parent@example.com' },
     });
     expect(saved.url).toMatch(/^https:\/\/setup\.fake\.test\//);
     expect(env.lastInput('createSetupSession')).toMatchObject({
@@ -62,7 +62,7 @@ describe('saving a payment method', () => {
       amount: 3000,
       currency: 'usd',
       description: 'First lesson',
-      client: { reference: 'student-1' },
+      client: { reference: 'client-1' },
       saveMethod: true,
     });
     expect(env.lastInput('createCharge').saveMethod).toBe(true);
@@ -117,7 +117,7 @@ describe('saving a payment method', () => {
     const env = await seller();
     const { clientId } = await clientWithCard(env);
     const { clients } = await env.run<any>('listClients', {});
-    expect(clients).toEqual([expect.objectContaining({ id: clientId, reference: 'student-1' })]);
+    expect(clients).toEqual([expect.objectContaining({ id: clientId, reference: 'client-1' })]);
     const portal = await env.run<any>('createClientPortalSession', { clientId });
     expect(portal.url).toMatch(/^https:\/\/portal\.fake\.test\//);
     expect(env.lastInput('createPortalSession')).toMatchObject({

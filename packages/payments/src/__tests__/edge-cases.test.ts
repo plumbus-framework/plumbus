@@ -338,8 +338,8 @@ describe('charges', () => {
         description: `Lesson for ${reference}`,
         client: { reference, email: 'family@example.com' },
       });
-    const first = await charge('student-1');
-    const second = await charge('student-2');
+    const first = await charge('client-1');
+    const second = await charge('client-2');
     expect(second.charge.clientId).not.toBe(first.charge.clientId);
   });
 
@@ -353,8 +353,8 @@ describe('charges', () => {
         client,
       });
     const byEmail = await charge({ email: 'family@example.com' }, 1);
-    const named = await charge({ reference: 'student-1', email: 'family@example.com' }, 2);
-    const newEmail = await charge({ reference: 'student-1', email: 'new@example.com' }, 3);
+    const named = await charge({ reference: 'client-1', email: 'family@example.com' }, 2);
+    const newEmail = await charge({ reference: 'client-1', email: 'new@example.com' }, 3);
     expect(named.charge.clientId).toBe(byEmail.charge.clientId);
     expect(newEmail.charge.clientId).toBe(byEmail.charge.clientId);
   });
@@ -366,7 +366,7 @@ describe('charges', () => {
         amount: 1000,
         currency: 'usd',
         description: `Lesson ${n}`,
-        client: { reference: 'student-1', email: 'family@example.com' },
+        client: { reference: 'client-1', email: 'family@example.com' },
       });
     const [first, second] = await Promise.all([charge(1), charge(2)]);
     expect(second.charge.clientId).toBe(first.charge.clientId);

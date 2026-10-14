@@ -83,7 +83,7 @@ export function createFileTranscriptionRuntime(input: {
     upload: operation('upload', true),
     reconcileUpload: operation('reconcileUpload'),
     submit: operation('submit', true),
-    reconcileSubmission: operation('reconcileSubmission'),
+    reconcileSubmit: operation('reconcileSubmit'),
     getJob: operation('getJob'),
     getTranscript: operation('getTranscript'),
     getUsage: operation('getUsage'),

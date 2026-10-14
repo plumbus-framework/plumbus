@@ -22,7 +22,7 @@ async function seller(overrides: Partial<PaymentsConfig> = {}) {
 }
 
 const plan = {
-  client: { reference: 'student-1', email: 'parent@example.com' },
+  client: { reference: 'client-1', email: 'parent@example.com' },
   currency: 'usd',
   items: [{ name: 'Weekly tutoring', unitAmount: 8000, interval: 'month' as const }],
 };
@@ -141,7 +141,7 @@ describe('seller subscriptions', () => {
 
     const second = await env.run<any>('createSubscription', {
       ...plan,
-      client: { reference: 'student-2' },
+      client: { reference: 'client-2' },
     });
     const withdrawn = await env.run<any>('cancelSubscription', {
       subscriptionId: second.subscription.id,

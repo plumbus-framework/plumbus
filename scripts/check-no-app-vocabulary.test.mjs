@@ -414,6 +414,23 @@ describe('checkRepository', () => {
     assert.deepEqual(collectScanRoots(root), []);
     assert.deepEqual(checkRepository(root).findings, []);
   });
+
+  it('exempts a listed vendor wire name only in its adapter and only spelled exactly', () => {
+    const root = makeRepo({
+      'packages/payments-stripe/src/mapping.ts':
+        'type D = { evidence_details?: { submission_count?: number } };\n' +
+        'const submissionCount = 1;\n',
+      'packages/payments/src/mapping.ts': 'type D = { submission_count?: number };\n',
+    });
+    const result = checkRepository(root);
+    assert.deepEqual(
+      result.findings.map((f) => `${f.file}:${f.line}:${f.match}`),
+      [
+        'packages/payments-stripe/src/mapping.ts:2:submissionCount',
+        'packages/payments/src/mapping.ts:1:submission_count',
+      ],
+    );
+  });
 });
 
 describe('CLI contract', () => {

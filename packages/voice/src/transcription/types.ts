@@ -17,7 +17,7 @@ export interface FileTranscriptionConfig {
 }
 export interface FileTranscriptionOperationOptions {
   signal?: AbortSignal;
-  /** Required before upload/submission. Admission and durable reservation are app-owned. */
+  /** Required before upload or submit. Admission and durable reservation are app-owned. */
   estimatedCostUsd?: number;
 }
 export type FileTranscriptionContext = Pick<ExecutionContext, 'ai' | 'signal'>;
@@ -61,7 +61,7 @@ export interface FileTranscriptionJob {
   /** Stable category only; never raw provider text. */
   errorCode?: string;
 }
-export type FileTranscriptionSubmissionResult =
+export type FileTranscriptionSubmitResult =
   | { state: 'submitted'; job: FileTranscriptionJob }
   | { state: 'unknown'; reason: FileTranscriptionUnknownReason };
 export interface FileTranscriptionTimedToken {
@@ -114,11 +114,11 @@ export interface FileTranscriptionProvider {
   submit(
     input: FileTranscriptionSubmitInput,
     options?: FileTranscriptionOperationOptions,
-  ): Promise<FileTranscriptionSubmissionResult>;
-  reconcileSubmission(
+  ): Promise<FileTranscriptionSubmitResult>;
+  reconcileSubmit(
     input: FileTranscriptionReconcileInput,
     options?: FileTranscriptionOperationOptions,
-  ): Promise<FileTranscriptionSubmissionResult>;
+  ): Promise<FileTranscriptionSubmitResult>;
   getJob(
     input: { jobId: string },
     options?: FileTranscriptionOperationOptions,

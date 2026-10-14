@@ -22,7 +22,7 @@
  * False-positive control
  * ----------------------
  * Several of the domain terms are also ordinary English words that appear legitimately in a
- * general framework. The matcher is built around three deliberate restrictions:
+ * general framework. The matcher is built around four deliberate restrictions:
  *
  *   a) Segment equality, not substring. Every candidate name is split into segments on
  *      `-` `_` `/` `:` and camelCase/PascalCase/digit boundaries, and each segment is compared
@@ -64,6 +64,10 @@
  *      Both lists are short, every entry is justified above, and widening either is a visible
  *      diff that must be argued for. The remaining seven terms have no general sense in a
  *      framework and carry no exemptions at all.
+ *
+ *   d) Vendor wire names. A provider adapter must spell a third-party API field exactly as the
+ *      vendor defines it (Stripe's `submission_count`). VENDOR_WIRE_NAMES exempts one exact name
+ *      under one adapter directory; every other spelling and location is still reported.
  *
  * Known accepted risk: `formSubmission` — a genuinely generic web concept — would be reported.
  * No occurrence exists anywhere in this repository today, so no exemption is pre-granted; if one
@@ -223,6 +227,31 @@ export const EXCLUDED_DIR_NAMES = new Set([
  * Empty by design. Adding a row is a reviewable diff and requires a stated reason.
  */
 export const CONSUMER_FIXTURE_DIRS = [];
+
+/**
+ * Field names defined by a third-party wire protocol that a provider adapter must spell exactly
+ * as the vendor does. Each row exempts ONE exact compound name (the whole span, not a segment),
+ * only under ONE adapter's source directory, and only for the compound-name rule. The same name
+ * anywhere else, or any other spelling (`submissionCount`, `submission_id`), is still reported.
+ *
+ * Adding a row is a reviewable diff and requires the vendor's documented field as the reason.
+ */
+export const VENDOR_WIRE_NAMES = [
+  {
+    dir: 'packages/payments-stripe/src',
+    name: 'submission_count',
+    reason: 'Stripe Dispute object field evidence_details.submission_count',
+  },
+];
+
+function isVendorWireName(relPath, violation) {
+  return (
+    violation.rule === 'compound-name' &&
+    VENDOR_WIRE_NAMES.some(
+      (row) => violation.match === row.name && relPath.startsWith(`${row.dir}/`),
+    )
+  );
+}
 
 /** Extensions whose content is scanned. Anything else is path-scanned only. */
 const TEXT_EXTENSIONS = new Set([
@@ -586,7 +615,9 @@ export function checkRepository(root) {
           v.rule.startsWith('bare-name:'),
         )
       : [];
-    for (const v of [...commentAware, ...codeOnly]) findings.push({ file: relPath, ...v });
+    for (const v of [...commentAware, ...codeOnly]) {
+      if (!isVendorWireName(relPath, v)) findings.push({ file: relPath, ...v });
+    }
   }
 
   findings.sort(

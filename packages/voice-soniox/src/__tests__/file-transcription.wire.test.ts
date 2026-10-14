@@ -214,7 +214,7 @@ describe('Soniox asynchronous file transcription (official SDK with fake transpo
       }),
     );
     expect(
-      await value.runtime.reconcileSubmission(ctx, {
+      await value.runtime.reconcileSubmit(ctx, {
         fileId,
         clientReference: reference,
         ...window,
@@ -231,7 +231,7 @@ describe('Soniox asynchronous file transcription (official SDK with fake transpo
     );
     expect(
       (
-        await value.runtime.reconcileSubmission(ctx, {
+        await value.runtime.reconcileSubmit(ctx, {
           fileId,
           clientReference: reference,
           ...window,
@@ -252,7 +252,7 @@ describe('Soniox asynchronous file transcription (official SDK with fake transpo
       }),
     );
     expect(
-      await value.runtime.reconcileSubmission(ctx, {
+      await value.runtime.reconcileSubmit(ctx, {
         fileId,
         clientReference: reference,
         ...window,

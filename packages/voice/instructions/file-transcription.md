@@ -16,7 +16,7 @@ Call short methods from authorized Plumbus capabilities/flows:
 - `upload(ctx, { bytes, byteLength, contentType, uploadReference }, options)`
 - `reconcileUpload(ctx, { uploadReference, byteLength, createdAfter, createdBefore }, options)`
 - `submit(ctx, { fileId, clientReference }, options)`
-- `reconcileSubmission(ctx, { fileId, clientReference, createdAfter, createdBefore }, options)`
+- `reconcileSubmit(ctx, { fileId, clientReference, createdAfter, createdBefore }, options)`
 - `getJob(ctx, { jobId }, options)` and `getTranscript(ctx, { jobId }, options)`
 - `getUsage(ctx, { jobId, clientReference, startedAfter, endedBefore }, options)`
 - `deleteJob(ctx, { jobId }, options)` and `deleteFile(ctx, { fileId }, options)`

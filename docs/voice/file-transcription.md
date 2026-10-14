@@ -54,7 +54,7 @@ Explicit zero is valid only for genuinely free configured processing.
 | `upload(ctx, input, options)` | Bounded bytes or async byte chunks, exact byte length, MIME type and opaque random upload reference. Returns `uploaded` with file ID or `unknown`. |
 | `reconcileUpload` | Exact opaque reference, size and UTC creation window. Adopts a single matching file only after finishing a bounded scan. |
 | `submit` | File ID and a distinct persisted opaque job reference. Model/languages come from server configuration. Returns `submitted` or `unknown`. |
-| `reconcileSubmission` | Exact file, model, reference and UTC creation window. Zero, multiple, or incomplete results remain unknown. |
+| `reconcileSubmit` | Exact file, model, reference and UTC creation window. Zero, multiple, or incomplete results remain unknown. |
 | `getJob` | One read, returning a sanitized job or null for not found; no internal polling. |
 | `getTranscript` | One read, returning verbatim text and millisecond token times with optional language, confidence and speaker. Invalid or excessive output fails instead of truncating. |
 | `getUsage` | Bounded usage-log scan in a UTC completion-time window; authoritative job read and unique reference/model/window correlation (billing UUIDs need not equal job IDs). Returns actual audio duration, audio-input/text-input/text-output tokens and nullable provider cost, or unknown. |

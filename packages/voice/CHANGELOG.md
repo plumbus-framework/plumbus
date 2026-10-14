@@ -12,6 +12,7 @@
 
 - Add bounded uploaded-file transcription contracts, explicit provider registration, short invoking-context operations and actual token/media cost recording. App capabilities and flows retain durable state, rights, reservations and recovery; realtime APIs are unchanged.
 - See [file transcription](../../docs/voice/file-transcription.md).
+- The unpublished 0.6.0-beta.2 build named the job-creation reconcile `reconcileSubmission` and its result type `FileTranscriptionSubmissionResult`. They are `reconcileSubmit` and `FileTranscriptionSubmitResult` here, matching `submit` and `FileTranscriptionSubmitInput`. Rename both in code built against that tarball.
 
 ### From the earlier betas
 
