@@ -163,6 +163,11 @@ export interface PlumbusMetrics {
   flowCompleted: Counter;
   flowFailed: Counter;
   flowStepDuration: Histogram;
+  /**
+   * Claimed executions released because this worker lacks their definition
+   * (`plumbus_flow_definition_unavailable_total`, labels `flow`, `reason`).
+   */
+  flowDefinitionUnavailable?: Counter;
   aiRequestDuration: Histogram;
   aiRequestTotal: Counter;
   outboxPending: Gauge;
@@ -202,6 +207,10 @@ export function createPlumbusMetrics(registry?: MetricsRegistry): PlumbusMetrics
     flowStepDuration: reg.histogram(
       'plumbus_flow_step_duration_ms',
       'Flow step execution duration in milliseconds',
+    ),
+    flowDefinitionUnavailable: reg.counter(
+      'plumbus_flow_definition_unavailable_total',
+      'Claimed flow executions released because this worker lacks their definition',
     ),
     aiRequestDuration: reg.histogram(
       'plumbus_ai_request_duration_ms',

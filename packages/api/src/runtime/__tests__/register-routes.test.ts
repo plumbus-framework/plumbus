@@ -11,10 +11,14 @@ import {
   mockAI,
 } from '@plumbus/core/testing';
 import Fastify from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { ApiManifest } from '../../manifest/types.js';
-import { createInMemoryIdempotencyStore } from '../idempotency.js';
+import {
+  createInMemoryIdempotencyStore,
+  type IdempotencyStore,
+  type IdempotencyStoreOptions,
+} from '../idempotency.js';
 import { registerApiRoutes } from '../register-routes.js';
 
 function buildRouteConfig(audit = mockAudit()): RouteGeneratorConfig {
@@ -1411,5 +1415,117 @@ describe('registerApiRoutes requestAuthenticator', () => {
     });
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe('unauthenticated');
+  });
+});
+
+describe('registerApiRoutes idempotency outcomes', () => {
+  let app: ReturnType<typeof Fastify> | undefined;
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
+
+  function approveCap(onRun: () => void = () => {}) {
+    return defineCapability({
+      name: 'approveRefund',
+      kind: 'action',
+      domain: 'billing',
+      input: z.object({ refundId: z.string(), note: z.string().optional() }),
+      output: z.object({ refundId: z.string() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'] },
+      exposeAs: ['api'],
+      api: { operationId: 'approveRefund', method: 'POST', path: '/refunds/{refundId}/approve' },
+      handler: async (_ctx, input) => {
+        onRun();
+        return { refundId: input.refundId };
+      },
+    });
+  }
+
+  async function start(routeConfig: RouteGeneratorConfig, store?: IdempotencyStore) {
+    app = Fastify();
+    registerApiRoutes(app, routeConfig, [approveCap()], {
+      manifest: {
+        ...manifest,
+        expose: [
+          {
+            capability: 'billing.approveRefund',
+            operationId: 'approveRefund',
+            method: 'POST',
+            path: '/refunds/{refundId}/approve',
+            idempotency: { required: true, header: 'Idempotency-Key' },
+          },
+        ],
+      },
+      ...(store ? { idempotencyStore: store } : {}),
+    });
+    await app.ready();
+    return app;
+  }
+
+  const approve = (server: ReturnType<typeof Fastify>, key: string, note?: string) =>
+    server.inject({
+      method: 'POST',
+      url: '/api/v1/refunds/r1/approve',
+      headers: { authorization: 'Bearer a', 'idempotency-key': key },
+      payload: note ? { note } : {},
+    });
+
+  it('refuses another payload under the same key with 422', async () => {
+    const server = await start(buildRouteConfig(), createInMemoryIdempotencyStore());
+    expect((await approve(server, 'k', 'first')).statusCode).toBe(200);
+    const reused = await approve(server, 'k', 'second');
+    expect(reused.statusCode).toBe(422);
+    expect(reused.json().error.code).toBe('idempotency_conflict');
+  });
+
+  it('answers 409 with Retry-After while another request holds the key', async () => {
+    const store: IdempotencyStore = {
+      kind: 'database',
+      claim: async () => ({ status: 'in-progress', retryAfterSeconds: 5 }),
+      complete: async () => {},
+      abort: async () => {},
+    };
+    const res = await approve(await start(buildRouteConfig(), store), 'busy');
+    expect(res.statusCode).toBe(409);
+    expect(res.headers['retry-after']).toBe('5');
+    expect(res.json().error.code).toBe('idempotency_in_progress');
+  });
+
+  it("uses the core server's store by default and keeps the key on the control plane", async () => {
+    const claims: Array<IdempotencyStoreOptions | undefined> = [];
+    const completed: string[] = [];
+    const store: IdempotencyStore = {
+      kind: 'database',
+      claim: async (_key, _hash, _principal, options) => {
+        claims.push(options);
+        return { status: 'new', token: 'claim-1' };
+      },
+      complete: async (_key, _result, options) => {
+        completed.push(String(options?.claimToken));
+      },
+      abort: async () => {},
+    };
+    const routeConfig = { ...buildRouteConfig(), idempotencyStore: store };
+    expect((await approve(await start(routeConfig), 'k')).statusCode).toBe(200);
+    expect(claims[0]).toMatchObject({ database: routeConfig.db, plane: 'spine' });
+    expect(completed).toEqual(['claim-1']);
+  });
+
+  it('warns in production when the routes fall back to the in-memory store', async () => {
+    const previous = process.env.PLUMBUS_ENV;
+    process.env.PLUMBUS_ENV = 'production';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await start(buildRouteConfig());
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Idempotency-Key records are kept in process memory'),
+      );
+    } finally {
+      warn.mockRestore();
+      if (previous === undefined) delete process.env.PLUMBUS_ENV;
+      else process.env.PLUMBUS_ENV = previous;
+    }
   });
 });

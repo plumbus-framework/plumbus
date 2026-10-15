@@ -116,3 +116,26 @@ export const flowScheduleTicksTable = pgTable(
   },
   (table) => [uniqueIndex('flow_schedule_tick_unique').on(table.scheduleId, table.scheduledFor)],
 );
+
+/**
+ * Flow starts a transaction deferred until after its commit, written in that transaction.
+ * The post-commit start deletes its row; a row still here once `next_attempt_at` passes
+ * (the process died between commit and start, or the start failed) is started by a worker
+ * with the same execution id. Lives in the database of the transaction that wrote it.
+ */
+export const flowStartIntentsTable = pgTable(
+  'flow_start_intents',
+  {
+    executionId: uuid('execution_id').primaryKey(),
+    flowName: text('flow_name').notNull(),
+    input: jsonb('input').notNull(),
+    /** The starting caller's identity, as `flow_executions.auth_snapshot_json` stores it. */
+    authSnapshotJson: jsonb('auth_snapshot_json').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    /** When a worker may start it: a grace period after commit, then a backoff per attempt. */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+  },
+  (table) => [index('flow_start_intents_due_idx').on(table.nextAttemptAt)],
+);

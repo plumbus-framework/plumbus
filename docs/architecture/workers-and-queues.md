@@ -320,7 +320,7 @@ Read [the migration guide](../upgrading-stabilization.md). Redis initialization 
 
 Queue replicas compete for envelopes and require compatible registries. They do not route between specialized worker pools. Unrouted messages default to persistent dead letters; configure explicit intentional ignores or observable legacy acknowledgement. `onEventDeadLetter` is a best-effort terminal notification after persistence, separate from per-attempt `onCapabilityError`.
 
-Flow commits are fenced by per-claim tokens, active status and lease validity. Retries wait durably. Scheduled ticks and execution creation are transactional; explicit revision-checked schedule reconciliation owns changes/removal. Built-in transactional job dispatch stores intent before commit and recovers failed post-commit publication through bounded worker polling. No exactly-once external-effect guarantee is implied. The core 0.9 beta family keeps these guarantees and adds the one-lease-at-a-time polling and tenant-plane behavior below.
+Flow commits are fenced by per-claim tokens, active status and lease validity. Retries wait durably. Scheduled ticks and execution creation are transactional; explicit revision-checked schedule reconciliation owns changes/removal. Built-in transactional job dispatch stores intent before commit and recovers failed post-commit publication through bounded worker polling. A flow start deferred to commit does the same: its `flow_start_intents` row is written in the capability transaction, and the flow runner starts rows still due (pool every `flowStartRecoveryIntervalMs`, default 10 s; each listed tenant plane in the once-a-minute tenant sweep) under the same execution id. No exactly-once external-effect guarantee is implied. The core 0.9 beta family keeps these guarantees and adds the one-lease-at-a-time polling and tenant-plane behavior below.
 
 ## Flow polling and lease ownership
 
@@ -337,3 +337,26 @@ when due, without waiting for a five-minute lease expiry or an application polli
 guarded tenant checkpoint fails before any delayed notification is sent. The original auth
 snapshot and existing dispatch/wait schemas are unchanged. A delay as the last flow step still
 wakes to final completion.
+
+### Workers of different releases (0.9.0-beta.1)
+
+During a rolling deploy, workers of two releases claim from the same tables. A worker that
+claims an execution it cannot run with its own definitions **releases** it instead of failing
+it: the flow is not registered in that process, the execution's pinned compiled version is not
+in its compiled registry, the pinned version has another digest, or — with live (uncompiled)
+definitions only — the execution's current step is not in its definition. The release clears
+the lease (the row stays `running` with its lease expired now, so any worker's next poll can
+claim it) and, for tenant-placed executions, returns the spine hint to `ready` without counting
+the claim as an attempt. The worker logs `definition-unavailable`, increments
+`plumbus_flow_definition_unavailable_total{flow,reason}` and calls the engine's
+`onDefinitionUnavailable`; nothing is marked failed or dead-lettered.
+
+The releasing worker then leaves that execution alone for `definitionUnavailableRetryMs`
+(engine option, default 60 s): its claims exclude it, so other workers — one that has the
+definition — take it at once, and a worker that lacks it claims each such execution at most
+once per window instead of in a hot loop. A pinned compiled definition with a missing step,
+and an execution without a pin on a compiled-registry worker, still fail as before. Alert on
+executions that stay unclaimed (the counter keeps rising) for longer than a deploy takes.
+
+On shutdown, a worker that stops between steps releases its execution the same way (see
+[Graceful shutdown](../../packages/plumbus-core/instructions/deployment.md#graceful-shutdown)).

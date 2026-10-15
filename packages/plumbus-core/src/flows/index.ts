@@ -45,7 +45,16 @@ export {
   flowDeadLetterTable,
   flowExecutionsTable,
   flowSchedulesTable,
+  flowStartIntentsTable,
 } from './schema.js';
+
+// ── Durable deferred flow starts ──
+export {
+  claimDueFlowStartIntents,
+  FLOW_START_INTENT_GRACE_MS,
+  recoverFlowStartIntents,
+} from './start-intents.js';
+export type { FlowStartIntent } from './start-intents.js';
 
 // ── Flow condition evaluation ──
 export {
@@ -61,7 +70,12 @@ export type { StepExecutorDeps, StepResult } from './step-executor.js';
 
 // ── Flow Engine ──
 export { computeRetryDelay, createFlowEngine, generateWorkerId } from './engine.js';
-export type { FlowEngineConfig, FlowSpineDispatchConfig, PendingFlowExecution } from './engine.js';
+export type {
+  FlowDefinitionUnavailableInfo,
+  FlowEngineConfig,
+  FlowSpineDispatchConfig,
+  PendingFlowExecution,
+} from './engine.js';
 
 // ── Flow Triggers ──
 export { createFlowTriggerHandler } from './triggers.js';

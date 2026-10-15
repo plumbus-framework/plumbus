@@ -258,6 +258,24 @@ describe('CLI dev command', () => {
       expect(serverConfig.port).toBe(9090);
     });
 
+    it('runs onBoot from app/server.ts once, before the server is created', async () => {
+      const order: string[] = [];
+      const db = { execute: vi.fn() };
+      const onBoot = vi.fn(async () => {
+        order.push('boot');
+      });
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({ onBoot } as never);
+      vi.mocked(createServer).mockImplementationOnce((() => {
+        order.push('server');
+        return { app: {}, start: vi.fn(async () => 'http://0.0.0.0:8080'), stop: vi.fn() };
+      }) as never);
+      await startDevServer({ db: db as never, port: LISTEN_PORT });
+      expect(order).toEqual(['boot', 'server']);
+      expect(onBoot).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'dev', role: 'all', servesHttp: true, db }),
+      );
+    });
+
     it('uses provided db when given', async () => {
       const mockDb = { execute: vi.fn() };
       await startDevServer({ db: mockDb as never, port: LISTEN_PORT });

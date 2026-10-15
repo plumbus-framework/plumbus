@@ -28,6 +28,8 @@ import { wrapAIServiceWithDynamicOverrides } from '../server/bootstrap.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, AICostContext } from '../types/context.js';
 import type { WorkerPoolConfig } from '../worker/bootstrap.js';
+import type { OnBootHook } from './app-boot.js';
+import type { OnShutdownHook } from './graceful-shutdown.js';
 
 /** Runtime process role — controls which subsystems start in this process. */
 export const RuntimeRole = {
@@ -268,6 +270,7 @@ export type ServerExtensions = Pick<
   | 'resolveTenantRef'
   | 'requestDataPlane'
   | 'frameworkSchema'
+  | 'idempotencyStore'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
   /** Called after an event delivery is dead-lettered (`export const onEventDeadLetter`). */
@@ -286,4 +289,17 @@ export type ServerExtensions = Pick<
    * host that routes tenant data itself. Flows are placed on the tenant plane either way.
    */
   workerDataPlane?: WorkerPoolConfig['unitDataPlane'];
+  /**
+   * Closes host-owned resources on shutdown (`export const onShutdown` / `export async function
+   * onShutdown`): a tenant router, extra pools, SDK clients. `plumbus start` and `plumbus worker`
+   * call it after HTTP is drained and the workers stopped, before queues and the main database
+   * close, within `PLUMBUS_SHUTDOWN_TIMEOUT_MS`.
+   */
+  onShutdown?: OnShutdownHook;
+  /**
+   * The app's process setup (`export async function onBoot(ctx)`): run once per process in
+   * every role — `plumbus dev`, `plumbus start` (all, api, worker), `plumbus worker` — before the
+   * HTTP server or the worker pool starts. A throw stops startup.
+   */
+  onBoot?: OnBootHook;
 };

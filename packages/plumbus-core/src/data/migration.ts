@@ -1,10 +1,10 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { getTableName, is } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
-import { PgTable } from 'drizzle-orm/pg-core';
+import { PgDialect, PgTable } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
 import { auditRecords } from '../audit/schema.js';
@@ -16,6 +16,7 @@ import {
   flowExecutionsTable,
   flowSchedulesTable,
   flowScheduleTicksTable,
+  flowStartIntentsTable,
 } from '../flows/schema.js';
 import { jobExecutionsTable } from '../jobs/schema.js';
 import type { EntityDefinition } from '../types/entity.js';
@@ -24,6 +25,118 @@ import { FRAMEWORK_SCHEMA, generateDrizzleSchema } from './schema-generator.js';
 export interface MigrationConfig {
   db: PostgresJsDatabase;
   migrationsFolder: string;
+  /**
+   * Called once when another migration run on the same database holds the migration lock and
+   * this run starts waiting for it (CLI: prints a waiting line).
+   */
+  onLockWait?: () => void;
+}
+
+/**
+ * Session advisory lock key every migration run takes on the database it migrates ("PLUMBUS"
+ * plus a version byte). Advisory locks are per database, so separate tenant databases never
+ * wait on each other.
+ */
+export const MIGRATION_ADVISORY_LOCK_KEY = '5786093411577975553';
+
+/** Executes one statement; `PostgresJsDatabase` and a transaction both satisfy it. */
+interface MigrationExecutor {
+  execute(query: SQL): PromiseLike<unknown>;
+}
+
+/** Where one migration run sends its SQL: a locked connection, or the plain handle. */
+interface MigrationSession extends MigrationExecutor {
+  transaction<T>(work: (tx: MigrationExecutor) => Promise<T>): Promise<T>;
+}
+
+interface ReservedPostgresClient {
+  unsafe(query: string, params?: unknown[]): PromiseLike<unknown>;
+  release(): void;
+}
+
+interface ReservablePostgresClient {
+  reserve(): Promise<ReservedPostgresClient>;
+}
+
+function reservableClientOf(db: PostgresJsDatabase): ReservablePostgresClient | undefined {
+  const client = (db as { $client?: unknown }).$client;
+  if (
+    typeof client === 'function' &&
+    typeof (client as Partial<ReservablePostgresClient>).reserve === 'function'
+  ) {
+    return client as unknown as ReservablePostgresClient;
+  }
+  return undefined;
+}
+
+const migrationDialect = new PgDialect();
+
+function reservedSession(connection: ReservedPostgresClient): MigrationSession {
+  const execute = (query: SQL) => {
+    const built = migrationDialect.sqlToQuery(query);
+    return connection.unsafe(built.sql, built.params);
+  };
+  return {
+    execute,
+    async transaction(work) {
+      // A reserved postgres.js connection has no `begin`; the transaction is spelled out so
+      // it stays on the connection that holds the lock (a pool of one cannot lend another).
+      await connection.unsafe('BEGIN');
+      try {
+        const result = await work({ execute });
+        await connection.unsafe('COMMIT');
+        return result;
+      } catch (error) {
+        await Promise.resolve(connection.unsafe('ROLLBACK')).catch(() => undefined);
+        throw error;
+      }
+    },
+  };
+}
+
+/**
+ * Run `work` while holding the database's migration lock, so concurrent `migrate apply` runs
+ * (several pods, a Job and a developer) apply each migration once: the second run waits, then
+ * reads the history the first one wrote. The lock is a session advisory lock on one reserved
+ * connection and all of the run's SQL goes over that connection, so a pool of one works and a
+ * crashed run releases the lock with its connection.
+ *
+ * A handle without a reservable postgres.js client (test doubles) runs unlocked; the unique
+ * history hash still refuses a second record of the same migration.
+ */
+async function withMigrationLock<T>(
+  db: PostgresJsDatabase,
+  work: (session: MigrationSession) => Promise<T>,
+  onLockWait?: () => void,
+): Promise<T> {
+  const client = reservableClientOf(db);
+  if (!client) {
+    return work({
+      execute: (query) => db.execute(query),
+      transaction: (fn) => db.transaction((tx) => fn(tx)),
+    });
+  }
+
+  const connection = await client.reserve();
+  try {
+    const acquired = (await connection.unsafe(
+      'SELECT pg_try_advisory_lock($1::bigint) AS acquired',
+      [MIGRATION_ADVISORY_LOCK_KEY],
+    )) as Array<{ acquired: boolean }>;
+    if (acquired[0]?.acquired !== true) {
+      onLockWait?.();
+      await connection.unsafe('SELECT pg_advisory_lock($1::bigint)', [MIGRATION_ADVISORY_LOCK_KEY]);
+    }
+    try {
+      return await work(reservedSession(connection));
+    } finally {
+      await Promise.resolve(
+        connection.unsafe('SELECT pg_advisory_unlock($1::bigint)', [MIGRATION_ADVISORY_LOCK_KEY]),
+      ).catch(() => undefined);
+    }
+  } finally {
+    connection.release();
+  }
 }
 
 // ── Pending Migration Reader ──
@@ -95,7 +208,7 @@ function readJournalMigrations(migrationsFolder: string): PendingMigration[] {
   });
 }
 
-async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
+async function ensureMigrationsTable(db: MigrationExecutor): Promise<void> {
   // Keep tracking metadata in the `drizzle` schema (stock Drizzle's default)
   // so it stays out of `public` and the location is deterministic across
   // sessions regardless of search_path.
@@ -107,7 +220,27 @@ async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
       created_at BIGINT
     )`,
   );
+  await ensureUniqueMigrationHash(db);
   await adoptLegacyPublicMigrationHistory(db);
+}
+
+/**
+ * One history row per migration hash. Tables created before core 0.9.0-beta.1 had no unique
+ * key, so an unlocked concurrent apply could record a migration twice: keep the oldest row of
+ * each hash (the set of applied hashes does not change), then add the unique index. Both
+ * statements are no-ops once the index exists.
+ */
+async function ensureUniqueMigrationHash(db: MigrationExecutor): Promise<void> {
+  await db.execute(sql`
+    DELETE FROM "drizzle"."__drizzle_migrations" AS duplicate
+    USING "drizzle"."__drizzle_migrations" AS kept
+    WHERE duplicate.hash = kept.hash
+      AND duplicate.id > kept.id
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS "__drizzle_migrations_hash_key"
+    ON "drizzle"."__drizzle_migrations" (hash)
+  `);
 }
 
 /**
@@ -119,7 +252,7 @@ async function ensureMigrationsTable(db: PostgresJsDatabase): Promise<void> {
  * errors on `FROM public.__drizzle_migrations` when the relation is missing,
  * even if the statement includes an `information_schema` guard.
  */
-async function legacyPublicMigrationsTableExists(db: PostgresJsDatabase): Promise<boolean> {
+async function legacyPublicMigrationsTableExists(db: MigrationExecutor): Promise<boolean> {
   const rows = (await db.execute(sql`
     SELECT 1
     FROM information_schema.tables
@@ -131,24 +264,21 @@ async function legacyPublicMigrationsTableExists(db: PostgresJsDatabase): Promis
   return rows.length > 0;
 }
 
-async function adoptLegacyPublicMigrationHistory(db: PostgresJsDatabase): Promise<void> {
+async function adoptLegacyPublicMigrationHistory(db: MigrationExecutor): Promise<void> {
   if (!(await legacyPublicMigrationsTableExists(db))) {
     return;
   }
 
   await db.execute(sql`
     INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at)
-    SELECT legacy.hash, legacy.created_at
+    SELECT DISTINCT ON (legacy.hash) legacy.hash, legacy.created_at
     FROM "public"."__drizzle_migrations" AS legacy
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM "drizzle"."__drizzle_migrations" AS current
-      WHERE current.hash = legacy.hash
-    )
+    ORDER BY legacy.hash, legacy.id
+    ON CONFLICT (hash) DO NOTHING
   `);
 }
 
-async function getAppliedMigrationHashes(db: PostgresJsDatabase): Promise<Set<string>> {
+async function getAppliedMigrationHashes(db: MigrationExecutor): Promise<Set<string>> {
   const appliedRows = (await db.execute(
     sql`SELECT hash FROM "drizzle"."__drizzle_migrations"`,
   )) as unknown as Array<{ hash: string }>;
@@ -161,14 +291,33 @@ async function getAppliedMigrationHashes(db: PostgresJsDatabase): Promise<Set<st
  * (not yet applied to the database).
  */
 export async function readPendingMigrations(config: MigrationConfig): Promise<PendingMigration[]> {
-  const { db, migrationsFolder } = config;
+  return withMigrationLock(
+    config.db,
+    (session) => readPendingWith(session, config.migrationsFolder),
+    config.onLockWait,
+  );
+}
 
+/**
+ * Pending journal migrations, one per hash: the history is keyed by hash, so a second journal
+ * entry with byte-identical SQL counts as the same migration (as it already did on any
+ * database that had applied the first one).
+ */
+async function readPendingWith(
+  db: MigrationExecutor,
+  migrationsFolder: string,
+): Promise<PendingMigration[]> {
   await ensureMigrationsTable(db);
 
   const appliedHashes = await getAppliedMigrationHashes(db);
   const journalMigrations = readJournalMigrations(migrationsFolder);
 
-  return journalMigrations.filter((migration) => !appliedHashes.has(migration.hash));
+  const seen = new Set(appliedHashes);
+  return journalMigrations.filter((migration) => {
+    if (seen.has(migration.hash)) return false;
+    seen.add(migration.hash);
+    return true;
+  });
 }
 
 /**
@@ -176,9 +325,23 @@ export async function readPendingMigrations(config: MigrationConfig): Promise<Pe
  *
  * Each migration runs inside a transaction. On failure, the error includes
  * the migration tag, statement index, and a SQL preview for diagnostics.
+ *
+ * The whole run holds the database's migration lock (see `MIGRATION_ADVISORY_LOCK_KEY`):
+ * a concurrent run waits, then finds the migrations this one applied already recorded.
  */
 export async function applyMigrations(config: MigrationConfig): Promise<MigrationApplyResult> {
-  const pending = await readPendingMigrations(config);
+  return withMigrationLock(
+    config.db,
+    (session) => applyPendingWith(session, config.migrationsFolder),
+    config.onLockWait,
+  );
+}
+
+async function applyPendingWith(
+  session: MigrationSession,
+  migrationsFolder: string,
+): Promise<MigrationApplyResult> {
+  const pending = await readPendingWith(session, migrationsFolder);
 
   if (pending.length === 0) {
     return { applied: 0, tags: [] };
@@ -186,7 +349,7 @@ export async function applyMigrations(config: MigrationConfig): Promise<Migratio
 
   const appliedTags: string[] = [];
   for (const migration of pending) {
-    await config.db.transaction(async (tx) => {
+    await session.transaction(async (tx) => {
       for (let i = 0; i < migration.statements.length; i++) {
         const stmt = migration.statements[i] ?? '';
         try {
@@ -219,9 +382,19 @@ export async function reconcileMigrationHistory(
   config: MigrationConfig,
 ): Promise<MigrationReconcileResult> {
   const journalMigrations = readJournalMigrations(config.migrationsFolder);
+  return withMigrationLock(
+    config.db,
+    (session) => reconcileWith(session, journalMigrations),
+    config.onLockWait,
+  );
+}
 
-  await ensureMigrationsTable(config.db);
-  const appliedHashes = await getAppliedMigrationHashes(config.db);
+async function reconcileWith(
+  session: MigrationSession,
+  journalMigrations: PendingMigration[],
+): Promise<MigrationReconcileResult> {
+  await ensureMigrationsTable(session);
+  const appliedHashes = await getAppliedMigrationHashes(session);
   const missingMigrations = journalMigrations.filter(
     (migration) => !appliedHashes.has(migration.hash),
   );
@@ -234,11 +407,12 @@ export async function reconcileMigrationHistory(
     };
   }
 
-  await config.db.transaction(async (tx) => {
+  await session.transaction(async (tx) => {
     for (const migration of missingMigrations) {
       await tx.execute(
         sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at)
-            VALUES (${migration.hash}, ${migration.folderMillis})`,
+            VALUES (${migration.hash}, ${migration.folderMillis})
+            ON CONFLICT (hash) DO NOTHING`,
       );
     }
   });
@@ -286,6 +460,8 @@ export function collectSchemas(
   tableNames.add(getTableName(flowScheduleTicksTable));
   schemas.__flow_schedules = flowSchedulesTable as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(flowSchedulesTable));
+  schemas.__flow_start_intents = flowStartIntentsTable as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(flowStartIntentsTable));
   schemas.__job_executions = jobExecutionsTable as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(jobExecutionsTable));
   // Protocol A tenant durable tables (core_plumbus)
@@ -383,8 +559,17 @@ function findJournalTagForHash(migrationsFolder: string, hash: string): string |
 export async function rollbackLastMigration(
   config: MigrationConfig,
 ): Promise<MigrationRollbackResult> {
-  const { db, migrationsFolder } = config;
+  return withMigrationLock(
+    config.db,
+    (session) => rollbackWith(session, config.migrationsFolder),
+    config.onLockWait,
+  );
+}
 
+async function rollbackWith(
+  db: MigrationExecutor,
+  migrationsFolder: string,
+): Promise<MigrationRollbackResult> {
   // Creates the history table when absent, so a database that has never been
   // migrated reports `no_migrations` instead of erroring on a missing relation.
   await ensureMigrationsTable(db);
@@ -400,8 +585,7 @@ export async function rollbackLastMigration(
     return { rolledBack: null, hash: null, tag: null, status: 'no_migrations' };
   }
 
-  // Delete by id, not hash — a hash can legitimately repeat across rows and
-  // must not take unrelated history with it.
+  // Delete by id: history written before the unique hash key may repeat a hash.
   await db.execute(
     sql`DELETE FROM "drizzle"."__drizzle_migrations" WHERE id = ${lastMigration.id}`,
   );

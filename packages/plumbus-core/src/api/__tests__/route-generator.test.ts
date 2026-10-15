@@ -1,6 +1,7 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import type { IdempotencyStore } from '../idempotency.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import {
   registerAllRoutes,
@@ -267,10 +268,14 @@ describe('declared idempotency on the core /api surface', () => {
       handler?: (input: { orderId: string }) => Promise<unknown>;
       authorize?: CapabilityContract['authorize'];
       ttl?: string;
+      store?: IdempotencyStore;
     } = {},
   ) {
     const app = makeMockApp();
-    const config = makeMockConfig();
+    const config = {
+      ...makeMockConfig(),
+      ...(options.store ? { idempotencyStore: options.store } : {}),
+    };
     const handler = vi.fn(
       options.handler ??
         (async (input: { orderId: string }) => ({ orderId: input.orderId, created: true })),
@@ -304,6 +309,48 @@ describe('declared idempotency on the core /api surface', () => {
     });
     return { route, handler, request, config };
   }
+
+  it('answers 409 with Retry-After while another request holds the key', async () => {
+    const store: IdempotencyStore = {
+      kind: 'database',
+      claim: vi.fn(async () => ({ status: 'in-progress' as const, retryAfterSeconds: 7 })),
+      complete: vi.fn(async () => {}),
+      abort: vi.fn(async () => {}),
+    };
+    const { route, handler, request, config } = makeIdempotentSetup({ store });
+    const reply = makeMockReply();
+    await route(request('busy', { orderId: 'o1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(reply.header).toHaveBeenCalledWith('retry-after', '7');
+    expect(reply.send.mock.calls[0]?.[0]?.error?.metadata?.reason).toBe('idempotency-in-progress');
+    expect(handler).not.toHaveBeenCalled();
+    // The key is kept on the database the request's capability writes to.
+    expect(vi.mocked(store.claim).mock.calls[0]?.[3]).toMatchObject({
+      database: config.db,
+      plane: 'spine',
+    });
+  });
+
+  it('records a non-transactional success after the capability returns', async () => {
+    const store: IdempotencyStore = {
+      kind: 'database',
+      claim: vi.fn(async () => ({ status: 'new' as const })),
+      complete: vi.fn(async () => {}),
+      completeInTransaction: vi.fn(async () => {}),
+      abort: vi.fn(async () => {}),
+    };
+    const { route, request } = makeIdempotentSetup({ store });
+    const reply = makeMockReply();
+    await route(request('k-plain', { orderId: 'o1' }), reply);
+    expect(reply.status).toHaveBeenCalledWith(200);
+    // The mock context has no transaction runner: the completion cannot share one.
+    expect(store.completeInTransaction).not.toHaveBeenCalled();
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.any(String),
+      { orderId: 'o1', created: true },
+      expect.objectContaining({ plane: 'spine' }),
+    );
+  });
 
   it('refuses a state-changing call that carries no key', async () => {
     const { route, handler, request } = makeIdempotentSetup();
@@ -398,16 +445,17 @@ describe('declared idempotency on the core /api surface', () => {
     });
     const reply = makeMockReply();
     await route(request('role-key', { orderId: 'o1' }), reply);
-    expect(reply.status).toHaveBeenCalledWith(409);
+    // The authority is part of the request fingerprint: a different one is another payload.
+    expect(reply.status).toHaveBeenCalledWith(422);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses the same key with different input as a conflict', async () => {
+  it('refuses the same key with different input as unprocessable (422)', async () => {
     const { route, handler, request } = makeIdempotentSetup();
     await route(request('k2', { orderId: 'o1' }), makeMockReply());
     const reply = makeMockReply();
     await route(request('k2', { orderId: 'o2' }), reply);
-    expect(reply.status).toHaveBeenCalledWith(409);
+    expect(reply.status).toHaveBeenCalledWith(422);
     expect(reply.send.mock.calls[0]?.[0]?.error?.metadata?.reason).toBe('idempotency-conflict');
     expect(handler).toHaveBeenCalledTimes(1);
   });

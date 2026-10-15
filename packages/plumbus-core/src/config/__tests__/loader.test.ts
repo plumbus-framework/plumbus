@@ -14,7 +14,7 @@ describe('Config Loader', () => {
       expect(config.database.database).toBe('plumbus_dev');
       expect(config.database.user).toBe('postgres');
       expect(config.database.password).toBe('postgres');
-      expect(config.database.poolSize).toBe(5);
+      expect(config.database.poolSize).toBe(10);
       expect(config.execution?.transactionalOutbox).toBe(true);
     });
 
@@ -141,12 +141,19 @@ describe('Config Loader', () => {
       expect(loadConfig({ environment: 'development', env: {} }).database.ssl).toBe(false);
     });
 
-    it('uses larger pool size in production', () => {
-      const config = loadConfig({
-        environment: 'production',
-        env: {},
-      });
-      expect(config.database.poolSize).toBe(20);
+    it('keeps the driver default pool size of 10 in every environment when unset', () => {
+      expect(loadConfig({ environment: 'production', env: {} }).database.poolSize).toBe(10);
+      expect(loadConfig({ environment: 'staging', env: {} }).database.poolSize).toBe(10);
+    });
+
+    it('refuses a pool size that is not a whole number of at least 1', () => {
+      for (const value of ['0', '-3', 'many']) {
+        const config = loadConfig({ env: { DATABASE_POOL_SIZE: value } });
+        expect(validateConfig(config).errors).toContain(
+          'database.poolSize (DATABASE_POOL_SIZE) must be a whole number of at least 1',
+        );
+      }
+      expect(validateConfig(loadConfig({ env: { DATABASE_POOL_SIZE: '7' } })).errors).toEqual([]);
     });
 
     it('reads queue config from env vars', () => {

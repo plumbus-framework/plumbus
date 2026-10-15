@@ -30,6 +30,44 @@ export class LeaseLostError extends PlumbusError {
   }
 }
 
+/** Why a worker cannot run a claimed flow execution with the definitions it has. */
+export const FlowDefinitionUnavailableReason = {
+  /** The flow is not registered in this process. */
+  FlowNotRegistered: 'flow-not-registered',
+  /** The pinned compiled definition version is not in this process's compiled registry. */
+  CompiledVersionMissing: 'compiled-version-missing',
+  /** The pinned version is present with a different digest. */
+  CompiledDigestMismatch: 'compiled-digest-mismatch',
+  /** Live (uncompiled) definitions: the execution's current step is not in this definition. */
+  StepNotFound: 'step-not-found',
+} as const;
+export type FlowDefinitionUnavailableReason =
+  (typeof FlowDefinitionUnavailableReason)[keyof typeof FlowDefinitionUnavailableReason];
+
+/**
+ * A worker claimed an execution whose definition (or definition version) it does not have.
+ * The engine releases the execution for a worker that has it instead of failing it; this
+ * error tells the runner the claim is gone and nothing was finalized.
+ */
+export class FlowDefinitionUnavailableError extends PlumbusError {
+  readonly reason: FlowDefinitionUnavailableReason;
+
+  constructor(
+    executionId: string,
+    flowName: string,
+    reason: FlowDefinitionUnavailableReason,
+    metadata?: Record<string, unknown>,
+  ) {
+    super(
+      ErrorCode.NotFound,
+      `Flow execution "${executionId}" needs a definition of "${flowName}" this worker does not have (${reason})`,
+      { executionId, flowName, reason: 'definition-unavailable', detail: reason, ...metadata },
+    );
+    this.name = 'FlowDefinitionUnavailableError';
+    this.reason = reason;
+  }
+}
+
 /**
  * Raised as the AbortSignal reason when a flow step is cancelled via
  * `flows.cancel()`. Surfaced to capability handlers that await cancelable

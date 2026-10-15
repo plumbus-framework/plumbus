@@ -209,6 +209,8 @@ describe('event pipeline integration', () => {
         from: () => ({ where: () => ({ limit: () => ({ orderBy: () => Promise.resolve([]) }) }) }),
       }),
       execute: vi.fn().mockResolvedValue([]),
+      // The dispatch_outbox pump claims its rows in a plane transaction.
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(healthy)),
     } as never;
     const resolver = {
       resolve: vi.fn(async (tenantRef: string) => ({

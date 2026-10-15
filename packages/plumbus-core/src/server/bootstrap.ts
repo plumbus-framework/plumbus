@@ -303,8 +303,13 @@ export interface PlumbusServer {
   app: FastifyInstance;
   /** Start listening */
   start(): Promise<string>;
-  /** Graceful shutdown */
+  /** Graceful shutdown: marks the server shutting down, then closes Fastify (in-flight requests finish). */
   stop(): Promise<void>;
+  /**
+   * From now on `/ready` answers 503 (`reason: 'shutting down'`) while every other route keeps
+   * serving, so a load balancer takes the process out of rotation before `stop()` closes HTTP.
+   */
+  markShuttingDown?(): void;
   /** Host credential catalog when `createServer({ credentials })` was given. */
   credentials?: CredentialCatalog;
   /** Governed artifact store when one was passed or auto-loaded from disk. */
@@ -392,8 +397,13 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     };
   });
 
-  // Readiness check (verifies DB is reachable)
+  // Readiness check (verifies DB is reachable); 503 from the moment shutdown begins.
+  let shuttingDown = false;
   app.get('/ready', async (_req, reply) => {
+    if (shuttingDown) {
+      reply.status(503);
+      return { status: 'not_ready', reason: 'shutting down' };
+    }
     try {
       await db.execute(sql`SELECT 1`);
       try {
@@ -692,6 +702,18 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     ...(serverConfig.idempotencyStore ? { idempotencyStore: serverConfig.idempotencyStore } : {}),
   };
 
+  // A process-local store forgets keys on restart and never sees a retry that reaches another
+  // copy: fine for development, wrong for any deployment that runs (or replaces) copies.
+  if (
+    (config.environment === 'production' || config.environment === 'staging') &&
+    (!serverConfig.idempotencyStore || serverConfig.idempotencyStore.kind === 'memory') &&
+    capabilities.getAll().some((capability) => capability.api?.idempotency?.required === true)
+  ) {
+    logger.warn(
+      'Idempotency-Key records are kept in process memory: a retry that reaches another process, or arrives after a restart, runs the request again. Supply a database store (createDatabaseIdempotencyStore, `export const idempotencyStore` in app/server.ts).',
+    );
+  }
+
   // Register all capability routes
   registerAllRoutes(app, capabilities.getAll(), routeConfig);
 
@@ -816,7 +838,11 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       logger.info(`Plumbus server listening on ${address}`);
       return address;
     },
+    markShuttingDown() {
+      shuttingDown = true;
+    },
     async stop() {
+      shuttingDown = true;
       logger.info('Shutting down Plumbus server...');
       await app.close();
       logger.info('Server stopped');

@@ -64,7 +64,7 @@ const result = await applyDataPlaneMigrations({
 // result: { applied, tags, database }
 ```
 
-`applyDataPlaneMigrations` is a thin compose of `openDataPlaneConnection` (the existing factory) and `applyMigrations`. It always closes the pool, including when apply fails. Credentials never appear in factory errors.
+`applyDataPlaneMigrations` is a thin compose of `openDataPlaneConnection` (the existing factory) and `applyMigrations`. It always closes the pool, including when apply fails. Concurrent applies to the same tenant database wait on that database's migration advisory lock (one reserved connection, so the default pool of one is enough); different tenant databases do not wait on each other. Credentials never appear in factory errors.
 
 Equivalent composition if you already hold a connection:
 

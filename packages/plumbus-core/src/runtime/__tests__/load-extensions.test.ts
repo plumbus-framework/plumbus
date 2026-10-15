@@ -88,6 +88,33 @@ describe('loadServerExtensions', () => {
     expect(extensions.listTenantRefs).toBeUndefined();
   });
 
+  it('loads an idempotencyStore exported from app/server.js and ignores a malformed one', async () => {
+    const cwd = await writeServerModule(
+      'export const idempotencyStore = { kind: "database", claim() {}, complete() {}, abort() {} };\n',
+    );
+    expect((await loadServerExtensions(cwd)).idempotencyStore?.kind).toBe('database');
+    const malformed = await writeServerModule('export const idempotencyStore = { claim() {} };\n');
+    expect((await loadServerExtensions(malformed)).idempotencyStore).toBeUndefined();
+  });
+
+  it('loads an onBoot hook exported by name or on the default export', async () => {
+    const named = await writeServerModule('export async function onBoot() {}\n');
+    expect(typeof (await loadServerExtensions(named)).onBoot).toBe('function');
+    const fromDefault = await writeServerModule('export default { onBoot: () => {} };\n');
+    expect(typeof (await loadServerExtensions(fromDefault)).onBoot).toBe('function');
+    const notAFunction = await writeServerModule('export const onBoot = 1;\n');
+    expect((await loadServerExtensions(notAFunction)).onBoot).toBeUndefined();
+  });
+
+  it('loads an onShutdown hook exported by name or on the default export', async () => {
+    const named = await writeServerModule('export async function onShutdown() {}\n');
+    expect(typeof (await loadServerExtensions(named)).onShutdown).toBe('function');
+    const fromDefault = await writeServerModule('export default { onShutdown: () => {} };\n');
+    expect(typeof (await loadServerExtensions(fromDefault)).onShutdown).toBe('function');
+    const notAFunction = await writeServerModule('export const onShutdown = true;\n');
+    expect((await loadServerExtensions(notAFunction)).onShutdown).toBeUndefined();
+  });
+
   it('loads an authenticationRuntime exported by name', async () => {
     const root = await writeServerModule(
       'export const authenticationRuntime = { authenticator: { kind: "named" } };\n',

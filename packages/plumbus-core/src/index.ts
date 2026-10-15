@@ -170,6 +170,9 @@ export type {
   IdempotencyStore,
   IdempotencyStoreOptions,
   RouteGeneratorConfig,
+  DatabaseIdempotencyStoreOptions,
+  ExecuteIdempotentlyParams,
+  IdempotentExecutionOutcome,
 } from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
@@ -184,14 +187,20 @@ export {
   resolveRequestLocale,
   LOCALE_COOKIE_NAME,
   buildIdempotencyStoreKey,
+  createDatabaseIdempotencyStore,
   createInMemoryIdempotencyStore,
+  executeIdempotently,
   hashPayload,
   IdempotencyAbortedError,
+  IdempotencyClaimLostError,
   isAnonymousIdempotencyPrincipal,
   MAX_PAYLOAD_DEPTH,
   parseIdempotencyTtl,
   PayloadTooDeepError,
   principalsMatch,
+  REQUEST_IDEMPOTENCY_TABLE,
+  requestIdempotencyDdl,
+  sweepExpiredIdempotencyRecords,
 } from './api/index.js';
 export type { AuditEvent, AuditWriter } from './types/audit.js';
 export type { AuditServiceConfig } from './audit/index.js';
@@ -245,6 +254,7 @@ export type {
 // ── Data Layer ──
 export {
   EntityRegistry,
+  MIGRATION_ADVISORY_LOCK_KEY,
   applyMigrations,
   collectMaskedFieldsFromEntities,
   collectSchemas,
@@ -299,6 +309,8 @@ export {
   EncryptionConfigError,
   EncryptionPayloadError,
   FlowCancelledError,
+  FlowDefinitionUnavailableError,
+  FlowDefinitionUnavailableReason,
   LeaseLostError,
   PlumbusError,
   UnauthorizedError,
@@ -337,6 +349,7 @@ export type {
   CapabilityErrorInfo,
   CapabilityResult,
   ContextDependencies,
+  ExecuteCapabilityOptions,
   ExecutionFailure,
   ExecutionResult,
 } from './execution/index.js';
@@ -376,6 +389,7 @@ export { createExplanationTracker } from './explanation/index.js';
 // ── Field Constructors ──
 export { field } from './fields/index.js';
 export type {
+  FlowDefinitionUnavailableInfo,
   FlowEngineConfig,
   SchedulerConfig,
   StepExecutorDeps,
@@ -478,16 +492,20 @@ export {
 } from './translations/index.js';
 // ── Types (re-export everything) ──
 export * from './types/index.js';
-export type { WorkerPool, WorkerPoolConfig } from './worker/index.js';
+export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
 // ── Worker Bootstrap ──
 export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
 export type {
+  AppBootContext,
   BuildWorkerAiServiceOptions,
+  OnBootHook,
+  OnShutdownHook,
   RegisterCapabilityConsumersOptions,
   ResolveRuntimeQueuesOptions,
   RuntimeCommand,
   RuntimeQueues,
   ServerExtensions,
+  ShutdownContext,
 } from './runtime/index.js';
 export {
   RuntimeRole,

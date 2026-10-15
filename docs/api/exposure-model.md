@@ -185,7 +185,7 @@ Store keys are built from:
 {operationId}:{tenantId}:{userId}:{idempotencyKey}
 ```
 
-Cross-principal reuse of the same key returns `409 idempotency_conflict` (`Idempotency key belongs to a different principal`). Reuse with a different payload hash returns `409` with `Idempotency key reused with different payload`.
+Cross-principal reuse of the same key returns `409 idempotency_conflict` (`Idempotency key belongs to a different principal`). Reuse with a different payload hash returns `422 idempotency_conflict` (`Idempotency key reused with different payload`; `409` before `@plumbus/api` 0.4.0-beta.1). A retry while another request — possibly on another server copy — holds a live claim on the key returns `409 idempotency_in_progress` with `Retry-After` (database store).
 
 ### Anonymous guard
 
@@ -202,13 +202,16 @@ Hashes use canonical JSON (sorted object keys at every nesting level) so equival
 
 ### Store and TTL
 
-`registerApiRoutes()` defaults to `createInMemoryIdempotencyStore()` — suitable for development and single-instance tests.
+`registerApiRoutes()` uses, in order, `opts.idempotencyStore`, the core server's store (`routeConfig.idempotencyStore` — what `createServer({ idempotencyStore })` or `export const idempotencyStore` in `app/server.ts` set), and otherwise `createInMemoryIdempotencyStore()`, suitable for development and single-instance tests (it warns when `PLUMBUS_ENV` / `NODE_ENV` is `production` or `staging`).
 
-| Behavior | In-memory default |
-|---|---|
-| No `idempotency.ttl` | Entries never evict |
-| `ttl` set (e.g. `24h`) | Expiry honored on subsequent claims after successful completion |
-| Multi-instance production | Supply a durable `idempotencyStore` implementing `IdempotencyStore` |
+| Behavior | In-memory default | `createDatabaseIdempotencyStore()` |
+|---|---|---|
+| No `idempotency.ttl` | Entries never evict | Kept 24 h (`defaultTtlMs`), then swept |
+| `ttl` set (e.g. `24h`) | Expiry honored on subsequent claims after successful completion | Same, swept hourly per database |
+| Concurrent duplicate | Waits for the first result, then replays | `409` + `Retry-After` until the first completes |
+| Multi-instance production | Not shared | Shared through `request_idempotency` on the control plane; the completion commits inside the capability's transaction |
+
+Partner routes run on the control plane (`routeConfig.createDependencies`), so their keys live in the spine's `request_idempotency`. See `packages/plumbus-core/instructions/api.md` for the table, the lease and the crash windows.
 
 TTL strings parse as `\d+[smhd]` (e.g. `30m`, `24h`, `7d`).
 

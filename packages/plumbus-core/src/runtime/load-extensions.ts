@@ -86,6 +86,23 @@ export async function loadServerExtensions(
       if (workerDataPlane === 'resolved' || workerDataPlane === 'control-plane') {
         extensions.workerDataPlane = workerDataPlane;
       }
+      const idempotencyStore = mod.idempotencyStore ?? mod.default?.idempotencyStore;
+      if (
+        idempotencyStore &&
+        typeof idempotencyStore.claim === 'function' &&
+        typeof idempotencyStore.complete === 'function' &&
+        typeof idempotencyStore.abort === 'function'
+      ) {
+        extensions.idempotencyStore = idempotencyStore;
+      }
+      const onBoot = mod.onBoot ?? mod.default?.onBoot;
+      if (typeof onBoot === 'function') {
+        extensions.onBoot = onBoot;
+      }
+      const onShutdown = mod.onShutdown ?? mod.default?.onShutdown;
+      if (typeof onShutdown === 'function') {
+        extensions.onShutdown = onShutdown;
+      }
       const frameworkSchema = mod.frameworkSchema ?? mod.default?.frameworkSchema;
       if (typeof frameworkSchema === 'string' && frameworkSchema.trim() !== '') {
         extensions.frameworkSchema = frameworkSchema;

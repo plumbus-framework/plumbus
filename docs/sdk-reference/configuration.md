@@ -94,8 +94,10 @@ DB_NAME=myapp              # aliases: DATABASE_NAME, PGDATABASE
 DB_USER=postgres           # aliases: DATABASE_USER, PGUSER
 DB_PASSWORD=secret         # aliases: DATABASE_PASSWORD, PGPASSWORD
 DATABASE_SSL=true          # TLS to Postgres; production defaults to true, false turns it off
-DATABASE_POOL_SIZE=10
+DATABASE_POOL_SIZE=10      # max connections in this process's main pool (default 10)
 ```
+
+`DATABASE_POOL_SIZE` (`database.poolSize`) is the `max` of the main postgres.js pool that `plumbus start`, `plumbus dev`, `plumbus worker` and the operational CLI commands open; unset, it stays at the driver's default of 10. It must be a whole number of at least 1. It does not size tenant data-plane pools (`openDataPlaneConnection({ maxConnections })`, default 5) or one-off maintenance connections. Before core 0.9.0-beta.1 the value was parsed (default 5, or 20 in production) but never applied, so every process opened up to 10.
 
 ## Runtime Role
 
@@ -493,6 +495,35 @@ interface ServerConfig {
 ### AI provider admission and trace hooks
 
 `aiProviderConcurrency`, `resolveAIProviderHeaders` and `onAIProviderSpan` wrap every real provider attempt made through `ctx.ai` (validation retries and streams included). Export them from `app/server.ts` and `plumbus dev` / `start` / `worker` wire them into the request AI service and the worker pool alike; `createAIService` accepts the same three as `providerConcurrency`, `resolveProviderHeaders` and `onProviderSpan`. The concurrency ceiling is an immediate per-scope admission (provider + tenant + `costContext.serviceArea` unless `resolveScope` says otherwise) shared by every identity-bound service, and saturation throws `ai-provider-concurrency-exhausted` rather than queueing. Header resolution feeds `ProviderRequest.transportHeaders` and refuses credential and content-type headers. Span export is best effort: a throwing hook never changes the model-call result. See [AI integration](../ai/ai-integration.md#provider-admission-and-trace-propagation).
+
+### `onBoot` Hook
+
+Export `onBoot` from `app/server.ts` for the app's process setup. It runs once per process in every runtime role — `plumbus dev`, `plumbus start` (`PLUMBUS_RUNTIME_ROLE` `all`, `api`, `worker`) and `plumbus worker` — after the database connects and before the HTTP server or the worker pool starts:
+
+```typescript
+import type { AppBootContext } from "@plumbus/core";
+
+export async function onBoot({ role, servesHttp, runsWorkers, config, db, logger }: AppBootContext) {
+  installTenantRouter({ db, database: config.database }); // workers resolve tenant planes through it
+  if (runsWorkers) startSweeps();
+}
+```
+
+A throw stops startup. Use `onRoutesRegistered` only for what needs Fastify or the route configuration (request hooks, extra routes): it runs only in processes that serve HTTP, after `onBoot`, and never in a worker-only process.
+
+### `onShutdown` Hook
+
+Export `onShutdown` from `app/server.ts` to close resources the framework does not own — a tenant router and its pools, extra database clients, SDK clients. `plumbus start` and `plumbus worker` call it once on `SIGTERM` / `SIGINT`, after HTTP has drained and the worker pool has stopped, before queues and the main database close:
+
+```typescript
+import type { ShutdownContext } from "@plumbus/core";
+
+export async function onShutdown({ signal, deadlineAt, remainingMs }: ShutdownContext) {
+  await tenantRouter.close(); // finish within remainingMs()
+}
+```
+
+The hook shares `PLUMBUS_SHUTDOWN_TIMEOUT_MS` with the rest of the shutdown; a hook still running at the drain deadline is abandoned and the process exits with code 1 once queues and the database are closed. A throwing hook is logged and the shutdown continues. See [Graceful shutdown](../../packages/plumbus-core/instructions/deployment.md#graceful-shutdown).
 
 ### `onCapabilityError` Hook
 

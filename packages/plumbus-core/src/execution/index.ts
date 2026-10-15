@@ -10,6 +10,7 @@ export type { ContextDependencies } from './context-factory.js';
 export { executeCapability, authorizeCapability } from './capability-executor.js';
 export type {
   CapabilityResult,
+  ExecuteCapabilityOptions,
   ExecutionFailure,
   ExecutionResult,
 } from './capability-executor.js';

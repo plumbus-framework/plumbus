@@ -49,7 +49,7 @@ If agent wiring predates the current template, run `plumbus init --patch` (or `p
 ```ts
 // from '@plumbus/api'
 registerApiRoutes(app, routeConfig, capabilities, opts?)  // mount partner routes on Fastify
-RegisterApiRoutesOpts                                     // { manifest?, allowQueryIntent?, appRoot?, idempotencyStore? }
+RegisterApiRoutesOpts                                     // { manifest?, allowQueryIntent?, appRoot?, idempotencyStore? } — store defaults to routeConfig.idempotencyStore, then in-memory
 
 parseManifest, validateManifest, resolveExposure, buildDefaultManifest
 validatePathParams, validateApiContract, validatePolicy, validateTestFixtures

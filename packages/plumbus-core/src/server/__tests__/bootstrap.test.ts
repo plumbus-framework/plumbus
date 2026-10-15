@@ -355,6 +355,59 @@ describe('Server Bootstrap', () => {
     });
   });
 
+  describe('idempotency store warning', () => {
+    function idempotentCapabilities() {
+      const caps = new CapabilityRegistry();
+      caps.register({
+        name: 'createOrder',
+        domain: 'shop',
+        kind: 'action',
+        description: 'd',
+        input: {} as any,
+        handler: async () => ({}),
+        api: { idempotency: { required: true } },
+      } as any);
+      return caps;
+    }
+    const warning = expect.stringContaining('Idempotency-Key records are kept in process memory');
+
+    it.each([
+      'production',
+      'staging',
+    ] as const)('warns in %s when idempotent routes use the in-memory store', (environment) => {
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      createServer(
+        makeServerConfig({
+          config: makeConfig({ environment }),
+          capabilities: idempotentCapabilities(),
+          logger,
+        }),
+      );
+      expect(logger.warn).toHaveBeenCalledWith(warning);
+    });
+
+    it('stays quiet with a database store, in development, or without idempotent routes', () => {
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const databaseStore = {
+        kind: 'database',
+        claim: vi.fn(),
+        complete: vi.fn(),
+        abort: vi.fn(),
+      };
+      createServer(
+        makeServerConfig({
+          config: makeConfig({ environment: 'production' }),
+          capabilities: idempotentCapabilities(),
+          idempotencyStore: databaseStore,
+          logger,
+        }),
+      );
+      createServer(makeServerConfig({ capabilities: idempotentCapabilities(), logger }));
+      createServer(makeServerConfig({ config: makeConfig({ environment: 'production' }), logger }));
+      expect(logger.warn).not.toHaveBeenCalledWith(warning);
+    });
+  });
+
   describe('/ready handler', () => {
     it('returns ready when DB is reachable', async () => {
       const db = {
@@ -387,6 +440,23 @@ describe('Server Bootstrap', () => {
       });
       expect(reply.status).toHaveBeenCalledWith(503);
       expect(await handler?.({}, reply)).toEqual({ status: 'ready' });
+    });
+
+    it('answers 503 shutting down once markShuttingDown is called, without probing the DB', async () => {
+      const db = { execute: vi.fn(async () => [{ '?column?': 1 }]) };
+      const server = createServer(makeServerConfig({ db: db as any }));
+      const handler = ((server.app as any)._routes as Map<string, AnyFn>).get('/ready');
+      const reply = { status: vi.fn().mockReturnThis() };
+      expect(await handler?.({}, reply)).toEqual({ status: 'ready' });
+
+      server.markShuttingDown?.();
+      db.execute.mockClear();
+      expect(await handler?.({}, reply)).toEqual({
+        status: 'not_ready',
+        reason: 'shutting down',
+      });
+      expect(reply.status).toHaveBeenCalledWith(503);
+      expect(db.execute).not.toHaveBeenCalled();
     });
 
     it('returns 503 when DB is unreachable', async () => {

@@ -57,6 +57,7 @@ export type { TestPostgresAdmin } from './pg-env.js';
 export {
   bumpTenantEpochOnDb,
   casAdvanceExecution,
+  claimUnpublishedOutbox,
   insertDispatchOutbox,
   listSideEffects,
   listUnpublishedOutbox,
@@ -76,6 +77,7 @@ export {
   deadLetterSpineDispatch,
   extendSpineDispatchLease,
   findSpineDispatchTenantRoute,
+  releaseSpineDispatch,
   spineRowFromSql,
   upsertSpineDispatch,
 } from './spine-claim.js';

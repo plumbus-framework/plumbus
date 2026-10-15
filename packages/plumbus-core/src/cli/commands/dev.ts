@@ -25,6 +25,7 @@ import {
   resolveRuntimeRole,
   shouldStartWorkerPool,
 } from '../../runtime/bootstrap.js';
+import { bootLogger, runAppBoot } from '../../runtime/app-boot.js';
 import { loadServerExtensions } from '../../runtime/load-extensions.js';
 import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
 import { startWorkerPool } from '../../runtime/start-worker-pool.js';
@@ -188,6 +189,16 @@ export async function startDevServer(
   const db = dbConnection.db;
 
   const extensions = await loadServerExtensions(undefined, resources.decisions);
+  // The app's process setup, before the server or the worker pool. `plumbus dev` always serves.
+  await runAppBoot(extensions.onBoot, {
+    command: 'dev',
+    role: runtimeRole,
+    servesHttp: true,
+    runsWorkers: shouldStartWorkerPool(runtimeRole),
+    config,
+    db,
+    logger: bootLogger({ info, warn, error: logError }),
+  });
   const queues = await resolveRuntimeQueues(config, {
     preferInMemory: true,
     onWarning: (message) => warn(message),
@@ -222,6 +233,7 @@ export async function startDevServer(
     ...(extensions.untenantedDataPlane && { untenantedDataPlane: extensions.untenantedDataPlane }),
     ...(extensions.resolveTenantRef && { resolveTenantRef: extensions.resolveTenantRef }),
     ...(extensions.requestDataPlane && { requestDataPlane: extensions.requestDataPlane }),
+    ...(extensions.idempotencyStore && { idempotencyStore: extensions.idempotencyStore }),
     jobQueue: jobQueueNeeded ? queues.jobs : undefined,
     checkQueueReadiness: queues.isDurable ? queues.pingRedis : undefined,
     metrics,

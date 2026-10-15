@@ -260,31 +260,36 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
 
   async function pumpDispatchOutbox(target: PumpTarget): Promise<number> {
     if (!spineDb) return 0;
-    const { listUnpublishedOutbox, publishOutboxToSpine } = await import(
+    const { claimUnpublishedOutbox, publishOutboxToSpine } = await import(
       '../durable/postgres-persist.js'
     );
-    const unpublished = await listUnpublishedOutbox(target.db, durableSchema);
+    // Rows are locked while they are published (SKIP LOCKED), so concurrent pumps split them;
+    // the guarded spine upsert keeps any hint a worker already leased.
     let published = 0;
-    for (const row of unpublished) {
-      try {
+    await claimUnpublishedOutbox(
+      target.db,
+      async (tx, row) => {
         const dispatchId = row.spineRowId ?? `disp:${row.executionId}:${row.expectedRevision}`;
-        await publishOutboxToSpine(
-          target.db,
-          spineDb,
-          row,
-          dispatchId,
-          new Date().toISOString(),
-          durableSchema,
-        );
-        published += 1;
-      } catch (err) {
-        logError('dispatch_outbox pump failed', {
-          tenantRef: target.tenantRef,
-          outboxId: row.outboxId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+        try {
+          await publishOutboxToSpine(
+            tx,
+            spineDb,
+            row,
+            dispatchId,
+            new Date().toISOString(),
+            durableSchema,
+          );
+          published += 1;
+        } catch (err) {
+          logError('dispatch_outbox pump failed', {
+            tenantRef: target.tenantRef,
+            outboxId: row.outboxId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+      { schemaName: durableSchema },
+    );
     return published;
   }
 

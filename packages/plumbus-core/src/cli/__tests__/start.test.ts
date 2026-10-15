@@ -56,6 +56,7 @@ vi.mock('../../runtime/load-extensions.js', () => ({
 
 import { createServer } from '../../server/bootstrap.js';
 import { loadServerExtensions } from '../../runtime/load-extensions.js';
+import { startWorkerPool } from '../../runtime/start-worker-pool.js';
 import { resolveStartPort, startProductionServer } from '../commands/start.js';
 import { discoverResources } from '../discover.js';
 
@@ -97,6 +98,8 @@ describe('CLI start command', () => {
     closeQueues.mockClear();
     delete process.env.PLUMBUS_RUNTIME_ROLE;
     delete process.env.PLUMBUS_START_PORT;
+    delete process.env.PLUMBUS_SHUTDOWN_TIMEOUT_MS;
+    delete process.env.PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS;
     // Production config requires these
     process.env.DB_PASSWORD = 'test-password';
     process.env.AUTH_SECRET = 'test-secret-that-is-long-enough-for-production';
@@ -233,6 +236,19 @@ describe('CLI start command', () => {
     expect(serverConfig.authenticationRuntime).toBe(authenticationRuntime);
   });
 
+  it('passes an idempotencyStore exported from app/server.ts to createServer', async () => {
+    const idempotencyStore = {
+      kind: 'database',
+      claim: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    };
+    vi.mocked(loadServerExtensions).mockResolvedValueOnce({ idempotencyStore } as never);
+    await startConfigured({ db: {} as never });
+    const serverConfig = (createServer as any).mock.calls[0][0];
+    expect(serverConfig.idempotencyStore).toBe(idempotencyStore);
+  });
+
   it('returns shutdown function', async () => {
     const { shutdown } = await startConfigured({ db: {} as never });
     expect(typeof shutdown).toBe('function');
@@ -245,5 +261,168 @@ describe('CLI start command', () => {
     await shutdown();
 
     expect(closeQueues).toHaveBeenCalledTimes(1);
+  });
+
+  it('shuts down in order: readiness off, HTTP, workers with a deadline, onShutdown, queues, DB', async () => {
+    process.env.PLUMBUS_SHUTDOWN_TIMEOUT_MS = '4000';
+    const order: string[] = [];
+    // A job capability makes role `all` start the worker pool.
+    vi.mocked(discoverResources).mockResolvedValueOnce({
+      capabilities: [
+        {
+          name: 'testJob',
+          kind: 'job',
+          domain: 'test',
+          handler: async () => ({}),
+          effects: { data: [], events: [], external: [], ai: false },
+          input: { parse: (v: unknown) => v },
+          output: { parse: (v: unknown) => v },
+          access: { roles: ['admin'] },
+        },
+      ],
+      entities: [],
+      flows: [],
+      events: [],
+      prompts: [],
+    } as never);
+    vi.mocked(createServer).mockReturnValueOnce({
+      app: {},
+      start: vi.fn(async () => 'http://0.0.0.0:8080'),
+      stop: vi.fn(async () => {
+        order.push('http');
+      }),
+      markShuttingDown: () => order.push('ready-off'),
+    } as never);
+    const stop = vi.fn(async (_options?: { deadlineAt?: number }) => {
+      order.push('workers');
+    });
+    vi.mocked(startWorkerPool).mockResolvedValueOnce({ stop, flowCycleInFlight: false } as never);
+    const onShutdown = vi.fn(async (context: { signal?: string }) => {
+      order.push(`hook:${context.signal}`);
+    });
+    vi.mocked(loadServerExtensions).mockResolvedValueOnce({ onShutdown } as never);
+    closeQueues.mockImplementationOnce(async () => {
+      order.push('queues');
+    });
+    const end = vi.fn(async () => {
+      order.push('database');
+    });
+
+    const { shutdown } = await startConfigured({
+      connection: { db: {} as never, sql: { end } as never },
+    });
+    const before = Date.now();
+    await shutdown('SIGTERM');
+
+    expect(order).toEqual(['ready-off', 'http', 'workers', 'hook:SIGTERM', 'queues', 'database']);
+    const deadlineAt = stop.mock.calls[0]?.[0]?.deadlineAt ?? 0;
+    expect(deadlineAt).toBeGreaterThan(before);
+    expect(deadlineAt).toBeLessThanOrEqual(Date.now() + 4_000);
+  });
+
+  it('refuses to start with a malformed PLUMBUS_SHUTDOWN_TIMEOUT_MS', async () => {
+    process.env.PLUMBUS_SHUTDOWN_TIMEOUT_MS = 'soon';
+    await expect(startConfigured({ db: {} as never })).rejects.toThrow(
+      /PLUMBUS_SHUTDOWN_TIMEOUT_MS/,
+    );
+  });
+
+  describe('onBoot in every runtime role', () => {
+    const jobResources = {
+      capabilities: [
+        {
+          name: 'testJob',
+          kind: 'job',
+          domain: 'test',
+          handler: async () => ({}),
+          effects: { data: [], events: [], external: [], ai: false },
+          input: { parse: (v: unknown) => v },
+          output: { parse: (v: unknown) => v },
+          access: { roles: ['admin'] },
+        },
+      ],
+      entities: [],
+      flows: [],
+      events: [],
+      prompts: [],
+    };
+
+    // Queue only the implementations the role consumes, so none leaks into the next test.
+    function recordStartup(order: string[], servesHttp: boolean, runsWorkers: boolean) {
+      vi.mocked(discoverResources).mockResolvedValueOnce(jobResources as never);
+      if (servesHttp) {
+        vi.mocked(createServer).mockImplementationOnce((() => {
+          order.push('server');
+          return { app: {}, start: vi.fn(async () => 'http://0.0.0.0:8080'), stop: vi.fn() };
+        }) as never);
+      }
+      if (runsWorkers) {
+        vi.mocked(startWorkerPool).mockImplementationOnce((async () => {
+          order.push('workers');
+          return { stop: vi.fn(async () => {}), flowCycleInFlight: false };
+        }) as never);
+      }
+      const onBoot = vi.fn(async () => {
+        order.push('boot');
+      });
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({ onBoot } as never);
+      return onBoot;
+    }
+
+    it.each([
+      ['all', ['boot', 'server', 'workers'], true, true],
+      ['api', ['boot', 'server'], true, false],
+      ['worker', ['boot', 'workers'], false, true],
+    ] as const)('role %s: boots once before HTTP and workers', async (role, expected, servesHttp, runsWorkers) => {
+      process.env.PLUMBUS_RUNTIME_ROLE = role;
+      const order: string[] = [];
+      const onBoot = recordStartup(order, servesHttp, runsWorkers);
+      const db = { execute: vi.fn() };
+      await startConfigured({ db: db as never });
+      expect(order).toEqual(expected);
+      expect(onBoot).toHaveBeenCalledTimes(1);
+      expect(onBoot).toHaveBeenCalledWith(
+        expect.objectContaining({ command: 'start', role, servesHttp, runsWorkers, db }),
+      );
+      const context = onBoot.mock.calls[0]?.[0] as unknown as {
+        config: { environment: string };
+        logger: { info: unknown };
+      };
+      expect(context.config.environment).toBe('production');
+      expect(typeof context.logger.info).toBe('function');
+    });
+
+    it('a worker-only process passes no onRoutesRegistered anywhere and still runs onShutdown', async () => {
+      process.env.PLUMBUS_RUNTIME_ROLE = 'worker';
+      vi.mocked(discoverResources).mockResolvedValueOnce(jobResources as never);
+      const onRoutesRegistered = vi.fn();
+      const onShutdown = vi.fn();
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+        onRoutesRegistered,
+        onShutdown,
+      } as never);
+      const { server, shutdown } = await startConfigured({ db: {} as never });
+      expect(server).toBeUndefined();
+      expect(createServer).not.toHaveBeenCalled();
+      await shutdown('SIGTERM');
+      expect(onRoutesRegistered).not.toHaveBeenCalled();
+      expect(onShutdown).toHaveBeenCalledWith(expect.objectContaining({ signal: 'SIGTERM' }));
+    });
+
+    it('stops startup when onBoot throws: no server, no workers', async () => {
+      process.env.PLUMBUS_RUNTIME_ROLE = 'all';
+      vi.mocked(discoverResources).mockResolvedValueOnce(jobResources as never);
+      vi.mocked(startWorkerPool).mockClear();
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({
+        onBoot: async () => {
+          throw new Error('release does not verify');
+        },
+      } as never);
+      await expect(startConfigured({ db: {} as never })).rejects.toThrow(
+        'App boot (onBoot in app/server.ts) failed: release does not verify',
+      );
+      expect(createServer).not.toHaveBeenCalled();
+      expect(startWorkerPool).not.toHaveBeenCalled();
+    });
   });
 });

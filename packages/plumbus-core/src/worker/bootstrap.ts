@@ -8,6 +8,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import { createAuditService } from '../audit/service.js';
+import { FlowDefinitionUnavailableError } from '../errors/index.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import { ErrorCode } from '../types/enums.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
@@ -40,7 +41,7 @@ import {
 import type { FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
-import { sweepFailedFlows } from '../flows/index.js';
+import { recoverFlowStartIntents, sweepFailedFlows } from '../flows/index.js';
 import { FlowStatus } from '../flows/state-machine.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
@@ -52,6 +53,7 @@ import { createFlowTriggerHandler } from '../flows/triggers.js';
 import type { RedisClient } from '../events/queue.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import type { EntityRegistry } from '../data/registry.js';
+import { settleBy } from '../runtime/graceful-shutdown.js';
 import { registerCapabilityConsumers } from '../runtime/register-consumers.js';
 import type { AuditService } from '../types/audit.js';
 import type { PlumbusConfig } from '../types/config.js';
@@ -296,6 +298,12 @@ export interface WorkerPoolConfig {
   /** Max executions to claim per poll cycle. Default: 50. */
   flowClaimBatchSize?: number;
   /**
+   * How often the runner starts flows whose post-commit start never happened (a process died
+   * between a capability's commit and its deferred `ctx.flows.start`): due rows of
+   * `flow_start_intents` on the pool and on every listed tenant plane. Default 10 000 ms.
+   */
+  flowStartRecoveryIntervalMs?: number;
+  /**
    * Resolve the database a claimed unit of work runs against, per unit rather
    * than per boot.
    *
@@ -388,11 +396,26 @@ export interface WorkerPoolConfig {
 
 // ── Worker Pool Instance ──
 
+export interface WorkerPoolStopOptions {
+  /**
+   * Epoch milliseconds until which `stop()` waits for the flow step running now. The runner
+   * claims nothing new once stop begins and, after the running step, releases its execution
+   * for another worker instead of draining the next step. Omitted, `stop()` does not wait for
+   * a running step (it is abandoned when the host closes the database, and its lease expires).
+   */
+  deadlineAt?: number;
+}
+
 export interface WorkerPool {
   /** Start all enabled workers */
   start(): Promise<void>;
   /** Graceful shutdown — stops all workers */
-  stop(): Promise<void>;
+  stop(options?: WorkerPoolStopOptions): Promise<void>;
+  /**
+   * True while the flow runner is inside a cycle — after `stop()`, a step that was still
+   * running at the deadline and was abandoned.
+   */
+  readonly flowCycleInFlight?: boolean;
   /** Whether any worker is running */
   readonly isRunning: boolean;
   /** Flow engine instance (for tests and consumer registration). */
@@ -592,6 +615,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     flowHeartbeatIntervalMs: poolConfig.flowHeartbeatIntervalMs,
     flowClaimBatchSize: poolConfig.flowClaimBatchSize,
     logger,
+    // The engine logs `definition-unavailable` and releases the execution; count it here.
+    onDefinitionUnavailable: (info) =>
+      metrics?.flowDefinitionUnavailable?.inc({ flow: info.flowName, reason: info.reason }),
     onFlowStepEnqueue: poolConfig.queuesDurable ? poolConfig.onFlowStepEnqueue : undefined,
     onFlowDelayedSchedule:
       poolConfig.queuesDurable && poolConfig.redisClient && poolConfig.flowsPrefix
@@ -715,6 +741,18 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;
 
   let flowCycleRunning = false;
+  /** The flow cycle running now (claims and the steps it drains); stop() waits for it. */
+  let flowCycleInFlight: Promise<void> | null = null;
+  /** The execution the cycle is draining, for the shutdown log. */
+  let drainingExecutionId: string | null = null;
+  function triggerFlowCycle(): void {
+    const cycle = runFlowCycle();
+    if (flowCycleInFlight) return;
+    flowCycleInFlight = cycle;
+    void cycle.finally(() => {
+      if (flowCycleInFlight === cycle) flowCycleInFlight = null;
+    });
+  }
   /**
    * The cycle's sweep or claim query in flight. stop() waits for it so the host can close the
    * database right after; a step already running is left to finish on its own, as before.
@@ -766,8 +804,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   /**
    * The same snapshot on each listed tenant plane (where tenant flows live), one plane after
-   * another. A backstop only: `failFlow` already writes the dead letter on the execution's plane.
-   * Never throws, and stops at the next plane once the pool is stopping.
+   * another, and the plane's due deferred flow starts. A backstop only: `failFlow` already
+   * writes the dead letter on the execution's plane. Never throws, and stops at the next plane
+   * once the pool is stopping.
    */
   async function sweepTenantDeadLetters(resolver: DataPlaneResolver): Promise<void> {
     let tenantRefs: string[];
@@ -779,12 +818,16 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
     for (const tenantRef of tenantRefs) {
       if (!running) return;
+      let planeDb: PostgresJsDatabase;
       try {
-        const handle = await resolver.resolve(tenantRef);
-        await sweepFailedFlows(handle.db);
+        planeDb = (await resolver.resolve(tenantRef)).db;
+        await sweepFailedFlows(planeDb);
       } catch (err) {
         warnSweepFailed(err, { tenantRef });
+        continue;
       }
+      // Deferred flow starts a request or a step on this plane committed and never started.
+      if (enableFlowRunner && running) await recoverIntentsOn(planeDb, `tenant-plane:${tenantRef}`);
     }
   }
 
@@ -805,6 +848,59 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         if (tenantSweepInFlight === sweep) tenantSweepInFlight = null;
       });
     tenantSweepInFlight = sweep;
+  }
+
+  let intentRecoveryTimer: ReturnType<typeof setInterval> | null = null;
+  /** The deferred-start recovery sweep in flight; stop() waits for it like a poll. */
+  let intentRecoveryInFlight: Promise<void> | null = null;
+  const lastIntentWarningAt = new Map<string, number>();
+
+  async function recoverIntentsOn(planeDb: PostgresJsDatabase, source: string): Promise<void> {
+    try {
+      await recoverFlowStartIntents({
+        db: planeDb,
+        start: (intent) =>
+          flowEngine.start(intent.flowName, intent.input, intent.auth, {
+            executionId: intent.executionId,
+          }),
+        logger,
+      });
+    } catch (err) {
+      // A database not yet migrated fails every sweep; say so once a minute per source.
+      if (Date.now() - (lastIntentWarningAt.get(source) ?? -Infinity) < 60_000) return;
+      lastIntentWarningAt.set(source, Date.now());
+      logger.warn('Deferred flow start recovery failed', { source, ...describeError(err) });
+    }
+  }
+
+  /**
+   * Start leftover deferred flow starts on the pool. Tenant planes are recovered by the
+   * once-a-minute tenant sweep, which already visits every listed plane.
+   */
+  function triggerIntentRecovery(): void {
+    if (!running || intentRecoveryInFlight) return;
+    const sweep = recoverIntentsOn(db, 'pool').finally(() => {
+      if (intentRecoveryInFlight === sweep) intentRecoveryInFlight = null;
+    });
+    intentRecoveryInFlight = sweep;
+  }
+
+  /** Hand a running execution back between steps; a failure leaves it to lease expiry. */
+  async function releaseForShutdown(executionId: string, leaseToken?: string): Promise<void> {
+    try {
+      const released = await flowEngine.releaseClaim(executionId, leaseToken);
+      logger.info('Worker stopping: released the flow execution for another worker', {
+        executionId,
+        workerId: flowEngine.workerId,
+        released,
+      });
+    } catch (err) {
+      logger.warn('Worker stopping: could not release the flow execution; its lease expires', {
+        executionId,
+        workerId: flowEngine.workerId,
+        ...describeError(err),
+      });
+    }
   }
 
   async function runFlowCycle(): Promise<void> {
@@ -874,12 +970,21 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             // worker forever — when the cap is hit we break, the lease will
             // expire normally and another claim cycle (or the same worker)
             // will pick the row up.
+            //
+            // Once stop() has begun, the step running now finishes and the execution is
+            // released (lease expired now, spine hint ready) rather than drained further, so
+            // another worker continues it at once.
             const maxStepsPerCycle = 1000;
             let stepsRun = 0;
+            drainingExecutionId = row.id;
             while (stepsRun < maxStepsPerCycle) {
               const result = await flowEngine.runNext(row.id, ctx, leaseToken);
               stepsRun += 1;
               if (result.status !== FlowStatus.Running) {
+                break;
+              }
+              if (!running) {
+                await releaseForShutdown(row.id, leaseToken);
                 break;
               }
             }
@@ -892,11 +997,15 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
               });
             }
           } catch (err) {
-            logger.error('Flow execution run failed', {
-              executionId: row.id,
-              workerId: flowEngine.workerId,
-              ...describeError(err),
-            });
+            // A missing definition is not a failure: the engine released the execution for a
+            // worker that has it, and already logged `definition-unavailable`.
+            if (!(err instanceof FlowDefinitionUnavailableError)) {
+              logger.error('Flow execution run failed', {
+                executionId: row.id,
+                workerId: flowEngine.workerId,
+                ...describeError(err),
+              });
+            }
             // Finalize the row as failed so the next poll cycle doesn't re-claim
             // it via the `status='running' AND lease_expires_at < now()`
             // crash-recovery branch in claimNext and spin forever. The engine
@@ -913,6 +1022,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
               });
             }
           } finally {
+            drainingExecutionId = null;
             unitPlanes.delete(row.id);
           }
         }
@@ -1099,10 +1209,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       }
 
       if (enableFlowRunner) {
-        flowRunnerTimer = setInterval(() => {
-          void runFlowCycle();
-        }, flowPollIntervalMs);
-        void runFlowCycle();
+        flowRunnerTimer = setInterval(triggerFlowCycle, flowPollIntervalMs);
+        triggerFlowCycle();
+        intentRecoveryTimer = setInterval(
+          triggerIntentRecovery,
+          poolConfig.flowStartRecoveryIntervalMs ?? 10_000,
+        );
+        triggerIntentRecovery();
         logger.info('Flow execution runner started');
       }
 
@@ -1150,7 +1263,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       logger.info('Worker pool started');
     },
 
-    async stop() {
+    async stop(options?: WorkerPoolStopOptions) {
       if (!running) return;
       running = false;
       logger.info('Shutting down worker pool...');
@@ -1166,9 +1279,23 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       if (flowRunnerTimer) {
         clearInterval(flowRunnerTimer);
         flowRunnerTimer = null;
+        if (intentRecoveryTimer) clearInterval(intentRecoveryTimer);
+        intentRecoveryTimer = null;
         await pollInFlight?.catch(() => undefined);
-        // The tenant sweep ends at its next plane now that `running` is false.
+        // The tenant sweeps end at their next plane now that `running` is false.
         await tenantSweepInFlight?.catch(() => undefined);
+        await intentRecoveryInFlight?.catch(() => undefined);
+        // The step running now gets until the deadline; the cycle claims nothing more.
+        const cycle = flowCycleInFlight;
+        if (cycle && options?.deadlineAt !== undefined) {
+          const finished = await settleBy(cycle, options.deadlineAt);
+          if (!finished) {
+            logger.warn(
+              'Flow step still running at the shutdown deadline; abandoned, its lease expires',
+              { executionId: drainingExecutionId, workerId: flowEngine.workerId },
+            );
+          }
+        }
         logger.info('Flow execution runner stopped');
       }
 
@@ -1215,6 +1342,10 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
     get isRunning() {
       return running;
+    },
+
+    get flowCycleInFlight() {
+      return flowCycleInFlight !== null;
     },
   };
 }

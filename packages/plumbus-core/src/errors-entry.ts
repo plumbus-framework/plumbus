@@ -21,6 +21,8 @@ export {
   EncryptionConfigError,
   EncryptionPayloadError,
   FlowCancelledError,
+  FlowDefinitionUnavailableError,
+  FlowDefinitionUnavailableReason,
   isPlumbusError,
   LeaseLostError,
   PlumbusError,

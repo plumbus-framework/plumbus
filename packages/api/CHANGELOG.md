@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-10-15
+
+- **Shared idempotency store.** `registerApiRoutes` uses `opts.idempotencyStore`, else the core server's store (`routeConfig.idempotencyStore` — `createServer({ idempotencyStore })` or `export const idempotencyStore` in `app/server.ts`), else an in-memory store, which now warns when `PLUMBUS_ENV` / `NODE_ENV` is `production` or `staging`. With core's `createDatabaseIdempotencyStore`, partner keys live in the control plane's `request_idempotency` and the completion commits inside the capability's transaction.
+- **Behaviour change:** the same key with a different payload is answered `422 idempotency_conflict` (was `409`); a key held by another in-flight request (database store) is `409 idempotency_in_progress` with `Retry-After`.
+- Requires `@plumbus/core` 0.9.0-beta.1 (it uses `executeIdempotently`); the peer range stays the family literal, so install the family together.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

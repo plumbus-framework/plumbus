@@ -221,6 +221,17 @@ CREATE TABLE flow_executions (
 CREATE INDEX flow_exec_status_idx ON flow_executions (status);
 CREATE INDEX flow_exec_lease_idx ON flow_executions (status, lease_expires_at);
 CREATE INDEX flow_exec_schedule_idx ON flow_executions (schedule_id, status);
+CREATE TABLE flow_start_intents (
+  execution_id uuid PRIMARY KEY,
+  flow_name text NOT NULL,
+  input jsonb NOT NULL,
+  auth_snapshot_json jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  next_attempt_at timestamptz NOT NULL,
+  attempts integer NOT NULL DEFAULT 0,
+  last_error text
+);
+CREATE INDEX flow_start_intents_due_idx ON flow_start_intents (next_attempt_at);
 CREATE TABLE flow_dead_letter (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   execution_id text NOT NULL UNIQUE,

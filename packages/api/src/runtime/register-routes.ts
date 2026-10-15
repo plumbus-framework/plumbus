@@ -2,6 +2,7 @@ import {
   buildAuthenticationRequest,
   evaluateAccess,
   executeCapability,
+  executeIdempotently,
   isApiExposed,
   type AuthContext,
   type CapabilityContract,
@@ -36,7 +37,6 @@ import {
   createInMemoryIdempotencyStore,
   hashPayload,
   PayloadTooDeepError,
-  IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
   parseIdempotencyTtl,
   type IdempotencyPrincipal,
@@ -60,7 +60,17 @@ export interface RegisterApiRoutesOpts {
   allowQueryIntent?: boolean;
   /** App root for resolving test fixtures. Default process.cwd(). */
   appRoot?: string;
+  /**
+   * Where `Idempotency-Key` records are kept. Default: the store the core server uses
+   * (`routeConfig.idempotencyStore`, e.g. the database store exported from `app/server.ts`),
+   * else a process-local in-memory store (production and staging warn about it).
+   */
   idempotencyStore?: IdempotencyStore;
+}
+
+function isDeployedEnvironment(): boolean {
+  const environment = process.env.PLUMBUS_ENV ?? process.env.NODE_ENV;
+  return environment === 'production' || environment === 'staging';
 }
 
 function findManifestEntry(
@@ -178,8 +188,22 @@ export function registerApiRoutes(
   const manifest = opts?.manifest ?? buildDefaultManifest(capabilities);
   const allowQueryIntent = opts?.allowQueryIntent ?? false;
   const appRoot = opts?.appRoot ?? process.cwd();
-  const idempotencyStore = opts?.idempotencyStore ?? createInMemoryIdempotencyStore();
+  const idempotencyStore =
+    opts?.idempotencyStore ?? routeConfig.idempotencyStore ?? createInMemoryIdempotencyStore();
   const apiVersion = apiVersionFromManifest(manifest);
+  if (
+    idempotencyStore.kind === 'memory' &&
+    isDeployedEnvironment() &&
+    capabilities.some(
+      (cap) =>
+        isApiExposed(cap) &&
+        resolveExposure(cap, findManifestEntry(manifest, cap)).idempotency?.required === true,
+    )
+  ) {
+    console.warn(
+      '[plumbus/api] Idempotency-Key records are kept in process memory: a retry that reaches another process, or arrives after a restart, runs the request again. Pass a database store (createDatabaseIdempotencyStore) to createServer or registerApiRoutes.',
+    );
+  }
 
   for (const cap of capabilities) {
     if (!isApiExposed(cap)) {
@@ -391,66 +415,66 @@ export function registerApiRoutes(
             resolved.idempotency.ttl !== undefined
               ? parseIdempotencyTtl(resolved.idempotency.ttl)
               : undefined;
-          const storeOpts: IdempotencyStoreOptions | undefined =
-            ttlMs !== undefined ? { ttlMs } : undefined;
+          // Partner routes run on the control plane (`createDependencies`): the key lives there.
+          const storeOpts: IdempotencyStoreOptions = {
+            ...(ttlMs !== undefined ? { ttlMs } : {}),
+            database: routeConfig.db,
+            plane: 'spine',
+          };
 
-          let claim = await idempotencyStore.claim(storeKey, payloadHash, principal, storeOpts);
+          const outcome = await executeIdempotently({
+            store: idempotencyStore,
+            key: storeKey,
+            payloadHash,
+            principal,
+            options: storeOpts,
+            execute: (executeOptions) => executeCapability(cap, ctx, parsed.data, executeOptions),
+          });
 
-          for (;;) {
-            if (claim.status === 'replay') {
-              return reply
-                .status(200)
-                .send(buildSuccessEnvelope(claim.record.result, requestId, apiVersion));
-            }
+          if (outcome.kind === 'replay') {
+            return reply
+              .status(200)
+              .send(buildSuccessEnvelope(outcome.result, requestId, apiVersion));
+          }
 
-            if (claim.status === 'conflict') {
-              const message =
-                claim.reason === 'principal'
-                  ? 'Idempotency key belongs to a different principal'
-                  : 'Idempotency key reused with different payload';
-              return reply.status(409).send({
+          if (outcome.kind === 'conflict') {
+            // Another payload under the same key is unprocessable (422); another principal's
+            // key conflicts (409).
+            const payload = outcome.reason === 'payload';
+            return reply.status(payload ? 422 : 409).send({
+              ok: false,
+              error: {
+                code: 'idempotency_conflict',
+                message: payload
+                  ? 'Idempotency key reused with different payload'
+                  : 'Idempotency key belongs to a different principal',
+                requestId,
+              },
+              meta: { apiVersion },
+            });
+          }
+
+          if (outcome.kind === 'in-progress') {
+            return reply
+              .status(409)
+              .header('retry-after', String(outcome.retryAfterSeconds))
+              .send({
                 ok: false,
                 error: {
-                  code: 'idempotency_conflict',
-                  message,
+                  code: 'idempotency_in_progress',
+                  message: 'A request with this idempotency key is in progress',
                   requestId,
                 },
                 meta: { apiVersion },
               });
-            }
-
-            if (claim.status === 'in-flight') {
-              try {
-                const record = await claim.wait;
-                return reply
-                  .status(200)
-                  .send(buildSuccessEnvelope(record.result, requestId, apiVersion));
-              } catch (waitErr) {
-                if (!(waitErr instanceof IdempotencyAbortedError)) {
-                  throw waitErr;
-                }
-                claim = await idempotencyStore.claim(storeKey, payloadHash, principal, storeOpts);
-                continue;
-              }
-            }
-
-            break;
           }
 
-          let result: Awaited<ReturnType<typeof executeCapability>>;
-          try {
-            result = await executeCapability(cap, ctx, parsed.data);
-          } catch (execErr) {
-            await idempotencyStore.abort(storeKey);
-            throw execErr;
-          }
+          const result = outcome.result;
           if (!result.success) {
-            await idempotencyStore.abort(storeKey);
             const mapped = mapCoreError(result.error, requestId, apiVersion);
             return reply.status(mapped.status).send(mapped.body);
           }
 
-          await idempotencyStore.complete(storeKey, result.data, storeOpts);
           await ctx.audit.record(`api.${resolved.operationId}`, { requestId, live: true });
           return reply.status(200).send(buildSuccessEnvelope(result.data, requestId, apiVersion));
         }

@@ -23,13 +23,13 @@ import {
   createInMemoryIdempotencyStore,
   hashPayload,
   PayloadTooDeepError,
-  IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
   parseIdempotencyTtl,
   type IdempotencyPrincipal,
   type IdempotencyStore,
   type IdempotencyStoreOptions,
 } from './idempotency.js';
+import { executeIdempotently } from './idempotent-execution.js';
 import {
   type CapabilityErrorInfo,
   fireCapabilityErrorHook,
@@ -329,8 +329,12 @@ export function registerCapabilityRoute(
         }
         const ttlMs =
           idempotency.ttl !== undefined ? parseIdempotencyTtl(idempotency.ttl) : undefined;
-        const storeOptions: IdempotencyStoreOptions | undefined =
-          ttlMs !== undefined ? { ttlMs } : undefined;
+        // The key lives where the capability's transaction runs: the request's database.
+        const storeOptions: IdempotencyStoreOptions = {
+          ...(ttlMs !== undefined ? { ttlMs } : {}),
+          database: requestDb,
+          plane: requestDb === config.db ? 'spine' : 'tenant',
+        };
 
         // A cached result is still a disclosure. Refresh session/dependency authority, then
         // run the capability's current resource checks without executing its handler again.
@@ -366,50 +370,52 @@ export function registerCapabilityRoute(
           }
         };
 
-        let claim = await store.claim(storeKey, payloadHash, principal, storeOptions);
-        for (;;) {
-          if (claim.status === 'replay') {
-            await replay(claim.record.result);
-            return;
-          }
-          if (claim.status === 'conflict') {
-            const err = ctx.errors.conflict(
-              claim.reason === 'principal'
-                ? 'Idempotency key belongs to a different principal'
-                : 'Idempotency key reused with different input',
-              { capability: canonicalName, reason: 'idempotency-conflict', conflict: claim.reason },
-            );
-            const { statusCode, body } = errorToHttpResponse(err);
-            reply.status(statusCode).send(body);
-            return;
-          }
-          if (claim.status === 'in-flight') {
-            try {
-              const record = await claim.wait;
-              await replay(record.result);
-              return;
-            } catch (waitErr) {
-              if (!(waitErr instanceof IdempotencyAbortedError)) throw waitErr;
-              claim = await store.claim(storeKey, payloadHash, principal, storeOptions);
-              continue;
-            }
-          }
-          break;
+        const outcome = await executeIdempotently({
+          store,
+          key: storeKey,
+          payloadHash,
+          principal,
+          options: storeOptions,
+          execute: (executeOptions) => executeCapability(capability, ctx, input, executeOptions),
+        });
+        if (outcome.kind === 'replay') {
+          await replay(outcome.result);
+          return;
+        }
+        if (outcome.kind === 'conflict') {
+          // A different payload under the same key is unprocessable (422); a key presented
+          // by another principal conflicts (409).
+          const err = ctx.errors.conflict(
+            outcome.reason === 'principal'
+              ? 'Idempotency key belongs to a different principal'
+              : 'Idempotency key reused with different input',
+            {
+              capability: canonicalName,
+              reason: 'idempotency-conflict',
+              conflict: outcome.reason,
+              ...(outcome.reason === 'payload' ? { httpStatus: 422 } : {}),
+            },
+          );
+          const { statusCode, body } = errorToHttpResponse(err);
+          reply.status(statusCode).send(body);
+          return;
+        }
+        if (outcome.kind === 'in-progress') {
+          const err = ctx.errors.conflict('A request with this idempotency key is in progress', {
+            capability: canonicalName,
+            reason: 'idempotency-in-progress',
+          });
+          const { statusCode, body } = errorToHttpResponse(err);
+          reply.header('retry-after', String(outcome.retryAfterSeconds));
+          reply.status(statusCode).send(body);
+          return;
         }
 
-        let claimed: Awaited<ReturnType<typeof executeCapability>>;
-        try {
-          claimed = await executeCapability(capability, ctx, input);
-        } catch (execErr) {
-          await store.abort(storeKey);
-          throw execErr;
-        }
+        const claimed = outcome.result;
         if (claimed.success) {
-          await store.complete(storeKey, claimed.data, storeOptions);
           reply.status(200).send({ data: claimed.data });
           return;
         }
-        await store.abort(storeKey);
         const httpError = errorToHttpResponse(claimed.error);
         reply.status(httpError.statusCode).send(httpError.body);
         fireCapabilityErrorHook(config.onCapabilityError, {

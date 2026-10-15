@@ -20,6 +20,8 @@ export interface WorkerHealthServerConfig {
 export interface WorkerHealthServer {
   start(): Promise<string>;
   stop(): Promise<void>;
+  /** `/ready` answers 503 (`reason: 'shutting down'`) from now on; `/health` stays 200. */
+  markShuttingDown(): void;
   metrics: ReturnType<typeof createPlumbusMetrics>;
 }
 
@@ -30,7 +32,12 @@ export function createWorkerHealthServer(config: WorkerHealthServerConfig): Work
 
   app.get('/health', async () => ({ status: 'ok' }));
 
+  let shuttingDown = false;
   app.get('/ready', async (_req, reply) => {
+    if (shuttingDown) {
+      reply.status(503);
+      return { status: 'not_ready', reason: 'shutting down' };
+    }
     try {
       await config.db.execute(sql`SELECT 1`);
       if (config.queues?.isDurable && config.queues.pingRedis) {
@@ -52,6 +59,9 @@ export function createWorkerHealthServer(config: WorkerHealthServerConfig): Work
 
   return {
     metrics,
+    markShuttingDown() {
+      shuttingDown = true;
+    },
     async start() {
       const address = await app.listen({ port: config.port, host });
       return typeof address === 'string' ? address : `http://${host}:${config.port}`;

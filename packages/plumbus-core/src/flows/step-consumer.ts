@@ -1,3 +1,4 @@
+import { FlowDefinitionUnavailableError } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
 import type { ExecutionContext } from '../types/context.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
@@ -55,11 +56,14 @@ export function createFlowStepConsumer(config: FlowStepConsumerConfig): {
         await onReenqueue(executionId);
       }
     } catch (err) {
-      metrics?.flowFailed.inc({ source: 'queue' });
-      logger?.error('Flow step consumer failed', {
-        executionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      // A missing definition released the execution for another worker; nothing failed.
+      if (!(err instanceof FlowDefinitionUnavailableError)) {
+        metrics?.flowFailed.inc({ source: 'queue' });
+        logger?.error('Flow step consumer failed', {
+          executionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       try {
         await engine.markFailedFromRunner(executionId, err, claimed.leaseToken ?? undefined);
       } catch (finalizeErr) {

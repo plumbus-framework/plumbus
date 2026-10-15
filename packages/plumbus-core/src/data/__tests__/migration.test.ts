@@ -103,6 +103,7 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__flow_dead_letter'))).toBe('flow_dead_letter');
     expect(getTableName(getSchema(schemas, '__flow_schedules'))).toBe('flow_schedules');
     expect(getTableName(getSchema(schemas, '__flow_schedule_ticks'))).toBe('flow_schedule_ticks');
+    expect(getTableName(getSchema(schemas, '__flow_start_intents'))).toBe('flow_start_intents');
   });
 
   it('includes RAG document tables', () => {
@@ -125,10 +126,10 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__approval_decision'))).toBe('approval_decision');
   });
 
-  it('includes all 20 framework tables with zero entities', () => {
+  it('includes all 21 framework tables with zero entities', () => {
     const schemas = collectSchemas([]);
     const frameworkKeys = Object.keys(schemas).filter((k) => k.startsWith('__'));
-    expect(frameworkKeys).toHaveLength(20);
+    expect(frameworkKeys).toHaveLength(21);
   });
 
   it('throws when an extra schema collides with an entity table name', () => {
@@ -165,6 +166,8 @@ describe('migration history helpers', () => {
         .fn()
         .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
         .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
+        .mockResolvedValueOnce([]) // DELETE duplicate history hashes
+        .mockResolvedValueOnce([]) // CREATE UNIQUE INDEX on the history hash
         .mockResolvedValueOnce([]) // legacy public.__drizzle_migrations existence check
         .mockResolvedValueOnce([{ hash: sha256(firstSql) }]),
     };
@@ -190,6 +193,8 @@ describe('migration history helpers', () => {
       .fn()
       .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
       .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
+      .mockResolvedValueOnce([]) // DELETE duplicate history hashes
+      .mockResolvedValueOnce([]) // CREATE UNIQUE INDEX on the history hash
       .mockResolvedValueOnce([]) // legacy public.__drizzle_migrations existence check (absent)
       .mockResolvedValueOnce([]); // applied hashes
 
@@ -199,7 +204,7 @@ describe('migration history helpers', () => {
     });
 
     expect(pending).toHaveLength(1);
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(6);
   });
 
   it('reconciles only missing migration records', async () => {
@@ -222,6 +227,8 @@ describe('migration history helpers', () => {
         .fn()
         .mockResolvedValueOnce([]) // CREATE SCHEMA IF NOT EXISTS "drizzle"
         .mockResolvedValueOnce([]) // CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"
+        .mockResolvedValueOnce([]) // DELETE duplicate history hashes
+        .mockResolvedValueOnce([]) // CREATE UNIQUE INDEX on the history hash
         .mockResolvedValueOnce([]) // legacy public.__drizzle_migrations existence check
         .mockResolvedValueOnce([{ hash: sha256(firstSql) }]),
       transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx)),
@@ -245,11 +252,12 @@ describe('rollbackLastMigration', () => {
   const dialect = new PgDialect();
 
   /**
-   * `ensureMigrationsTable` issues three statements before any caller query:
-   * CREATE SCHEMA, CREATE TABLE, and the legacy-table existence probe.
+   * `ensureMigrationsTable` issues five statements before any caller query:
+   * CREATE SCHEMA, CREATE TABLE, the duplicate-hash DELETE, the unique hash
+   * index, and the legacy-table existence probe.
    */
   function ensureMigrationsTableCalls() {
-    return [[], [], []] as const;
+    return [[], [], [], [], []] as const;
   }
 
   function buildQuery(query: unknown) {
@@ -290,13 +298,13 @@ describe('rollbackLastMigration', () => {
       hash: sha256(secondSql),
     });
 
-    const select = buildQuery(execute.mock.calls[3]?.[0]);
+    const select = buildQuery(execute.mock.calls[5]?.[0]);
     expect(select.sql).toContain('"drizzle"."__drizzle_migrations"');
     expect(select.sql).toContain('ORDER BY created_at DESC NULLS LAST');
 
     // Deleting by id keeps a duplicated hash from taking unrelated rows with it,
     // and the value must travel as a bound parameter, not string interpolation.
-    const del = buildQuery(execute.mock.calls[4]?.[0]);
+    const del = buildQuery(execute.mock.calls[6]?.[0]);
     expect(del.sql).toContain('DELETE FROM "drizzle"."__drizzle_migrations" WHERE id =');
     expect(del.params).toEqual([7]);
   });
@@ -325,7 +333,7 @@ describe('rollbackLastMigration', () => {
       tag: null,
       hash: null,
     });
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(6);
   });
 
   it('falls back to the hash when the journal no longer describes the migration', async () => {

@@ -57,6 +57,8 @@ export interface SpineClaimOptions {
   workerId: string;
   leaseDurationMs: number;
   limit?: number;
+  /** Executions this worker released recently and must not take again yet. */
+  excludeExecutionIds?: readonly string[];
 }
 
 export interface SpineLeaseOptions {
@@ -91,6 +93,11 @@ export async function claimSpineDispatch(
           OR delivery_state = ${SpineDeliveryState.RetryScheduled}
           OR (delivery_state = ${SpineDeliveryState.Leased} AND lease_expires_at < now())
         )
+        ${
+          options.excludeExecutionIds && options.excludeExecutionIds.length > 0
+            ? sql`AND NOT (execution_id = ANY(${[...options.excludeExecutionIds]}::text[]))`
+            : sql``
+        }
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}
@@ -112,6 +119,31 @@ export async function extendSpineDispatchLease(
   const result = await db.execute(sql`
     UPDATE opaque_dispatch
     SET lease_expires_at = now() + ${leaseDurationInterval}::interval,
+        updated_at = now()
+    WHERE dispatch_id = ${options.dispatchId}
+      AND delivery_state = ${SpineDeliveryState.Leased}
+      AND lease_ref_id = ${options.workerId}
+  `);
+  return getRowsAffected(result) > 0;
+}
+
+/**
+ * Hand a leased hint back without running its step — its worker is shutting down between
+ * steps, or lacks the definition the step needs. Only the holder may release it. The hint is
+ * claimable again from `notBefore` (default: as soon as now). The claim that is handed back
+ * does not count as an attempt, so releases never push a hint towards `maxClaimAttempts`.
+ */
+export async function releaseSpineDispatch(
+  db: PostgresJsDatabase,
+  options: { dispatchId: string; workerId: string; notBefore?: string },
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE opaque_dispatch
+    SET delivery_state = ${SpineDeliveryState.Ready},
+        lease_ref_id = NULL,
+        lease_expires_at = NULL,
+        attempt = greatest(attempt - 1, 0),
+        not_before = ${options.notBefore === undefined ? sql`now()` : sql`${options.notBefore}::timestamptz`},
         updated_at = now()
     WHERE dispatch_id = ${options.dispatchId}
       AND delivery_state = ${SpineDeliveryState.Leased}
@@ -181,6 +213,15 @@ export async function deadLetterSpineDispatch(
   return getRowsAffected(result) > 0;
 }
 
+/**
+ * Publish a hint, or refresh the one already published for the same (tenant route, execution,
+ * revision). The refresh never touches a hint a worker holds (`leased`) or one that is
+ * finished (`acknowledged`, `dead_lettered`): a publisher that read its outbox row before
+ * the owner published it — another process's `dispatch_outbox` pump — would otherwise reset
+ * a live lease to `ready` and hand the step to a second worker. Only a tenant-epoch bump
+ * (which fences the old holder anyway) may replace a leased hint. When the existing hint is
+ * kept, it is returned as it stands.
+ */
 export async function upsertSpineDispatch(
   db: PostgresJsDatabase,
   record: OpaqueDispatchRecord,
@@ -211,9 +252,26 @@ export async function upsertSpineDispatch(
       updated_at = EXCLUDED.updated_at,
       lease_ref_id = EXCLUDED.lease_ref_id,
       lease_expires_at = EXCLUDED.lease_expires_at
+    WHERE opaque_dispatch.delivery_state NOT IN (
+        ${SpineDeliveryState.Acknowledged}, ${SpineDeliveryState.DeadLettered}
+      )
+      AND (
+        opaque_dispatch.delivery_state <> ${SpineDeliveryState.Leased}
+        OR EXCLUDED.tenant_epoch > opaque_dispatch.tenant_epoch
+      )
     RETURNING *
   `);
   const row = asRows(result)[0];
-  if (!row) throw new Error('spine upsert returned no row');
-  return spineRowFromSql(row);
+  if (row) return spineRowFromSql(row);
+  // The guard kept the existing hint: report it.
+  const existing = asRows(
+    await db.execute(sql`
+      SELECT * FROM opaque_dispatch
+      WHERE tenant_route_id = ${record.tenantRouteId}
+        AND execution_id = ${record.executionId}
+        AND expected_revision = ${record.expectedRevision}
+    `),
+  )[0];
+  if (!existing) throw new Error('spine upsert returned no row');
+  return spineRowFromSql(existing);
 }

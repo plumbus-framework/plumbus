@@ -9,6 +9,7 @@ export { gte, ilike, like, lte, sql } from 'drizzle-orm';
 export {
   applyMigrations,
   collectSchemas,
+  MIGRATION_ADVISORY_LOCK_KEY,
   readPendingMigrations,
   rollbackLastMigration,
   type MigrationApplyResult,

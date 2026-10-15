@@ -1,3 +1,4 @@
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { z } from 'zod';
 import { isProviderAPIError } from '../ai/provider.js';
 import { isPlumbusError } from '../errors/index.js';
@@ -31,6 +32,19 @@ export interface ExecutionFailure {
 }
 
 export type CapabilityResult<T = unknown> = ExecutionResult<T> | ExecutionFailure;
+
+/** Options for one `executeCapability` call. */
+export interface ExecuteCapabilityOptions {
+  /**
+   * Runs inside the capability's business transaction, after the handler and output
+   * validation and before commit, with that transaction's handle — work that must commit
+   * together with the capability's writes or not at all (the HTTP idempotency completion
+   * record). Not called when the capability runs outside a transaction (queries, `transactional:
+   * false`, AI or external effects, the outbox kill switch) or the transaction exposes no
+   * database handle; a throw rolls the transaction back and fails the call.
+   */
+  beforeCommit?: (tx: PostgresJsDatabase, output: unknown) => Promise<void>;
+}
 
 /** Static access is independent of input and must precede schema parsing. */
 async function authorizeAccessPolicy(
@@ -80,8 +94,19 @@ function buildHandlerContext(
     preserveCapabilityRuntime: getCanonicalCapabilityName(capability) === 'chat.chatConfirmAction',
   });
   const deferred = scope?.deferred;
+  // The start waits for commit; its intent is written in the transaction when the scope names
+  // the database it runs on, so a crash between commit and start does not lose it.
   const flows =
-    scope && deferred && ctx.flows ? createDeferredFlowService(ctx.flows, deferred) : ctx.flows;
+    scope && deferred && ctx.flows
+      ? createDeferredFlowService(
+          ctx.flows,
+          deferred,
+          undefined,
+          scope.db && scope.planeDb
+            ? { tx: scope.db, planeDb: scope.planeDb, auth: ctx.auth, logger: ctx.logger }
+            : undefined,
+        )
+      : ctx.flows;
   const jobs =
     scope && deferred && ctx.jobs
       ? scope.db && ctx.jobs.inTransaction
@@ -206,6 +231,7 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   capability: CapabilityContract<TInput, TOutput>,
   ctx: ExecutionContext,
   rawInput: unknown,
+  options?: ExecuteCapabilityOptions,
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
   const canonicalName = getCanonicalCapabilityName(capability);
 
@@ -276,10 +302,15 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
     if (useTransactional && existingScope) {
       const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, existingScope);
       validatedOutput = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+      if (options?.beforeCommit && existingScope.db) {
+        await options.beforeCommit(existingScope.db, validatedOutput);
+      }
     } else if (useTransactional && withTransaction) {
       validatedOutput = await withTransaction(async (scope) => {
         const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, scope);
-        return runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+        const output = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+        if (options?.beforeCommit && scope.db) await options.beforeCommit(scope.db, output);
+        return output;
       });
     } else {
       const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime);

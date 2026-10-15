@@ -586,7 +586,13 @@ export function registerMigrateCommand(program: Command): void {
         }
 
         // Preflight: detect framework-table conflicts before executing
-        const migrationConfig = { db: conn.db, migrationsFolder };
+        const migrationConfig = {
+          db: conn.db,
+          migrationsFolder,
+          // stderr keeps `--json` stdout parseable.
+          onLockWait: () =>
+            console.error('Another migration run holds this database; waiting for it to finish...'),
+        };
         const pending = await readPendingMigrations(migrationConfig);
 
         if (pending.length > 0) {

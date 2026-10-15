@@ -217,6 +217,11 @@ export interface DurableAcceptanceInput {
 export interface TransactionScope {
   /** @internal Database handle for durable job intent within this transaction. */
   db?: PostgresJsDatabase;
+  /**
+   * @internal The database this transaction runs on (not the transaction), for work that
+   * follows its commit: deleting the durable flow-start intent once the flow started.
+   */
+  planeDb?: PostgresJsDatabase;
   data: DataService;
   events: EventService;
   /** Side effects queued during the transaction; run only after commit succeeds */

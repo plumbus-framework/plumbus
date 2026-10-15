@@ -62,3 +62,24 @@ describe('connectPostgresDatabase', () => {
     expect(options).not.toHaveProperty('ssl');
   });
 });
+
+describe('connectPostgresDatabase pool size', () => {
+  beforeEach(() => {
+    vi.mocked(postgres).mockClear();
+  });
+
+  it('sets the pool max from database.poolSize (DATABASE_POOL_SIZE)', async () => {
+    await connectPostgresDatabase({ ...base, poolSize: 3 });
+    expect(vi.mocked(postgres)).toHaveBeenCalledWith(expect.objectContaining({ max: 3 }));
+  });
+
+  it('leaves max to the driver when poolSize is unset', async () => {
+    await connectPostgresDatabase(base);
+    const options = vi.mocked(postgres).mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(options).not.toHaveProperty('max');
+  });
+
+  it('keeps max out of the shared options that maintenance connections use', () => {
+    expect(postgresConnectionOptions({ ...base, poolSize: 3 })).not.toHaveProperty('max');
+  });
+});

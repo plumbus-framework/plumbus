@@ -34,6 +34,19 @@ export {
   PayloadTooDeepError,
   principalsMatch,
 } from './idempotency.js';
+export {
+  createDatabaseIdempotencyStore,
+  IdempotencyClaimLostError,
+  REQUEST_IDEMPOTENCY_TABLE,
+  requestIdempotencyDdl,
+  sweepExpiredIdempotencyRecords,
+} from './database-idempotency-store.js';
+export type { DatabaseIdempotencyStoreOptions } from './database-idempotency-store.js';
+export { executeIdempotently } from './idempotent-execution.js';
+export type {
+  ExecuteIdempotentlyParams,
+  IdempotentExecutionOutcome,
+} from './idempotent-execution.js';
 export type {
   IdempotencyClaimResult,
   IdempotencyPrincipal,

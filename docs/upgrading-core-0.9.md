@@ -6,6 +6,30 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.1 (2026-10-15): horizontally scaled deployments
+
+Prepared for repository release **`v0.9.0-beta.1`**. Only two packages change; every other package stays on its 0.9 beta.0 version.
+
+| Package | Beta | What it adds |
+| --- | --- | --- |
+| `@plumbus/core` | 0.9.0-beta.1 | Migration advisory lock and unique history hash; `DATABASE_POOL_SIZE` applied; graceful shutdown (`PLUMBUS_SHUTDOWN_TIMEOUT_MS`, `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS`, `/ready` 503 first, `onShutdown` hook); durable deferred flow start (`flow_start_intents`); version-aware claim (`definition-unavailable` releases instead of failures); the dispatch-hint double-claim fix; the database idempotency store; the `onBoot` hook for every runtime role |
+| `@plumbus/api` | 0.4.0-beta.1 | Partner routes use the core server's idempotency store; 422 for a reused key with another payload, 409 + `Retry-After` while a key is in progress. Needs core 0.9.0-beta.1 |
+
+Actions for an app on 0.9.0-beta.0 (details in the [core changelog](../packages/plumbus-core/CHANGELOG.md)):
+
+1. **Migrations.** Run `plumbus migrate generate` and `apply` for `flow_start_intents` (on the control plane and, for tenant data planes, on every plane whose project generates framework tables). The next `migrate apply` on each database also adds the unique index on `drizzle.__drizzle_migrations.hash`, collapsing duplicate history rows first. Concurrent applies now wait for each other.
+2. **Pool size.** `DATABASE_POOL_SIZE` now sets the main pool's `max` (default 10 — what every process used before). Set it from your connection budget.
+3. **Shutdown.** Set `PLUMBUS_SHUTDOWN_TIMEOUT_MS` below the container's termination grace period and `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS` to at least the load balancer's deregistration delay; export `onShutdown` from `app/server.ts` to close host resources.
+4. **Idempotency across copies.** Export `idempotencyStore = createDatabaseIdempotencyStore()` from `app/server.ts` and create `request_idempotency` on the spine and on every tenant plane (`migrations/spine/0001_request_idempotency.sql`, `migrations/durable-tenant/0003_request_idempotency.sql`, or `requestIdempotencyDdl()`). Clients that relied on `409` for a reused key with another payload now get `422`.
+5. **Mixed-release workers.** Nothing to do: a worker without an execution's definition releases it. Watch `plumbus_flow_definition_unavailable_total`.
+6. **API / worker split: move process setup to `onBoot`.** A worker-only process (`plumbus worker`, or `plumbus start` with `PLUMBUS_RUNTIME_ROLE=worker`) never calls `onRoutesRegistered`; it only runs in processes that serve HTTP. Move everything the workers also need out of `onRoutesRegistered` into `export async function onBoot({ command, role, servesHttp, runsWorkers, config, db, logger })`, which runs once in every process before HTTP or the worker pool starts: data-plane routers the exported `dataPlaneResolver` relies on, stores and sinks that flow steps write to, runtime and release checks, background sweeps. Keep in `onRoutesRegistered` only what needs the Fastify instance or the route configuration (request hooks, extra routes, request-scoped dependency wrapping). Close what `onBoot` opened in `onShutdown`, which runs in every process too.
+
+| Hook | `plumbus dev` | `start` role `all` | `start` role `api` | `start` role `worker` / `plumbus worker` |
+| --- | --- | --- | --- | --- |
+| `onBoot` | yes, first | yes, first | yes, first | yes, first |
+| `onRoutesRegistered` | yes | yes | yes | **no** |
+| `onShutdown` | — | yes | yes | yes |
+
 ## Which upgrade applies
 
 ### From a 0.8.0-beta.N install

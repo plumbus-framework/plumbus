@@ -46,10 +46,17 @@ export function postgresConnectionOptions(
   };
 }
 
+/**
+ * Open the process's main pool (server, worker, operational CLI commands). `config.poolSize`
+ * (`DATABASE_POOL_SIZE`) is the pool's `max`; left unset, postgres.js opens up to 10.
+ */
 export async function connectPostgresDatabase(config: DatabaseConfig): Promise<DatabaseConnection> {
   const postgresModule = (await import('postgres')).default;
   const { drizzle } = await import('drizzle-orm/postgres-js');
-  const sql = postgresModule(postgresConnectionOptions(config));
+  const sql = postgresModule({
+    ...postgresConnectionOptions(config),
+    ...(config.poolSize === undefined ? {} : { max: config.poolSize }),
+  });
   return { db: drizzle(sql), sql };
 }
 
@@ -66,8 +73,12 @@ export async function resolveDatabaseConnection(
   return connectPostgresDatabase(config);
 }
 
-export async function closeDatabaseConnection(connection: DatabaseConnection): Promise<void> {
+/** End the pool; queries still running get `timeoutSeconds` (default 5) before they are cut. */
+export async function closeDatabaseConnection(
+  connection: DatabaseConnection,
+  timeoutSeconds = 5,
+): Promise<void> {
   if (connection.sql) {
-    await connection.sql.end({ timeout: 5 });
+    await connection.sql.end({ timeout: timeoutSeconds });
   }
 }

@@ -28,6 +28,7 @@ describe('Stage 4 shipped human-task SQL', () => {
       '0000_durable_tenant',
       '0001_human_task',
       '0002_approval_cancellation',
+      '0003_request_idempotency',
     ]);
 
     const tables = await tenant.db.execute(sql`

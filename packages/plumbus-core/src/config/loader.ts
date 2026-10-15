@@ -77,6 +77,9 @@ function loadExecutionConfig(env: Record<string, string | undefined>): Execution
 
 // ── Database Config ──
 
+/** `database.poolSize` when `DATABASE_POOL_SIZE` is unset: postgres.js's own default. */
+export const DEFAULT_DATABASE_POOL_SIZE = 10;
+
 function loadDatabaseConfig(
   env: Record<string, string | undefined>,
   environment: Environment,
@@ -102,7 +105,9 @@ function loadDatabaseConfig(
     // (validateConfig then warns); elsewhere only with DATABASE_SSL=true.
     ssl:
       env.DATABASE_SSL === 'true' || (environment === 'production' && env.DATABASE_SSL !== 'false'),
-    poolSize: parseInt(env.DATABASE_POOL_SIZE ?? (environment === 'production' ? '20' : '5'), 10),
+    // Maximum connections in the process's main postgres.js pool. Unset keeps the driver's
+    // default of 10, which every process used before the setting was applied.
+    poolSize: parseInt(env.DATABASE_POOL_SIZE ?? String(DEFAULT_DATABASE_POOL_SIZE), 10),
   };
 }
 
@@ -501,6 +506,12 @@ export function validateConfig(config: PlumbusConfig): ConfigValidationResult {
   if (!config.database.host) errors.push('database.host is required');
   if (!config.database.database) errors.push('database.database is required');
   if (!config.database.user) errors.push('database.user is required');
+  if (
+    config.database.poolSize !== undefined &&
+    (!Number.isInteger(config.database.poolSize) || config.database.poolSize < 1)
+  ) {
+    errors.push('database.poolSize (DATABASE_POOL_SIZE) must be a whole number of at least 1');
+  }
   if (config.environment === 'production' && !config.database.password) {
     errors.push('database.password is required in production');
   }

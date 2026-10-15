@@ -7,8 +7,8 @@ import {
 } from '../drift-inspector.js';
 
 describe('FRAMEWORK_TABLE_NAMES', () => {
-  it('contains all 20 framework table names', () => {
-    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(20);
+  it('contains all 21 framework table names', () => {
+    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(21);
   });
 
   it('includes expected table names', () => {
@@ -21,6 +21,7 @@ describe('FRAMEWORK_TABLE_NAMES', () => {
     expect(FRAMEWORK_TABLE_NAMES).toContain('flow_dead_letter');
     expect(FRAMEWORK_TABLE_NAMES).toContain('flow_schedules');
     expect(FRAMEWORK_TABLE_NAMES).toContain('flow_schedule_ticks');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('flow_start_intents');
     expect(FRAMEWORK_TABLE_NAMES).toContain('documents');
     expect(FRAMEWORK_TABLE_NAMES).toContain('document_chunks');
     expect(FRAMEWORK_TABLE_NAMES).toContain('execution_state');

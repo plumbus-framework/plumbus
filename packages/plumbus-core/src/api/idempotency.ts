@@ -1,3 +1,5 @@
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+
 export interface IdempotencyPrincipal {
   userId?: string;
   tenantId?: string;
@@ -11,17 +13,41 @@ export interface IdempotencyRecord {
 }
 
 export type IdempotencyClaimResult =
-  | { status: 'new' }
+  /**
+   * This request holds the key. A store that fences its claims returns the claim's `token`;
+   * the caller passes it back as `options.claimToken` to `complete`, `completeInTransaction`
+   * and `abort`.
+   */
+  | { status: 'new'; token?: string }
   | { status: 'replay'; record: IdempotencyRecord }
   | { status: 'conflict'; reason: 'principal' | 'payload' }
-  | { status: 'in-flight'; wait: Promise<IdempotencyRecord> };
+  /** Same process: the first request is still running; `wait` settles with its outcome. */
+  | { status: 'in-flight'; wait: Promise<IdempotencyRecord> }
+  /**
+   * Another request (possibly in another process) holds a live claim on the key: answer 409
+   * with `Retry-After`. After `retryAfterSeconds` the claim either completed (replay) or its
+   * lease lapsed with no completion (the request runs again).
+   */
+  | { status: 'in-progress'; retryAfterSeconds: number };
 
 export interface IdempotencyStoreOptions {
   /** Entry TTL in milliseconds; applied when a request completes successfully. */
   ttlMs?: number;
+  /**
+   * The database the request's capability runs its transaction on (the route generator sets
+   * it): a database-backed store keeps the key there, so the completion can commit with the
+   * business writes. In-memory stores ignore it.
+   */
+  database?: PostgresJsDatabase;
+  /** Whether `database` is the control plane (`'spine'`) or a tenant data plane. */
+  plane?: 'spine' | 'tenant';
+  /** The token of this request's claim (`{ status: 'new', token }`), for complete/abort. */
+  claimToken?: string;
 }
 
 export interface IdempotencyStore {
+  /** `'memory'` for a process-local store; production and staging warn when one is active. */
+  readonly kind?: string;
   claim(
     key: string,
     payloadHash: string,
@@ -29,7 +55,20 @@ export interface IdempotencyStore {
     options?: IdempotencyStoreOptions,
   ): Promise<IdempotencyClaimResult>;
   complete(key: string, result: unknown, options?: IdempotencyStoreOptions): Promise<void>;
-  abort(key: string): Promise<void>;
+  /**
+   * Record the completion inside the capability's business transaction (`tx`, on
+   * `options.database`), so the business effect and the completion commit together or not at
+   * all. Throws when the claim was taken over by another request, which rolls the business
+   * transaction back. Optional: without it the completion is written after the capability
+   * returned (`complete`).
+   */
+  completeInTransaction?(
+    tx: PostgresJsDatabase,
+    key: string,
+    result: unknown,
+    options?: IdempotencyStoreOptions,
+  ): Promise<void>;
+  abort(key: string, options?: IdempotencyStoreOptions): Promise<void>;
 }
 
 /** Thrown when an in-flight idempotency claim is aborted (e.g. the first request failed). */
@@ -182,11 +221,14 @@ function pruneExpiredEntries(store: Map<string, InFlightEntry | IdempotencyRecor
 /**
  * Dev-oriented in-memory idempotency store. Entries without TTL are never evicted;
  * when `ttlMs` is supplied on complete, expired records are ignored on subsequent claims.
+ * Process-local: a retry that reaches another process runs again. Use
+ * `createDatabaseIdempotencyStore` wherever more than one process serves the routes.
  */
 export function createInMemoryIdempotencyStore(): IdempotencyStore {
   const store = new Map<string, InFlightEntry | IdempotencyRecord>();
 
   return {
+    kind: 'memory',
     async claim(key, payloadHash, principal, options) {
       if (options?.ttlMs !== undefined) {
         pruneExpiredEntries(store);

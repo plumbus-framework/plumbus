@@ -400,6 +400,8 @@ plumbus migrate apply --database tenant_alpha   # named tenant database
 
 `--database` opens that Postgres database through `openDataPlaneConnection` (same factory as request-time data planes). Host, port, and user still come from config — use the **owner** role from `provisionDataPlane`, not the runtime role. See [Tenant data planes](./tenant-data-planes.md).
 
+Concurrent `applyMigrations` runs against one database are serialised by a session advisory lock (`MIGRATION_ADVISORY_LOCK_KEY`) on a reserved connection: the second run waits (`MigrationConfig.onLockWait` is called once when it starts waiting), then finds nothing pending. The history hash is unique. See [CLI: concurrent runs](../cli/commands.md).
+
 Before executing, a preflight check detects if any pending migration would `CREATE TABLE` for a framework-managed table that already exists in the database. If drift is detected, the command fails with a structured error listing the conflicting tables and recovery steps. On execution failure, error messages include the migration tag, statement index, and SQL preview.
 
 ### Rollback

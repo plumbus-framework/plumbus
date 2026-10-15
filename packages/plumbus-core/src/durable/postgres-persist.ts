@@ -387,6 +387,38 @@ export async function listUnpublishedOutbox(
   return asRows(result).map(mapOutbox);
 }
 
+/**
+ * The pump's claim: lock up to `limit` unpublished outbox rows (`FOR UPDATE SKIP LOCKED`) in a
+ * transaction on the plane, run `publish` for each while the lock holds, and commit. Two pumps
+ * (every worker process runs one) never publish the same row at once, and an owner marking
+ * the row published waits for the pump's commit. Returns how many rows `publish` handled.
+ */
+export async function claimUnpublishedOutbox(
+  db: PostgresJsDatabase,
+  publish: (tx: PostgresJsDatabase, row: DispatchOutboxRow) => Promise<void>,
+  options: { schemaName?: string; limit?: number } = {},
+): Promise<number> {
+  const outboxTable = qualifyTable(options.schemaName ?? FRAMEWORK_SCHEMA, 'dispatch_outbox');
+  return db.transaction(async (transaction) => {
+    const tx = transaction as unknown as PostgresJsDatabase;
+    const rows = asRows(
+      await tx.execute(sql`
+        SELECT * FROM ${sql.raw(outboxTable)}
+        WHERE superseded = false AND spine_acked_at IS NULL AND published_at IS NULL
+        ORDER BY created_at
+        LIMIT ${options.limit ?? 100}
+        FOR UPDATE SKIP LOCKED
+      `),
+    ).map(mapOutbox);
+    let handled = 0;
+    for (const row of rows) {
+      await publish(tx, row);
+      handled += 1;
+    }
+    return handled;
+  });
+}
+
 export async function markOutboxPublished(
   db: PostgresJsDatabase,
   outboxId: string,

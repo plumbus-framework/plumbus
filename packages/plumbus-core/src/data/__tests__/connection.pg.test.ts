@@ -1,0 +1,42 @@
+// DATABASE_POOL_SIZE reaches the main postgres.js pool: a real server sees at most that many
+// backends from one pool, however many queries run at once.
+
+import { describe, expect, it } from 'vitest';
+import { loadConfig } from '../../config/loader.js';
+import { createDurableTestDatabase, resolveTestPostgresAdmin } from '../../durable/index.js';
+import { closeDatabaseConnection, connectPostgresDatabase } from '../connection.js';
+
+describe('main pool size against Postgres', () => {
+  it('opens no more backends than DATABASE_POOL_SIZE', async () => {
+    const admin = resolveTestPostgresAdmin();
+    const database = await createDurableTestDatabase({ admin, kind: 'pool_size', ddl: '' });
+    const config = loadConfig({
+      env: {
+        DATABASE_HOST: admin.host,
+        DATABASE_PORT: String(admin.port),
+        DATABASE_NAME: database.name,
+        DATABASE_USER: admin.user,
+        DATABASE_PASSWORD: admin.password,
+        DATABASE_POOL_SIZE: '2',
+      },
+    });
+    const connection = await connectPostgresDatabase(config.database);
+    try {
+      const sql = connection.sql;
+      if (!sql) throw new Error('expected a live postgres.js client');
+      const rows = await Promise.all(
+        Array.from(
+          { length: 6 },
+          () => sql<Array<{ pid: number }>>`
+          SELECT pg_backend_pid() AS pid, pg_sleep(0.1)
+        `,
+        ),
+      );
+      const pids = new Set(rows.map((result) => result[0]?.pid));
+      expect(pids.size).toBe(2);
+    } finally {
+      await closeDatabaseConnection(connection);
+      await database.close();
+    }
+  }, 30_000);
+});

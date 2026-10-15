@@ -26,13 +26,15 @@ import {
   shouldStartApiServer,
   shouldStartWorkerPool,
 } from '../../runtime/bootstrap.js';
+import { bootLogger, runAppBoot } from '../../runtime/app-boot.js';
+import { resolveShutdownSettings, runGracefulShutdown } from '../../runtime/graceful-shutdown.js';
 import { loadServerExtensions } from '../../runtime/load-extensions.js';
 import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
 import { startWorkerPool } from '../../runtime/start-worker-pool.js';
 import { createPlumbusMetrics } from '../../observability/metrics.js';
 import type { WorkerPool } from '../../worker/bootstrap.js';
 import { logHookError } from '../../errors/hook-log.js';
-import { info, error as logError } from '../utils.js';
+import { info, error as logError, warn } from '../utils.js';
 
 export interface StartOptions {
   port?: string;
@@ -75,7 +77,7 @@ export async function startProductionServer(
   options: StartOptions & { db?: PostgresJsDatabase; connection?: DatabaseConnection },
 ): Promise<{
   server?: PlumbusServer;
-  shutdown: () => Promise<void>;
+  shutdown: (signal?: string) => Promise<void>;
 }> {
   const config = await loadAppConfig({ environment: 'production' });
   const validation = validateConfig(config);
@@ -85,6 +87,7 @@ export async function startProductionServer(
   }
 
   const port = resolveStartPort(options.port);
+  const shutdownSettings = resolveShutdownSettings();
   const host = options.host ?? '0.0.0.0';
   const serverUrl = `http://${host}:${port}`;
   const runtimeRole = resolveRuntimeRole('start');
@@ -133,6 +136,16 @@ export async function startProductionServer(
   const db = dbConnection.db;
 
   const extensions = await loadServerExtensions(undefined, resources.decisions);
+  // The app's process setup runs in every role, before HTTP or the worker pool exists.
+  await runAppBoot(extensions.onBoot, {
+    command: 'start',
+    role: runtimeRole,
+    servesHttp: shouldStartApiServer(runtimeRole),
+    runsWorkers: shouldStartWorkerPool(runtimeRole),
+    config,
+    db,
+    logger: bootLogger({ info, warn, error: logError }),
+  });
   const queues = await resolveRuntimeQueues(config, {
     onWarning: (message) => info(`Queue: ${message}`),
   });
@@ -170,6 +183,7 @@ export async function startProductionServer(
       }),
       ...(extensions.resolveTenantRef && { resolveTenantRef: extensions.resolveTenantRef }),
       ...(extensions.requestDataPlane && { requestDataPlane: extensions.requestDataPlane }),
+      ...(extensions.idempotencyStore && { idempotencyStore: extensions.idempotencyStore }),
       jobQueue: jobQueueNeeded ? queues.jobs : undefined,
       checkQueueReadiness: queues.isDurable ? queues.pingRedis : undefined,
       metrics,
@@ -199,38 +213,50 @@ export async function startProductionServer(
     info('Worker pool started');
   }
 
-  const shutdown = async () => {
+  // SIGTERM: /ready answers 503 at once, HTTP drains (after PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS),
+  // then the workers stop claiming and the running step gets the remaining time, then the
+  // host's onShutdown hook, queues and the database. In-flight work can hang (a wedged
+  // provider socket inside a step): past PLUMBUS_SHUTDOWN_TIMEOUT_MS the process force-exits
+  // instead of living on as a headless worker polling the shared database.
+  const shutdown = async (signal?: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    info('Graceful shutdown initiated...');
-    // In-flight work can hang indefinitely (e.g. a wedged provider socket
-    // inside a flow step keeps workerPool.stop() waiting forever). Never let
-    // that turn a termination signal into a headless zombie worker that
-    // keeps polling the shared DB: force-exit after a hard deadline.
-    const deadline = setTimeout(() => {
-      logError('Graceful shutdown timed out after 10s — forcing exit');
-      process.exit(1);
-    }, 10_000);
-    deadline.unref();
-    if (workerPool) {
-      await workerPool.stop();
-      info('Worker pool stopped');
-    }
-    if (server) {
-      await server.stop();
-    }
-    await queues.close();
-    await closeDatabaseConnection(dbConnection);
-    clearTimeout(deadline);
+    info(`Graceful shutdown initiated (deadline ${shutdownSettings.timeoutMs}ms)...`);
+    const httpServer = server;
+    const pool = workerPool;
+    await runGracefulShutdown({
+      settings: shutdownSettings,
+      ...(signal ? { signal } : {}),
+      log: { info, error: logError },
+      ...(httpServer
+        ? {
+            markNotReady: () => httpServer.markShuttingDown?.(),
+            closeHttp: () => httpServer.stop(),
+            forceCloseHttp: () => httpServer.app.server?.closeAllConnections?.(),
+          }
+        : {}),
+      ...(pool
+        ? {
+            stopWorkers: async (deadlineAt: number) => {
+              await pool.stop({ deadlineAt });
+              info('Worker pool stopped');
+              return pool.flowCycleInFlight !== true;
+            },
+          }
+        : {}),
+      ...(extensions.onShutdown ? { onShutdown: extensions.onShutdown } : {}),
+      closeQueues: () => queues.close(),
+      closeDatabase: (timeoutSeconds) => closeDatabaseConnection(dbConnection, timeoutSeconds),
+    });
     info('Server stopped');
   };
 
-  const onSignal = () => {
+  const onSignal = (signal: NodeJS.Signals) => {
     if (shuttingDown) {
       logError('Second signal received during shutdown — forcing exit');
       process.exit(130);
     }
-    void shutdown();
+    void shutdown(signal);
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);

@@ -30,19 +30,20 @@ describe('Shipped durable SQL migrations', () => {
       db: tenant.db,
       migrationsFolder: FRAMEWORK_DURABLE_TENANT_MIGRATIONS,
     });
-    expect(tenantResult.applied).toBe(3);
+    expect(tenantResult.applied).toBe(4);
     expect(tenantResult.tags).toEqual([
       '0000_durable_tenant',
       '0001_human_task',
       '0002_approval_cancellation',
+      '0003_request_idempotency',
     ]);
 
     const spineResult = await applyMigrations({
       db: spine.db,
       migrationsFolder: FRAMEWORK_SPINE_MIGRATIONS,
     });
-    expect(spineResult.applied).toBe(1);
-    expect(spineResult.tags).toEqual(['0000_opaque_dispatch']);
+    expect(spineResult.applied).toBe(2);
+    expect(spineResult.tags).toEqual(['0000_opaque_dispatch', '0001_request_idempotency']);
 
     const tenantTables = await tenant.db.execute(sql`
       SELECT table_name FROM information_schema.tables
@@ -63,14 +64,15 @@ describe('Shipped durable SQL migrations', () => {
         'human_task',
         'approval_request',
         'approval_decision',
+        'request_idempotency',
       ]),
     );
 
     const spineTables = await spine.db.execute(sql`
       SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = 'opaque_dispatch'
+      WHERE table_schema = 'public' AND table_name IN ('opaque_dispatch', 'request_idempotency')
     `);
-    expect((spineTables as unknown as unknown[]).length).toBe(1);
+    expect((spineTables as unknown as unknown[]).length).toBe(2);
 
     const again = await applyMigrations({
       db: tenant.db,

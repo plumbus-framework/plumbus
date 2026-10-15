@@ -67,8 +67,15 @@ caller may retry; accept is idempotent on `idempotencyKey`.
    - Append domain writes and `event_outbox` rows in the same transaction when applicable.
 
 2. **Publish dispatch hint (post-commit, idempotent).**
-   - Per-tenant pump reads unacknowledged outbox rows.
+   - Per-tenant pump claims unpublished outbox rows (`FOR UPDATE SKIP LOCKED` in a plane
+     transaction held while it publishes them), so the pumps every worker process runs never
+     publish the same row at once.
    - Upsert spine `OpaqueDispatchRecord` keyed by `(tenantRouteId, executionId, expectedRevision)`.
+     The upsert refreshes only a `ready` / `retry-scheduled` hint: one a worker has `leased`, or
+     one `acknowledged` / `dead_lettered`, is kept as it stands (only a higher tenant epoch may
+     replace a leased hint). A pump that read the row before its owner published it therefore
+     cannot reset a live lease and hand the step to a second worker (reproduced in
+     `dispatch-hint-race.pg.test.ts`, fixed in core 0.9.0-beta.1).
    - Mark outbox `spineRowId` / `publishedAt` when spine write succeeds.
 
 3. **Claim spine row (worker liveness).**
@@ -80,6 +87,8 @@ caller may retry; accept is idempotent on `idempotencyKey`.
 4. **Reconcile and execute (tenant truth).**
    - Resolve tenant route via `DataPlaneResolver`.
    - Load execution state; compare `revision` and `tenantEpoch`.
+   - Claim the tenant `flow_executions` row with a fresh token — never a `running` row whose
+     lease is live. Such a hint is handed back (`ready`, `notBefore` = the row's lease expiry).
    - **Stale dispatch:** revision advanced or epoch mismatch → ack spine row, no side effects.
    - **Current dispatch:** execute step under immutable context → return to step 1 on mutation.
 

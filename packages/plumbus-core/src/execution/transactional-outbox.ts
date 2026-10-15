@@ -66,7 +66,7 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
       correlationId,
       getCausationId,
     });
-    const scope: TransactionScope = { data, events, db: tx };
+    const scope: TransactionScope = { data, events, db: tx, planeDb: db };
     if (durableDispatch) {
       const schemaName = durableDispatch.schemaName;
       scope.persistAcceptance = async (input) => {

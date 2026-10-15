@@ -235,9 +235,9 @@ Behavior:
 
 - Loads `config/app.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `schedulePlanes`, and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onBoot`, `onShutdown`, `idempotencyStore`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `schedulePlanes`, and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
-- Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown.
+- Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown: `/ready` answers 503 at once, HTTP drains (after `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS`, default 0), workers stop claiming and the running flow step gets the remaining time (its execution is then released for another worker), `onShutdown` from `app/server.ts` runs, then queues and the database close — all within `PLUMBUS_SHUTDOWN_TIMEOUT_MS` (default 10000). See [Graceful shutdown](../../packages/plumbus-core/instructions/deployment.md#graceful-shutdown).
 - Exposes `GET /health` and `GET /ready`.
 - Registers `GET /api/jobs/:jobId` for async job status polling.
 
@@ -273,7 +273,9 @@ Exposes:
 
 Does **not** start the main Fastify API. Requires the same `app/`, `config/`, database, and Redis configuration as the API process.
 
-Loads `app/server.ts`; its `onCapabilityError` fires in this process for failed flow steps, jobs, and event handlers (`source` `'flow'`, `'job'`, `'event'`). See [Configuration](../sdk-reference/configuration.md#oncapabilityerror-hook).
+Loads `app/server.ts`. Its `onBoot` runs once before the worker pool starts; `onRoutesRegistered` is **not** called in a worker process (it is for HTTP concerns), so put process setup the workers need in `onBoot`. Its `onCapabilityError` fires in this process for failed flow steps, jobs, and event handlers (`source` `'flow'`, `'job'`, `'event'`). See [Configuration](../sdk-reference/configuration.md#oncapabilityerror-hook).
+
+On `SIGTERM` / `SIGINT` the worker turns `/ready` to 503, stops claiming, gives the running flow step the rest of `PLUMBUS_SHUTDOWN_TIMEOUT_MS` (then releases its execution for another worker), runs `onShutdown` from `app/server.ts`, closes queues and the database, and closes the health server last.
 
 #### `plumbus worker status`
 
@@ -805,7 +807,7 @@ plumbus migrate rollback [options]   # Rollback last migration
 
 **Framework-managed tables:**
 
-Plumbus manages 20 internal tables: `audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `flow_schedule_ticks`, `job_executions`, `documents`, `document_chunks`, plus the durable dispatch and approval tables `execution_state`, `step_execution`, `wait_state`, `terminal_state`, `dispatch_outbox`, `side_effect_log`, `human_task`, `approval_request`, `approval_decision`. **Do not create these tables manually** — they are included in generated migrations automatically.
+Plumbus manages 21 internal tables: `audit_records`, `event_outbox`, `event_idempotency`, `event_dead_letter`, `flow_executions`, `flow_dead_letter`, `flow_schedules`, `flow_schedule_ticks`, `flow_start_intents`, `job_executions`, `documents`, `document_chunks`, plus the durable dispatch and approval tables `execution_state`, `step_execution`, `wait_state`, `terminal_state`, `dispatch_outbox`, `side_effect_log`, `human_task`, `approval_request`, `approval_decision`. **Do not create these tables manually** — they are included in generated migrations automatically.
 
 **Schema drift detection:**
 
@@ -820,6 +822,10 @@ For `migrate apply`, the preflight detects when a pending migration would `CREAT
 If you see a drift error, you have two options:
 1. **Run `plumbus migrate reconcile`** if the live database already matches the current Plumbus schema and you only need to adopt the existing migration history.
 2. **Fix or drop the conflicting tables** and then re-run `plumbus migrate apply` or `plumbus migrate push`.
+
+**Concurrent runs:**
+
+`migrate apply`, `reconcile`, `rollback` and the `apply` preflight take a session advisory lock on the database they migrate (`MIGRATION_ADVISORY_LOCK_KEY`), held on one reserved connection for the whole run. A second run on the same database (another pod, a migrate Job, a developer) prints `Another migration run holds this database; waiting for it to finish...` to stderr, waits, then reads the history the first run wrote and applies only what is still pending. A run that crashes releases the lock with its connection. Locks are per database, so tenant databases migrate in parallel. `drizzle.__drizzle_migrations` also has a unique index on `hash` (`__drizzle_migrations_hash_key`); the first run on a core 0.9.0-beta.1+ install removes duplicate history rows left by earlier unlocked races (keeping the oldest row of each hash, so the set of applied migrations is unchanged) before adding it. Two journal entries whose SQL is byte-identical have one hash and are recorded, and applied, once.
 
 **Statement-level diagnostics:**
 

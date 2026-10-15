@@ -20,13 +20,20 @@ import {
   persistAcceptanceOnDb,
   persistRetryScheduleOnDb,
   publishOutboxToSpine,
+  releaseSpineDispatch,
 } from '../durable/index.js';
 import {
   type DispatchOutboxRow,
   type OpaqueDispatchRecord,
   SpineDeliveryState,
 } from '../durable/types.js';
-import { FlowCancelledError, LeaseLostError, PlumbusError } from '../errors/index.js';
+import {
+  FlowCancelledError,
+  FlowDefinitionUnavailableError,
+  FlowDefinitionUnavailableReason,
+  LeaseLostError,
+  PlumbusError,
+} from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
@@ -90,6 +97,15 @@ const NO_CLAIM_TOKEN = '00000000-0000-0000-0000-000000000000';
  * every postgres-js UPDATE without RETURNING, which caused `extendLease` to
  * always report "lease lost" even when the row was successfully updated.
  */
+/** SQLSTATE 23505 on the error or the driver error it wraps. */
+function isUniqueViolation(error: unknown): boolean {
+  for (let current = error, depth = 0; current && depth < 3; depth += 1) {
+    if ((current as { code?: unknown }).code === '23505') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 function getRowsAffected(result: unknown): number {
   const r = result as { rowCount?: unknown; count?: unknown; length?: unknown } | null | undefined;
   if (typeof r?.rowCount === 'number') return r.rowCount;
@@ -165,6 +181,27 @@ export interface FlowEngineConfig {
   compiledRegistry?: CompiledFlowRegistry;
   /** Stage 4 approval service — required for `approval-outcome` steps. */
   approvals?: ApprovalService;
+  /**
+   * Called when a claimed execution is released because this engine lacks its definition
+   * (flow not registered, pinned compiled version missing or with another digest, or — live
+   * definitions only — its current step not in the definition). The execution stays runnable
+   * for a worker that has the definition; the worker pool logs and counts it here.
+   */
+  onDefinitionUnavailable?: (info: FlowDefinitionUnavailableInfo) => void;
+  /**
+   * How long this engine leaves an execution it released for a missing definition to other
+   * workers before claiming it again. Default 60 000 ms.
+   */
+  definitionUnavailableRetryMs?: number;
+}
+
+export interface FlowDefinitionUnavailableInfo {
+  executionId: string;
+  flowName: string;
+  reason: FlowDefinitionUnavailableReason;
+  /** The pinned compiled version, when the execution has one. */
+  definitionVersion?: string;
+  workerId: string;
 }
 
 export interface FlowSpineDispatchConfig {
@@ -307,6 +344,80 @@ export function createFlowEngine(config: FlowEngineConfig) {
   >();
   /** Claim tokens this engine holds, by execution id. */
   const claims = new Map<string, string>();
+  const definitionUnavailableRetryMs = config.definitionUnavailableRetryMs ?? 60_000;
+  /**
+   * Executions this engine released for a missing definition, with the time until which its
+   * claims skip them: other workers (one that has the definition) get them meanwhile, and a
+   * worker that lacks it takes each such execution at most once per window — no hot loop.
+   */
+  const unavailableUntil = new Map<string, number>();
+
+  function skippedExecutionIds(): string[] {
+    const now = Date.now();
+    for (const [id, until] of unavailableUntil) {
+      if (until <= now) unavailableUntil.delete(id);
+    }
+    return [...unavailableUntil.keys()];
+  }
+
+  function rememberUnavailable(executionId: string): void {
+    // Bounded: past the cap the oldest entry goes (it is claimed, and released, once more).
+    if (unavailableUntil.size >= 10_000) {
+      const oldest = unavailableUntil.keys().next().value;
+      if (oldest !== undefined) unavailableUntil.delete(oldest);
+    }
+    unavailableUntil.set(executionId, Date.now() + definitionUnavailableRetryMs);
+  }
+
+  function reportUnavailable(info: Omit<FlowDefinitionUnavailableInfo, 'workerId'>): void {
+    logger?.warn('definition-unavailable: released a claimed flow execution for another worker', {
+      ...info,
+      workerId,
+    });
+    try {
+      config.onDefinitionUnavailable?.({ ...info, workerId });
+    } catch {
+      // Observability must never break claiming.
+    }
+  }
+
+  /**
+   * The definition this engine would run an execution with, or `FlowDefinitionUnavailableError`
+   * when it lacks it: the flow, the pinned compiled version, or that version's digest. A
+   * compiled-registry engine still fails an execution that has no pin at all, as before.
+   */
+  function resolveRunnableFlow(executionId: string, flowName: string): FlowDefinition {
+    const authoring = registry.get(flowName);
+    if (!authoring) {
+      throw new FlowDefinitionUnavailableError(
+        executionId,
+        flowName,
+        FlowDefinitionUnavailableReason.FlowNotRegistered,
+      );
+    }
+    const pin = executionPins.get(executionId);
+    if (compiledRegistry && pin) {
+      const compiled = compiledRegistry.get(pin.flowDefinitionId, pin.definitionVersion);
+      if (!compiled) {
+        throw new FlowDefinitionUnavailableError(
+          executionId,
+          flowName,
+          FlowDefinitionUnavailableReason.CompiledVersionMissing,
+          { definitionVersion: pin.definitionVersion },
+        );
+      }
+      if (pin.definitionDigest && compiled.definitionDigest !== pin.definitionDigest) {
+        throw new FlowDefinitionUnavailableError(
+          executionId,
+          flowName,
+          FlowDefinitionUnavailableReason.CompiledDigestMismatch,
+          { definitionVersion: pin.definitionVersion },
+        );
+      }
+    }
+    return resolveExecutionFlow(executionId, flowName);
+  }
+
   /** The claim a step (and its heartbeat) runs under; every guarded write is fenced by it. */
   const claimScope = new AsyncLocalStorage<{ id: string; token: string }>();
 
@@ -605,11 +716,25 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     // The row and its acceptance commit together on the tenant's plane.
-    const pending = tenantPlaced
-      ? await store.transaction((tx) =>
-          createExecution(tx as unknown as PostgresJsDatabase, flowName, input, auth, opts),
-        )
-      : await createExecution(store, flowName, input, auth, opts);
+    let pending: PendingFlowExecution;
+    try {
+      pending = tenantPlaced
+        ? await store.transaction((tx) =>
+            createExecution(tx as unknown as PostgresJsDatabase, flowName, input, auth, opts),
+          )
+        : await createExecution(store, flowName, input, auth, opts);
+    } catch (error) {
+      // Starting by execution id is idempotent: a deferred start and its recovery (or any
+      // retried start) that find the execution already created get it back, not a second one.
+      if (opts?.executionId && isUniqueViolation(error)) {
+        const existing = await loadRow(store, opts.executionId);
+        if (existing && existing.flowName === flowName) {
+          if (spineDispatch) executionStores.set(existing.id, store);
+          return { id: existing.id, flowName, status: existing.status };
+        }
+      }
+      throw error;
+    }
 
     await announceExecution(pending, { store, auth });
     await maybeEnqueueFlowStep(pending.id, opts?.correlationId);
@@ -632,9 +757,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
       workerId,
       leaseDurationMs,
       limit: batchSize ?? claimBatchSize,
+      excludeExecutionIds: skippedExecutionIds(),
     });
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
     const rows: FlowExecutionRow[] = [];
+    // A hint's definition id and version are whatever its acceptance wrote (a host's
+    // `persistAcceptance` may use its own ids), so the definition check waits for the tenant
+    // row's flow name and pin, in runNext; a release there hands back both row and hint.
     for (const hint of hints) {
       try {
         const handle = await spineDispatch.resolver.resolve(hint.tenantRouteId);
@@ -681,11 +810,33 @@ export function createFlowEngine(config: FlowEngineConfig) {
                 FlowStatus.Running,
                 FlowStatus.Waiting,
               ]),
+              // A running row whose lease is live belongs to the worker running it, whatever
+              // state its hint is in: never mint a second claim over it.
+              sql`(${flowExecutionsTable.status} <> ${FlowStatus.Running}
+                OR ${flowExecutionsTable.leaseExpiresAt} IS NULL
+                OR ${flowExecutionsTable.leaseExpiresAt} < now())`,
             ),
           );
         if (getRowsAffected(claimed) === 0) {
-          // The row became terminal between the read and the claim.
-          await dropSpineHint(handle.db, hint.dispatchId);
+          const current = await loadRow(handle.db, hint.executionId);
+          if (!current || isTerminal(current.status as FlowStatus)) {
+            // The row became terminal between the read and the claim.
+            await dropSpineHint(handle.db, hint.dispatchId);
+          } else {
+            // Leased elsewhere: hand the hint back for when that lease would lapse.
+            await releaseSpineDispatch(spineDispatch.db, {
+              dispatchId: hint.dispatchId,
+              workerId,
+              ...(current.leaseExpiresAt
+                ? { notBefore: new Date(current.leaseExpiresAt).toISOString() }
+                : {}),
+            });
+            logger?.warn('spine hint claimed while its execution is leased elsewhere; released', {
+              executionId: hint.executionId,
+              dispatchId: hint.dispatchId,
+              leaseOwner: current.leaseOwner,
+            });
+          }
           continue;
         }
         executionStores.set(hint.executionId, handle.db);
@@ -745,6 +896,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   async function claimNextFromOwnDb(batchSize?: number): Promise<FlowExecutionRow[]> {
     const limit = batchSize ?? claimBatchSize;
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
+    const skipped = skippedExecutionIds();
 
     const result = await db.execute<Record<string, unknown>>(sql`
       UPDATE flow_executions
@@ -756,10 +908,12 @@ export function createFlowEngine(config: FlowEngineConfig) {
       WHERE id IN (
         SELECT id
         FROM flow_executions
-        WHERE
+        WHERE (
              status = ${FlowStatus.Created}
           OR (status = ${FlowStatus.Running} AND lease_expires_at < now())
           OR (status = ${FlowStatus.Waiting} AND waiting_for_event IS NULL AND wake_at <= now())
+        )
+        ${skipped.length > 0 ? sql`AND NOT (id::text = ANY(${skipped}::text[]))` : sql``}
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}
@@ -800,6 +954,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * its spine hint, which keeps its durable state in step.
    */
   async function claimExecution(executionId: string): Promise<FlowExecutionRow | undefined> {
+    if (skippedExecutionIds().includes(executionId)) return undefined;
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
 
     const result = await db.execute<Record<string, unknown>>(sql`
@@ -944,7 +1099,25 @@ export function createFlowEngine(config: FlowEngineConfig) {
       }
     }
     const claim = { id: executionId, token };
-    const result = await claimScope.run(claim, () => runClaimedStep(executionId, ctx));
+    let result: FlowExecution;
+    try {
+      result = await claimScope.run(claim, () => runClaimedStep(executionId, ctx));
+    } catch (error) {
+      if (error instanceof FlowDefinitionUnavailableError) {
+        // Not this worker's to run: hand the execution back runnable (lease expired now, the
+        // spine hint ready) and skip it for a while, instead of failing it for good.
+        await releaseClaim(executionId, token);
+        rememberUnavailable(executionId);
+        const pin = executionPins.get(executionId);
+        reportUnavailable({
+          executionId,
+          flowName: String(error.metadata?.flowName ?? ''),
+          reason: error.reason,
+          ...(pin ? { definitionVersion: pin.definitionVersion } : {}),
+        });
+      }
+      throw error;
+    }
     await syncSpineAfterRun(executionId, result);
     return result;
   }
@@ -966,7 +1139,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     await guardedUpdate(executionId, {});
 
     restorePinFromRow(row);
-    const flow = resolveExecutionFlow(executionId, row.flowName);
+    const flow = resolveRunnableFlow(executionId, row.flowName);
 
     // Do not auto-run event waits, and do not run delayed waits until due.
     if (row.status === FlowStatus.Waiting && row.waitingForEvent) {
@@ -997,6 +1170,17 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     const step = flow.steps.find((s) => s.name === currentStepName);
+    if (!step && !compiledRegistry) {
+      // A live definition without this step is another release's: a step a newer release
+      // added, or one an older release still has. A pinned compiled definition cannot drift,
+      // so there a missing step stays a failure.
+      throw new FlowDefinitionUnavailableError(
+        executionId,
+        row.flowName,
+        FlowDefinitionUnavailableReason.StepNotFound,
+        { step: currentStepName },
+      );
+    }
     if (!step) {
       await failFlow(
         executionId,
@@ -1873,7 +2057,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
     error: unknown,
     leaseToken?: string,
   ): Promise<boolean> {
-    if (error instanceof LeaseLostError || error instanceof FlowCancelledError || !leaseToken) {
+    if (
+      error instanceof LeaseLostError ||
+      error instanceof FlowCancelledError ||
+      // runNext already released the execution for a worker that has its definition.
+      error instanceof FlowDefinitionUnavailableError ||
+      !leaseToken
+    ) {
       forgetClaim(executionId, leaseToken);
       return false;
     }
@@ -1911,6 +2101,44 @@ export function createFlowEngine(config: FlowEngineConfig) {
       });
     }
     return true;
+  }
+
+  /**
+   * Give up a claim this engine holds without finishing or failing the execution: the row
+   * stays `running` with its lease expired now (claimable by any worker's next poll) and the
+   * spine hint this engine holds for it, if any, is ready again. A worker that stops between
+   * steps uses this so the execution continues elsewhere at once instead of after the lease
+   * runs out. Fenced by the claim token; a claim already lost is only forgotten. Returns
+   * whether the row was released.
+   */
+  async function releaseClaim(executionId: string, leaseToken?: string): Promise<boolean> {
+    const token = leaseToken ?? claims.get(executionId);
+    if (!token) {
+      forgetClaim(executionId);
+      return false;
+    }
+    const result = await storeFor(executionId)
+      .update(flowExecutionsTable)
+      .set({
+        leaseOwner: null,
+        leaseToken: null,
+        leaseExpiresAt: sql`now()`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(flowExecutionsTable.id, executionId),
+          eq(flowExecutionsTable.leaseOwner, workerId),
+          eq(flowExecutionsTable.leaseToken, token),
+          eq(flowExecutionsTable.status, FlowStatus.Running),
+        ),
+      );
+    const hint = claimedHints.get(executionId);
+    if (spineDispatch && hint) {
+      await releaseSpineDispatch(spineDispatch.db, { dispatchId: hint.dispatchId, workerId });
+    }
+    forgetClaim(executionId, token);
+    return getRowsAffected(result) > 0;
   }
 
   /** Drops this engine's local claim state for an execution it no longer owns. */
@@ -2132,6 +2360,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     terminate,
     status,
     markFailedFromRunner,
+    releaseClaim,
     applyDefinitionStrategy,
     get workerId() {
       return workerId;

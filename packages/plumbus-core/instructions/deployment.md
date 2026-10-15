@@ -188,6 +188,18 @@ npx plumbus migrate apply
 
 Use `/ready` for container health checks and load balancer probes.
 
+### Graceful Shutdown
+
+On `SIGTERM` / `SIGINT`, `plumbus start` and `plumbus worker` shut down within `PLUMBUS_SHUTDOWN_TIMEOUT_MS` (default 10000):
+
+1. `/ready` answers 503 `{ "status": "not_ready", "reason": "shutting down" }` at once; `/health` stays 200.
+2. `plumbus start`: after `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS` (default 0) of serving with readiness off, HTTP stops accepting connections and in-flight requests finish (open connections are cut at the drain deadline).
+3. Workers stop claiming. The flow step running now gets the remaining time; afterwards its execution is released (lease expired, spine hint ready) so another worker continues it at once. A step still running at the deadline is abandoned and its lease expires.
+4. `export async function onShutdown({ signal, deadlineAt, remainingMs })` from `app/server.ts` closes host resources (tenant routers, extra pools, SDK clients).
+5. Queues, then the main database pool; the worker health server last.
+
+Draining stops at the last fifth of the deadline (at most 2 s), which is kept for queues and the database. If a phase misses its deadline the process exits with code 1 instead of lingering. Set the container's termination grace period above `PLUMBUS_SHUTDOWN_TIMEOUT_MS`, and the drain delay to at least the load balancer's deregistration interval (or use a `preStop` sleep).
+
 ### Split API + Worker Deployment
 
 For production deployments that scale API and background work independently:
@@ -201,6 +213,8 @@ npx plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT
 ```
 
 **Redis is required** when API and worker run as separate replicas. Set `QUEUE_URL` or `REDIS_URL` on both containers.
+
+A worker-only process never calls `onRoutesRegistered`. Process setup both kinds of process need (data-plane routers, stores, runtime checks, sweeps) belongs in `export async function onBoot(ctx)` in `app/server.ts`, which runs once in every role before HTTP or the worker pool starts; `onShutdown` closes it in every role.
 
 ### Upgrading to 0.5 (workers, queues, and capability invocation)
 
@@ -324,6 +338,9 @@ After a standalone build, copy static files alongside the server:
 | `QUEUE_BACKEND` | No | auto | Select backend; dev deliberately forces memory. Selected Redis fails startup on initialization errors. |
 | `QUEUE_PREFIX` | No | `plumbus:{environment}` | Shared namespace; API and workers must agree |
 | `PLUMBUS_ENABLE_SCHEDULER` | No | `true` | Disable with `false` during controlled scheduler cutover |
+| `PLUMBUS_SHUTDOWN_TIMEOUT_MS` | No | `10000` | Hard deadline for `plumbus start` / `plumbus worker` shutdown (1000–3600000) |
+| `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS` | No | `0` | How long `plumbus start` keeps serving with `/ready` at 503 before closing HTTP |
+| `DATABASE_POOL_SIZE` | No | `10` | Max connections in each process's main pool |
 
 ### Frontend / Admin
 
