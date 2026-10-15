@@ -115,6 +115,19 @@ describe('loadServerExtensions', () => {
     expect((await loadServerExtensions(notAFunction)).onShutdown).toBeUndefined();
   });
 
+  it('loads an onFlowDefinitionUnavailable hook exported by name or on the default export', async () => {
+    const named = await writeServerModule('export function onFlowDefinitionUnavailable() {}\n');
+    expect(typeof (await loadServerExtensions(named)).onFlowDefinitionUnavailable).toBe('function');
+    const fromDefault = await writeServerModule(
+      'export default { onFlowDefinitionUnavailable: async () => {} };\n',
+    );
+    expect(typeof (await loadServerExtensions(fromDefault)).onFlowDefinitionUnavailable).toBe(
+      'function',
+    );
+    const notAFunction = await writeServerModule('export const onFlowDefinitionUnavailable = 1;\n');
+    expect((await loadServerExtensions(notAFunction)).onFlowDefinitionUnavailable).toBeUndefined();
+  });
+
   it('loads an authenticationRuntime exported by name', async () => {
     const root = await writeServerModule(
       'export const authenticationRuntime = { authenticator: { kind: "named" } };\n',

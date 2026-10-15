@@ -273,6 +273,11 @@ export type ServerExtensions = Pick<
   | 'idempotencyStore'
 > & {
   onFlowError?: WorkerPoolConfig['onFlowError'];
+  /**
+   * Called when a worker released a claimed flow execution because it lacks that execution's
+   * definition (`export const onFlowDefinitionUnavailable`), after the worker's own metric.
+   */
+  onFlowDefinitionUnavailable?: WorkerPoolConfig['onFlowDefinitionUnavailable'];
   /** Called after an event delivery is dead-lettered (`export const onEventDeadLetter`). */
   onEventDeadLetter?: WorkerPoolConfig['onEventDeadLetter'];
   /** Tenant planes for the flow scheduler, from `app/server.ts` (`export const schedulePlanes`). */

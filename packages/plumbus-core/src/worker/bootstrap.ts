@@ -38,7 +38,7 @@ import {
   resolveCompiledFlowRegistry,
   type CompiledFlowRegistry,
 } from '../flows/compiled-registry.js';
-import type { FlowEngineConfig } from '../flows/engine.js';
+import type { FlowDefinitionUnavailableInfo, FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
 import { recoverFlowStartIntents, sweepFailedFlows } from '../flows/index.js';
@@ -283,6 +283,14 @@ export interface WorkerPoolConfig {
   eventRegistry?: EventRegistry;
   /** Called when a flow fails permanently (after retries exhausted). */
   onFlowError?: FlowEngineConfig['onFlowError'];
+  /**
+   * Called when this worker released a claimed flow execution because it lacks the execution's
+   * definition (a flow not registered, a pinned compiled version missing, a digest mismatch, or
+   * a step not found). The execution stays runnable for a worker that has it; this tells the host
+   * so an operator can see that work waits for a release. Fire-and-forget: a hook that throws or
+   * rejects is logged and never changes the release.
+   */
+  onFlowDefinitionUnavailable?: (info: FlowDefinitionUnavailableInfo) => void | Promise<void>;
   /**
    * Called when a flow step, job, or event handler capability returns a non-success
    * result. Fire-and-forget: hook errors are logged and never change retries or
@@ -615,9 +623,24 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     flowHeartbeatIntervalMs: poolConfig.flowHeartbeatIntervalMs,
     flowClaimBatchSize: poolConfig.flowClaimBatchSize,
     logger,
-    // The engine logs `definition-unavailable` and releases the execution; count it here.
-    onDefinitionUnavailable: (info) =>
-      metrics?.flowDefinitionUnavailable?.inc({ flow: info.flowName, reason: info.reason }),
+    // The engine logs `definition-unavailable` and releases the execution; count it here, then
+    // tell the host (`export const onFlowDefinitionUnavailable`), never letting the hook fail it.
+    onDefinitionUnavailable: (info) => {
+      metrics?.flowDefinitionUnavailable?.inc({ flow: info.flowName, reason: info.reason });
+      const hook = poolConfig.onFlowDefinitionUnavailable;
+      if (!hook) return;
+      try {
+        void Promise.resolve(hook(info)).catch((error: unknown) =>
+          logger?.error('onFlowDefinitionUnavailable hook failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      } catch (error) {
+        logger?.error('onFlowDefinitionUnavailable hook failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
     onFlowStepEnqueue: poolConfig.queuesDurable ? poolConfig.onFlowStepEnqueue : undefined,
     onFlowDelayedSchedule:
       poolConfig.queuesDurable && poolConfig.redisClient && poolConfig.flowsPrefix

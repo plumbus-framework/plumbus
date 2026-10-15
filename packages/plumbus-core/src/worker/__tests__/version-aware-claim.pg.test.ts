@@ -162,6 +162,54 @@ describe('version-aware claim', () => {
     }
   }, 30_000);
 
+  it('tells the host through onFlowDefinitionUnavailable, and a failing hook changes nothing', async () => {
+    const database = await createDurableTestDatabase({ kind: 'p7_hook', ddl: flowExecutionsDdl() });
+    const told: FlowDefinitionUnavailableInfo[] = [];
+    const current = worker(
+      database.db,
+      registryOf(flow('added-later', ['only']), flow('also-later', ['only'])),
+    );
+    const told1 = worker(database.db, registryOf(flow('existing', ['only'])), {
+      onFlowDefinitionUnavailable: (info) => {
+        told.push(info);
+        throw new Error('hook threw');
+      },
+    });
+    const told2 = worker(database.db, registryOf(flow('existing', ['only'])), {
+      onFlowDefinitionUnavailable: async (info) => {
+        told.push(info);
+        throw new Error('hook rejected');
+      },
+    });
+    try {
+      const first = await current.pool.flowEngine.start('added-later', {}, auth);
+      const second = await current.pool.flowEngine.start('also-later', {}, auth);
+      await told1.pool.start();
+      await told2.pool.start();
+      // Each release, by either worker, reaches that worker's hook — the one that throws and the
+      // one that rejects alike. Which worker claims which execution first is the database's choice.
+      await vi.waitFor(() =>
+        expect([...new Set(told.map((info) => info.executionId))].sort()).toEqual(
+          [first.id, second.id].sort(),
+        ),
+      );
+      expect(told.every((info) => info.reason === 'flow-not-registered')).toBe(true);
+      // The hooks failed; the releases did not: both rows stay runnable and nothing is dead-lettered.
+      for (const id of [first.id, second.id]) {
+        expect(await row(database.db, id)).toMatchObject({ status: 'running', lease_owner: null });
+      }
+      expect(await deadLetters(database.db)).toBe(0);
+      await current.pool.start();
+      await vi.waitFor(async () => {
+        expect((await current.pool.flowEngine.status(first.id)).status).toBe('completed');
+        expect((await current.pool.flowEngine.status(second.id)).status).toBe('completed');
+      });
+    } finally {
+      await stopAll(told1, told2, current);
+      await database.close();
+    }
+  }, 30_000);
+
   it('own table: a live definition missing the current step releases instead of failing', async () => {
     const database = await createDurableTestDatabase({ kind: 'p7_step', ddl: flowExecutionsDdl() });
     const old = worker(database.db, registryOf(flow('evolving', ['first'])));

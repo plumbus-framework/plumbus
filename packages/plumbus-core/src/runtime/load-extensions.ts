@@ -41,6 +41,11 @@ export async function loadServerExtensions(
         mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
       extensions.onEventDeadLetter = mod.onEventDeadLetter ?? mod.default?.onEventDeadLetter;
       extensions.onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
+      const onFlowDefinitionUnavailable =
+        mod.onFlowDefinitionUnavailable ?? mod.default?.onFlowDefinitionUnavailable;
+      if (typeof onFlowDefinitionUnavailable === 'function') {
+        extensions.onFlowDefinitionUnavailable = onFlowDefinitionUnavailable;
+      }
       extensions.credentials = mod.credentials ?? mod.default?.credentials;
       const schedulePlanes = mod.schedulePlanes ?? mod.default?.schedulePlanes;
       if (
