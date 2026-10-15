@@ -6,11 +6,12 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## v0.9.0-beta.2 (unreleased): the host hears about flows its workers cannot run
+## v0.9.0-beta.2 (2026-10-16): the host hears about flows its workers cannot run
 
-Only `@plumbus/core` changes (0.9.0-beta.2); every other package stays where beta.1 left it. No database change.
+Two packages change: `@plumbus/core` 0.9.0-beta.2 and `@plumbus/api` 0.4.0-beta.2. Every other package stays where beta.1 left it. No database change.
 
 - **New optional hook:** `export const onFlowDefinitionUnavailable = (info) => …` in `app/server.ts` is called whenever a worker releases a flow execution it cannot run with its own definitions (beta.1's version-aware claim). Use it to raise an operator alert; the worker's metric alone cannot be read by the app. A throwing or rejecting hook is logged and never changes the release. Nothing to do if you do not need it.
+- **`@plumbus/api` 0.4.0-beta.2: peer floor only.** Its core peer is now `>=0.9.0-beta.1 <0.10.0`. 0.4.0-beta.1 needs core 0.9.0-beta.1 (`executeIdempotently`) but still accepted beta.0, so npm installed a pair that failed at load time. No code change.
 
 ## v0.9.0-beta.1 (2026-10-15): horizontally scaled deployments
 

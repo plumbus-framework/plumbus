@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.2 — 2026-10-16
+
+- **Peer floor raised to core 0.9.0-beta.1.** The `@plumbus/core` peer is now `>=0.9.0-beta.1 <0.10.0` (was `>=0.9.0-beta.0 <0.10.0`). 0.4.0-beta.1 imports `executeIdempotently`, which core 0.9.0-beta.0 does not export, so npm accepted a pair that failed at load time. npm now refuses it. No code change.
+
 ## 0.4.0-beta.1 — 2026-10-15
 
 - **Shared idempotency store.** `registerApiRoutes` uses `opts.idempotencyStore`, else the core server's store (`routeConfig.idempotencyStore` — `createServer({ idempotencyStore })` or `export const idempotencyStore` in `app/server.ts`), else an in-memory store, which now warns when `PLUMBUS_ENV` / `NODE_ENV` is `production` or `staging`. With core's `createDatabaseIdempotencyStore`, partner keys live in the control plane's `request_idempotency` and the completion commits inside the capability's transaction.

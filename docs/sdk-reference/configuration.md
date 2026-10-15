@@ -616,6 +616,7 @@ interface WorkerPoolConfig {
   metrics?: PlumbusMetrics;
   onMcpJobComplete?: (jobId, result, payload?, error?) => Promise<void>;
   onFlowError?: (info) => void | Promise<void>;
+  onFlowDefinitionUnavailable?: (info: FlowDefinitionUnavailableInfo) => void | Promise<void>;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   onEventDeadLetter?: (info: EventDeadLetterInfo) => void | Promise<void>;
   eventDelivery?: EventDeliveryOptions;
@@ -643,7 +644,33 @@ The flow runner uses lease-based row claiming (`FOR UPDATE SKIP LOCKED`) so mult
 - **`flowLeaseDurationMs`** (default `300_000` = 5 min) — Upper bound on how long a worker can hold a claim without heartbeating. If a worker crashes, another worker can reclaim the row after this window elapses. Raise it if you run steps longer than the heartbeat interval can reliably cover (e.g. suspended VMs, long GC pauses); lower it to reduce crash-recovery latency.
 - **`flowHeartbeatIntervalMs`** (default `flowLeaseDurationMs / 3`) — How often a running worker automatically extends its lease. The 3× safety margin tolerates two missed ticks before the lease is considered expired.
 - **`flowClaimBatchSize`** (default `50`) — Max executions a single `claimNext()` poll cycle will lock. Larger batches amortize the poll cost; smaller batches spread work more evenly across workers.
+- **Mixed releases** — A worker that claims an execution it cannot run with its own definitions releases it for another worker instead of failing it, and counts `plumbus_flow_definition_unavailable_total` (see `onFlowDefinitionUnavailable` below).
 - **Worker identity** — Each worker auto-generates a unique `workerId` of the form `<hostname>:<pid>:<short-uuid>` via `generateWorkerId()`. The pool does not expose a `workerId` knob on `WorkerPoolConfig`; if you need stable identity for observability, pass a `workerId` directly when constructing the engine with `createFlowEngine()`.
+
+### `onFlowDefinitionUnavailable` Hook
+
+Core 0.9.0-beta.2+. A worker calls this when it releases a claimed flow execution because it does not have that execution's definition. This happens during a rolling deploy when old and new workers share a database. The execution stays runnable for a worker that has the definition, and is re-claimed and released again about once a minute until one does. Nothing in the database marks the wait, so use this hook to alert an operator.
+
+Export it from `app/server.ts`; `plumbus start` (role `all` or `worker`), `plumbus dev` and `plumbus worker` pass it to the worker pool. With your own bootstrap, pass it to `createWorkerPool({ onFlowDefinitionUnavailable })`.
+
+```typescript
+// app/server.ts
+import type { FlowDefinitionUnavailableInfo } from "@plumbus/core";
+
+export const onFlowDefinitionUnavailable = async (info: FlowDefinitionUnavailableInfo) => {
+  // info: executionId, flowName, reason, workerId, definitionVersion?
+  await alertOperators(`Flow ${info.flowName} waits for a worker that has it (${info.reason})`);
+};
+```
+
+`reason` is one of:
+
+- `flow-not-registered`: this process does not register the flow.
+- `compiled-version-missing`: the pinned compiled version is not in this process's compiled registry.
+- `compiled-digest-mismatch`: the pinned version is present with a different digest.
+- `step-not-found`: with live definitions, the execution's current step is not in this definition.
+
+The hook runs after the worker counts `plumbus_flow_definition_unavailable_total`, once for each release. It is fire-and-forget: a hook that throws or rejects is logged (`onFlowDefinitionUnavailable hook failed`) and never changes the release.
 
 
 

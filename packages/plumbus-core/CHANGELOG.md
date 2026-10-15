@@ -1,10 +1,14 @@
 # @plumbus/core changelog
 
-## 0.9.0-beta.2 — unreleased — the host hears about flows its workers cannot run
+## 0.9.0-beta.2 — 2026-10-16 — the host hears about flows its workers cannot run
 
 ### Flows
 
 - **`export const onFlowDefinitionUnavailable` in `app/server.ts`** (`(info: FlowDefinitionUnavailableInfo) => void | Promise<void>`) is called every time a worker releases a claimed flow execution because it lacks that execution's definition (0.9.0-beta.1's version-aware claim), after the worker's own `plumbus_flow_definition_unavailable_total` count. Until now only the metric saw it, so a host could not raise an operator alert: the released row stays runnable and is re-claimed and released again about once a minute, so nothing in the database marks the wait. `info` carries `executionId`, `flowName`, `reason` and `workerId`. Fire-and-forget: a hook that throws or rejects is logged (`onFlowDefinitionUnavailable hook failed`) and never changes the release. Runs in every process that runs workers (`plumbus start` with role `all` or `worker`, `plumbus worker`). New: `WorkerPoolConfig.onFlowDefinitionUnavailable`.
+
+### Packages
+
+- Released with `@plumbus/api` 0.4.0-beta.2, whose core peer is now `>=0.9.0-beta.1 <0.10.0`: api 0.4.0-beta.1 needs core 0.9.0-beta.1 but its peer still admitted core 0.9.0-beta.0.
 
 ## 0.9.0-beta.1 — 2026-10-15 — horizontally scaled deployments
 
