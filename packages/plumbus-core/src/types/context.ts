@@ -61,6 +61,12 @@ export interface QueryOptions {
   notEq?: Record<string, string | number>;
 }
 
+/** Narrow fields returned by findMany; omitted select preserves complete records. */
+export interface FindManyOptions<T, K extends keyof T = keyof T> extends QueryOptions {
+  /** Nonempty list of entity fields. Unknown fields fail rather than selecting all columns. */
+  select?: readonly K[];
+}
+
 // ── Aggregate Options (SUM / AVG / MIN / MAX / COUNT / DISTINCT in SQL) ──
 
 /** A value in an aggregate result row: a group-key value or a computed aggregate. */
@@ -164,7 +170,10 @@ export interface Repository<
     updates: TUpdate,
   ): Promise<ConditionalUpdateResult<T>>;
   delete(id: string): Promise<void>;
-  findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+  findMany<K extends keyof T = keyof T>(
+    query?: Partial<T>,
+    options?: FindManyOptions<T, K>,
+  ): Promise<Pick<T, K>[]>;
   count(
     query?: Partial<T>,
     options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,

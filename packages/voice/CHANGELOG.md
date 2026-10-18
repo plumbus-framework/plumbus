@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `@plumbus/voice/session` for worker runtime imports without HTTP/admin routes; support JavaScript-only voice and registry discovery with fail-fast compiled imports. Use core error/runtime subpaths instead of importing tooling. See [worker footprint](../../docs/voice/worker-footprint.md).
+
 ## 0.6.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

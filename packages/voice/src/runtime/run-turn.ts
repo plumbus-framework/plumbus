@@ -1,7 +1,7 @@
 import { resolveSttContext } from './resolve-stt-context.js';
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import type { TransportProvider } from '../providers/base/transport-provider.js';
 import type { STTProvider } from '../providers/base/stt-provider.js';
 import type { TTSProvider } from '../providers/base/tts-provider.js';

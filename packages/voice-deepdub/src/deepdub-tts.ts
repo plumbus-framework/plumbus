@@ -1,5 +1,5 @@
 import type { TtsParams } from '@deepdub/node';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import {
   type DeliveryTone,
   getVoiceModelOption,

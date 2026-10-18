@@ -26,7 +26,8 @@ The `plumbus` CLI provides commands for scaffolding, development, governance, mi
 | `plumbus certify` | Run compliance profile assessment (`certify policy <name>`) |
 | `plumbus api` | Partner API manifest validate, OpenAPI/docs export, diff |
 | `plumbus payments` | Payments add-on: `doctor` (config + provider checks), `webhooks setup`, `catalog sync` / `catalog check` (billing plans at the provider) |
-| `plumbus voice worker` | LiveKit realtime voice worker |
+| `plumbus voice build` | Compile scoped voice app modules into an empty output directory |
+| `plumbus voice worker` | LiveKit realtime voice worker; optional `--compiled <directory>` |
 | `plumbus e2e` | Run Playwright browser E2E suites |
 | `plumbus migrate` | Database migration commands |
 | `plumbus db` | Database lifecycle management (create, reset) |
@@ -723,18 +724,31 @@ plumbus payments catalog check [--json]
 
 ---
 
+### plumbus voice build
+
+```bash
+plumbus voice build --out-dir .plumbus/voice-build
+```
+
+Compiles the explicit voice runtime, provider registry, voice definitions and app
+config into ESM JavaScript without executing them. The default output directory is
+`.plumbus/voice-build` and must be empty. Use `voice worker --compiled <directory>`
+to skip TypeScript loading. See [worker footprint](../voice/worker-footprint.md) for
+required scoped resources, import rewriting, packaging limits and migration.
+
 ### plumbus voice worker
 
 Join a LiveKit room as the realtime voice agent. Requires `@plumbus/voice` and `@plumbus/voice-livekit` (`pnpm add @plumbus/voice @plumbus/voice-livekit`).
 
 ```bash
-plumbus voice worker [--room <room>] [--voice <name>]
+plumbus voice worker [--room <room>] [--voice <name>] [--compiled <directory>]
 ```
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `--room <room>` | `string` | LiveKit room to join (dev: typically a session id) |
 | `--voice <name>` | `string` | Voice definition name |
+| `--compiled <directory>` | `string` | Use output from `voice build` without TypeScript loading |
 
 Environment variables: `VOICE_AGENT_ENABLED=false` disables the worker; `VOICE_AGENT_ROOM` is used when `--room` is omitted. See [Voice](../voice/README.md).
 

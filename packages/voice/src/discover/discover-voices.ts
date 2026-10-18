@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,6 +7,7 @@ import type { VoiceDefinition } from '../types/voice.js';
 
 export interface DiscoverVoicesOptions {
   appRoot?: string;
+  javascriptOnly?: boolean;
 }
 
 function isVoiceDefinition(value: unknown): value is VoiceDefinition {
@@ -17,7 +19,7 @@ function isVoiceDefinition(value: unknown): value is VoiceDefinition {
   );
 }
 
-async function scanVoicesDir(dir: string): Promise<VoiceDefinition[]> {
+async function scanVoicesDir(dir: string, javascriptOnly = false): Promise<VoiceDefinition[]> {
   if (!fs.existsSync(dir)) return [];
 
   const files = fs
@@ -25,7 +27,7 @@ async function scanVoicesDir(dir: string): Promise<VoiceDefinition[]> {
     .map((entry) => String(entry))
     .filter(
       (file) =>
-        (file.endsWith('.ts') || file.endsWith('.js')) &&
+        ((!javascriptOnly && file.endsWith('.ts')) || file.endsWith('.js')) &&
         !file.endsWith('.d.ts') &&
         !file.endsWith('.test.ts') &&
         !file.endsWith('.test.js'),
@@ -34,13 +36,15 @@ async function scanVoicesDir(dir: string): Promise<VoiceDefinition[]> {
   const voices: VoiceDefinition[] = [];
   let unregister: (() => void) | undefined;
 
-  try {
-    const require = createRequire(import.meta.url);
-    const tsxPath = require.resolve('tsx/esm/api');
-    const tsx = await import(pathToFileURL(tsxPath).href);
-    unregister = tsx.register();
-  } catch {
-    // tsx unavailable — only .js voice modules can be imported
+  if (files.some((file) => file.endsWith('.ts'))) {
+    try {
+      const require = createRequire(import.meta.url);
+      const tsxPath = require.resolve('tsx/esm/api');
+      const tsx = await import(pathToFileURL(tsxPath).href);
+      unregister = tsx.register();
+    } catch {
+      // tsx unavailable — only .js voice modules can be imported
+    }
   }
 
   try {
@@ -53,7 +57,13 @@ async function scanVoicesDir(dir: string): Promise<VoiceDefinition[]> {
             voices.push(value);
           }
         }
-      } catch {
+      } catch (error) {
+        if (javascriptOnly)
+          throw new PlumbusError(
+            ErrorCode.Validation,
+            `Unable to load compiled voice module: ${file}`,
+            { cause: String(error) },
+          );
         // skip modules that fail to import
       }
     }
@@ -69,7 +79,7 @@ export async function discoverVoices(
 ): Promise<VoiceDefinition[]> {
   const appRoot = options.appRoot ?? process.cwd();
   const voicesDir = path.join(appRoot, 'app', 'voices');
-  const discovered = await scanVoicesDir(voicesDir);
+  const discovered = await scanVoicesDir(voicesDir, options.javascriptOnly);
   const byName = new Map(discovered.map((voice) => [voice.name, voice]));
   return [...byName.values()];
 }

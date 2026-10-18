@@ -9,7 +9,7 @@ import {
   TrackKind,
   TrackPublishOptions,
 } from '@livekit/rtc-node';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import {
   readNoiseCancellationFromTransportOptions,
   type TransportProviderRegistration,
@@ -17,7 +17,6 @@ import {
   type VoiceProviderCredentials,
   type VoiceTransportConfig,
 } from '@plumbus/voice/provider-kit';
-import { AccessToken, RoomAgentDispatch, RoomConfiguration } from 'livekit-server-sdk';
 import { LIVEKIT_TRANSPORT_DESCRIPTOR } from '../descriptor.js';
 import { createVoiceEventSender } from '../event-data/index.js';
 import { createInboundAudioStream } from '../noise-cancellation/create-inbound-audio-stream.js';
@@ -82,6 +81,7 @@ export type LiveKitRoomResolver = (args: {
 export async function mintLiveKitParticipantToken(
   args: MintLiveKitParticipantTokenArgs,
 ): Promise<string> {
+  const { AccessToken, RoomAgentDispatch, RoomConfiguration } = await import('livekit-server-sdk');
   const accessToken = new AccessToken(args.apiKey, args.apiSecret, {
     identity: args.identity,
     name: args.participantName ?? args.identity,

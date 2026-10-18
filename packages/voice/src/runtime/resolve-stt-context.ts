@@ -1,4 +1,4 @@
-import { ErrorCode, PlumbusError, type ExecutionContext } from '@plumbus/core';
+import { ErrorCode, PlumbusError, type ExecutionContext } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 import type {
   VoiceDefinition,

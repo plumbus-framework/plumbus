@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `@plumbus/chat/session` for governed worker execution, entity definitions and events without HTTP/evaluation tooling. Runtime modules import the core SDK instead of the broad tooling entry.
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

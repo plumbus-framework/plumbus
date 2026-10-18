@@ -1,5 +1,6 @@
 import type { DecisionResult } from '@plumbus/ai-decision/types';
 import { PlumbusError } from '../errors/index.js';
+import { resolveSelectedFields } from '../data/index.js';
 // ── Test Context Builder ──
 // Factory for building test-friendly ExecutionContexts with mock services.
 
@@ -23,6 +24,7 @@ import type {
   FlowService,
   LoggerService,
   QueryOptions,
+  FindManyOptions,
   Repository,
   TimeService,
 } from '../types/context.js';
@@ -418,7 +420,11 @@ export function createInMemoryRepository<
     async delete(id) {
       store.delete(id);
     },
-    async findMany(query, options) {
+    async findMany<K extends keyof T = keyof T>(
+      query?: Partial<T>,
+      options?: FindManyOptions<T, K>,
+    ): Promise<Pick<T, K>[]> {
+      const selected = resolveSelectedFields(options?.select);
       let results = filterRows(query, options);
       if (options?.offset) {
         results = results.slice(options.offset);
@@ -426,7 +432,11 @@ export function createInMemoryRepository<
       if (options?.limit) {
         results = results.slice(0, options.limit);
       }
-      return results;
+      return selected
+        ? results.map(
+            (row) => Object.fromEntries(selected.map((name) => [name, row[name]])) as Pick<T, K>,
+          )
+        : results;
     },
     async count(query, options) {
       return filterRows(query, options).length;

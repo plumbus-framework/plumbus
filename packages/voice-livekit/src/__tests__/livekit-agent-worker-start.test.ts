@@ -74,6 +74,34 @@ describe('startVoiceAgentWorker startup', () => {
     resetVoiceAgentConfigsForTests();
   });
 
+  it('supports a dispatch-only parent without retaining a dependency factory', async () => {
+    const handle = await startVoiceAgentWorker({
+      voices: [voice],
+      providers,
+      registry: createTestAgentRegistry(),
+      bootstrapModule: '/tmp/test-child-bootstrap.js',
+    });
+    expect(mocks.AgentServer).toHaveBeenCalledOnce();
+    expect(() => resolveVoiceAgentConfig(voice.name)).toThrow('not configured');
+    await handle.stop();
+  });
+
+  it('rejects missing child bootstrap when no dependency factory is supplied', async () => {
+    vi.stubEnv('PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE', '');
+    try {
+      await expect(
+        startVoiceAgentWorker({
+          voices: [voice],
+          providers,
+          registry: createTestAgentRegistry(),
+        }),
+      ).rejects.toMatchObject({ code: 'validation' });
+      expect(mocks.AgentServer).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('initializes the LiveKit logger before constructing AgentServer', async () => {
     const handle = await startVoiceAgentWorker({
       voices: [voice],

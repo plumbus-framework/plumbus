@@ -43,3 +43,9 @@ Agent recipes ship in `node_modules/@plumbus/payments/instructions/` and `node_m
 ## Test app
 
 [`examples/payments-connect-app`](../../examples/payments-connect-app/) is a tutoring marketplace built on these packages: tutors on the full dashboard (direct charges) and on Express (destination charges), a school platform that sells group classes and splits them between tutors, and school plans with seats, an AI-usage meter, and a feature gate. `node scripts/e2e.mjs` runs it on the real Plumbus runtime (Postgres, migrations, API + worker, outbox) against a local Stripe simulator through 28 scenarios, one or more per feature. `node scripts/dev.mjs --stripe` runs it against Stripe test mode.
+
+## Schema-only imports
+
+`@plumbus/payments/entities` exports the same payment entity definitions as the main
+package without importing payment operations. It is useful for worker data/security
+registries. See [voice worker footprint](../voice/worker-footprint.md).

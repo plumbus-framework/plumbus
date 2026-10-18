@@ -1,5 +1,5 @@
 import type { ExecutionContext } from '@plumbus/core';
-import { recordVoiceCost } from '@plumbus/voice';
+import { recordVoiceCost } from '@plumbus/voice/session';
 import { calculateLiveKitTransportUsd } from '../pricing.js';
 
 export async function recordLiveKitTransportCost(

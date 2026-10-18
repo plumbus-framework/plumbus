@@ -5,7 +5,7 @@
 // (`export const paymentEntities = payments.entities`).
 // Amounts are integers in minor units (cents) stored as 64-bit bigint.
 
-import { defineEntity, ErrorCode, field, PlumbusError } from '@plumbus/core';
+import { defineEntity, ErrorCode, field, PlumbusError } from '@plumbus/core/sdk';
 
 /**
  * The peer range admits every core 0.7.x, but money columns need

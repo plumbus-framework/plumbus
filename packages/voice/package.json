@@ -29,6 +29,10 @@
     "./provider-kit": {
       "types": "./dist/provider-kit/index.d.ts",
       "default": "./dist/provider-kit/index.js"
+    },
+    "./session": {
+      "types": "./dist/session.d.ts",
+      "default": "./dist/session.js"
     }
   },
   "scripts": {
