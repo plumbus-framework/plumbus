@@ -18,7 +18,9 @@ import {
   sum,
   type SQL,
 } from 'drizzle-orm';
+import { getTableColumns } from 'drizzle-orm';
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
+import { resolveSelectedFields } from './projection.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AuditService } from '../types/audit.js';
 import type {
@@ -27,6 +29,7 @@ import type {
   AggregateValue,
   ConditionalUpdateResult,
   QueryOptions,
+  FindManyOptions,
   Repository,
 } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
@@ -468,10 +471,18 @@ export function createRepository<
       await auditMutation('delete', { id });
     },
 
-    async findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]> {
+    async findMany<K extends keyof T = keyof T>(
+      query?: Partial<T>,
+      options?: FindManyOptions<T, K>,
+    ): Promise<Pick<T, K>[]> {
       await assertTenantContext('findMany');
+      const columns = getTableColumns(table);
+      const selected = resolveSelectedFields(options?.select, new Set(Object.keys(columns)));
+      const selection = selected
+        ? Object.fromEntries(selected.map((name) => [name, columns[name]]))
+        : undefined;
       const where = combine(buildConditions(query, options));
-      let qb = db.select().from(table).where(where);
+      let qb = (selection ? db.select(selection) : db.select()).from(table).where(where);
       qb = applyOrder(qb, options);
       if (options?.limit != null) {
         qb = qb.limit(Math.max(1, Math.min(100, options.limit))) as typeof qb;

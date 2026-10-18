@@ -136,7 +136,9 @@ interface Repository<
   delete(id: string): Promise<void>;
 
   // Query multiple records
-  findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+  findMany<K extends keyof T = keyof T>(
+    query?: Partial<T>, options?: FindManyOptions<T, K>,
+  ): Promise<Pick<T, K>[]>;
 
   // Count rows matching query (tenant scoping applies like findMany)
   count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>): Promise<number>;
@@ -196,6 +198,32 @@ Notes:
 ### `findMany`
 
 `findMany(query?, options?)` returns all rows matching `query` (or all rows when omitted). Tenant scoping and access policies apply on tenant-scoped entities.
+
+Pass `select` to fetch only fields needed by a read. The repository selects these
+columns in SQL, before decoding rows, and infers `Pick<T, K>[]` for the result:
+
+```typescript
+const documents = await ctx.data.Document.findMany(
+  { projectId },
+  { select: ['id', 'summary'], orderBy: 'createdAt', orderDir: 'asc' },
+);
+// Large body fields never enter this read.
+```
+
+`FindManyOptions<T, K>` extends `QueryOptions` with `select?: readonly K[]`.
+Omitting it returns complete records as before. Empty or malformed selections and
+unknown database columns raise a validation error; they never fall back to all
+fields. Duplicate fields are deduplicated. Filters, ordering and pagination may
+reference unselected columns. Tenant/soft-delete predicates and encrypted-filter
+guards remain unchanged; selected encrypted values are decrypted normally, and
+omitted fields are not read or decrypted. Projection does not change the entity's
+AI security classifications or grant any additional access.
+
+The in-memory test repository projects after filtering, ordering and paging and
+validates the selection's shape. Schema-less test repositories cannot validate
+column existence; database repositories always validate against actual columns.
+Custom repository implementations must implement the selection semantics before
+being used for projected reads.
 
 ### `QueryOptions` (second arg to `findMany`)
 
