@@ -217,18 +217,36 @@ An explicit UUID can be reused only for the same authorized caller/tenant, targe
 
 ## ctx.flows
 
-Start, resume, cancel, and check flow executions:
+Start, resume, wake, cancel, and check flow executions:
 
 ```typescript
 interface FlowService {
   start(flowName: string, input: unknown): Promise<FlowExecution>;
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
+  /** Stop without running compensations. */
+  terminate(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;
+  /** Make an execution sleeping in a delay step due now (core 0.9.0-beta.3+). */
+  wake(executionId: string): Promise<FlowWakeResult>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. */
   heartbeat(): Promise<void>;
   /** Describe a registered flow — name, domain, description, and input schema. */
   describe?(flowName: string): FlowDescription | undefined;
+}
+
+interface FlowWakeResult {
+  executionId: string;
+  woken: boolean; // this call made the delay due now
+  reason?:
+    | 'finished'
+    | 'not-waiting'
+    | 'not-timed-wait'
+    | 'retry-backoff'
+    | 'already-due'
+    | 'wait-changed';
+  deferred?: boolean; // called inside a transaction: the wake runs after commit
+  status: string;
 }
 
 interface FlowDescription {
@@ -249,6 +267,8 @@ prefer `start` / `status` / `resume` / `cancel`.
 
 `cancel(executionId)` is now cooperative — it aborts the running step's `AbortController` (the same signal exposed as `ctx.signal` inside the step). See [Cancellation](../core-concepts/flows.md#cancellation) in the flow docs for how to thread `ctx.signal` into in-flight AI / HTTP calls.
 
+`wake(executionId)` makes an execution that sleeps in a `delay` step due now, so a worker runs its next step at once instead of at the scheduled time. It changes nothing else: the step runs under the identity that started the flow, never the caller's. Only executions of the caller's own tenant can be woken. An execution that is not in a delay (a retry backoff included) is left alone and the result says why (`woken: false`, `reason`). Called at once (outside a capability transaction), it throws a `notFound` error for any other tenant's id, an unknown id or a malformed one (`forbidden` for an untenanted caller where tenant data planes refuse untenanted flows). Inside a capability transaction, the default for actions and event handlers, the wake runs after commit: the call returns `{ woken: false, deferred: true }` at once and never throws a refusal, and the outcome after commit, a refusal included, is only logged through the capability's logger. See [Waking a delayed flow](../core-concepts/flows.md#waking-a-delayed-flow).
+
 ```typescript
 handler: async (ctx, input) => {
   // Start a flow
@@ -261,6 +281,9 @@ handler: async (ctx, input) => {
 
   // Resume a paused flow
   await ctx.flows.resume(execution.id, { approved: true });
+
+  // Run a sleeping flow's next step now instead of at the end of its delay
+  const wake = await ctx.flows.wake(execution.id); // { woken, reason?, deferred?, status }
 
   // Cancel
   await ctx.flows.cancel(execution.id);

@@ -153,6 +153,29 @@ export async function releaseSpineDispatch(
 }
 
 /**
+ * Makes the hint for one revision of an execution due now, for `ctx.flows.wake`: a `ready` or
+ * `retry-scheduled` hint whose `not_before` is still ahead gets `not_before = now()`, so the next
+ * claim takes it. Never touches a `leased`, `acknowledged` or `dead_lettered` hint and never
+ * moves a time later. Returns whether a hint moved.
+ */
+export async function advanceSpineDispatchNotBefore(
+  db: PostgresJsDatabase,
+  options: { executionId: string; tenantRouteId: string; expectedRevision: number },
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE opaque_dispatch
+    SET not_before = now(),
+        updated_at = now()
+    WHERE execution_id = ${options.executionId}
+      AND tenant_route_id = ${options.tenantRouteId}
+      AND expected_revision = ${options.expectedRevision}
+      AND delivery_state IN (${SpineDeliveryState.Ready}, ${SpineDeliveryState.RetryScheduled})
+      AND not_before > now()
+  `);
+  return getRowsAffected(result) > 0;
+}
+
+/**
  * The tenant route the spine last dispatched an execution for, whatever the hint's state.
  * A request-side engine that never claimed the execution uses this to find the plane its row
  * lives on before it reads, cancels or resumes it. Undefined when the spine holds no hint.

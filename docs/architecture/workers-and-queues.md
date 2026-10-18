@@ -172,7 +172,7 @@ All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` 
 
 The flow step queue consumer calls `claimExecution(executionId)` before `runNext` to prevent double execution alongside the DB poll loop.
 
-**Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue; a failed poll (Redis unreachable) logs `Delayed flow wake promotion failed; retrying next tick` with the error message and tries again on the next tick. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback.
+**Delayed flow steps:** when a flow enters a delay wait with a durable Redis backend, the engine schedules wake in sorted set `{prefix}:flows:delayed` (score = `wakeAt` epoch ms). A promoter polls due entries and enqueues to the flows queue; a failed poll (Redis unreachable) logs `Delayed flow wake promotion failed; retrying next tick` with the error message and tries again on the next tick. In-memory deployments rely on the DB poll loop (`wake_at <= now`) as fallback. `ctx.flows.wake(executionId)` (core 0.9.0-beta.3+) moves a sleeping execution's `wake_at` to now; an engine with the Redis schedule also re-scores the sorted-set entry at now and publishes a flow-step wake. A wake from an API process, whose engine has neither, is claimed by the next DB poll (the flow poll interval, 30 s or more with durable queues). See [Waking a delayed flow](../core-concepts/flows.md#waking-a-delayed-flow).
 
 ## Capability Auto-Registration
 

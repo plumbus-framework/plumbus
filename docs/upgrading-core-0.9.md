@@ -6,6 +6,13 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.3 (2026-10-18): wake a sleeping flow now
+
+Only `@plumbus/core` changes (0.9.0-beta.3). Every other package stays where beta.2 left it, and no peer range changes. No database change.
+
+- **New: `ctx.flows.wake(executionId)`.** Makes an execution that sleeps in a `delay` step due now, so a worker runs its next step at once. A retry backoff is left alone (`reason: 'retry-backoff'`). The step still runs as the identity that started the flow, not as the caller. Only executions of the caller's own tenant can be woken; any other id is refused with `notFound`. A race is a result (`woken: false`, `reason`), never an error. Inside a capability transaction the wake runs after commit and its outcome, a refusal included, is only logged through the capability's logger. See [Waking a delayed flow](core-concepts/flows.md#waking-a-delayed-flow).
+- **Action only for hand-written `FlowService` objects.** `FlowService` has a new required method, `wake`. Test doubles typed `FlowService` must add it; `mockFlows()` and `createTestContext()` already have it.
+
 ## v0.9.0-beta.2 (2026-10-16): the host hears about flows its workers cannot run
 
 Two packages change: `@plumbus/core` 0.9.0-beta.2 and `@plumbus/api` 0.4.0-beta.2. Every other package stays where beta.1 left it. No database change.

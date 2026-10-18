@@ -408,15 +408,26 @@ expect(flows.started).toContainEqual({
 });
 ```
 
+`mockFlows()` records every `ctx.flows.wake(id)` in `flows.woken` and answers
+`{ executionId, woken: true, status: 'waiting' }` unless `wakes` scripts another result:
+
+```typescript
+const flows = mockFlows({
+  wakes: { "exec-9": { executionId: "exec-9", woken: false, reason: "finished", status: "completed" } },
+});
+// ... run the capability that wakes waiting executions ...
+expect(flows.woken).toEqual(["exec-1", "exec-9"]);
+```
+
 `mockFlows(options?)` also accepts scripted responses, so a capability that reads a flow
 back can be driven deterministically:
 
 ```typescript
 const flows = mockFlows({
-  // what `ctx.flows.status(id)` returns
-  status: { id: "exec-1", status: "completed", output: { ok: true } },
-  // what `ctx.flows.describe(name)` returns — used when binding flows as model tools
-  describe: { name: "refundFlow", domain: "billing", inputSchema: refundInput },
+  // what `ctx.flows.status(id)` returns, keyed by execution id
+  statuses: { "exec-1": { id: "exec-1", flowName: "refundFlow", status: "completed" } },
+  // what `ctx.flows.describe(name)` returns, keyed by flow name — used when binding flows as model tools
+  describe: { refundFlow: { name: "refundFlow", domain: "billing", inputSchema: refundInputSchema } },
 });
 ```
 

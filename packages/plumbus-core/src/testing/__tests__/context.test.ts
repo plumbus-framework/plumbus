@@ -127,6 +127,28 @@ describe('mockFlows', () => {
     await expect(flows.cancel('x')).resolves.toBeUndefined();
   });
 
+  it('records wakes and answers scripted wake results', async () => {
+    const flows = mockFlows({
+      wakes: {
+        finished: {
+          executionId: 'finished',
+          woken: false,
+          reason: 'finished',
+          status: 'completed',
+        },
+      },
+    });
+    expect(await flows.wake('sleeping')).toEqual({
+      executionId: 'sleeping',
+      woken: true,
+      status: 'waiting',
+    });
+    expect(await flows.wake('finished')).toMatchObject({ woken: false, reason: 'finished' });
+    expect(flows.woken).toEqual(['sleeping', 'finished']);
+    flows.clear();
+    expect(flows.woken).toHaveLength(0);
+  });
+
   it('returns status for any execution id', async () => {
     const flows = mockFlows();
     const status = await flows.status('arbitrary-id');

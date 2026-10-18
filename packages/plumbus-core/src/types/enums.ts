@@ -33,6 +33,28 @@ export const FlowStepType = {
 
 export type FlowStepType = (typeof FlowStepType)[keyof typeof FlowStepType];
 
+// ── Flow Wake Skip Reason ──
+/** Why `ctx.flows.wake(executionId)` left an execution as it was (`FlowWakeResult.reason`). */
+export const FlowWakeSkipReason = {
+  /** Completed, failed or cancelled. */
+  Finished: 'finished',
+  /** Not in a wait: created, running, or a start still waiting for its transaction to commit. */
+  NotWaiting: 'not-waiting',
+  /** Waiting, but not on a timer: an event or approval wait, which only `resume` ends. */
+  NotTimedWait: 'not-timed-wait',
+  /**
+   * Waiting out a retry backoff: the engine's own pause before it runs a failed step again.
+   * Wake leaves it alone, so waking cannot spend a failing step's remaining attempts at once.
+   */
+  RetryBackoff: 'retry-backoff',
+  /** The timed wait is already due; a worker claims the execution on its next poll. */
+  AlreadyDue: 'already-due',
+  /** The wait ended or changed between reading the execution and waking it. */
+  WaitChanged: 'wait-changed',
+} as const;
+
+export type FlowWakeSkipReason = (typeof FlowWakeSkipReason)[keyof typeof FlowWakeSkipReason];
+
 // ── Backoff Strategy ──
 export const BackoffStrategy = {
   Exponential: 'exponential',

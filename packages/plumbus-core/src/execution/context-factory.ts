@@ -1,5 +1,5 @@
 import { createErrorService, PlumbusError } from '../errors/index.js';
-import { ErrorCode } from '../types/enums.js';
+import { ErrorCode, FlowWakeSkipReason } from '../types/enums.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIService,
@@ -58,6 +58,9 @@ const noopFlows: FlowService = {
   async terminate() {},
   async status() {
     return { id: '', flowName: '', status: 'unknown' };
+  },
+  async wake(executionId) {
+    return { executionId, woken: false, reason: FlowWakeSkipReason.NotWaiting, status: 'unknown' };
   },
   async heartbeat() {},
 };

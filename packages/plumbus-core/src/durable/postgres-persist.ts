@@ -287,6 +287,57 @@ export async function persistRetryScheduleOnDb(
 }
 
 /**
+ * Makes a tenant execution's scheduled wake due now, for `ctx.flows.wake`: `execution_state.wake_at`,
+ * the current revision's retry `wait_state.not_before` and that revision's unacknowledged
+ * `dispatch_outbox.not_before` — so an outbox row the pump has not published yet is published
+ * as a due hint. Only times still ahead of the plane's clock move, and only earlier; the revision
+ * and everything else stay as they are. Run it in the transaction that moves the execution row's
+ * `wake_at`. With `expectedRevision` only that revision moves (a later one is left alone).
+ * Returns the revision and tenant route the spine hint for this wait carries, or undefined
+ * when the plane holds no open durable state for the execution (at that revision).
+ */
+export async function advanceExecutionWakeOnDb(
+  db: PostgresJsDatabase,
+  executionId: string,
+  schemaName: string = FRAMEWORK_SCHEMA,
+  options: { expectedRevision?: number } = {},
+): Promise<{ revision: number; tenantRef: string } | undefined> {
+  const executionTable = qualifyTable(schemaName, 'execution_state');
+  const waitTable = qualifyTable(schemaName, 'wait_state');
+  const outboxTable = qualifyTable(schemaName, 'dispatch_outbox');
+  const row = asRows(
+    await db.execute(sql`
+      UPDATE ${sql.raw(executionTable)}
+      SET wake_at = CASE WHEN wake_at > now() THEN now() ELSE wake_at END,
+          updated_at = CASE WHEN wake_at > now() THEN now() ELSE updated_at END
+      WHERE execution_id = ${executionId}
+        AND terminal = false
+        ${options.expectedRevision !== undefined ? sql`AND revision = ${options.expectedRevision}` : sql``}
+      RETURNING revision, tenant_ref
+    `),
+  )[0];
+  if (!row) return undefined;
+  const revision = Number(row.revision);
+  await db.execute(sql`
+    UPDATE ${sql.raw(waitTable)}
+    SET not_before = now(), updated_at = now()
+    WHERE wait_state_id = ${`wait:${executionId}:${revision}`}
+      AND state = 'waiting'
+      AND not_before > now()
+  `);
+  await db.execute(sql`
+    UPDATE ${sql.raw(outboxTable)}
+    SET not_before = now()
+    WHERE execution_id = ${executionId}
+      AND expected_revision = ${revision}
+      AND superseded = false
+      AND spine_acked_at IS NULL
+      AND not_before > now()
+  `);
+  return { revision, tenantRef: String(row.tenant_ref) };
+}
+
+/**
  * Closes a tenant execution's durable state without a claimed hint — an operator cancel, or
  * any terminal transition taken outside the run loop. The spine hint, if one is still ready,
  * is dropped by the next claim that sees the state terminal. No-op when the state is already

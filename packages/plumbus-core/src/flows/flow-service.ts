@@ -1,14 +1,19 @@
 import { ProviderJsonSchemaError, zodToProviderJsonSchema } from '../ai/zod-to-provider-schema.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { FlowDescription, FlowExecution, FlowService } from '../types/context.js';
+import type {
+  FlowDescription,
+  FlowExecution,
+  FlowService,
+  FlowWakeResult,
+} from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { createFlowEngine } from './engine.js';
 import type { FlowRegistry } from './registry.js';
 
 /**
  * Creates a FlowService that wraps the flow engine for use on ctx.flows.
- * Binds the current auth context so capability handlers can start flows
- * without passing auth explicitly.
+ * Binds the current auth context so capability handlers can start (and wake)
+ * flows without passing auth explicitly.
  *
  * When a `registry` is supplied, the service also exposes `describe(flowName)`
  * so chat/tool surfaces can bind registered flows as provider tools. Without a
@@ -42,6 +47,11 @@ export function createFlowService(
 
     async status(executionId: string): Promise<FlowExecution> {
       return engine.status(executionId);
+    },
+
+    // Bound to the caller's identity, like `start`: the engine wakes only that tenant's executions.
+    async wake(executionId: string): Promise<FlowWakeResult> {
+      return engine.wakeTimedWait(executionId, auth);
     },
 
     async heartbeat(): Promise<void> {

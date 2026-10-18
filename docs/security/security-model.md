@@ -82,6 +82,7 @@ Flow capability steps run under the **caller's stored auth snapshot**, not the w
 
 - **User-triggered flows** (HTTP, API, `ctx.flows.start` from a capability) keep the original caller's `roles`, `scopes`, and `tenantId`. Capabilities invoked by flow steps must allow that identity — the engine does **not** auto-inject `system` on user flows.
 - **Scheduled and worker-owned flows** still run under explicit `system` auth from the scheduler or worker bootstrap.
+- **Woken flows** (`ctx.flows.wake`, core 0.9.0-beta.3+) keep their stored snapshot: the step a wake makes due runs as the identity that started the flow, never as the caller. A caller can wake only executions of its own tenant; others are refused as `notFound` (recorded as `flow.wake.denied` by an engine with an audit service). The capability that calls `wake` is the authorization boundary for who may wake. `wake` ends only `delay` steps, never a retry backoff, so a caller cannot make a failing step use up its attempts.
 
 The deprecated `auth.internal` flag is mapped to `system` for compatibility but is no longer a blanket bypass. List `system` in `access.roles` only for capabilities that should run under scheduler/worker automation — not as a shortcut for user-triggered orchestration.
 

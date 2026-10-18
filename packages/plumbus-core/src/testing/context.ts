@@ -21,6 +21,7 @@ import type {
   FlowDescription,
   FlowExecution,
   FlowService,
+  FlowWakeResult,
   LoggerService,
   QueryOptions,
   Repository,
@@ -110,6 +111,8 @@ export function mockEvents(): MockEventService {
 export interface MockFlowService extends FlowService {
   /** All started flows */
   readonly started: Array<{ flowName: string; input: unknown }>;
+  /** Execution ids passed to `wake(executionId)`, in call order */
+  readonly woken: string[];
   /** Clear tracked flows */
   clear(): void;
 }
@@ -119,14 +122,18 @@ export interface MockFlowsOptions {
   describe?: Record<string, FlowDescription>;
   /** Scripted `status(executionId)` results, keyed by execution id. */
   statuses?: Record<string, FlowExecution>;
+  /** Scripted `wake(executionId)` results, keyed by execution id. Default: `{ woken: true, status: 'waiting' }`. */
+  wakes?: Record<string, FlowWakeResult>;
 }
 
 /** Create a mock flow service that captures flow operations */
 export function mockFlows(options?: MockFlowsOptions): MockFlowService {
   const started: Array<{ flowName: string; input: unknown }> = [];
+  const woken: string[] = [];
   let counter = 0;
   return {
     started,
+    woken,
     async start(flowName, input) {
       counter++;
       const exec: FlowExecution = { id: `flow-exec-${counter}`, flowName, status: 'running' };
@@ -145,12 +152,17 @@ export function mockFlows(options?: MockFlowsOptions): MockFlowService {
         }
       );
     },
+    async wake(executionId) {
+      woken.push(executionId);
+      return options?.wakes?.[executionId] ?? { executionId, woken: true, status: 'waiting' };
+    },
     async heartbeat() {},
     describe(flowName) {
       return options?.describe?.[flowName];
     },
     clear() {
       started.length = 0;
+      woken.length = 0;
     },
   };
 }

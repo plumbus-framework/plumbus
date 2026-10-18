@@ -55,6 +55,7 @@ export {
 export { resolveTestPostgresAdmin } from './pg-env.js';
 export type { TestPostgresAdmin } from './pg-env.js';
 export {
+  advanceExecutionWakeOnDb,
   bumpTenantEpochOnDb,
   casAdvanceExecution,
   claimUnpublishedOutbox,
@@ -73,6 +74,7 @@ export {
 } from './postgres-persist.js';
 export {
   ackSpineDispatch,
+  advanceSpineDispatchNotBefore,
   claimSpineDispatch,
   deadLetterSpineDispatch,
   extendSpineDispatchLease,

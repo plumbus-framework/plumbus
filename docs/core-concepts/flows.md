@@ -180,6 +180,8 @@ Pauses for a fixed duration:
 }
 ```
 
+`ctx.flows.wake(executionId)` ends a delay early; see [Waking a delayed flow](#waking-a-delayed-flow).
+
 ### Event Emit Step
 
 Emits an event as a flow step:
@@ -419,6 +421,49 @@ handler: async (ctx, input) => {
 `ctx.workerId` is also available inside step execution for diagnostic logging — it matches the `lease_owner` column on the active flow execution row.
 
 **`FlowCancelledError`.** Raised as the `AbortSignal.reason` when a step is cancelled via `flows.cancel()`. The DOM `fetch` API surfaces aborts as `DOMException("AbortError")`; the reason is available on `signal.reason` for handlers that want to distinguish cancellation from other abort sources.
+
+## Waking a delayed flow
+
+`ctx.flows.wake(executionId)` (core 0.9.0-beta.3+) makes an execution that sleeps in a `delay` step due now. A worker claims it on its next poll and runs its next step at once instead of at the scheduled time. Use it when the reason for waiting goes away before the timer does. For example, a flow re-checks every hour whether its user has access to a resource, and the capability that grants the access wakes the executions that wait for it:
+
+```typescript
+// The administrator's capability: grant access, then let the waiting runs continue now.
+handler: async (ctx, input) => {
+  await ctx.data.ResourceGrant.create({ resourceId: input.resourceId, userId: input.userId });
+  const waiting = await ctx.data.PendingRun.findMany({ resourceId: input.resourceId });
+  for (const run of waiting) {
+    await ctx.flows.wake(run.executionId); // after this transaction commits
+  }
+  return { waiting: waiting.length };
+};
+```
+
+**What changes.** Only the due time. The execution keeps its status, current step, input, state and stored identity. The woken step runs under the identity that started the flow, never the caller's. The caller does not lend its roles to the flow and gets none of the flow's. The step is claimed and run the ordinary way, so it runs once.
+
+**Delays only, not retry backoffs.** The pause before a failed step runs again (`retry` backoff) is a timed wait too, but `wake` leaves it alone and answers `reason: 'retry-backoff'`. The backoff is the engine's protection against a dependency that keeps failing: waking it would run the step again at once, and repeated wakes would spend every remaining attempt in seconds and fail the execution. A flow that should continue as soon as something changes waits in a `delay` step (and re-checks after it), not in a retry.
+
+**Who may wake.** Any capability whose own `access` policy lets the caller in, for executions of the caller's own tenant. `wake` adds no role of its own: the capability is the authorization boundary, as it is for `ctx.flows.start`. The framework looks for the execution only where `start` would place one for the caller (its tenant's data plane, or the shared database), and a caller can wake only executions with its own `tenantId`. An untenanted caller can wake only untenanted executions. An execution of another tenant, an unknown id and a malformed id all get the same refusal: a `notFound` error with `metadata.reason: 'flow-execution-not-found'`. With tenant data planes and the default `untenanted: 'refuse'`, an untenanted caller is refused with `forbidden` (`reason: 'untenanted-flow-wake'`). Inside a flow step, and in a compensation, `ctx.flows.wake` is bound to the flow's own identity, like `ctx.flows.start`.
+
+A refusal is thrown only where the call runs at once: outside a capability transaction (a query, a capability with `transactional: false`, a flow step's own `ctx.flows`). Inside a capability transaction (the default for actions and event handlers) the call answers `deferred: true` before anything is known, and the outcome after commit, a refusal included, is only logged (see below).
+
+**Results.** Every case other than a refusal is a result, never an error, so a wake can safely race the timer or another wake:
+
+| Result | Meaning |
+| --- | --- |
+| `{ woken: true, status: 'waiting' }` | This call made the delay due now. |
+| `{ woken: false, reason: 'already-due' }` | The delay is already due (the timer ran out, or another wake won). A worker claims it on its next poll. The call still refreshes the wake-up hints, so calling `wake` again completes a wake whose hint update failed. |
+| `{ woken: false, reason: 'wait-changed' }` | The wait ended or changed between reading the execution and waking it: a worker claimed it, it was cancelled, it moved on. |
+| `{ woken: false, reason: 'not-waiting' }` | Created or running, or started in the same transaction and not committed yet. |
+| `{ woken: false, reason: 'not-timed-wait' }` | Waiting for an event or an approval. Only `resume` (or the event) ends that wait. |
+| `{ woken: false, reason: 'retry-backoff' }` | Waiting out a retry backoff, which `wake` never shortens. |
+| `{ woken: false, reason: 'finished' }` | Completed, failed or cancelled. |
+| `{ woken: false, deferred: true, status: 'pending' }` | Called inside a capability transaction. The wake runs after the transaction commits, so the step never runs before the data it waits for is visible. A rollback wakes nothing. The outcome after commit is logged through the capability's logger (`flow wake after commit` with `woken`, `reason` and `status`; `flow wake after commit failed` with the refusal's `code` and `reason`), never thrown. |
+
+The write is fenced to the wait that was read (its generation token, the same fence `resume` uses) and to a wake time still ahead on the database clock. Of two wakes, or of a wake and the scheduled wake-up, exactly one changes the row. A wake that runs after commit is not stored durably: if the process stops between commit and wake, the execution keeps its scheduled time.
+
+**How the wake-up is delivered.** On the shared database the execution row's `wake_at` moves to the database's `now()`, so the claim query (`wake_at <= now()`) picks it up on the next poll. With tenant data planes the execution is only claimed through its hint on the spine (the coordination database), so the wake also moves the plane's durable wait (`execution_state.wake_at`, its `wait_state`, an unpublished `dispatch_outbox` row) in the same transaction, then the spine hint's `not_before`. That holds for every tenant execution under a data-plane resolver, also when the resolver hands back the spine's own connection for the tenant. A wake that lands while the worker is still publishing the wait's hint is carried over to the new hint by that worker, and only to the wait it entered: if the execution has meanwhile woken, run and entered another delay, that delay keeps its own time. Where the engine has a Redis delayed-wake schedule or a flow-step queue (durable queue workers), the wake is published there too; both are hints that database polling recovers.
+
+**Observability.** An engine with an audit service records `flow.woken.<flowName>` (`executionId`, `flowName`, `actor`, `tenantId`, `step`, `waitKind`, `scheduledFor`) and `flow.wake.denied` for each refusal (`executionId`, `actor`, `tenantId`, `reason`: `flow-execution-not-found` or `untenanted-flow-wake`). No input or state is recorded, and a malformed id is recorded as `(malformed)`, never as the caller's string. An engine with a logger logs each outcome. The request-side engine of `createServer` has neither, so a wake called at once returns its outcome to the capability only, and a wake deferred to commit is logged through the capability's logger. Audit the business reason (who unblocked what) in the capability that calls `wake`, as for `cancel`.
 
 ## Operations: upgrading the flow_executions schema
 

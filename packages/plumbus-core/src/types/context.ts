@@ -29,6 +29,7 @@ export type {
   ProviderAssistantState,
 } from '../ai/provider.js';
 import type { AuditService } from './audit.js';
+import type { FlowWakeSkipReason } from './enums.js';
 import type { ErrorService } from './errors.js';
 import type {
   RegisteredAppConfig,
@@ -268,6 +269,25 @@ export interface FlowExecution {
   status: string;
 }
 
+// ── Flow Wake Result ──
+/** What `ctx.flows.wake(executionId)` did. */
+export interface FlowWakeResult {
+  executionId: string;
+  /** True when this call made the execution's delay due now. */
+  woken: boolean;
+  /** Why the execution was left as it was. Set when `woken` is false and the wake is not `deferred`. */
+  reason?: FlowWakeSkipReason;
+  /**
+   * True when the call ran inside a capability transaction: the wake runs after the transaction
+   * commits (so the step never runs before the data it waits for is visible), and the call
+   * cannot know its outcome yet — not even a refusal. The outcome after commit is only logged,
+   * through the capability's logger. A rolled-back transaction wakes nothing.
+   */
+  deferred?: boolean;
+  /** The execution's status as the wake saw it (`pending` for a deferred wake). */
+  status: string;
+}
+
 // ── Flow Description (for provider-tool exposure) ──
 export interface FlowDescription {
   name: string;
@@ -299,6 +319,22 @@ export interface FlowService {
   /** Stop an execution without running declared compensations. */
   terminate(executionId: string): Promise<void>;
   status(executionId: string): Promise<FlowExecution>;
+  /**
+   * Make an execution that sleeps in a `delay` step due now, so a worker runs its next step at
+   * once instead of at the scheduled time. Changes only the due time: the execution keeps its
+   * stored identity, input and state, and the step runs under the identity that started the
+   * flow, never the caller's. Only the caller's tenant's executions can be woken. An execution
+   * that is not in a delay (a retry backoff, an event or approval wait), already due, finished,
+   * or that moved on meanwhile is left alone and the result says why (`woken: false`, `reason`).
+   *
+   * Outside a capability transaction, any other tenant's id, an unknown id or a malformed id is
+   * refused with a `notFound` error (`forbidden` for an untenanted caller where tenant data
+   * planes refuse untenanted flows). Inside one — the default for actions and event handlers —
+   * the wake runs after commit: the call returns `{ woken: false, deferred: true }` at once and
+   * never throws a refusal; the outcome after commit, a refusal included, is only logged
+   * through the capability's logger.
+   */
+  wake(executionId: string): Promise<FlowWakeResult>;
   /** Extend the current flow execution lease. Only effective inside a flow step handler. Throws LeaseLostError if the lease has been lost. */
   heartbeat(): Promise<void>;
   /**

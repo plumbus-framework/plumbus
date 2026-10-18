@@ -127,6 +127,22 @@ aborts the active step and runs every declared compensation for completed steps;
 execution in the terminal `cancelled` state, never `completed`; applications should audit the
 operator, reason, and which action was chosen in their recovery capability.
 
+An execution that sleeps in a `delay` step can be made due now with `ctx.flows.wake(id)` (core
+0.9.0-beta.3+): the next worker poll runs its next step instead of waiting for the timer. Use it
+when the reason for the wait is gone, for example when an administrator grants the access a
+waiting run checks for; model that wait as a `delay` step that re-checks, not as a failing step
+that retries. Only the due time changes: the step still runs as the identity that started the
+flow, never as the caller. A retry backoff is never shortened (`retry-backoff`), so waking cannot
+spend a failing step's attempts. `wake` reaches only executions of the caller's own tenant (any
+other id is refused as `notFound`); the calling capability's `access` policy decides who may
+wake. It answers `{ woken: true }` or `{ woken: false, reason }` with `already-due`,
+`wait-changed`, `not-waiting`, `not-timed-wait` (event and approval waits: use `resume`),
+`retry-backoff` or `finished`, and never throws for a race. Inside a capability transaction (the
+default for actions) it runs after commit: the call answers `deferred: true` and never throws,
+and the outcome, a refusal included, is only logged through the capability's logger. Do not
+emulate it by cancelling and restarting the flow, by editing `flow_executions.wake_at`, or by
+starting a new flow under the caller's identity.
+
 ## Compiled definitions
 
 `plumbus compile-flows` emits signed JSON from `defineFlow` modules. Pass `compiledRegistry` to `createFlowEngine` so production runs consume compiled JSON (not live TypeScript steps) and pin version+digest on `flow_executions`. `approval-outcome` steps use Stage 4 `ApprovalService`. `applyDefinitionStrategy(..., 'migrate')` is not supported. Do not write a second workflow engine.

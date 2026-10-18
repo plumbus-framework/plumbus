@@ -3,11 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import type { ApprovalService } from '../approvals/types.js';
 import { parseDurationToMs, resolveRetryPolicy, retryDelay } from '../config/index.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import {
   ackSpineDispatch,
+  advanceExecutionWakeOnDb,
+  advanceSpineDispatchNotBefore,
   casAdvanceExecution,
   claimSpineDispatch,
   deadLetterSpineDispatch,
@@ -43,9 +46,10 @@ import type {
   EventService,
   ExecutionContext,
   FlowExecution,
+  FlowWakeResult,
   LoggerService,
 } from '../types/context.js';
-import { BackoffStrategy, ErrorCode, FlowStepType } from '../types/enums.js';
+import { BackoffStrategy, ErrorCode, FlowStepType, FlowWakeSkipReason } from '../types/enums.js';
 import type { CapabilityStep, FlowDefinition, FlowStep, ParallelStep } from '../types/flow.js';
 import type { AuthContext } from '../types/security.js';
 import {
@@ -85,6 +89,10 @@ const DEFAULT_LEASE_DURATION_MS = 300_000;
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
 /** Never matches a real claim token; fences a lease extension made outside a claim scope. */
 const NO_CLAIM_TOKEN = '00000000-0000-0000-0000-000000000000';
+/** `flow_executions.wait_kind` of a retry backoff, which `ctx.flows.wake` leaves alone. */
+const RETRY_WAIT_KIND = 'retry';
+/** Stands in for a malformed execution id in a refused wake's audit record and log line. */
+const MALFORMED_EXECUTION_ID = '(malformed)';
 
 /**
  * Read the affected-row count from a Drizzle UPDATE/INSERT/DELETE result in a
@@ -518,6 +526,33 @@ export function createFlowEngine(config: FlowEngineConfig) {
       .where(eq(flowExecutionsTable.id, executionId))
       .limit(1);
     return rows[0] as FlowExecutionRow | undefined;
+  }
+
+  /** The columns a wake decides by: no input, state or history, which can be large. */
+  const waitColumns = {
+    id: flowExecutionsTable.id,
+    flowName: flowExecutionsTable.flowName,
+    status: flowExecutionsTable.status,
+    currentStep: flowExecutionsTable.currentStep,
+    waitingForEvent: flowExecutionsTable.waitingForEvent,
+    wakeAt: flowExecutionsTable.wakeAt,
+    waitKind: flowExecutionsTable.waitKind,
+    leaseToken: flowExecutionsTable.leaseToken,
+    tenantId: flowExecutionsTable.tenantId,
+    correlationId: flowExecutionsTable.correlationId,
+  };
+  type FlowWaitRow = Pick<FlowExecutionRow, keyof typeof waitColumns>;
+
+  async function loadWaitRow(
+    store: PostgresJsDatabase,
+    executionId: string,
+  ): Promise<FlowWaitRow | undefined> {
+    const rows = await store
+      .select(waitColumns)
+      .from(flowExecutionsTable)
+      .where(eq(flowExecutionsTable.id, executionId))
+      .limit(1);
+    return rows[0];
   }
 
   /** Publishes a wake for the execution; a failed publication is recovered by database polling. */
@@ -1118,7 +1153,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       }
       throw error;
     }
-    await syncSpineAfterRun(executionId, result);
+    await syncSpineAfterRun(executionId, result, token);
     return result;
   }
 
@@ -1280,6 +1315,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
             correlationId: row.correlationId ?? undefined,
             triggerEventId: executionId,
           }),
+        // Same reason: a wake from a step is scoped to the flow's own tenant, not the worker's.
+        wake: (otherExecutionId: string) => wakeTimedWait(otherExecutionId, flowAuth),
         heartbeat: heartbeatFn,
       },
     };
@@ -1676,6 +1713,230 @@ export function createFlowEngine(config: FlowEngineConfig) {
   }
 
   /**
+   * The database a caller's executions live on: where `start` places them for the same
+   * identity. Under spine dispatch that is the caller's tenant plane (the spine's own table for
+   * an untenanted caller, when untenanted flows are allowed); otherwise `db`. Wake looks nowhere
+   * else, so a caller never reaches another tenant's plane. `undefined` when spine dispatch
+   * refuses untenanted flows and the caller has no tenant: there is nothing it may wake.
+   */
+  async function storeForCaller(auth: AuthContext): Promise<PostgresJsDatabase | undefined> {
+    if (!spineDispatch) return db;
+    if (auth.tenantId) return (await spineDispatch.resolver.resolve(auth.tenantId)).db;
+    return untenantedOnControlPlane ? spineDispatch.db : undefined;
+  }
+
+  /**
+   * Records and logs a refused wake. `recordedId` is the id as the caller sent it only when it
+   * is a well-formed execution id; a malformed one is never copied into the record.
+   */
+  async function denyWake(
+    recordedId: string,
+    auth: AuthContext,
+    reason: 'flow-execution-not-found' | 'untenanted-flow-wake',
+  ): Promise<void> {
+    logger?.warn('flow wake refused', {
+      executionId: recordedId,
+      tenantId: auth.tenantId,
+      actor: auth.userId,
+      reason,
+    });
+    if (audit) {
+      await audit.record('flow.wake.denied', {
+        executionId: recordedId,
+        actor: auth.userId,
+        tenantId: auth.tenantId,
+        outcome: 'denied',
+        reason,
+      });
+    }
+  }
+
+  /**
+   * Make an execution that sleeps in a delay step's wait due now (`ctx.flows.wake`), so the
+   * next claim runs its next step instead of waiting for the scheduled time. Only the wake time
+   * moves: status, current step, input, state, the stored identity and the wait's generation
+   * token stay as they are, and the step is claimed and run the ordinary way (so it runs once,
+   * under the identity that started the flow). A retry backoff is the engine's own pause before
+   * a failed step runs again and is left alone (`retry-backoff`): waking it would spend the
+   * step's remaining attempts at once. A timed wait without a recorded kind (written before
+   * wait kinds were stored) counts as a delay, as `resume` treats it.
+   *
+   * Scoped to the caller's tenant: an execution of another tenant, one that does not exist and
+   * a malformed id are refused with `notFound` (one answer for all), and an untenanted caller
+   * under spine dispatch that refuses untenanted flows with `forbidden`; each refusal is
+   * recorded (`flow.wake.denied`). Every other case is a result, never an error: not waiting,
+   * waiting without a timer, a retry backoff, finished, already due, or a wait that ended or
+   * changed between the read and the write (`woken: false`, `reason`). The write is fenced to
+   * the wait that was read and to a wake time still ahead on the database clock, so of a wake
+   * racing another wake, or the scheduled wake-up, exactly one changes the row.
+   */
+  async function wakeTimedWait(executionId: string, auth: AuthContext): Promise<FlowWakeResult> {
+    const wellFormed = z.string().uuid().safeParse(executionId).success;
+    const recordedId = wellFormed ? executionId : MALFORMED_EXECUTION_ID;
+    const store = await storeForCaller(auth);
+    if (!store) {
+      await denyWake(recordedId, auth, 'untenanted-flow-wake');
+      throw new PlumbusError(
+        ErrorCode.Forbidden,
+        'spine dispatch requires a tenant reference on flow wake',
+        { reason: 'untenanted-flow-wake' },
+      );
+    }
+    const row = wellFormed ? await loadWaitRow(store, executionId) : undefined;
+    if (!row || (row.tenantId ?? null) !== (auth.tenantId ?? null)) {
+      // A missing execution and another tenant's get the same answer: the caller learns
+      // nothing about executions it may not reach.
+      await denyWake(recordedId, auth, 'flow-execution-not-found');
+      throw new PlumbusError(ErrorCode.NotFound, `Flow execution "${recordedId}" not found`, {
+        executionId: recordedId,
+        reason: 'flow-execution-not-found',
+      });
+    }
+
+    const skip = (reason: FlowWakeSkipReason, status: string): FlowWakeResult => {
+      logger?.info('flow wake left the execution as it was', {
+        executionId,
+        flowName: row.flowName,
+        reason,
+        status,
+      });
+      return { executionId, woken: false, reason, status };
+    };
+    if (isTerminal(row.status as FlowStatus)) return skip(FlowWakeSkipReason.Finished, row.status);
+    if (row.status !== FlowStatus.Waiting) return skip(FlowWakeSkipReason.NotWaiting, row.status);
+    if (row.waitingForEvent !== null || row.wakeAt === null) {
+      return skip(FlowWakeSkipReason.NotTimedWait, row.status);
+    }
+    if (row.waitKind === RETRY_WAIT_KIND) return skip(FlowWakeSkipReason.RetryBackoff, row.status);
+    const scheduledFor = row.wakeAt;
+
+    if (spineDispatch) executionStores.set(executionId, store);
+    // Placed as `start` places it: under spine dispatch a tenant's execution has a durable
+    // acceptance and is claimed only through its spine hint, whichever handle the resolver
+    // returned for the plane (it may be the spine's own). The row's tenant is the caller's.
+    const tenantPlaced = spineDispatch !== undefined && Boolean(auth.tenantId);
+    // The wait read above and nothing else: same generation token (as `resume` fences), still
+    // timed, and not yet due. `clock_timestamp()`, not the statement's `now()`, so a wake that
+    // queued behind another wake's row lock sees the due time that wake wrote.
+    const moveWakeTime = async (target: PostgresJsDatabase): Promise<boolean> =>
+      getRowsAffected(
+        await target
+          .update(flowExecutionsTable)
+          .set({ wakeAt: sql`now()`, updatedAt: new Date() })
+          .where(
+            and(
+              eq(flowExecutionsTable.id, executionId),
+              eq(flowExecutionsTable.status, FlowStatus.Waiting),
+              isNull(flowExecutionsTable.waitingForEvent),
+              sql`${flowExecutionsTable.waitKind} IS DISTINCT FROM ${RETRY_WAIT_KIND}`,
+              row.leaseToken
+                ? eq(flowExecutionsTable.leaseToken, row.leaseToken)
+                : isNull(flowExecutionsTable.leaseToken),
+              sql`${flowExecutionsTable.wakeAt} > clock_timestamp()`,
+            ),
+          ),
+      ) > 0;
+
+    let moved: boolean;
+    let durable: { revision: number; tenantRef: string } | undefined;
+    if (tenantPlaced) {
+      // The plane's durable wait (execution_state, wait_state, an unpublished outbox row)
+      // moves with the row, in one transaction.
+      const outcome = await store.transaction(async (transaction) => {
+        const tx = transaction as unknown as PostgresJsDatabase;
+        if (!(await moveWakeTime(tx))) return { moved: false as const };
+        return {
+          moved: true as const,
+          durable: await advanceExecutionWakeOnDb(tx, executionId, durableSchema),
+        };
+      });
+      moved = outcome.moved;
+      durable = outcome.moved ? outcome.durable : undefined;
+    } else {
+      moved = await moveWakeTime(store);
+    }
+
+    if (!moved) {
+      const current = await loadWaitRow(store, executionId);
+      const sameWait =
+        current !== undefined &&
+        current.status === FlowStatus.Waiting &&
+        current.waitingForEvent === null &&
+        current.wakeAt !== null &&
+        current.leaseToken === row.leaseToken;
+      if (!sameWait) return skip(FlowWakeSkipReason.WaitChanged, current?.status ?? row.status);
+      // Due already. Nothing to move on the row, but its wake-ups are made due again: a wake
+      // whose spine hint update failed is completed by calling it once more.
+      await publishWake(executionId, current, store, tenantPlaced);
+      return skip(FlowWakeSkipReason.AlreadyDue, current.status);
+    }
+
+    logger?.info('flow wake made a timed wait due now', {
+      executionId,
+      flowName: row.flowName,
+      step: row.currentStep,
+      waitKind: row.waitKind,
+      scheduledFor: scheduledFor.toISOString(),
+      tenantId: auth.tenantId,
+      actor: auth.userId,
+    });
+    try {
+      await publishWake(executionId, row, store, tenantPlaced, durable);
+    } finally {
+      if (audit) {
+        await audit.record(`flow.woken.${row.flowName}`, {
+          executionId,
+          flowName: row.flowName,
+          actor: auth.userId,
+          tenantId: auth.tenantId,
+          step: row.currentStep,
+          waitKind: row.waitKind,
+          scheduledFor: scheduledFor.toISOString(),
+          outcome: 'success',
+        });
+      }
+    }
+    return { executionId, woken: true, status: FlowStatus.Waiting };
+  }
+
+  /**
+   * After a wake moved (or found) an execution's wake time at now: make every wake-up for it
+   * due. A tenant-placed execution is claimed only through its spine hint, so the hint of the
+   * plane's current revision moves to now (a failure here is thrown: the row is due, the hint
+   * is not, and calling wake again completes it). The Redis delayed entry is rescheduled at now
+   * and a flow-step wake is published; both are hints, recovered by database polling.
+   */
+  async function publishWake(
+    executionId: string,
+    row: FlowWaitRow,
+    store: PostgresJsDatabase,
+    tenantPlaced: boolean,
+    durable?: { revision: number; tenantRef: string },
+  ): Promise<void> {
+    if (tenantPlaced && spineDispatch) {
+      const target = durable ?? (await advanceExecutionWakeOnDb(store, executionId, durableSchema));
+      if (target) {
+        await advanceSpineDispatchNotBefore(spineDispatch.db, {
+          executionId,
+          tenantRouteId: target.tenantRef,
+          expectedRevision: target.revision,
+        });
+      }
+    }
+    const correlationId = row.correlationId ?? executionId;
+    if (onFlowDelayedSchedule) {
+      try {
+        await onFlowDelayedSchedule(executionId, new Date(), correlationId);
+      } catch {
+        logger?.error('Wake publication failed; database reconciliation will recover', {
+          executionId,
+        });
+      }
+    }
+    await maybeEnqueueFlowStep(executionId, correlationId);
+  }
+
+  /**
    * Returns execution IDs that should be processed now.
    */
   async function listRunnable(limit = 50): Promise<string[]> {
@@ -1861,6 +2122,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
         resume: async () => undefined,
         cancel: async () => undefined,
         status: async () => ({ id: executionId, flowName: row.flowName, status: row.status }),
+        // Bound to the flow's identity, as in a step: wakes only executions of its tenant.
+        wake: (otherExecutionId: string) => wakeTimedWait(otherExecutionId, flowAuth),
       },
       ai: {},
       audit: audit ?? { record: async () => undefined },
@@ -2232,7 +2495,50 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
   }
 
-  async function syncSpineAfterRun(executionId: string, result: FlowExecution): Promise<void> {
+  /**
+   * A wake (`ctx.flows.wake`) that lands between a run's wait and the retry schedule this run
+   * then persists and publishes moves the row's wake time but finds no durable wait or hint of
+   * the new revision to move yet, and the hint is then published with the original time. Read
+   * the row after publishing: when it is still the wait this run wrote (its claim token is the
+   * wait's generation) and its wake time is earlier than the one scheduled, make the durable
+   * wait and hint of the revision this run scheduled due as the wake did. A later wait — the
+   * execution woke, ran again and entered another one meanwhile — has another token and
+   * revision, and is that run's to carry.
+   */
+  async function carryEarlierWake(
+    tenantDb: PostgresJsDatabase,
+    executionId: string,
+    wait: { token: string; revision: number; scheduledFor: string },
+  ): Promise<void> {
+    if (!spineDispatch) return;
+    const current = await loadWaitRow(tenantDb, executionId);
+    if (
+      !current ||
+      current.status !== FlowStatus.Waiting ||
+      current.waitingForEvent !== null ||
+      current.leaseToken !== wait.token ||
+      !current.wakeAt ||
+      current.wakeAt.getTime() >= Date.parse(wait.scheduledFor)
+    ) {
+      return;
+    }
+    const target = await advanceExecutionWakeOnDb(tenantDb, executionId, durableSchema, {
+      expectedRevision: wait.revision,
+    });
+    if (!target) return;
+    await advanceSpineDispatchNotBefore(spineDispatch.db, {
+      executionId,
+      tenantRouteId: target.tenantRef,
+      expectedRevision: target.revision,
+    });
+  }
+
+  /** `claimToken`: the claim this run held, which a wait it entered carries as its generation. */
+  async function syncSpineAfterRun(
+    executionId: string,
+    result: FlowExecution,
+    claimToken: string,
+  ): Promise<void> {
     if (!spineDispatch) return;
     const hint = claimedHints.get(executionId);
     const tenantDb = executionStores.get(executionId);
@@ -2265,6 +2571,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
           durableSchema,
           { deliveryState: SpineDeliveryState.RetryScheduled },
         );
+        try {
+          await carryEarlierWake(tenantDb, executionId, {
+            token: claimToken,
+            revision: scheduled.execution.revision,
+            scheduledFor: retry.notBefore,
+          });
+        } catch (error) {
+          logger?.warn('could not carry a wake over to the hint just published', {
+            executionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         return;
       } finally {
         scheduledRetries.delete(executionId);
@@ -2353,6 +2671,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     runNext,
     resume,
     resumeWaitingByEvent,
+    wakeTimedWait,
     listRunnable,
     claimNext,
     claimExecution,

@@ -106,6 +106,20 @@ inbound hint is acknowledged, one tenant transaction CAS-advances `execution_sta
 `retry-scheduled`, appends a `wait_state(kind=retry)`, and inserts a `dispatch_outbox` row whose
 `notBefore` is the fixed/exponential backoff instant. The post-commit hint is
 `retry-scheduled`, carries no worker lease, and becomes claimable only after that instant.
+A delay step uses the same schedule.
+
+`ctx.flows.wake` (core 0.9.0-beta.3+) brings a delay step's instant forward without a new
+revision; a retry backoff is left as scheduled. One tenant transaction moves the
+`flow_executions` row's `wake_at` (fenced to the wait's generation token and to a time still
+ahead), `execution_state.wake_at`, the revision's `wait_state.not_before` and its unacknowledged
+`dispatch_outbox.not_before` to now. After commit the revision's `ready` / `retry-scheduled`
+spine hint gets `not_before = now()`; a leased, acknowledged or dead-lettered hint is never
+touched. Every tenant execution under spine dispatch is woken this way, whichever connection the
+resolver returns for the tenant (the spine's own included), because `start` gave each one an
+acceptance and a hint. A wake that commits before the worker that entered the wait has persisted
+its schedule finds no hint to move yet; that worker reads the row back after publishing the hint
+and, when the row is still its own wait (its claim token) and is due earlier than scheduled,
+moves the wait and hint of the revision it scheduled, and no later one.
 
 ## Tenant-local durable state placement
 

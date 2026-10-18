@@ -169,7 +169,7 @@ whose tenant plane fails to resolve claim after claim (a closed or dropped tenan
 as `dead-lettered` after `FlowSpineDispatchConfig.maxClaimAttempts` (default 10) claims, with
 `privacy_safe_failure_category_id = 'plane-unresolved'`, instead of being re-leased forever.
 
-Two operator actions need more than the row on the plane, because a tenant-placed execution
+Three actions need more than the row on the plane, because a tenant-placed execution
 only runs when the spine holds a ready hint for it:
 
 - **Cancel.** `engine.cancel` closes the plane's durable state (`core_plumbus.execution_state`
@@ -185,6 +185,17 @@ only runs when the spine holds a ready hint for it:
   An in-place retry is refused for a dead letter that was already retried or replayed.
   `plumbus flow dead-letter retry` (a new replay execution by default, `--in-place` for this
   reset) works on the boot database only.
+- **Wake.** `ctx.flows.wake(executionId)` (core 0.9.0-beta.3+) ends a delay step early. It looks
+  for the execution on the caller's own tenant plane only (resolved from `auth.tenantId`, as
+  `start` places it), never on the plane a spine hint names, and treats it as tenant-placed even
+  when the resolver returns the spine's own connection. In one plane transaction it moves the row's `wake_at`,
+  `execution_state.wake_at`, the current revision's retry `wait_state.not_before` and that
+  revision's unacknowledged `dispatch_outbox.not_before` to now; it then sets the spine hint's
+  `not_before` to now (only a `ready` or `retry-scheduled` hint, never a leased one). An
+  untenanted caller is refused (`untenanted-flow-wake`, recorded as `flow.wake.denied`) unless
+  untenanted flows live on the control plane (`untenanted: 'control-plane'`), where it wakes only
+  untenanted executions. See
+  [Waking a delayed flow](../core-concepts/flows.md#waking-a-delayed-flow).
 
 Jobs from flow steps are not plane-aware yet. A flow step that runs on a resolved tenant plane
 has no job queue: `ctx.jobs.enqueue()` throws `Job queue not configured on this execution

@@ -12,6 +12,9 @@ describe('FlowService', () => {
       cancel: vi.fn().mockResolvedValue(undefined),
       terminate: vi.fn().mockResolvedValue(undefined),
       status: vi.fn().mockResolvedValue({ id: 'exec-1', flowName: 'test-flow', status: 'running' }),
+      wakeTimedWait: vi
+        .fn()
+        .mockResolvedValue({ executionId: 'exec-1', woken: true, status: 'waiting' }),
       runNext: vi.fn(),
     };
   }
@@ -65,6 +68,15 @@ describe('FlowService', () => {
     const st = await svc.status('exec-1');
     expect(st.status).toBe('running');
     expect(engine.status).toHaveBeenCalledWith('exec-1');
+  });
+
+  it('wake() delegates to the engine with the bound auth, so the engine scopes it to that tenant', async () => {
+    const engine = mockEngine();
+    const svc = createFlowService(engine as any, auth);
+
+    const result = await svc.wake('exec-1');
+    expect(result).toEqual({ executionId: 'exec-1', woken: true, status: 'waiting' });
+    expect(engine.wakeTimedWait).toHaveBeenCalledWith('exec-1', auth);
   });
 
   it('heartbeat() is a no-op outside flow execution', async () => {

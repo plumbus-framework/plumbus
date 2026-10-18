@@ -105,6 +105,8 @@ function buildHandlerContext(
           scope.db && scope.planeDb
             ? { tx: scope.db, planeDb: scope.planeDb, auth: ctx.auth, logger: ctx.logger }
             : undefined,
+          // A wake runs after commit, where its outcome reaches no caller: log it.
+          ctx.logger,
         )
       : ctx.flows;
   const jobs =

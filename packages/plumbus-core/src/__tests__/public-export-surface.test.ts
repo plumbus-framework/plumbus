@@ -76,6 +76,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'FlowRegistry',
   'FlowStatus',
   'FlowStepType',
+  'FlowWakeSkipReason',
   'GovernanceSeverity',
   'GovernedAiBlockedError',
   'GovernedArtifactConflictError',
