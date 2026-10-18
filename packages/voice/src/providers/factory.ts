@@ -1,4 +1,4 @@
-import { PlumbusError, ErrorCode } from '@plumbus/core';
+import { PlumbusError, ErrorCode } from '@plumbus/core/errors';
 import type { VoiceProviderCredentials, VoiceProvidersConfig } from '../types/provider.js';
 import type { VoiceSttConfig, VoiceTransportConfig, VoiceTtsConfig } from '../types/voice.js';
 import type { VoiceProviderRegistry } from './registry.js';

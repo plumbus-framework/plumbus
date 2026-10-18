@@ -1,5 +1,5 @@
 import type { CapabilityContract, ExecutionContext } from '@plumbus/core';
-import { executeCapability } from '@plumbus/core';
+import { executeCapability } from '@plumbus/core/sdk';
 import type { z } from '@plumbus/core/zod';
 import type { ContextSource } from '../types/context.js';
 import type { TurnContext } from '../types/turn.js';

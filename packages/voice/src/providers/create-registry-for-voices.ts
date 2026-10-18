@@ -1,4 +1,4 @@
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import type { VoiceDefinition } from '../types/voice.js';
 import { VOICE_ADDON_PACKAGES } from './addons.js';
 import type {

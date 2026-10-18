@@ -1,6 +1,6 @@
 // packages/chat/src/runtime/tool-phase.ts
 import type { AIService, AIToolCall, ChatMessage, ExecutionContext } from '@plumbus/core';
-import { executeCapability, safeJsonStringify } from '@plumbus/core';
+import { executeCapability, safeJsonStringify } from '@plumbus/core/sdk';
 import type { BoundChatTool } from './bind-tools.js';
 import {
   runFlowToolCall,

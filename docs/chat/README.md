@@ -142,3 +142,10 @@ This package composes on core; it does not duplicate. Specifically:
 | Runtime utilities | `ChatEventEmitter`, `validateCitations`, `stripInvalidFromAnswer`, `setTokenCounter` | advanced — only reach for these when wrapping the runtime or swapping the token counter (e.g. local tiktoken vs heuristic) |
 | Evaluation | `runChatEvaluation`, `TraceRecorder` | run scenarios against a scripted model and assert on the event stream — see [evaluations.md](./evaluations.md) |
 | Events | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatActionRejectedEvent`, `chatRefusalRecordedEvent` | domain events emitted by the runtime; subscribe with an `eventHandler` capability |
+
+## Worker-only imports
+
+`@plumbus/chat/session` exports `defineChat`, `runChatTurn`, chat persistence entities,
+events and types without the HTTP and evaluation entry points. Policies, budgets,
+tool calls, persistence and authorization use the same implementation as the main
+entry. See [voice worker footprint](../voice/worker-footprint.md).

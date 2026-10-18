@@ -19,14 +19,14 @@ import {
   TrackKind,
   TrackPublishOptions,
 } from '@livekit/rtc-node';
-import { createExecutionContext, ErrorCode, PlumbusError } from '@plumbus/core';
+import { createExecutionContext, ErrorCode, PlumbusError } from '@plumbus/core/sdk';
 import {
   createSTTProvider,
   createTTSProvider,
   type VoiceProviderRegistry,
   VoiceSessionController,
   validateVoiceProviders,
-} from '@plumbus/voice';
+} from '@plumbus/voice/session';
 import {
   createVoiceSessionBudget,
   readNoiseCancellationFromTransportOptions,
@@ -70,7 +70,7 @@ export function resetLiveKitAgentLoggerForTests(): void {
 export interface VoiceAgentEntryOptions {
   voice: VoiceDefinition;
   providers: VoiceProvidersConfig;
-  createDependencies: StartVoiceAgentWorkerOptions['createDependencies'];
+  createDependencies: NonNullable<StartVoiceAgentWorkerOptions['createDependencies']>;
   sessionBudget?: VoiceSessionBudgetConfig;
   registry?: VoiceProviderRegistry;
 }
@@ -78,7 +78,7 @@ export interface VoiceAgentEntryOptions {
 interface VoiceAgentRuntimeConfig {
   voice: VoiceDefinition;
   providers: VoiceProvidersConfig;
-  createDependencies: StartVoiceAgentWorkerOptions['createDependencies'];
+  createDependencies: NonNullable<StartVoiceAgentWorkerOptions['createDependencies']>;
   sessionBudget?: VoiceSessionBudgetConfig;
   registry: VoiceProviderRegistry;
 }
@@ -156,7 +156,7 @@ export function resolveVoiceAgentConfig(agentName: string | undefined): VoiceAge
 interface VoiceAgentBootstrapPayload {
   voices: VoiceDefinition[];
   providers: VoiceProvidersConfig;
-  createDependencies: StartVoiceAgentWorkerOptions['createDependencies'];
+  createDependencies: NonNullable<StartVoiceAgentWorkerOptions['createDependencies']>;
   sessionBudget?: VoiceSessionBudgetConfig;
   registry?: VoiceProviderRegistry;
 }
@@ -526,17 +526,26 @@ export async function startVoiceAgentWorker(
     );
   }
 
-  const runtimeConfig = buildVoiceAgentRuntimeConfig({
-    voice,
-    providers: options.providers,
-    createDependencies: options.createDependencies,
-    sessionBudget: options.sessionBudget,
-    registry,
-  });
-  voiceAgentConfigs.set(voice.name, runtimeConfig);
-
   const bootstrapModule =
     options.bootstrapModule ?? process.env[PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE_ENV];
+  if (!options.createDependencies && !bootstrapModule) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      'A dispatch-only voice worker requires a child bootstrap module',
+    );
+  }
+  if (options.createDependencies) {
+    voiceAgentConfigs.set(
+      voice.name,
+      buildVoiceAgentRuntimeConfig({
+        voice,
+        providers: options.providers,
+        createDependencies: options.createDependencies,
+        sessionBudget: options.sessionBudget,
+        registry,
+      }),
+    );
+  }
   if (bootstrapModule) {
     process.env[PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE_ENV] = bootstrapModule;
   }

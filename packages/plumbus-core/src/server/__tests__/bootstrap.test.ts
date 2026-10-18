@@ -6,7 +6,7 @@ import type { LoggerService } from '../../types/context.js';
 
 type AnyFn = (...args: any[]) => any;
 
-vi.mock('fastify', () => {
+vi.mock('../fastify.js', () => {
   const routes = new Map<string, AnyFn>();
   let errorHandler: AnyFn | undefined;
   const closeHooks: AnyFn[] = [];
@@ -39,7 +39,7 @@ vi.mock('fastify', () => {
       return errorHandler;
     },
   };
-  return { default: vi.fn(() => app) };
+  return { createFastify: vi.fn(() => app) };
 });
 
 vi.mock('../../auth/adapter.js', () => ({
@@ -375,13 +375,13 @@ describe('Server Bootstrap', () => {
 
   describe('trustProxy', () => {
     it('passes trustProxy to Fastify when set', async () => {
-      const Fastify = (await import('fastify')).default;
+      const Fastify = (await import('../fastify.js')).createFastify;
       createServer(makeServerConfig({ trustProxy: true }));
       expect(Fastify).toHaveBeenCalledWith(expect.objectContaining({ trustProxy: true }));
     });
 
     it('does not include trustProxy when not set', async () => {
-      const Fastify = (await import('fastify')).default;
+      const Fastify = (await import('../fastify.js')).createFastify;
       createServer(makeServerConfig());
       const callArg = (Fastify as any).mock.calls.at(-1)?.[0];
       expect(callArg).not.toHaveProperty('trustProxy');

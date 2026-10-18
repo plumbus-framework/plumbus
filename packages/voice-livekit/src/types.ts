@@ -1,5 +1,5 @@
 import type { ContextDependencies } from '@plumbus/core';
-import type { VoiceProviderRegistry } from '@plumbus/voice';
+import type { VoiceProviderRegistry } from '@plumbus/voice/session';
 import type {
   TransportProvider,
   VoiceDefinition,
@@ -66,7 +66,8 @@ export interface MintLiveKitParticipantTokenArgs {
 export interface StartVoiceAgentWorkerOptions {
   voices: VoiceDefinition[];
   providers: VoiceProvidersConfig;
-  createDependencies: (auth: {
+  /** Optional for a dispatch-only parent when bootstrapModule supplies child dependencies. */
+  createDependencies?: (auth: {
     userId: string;
     tenantId?: string;
     roles: string[];

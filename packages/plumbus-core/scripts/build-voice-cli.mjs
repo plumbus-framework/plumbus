@@ -14,6 +14,11 @@ const esbuildBin = join(packageRoot, 'node_modules', '.bin', 'esbuild');
 const esbuildCmd = existsSync(esbuildBin) ? esbuildBin : 'esbuild';
 
 const targets = [
+  { entry: 'src/cli/voice-worker-definitions.ts', outfile: 'dist/cli/voice-worker-definitions.js' },
+  { entry: 'src/cli/voice-cli.ts', outfile: 'dist/cli/voice-cli.js' },
+  { entry: 'src/cli/voice-build.ts', outfile: 'dist/cli/voice-build.js' },
+  { entry: 'src/runtime/resource-context.ts', outfile: 'dist/runtime/resource-context.js' },
+  { entry: 'src/runtime/voice-runtime.ts', outfile: 'dist/runtime/voice-runtime.js' },
   {
     entry: 'src/cli/mcp-serve-context.ts',
     outfile: 'dist/cli/mcp-serve-context.js',

@@ -1,4 +1,4 @@
-import { evaluateAccess } from '@plumbus/core';
+import { evaluateAccess } from '@plumbus/core/sdk';
 import type { RouteGeneratorConfig } from '@plumbus/core';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { fetchVoiceProviderOptions } from '../catalog/fetch-options.js';

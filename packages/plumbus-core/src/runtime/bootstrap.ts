@@ -11,7 +11,7 @@ import { createCostTracker } from '../ai/cost-tracker.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { DiscoveredResources } from '../cli/discover.js';
-import { discoverResources } from '../cli/discover.js';
+import type { EntityDefinition } from '../types/entity.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { CapabilityKind } from '../types/enums.js';
 import { executeCapability } from '../execution/capability-executor.js';
@@ -42,6 +42,7 @@ export type RuntimeCommand = 'dev' | 'start' | 'worker';
 
 /** Discover app resources from app/ directories. */
 export async function discoverRuntimeResources(): Promise<DiscoveredResources> {
+  const { discoverResources } = await import('../cli/discover.js');
   return discoverResources();
 }
 
@@ -136,6 +137,8 @@ export interface BuildWorkerAiServiceOptions {
   promptRegistry?: PromptRegistry;
   decisions?: DecisionRuntimeConfig;
   entities?: EntityRegistry;
+  /** Classification-only metadata; does not register data repositories. */
+  securityEntities?: EntityDefinition[];
   onAICostRecorded?: ServerConfig['onAICostRecorded'];
   resolveAiOverrides?: ServerConfig['resolveAiOverrides'];
   enableStrictStructuredOutputs?: ServerConfig['enableStrictStructuredOutputs'];
@@ -149,10 +152,13 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     promptRegistry,
     decisions,
     entities,
+    securityEntities,
     onAICostRecorded,
     resolveAiOverrides,
     enableStrictStructuredOutputs,
   } = options;
+
+  const classifiedEntities = [...(entities?.getAllEntities() ?? []), ...(securityEntities ?? [])];
 
   const workerOnAICostRecorded = onAICostRecorded
     ? (record: AICostRecord, costContext: AICostContext | undefined) =>
@@ -180,7 +186,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       enableStrictStructuredOutputs,
       cache: config.aiProviders.cache,
       security: buildAISecurityConfig(
-        entities?.getAllEntities() ?? [],
+        classifiedEntities,
         config.aiProviders.security ?? (decisions ? {} : undefined),
       ),
     };
@@ -206,9 +212,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
     return createAIService(
       singleProviderConfig(adapter, {
         decisions,
-        security: decisions
-          ? buildAISecurityConfig(entities?.getAllEntities() ?? [], {})
-          : undefined,
+        security: decisions ? buildAISecurityConfig(classifiedEntities, {}) : undefined,
         costTracker,
         promptRegistry,
         onAICostRecorded: workerOnAICostRecorded,
@@ -225,7 +229,7 @@ export function buildWorkerAiService(options: BuildWorkerAiServiceOptions): AISe
       decisions,
       costTracker: createCostTracker(decisions.budget),
       onAICostRecorded: workerOnAICostRecorded,
-      security: buildAISecurityConfig(entities?.getAllEntities() ?? [], {}),
+      security: buildAISecurityConfig(classifiedEntities, {}),
     });
   }
 

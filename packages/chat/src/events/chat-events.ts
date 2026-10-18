@@ -1,4 +1,4 @@
-import { defineEvent } from '@plumbus/core';
+import { defineEvent } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 
 export const chatTurnCompletedEvent = defineEvent({

@@ -1,4 +1,4 @@
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import type { VoicePersonaOption, VoiceProviderCredentials } from '../../types/provider.js';
 import type { VoiceCatalogFetch } from './provider-registration.js';
 

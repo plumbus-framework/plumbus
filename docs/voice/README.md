@@ -20,6 +20,7 @@ These docs are split in three:
 | [client-stt.md](./client-stt.md) | You're considering `web-speech` or other browser-side transcript relay. |
 | [local-providers.md](./local-providers.md) | You want a self-hosted Whisper sidecar or browser-native TTS. |
 | [cost-tracking.md](./cost-tracking.md) | You need STT/TTS/transport spend to land in the shared AI ledger. |
+| [worker-footprint.md](./worker-footprint.md) | You want scoped voice-worker resources and deferred dependency loading. |
 | [testing.md](./testing.md) | You're writing smoke, route, websocket, or e2e tests. |
 | [livekit-continuous-voice.md](./livekit-continuous-voice.md) | Continuous LiveKit + server-STT (talk-over re-queue, stitch, chunker). Agents: `packages/voice/instructions/continuous-sessions.md`. |
 | [security.md](./security.md) | You're exposing voice routes on a real app and need the S1-S10 threat model. |

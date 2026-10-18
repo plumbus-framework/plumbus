@@ -1,12 +1,16 @@
-import {
-  DOMParser,
-  type Document as XmlDocument,
-  type Element as XmlElement,
-} from '@xmldom/xmldom';
-import { SignedXml } from 'xml-crypto';
-import * as xpath from 'xpath';
+import { createRequire } from 'node:module';
+import type { Document as XmlDocument, Element as XmlElement } from '@xmldom/xmldom';
 import type { AuthContext } from '../types/security.js';
 import type { AuthAdapter } from './adapter.js';
+
+const require = createRequire(import.meta.url);
+
+function loadXmlDependencies() {
+  const { DOMParser } = require('@xmldom/xmldom') as typeof import('@xmldom/xmldom');
+  const { SignedXml } = require('xml-crypto') as typeof import('xml-crypto');
+  const xpath = require('xpath') as typeof import('xpath');
+  return { DOMParser, SignedXml, xpath };
+}
 
 // ── SAML Adapter ──
 // Validates SAML 2.0 assertions for authentication.
@@ -87,6 +91,7 @@ export function createSamlAdapter(config: SamlAdapterConfig): AuthAdapter & {
       return null;
     }
     if (!verifiedAssertion) return null;
+    const { DOMParser, xpath } = loadXmlDependencies();
 
     const issuer = readElementText(verifiedAssertion, 'Issuer');
     if (!issuer || issuer !== config.issuer) return null;
@@ -189,6 +194,7 @@ export function createSamlAdapter(config: SamlAdapterConfig): AuthAdapter & {
 }
 
 function verifySignedAssertion(xml: string, certPem: string): XmlDocument | null {
+  const { DOMParser, SignedXml, xpath } = loadXmlDependencies();
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
 
   const assertions = xpath.select(ASSERTION_XPATH, asDomNode(doc)) as Node[];
@@ -219,6 +225,7 @@ function normalizeCertificate(cert: string): string {
 }
 
 function validateConditions(assertionDoc: XmlDocument, audience: string): boolean {
+  const { xpath } = loadXmlDependencies();
   const conditionsNodes = xpath.select(
     "//*[local-name()='Conditions' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",
     asDomNode(assertionDoc),
@@ -249,6 +256,7 @@ function validateConditions(assertionDoc: XmlDocument, audience: string): boolea
 }
 
 function readElementText(doc: XmlDocument, localName: string): string | undefined {
+  const { xpath } = loadXmlDependencies();
   const nodes = xpath.select(
     `//*[local-name()='${localName}' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']`,
     asDomNode(doc),
@@ -258,6 +266,7 @@ function readElementText(doc: XmlDocument, localName: string): string | undefine
 }
 
 function extractAttributes(assertionDoc: XmlDocument): Record<string, string[]> {
+  const { xpath } = loadXmlDependencies();
   const attributes: Record<string, string[]> = {};
   const attrNodes = xpath.select(
     "//*[local-name()='Attribute' and namespace-uri()='urn:oasis:names:tc:SAML:2.0:assertion']",

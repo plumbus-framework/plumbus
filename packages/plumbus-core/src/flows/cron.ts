@@ -4,12 +4,6 @@ import { DataValidationError } from '../errors/index.js';
 import type { FlowSchedule } from '../types/flow.js';
 
 const require = createRequire(import.meta.url);
-const parser = require('cron-parser') as {
-  parseExpression(
-    expression: string,
-    options: { currentDate: Date; tz?: string },
-  ): { next(): { toDate(): Date } };
-};
 export const scheduleSchema = z
   .object({
     cron: z.string().min(1),
@@ -39,6 +33,12 @@ export function computeNextRun(cron: string, from: Date, timezone?: string): Dat
     return next;
   }
   try {
+    const parser = require('cron-parser') as {
+      parseExpression(
+        expression: string,
+        options: { currentDate: Date; tz?: string },
+      ): { next(): { toDate(): Date } };
+    };
     return parser.parseExpression(cron, { currentDate: from, tz: timezone }).next().toDate();
   } catch {
     throw new DataValidationError('Invalid cron expression', { cron });

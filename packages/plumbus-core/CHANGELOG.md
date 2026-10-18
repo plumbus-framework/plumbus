@@ -1,5 +1,16 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+- Allow `voiceRuntime.resources.securityEntities` to supplement AI classifications and log masking without registering data repositories. Registered entities always remain in the classification set.
+
+- Add `@plumbus/core/sdk`, a runtime-only entry that shares implementations with the full root. `voice worker` uses a small CLI parser and no longer constructs the application context in the dispatch parent.
+- Add `voice build` and `voice worker --compiled` for statically compiled scoped apps; direct JS config imports avoid TypeScript loaders. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Add opt-in `app/voice/runtime.ts` resources and AI hooks for `--room` mode and the default LiveKit child bootstrap; skip full discovery, server extensions, MCP auth and queue connections in scoped mode while preserving governed context wiring. See [worker footprint](../../docs/voice/worker-footprint.md).
+- Load Fastify, SAML/XML dependencies and cron parsing only when used, preserving synchronous public APIs.
+- Share resource context construction with MCP, forward configured decision providers/definitions, and close acquired connections if context initialization fails.
+
 ## 0.8.1 — 2026-10-13
 
 - The Redis delayed-wake promoter no longer crashes with an unhandled promise rejection on every tick while Redis is unreachable. Its timer started each tick with `void promoteOnce()`, so a failed command (`ECONNREFUSED`) became an unhandled rejection until Redis came back. Each tick now catches the error, logs one warning (`Delayed flow wake promotion failed; retrying next tick`, with the error message), and tries again on the next tick. (#80)
