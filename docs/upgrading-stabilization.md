@@ -65,5 +65,3 @@ Wait signals are fenced to their original waiting activation; a stale signal can
 A delivery whose job is already claimed is deferred without exhausting event retry attempts or dead-lettering the active job. It remains recoverable for a later delivery.
 
 Queue shutdown clears visibility-renewal timers before its bounded drain, so a hung handler cannot keep a closed queue alive through a renewal timer.
-
-The Redis queue lease-coordination patch adds owner lease metadata to processing entries while preserving schedulable renewal intervals and matching-worker recovery timing. Only Node timer overflow uses the existing default lease/cadence. The metadata is additive, and existing entries remain recoverable without a database migration or application configuration change. During a rolling upgrade within the 0.8 line, older reclaimers can still exhibit the original premature-reclamation bug until updated; the queue format remains readable by both versions. See [workers and queues](./architecture/workers-and-queues.md) for timing. This does not change the coordinated 0.7-to-0.8 cutover requirement above.

@@ -7,7 +7,8 @@ on:
 jobs:
   test:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    # The integration fixtures require PostgreSQL 16 from Ubuntu 24.04's repositories.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4

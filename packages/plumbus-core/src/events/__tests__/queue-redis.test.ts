@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createClient } from 'redis';
-import { DataInternalError } from '../../errors/index.js';
 import { createRedisQueue, RedisQueueScripts, type RedisClient } from '../queue.js';
 import { tryCreateRedisClient } from '../../runtime/queue-factory.js';
 
@@ -147,15 +146,7 @@ describe('Redis atomic queue transitions', () => {
       await queue.close();
     }
   });
-  it.each([
-    { visibilityTimeoutSec: 0.09, leaseDurationMs: 90 },
-    { visibilityTimeoutSec: 1, leaseDurationMs: 1000 },
-    { visibilityTimeoutSec: 60, leaseDurationMs: 60000 },
-    { visibilityTimeoutSec: 10 * 365 * 24 * 60 * 60, leaseDurationMs: 30000 },
-  ])('protects active delivery from a shorter-timeout reclaimer (owner timeout=$visibilityTimeoutSec)', async ({
-    visibilityTimeoutSec,
-    leaseDurationMs,
-  }) => {
+  it('renews active visibility while another worker polls', async () => {
     const prefix = crypto.randomUUID();
     const options = {
       prefix,
@@ -164,13 +155,7 @@ describe('Redis atomic queue transitions', () => {
       reclaimIntervalMs: 5,
       visibilityTimeoutSec: 0.09,
     };
-    const ownerEval = vi.fn<NonNullable<RedisClient['eval']>>(async (script, args) =>
-      client.eval?.(script, args),
-    );
-    const first = createRedisQueue(
-      { ...client, eval: ownerEval },
-      { ...options, visibilityTimeoutSec },
-    );
+    const first = createRedisQueue(client, options);
     const second = createRedisQueue(client, options);
     const handler = vi.fn(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -179,231 +164,13 @@ describe('Redis atomic queue transitions', () => {
     try {
       await first.publish(envelope());
       await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
-      const entries = await client.lrange(`${prefix}:processing`, 0, -1);
-      expect(JSON.parse(entries[0] ?? '{}')).toMatchObject({
-        leaseDurationMs,
-      });
       second.subscribe(handler);
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(handler).toHaveBeenCalledOnce();
       expect(await client.lrange(`${prefix}:processing`, 0, -1)).toEqual([]);
-      if (visibilityTimeoutSec > 30) {
-        expect(ownerEval).not.toHaveBeenCalledWith(RedisQueueScripts.renew, expect.anything());
-      }
     } finally {
       await Promise.all([first.close(), second.close()]);
     }
-  });
-  it('honors an existing lease before allowing concurrent reclaimers to recover it', async () => {
-    const prefix = crypto.randomUUID();
-    const raw = JSON.stringify(envelope());
-    const entry = {
-      envelope: raw,
-      deliveryId: 'old-owner',
-      dequeuedAt: Date.now() - 200,
-      leaseDurationMs: 1000,
-    };
-    const active = JSON.stringify(entry);
-    await client.lpush(`${prefix}:processing`, active);
-    const options = {
-      keys: [`${prefix}:processing`, `${prefix}:pending`],
-      arguments: ['90'],
-    };
-    expect(await client.eval?.(RedisQueueScripts.reclaim, options)).toBe(0);
-    expect(await client.lrange(`${prefix}:processing`, 0, -1)).toEqual([active]);
-
-    const expired = JSON.stringify({ ...entry, dequeuedAt: Date.now() - 2000 });
-    await admin.lSet(`${prefix}:processing`, 0, expired);
-    const other = await tryCreateRedisClient({ host: '127.0.0.1', port }, {});
-    try {
-      const results = await Promise.all(
-        [client, other].map((connection) => connection.eval?.(RedisQueueScripts.reclaim, options)),
-      );
-      expect(results.sort()).toEqual([0, 1]);
-      expect(await client.lrange(`${prefix}:pending`, 0, -1)).toEqual([raw]);
-      const newOwner = await client.eval?.(RedisQueueScripts.claim, {
-        keys: [`${prefix}:pending`, `${prefix}:processing`],
-        arguments: ['0', 'new-owner', '90'],
-      });
-      expect(
-        await client.eval?.(RedisQueueScripts.renew, {
-          keys: [`${prefix}:processing`],
-          arguments: [expired, '1000'],
-        }),
-      ).toBe(0);
-      expect(await client.lrem(`${prefix}:processing`, 1, expired)).toBe(0);
-      expect(await client.lrange(`${prefix}:processing`, 0, -1)).toEqual([newOwner]);
-    } finally {
-      await other.quit();
-    }
-  });
-
-  it('renews the configured lease using Redis time', async () => {
-    const prefix = crypto.randomUUID();
-    const raw = JSON.stringify(envelope());
-    const previous = JSON.stringify({
-      envelope: raw,
-      deliveryId: 'owner',
-      dequeuedAt: Date.now() - 200,
-      leaseDurationMs: 1000,
-    });
-    await client.lpush(`${prefix}:processing`, previous);
-    const beforeRenewal = Date.now();
-    const renewed = await client.eval?.(RedisQueueScripts.renew, {
-      keys: [`${prefix}:processing`],
-      arguments: [previous, '1000'],
-    });
-    if (typeof renewed !== 'string') throw new DataInternalError('Expected renewed delivery');
-    const decoded = JSON.parse(renewed);
-    expect(decoded).toMatchObject({ envelope: raw, deliveryId: 'owner', leaseDurationMs: 1000 });
-    expect(decoded.dequeuedAt).toBeGreaterThanOrEqual(beforeRenewal);
-    expect(
-      await client.eval?.(RedisQueueScripts.reclaim, {
-        keys: [`${prefix}:processing`, `${prefix}:pending`],
-        arguments: ['90'],
-      }),
-    ).toBe(0);
-    expect(await client.lrange(`${prefix}:processing`, 0, -1)).toEqual([renewed]);
-  });
-
-  it.each([
-    1000, 30000, 60000, 3600000,
-  ])('preserves configured recovery timing for matching workers (visibilityMs=%s)', async (visibilityMs) => {
-    const prefix = crypto.randomUUID();
-    const raw = JSON.stringify(envelope());
-    await client.lpush(`${prefix}:pending`, raw);
-    const claimed = await client.eval?.(RedisQueueScripts.claim, {
-      keys: [`${prefix}:pending`, `${prefix}:processing`],
-      arguments: ['0', 'owner', String(visibilityMs)],
-    });
-    if (typeof claimed !== 'string') throw new DataInternalError('Expected claimed delivery');
-    const decoded = JSON.parse(claimed);
-    expect(decoded.leaseDurationMs).toBe(visibilityMs);
-    const reclaimOptions = {
-      keys: [`${prefix}:processing`, `${prefix}:pending`],
-      arguments: [String(visibilityMs)],
-    };
-    await admin.lSet(
-      `${prefix}:processing`,
-      0,
-      JSON.stringify({
-        ...decoded,
-        dequeuedAt: Date.now() - visibilityMs + 200,
-      }),
-    );
-    expect(await client.eval?.(RedisQueueScripts.reclaim, reclaimOptions)).toBe(0);
-    await admin.lSet(
-      `${prefix}:processing`,
-      0,
-      JSON.stringify({
-        ...decoded,
-        dequeuedAt: Date.now() - visibilityMs - 200,
-      }),
-    );
-    expect(await client.eval?.(RedisQueueScripts.reclaim, reclaimOptions)).toBe(1);
-    expect(await client.lrange(`${prefix}:pending`, 0, -1)).toEqual([raw]);
-  });
-
-  it.each([
-    30000,
-    10 * 365 * 24 * 60 * 60 * 1000,
-  ])('recovers an overflowing lease with the default duration while preserving reclaimer thresholds (lease=%s)', async (leaseDurationMs) => {
-    const prefix = crypto.randomUUID();
-    const raw = JSON.stringify(envelope());
-    await client.lpush(
-      `${prefix}:processing`,
-      JSON.stringify({
-        envelope: raw,
-        dequeuedAt: Date.now() - 31000,
-        leaseDurationMs,
-      }),
-    );
-    const keys = [`${prefix}:processing`, `${prefix}:pending`];
-    expect(
-      await client.eval?.(RedisQueueScripts.reclaim, {
-        keys,
-        arguments: [String(10 * 365 * 24 * 60 * 60 * 1000)],
-      }),
-    ).toBe(0);
-    expect(
-      await client.eval?.(RedisQueueScripts.reclaim, {
-        keys,
-        arguments: ['90'],
-      }),
-    ).toBe(1);
-    expect(await client.lrange(`${prefix}:pending`, 0, -1)).toEqual([raw]);
-  });
-
-  it('recovers a stopped long-timeout owner after its bounded lease expires', async () => {
-    const prefix = crypto.randomUUID();
-    const first = createRedisQueue(client, {
-      prefix,
-      ownsClient: false,
-      pollIntervalMs: 5,
-      visibilityTimeoutSec: 10 * 365 * 24 * 60 * 60,
-      shutdownTimeoutMs: 10,
-    });
-    const second = createRedisQueue(client, {
-      prefix,
-      ownsClient: false,
-      pollIntervalMs: 5,
-      visibilityTimeoutSec: 0.09,
-    });
-    let finish = () => {};
-    const pending = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const stoppedHandler = vi.fn(() => pending);
-    const recoveredHandler = vi.fn(async () => {});
-    first.subscribe(stoppedHandler);
-    try {
-      await first.publish(envelope());
-      await vi.waitFor(() => expect(stoppedHandler).toHaveBeenCalledOnce());
-      await first.close();
-      const entries = await client.lrange(`${prefix}:processing`, 0, -1);
-      const abandoned = JSON.parse(entries[0] ?? '{}');
-      expect(abandoned.leaseDurationMs).toBe(30000);
-      // Simulate the lease elapsing without a thirty-second wall-clock wait.
-      await admin.lSet(
-        `${prefix}:processing`,
-        0,
-        JSON.stringify({
-          ...abandoned,
-          dequeuedAt: Date.now() - 31000,
-        }),
-      );
-      second.subscribe(recoveredHandler);
-      await vi.waitFor(() => expect(recoveredHandler).toHaveBeenCalledOnce());
-      expect(await client.lrange(`${prefix}:processing`, 0, -1)).toEqual([]);
-      expect(stoppedHandler).toHaveBeenCalledOnce();
-    } finally {
-      finish();
-      await Promise.all([first.close(), second.close()]);
-    }
-  });
-
-  it.each([
-    'invalid',
-    -1,
-    null,
-  ])('recovers entries with invalid lease metadata (%s)', async (leaseDurationMs) => {
-    const prefix = crypto.randomUUID();
-    const raw = JSON.stringify(envelope());
-    await client.lpush(
-      `${prefix}:processing`,
-      JSON.stringify({
-        envelope: raw,
-        dequeuedAt: Date.now() - 1000,
-        leaseDurationMs,
-      }),
-    );
-    expect(
-      await client.eval?.(RedisQueueScripts.reclaim, {
-        keys: [`${prefix}:processing`, `${prefix}:pending`],
-        arguments: ['90'],
-      }),
-    ).toBe(1);
-    expect(await client.lrange(`${prefix}:pending`, 0, -1)).toEqual([raw]);
   });
   it('distinguishes authentication and malformed connection configuration', async () => {
     await (admin as any).sendCommand(['CONFIG', 'SET', 'requirepass', 'test-password']);

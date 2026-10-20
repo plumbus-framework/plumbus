@@ -72,7 +72,7 @@ export interface RedisQueueConfig {
   prefix?: string;
   /** Poll interval in ms for subscriber polling (default: 1000) */
   pollIntervalMs?: number;
-  /** Stale-message recovery threshold in seconds (default: 30). Active delivery leases are also honored. */
+  /** Visibility timeout in seconds — how long a message is hidden after dequeue (default: 30) */
   visibilityTimeoutSec?: number;
   reclaimIntervalMs?: number;
   shutdownTimeoutMs?: number;
@@ -105,18 +105,21 @@ export interface RedisQueueOptions extends Partial<RedisQueueConfig> {
   logger?: Pick<LoggerService, 'error' | 'warn'>;
 }
 
+// Node timers silently clamp delays above 2^31 - 1 ms to 1 ms
+// (TimeoutOverflowWarning), so the lease-renewal interval must never
+// exceed the timer cap no matter how large the visibility timeout is.
+const MAX_TIMER_INTERVAL_MS = 2 ** 31 - 1;
+
 /**
- * Create a Redis-backed event queue.
- *
- * Uses a simple list-based pattern:
- * - Publish: LPUSH events to the queue list
- * - Subscribe: Poll with RPOPLPUSH to a processing list
- * - Ack: LREM from processing list after successful handling
- *
- * This provides at-least-once delivery with crash recovery:
- * if the consumer crashes, unacknowledged events remain in the
- * processing list and can be recovered.
+ * Lease-renewal tick interval: one third of the visibility timeout, bounded
+ * to Node's maximum timer delay. Huge "never reclaim" visibility timeouts
+ * (multi-poller setups) renew at most once per ~24.8 days instead of
+ * overflowing the timer and firing every 1 ms.
  */
+export function leaseRenewalIntervalMs(visibilityTimeoutMs: number): number {
+  return Math.min(Math.max(1, Math.floor(visibilityTimeoutMs / 3)), MAX_TIMER_INTERVAL_MS);
+}
+
 function unwrapEnvelope(raw: string): string {
   try {
     const parsed = JSON.parse(raw) as { envelope?: string };
@@ -129,20 +132,6 @@ function unwrapEnvelope(raw: string): string {
   return raw;
 }
 
-const MaxTimerDelayMs = 2_147_483_647;
-const DefaultRedisLeaseDurationMs = 30000;
-
-// Preserve configured leases whenever their renewal timer is representable.
-// Overflowing timers use the existing default lease, not a years-long expiry.
-const leaseDurationScript = `
-local function leaseDuration(value, fallback)
-  local duration = tonumber(value)
-  if not duration or duration ~= duration or duration <= 0 then return fallback end
-  if math.floor(duration / 3) > ${MaxTimerDelayMs} then return ${DefaultRedisLeaseDurationMs} end
-  return duration
-end
-`;
-
 // All transitions validate types before writing. Redis scripts are atomic, but
 // do not roll back earlier writes if a later command fails.
 const listCheck = `
@@ -154,13 +143,12 @@ for _, key in ipairs(KEYS) do
 end
 `;
 export const RedisQueueScripts = {
-  claim: `${listCheck}${leaseDurationScript}
+  claim: `${listCheck}
 local raw = redis.call('LINDEX', KEYS[1], -1)
 if not raw then return nil end
 local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
-local leaseDurationMs = leaseDuration(ARGV[3], ${DefaultRedisLeaseDurationMs})
-local wrapped = cjson.encode({ envelope = raw, dequeuedAt = now, deliveryId = ARGV[2], leaseDurationMs = leaseDurationMs })
+local wrapped = cjson.encode({ envelope = raw, dequeuedAt = now, deliveryId = ARGV[2] })
 redis.call('LPUSH', KEYS[2], wrapped)
 redis.call('RPOP', KEYS[1])
 return wrapped
@@ -175,7 +163,7 @@ for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
 end
 return 0
 `,
-  reclaim: `${listCheck}${leaseDurationScript}
+  reclaim: `${listCheck}
 local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local moved = 0
@@ -183,9 +171,7 @@ for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
   local ok, decoded = pcall(cjson.decode, entry)
   local wrapped = ok and type(decoded) == 'table' and type(decoded.envelope) == 'string'
   local dequeuedAt = wrapped and tonumber(decoded.dequeuedAt) or 0
-  local leaseDurationMs = wrapped and leaseDuration(decoded.leaseDurationMs, 0) or 0
-  local staleAfterMs = math.max(tonumber(ARGV[1]), leaseDurationMs)
-  if not dequeuedAt or dequeuedAt == 0 or now - dequeuedAt >= staleAfterMs then
+  if not dequeuedAt or dequeuedAt == 0 or now - dequeuedAt >= tonumber(ARGV[1]) then
     redis.call('LPUSH', KEYS[2], wrapped and decoded.envelope or entry)
     redis.call('LREM', KEYS[1], 1, entry)
     moved = moved + 1
@@ -193,13 +179,12 @@ for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
 end
 return moved
 `,
-  renew: `${listCheck}${leaseDurationScript}
+  renew: `${listCheck}
 for index, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
   if entry == ARGV[1] then
     local decoded = cjson.decode(entry)
     local clock = redis.call('TIME')
     decoded.dequeuedAt = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
-    decoded.leaseDurationMs = leaseDuration(ARGV[2], ${DefaultRedisLeaseDurationMs})
     local renewed = cjson.encode(decoded)
     redis.call('LSET', KEYS[1], index - 1, renewed)
     return renewed
@@ -222,6 +207,18 @@ const envelopeSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+/**
+ * Create a Redis-backed event queue.
+ *
+ * Uses a simple list-based pattern:
+ * - Publish: LPUSH events to the queue list
+ * - Subscribe: Poll with RPOPLPUSH to a processing list
+ * - Ack: LREM from processing list after successful handling
+ *
+ * This provides at-least-once delivery with crash recovery:
+ * if the consumer crashes, unacknowledged events remain in the
+ * processing list and can be recovered.
+ */
 export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions): EventQueue {
   if (!client.eval) throw new DataValidationError('Redis queues require atomic script support');
   const evaluate = client.eval.bind(client);
@@ -235,10 +232,6 @@ export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions
       throw new DataValidationError('Queue timing values must be positive finite numbers');
     }
   }
-  const leaseDurationMs =
-    Math.floor(visibilityTimeoutMs / 3) > MaxTimerDelayMs
-      ? DefaultRedisLeaseDurationMs
-      : visibilityTimeoutMs;
   const ownsClient = config?.ownsClient ?? true;
   const logger = config?.logger ?? console;
   const queueKey = `${prefix}:pending`;
@@ -282,7 +275,7 @@ export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions
       if (closed || subscribers.length === 0) return;
       const claimed = await evaluate(RedisQueueScripts.claim, {
         keys: [queueKey, processingKey],
-        arguments: [String(Date.now()), crypto.randomUUID(), String(leaseDurationMs)],
+        arguments: [String(Date.now()), crypto.randomUUID()],
       });
       if (typeof claimed !== 'string') {
         failures = 0;
@@ -307,28 +300,24 @@ export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions
       const envelope = { ...parsed.data, payload: parsed.data.payload } as EventEnvelope;
       let lost = false;
       let renewing: Promise<void> | undefined;
-      const renewalTimer = setInterval(
-        () => {
-          if (renewing || closed || lost) return;
-          renewing = (async () => {
-            const updated = await evaluate(RedisQueueScripts.renew, {
-              keys: [processingKey],
-              arguments: [raw, String(leaseDurationMs)],
-            });
-            if (typeof updated === 'string') raw = updated;
-            else lost = true;
-          })()
-            .catch(() => {
-              lost = true;
-              report('renew');
-            })
-            .finally(() => {
-              renewing = undefined;
-            });
-        },
-        // Overflowing visibility settings use the default lease instead of Node's 1 ms fallback.
-        Math.max(1, Math.floor(leaseDurationMs / 3)),
-      );
+      const renewalTimer = setInterval(() => {
+        if (renewing || closed || lost) return;
+        renewing = (async () => {
+          const updated = await evaluate(RedisQueueScripts.renew, {
+            keys: [processingKey],
+            arguments: [raw],
+          });
+          if (typeof updated === 'string') raw = updated;
+          else lost = true;
+        })()
+          .catch(() => {
+            lost = true;
+            report('renew');
+          })
+          .finally(() => {
+            renewing = undefined;
+          });
+      }, leaseRenewalIntervalMs(visibilityTimeoutMs));
       activeRenewal = renewalTimer;
       let results: PromiseSettledResult<void>[];
       try {

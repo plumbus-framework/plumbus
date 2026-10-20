@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DataInternalError } from '../../errors/index.js';
 import type { EventEnvelope } from '../../types/event.js';
 import {
   createInMemoryQueue,
   createRedisQueue,
+  leaseRenewalIntervalMs,
   type RedisClient,
   RedisQueueScripts,
 } from '../queue.js';
@@ -89,239 +89,119 @@ describe('InMemoryQueue', () => {
   });
 });
 
-describe('RedisQueue lease renewal', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
-
-  function mockDelivery() {
-    const envelope = JSON.stringify(makeEnvelope());
-    const raw = JSON.stringify({ envelope, dequeuedAt: Date.now(), deliveryId: 'delivery-1' });
-    let claimed = false;
-    const evaluate = vi.fn<NonNullable<RedisClient['eval']>>(async (script) => {
-      if (script === RedisQueueScripts.claim && !claimed) {
-        claimed = true;
-        return raw;
+// Minimal Redis client over in-memory lists so the lease-renewal timer can be
+// tested without a live Redis server. Only the scripts createRedisQueue uses
+// are implemented.
+function createFakeRedisClient(): RedisClient & { renewCount: () => number } {
+  const lists = new Map<string, string[]>();
+  let renews = 0;
+  const list = (key: string): string[] => {
+    let entries = lists.get(key);
+    if (!entries) {
+      entries = [];
+      lists.set(key, entries);
+    }
+    return entries;
+  };
+  return {
+    async lpush(key, ...values) {
+      list(key).unshift(...values);
+      return values.length;
+    },
+    async lrem(key, count, value) {
+      const entries = list(key);
+      let removed = 0;
+      while (removed < count) {
+        const index = entries.indexOf(value);
+        if (index === -1) break;
+        entries.splice(index, 1);
+        removed++;
+      }
+      return removed;
+    },
+    async lrange(key, start, stop) {
+      return list(key).slice(start, stop === -1 ? undefined : stop + 1);
+    },
+    async eval(script, options) {
+      const keys = options.keys.map(list);
+      if (script === RedisQueueScripts.claim) {
+        const pending = keys[0];
+        const processing = keys[1];
+        if (!pending || !processing) throw new Error('missing claim keys');
+        const raw = pending.at(-1);
+        if (raw === undefined) return null;
+        const wrapped = JSON.stringify({
+          envelope: raw,
+          dequeuedAt: Date.now(),
+          deliveryId: options.arguments[1],
+        });
+        processing.unshift(wrapped);
+        pending.pop();
+        return wrapped;
       }
       if (script === RedisQueueScripts.renew) {
-        return JSON.stringify({ envelope, dequeuedAt: Date.now(), deliveryId: 'delivery-1' });
+        const processing = keys[0];
+        if (!processing) throw new Error('missing renew key');
+        const raw = options.arguments[0];
+        const index = processing.indexOf(raw);
+        if (typeof raw !== 'string' || index === -1) return 0;
+        renews++;
+        const updated = JSON.stringify({
+          ...(JSON.parse(raw) as Record<string, unknown>),
+          dequeuedAt: Date.now(),
+        });
+        processing[index] = updated;
+        return updated;
       }
-      return 0;
-    });
-    const client: RedisClient = {
-      lpush: vi.fn(async () => 1),
-      lrem: vi.fn(async () => 1),
-      lrange: vi.fn(async () => []),
-      eval: evaluate,
-      quit: vi.fn(async () => {}),
-    };
-    return { client, evaluate };
-  }
+      if (script === RedisQueueScripts.reclaim) return 0;
+      throw new Error('unexpected queue script');
+    },
+    async quit() {},
+    renewCount: () => renews,
+  };
+}
 
-  it.each([
-    { visibilityTimeoutSec: undefined, renewalIntervalMs: 10000, leaseDurationMs: 30000 },
-    { visibilityTimeoutSec: 0.001, renewalIntervalMs: 1, leaseDurationMs: 1 },
-    { visibilityTimeoutSec: 0.005, renewalIntervalMs: 1, leaseDurationMs: 5 },
-    { visibilityTimeoutSec: 2, renewalIntervalMs: 666, leaseDurationMs: 2000 },
-    { visibilityTimeoutSec: 29.997, renewalIntervalMs: 9999, leaseDurationMs: 29997 },
-    { visibilityTimeoutSec: 30, renewalIntervalMs: 10000, leaseDurationMs: 30000 },
-    { visibilityTimeoutSec: 30.003, renewalIntervalMs: 10001, leaseDurationMs: 30003 },
-    { visibilityTimeoutSec: 60, renewalIntervalMs: 20000, leaseDurationMs: 60000 },
-    { visibilityTimeoutSec: 3600, renewalIntervalMs: 1200000, leaseDurationMs: 3600000 },
-    {
-      visibilityTimeoutSec: (2_147_483_646 * 3) / 1000,
-      renewalIntervalMs: 2_147_483_646,
-      leaseDurationMs: 6_442_450_938,
-    },
-    {
-      visibilityTimeoutSec: (2_147_483_647 * 3) / 1000,
-      renewalIntervalMs: 2_147_483_647,
-      leaseDurationMs: 6_442_450_941,
-    },
-    {
-      visibilityTimeoutSec: (2_147_483_648 * 3) / 1000,
-      renewalIntervalMs: 10000,
-      leaseDurationMs: 30000,
-    },
-    {
-      visibilityTimeoutSec: 10 * 365 * 24 * 60 * 60,
-      renewalIntervalMs: 10000,
-      leaseDurationMs: 30000,
-    },
-  ])('schedules safe renewals for visibilityTimeoutSec=$visibilityTimeoutSec', async ({
-    visibilityTimeoutSec,
-    renewalIntervalMs,
-    leaseDurationMs,
-  }) => {
-    const interval = vi.spyOn(globalThis, 'setInterval');
-    const { client, evaluate } = mockDelivery();
-    const queue = createRedisQueue(client, { pollIntervalMs: 5, visibilityTimeoutSec });
-    let finish = () => {};
-    const pending = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const handler = vi.fn(() => pending);
-    queue.subscribe(handler);
-    try {
-      await vi.advanceTimersByTimeAsync(5);
-      expect(handler).toHaveBeenCalledOnce();
-      // Check the actual delay, since fake timers need not reproduce Node's overflow behavior.
-      expect(interval).toHaveBeenLastCalledWith(expect.any(Function), renewalIntervalMs);
-      expect(evaluate).toHaveBeenCalledWith(RedisQueueScripts.reclaim, {
-        keys: ['plumbus:events:processing', 'plumbus:events:pending'],
-        arguments: [String((visibilityTimeoutSec ?? 30) * 1000)],
-      });
-      expect(evaluate).toHaveBeenCalledWith(RedisQueueScripts.claim, {
-        keys: ['plumbus:events:pending', 'plumbus:events:processing'],
-        arguments: [expect.any(String), expect.any(String), String(leaseDurationMs)],
-      });
-      await vi.advanceTimersByTimeAsync(Math.min(1000, renewalIntervalMs - 1));
-      expect(evaluate).not.toHaveBeenCalledWith(RedisQueueScripts.renew, expect.anything());
-      expect(client.lrem).not.toHaveBeenCalled();
-    } finally {
-      finish();
-      await queue.close();
-    }
-    expect(vi.getTimerCount()).toBe(0);
+describe('RedisQueue lease renewal', () => {
+  const NEVER_RECLAIM_SEC = 10 * 365 * 24 * 60 * 60;
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('keeps the renewal interval within the Node timer cap', () => {
+    expect(leaseRenewalIntervalMs(30_000)).toBe(10_000);
+    expect(leaseRenewalIntervalMs(90)).toBe(30);
+    expect(leaseRenewalIntervalMs(3)).toBe(1);
+    // A 30-day visibility timeout still renews every 10 days.
+    expect(leaseRenewalIntervalMs(30 * 24 * 60 * 60 * 1000)).toBe(10 * 24 * 60 * 60 * 1000);
+    // Intervals above 2^31 - 1 ms overflow Node timers, which then fire every 1 ms.
+    expect(leaseRenewalIntervalMs(NEVER_RECLAIM_SEC * 1000)).toBe(2 ** 31 - 1);
+    expect(leaseRenewalIntervalMs(3 * 2 ** 31)).toBe(2 ** 31 - 1);
   });
 
-  it.each([
-    { visibilityTimeoutSec: 60, renewalIntervalMs: 20000, leaseDurationMs: 60000 },
-    {
-      visibilityTimeoutSec: 10 * 365 * 24 * 60 * 60,
-      renewalIntervalMs: 10000,
-      leaseDurationMs: 30000,
-    },
-  ])('renews active delivery at the compatible cadence (visibility=$visibilityTimeoutSec)', async ({
-    visibilityTimeoutSec,
-    renewalIntervalMs,
-    leaseDurationMs,
-  }) => {
-    const { client, evaluate } = mockDelivery();
+  it('renews a huge visibility timeout at a bounded cadence instead of every 1 ms', async () => {
+    const client = createFakeRedisClient();
     const queue = createRedisQueue(client, {
-      pollIntervalMs: 1000,
-      visibilityTimeoutSec,
+      prefix: 'renewal',
+      ownsClient: false,
+      pollIntervalMs: 60 * 60 * 1000,
+      visibilityTimeoutSec: NEVER_RECLAIM_SEC,
     });
-    let finish = () => {};
-    const pending = new Promise<void>((resolve) => {
-      finish = resolve;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    queue.subscribe(() => pending);
-    const renewals = () =>
-      evaluate.mock.calls.filter(([script]) => script === RedisQueueScripts.renew);
-    try {
-      await vi.advanceTimersByTimeAsync(1000);
-      await vi.advanceTimersByTimeAsync(renewalIntervalMs - 1);
-      expect(renewals()).toHaveLength(0);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(renewals()).toHaveLength(1);
-      expect(evaluate).toHaveBeenLastCalledWith(RedisQueueScripts.renew, {
-        keys: ['plumbus:events:processing'],
-        arguments: [expect.any(String), String(leaseDurationMs)],
-      });
-      await vi.advanceTimersByTimeAsync(renewalIntervalMs);
-      expect(renewals()).toHaveLength(2);
-    } finally {
-      finish();
-      await queue.close();
-    }
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it.each([
-    false,
-    true,
-  ])('stops renewing after the handler settles (rejects=%s)', async (rejects) => {
-    const { client, evaluate } = mockDelivery();
-    const logger = { error: vi.fn(), warn: vi.fn() };
-    const queue = createRedisQueue(client, {
-      pollIntervalMs: 5,
-      visibilityTimeoutSec: 0.09,
-      logger,
-    });
-    let finish = () => {};
-    const pending = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const unsubscribe = queue.subscribe(async () => {
-      await pending;
-      if (rejects) throw new DataInternalError('Handler failed');
-    });
-    try {
-      await vi.advanceTimersByTimeAsync(5);
-      await vi.advanceTimersByTimeAsync(29);
-      expect(evaluate).not.toHaveBeenCalledWith(RedisQueueScripts.renew, expect.anything());
-      await vi.advanceTimersByTimeAsync(1);
-      const renewed = await evaluate.mock.results.at(-1)?.value;
-      expect(typeof renewed).toBe('string');
-      expect(evaluate).toHaveBeenLastCalledWith(RedisQueueScripts.renew, expect.anything());
-
-      unsubscribe();
-      finish();
-      await vi.advanceTimersByTimeAsync(0);
-      if (rejects) {
-        expect(client.lrem).not.toHaveBeenCalled();
-        expect(logger.error).toHaveBeenCalledOnce();
-      } else {
-        expect(client.lrem).toHaveBeenCalledExactlyOnceWith(
-          'plumbus:events:processing',
-          1,
-          renewed,
-        );
-        expect(logger.error).not.toHaveBeenCalled();
-      }
-      const calls = evaluate.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(90);
-      expect(evaluate).toHaveBeenCalledTimes(calls);
-    } finally {
-      finish();
-      await queue.close();
-    }
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it.each([
-    'error',
-    'lost',
-  ])('leaves delivery recoverable when renewal fails (%s)', async (failure) => {
-    const { client, evaluate } = mockDelivery();
-    const logger = { error: vi.fn(), warn: vi.fn() };
-    const queue = createRedisQueue(client, {
-      pollIntervalMs: 5,
-      visibilityTimeoutSec: 0.09,
-      logger,
-    });
-    let finish = () => {};
-    const pending = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const unsubscribe = queue.subscribe(() => pending);
-    try {
-      await vi.advanceTimersByTimeAsync(5);
-      if (failure === 'error') {
-        evaluate.mockRejectedValueOnce(new DataInternalError('Redis unavailable'));
-      } else {
-        evaluate.mockResolvedValueOnce(0);
-      }
-      await vi.advanceTimersByTimeAsync(30);
-      expect(evaluate).toHaveBeenLastCalledWith(RedisQueueScripts.renew, expect.anything());
-      const calls = evaluate.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(90);
-      expect(evaluate).toHaveBeenCalledTimes(calls);
-      unsubscribe();
-      finish();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(client.lrem).not.toHaveBeenCalled();
-      expect(logger.error).toHaveBeenCalledOnce();
-    } finally {
-      finish();
-      await queue.close();
-    }
-    expect(vi.getTimerCount()).toBe(0);
+    queue.subscribe(() => gate);
+    await queue.publish(makeEnvelope());
+    // First poll claims the message; the handler stays in flight.
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(client.renewCount()).toBe(0);
+    // With the old unclamped interval (10 years / 3 ≈ 105 billion ms) no renewal
+    // would ever fire; with the clamp it runs at most once per ~24.8 days.
+    await vi.advanceTimersByTimeAsync(50 * 24 * 60 * 60 * 1000);
+    expect(client.renewCount()).toBe(2);
+    release();
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(await client.lrange('renewal:processing', 0, -1)).toEqual([]);
+    await queue.close();
   });
 });

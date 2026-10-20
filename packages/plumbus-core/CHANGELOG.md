@@ -2,7 +2,9 @@
 
 ## 0.8.2 — 2026-10-20
 
-- Fix Redis renewal storms and premature reclamation when queue workers use different visibility timeouts. Preserve configured lease durations and renewal cadence whenever Node can schedule them; only overflowing renewal intervals fall back to the existing default 30-second lease and 10-second cadence. Reclaimers honor the owner's recorded lease as well as their own configured recovery threshold, preserving recovery timing for matching workers. The lease field is additive and older entries remain recoverable; no application configuration or database migration is needed. Older reclaimers can still exhibit the original bug during a rolling upgrade. See [workers and queues](../../docs/architecture/workers-and-queues.md).
+- Pin the test and publish workflows to Ubuntu 24.04 so their PostgreSQL 16 prerequisites remain installable after `ubuntu-latest` moves to Ubuntu 26.04.
+
+- Fix a Redis lease-renewal regression that could hammer Redis with ~1,000 renew calls per second per in-flight delivery. Plumbus 0.8 renewed each active lease on a timer of `visibilityTimeoutSec / 3`; with a very large visibility timeout (for example the 10-year "never reclaim" value used to keep extra pollers in multi-worker deployments from stealing stale messages), the interval exceeded Node's ~24.8-day timer maximum, so `setInterval` overflowed (`TimeoutOverflowWarning`) and silently fired every 1 ms. The renewal interval is now clamped to 2^31 − 1 ms: ordinary timeouts keep renewing every `visibilityTimeoutSec / 3`, and decade-long timeouts renew at most once per ~24.8 days. 0.7.9 only compared this value and was unaffected.
 
 ## 0.8.1 — 2026-10-13
 
