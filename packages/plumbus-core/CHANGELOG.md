@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## 0.8.2 — 2026-10-20
+
+- Fix Redis renewal storms and premature reclamation when queue workers use different visibility timeouts. Preserve configured lease durations and renewal cadence whenever Node can schedule them; only overflowing renewal intervals fall back to the existing default 30-second lease and 10-second cadence. Reclaimers honor the owner's recorded lease as well as their own configured recovery threshold, preserving recovery timing for matching workers. The lease field is additive and older entries remain recoverable; no application configuration or database migration is needed. Older reclaimers can still exhibit the original bug during a rolling upgrade. See [workers and queues](../../docs/architecture/workers-and-queues.md).
+
 ## 0.8.1 — 2026-10-13
 
 - The Redis delayed-wake promoter no longer crashes with an unhandled promise rejection on every tick while Redis is unreachable. Its timer started each tick with `void promoteOnce()`, so a failed command (`ECONNREFUSED`) became an unhandled rejection until Redis came back. Each tick now catches the error, logs one warning (`Delayed flow wake promotion failed; retrying next tick`, with the error message), and tries again on the next tick. (#80)

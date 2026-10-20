@@ -168,6 +168,12 @@ Capability handler
 
 All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` or `createRedisQueue`). Redis queues use atomic Lua rewrap on dequeue and a single shared client quit on shutdown. Legacy processing entries without `dequeuedAt` are requeued on recovery. A configurable visibility timeout (`queue.visibilityTimeoutSec`, default 30 seconds) handles poison-message recovery.
 
+Each Redis processing entry records its owner's renewable `leaseDurationMs`. Configured visibility timeouts and their renewal cadence are preserved whenever Node can schedule the timer: renewal runs every one-third of the timeout, rounded down to whole milliseconds with a minimum interval of 1 ms. For example, a 60-second timeout still renews every 20 seconds. If the calculated renewal interval exceeds Node's 2,147,483,647 ms limit, the active lease instead uses the framework's default 30-second duration and 10-second renewal interval. This fixes the overflow without granting an abandoned delivery a years-long lease. The poller's configured stale-reclamation threshold still applies in full. Claim and renewal timestamps come from Redis time. Renewal stops when handling settles, ownership is lost, renewal fails, or the queue closes.
+
+A reclaimer must wait for **both** the delivery's lease and its own configured visibility timeout to expire since the last claim or renewal. A poller with a shorter timeout therefore cannot reclaim another owner's unexpired lease. Matching workers retain their existing recovery timing. When workers have conflicting settings, a shorter-timeout reclaimer honors the owner's recorded lease instead of prematurely interrupting it; after renewals stop, recovery occurs once both thresholds have elapsed. Only overflowing timer settings use the default lease fallback described above.
+
+The lease field is additive: existing entries remain readable, and entries without `leaseDurationMs` retain the previous recovery behavior. No application configuration or database migration is required. During a rolling upgrade, older reclaimers can still exhibit the original premature-reclamation bug until they are updated; there is no incompatible queue format. At-least-once delivery still requires idempotent effects, including when a worker continues running after losing its lease.
+
 **Outbox claims:** the dispatcher sets a row to `processing` before publishing it. A claim older than five minutes (`createOutboxDispatcher({ claimTimeoutMs })`) belongs to a dispatcher that stopped between claim and publish; the next poll returns it to `pending` and publishes it again. Consumer idempotency absorbs the duplicate if the first publish had gone through.
 
 The flow step queue consumer calls `claimExecution(executionId)` before `runNext` to prevent double execution alongside the DB poll loop.
@@ -203,7 +209,7 @@ Job capabilities are registered as consumers on the jobs queue. HTTP `POST` and 
 
 **Security at dequeue:** the job consumer loads `job_executions` by ID, atomically claims `queued → running`, and uses `auth_snapshot_json` from the row for authorization and execution context. Queue payload `auth` is never trusted. Capability domain/name must match the row.
 
-**Crash recovery:** if a worker dies while a job is `running`, delivery is not acknowledged. After `queue.visibilityTimeoutSec` (default 30s), another worker reclaims the stale `running` row and retries execution. Duplicate deliveries for terminal jobs (`completed`, `failed`, `dead_lettered`) are acknowledged without re-running the handler.
+**Crash recovery:** if a worker dies while a job is `running`, delivery is not acknowledged. Once the delivery lease and the reclaiming worker's `queue.visibilityTimeoutSec` (default 30s) have expired, another worker reclaims the delivery and retries the stale `running` row. Duplicate deliveries for terminal jobs (`completed`, `failed`, `dead_lettered`) are acknowledged without re-running the handler.
 
 The direct HTTP/MCP `dispatchQueuedJob` path marks the row `failed` if its initial queue publish fails. Built-in `ctx.jobs.enqueue()` instead persists pending dispatch intent and recovers publication failures through worker polling; inside a transaction intent commits with the data. If delivery retries are exhausted, the row is marked `dead_lettered`.
 
