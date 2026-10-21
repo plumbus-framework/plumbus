@@ -27,6 +27,9 @@ commands when a persistent test endpoint is needed.
 
 ## Matching the publication runtime
 
+All GitHub Actions jobs (lint, unit tests, Protocol A crash-matrix, and npm
+publication) use the pinned **Ubuntu 24.04** runner (`ubuntu-24.04`).
+
 The npm publish workflow runs on **Node.js 24**. Run release validation with that
 Node major locally as well (`node --version`), and use `pnpm test --force` after
 switching runtimes so Turborepo does not reuse results produced by another Node
