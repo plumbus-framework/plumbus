@@ -44,6 +44,7 @@ export type {
   AIToolExecutionOptions,
   AICacheConfig,
   AIPromptCacheOption,
+  AIPromptCacheTtl,
   AnthropicAdapterConfig,
   BudgetCheckResult,
   BudgetConfig,

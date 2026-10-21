@@ -154,6 +154,7 @@ To turn caching on for every call, set `AI_PROMPT_CACHE=true` (or a list of sect
 | --- | --- |
 | `true` | Cache system + tools (not messages) |
 | `{ system?, tools?, messages? }` | Per-section control; omitted fields are `false` |
+| `{ …, key?, ttl? }` | OpenAI only — see [OpenAI cache key and ttl](#openai-cache-key-and-ttl) |
 | `false` | No marks, even when the default is on |
 
 `cache: true` marks only the system prompt and tools. In a single-turn call, a prompt's `description` and its input go into the user message, so a prompt that keeps most of its text there gains little. In multi-turn mode (`messages` set), the description and `Input: {...}` are merged into the system prompt, so an input that changes between turns writes a new cache entry every turn. The same applies to input values substituted into `system` through `{{key}}`.
@@ -166,7 +167,33 @@ When enabled, adapters add provider marks:
 | Tools | `cache_control` on the last tool | `cachePoint` at the end of `toolConfig.tools` |
 | Messages | `cache_control` on the last message content block | `cachePoint` at the end of the last message |
 
-OpenAI ignores `cache` (automatic prompt caching). Bedrock emits `cachePoint` only for Claude model ids (`anthropic.claude…`, with or without an inference-profile prefix such as `us.`, `jp.` or `global.`; a model ARN gets none). It skips Claude 3 Haiku, Claude 3 Sonnet, Claude 3 Opus, and Claude 3.5 Sonnet `20240620`, which reject `cachePoint`, Claude 3.5 Sonnet v2 (`20241022`, explicit caching in Preview), and every non-Claude family (Nova caches on its own), so those requests still succeed. Providers also enforce a minimum prefix length; shorter prompts succeed without a cache write. Cache reads and writes come back as `usage.cachedInputTokens` / `usage.cacheWriteTokens` and are priced as before.
+OpenAI caches long prompts automatically and ignores the section flags (and `cache: true`). Bedrock emits `cachePoint` only for Claude model ids (`anthropic.claude…`, with or without an inference-profile prefix such as `us.`, `jp.` or `global.`; a model ARN gets none). It skips Claude 3 Haiku, Claude 3 Sonnet, Claude 3 Opus, and Claude 3.5 Sonnet `20240620`, which reject `cachePoint`, Claude 3.5 Sonnet v2 (`20241022`, explicit caching in Preview), and every non-Claude family (Nova caches on its own), so those requests still succeed. Providers also enforce a minimum prefix length; shorter prompts succeed without a cache write. Cache reads and writes come back as `usage.cachedInputTokens` / `usage.cacheWriteTokens` and are priced as before.
+
+#### OpenAI cache key and ttl
+
+Core 0.9.0-beta.4+. Two fields of the cache object are OpenAI options; Anthropic and Bedrock ignore them:
+
+| Field | Sent as | Notes |
+| --- | --- | --- |
+| `key?: string` | `prompt_cache_key` | Requests that share a reusable prefix and a key are routed to the same cache. Before GPT-5.6 this raises hit rates; from GPT-5.6 it separates cache accounting. An empty string is not sent. |
+| `ttl?: '30m' \| '12h'` | `prompt_cache_options: { ttl }` | Minimum lifetime of the cache entries the request writes. OpenAI documents `prompt_cache_options` for GPT-5.6 and later; `'30m'` is its default. `'12h'` (written at 2.5× the input rate instead of 1.25×) exists on the Responses API only — see below. Omitted → nothing is sent. |
+
+Plumbus does not send the deprecated `prompt_cache_retention`.
+
+**Which API a request uses.** The adapter picks the OpenAI API per request: the Responses API when the request continues a Responses turn, when it has caller tools under active reasoning (or tools on GPT-5.6 / GPT-6 with no reasoning set), or when `structuredOutputTransport: 'tool'` is used on GPT-5.6 / GPT-6; Chat Completions otherwise, and always for `stream`. Because the caller cannot see that choice in the types, a `'12h'` ttl on a request that goes through Chat Completions is **not sent**: OpenAI applies its `'30m'` default, the key is still sent, and the adapter logs one `console.warn` per adapter instance (`OpenAI cache ttl '12h' is a Responses API value; …`). Use `'30m'` (or omit `ttl`) on Chat Completions requests.
+
+Both are written on Chat Completions (`complete` and `stream`) and on the Responses API. `cache: true`, `false`, or an object without them sends neither.
+
+```typescript
+await ctx.ai.generateWithUsage({
+  prompt: "summarizeCourse",
+  input,
+  // Group requests that share the prompt prefix; never put end-user identifiers in the key.
+  cache: { system: true, key: `${tenantId}:summarizeCourse:v3` },
+});
+```
+
+OpenAI recommends about 15 requests per minute per key for busy groups; split higher traffic across several keys with a stable mapping. A service default (`createAIService({ cache: { key, ttl } })` or the `ai.cache` / `aiProviders.cache` config) applies only when a call sets no `cache`, because a per-call option replaces the default as a whole. `AI_PROMPT_CACHE` sets sections only.
 
 For structured-output prompts, you can override validation retries per request when you need faster failure or different retry behavior for one call site:
 

@@ -100,8 +100,8 @@ export interface AIProvidersConfig {
   /** AI prompt security: entity field classification scanning (default mode: redact) */
   security?: AISecurityConfig;
   /**
-   * Default prompt caching for Anthropic / Bedrock calls (`AI_PROMPT_CACHE`).
-   * A per-call `cache` overrides it; OpenAI ignores it.
+   * Default prompt caching (`AI_PROMPT_CACHE`): marks for Anthropic / Bedrock,
+   * `key` / `ttl` for OpenAI. A per-call `cache` overrides it.
    */
   cache?: AIPromptCacheOption;
 }

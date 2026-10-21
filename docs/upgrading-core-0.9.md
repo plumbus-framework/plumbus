@@ -6,6 +6,13 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.4 (2026-10-21): OpenAI prompt-cache key
+
+Only `@plumbus/core` changes (0.9.0-beta.4). Every other package stays where beta.3 left it, and no peer range changes. No database change.
+
+- **New: `cache: { key, ttl }` for OpenAI.** `key` is sent as `prompt_cache_key` and `ttl` (`'30m' | '12h'`) as `prompt_cache_options: { ttl }`, on Chat Completions and the Responses API; Anthropic and Bedrock ignore both. `'12h'` is a Responses API value: on a request the adapter sends through Chat Completions it is not sent (OpenAI's `'30m'` default applies) and one warning is logged per adapter. Calls that set neither send the same request as before. Keep end-user identifiers out of the key. See [OpenAI cache key and ttl](ai/ai-integration.md#openai-cache-key-and-ttl).
+- **No action needed.** Existing `cache` values keep their meaning.
+
 ## v0.9.0-beta.3 (2026-10-18): wake a sleeping flow now
 
 Only `@plumbus/core` changes (0.9.0-beta.3). Every other package stays where beta.2 left it, and no peer range changes. No database change.

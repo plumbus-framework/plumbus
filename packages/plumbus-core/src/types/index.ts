@@ -60,6 +60,7 @@ export type {
   AIDecideConfig,
   AIDecideResult,
   AIPromptCacheOption,
+  AIPromptCacheTtl,
   AIService,
   AIStreamEvent,
   AITokenUsage,

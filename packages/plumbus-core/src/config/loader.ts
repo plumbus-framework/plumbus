@@ -195,7 +195,7 @@ function loadPromptCacheConfig(
       );
       return undefined;
     }
-    cache[section as keyof AICacheConfig] = true;
+    cache[section as (typeof PROMPT_CACHE_SECTIONS)[number]] = true;
   }
   return cache;
 }

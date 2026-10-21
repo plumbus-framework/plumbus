@@ -63,7 +63,7 @@ export interface RunToolLoopParams {
    * own); overrides the prompt's `model.timeoutMs`, as on `generateWithUsage`.
    */
   timeoutMs?: number;
-  /** Prompt caching for Anthropic / Bedrock, forwarded to every round and the final request. */
+  /** Prompt caching (Anthropic / Bedrock marks, OpenAI `key` / `ttl`), forwarded to every round and the final request. */
   cache?: AIPromptCacheOption;
 }
 

@@ -64,6 +64,7 @@ export {
   ProviderAPIError,
   type AICacheConfig,
   type AIPromptCacheOption,
+  type AIPromptCacheTtl,
   type AIProviderAdapter,
   type AIProviderCapabilities,
   type AITool,

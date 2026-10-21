@@ -564,6 +564,39 @@ describe('createBedrockAdapter adversarial / edge cases', () => {
     expect(tools).toHaveLength(1);
   });
 
+  it('11f. OpenAI-only cache key and ttl change nothing on Converse', async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+    const adapter = createBedrockAdapter({
+      region: 'us-east-1',
+      pricingStore: mockPricing(),
+      runtimeClient: { send } as never,
+      warmPricingOnCreate: false,
+    });
+    const request = {
+      prompt: 'hi',
+      system: 'Be terse.',
+      model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    };
+
+    await adapter.complete({ ...request, cache: { system: true } });
+    await adapter.complete({
+      ...request,
+      cache: { system: true, key: 'tenant-1:summary', ttl: '12h' },
+    });
+    await adapter.complete({ ...request, cache: { key: 'tenant-1:summary' } });
+
+    const [marked, markedWithKey, keyOnly] = send.mock.calls.map(
+      (call) => (call[0] as { input: Record<string, unknown> }).input,
+    );
+    expect(markedWithKey).toEqual(marked);
+    expect(JSON.stringify(markedWithKey)).not.toContain('tenant-1');
+    expect(keyOnly?.system).toEqual([{ text: 'Be terse.' }]);
+  });
+
   it('11e. stream applies the same cachePoint marks as complete and reports cache reads', async () => {
     async function* events() {
       yield { messageStop: { stopReason: 'end_turn' } };

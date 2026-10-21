@@ -194,7 +194,7 @@ interface AIProviderConfig {
   maxTokensPerRequest?: number;
   dailyCostLimit?: number;
   requestTimeout?: number; // default 120_000 ms
-  cache?: boolean | { system?: boolean; tools?: boolean; messages?: boolean }; // prompt-cache default (single-provider `ai` only)
+  cache?: boolean | { system?: boolean; tools?: boolean; messages?: boolean; key?: string; ttl?: '30m' | '12h' }; // prompt-cache default (single-provider `ai` only)
 }
 
 // Accepted by createProviderAdapter — same shape with an optional apiKey, so
@@ -231,7 +231,7 @@ interface AIProvidersConfig {
   defaultModel?: string;
   providers: Record<string, AIProviderConfig>;
   promptOverrides?: Record<string, PromptModelOverride>;
-  cache?: boolean | { system?: boolean; tools?: boolean; messages?: boolean }; // prompt-cache default
+  cache?: boolean | { system?: boolean; tools?: boolean; messages?: boolean; key?: string; ttl?: '30m' | '12h' }; // prompt-cache default
 }
 
 interface PromptModelOverride {
@@ -318,6 +318,8 @@ AI_PROMPT_CACHE=false                  # off (same as unset)
 ```
 
 Any other value logs a warning and leaves caching off. What each section marks, and which models skip it, is in [Prompt caching](../ai/ai-integration.md#prompt-caching-anthropic--bedrock).
+
+The OpenAI-only `key` (`prompt_cache_key`) and `ttl` (`'30m' | '12h'`, `prompt_cache_options.ttl`; `'12h'` on the Responses API only) fields (core 0.9.0-beta.4+) have no environment variable; set them in `config/app.config.ts` under `ai.cache` / `aiProviders.cache`, on `createAIService({ cache })`, or per call. See [OpenAI cache key and ttl](../ai/ai-integration.md#openai-cache-key-and-ttl).
 
 ### AI security (opt-in)
 

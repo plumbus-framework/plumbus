@@ -279,8 +279,9 @@ export interface AIServiceConfig {
   /** Enable provider-side constrained decoding for JSON-output prompt schemas. */
   enableStrictStructuredOutputs?: boolean;
   /**
-   * Default prompt-caching preference for Anthropic / Bedrock. Per-call
-   * `cache` on generate / streamGenerate overrides this. OpenAI ignores it.
+   * Default prompt-caching preference (marks for Anthropic / Bedrock, `key` /
+   * `ttl` for OpenAI). Per-call `cache` on generate / streamGenerate
+   * overrides this.
    */
   cache?: AIPromptCacheOption;
   promptOverrides?: Record<
@@ -1369,8 +1370,8 @@ export function createAIService(config: AIServiceConfig): AIService {
        */
       seed?: number;
       /**
-       * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
-       * default when set. OpenAI ignores this option.
+       * Prompt caching: explicit marks for Anthropic / Bedrock; OpenAI reads only
+       * `key` / `ttl`. Overrides the service default when set.
        */
       cache?: AIPromptCacheOption;
     }): AsyncIterable<AIStreamEvent> {

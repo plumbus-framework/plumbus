@@ -12,7 +12,7 @@ Define your application through six composable primitives — Capabilities, Enti
 pnpm add @plumbus/core@plumbus-next
 ```
 
-This installs the core 0.9 beta family (`0.9.0-beta.3`, npm dist-tag `plumbus-next`). Plain `pnpm add @plumbus/core` installs npm `latest`, the core 0.8 stabilization family (0.8.1). Install every Plumbus package the app uses from the same family.
+This installs the core 0.9 beta family (`0.9.0-beta.4`, npm dist-tag `plumbus-next`). Plain `pnpm add @plumbus/core` installs npm `latest`, the core 0.8 stabilization family (0.8.1). Install every Plumbus package the app uses from the same family.
 
 ## Quick Start
 

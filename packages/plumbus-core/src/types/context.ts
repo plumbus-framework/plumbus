@@ -21,6 +21,7 @@ import type {
 export type {
   AICacheConfig,
   AIPromptCacheOption,
+  AIPromptCacheTtl,
   AITool,
   AIToolCall,
   AIToolChoice,
@@ -492,8 +493,9 @@ export interface AIGenerateWithUsageConfig {
    */
   timeoutMs?: number;
   /**
-   * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
-   * default when set. OpenAI ignores this option.
+   * Prompt caching: explicit marks for Anthropic / Bedrock; OpenAI reads only
+   * `key` / `ttl` (`prompt_cache_key` / `prompt_cache_options.ttl`).
+   * Overrides the service default when set (the whole option, not per field).
    */
   cache?: AIPromptCacheOption;
 }
@@ -585,8 +587,9 @@ export interface AIService {
     /** Per-call provider request timeout in ms; overrides the prompt's `model.timeoutMs`. */
     timeoutMs?: number;
     /**
-     * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
-     * default when set. OpenAI ignores this option.
+     * Prompt caching: explicit marks for Anthropic / Bedrock; OpenAI reads only
+     * `key` / `ttl` (`prompt_cache_key` / `prompt_cache_options.ttl`).
+     * Overrides the service default when set (the whole option, not per field).
      */
     cache?: AIPromptCacheOption;
   }): Promise<Record<string, any>>;
@@ -634,8 +637,9 @@ export interface AIService {
      */
     timeoutMs?: number;
     /**
-     * Explicit prompt caching for Anthropic / Bedrock. Overrides the service
-     * default when set. OpenAI ignores this option.
+     * Prompt caching: explicit marks for Anthropic / Bedrock; OpenAI reads only
+     * `key` / `ttl` (`prompt_cache_key` / `prompt_cache_options.ttl`).
+     * Overrides the service default when set (the whole option, not per field).
      */
     cache?: AIPromptCacheOption;
   }): AsyncIterable<AIStreamEvent>;

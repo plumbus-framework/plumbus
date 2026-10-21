@@ -95,11 +95,22 @@ export type ChatMessage =
   | { role: 'tool'; content: string; toolCallId: string; name: string };
 
 /**
- * Per-section prompt-cache controls for providers that require explicit cache
- * marks (Anthropic `cache_control`, Bedrock Converse `cachePoint`).
+ * OpenAI minimum cache lifetime (`prompt_cache_options.ttl`, GPT-5.6 and later).
+ * `'30m'` is OpenAI's default on both APIs; `'12h'` exists on the Responses API
+ * only.
+ */
+export type AIPromptCacheTtl = '30m' | '12h';
+
+/**
+ * Prompt-cache controls.
  *
- * Omitted fields are treated as `false`. Prefer `cache: true` for the common
- * case (system + tools).
+ * `system` / `tools` / `messages` place explicit cache marks for providers that
+ * need them (Anthropic `cache_control`, Bedrock Converse `cachePoint`); omitted
+ * sections are treated as `false`. OpenAI caches long prompts automatically and
+ * ignores the section flags. Prefer `cache: true` for the common case (system +
+ * tools).
+ *
+ * `key` and `ttl` are OpenAI-only; Anthropic and Bedrock ignore them.
  */
 export interface AICacheConfig {
   /** Cache the system prompt / instructions. */
@@ -108,16 +119,35 @@ export interface AICacheConfig {
   tools?: boolean;
   /** Cache conversation history (mark on the last message). */
   messages?: boolean;
+  /**
+   * Stable cache key, sent to OpenAI as `prompt_cache_key` (Chat Completions and
+   * Responses). Requests that share a reusable prefix and a key are routed to the
+   * same cache; before GPT-5.6 this raises hit rates, from GPT-5.6 it separates
+   * cache accounting. Group requests that share a prefix (e.g. per tenant +
+   * prompt); keep end-user identifiers out of it. An empty string is not sent.
+   */
+  key?: string;
+  /**
+   * Minimum lifetime of the cache entries the request writes, sent to OpenAI as
+   * `prompt_cache_options: { ttl }` (OpenAI documents the option for GPT-5.6 and
+   * later). `'30m'` is OpenAI's default. `'12h'` is a Responses API value: when
+   * the adapter sends the request through Chat Completions (it picks the API per
+   * request — see `docs/ai/ai-integration.md`), `'12h'` is not sent, OpenAI
+   * applies its `'30m'` default, and the adapter logs one `console.warn` per
+   * adapter instance. Omitted → nothing is sent.
+   */
+  ttl?: AIPromptCacheTtl;
 }
 
 /**
- * Prompt-caching option. `true` enables system + tools (not messages).
- * OpenAI ignores this — it caches long prompts automatically.
+ * Prompt-caching option. `true` enables system + tools (not messages) on
+ * Anthropic / Bedrock and sends nothing extra to OpenAI, which caches long
+ * prompts automatically; pass an object with `key` / `ttl` for OpenAI.
  */
 export type AIPromptCacheOption = boolean | AICacheConfig;
 
 /** Per-section cache flags with every section set. */
-type ResolvedAICacheConfig = Required<AICacheConfig>;
+type ResolvedAICacheConfig = Required<Pick<AICacheConfig, 'system' | 'tools' | 'messages'>>;
 
 /**
  * Resolve a `cache` option into per-section flags.
@@ -139,6 +169,40 @@ function resolvePromptCache(
 }
 
 const ANTHROPIC_CACHE_CONTROL = Object.freeze({ type: 'ephemeral' as const });
+
+/**
+ * Write OpenAI `prompt_cache_key` and `prompt_cache_options.ttl` from the cache
+ * option (Chat Completions and Responses bodies share the field names). The
+ * section flags are not OpenAI options; `true` / `false` send nothing. On Chat
+ * Completions a `'12h'` ttl, a Responses-only value, is not sent and
+ * `onResponsesOnlyTtl` is called instead.
+ */
+function applyOpenAIPromptCache(
+  body: Record<string, unknown>,
+  cache: AIPromptCacheOption | undefined,
+  api: { kind: 'responses' } | { kind: 'chat'; onResponsesOnlyTtl: (model: string) => void },
+): void {
+  if (cache === undefined || typeof cache === 'boolean') return;
+  if (typeof cache.key === 'string' && cache.key.length > 0) body.prompt_cache_key = cache.key;
+  if (cache.ttl === undefined) return;
+  if (cache.ttl === '12h' && api.kind === 'chat') {
+    api.onResponsesOnlyTtl(String(body.model));
+    return;
+  }
+  body.prompt_cache_options = { ttl: cache.ttl };
+}
+
+/** The once-per-adapter warning for a `'12h'` ttl on a Chat Completions request. */
+function responsesOnlyTtlWarning(): (model: string) => void {
+  let warned = false;
+  return (model) => {
+    if (warned) return;
+    warned = true;
+    console.warn(
+      `[plumbus] OpenAI cache ttl '12h' is a Responses API value; this ${model} request goes through Chat Completions, so the ttl is not sent and OpenAI's '30m' default applies (logged once per adapter)`,
+    );
+  };
+}
 
 /** Attach Anthropic `cache_control` to the last content block of a message. */
 function withAnthropicMessageCacheControl(
@@ -261,10 +325,11 @@ export interface ProviderRequest {
   /** Tool-execution options (e.g. disable parallel tool calls). */
   toolExecution?: AIToolExecutionOptions;
   /**
-   * Explicit prompt caching for Anthropic / Bedrock. OpenAI ignores this
-   * (automatic caching). `true` caches system + tools; pass an object for
-   * per-section control. Shorter prompts may not meet provider minima — the
-   * request still succeeds without a cache write.
+   * Prompt caching. Anthropic / Bedrock: explicit marks — `true` caches system +
+   * tools; pass an object for per-section control. OpenAI caches automatically
+   * and reads only `key` (`prompt_cache_key`) and `ttl`
+   * (`prompt_cache_options.ttl`). Shorter prompts may not meet provider minima —
+   * the request still succeeds without a cache write.
    */
   cache?: AIPromptCacheOption;
 }
@@ -1577,6 +1642,7 @@ async function completeOpenAIResponses(args: {
   if (request.system) body.instructions = request.system;
   applyOpenAITemperature(body, model, request);
   applyOpenAIResponsesReasoning(body, request, model);
+  applyOpenAIPromptCache(body, request.cache, { kind: 'responses' });
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
   if (structuredToolSchema) {
     body.tools = [{ type: 'function', ...openAIStructuredOutputFunction(structuredToolSchema) }];
@@ -1772,6 +1838,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
   const defaultEmbeddingModel = config.embeddingModel ?? 'text-embedding-3-small';
   const baseUrl = config.baseUrl ?? 'https://api.openai.com/v1';
   const defaultTimeout = config.requestTimeout ?? 120_000;
+  const warnResponsesOnlyTtl = responsesOnlyTtlWarning();
 
   return {
     name: 'openai',
@@ -1807,6 +1874,10 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       applyOpenAITemperature(body, model, request);
       applyOpenAIReasoning(body, request, model);
       applyOpenAITokenLimit(body, model, request.maxTokens);
+      applyOpenAIPromptCache(body, request.cache, {
+        kind: 'chat',
+        onResponsesOnlyTtl: warnResponsesOnlyTtl,
+      });
       if (request.tools && request.tools.length > 0) {
         assertNoStructuredOutputToolConflict(request);
         validateCallerTools(request.tools);
@@ -1962,6 +2033,10 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       applyOpenAITemperature(body, model, request);
       applyOpenAIReasoning(body, request, model);
       applyOpenAITokenLimit(body, model, request.maxTokens);
+      applyOpenAIPromptCache(body, request.cache, {
+        kind: 'chat',
+        onResponsesOnlyTtl: warnResponsesOnlyTtl,
+      });
       const responseFormat = buildOpenAIResponseFormat(request);
       if (responseFormat) {
         body.response_format = responseFormat;

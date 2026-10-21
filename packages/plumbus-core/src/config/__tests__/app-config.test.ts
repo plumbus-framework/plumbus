@@ -87,6 +87,18 @@ describe('configuration resolution', () => {
     );
     expect(single.ai?.maxTokensPerRequest).toBe(0);
   });
+  it('accepts an OpenAI prompt-cache key and ttl and rejects other cache fields', async () => {
+    const root = await fixture(
+      `export default { ai: { cache: { system: true, key: 'app:summary', ttl: '12h' } }, aiProviders: { cache: { key: 'app:any', ttl: '30m' } } };`,
+    );
+    const config = await loadAppConfig({ env: {} }, root);
+    expect(config.ai?.cache).toEqual({ system: true, key: 'app:summary', ttl: '12h' });
+    expect(config.aiProviders?.cache).toEqual({ key: 'app:any', ttl: '30m' });
+    for (const cache of [`{ key: 'k', ttl: '24h' }`, `{ key: 'k', retention: '24h' }`]) {
+      const bad = await fixture(`export default { ai: { cache: ${cache} } };`);
+      await expect(loadAppConfig({ env: {} }, bad), cache).rejects.toThrow('Invalid configuration');
+    }
+  });
   it('rejects AI numbers from the file that the environment loader refuses', async () => {
     const cases = [
       `ai: { requestTimeout: 3_000_000_000 }`,

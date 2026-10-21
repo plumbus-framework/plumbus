@@ -127,6 +127,31 @@ describe('per-prompt request timeout', () => {
     ]);
   });
 
+  it('forwards the OpenAI cache key and ttl from the call or the service default', async () => {
+    const provider = recordingProvider();
+    const ai = service(provider, { cache: { key: 'tenant-1:default', ttl: '12h' } });
+    await ai.generateWithUsage({ prompt: 'summarize', input: { text: 't' } });
+    await ai.generate({
+      prompt: 'summarize',
+      input: { text: 't' },
+      cache: { system: true, key: 'tenant-1:summarize' },
+    });
+    await drain(
+      ai.streamGenerate({
+        prompt: 'summarize',
+        input: { text: 't' },
+        cache: { key: 'tenant-1:stream', ttl: '30m' },
+      }),
+    );
+    expect(provider.requests.map((request) => request.cache)).toEqual([
+      { key: 'tenant-1:default', ttl: '12h' },
+      { system: true, key: 'tenant-1:summarize' },
+    ]);
+    expect(provider.streams.map((request) => request.cache)).toEqual([
+      { key: 'tenant-1:stream', ttl: '30m' },
+    ]);
+  });
+
   it('applies to streamGenerate and to its non-streaming validation fallback', async () => {
     const provider = recordingProvider('not json');
     const ai = service(provider, { cache: true });

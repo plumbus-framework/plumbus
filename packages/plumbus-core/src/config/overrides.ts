@@ -37,6 +37,8 @@ const ai = z
           system: z.boolean().optional(),
           tools: z.boolean().optional(),
           messages: z.boolean().optional(),
+          key: z.string().optional(),
+          ttl: z.enum(['30m', '12h']).optional(),
         })
         .strict(),
     ]),

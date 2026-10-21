@@ -1969,8 +1969,8 @@ describe('AI Provider Adapters', () => {
     });
   });
 
-  describe('prompt cache option ignored by OpenAI', () => {
-    it('does not alter OpenAI chat completions body when cache is set', async () => {
+  describe('prompt cache option on OpenAI', () => {
+    it('does not alter OpenAI chat completions body when cache is true', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -1999,6 +1999,198 @@ describe('AI Provider Adapters', () => {
       const withoutCache = JSON.parse(mockFetch.mock.calls[0]?.[1].body as string);
       expect(withCache).toEqual(withoutCache);
       expect(JSON.stringify(withCache)).not.toContain('cache_control');
+
+      vi.unstubAllGlobals();
+    });
+
+    const chatAnswer = () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        model: 'gpt-4o',
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    });
+    const responsesAnswer = () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'completed',
+        model: 'gpt-6-luna',
+        output: [
+          { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] },
+        ],
+        usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      }),
+    });
+    const sentBody = (mockFetch: ReturnType<typeof vi.fn>) =>
+      JSON.parse(String(mockFetch.mock.calls[0]?.[1].body)) as Record<string, unknown>;
+
+    it('sends prompt_cache_key and prompt_cache_options.ttl on Chat Completions', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(chatAnswer());
+      vi.stubGlobal('fetch', mockFetch);
+
+      await createOpenAIAdapter({ apiKey: 'sk-test' }).complete({
+        prompt: 'hi',
+        system: 'sys',
+        cache: { system: true, key: 'tenant-1:summary', ttl: '30m' },
+      });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
+      const body = sentBody(mockFetch);
+      expect(body.prompt_cache_key).toBe('tenant-1:summary');
+      expect(body.prompt_cache_options).toEqual({ ttl: '30m' });
+      expect(body).not.toHaveProperty('prompt_cache_retention');
+      expect(JSON.stringify(body)).not.toContain('cache_control');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('sends the key and ttl on a Chat Completions stream', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response('data: [DONE]\n\n', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
+      );
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      for await (const _event of adapter.stream({
+        prompt: 'hi',
+        cache: { key: 'tenant-1:chat', ttl: '30m' },
+      })) {
+        // drain
+      }
+
+      const body = sentBody(mockFetch);
+      expect(body.prompt_cache_key).toBe('tenant-1:chat');
+      expect(body.prompt_cache_options).toEqual({ ttl: '30m' });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('sends prompt_cache_key and a 12h ttl on the Responses API', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(responsesAnswer());
+      vi.stubGlobal('fetch', mockFetch);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' }).complete({
+        prompt: 'hi',
+        system: 'sys',
+        tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+        cache: { system: true, tools: true, key: 'tenant-1:agent', ttl: '12h' },
+      });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      const body = sentBody(mockFetch);
+      expect(body.prompt_cache_key).toBe('tenant-1:agent');
+      expect(body.prompt_cache_options).toEqual({ ttl: '12h' });
+      expect(JSON.stringify(body)).not.toContain('cache_control');
+      expect(warn).not.toHaveBeenCalled();
+
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    });
+
+    it('does not send a 12h ttl through Chat Completions and warns once per adapter', async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(chatAnswer())
+        .mockResolvedValueOnce(chatAnswer())
+        .mockResolvedValueOnce(
+          new Response('data: [DONE]\n\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          }),
+        );
+      vi.stubGlobal('fetch', mockFetch);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+      const cache = { system: true, key: 'tenant-1:summary', ttl: '12h' } as const;
+
+      await adapter.complete({ prompt: 'hi', system: 'sys', cache });
+      await adapter.complete({ prompt: 'again', system: 'sys', cache });
+      for await (const _event of adapter.stream({ prompt: 'hi', cache })) {
+        // drain
+      }
+
+      for (const call of mockFetch.mock.calls) {
+        expect(String(call[0])).toBe('https://api.openai.com/v1/chat/completions');
+        const body = JSON.parse(String(call[1].body)) as Record<string, unknown>;
+        // The key still goes; the Responses-only ttl does not, so OpenAI's 30m default applies.
+        expect(body.prompt_cache_key).toBe('tenant-1:summary');
+        expect(body).not.toHaveProperty('prompt_cache_options');
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("ttl '12h' is a Responses API value");
+
+      // A second adapter warns again: the warning is per adapter instance.
+      mockFetch.mockResolvedValueOnce(chatAnswer());
+      await createOpenAIAdapter({ apiKey: 'sk-test' }).complete({ prompt: 'hi', cache });
+      expect(warn).toHaveBeenCalledTimes(2);
+
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+    });
+
+    it('omits both fields when the option has no key or ttl', async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(chatAnswer())
+        .mockResolvedValueOnce(chatAnswer())
+        .mockResolvedValueOnce(chatAnswer())
+        .mockResolvedValueOnce(responsesAnswer());
+      vi.stubGlobal('fetch', mockFetch);
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test' });
+
+      await adapter.complete({ prompt: 'hi' });
+      await adapter.complete({ prompt: 'hi', cache: { system: true } });
+      await adapter.complete({ prompt: 'hi', cache: { key: '' } });
+      await createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6-luna' }).complete({
+        prompt: 'hi',
+        tools: [{ name: 'a', description: 'd', parameters: { type: 'object' } }],
+        cache: true,
+      });
+
+      expect(mockFetch.mock.calls[3]?.[0]).toBe('https://api.openai.com/v1/responses');
+      for (const call of mockFetch.mock.calls) {
+        const body = JSON.parse(String(call[1].body)) as Record<string, unknown>;
+        expect(body).not.toHaveProperty('prompt_cache_key');
+        expect(body).not.toHaveProperty('prompt_cache_options');
+      }
+
+      vi.unstubAllGlobals();
+    });
+
+    it('leaves Anthropic requests unchanged by key and ttl', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          model: 'claude-sonnet-4-20250514',
+          usage: { input_tokens: 10, output_tokens: 5 },
+          stop_reason: 'end_turn',
+        }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+      const adapter = createAnthropicAdapter({ apiKey: 'ant-test' });
+
+      await adapter.complete({ prompt: 'hi', system: 'sys', cache: { system: true } });
+      await adapter.complete({
+        prompt: 'hi',
+        system: 'sys',
+        cache: { system: true, key: 'tenant-1:summary', ttl: '12h' },
+      });
+      await adapter.complete({ prompt: 'hi', system: 'sys', cache: { key: 'tenant-1:summary' } });
+
+      const [marked, markedWithKey, keyOnly] = mockFetch.mock.calls.map(
+        (call) => JSON.parse(String(call[1].body)) as Record<string, unknown>,
+      );
+      expect(markedWithKey).toEqual(marked);
+      expect(JSON.stringify(markedWithKey)).not.toContain('prompt_cache');
+      // A key alone enables no section, so no cache_control marks are placed.
+      expect(keyOnly?.system).toBe('sys');
 
       vi.unstubAllGlobals();
     });

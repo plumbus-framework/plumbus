@@ -1,5 +1,17 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.4 — 2026-10-21 — OpenAI prompt-cache key
+
+### AI
+
+- **`cache.key` and `cache.ttl` reach OpenAI.** `AICacheConfig` has two new optional fields: `key` (sent as `prompt_cache_key`) and `ttl` (`'30m' | '12h'`, sent as `prompt_cache_options: { ttl }`, new type `AIPromptCacheTtl`). The OpenAI adapter writes them on Chat Completions (`complete` and `stream`) and on the Responses API. Until now the adapter sent no cache field at all, so requests that share a long prompt prefix (many users of one prompt) could not be grouped onto the same cache (how OpenAI raises hit rates before GPT-5.6, and keeps cache accounting apart from GPT-5.6 on), and the cache lifetime could not be chosen. An empty `key` is not sent; `cache: true`, `false` and objects without the fields send neither, so existing calls produce the same request body. Anthropic and Bedrock ignore both fields: a key never adds or removes a `cache_control` / `cachePoint` mark. The deprecated `prompt_cache_retention` is not sent.
+- **`'12h'` is Responses-only.** The adapter picks the OpenAI API per request, so the types cannot refuse `'12h'` on Chat Completions. A request that goes through Chat Completions (every `stream`, and every `complete` without caller tools under reasoning, a Responses continuation or the structured-output tool on GPT-5.6 / GPT-6) does not send a `'12h'` ttl: OpenAI applies its `'30m'` default, the key is still sent, and the adapter logs one `console.warn` per adapter instance. Field names and values: the `openai` SDK 6.49 request types (`prompt_cache_key`, `prompt_cache_options.ttl`) and OpenAI's prompt-caching guide (`'30m'` default, `'12h'` in the Responses API). The SDK types (also in 7.40) and the API reference still list `'30m'` as the only request-level value; `'12h'` follows the guide.
+- **Configuration.** `ai.cache` / `aiProviders.cache` in `config/app.config.ts` accept `key` and `ttl` (any other ttl value or field is refused as `Invalid configuration`). `AI_PROMPT_CACHE` still sets sections only. A per-call `cache` replaces the service default as a whole, as before.
+
+### Packages
+
+- Only `@plumbus/core` changes. Every other package stays where beta.3 left it, and no peer range changes. No database change.
+
 ## 0.9.0-beta.3 — 2026-10-18 — wake a sleeping flow now
 
 ### Flows
