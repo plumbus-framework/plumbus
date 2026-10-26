@@ -53,6 +53,18 @@ export function spineRowFromSql(row: Record<string, unknown>): OpaqueDispatchRec
   });
 }
 
+/**
+ * Which hints a claim may take, with the states as SQL literals: `opaque_dispatch_runnable_idx`
+ * is partial on `delivery_state IN ('ready', 'retry-scheduled', 'leased')`, and Postgres uses a
+ * partial index only when it can prove the query implies its predicate — which it cannot do
+ * from bind parameters under a generic prepared plan.
+ */
+const CLAIMABLE_HINT_PREDICATE = sql.raw(`(
+          delivery_state = '${SpineDeliveryState.Ready}'
+          OR delivery_state = '${SpineDeliveryState.RetryScheduled}'
+          OR (delivery_state = '${SpineDeliveryState.Leased}' AND lease_expires_at < now())
+        )`);
+
 export interface SpineClaimOptions {
   workerId: string;
   leaseDurationMs: number;
@@ -88,11 +100,7 @@ export async function claimSpineDispatch(
       SELECT dispatch_id
       FROM opaque_dispatch
       WHERE not_before <= now()
-        AND (
-          delivery_state = ${SpineDeliveryState.Ready}
-          OR delivery_state = ${SpineDeliveryState.RetryScheduled}
-          OR (delivery_state = ${SpineDeliveryState.Leased} AND lease_expires_at < now())
-        )
+        AND ${CLAIMABLE_HINT_PREDICATE}
         ${
           options.excludeExecutionIds && options.excludeExecutionIds.length > 0
             ? sql`AND NOT (execution_id = ANY(${[...options.excludeExecutionIds]}::text[]))`

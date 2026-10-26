@@ -30,6 +30,10 @@ export async function loadServerExtensions(
       extensions.resolveAiOverrides = mod.resolveAiOverrides ?? mod.default?.resolveAiOverrides;
       extensions.onCapabilityError = mod.onCapabilityError ?? mod.default?.onCapabilityError;
       extensions.onProcessError = mod.onProcessError ?? mod.default?.onProcessError;
+      const classifyProcessError = mod.classifyProcessError ?? mod.default?.classifyProcessError;
+      if (typeof classifyProcessError === 'function') {
+        extensions.classifyProcessError = classifyProcessError;
+      }
       extensions.decisions = mod.decisions ?? mod.default?.decisions;
       extensions.onAICostRecorded = mod.onAICostRecorded ?? mod.default?.onAICostRecorded;
       extensions.aiProviderConcurrency =
@@ -107,6 +111,13 @@ export async function loadServerExtensions(
       const onShutdown = mod.onShutdown ?? mod.default?.onShutdown;
       if (typeof onShutdown === 'function') {
         extensions.onShutdown = onShutdown;
+      }
+      const frameworkRetention = mod.frameworkRetention ?? mod.default?.frameworkRetention;
+      if (
+        frameworkRetention === true ||
+        (frameworkRetention !== null && typeof frameworkRetention === 'object')
+      ) {
+        extensions.frameworkRetention = frameworkRetention;
       }
       const frameworkSchema = mod.frameworkSchema ?? mod.default?.frameworkSchema;
       if (typeof frameworkSchema === 'string' && frameworkSchema.trim() !== '') {

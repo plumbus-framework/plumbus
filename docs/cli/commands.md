@@ -235,7 +235,7 @@ Behavior:
 
 - Loads `config/app.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onBoot`, `onShutdown`, `idempotencyStore`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `schedulePlanes`, and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `classifyProcessError`, `onBoot`, `onShutdown`, `idempotencyStore`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `schedulePlanes`, `frameworkRetention` (opt-in pruning of finished framework rows by the worker pool), and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown: `/ready` answers 503 at once, HTTP drains (after `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS`, default 0), workers stop claiming and the running flow step gets the remaining time (its execution is then released for another worker), `onShutdown` from `app/server.ts` runs, then queues and the database close — all within `PLUMBUS_SHUTDOWN_TIMEOUT_MS` (default 10000). See [Graceful shutdown](../../packages/plumbus-core/instructions/deployment.md#graceful-shutdown).
 - Exposes `GET /health` and `GET /ready`.
@@ -414,6 +414,7 @@ Checks performed:
 - Node.js version (22.12+ on 22.x, 24.x, or 26+)
 - `@plumbus/core` installed
 - `@plumbus/ui` version and bundled dependency versions (next, react)
+- `ui-dependencies` (warning only, never a failure, when the app declares a package `@plumbus/ui` supplies, pnpm does not hoist one, or the lockfile holds two versions of one; same check as `plumbus ui deps`)
 - `package.json` exists and valid
 - `app.config.ts` exists
 - PostgreSQL reachable
@@ -567,6 +568,23 @@ When `plumbus ui generate` (or `plumbus ui nextjs`) detects artifacts from an ol
 | `@/generated/*` imports in `.ts`/`.tsx` | Rewritten to `@/lib/*` / `@/hooks/*` |
 
 The migration is automatic and prints a summary of changes. Empty `generated/` directories are removed. No action is needed from the developer.
+
+---
+
+### plumbus ui deps
+
+Check that the app takes the packages `@plumbus/ui` supplies from it: `next`, `react`, `react-dom`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/postcss`, `typescript` (the installed `@plumbus/ui` names them under `plumbus.provides` in its `package.json`).
+
+```bash
+plumbus ui deps [--json]
+```
+
+It fails (exit 1) when:
+- the root `package.json` or a `pnpm-workspace.yaml` member declares one of them: the app's own copy stays behind when a Plumbus upgrade moves the framework's, security fixes included;
+- with pnpm, one of them is not matched by `publicHoistPattern` (`pnpm-workspace.yaml` or `.npmrc`), so the app cannot import it;
+- `pnpm-lock.yaml` holds more than one version of one of them, so two copies of Next or React could reach one build.
+
+An app without `@plumbus/ui` passes. Nothing runs it for you: it is an on-demand check, and `plumbus doctor` only warns on the same findings.
 
 ---
 

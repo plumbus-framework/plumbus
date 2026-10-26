@@ -20,8 +20,8 @@ On this branch copy the **0.9 beta literal**. The next column is the literal tha
 
 | Declaring package | Peer target | 0.9 beta literal (this branch) | After dropping `-beta` | Stable 0.8 family (`main`, npm `latest`) |
 | --- | --- | --- | --- | --- |
-| Every add-on that peers on core, except `@plumbus/api` | `@plumbus/core` | `">=0.9.0-beta.0 <0.10.0"` | `"0.9.x"` | `"0.8.x"` |
-| `@plumbus/api` (0.4.0-beta.2+) | `@plumbus/core` | `">=0.9.0-beta.1 <0.10.0"` (needs `executeIdempotently`) | `"0.9.x"` | `"0.8.x"` |
+| Every add-on that peers on core, except `@plumbus/api` and `@plumbus/mcp` | `@plumbus/core` | `">=0.9.0-beta.0 <0.10.0"` | `"0.9.x"` | `"0.8.x"` |
+| `@plumbus/api` (0.4.0-beta.3+), `@plumbus/mcp` (0.8.0-beta.1+) | `@plumbus/core` | `">=0.9.0-beta.5 <0.10.0"` (need `safeParseBounded`) | `"0.9.x"` | `"0.8.x"` |
 | `@plumbus/core` | `@plumbus/mcp` | `">=0.8.0-beta.0 <0.9.0"` (optional) | `"0.8.x"` | `"0.7.x"` (optional) |
 | `@plumbus/core` | `@plumbus/api` | `">=0.4.0-beta.0 <0.5.0"` (optional) | `"0.4.x"` | `"0.3.x"` (optional) |
 | `@plumbus/core` | `@plumbus/ai-bedrock` | `">=0.4.0-beta.0 <0.5.0"` (optional) | `"0.4.x"` | `"0.3.x"` (optional) |

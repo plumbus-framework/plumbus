@@ -208,7 +208,7 @@ describe.each(['typesafe', 'laya'] as const)('decision HTTP lifecycle (%s)', (pr
     const test = await fixture(provider, (res) => send(res));
     try {
       const res = await test.call({}, 'Bearer invalid');
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(401);
       expect(test.requests).toHaveLength(0);
       expect(await test.rows()).toEqual([]);
     } finally {

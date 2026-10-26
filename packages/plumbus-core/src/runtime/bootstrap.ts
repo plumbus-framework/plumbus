@@ -256,6 +256,7 @@ export type ServerExtensions = Pick<
   | 'resolveAiOverrides'
   | 'onCapabilityError'
   | 'onProcessError'
+  | 'classifyProcessError'
   | 'onAICostRecorded'
   | 'aiProviderConcurrency'
   | 'resolveAIProviderHeaders'
@@ -294,6 +295,11 @@ export type ServerExtensions = Pick<
    * host that routes tenant data itself. Flows are placed on the tenant plane either way.
    */
   workerDataPlane?: WorkerPoolConfig['unitDataPlane'];
+  /**
+   * Opt-in retention of finished framework rows, run by the worker pool
+   * (`export const frameworkRetention = { keepDays: 30 }`, or `true` for the defaults).
+   */
+  frameworkRetention?: WorkerPoolConfig['frameworkRetention'];
   /**
    * Closes host-owned resources on shutdown (`export const onShutdown` / `export async function
    * onShutdown`): a tenant router, extra pools, SDK clients. `plumbus start` and `plumbus worker`

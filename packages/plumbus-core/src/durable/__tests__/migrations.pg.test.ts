@@ -30,20 +30,25 @@ describe('Shipped durable SQL migrations', () => {
       db: tenant.db,
       migrationsFolder: FRAMEWORK_DURABLE_TENANT_MIGRATIONS,
     });
-    expect(tenantResult.applied).toBe(4);
+    expect(tenantResult.applied).toBe(5);
     expect(tenantResult.tags).toEqual([
       '0000_durable_tenant',
       '0001_human_task',
       '0002_approval_cancellation',
       '0003_request_idempotency',
+      '0004_claim_and_retention_indexes',
     ]);
 
     const spineResult = await applyMigrations({
       db: spine.db,
       migrationsFolder: FRAMEWORK_SPINE_MIGRATIONS,
     });
-    expect(spineResult.applied).toBe(2);
-    expect(spineResult.tags).toEqual(['0000_opaque_dispatch', '0001_request_idempotency']);
+    expect(spineResult.applied).toBe(3);
+    expect(spineResult.tags).toEqual([
+      '0000_opaque_dispatch',
+      '0001_request_idempotency',
+      '0002_claim_and_retention_indexes',
+    ]);
 
     const tenantTables = await tenant.db.execute(sql`
       SELECT table_name FROM information_schema.tables
@@ -79,5 +84,31 @@ describe('Shipped durable SQL migrations', () => {
       migrationsFolder: FRAMEWORK_DURABLE_TENANT_MIGRATIONS,
     });
     expect(again.applied).toBe(0);
+
+    // The claim and retention indexes, with the exact partial predicates the queries match.
+    const indexDefinitions = async (db: typeof tenant.db, table: string) =>
+      Object.fromEntries(
+        (
+          (await db.execute(
+            sql`SELECT indexname, indexdef FROM pg_indexes WHERE tablename = ${table}`,
+          )) as unknown as Array<{ indexname: string; indexdef: string }>
+        ).map((row) => [row.indexname, row.indexdef]),
+      );
+    const outbox = await indexDefinitions(tenant.db, 'dispatch_outbox');
+    expect(outbox.dispatch_outbox_unpublished_idx).toContain(
+      'WHERE ((published_at IS NULL) AND (spine_acked_at IS NULL) AND (superseded = false))',
+    );
+    expect(outbox.dispatch_outbox_spine_row_idx).toContain('WHERE (spine_acked_at IS NULL)');
+    expect(outbox.dispatch_outbox_acked_idx).toContain('WHERE (spine_acked_at IS NOT NULL)');
+    expect(await indexDefinitions(tenant.db, 'execution_state')).toHaveProperty(
+      'execution_state_terminal_idx',
+    );
+    expect(await indexDefinitions(tenant.db, 'side_effect_log')).toHaveProperty(
+      'side_effect_log_applied_idx',
+    );
+    const hints = await indexDefinitions(spine.db, 'opaque_dispatch');
+    expect(hints.opaque_dispatch_runnable_idx).toContain('USING btree (created_at)');
+    expect(hints.opaque_dispatch_execution_idx).toContain('(execution_id, created_at)');
+    expect(hints.opaque_dispatch_acked_idx).toContain("'acknowledged'::text");
   });
 });

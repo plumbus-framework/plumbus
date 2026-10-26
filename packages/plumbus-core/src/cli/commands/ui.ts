@@ -1,6 +1,7 @@
 // ── plumbus ui ──
 // Generate frontend-facing source files and scaffolds via @plumbus/ui.
 
+import { checkUiProvidedPackages } from '../ui-provided-packages.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -574,6 +575,25 @@ export function registerUiCommand(program: Command): void {
       for (const file of written) {
         success(`Generated ${path.relative(process.cwd(), file)}`);
       }
+    });
+
+  ui.command('deps')
+    .description(
+      'Check that the app takes the packages @plumbus/ui supplies (Next.js, React, Tailwind, TypeScript) from it',
+    )
+    .option('--json', 'Output the report as JSON')
+    .action((opts: { json?: boolean }) => {
+      const report = checkUiProvidedPackages();
+      if (opts.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else if (report.status === 'skip') {
+        info('@plumbus/ui is not installed; nothing to check');
+      } else if (report.status === 'ok') {
+        success(`The app takes ${report.provided.join(', ')} from @plumbus/ui`);
+      } else {
+        for (const issue of report.issues) console.error(`✗ ${issue}`);
+      }
+      if (report.status === 'fail') process.exit(1);
     });
 
   ui.command('nextjs [output-dir]')

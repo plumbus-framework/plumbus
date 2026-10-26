@@ -62,6 +62,8 @@ export async function loadAppConfig(
       password: ['DATABASE_PASSWORD', 'DB_PASSWORD', 'PGPASSWORD'],
       ssl: ['DATABASE_SSL'],
       poolSize: ['DATABASE_POOL_SIZE'],
+      statementTimeoutMs: ['DATABASE_STATEMENT_TIMEOUT_MS'],
+      idleInTransactionTimeoutMs: ['DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS'],
     },
     queue: {
       host: ['QUEUE_HOST', 'REDIS_HOST'],
@@ -83,7 +85,10 @@ export async function loadAppConfig(
       jwksUri: ['AUTH_JWKS_URI'],
       secret: ['AUTH_SECRET'],
     },
-    execution: { transactionalOutbox: ['PLUMBUS_TRANSACTIONAL_OUTBOX'] },
+    execution: {
+      transactionalOutbox: ['PLUMBUS_TRANSACTIONAL_OUTBOX'],
+      auditSuccessfulQueries: ['PLUMBUS_AUDIT_SUCCESSFUL_QUERIES'],
+    },
   };
   for (const [section, fields] of Object.entries(fieldEnv)) {
     const values = (fromEnv as unknown as Record<string, Record<string, unknown>>)[section] ?? {};

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -60,6 +61,15 @@ export const flowExecutionsTable = pgTable(
     index('flow_exec_tenant_idx').on(table.tenantId),
     index('flow_exec_schedule_idx').on(table.scheduleId, table.status),
     index('flow_exec_lease_idx').on(table.status, table.leaseExpiresAt),
+    // The claim's `ORDER BY created_at` over runnable rows only. The predicate is written with
+    // literal states, as the claim query is, so the planner can prove the query implies it.
+    index('flow_exec_runnable_idx')
+      .on(table.createdAt)
+      .where(sql`status IN ('created', 'running', 'waiting')`),
+    // The retention sweep's scan of finished rows (`pruneFrameworkTables`).
+    index('flow_exec_finished_idx')
+      .on(table.updatedAt)
+      .where(sql`status IN ('completed', 'cancelled')`),
   ],
 );
 
@@ -114,7 +124,11 @@ export const flowScheduleTicksTable = pgTable(
     outcome: text('outcome').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex('flow_schedule_tick_unique').on(table.scheduleId, table.scheduledFor)],
+  (table) => [
+    uniqueIndex('flow_schedule_tick_unique').on(table.scheduleId, table.scheduledFor),
+    // The retention sweep's scan by age.
+    index('flow_schedule_ticks_created_idx').on(table.createdAt),
+  ],
 );
 
 /**

@@ -412,6 +412,10 @@ A NUL byte (U+0000) anywhere in a metadata string is named (`<NUL>`) before pers
 `jsonb` parser refuses the `\u0000` escape outright, so an unsanitized record would be lost and the
 capability it was recording would answer `500` with no audit row. Framework-generated capability outcomes cannot be overwritten by extra metadata; actor and tenant come from the execution identity. Manual event names/metadata are application assertions, not independent proof of an action. `audit.enabled: false` is an explicit capability-author opt-out, not a compliance guarantee. The default database table is not cryptographically tamper-evident against a database administrator; use restricted append-only DB permissions and an independently protected audit sink when that threat is in scope.
 
+**Inside a transaction** (core 0.9.0-beta.5+): when `ctx.audit` is the framework's default database service, a transactional `action` / `eventHandler` handler gets an audit service bound to its transaction — `ctx.audit.record`, repository mutation audits and event-emission audits write on the transaction's connection and commit with the data they describe. (Before, each of them checked out a second pool connection while the transaction held one; with as many concurrent transactions as pool connections, every call waited forever.) If the transaction rolls back, `failure` and `denied` records it wrote are written again, with the same ids, after the rollback; `success` records roll back with the work they described. Writes after the transaction ended (post-commit callbacks) go to the outer database. An audit service or writer supplied by the app is not re-bound and keeps writing outside the transaction.
+
+**Successful queries:** `execution.auditSuccessfulQueries: false` (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false`) skips the success row of `query` capabilities unless the capability sets `audit: { enabled: true, event: '...' }`. Failed and denied calls are always recorded.
+
 Record audit trail entries:
 
 ```typescript

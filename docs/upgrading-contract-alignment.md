@@ -54,7 +54,7 @@ Your `action` or `eventHandler` capabilities write to the database **and** emit 
 
 ### What changed
 
-Handler execution and output validation for `action` and `eventHandler` capabilities now run inside a single Drizzle transaction. `ctx.data.*` writes and `ctx.events.emit()` outbox inserts share the same transaction and roll back together on handler errors or invalid output. Capability success audit rows still record on the outer database connection after commit.
+Handler execution and output validation for `action` and `eventHandler` capabilities now run inside a single Drizzle transaction. `ctx.data.*` writes and `ctx.events.emit()` outbox inserts share the same transaction and roll back together on handler errors or invalid output. Capability success audit rows still record on the outer database connection after commit. (Since core 0.9.0-beta.5, audits written *inside* the transaction — `ctx.audit.record`, mutation and emit audits — use the transaction's connection when the default audit service is in use; see [ctx.audit](./sdk-reference/execution-context.md#ctxaudit).)
 
 Auto-excluded (unchanged non-transactional behavior):
 

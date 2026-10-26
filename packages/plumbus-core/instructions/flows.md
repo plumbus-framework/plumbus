@@ -154,6 +154,11 @@ starting a new flow under the caller's identity.
 - Steps execute sequentially (except `parallel`)
 - Every step produces an audit record
 - Failed flows with exhausted retries land in a dead-letter queue for manual inspection
+- Finished rows stay in `flow_executions` (and the durable dispatch tables) until the app opts
+  into the framework's retention sweep: `export const frameworkRetention = { keepDays: 30 }` in
+  `app/server.ts` (core 0.9.0-beta.5+). It deletes completed and cancelled executions past the
+  window in bounded batches; failed executions and dead letters are kept. Do not write your own
+  `DELETE` against framework tables.
 
 
 Core 0.7.0 rejects missing, malformed, or actor/tenant-inconsistent stored auth snapshots before a step executes. New snapshots omit session IDs and authentication timestamps. Do not recover legacy rows by injecting worker/system roles; follow [the security release checklist](./upgrading-security-release.md) with a verified initiating identity and a review of prior effects.

@@ -175,6 +175,7 @@ describe('createRepository', () => {
         operation: 'findMany',
         actor: 'u-1',
         reason: 'missing_tenant_context',
+        outcome: 'denied',
       }),
     );
   });

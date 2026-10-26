@@ -366,4 +366,61 @@ describe('database idempotency store over HTTP', () => {
       data: { orderId: 'B-3' },
     });
   }, 30_000);
+
+  /** `count` expired records and `live` unexpired ones, straight into the table. */
+  async function seedRecords(db: PostgresJsDatabase, count: number, live = 0): Promise<void> {
+    await db.execute(sql`
+      INSERT INTO request_idempotency (key_hash, principal_id, tenant_scope, payload_hash, state, expires_at)
+      SELECT 'expired-' || g, 'u', 'spine', 'p', 'completed', now() - interval '1 minute'
+      FROM generate_series(1, ${count}) g
+    `);
+    if (live > 0) {
+      await db.execute(sql`
+        INSERT INTO request_idempotency (key_hash, principal_id, tenant_scope, payload_hash, state, expires_at)
+        SELECT 'live-' || g, 'u', 'spine', 'p', 'completed', now() + interval '1 hour'
+        FROM generate_series(1, ${live}) g
+      `);
+    }
+  }
+
+  const countRecords = async (db: PostgresJsDatabase) =>
+    Number(
+      (await rows<{ n: number }>(db, sql`SELECT count(*)::int AS n FROM request_idempotency`))[0]
+        ?.n,
+    );
+
+  it('sweeps in batches until no expired record is left', async () => {
+    const db = await database('idem_sweep_loop', requestIdempotencyDdl());
+    await seedRecords(db, 2_500, 3);
+    expect(await sweepExpiredIdempotencyRecords(db, { batchSize: 1_000 })).toBe(2_500);
+    expect(await countRecords(db)).toBe(3);
+  }, 30_000);
+
+  it('stops a sweep at its batch cap and keeps the former single-statement limit', async () => {
+    const db = await database('idem_sweep_cap', requestIdempotencyDdl());
+    await seedRecords(db, 50);
+    expect(await sweepExpiredIdempotencyRecords(db, { batchSize: 10, maxBatches: 2 })).toBe(20);
+    expect(await sweepExpiredIdempotencyRecords(db, { limit: 5 })).toBe(5);
+    expect(await sweepExpiredIdempotencyRecords(db, { batchSize: 10, maxDurationMs: 0 })).toBe(10);
+    expect(await countRecords(db)).toBe(15);
+  }, 30_000);
+
+  it('the store sweeps beside a request, without holding it, and comes back for a backlog', async () => {
+    const db = await database('idem_sweep_store', BUSINESS_DDL + requestIdempotencyDdl());
+    await seedRecords(db, 30);
+    const store = createDatabaseIdempotencyStore({
+      sweepIntervalMs: 60_000,
+      sweep: { batchSize: 10, maxBatches: 2 },
+    });
+    const claimOn = (key: string) =>
+      store.claim(key, 'payload', { userId: 'u1' }, { database: db, plane: 'spine' });
+    expect((await claimOn('k-1')).status).toBe('new');
+    // The first sweep took its cap (20 of 30) in the background.
+    await expect.poll(() => countRecords(db), { timeout: 5_000 }).toBe(11);
+    // Capped with expired rows left: the next sweep may start after a minute, not the
+    // interval — and not again right now.
+    expect((await claimOn('k-2')).status).toBe('new');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await countRecords(db)).toBe(12);
+  }, 30_000);
 });

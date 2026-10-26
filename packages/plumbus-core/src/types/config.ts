@@ -13,6 +13,18 @@ export interface DatabaseConfig {
   password: string;
   ssl?: boolean;
   poolSize?: number;
+  /**
+   * Server-side `statement_timeout` (milliseconds) for every connection of the main pool
+   * (`DATABASE_STATEMENT_TIMEOUT_MS`). Unset leaves the server's setting. Not applied to
+   * `plumbus migrate`'s connections, so long DDL is never cut.
+   */
+  statementTimeoutMs?: number;
+  /**
+   * Server-side `idle_in_transaction_session_timeout` (milliseconds) for the main pool
+   * (`DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS`): a session that holds a transaction open and
+   * idle this long is ended, releasing its locks. Unset leaves the server's setting.
+   */
+  idleInTransactionTimeoutMs?: number;
 }
 
 // ── Queue Config ──
@@ -137,6 +149,13 @@ export interface ExecutionConfig {
    * Default: `true` (action/eventHandler capabilities run handler + output validation in a DB transaction).
    */
   transactionalOutbox?: boolean;
+  /**
+   * When `false`, a `query` capability whose call succeeds writes no audit row
+   * (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false`), unless the capability sets
+   * `audit: { enabled: true }`. Failed and denied calls are always recorded; other kinds are
+   * unaffected. Default: `true` (every capability call is audited).
+   */
+  auditSuccessfulQueries?: boolean;
 }
 
 // ── Plumbus Config ──

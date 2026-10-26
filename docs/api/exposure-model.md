@@ -207,7 +207,7 @@ Hashes use canonical JSON (sorted object keys at every nesting level) so equival
 | Behavior | In-memory default | `createDatabaseIdempotencyStore()` |
 |---|---|---|
 | No `idempotency.ttl` | Entries never evict | Kept 24 h (`defaultTtlMs`), then swept |
-| `ttl` set (e.g. `24h`) | Expiry honored on subsequent claims after successful completion | Same, swept hourly per database |
+| `ttl` set (e.g. `24h`) | Expiry honored on subsequent claims after successful completion | Same, swept hourly per database in bounded batches until none is left (`sweepIntervalMs`, `sweep`) |
 | Concurrent duplicate | Waits for the first result, then replays | `409` + `Retry-After` until the first completes |
 | Multi-instance production | Not shared | Shared through `request_idempotency` on the control plane; the completion commits inside the capability's transaction |
 

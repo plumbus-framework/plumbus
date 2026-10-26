@@ -172,6 +172,7 @@ export type {
   IdempotencyStoreOptions,
   RouteGeneratorConfig,
   DatabaseIdempotencyStoreOptions,
+  IdempotencySweepOptions,
   ExecuteIdempotentlyParams,
   IdempotentExecutionOutcome,
 } from './api/index.js';
@@ -433,9 +434,18 @@ export {
   loadCompiledFlowRegistryFromDirectory,
   planMissedSchedule,
   isValidTransition,
+  pruneFrameworkTables,
+  pruneSpineDispatchHints,
+  FRAMEWORK_RETENTION_DEFAULTS,
+  resolveFrameworkRetentionOptions,
   retryDeadLetteredFlow,
   sweepFailedFlows,
   tryLoadCompiledFlowRegistryFromDirectory,
+} from './flows/index.js';
+export type {
+  FrameworkRetentionOptions,
+  FrameworkRetentionResult,
+  PruneFrameworkTablesOptions,
 } from './flows/index.js';
 export type {
   Counter,
@@ -494,6 +504,25 @@ export {
 // ── Types (re-export everything) ──
 export * from './types/index.js';
 export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
+// ── Bounded input validation ──
+export {
+  DEFAULT_INPUT_ARRAY_MAX_ITEMS,
+  findCollectionBoundViolation,
+  resolveInputArrayMaxItems,
+  safeParseBounded,
+} from './validation/bounded-parse.js';
+export type { CollectionBoundViolation } from './validation/bounded-parse.js';
+// ── Process-level errors ──
+export type {
+  KeepAliveOptions,
+  ProcessErrorClassifier,
+  ProcessErrorHook,
+  ProcessErrorInfo,
+  ProcessErrorSeverity,
+  ProcessErrorSource,
+  RunScriptOptions,
+} from './runtime/process-errors.js';
+export { installKeepAliveProcessHandlers, runScript } from './runtime/process-errors.js';
 // ── Worker Bootstrap ──
 export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
 export type {

@@ -332,6 +332,7 @@ After a standalone build, copy static files alongside the server:
 | `AI_OPENAI_MODEL` | No | `gpt-4o-mini` | Default OpenAI model |
 | `AI_DEFAULT_MODEL` | No | `gpt-4o` | Fallback model |
 | `TRUST_PROXY` | No | — | Set to `true` behind a reverse proxy so `request.ip` reflects `X-Forwarded-For` |
+| `PLUMBUS_INPUT_ARRAY_MAX_ITEMS` | No | `10000` | Longest array accepted in capability input where the schema declares no `.max()` (a declared `.max()` always wins). Refused before validation, so an oversized array cannot exhaust memory (core 0.9.0-beta.5+) |
 | `PLUMBUS_RUNTIME_ROLE` | No | `all` | `api` for API-only replicas; use `plumbus worker` separately |
 | `QUEUE_URL` | No | — | Redis connection URL (preferred over host/port) |
 | `REDIS_URL` | No | — | Alias for `QUEUE_URL` |
@@ -341,6 +342,9 @@ After a standalone build, copy static files alongside the server:
 | `PLUMBUS_SHUTDOWN_TIMEOUT_MS` | No | `10000` | Hard deadline for `plumbus start` / `plumbus worker` shutdown (1000–3600000) |
 | `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS` | No | `0` | How long `plumbus start` keeps serving with `/ready` at 503 before closing HTTP |
 | `DATABASE_POOL_SIZE` | No | `10` | Max connections in each process's main pool |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | No | — | Server-side `statement_timeout` (ms) for the main pool only; not applied to `plumbus migrate` |
+| `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` | No | — | Server-side `idle_in_transaction_session_timeout` (ms) for the main pool only |
+| `PLUMBUS_AUDIT_SUCCESSFUL_QUERIES` | No | `true` | `false` skips the audit row of successful `query` calls (failures/denials still recorded; `audit: { enabled: true }` keeps it) |
 
 ### Frontend / Admin
 

@@ -48,6 +48,8 @@ export const getUser = defineCapability({
 | `job` | POST (async) | Long-running, returns job handle immediately |
 | `eventHandler` | Internal only | Triggered by event delivery, not exposed via HTTP |
 
+Every capability call writes an audit row by default, queries included. An app may set `execution.auditSuccessfulQueries: false` (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false`) to skip the row of a **successful** `query`; a query whose reads must stay on the audit trail sets `audit: { enabled: true, event: "..." }`. Failed and denied calls are always recorded.
+
 ## Handler Pattern
 
 The handler receives two arguments:
@@ -138,7 +140,7 @@ For `kind: 'action'` and `kind: 'eventHandler'`, handler execution and output va
 - Globally: `execution.transactionalOutbox: false` in config, or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`
 - Per capability: `transactional: false` on `defineCapability({ ... })`
 
-Inside an active transaction, `ctx.flows.start()` defers until after commit. Built-in `ctx.jobs.enqueue()` persists job intent in the active transaction and publishes after commit; rollback removes the intent. Publication failures remain queued for worker recovery. Returned job IDs mean acceptance, not completion. Nested success audits also defer until commit. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
+Inside an active transaction, `ctx.flows.start()` defers until after commit. Built-in `ctx.jobs.enqueue()` persists job intent in the active transaction and publishes after commit; rollback removes the intent. Publication failures remain queued for worker recovery. Returned job IDs mean acceptance, not completion. Nested success audits also defer until commit. `ctx.audit.record` inside the transaction writes on the transaction's connection (default audit service): it commits with the data, and on rollback only `failure`/`denied` records are kept. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
 
 See `docs/upgrading-contract-alignment.md` (Migration stance + §1) and `docs/architecture/execution-lifecycle.md`.
 

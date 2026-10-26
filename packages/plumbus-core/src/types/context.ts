@@ -226,6 +226,13 @@ export interface TransactionScope {
   planeDb?: PostgresJsDatabase;
   data: DataService;
   events: EventService;
+  /**
+   * Audit service bound to this transaction (writes on the transaction's connection, same
+   * commit as the data). Present when the outer audit service is the framework's default
+   * database-backed one; absent for a custom audit service, which keeps writing outside.
+   * `failure`/`denied` records survive a rollback; `success` records roll back with it.
+   */
+  audit?: AuditService;
   /** Side effects queued during the transaction; run only after commit succeeds */
   deferred?: Array<() => Promise<void>>;
   /**
@@ -818,7 +825,7 @@ export interface ContextDependencies {
   correlationId?: string;
   /** @internal Wired by server/MCP bootstrap for nested event causation. */
   invocationEmitScope?: ExecutionRuntimeMetadata['invocationEmitScope'];
-  /** Drizzle transaction runner — tx-scoped data + events; audit stays on outer db. */
+  /** Drizzle transaction runner — tx-scoped data + events (+ tx-bound audit for the default audit service). */
   withTransaction?: WithTransactionFn;
   approvals?: ExecutionRuntimeMetadata['approvals'];
   authorizationProvider?: ExecutionRuntimeMetadata['authorizationProvider'];

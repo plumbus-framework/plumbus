@@ -111,6 +111,20 @@ export type {
   ReplayDeadLetterOptions,
 } from './dead-letter.js';
 
+// ── Retention (opt-in sweep of finished framework rows) ──
+export {
+  FRAMEWORK_RETENTION_DEFAULTS,
+  pruneFrameworkTables,
+  pruneSpineDispatchHints,
+  resolveFrameworkRetentionOptions,
+} from './retention.js';
+export type {
+  FrameworkRetentionOptions,
+  FrameworkRetentionResult,
+  PruneFrameworkTablesOptions,
+  ResolvedFrameworkRetentionOptions,
+} from './retention.js';
+
 export {
   BUDGET_EXHAUSTED,
   BUDGET_STATE_KEY,

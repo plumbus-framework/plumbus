@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0-beta.3 — 2026-10-25
+
+- **`fastify` `^5.12.7`** (was `^5.8.2`): GHSA-667r-xxjv-c9mm (request body replacement through an async validation result collision) and the `fast-uri` advisories in `@fastify/ajv-compiler`.
+- **Partner input is validated with core's `safeParseBounded`**: an array over its `.max()`, or over `PLUMBUS_INPUT_ARRAY_MAX_ITEMS` without one, is refused before zod walks it (zod GHSA-mrhx-c7xc-m3w5). **Core peer is now `>=0.9.0-beta.5 <0.10.0`.**
+
 ## 0.4.0-beta.2 — 2026-10-16
 
 - **Peer floor raised to core 0.9.0-beta.1.** The `@plumbus/core` peer is now `>=0.9.0-beta.1 <0.10.0` (was `>=0.9.0-beta.0 <0.10.0`). 0.4.0-beta.1 imports `executeIdempotently`, which core 0.9.0-beta.0 does not export, so npm accepted a pair that failed at load time. npm now refuses it. No code change.

@@ -15,6 +15,13 @@
       "when": 1792022400001,
       "tag": "0001_request_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792800000001,
+      "tag": "0002_claim_and_retention_indexes",
+      "breakpoints": true
     }
   ]
 }

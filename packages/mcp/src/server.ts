@@ -14,11 +14,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import {
-  JobExecutionSource,
-  evaluateAccess,
   dispatchQueuedJob,
+  evaluateAccess,
   executeCapability,
   getCanonicalCapabilityName,
+  JobExecutionSource,
+  safeParseBounded,
   type AuthContext,
   type CapabilityContract,
   type ContextDependencies,
@@ -235,7 +236,7 @@ export function createMcpServer(
           isError: true,
         };
       }
-      const parsedInput = cap.input.safeParse(request.params.arguments ?? {});
+      const parsedInput = safeParseBounded(cap.input, request.params.arguments ?? {});
       const access = evaluateAccess(cap.access, authContext);
       if (!parsedInput.success || !access.allowed) {
         const error = !parsedInput.success

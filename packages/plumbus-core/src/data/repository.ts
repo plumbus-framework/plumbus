@@ -105,6 +105,9 @@ export function createRepository<
         operation,
         actor: auth.userId,
         reason: 'missing_tenant_context',
+        // A refusal: recorded as `denied`, so it survives the rollback of the transaction
+        // that attempted the access (success records of a rolled-back transaction are dropped).
+        outcome: 'denied',
       });
     }
     throw new DataForbiddenError(

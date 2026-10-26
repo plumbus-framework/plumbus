@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAuditService } from '../service.js';
+import { bindAuditServiceToTransaction, createAuditService } from '../service.js';
 import { PlumbusError } from '../../errors/index.js';
 import { ErrorCode } from '../../types/enums.js';
 
@@ -215,4 +215,100 @@ it('rejects unsupported audit outcomes before writing', async () => {
     'Invalid audit outcome',
   );
   expect(write).not.toHaveBeenCalled();
+});
+
+describe('bindAuditServiceToTransaction', () => {
+  const auth = { userId: 'user-1', roles: [], scopes: [], provider: 'test' } as const;
+
+  /** A transaction handle whose writes can be made to fail (an aborted transaction). */
+  function makeTx(options: { fail?: boolean } = {}) {
+    const inserted: Array<{ id: string; action: string; outcome: string }> = [];
+    return {
+      inserted,
+      insert: vi.fn().mockReturnValue({
+        values: vi
+          .fn()
+          .mockImplementation((row: { id: string; action: string; outcome: string }) => ({
+            onConflictDoNothing: () => {
+              if (options.fail) return Promise.reject(new Error('current transaction is aborted'));
+              inserted.push(row);
+              return Promise.resolve();
+            },
+          })),
+      }),
+    };
+  }
+
+  it('returns undefined for an audit service with a custom writer', () => {
+    const service = createAuditService({
+      db: makeMockDb() as any,
+      auth,
+      writer: { write: vi.fn() },
+    });
+    expect(bindAuditServiceToTransaction(service, makeTx() as any)).toBeUndefined();
+    expect(bindAuditServiceToTransaction({ record: vi.fn() }, makeTx() as any)).toBeUndefined();
+  });
+
+  it('writes through the transaction while it is open, not the outer database', async () => {
+    const outer = makeMockDb();
+    const tx = makeTx();
+    const binding = bindAuditServiceToTransaction(
+      createAuditService({ db: outer as any, auth, component: 'orders' }),
+      tx as any,
+    );
+    await binding?.audit.record('order.created');
+    expect(tx.inserted).toHaveLength(1);
+    expect(tx.inserted[0]).toMatchObject({ action: 'order.created', component: 'orders' });
+    expect(outer.inserted).toHaveLength(0);
+    await binding?.committed();
+    expect(outer.inserted).toHaveLength(0);
+  });
+
+  it('replays failure and denied records (same ids) after a rollback and drops success', async () => {
+    const outer = makeMockDb();
+    const tx = makeTx();
+    const binding = bindAuditServiceToTransaction(
+      createAuditService({ db: outer as any, auth }),
+      tx as any,
+    );
+    await binding?.audit.record('step.ok');
+    await binding?.audit.record('step.failed', { outcome: 'failure' });
+    await binding?.audit.record('step.refused', { outcome: 'denied' });
+    await binding?.rolledBack();
+
+    const replayed = outer.inserted as Array<{ id: string; action: string }>;
+    expect(replayed.map((row) => row.action)).toEqual(['step.failed', 'step.refused']);
+    expect(replayed.map((row) => row.id)).toEqual(
+      tx.inserted.filter((row) => row.outcome !== 'success').map((row) => row.id),
+    );
+  });
+
+  it('routes writes to the outer writer after the transaction ended', async () => {
+    const outer = makeMockDb();
+    const tx = makeTx();
+    const binding = bindAuditServiceToTransaction(
+      createAuditService({ db: outer as any, auth }),
+      tx as any,
+    );
+    await binding?.committed();
+    await binding?.audit.record('late.success');
+    expect(tx.inserted).toHaveLength(0);
+    expect(outer.inserted).toMatchObject([{ action: 'late.success' }]);
+  });
+
+  it('keeps a failure the transaction refused and writes it once the transaction ends', async () => {
+    const outer = makeMockDb();
+    const binding = bindAuditServiceToTransaction(
+      createAuditService({ db: outer as any, auth }),
+      makeTx({ fail: true }) as any,
+    );
+    await expect(binding?.audit.record('step.failed', { outcome: 'failure' })).resolves.toBe(
+      undefined,
+    );
+    await expect(binding?.audit.record('step.ok')).rejects.toMatchObject({
+      message: 'Audit persistence failed',
+    });
+    await binding?.committed();
+    expect(outer.inserted).toMatchObject([{ action: 'step.failed', outcome: 'failure' }]);
+  });
 });

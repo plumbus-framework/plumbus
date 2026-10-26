@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { type CreateOptions, generateProjectStructure } from '../commands/create.js';
+import {
+  type CreateOptions,
+  generateProjectStructure,
+  UI_PROVIDED_PACKAGES,
+} from '../commands/create.js';
 
 describe('plumbus create', () => {
   it('generates standard project files', () => {
@@ -104,6 +108,27 @@ describe('plumbus create --monorepo', () => {
     expect(yaml).toContain('"backend"');
     expect(yaml).toContain('"frontend"');
     expect(yaml).toContain('"libs/*"');
+  });
+
+  it('hoists the packages @plumbus/ui supplies, so the frontend never declares them', () => {
+    const files = generateProjectStructure('MyApp', { monorepo: true });
+    const yaml = files.get('pnpm-workspace.yaml') ?? '';
+    expect(yaml).toContain('publicHoistPattern:');
+    for (const name of UI_PROVIDED_PACKAGES) {
+      expect(yaml).toContain(name.startsWith('@') ? `  - '${name}'` : `  - ${name}`);
+    }
+    const pkg = JSON.parse(files.get('frontend/package.json') ?? '{}');
+    for (const name of [
+      'next',
+      'react',
+      'react-dom',
+      '@types/react',
+      '@types/react-dom',
+      'tailwindcss',
+    ]) {
+      expect(pkg.dependencies?.[name]).toBeUndefined();
+      expect(pkg.devDependencies?.[name]).toBeUndefined();
+    }
   });
 
   it('generates root workspace package.json', () => {

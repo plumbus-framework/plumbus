@@ -168,6 +168,9 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     onEventDeadLetter: extensions?.onEventDeadLetter,
     onFlowError: extensions?.onFlowError,
     onFlowDefinitionUnavailable: extensions?.onFlowDefinitionUnavailable,
+    ...(extensions?.frameworkRetention !== undefined
+      ? { frameworkRetention: extensions.frameworkRetention }
+      : {}),
     onCapabilityError: extensions?.onCapabilityError,
     logger,
     metrics,

@@ -44,6 +44,7 @@ export function tenantDurableDdl(schemaName: string = FRAMEWORK_SCHEMA): string 
     );`,
     `CREATE INDEX execution_state_status_idx ON ${executionState} (status);`,
     `CREATE INDEX execution_state_epoch_idx ON ${executionState} (tenant_epoch);`,
+    `CREATE INDEX execution_state_terminal_idx ON ${executionState} (updated_at) WHERE terminal = true;`,
     `CREATE TABLE ${stepExecution} (
       step_execution_id text PRIMARY KEY,
       execution_id text NOT NULL,
@@ -98,11 +99,15 @@ export function tenantDurableDdl(schemaName: string = FRAMEWORK_SCHEMA): string 
     );`,
     `CREATE INDEX dispatch_outbox_pending_idx ON ${dispatchOutbox} (published_at, spine_acked_at);`,
     `CREATE INDEX dispatch_outbox_exec_rev_idx ON ${dispatchOutbox} (execution_id, expected_revision);`,
+    `CREATE INDEX dispatch_outbox_unpublished_idx ON ${dispatchOutbox} (created_at) WHERE published_at IS NULL AND spine_acked_at IS NULL AND superseded = false;`,
+    `CREATE INDEX dispatch_outbox_spine_row_idx ON ${dispatchOutbox} (spine_row_id) WHERE spine_acked_at IS NULL;`,
+    `CREATE INDEX dispatch_outbox_acked_idx ON ${dispatchOutbox} (created_at) WHERE spine_acked_at IS NOT NULL;`,
     `CREATE TABLE ${sideEffects} (
       effect_key text PRIMARY KEY,
       label text NOT NULL,
       applied_at timestamptz NOT NULL
     );`,
+    `CREATE INDEX side_effect_log_applied_idx ON ${sideEffects} (applied_at);`,
   ].join('\n');
 }
 
@@ -181,6 +186,9 @@ export function spineDispatchDdl(): string {
       UNIQUE (tenant_route_id, execution_id, expected_revision)
     );`,
     `CREATE INDEX opaque_dispatch_claim_idx ON ${table} (delivery_state, not_before, lease_expires_at);`,
+    `CREATE INDEX opaque_dispatch_runnable_idx ON ${table} (created_at) WHERE delivery_state IN ('ready', 'retry-scheduled', 'leased');`,
+    `CREATE INDEX opaque_dispatch_execution_idx ON ${table} (execution_id, created_at);`,
+    `CREATE INDEX opaque_dispatch_acked_idx ON ${table} (created_at) WHERE delivery_state = 'acknowledged';`,
   ].join('\n');
 }
 
@@ -221,6 +229,8 @@ CREATE TABLE flow_executions (
 CREATE INDEX flow_exec_status_idx ON flow_executions (status);
 CREATE INDEX flow_exec_lease_idx ON flow_executions (status, lease_expires_at);
 CREATE INDEX flow_exec_schedule_idx ON flow_executions (schedule_id, status);
+CREATE INDEX flow_exec_runnable_idx ON flow_executions (created_at) WHERE status IN ('created', 'running', 'waiting');
+CREATE INDEX flow_exec_finished_idx ON flow_executions (updated_at) WHERE status IN ('completed', 'cancelled');
 CREATE TABLE flow_start_intents (
   execution_id uuid PRIMARY KEY,
   flow_name text NOT NULL,

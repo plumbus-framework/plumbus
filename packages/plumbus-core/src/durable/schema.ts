@@ -6,6 +6,7 @@
 // SQL migrations live in packages/plumbus-core/migrations/. The two-DB harness
 // applies equivalent DDL to dedicated plumbus_durable_test_* databases only.
 
+import { sql } from 'drizzle-orm';
 import { boolean, index, integer, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { resolveFrameworkSchema, tableBuilderFor } from '../data/schema-generator.js';
 
@@ -46,6 +47,8 @@ export function createTenantDurableTables(schemaName?: string) {
     (t) => [
       index('execution_state_status_idx').on(t.status),
       index('execution_state_epoch_idx').on(t.tenantEpoch),
+      // The retention sweep's scan of finished executions.
+      index('execution_state_terminal_idx').on(t.updatedAt).where(sql`terminal = true`),
     ],
   );
 
@@ -119,14 +122,27 @@ export function createTenantDurableTables(schemaName?: string) {
     (t) => [
       index('dispatch_outbox_pending_idx').on(t.publishedAt, t.spineAckedAt),
       index('dispatch_outbox_exec_rev_idx').on(t.executionId, t.expectedRevision),
+      // The outbox pump's claim (`claimUnpublishedOutbox`): same literal predicate, same order.
+      index('dispatch_outbox_unpublished_idx')
+        .on(t.createdAt)
+        .where(sql`published_at IS NULL AND spine_acked_at IS NULL AND superseded = false`),
+      // Closing the row behind an acknowledged hint (`markOutboxAckedBySpineRow`).
+      index('dispatch_outbox_spine_row_idx').on(t.spineRowId).where(sql`spine_acked_at IS NULL`),
+      // The retention sweep's scan of acknowledged rows.
+      index('dispatch_outbox_acked_idx').on(t.createdAt).where(sql`spine_acked_at IS NOT NULL`),
     ],
   );
 
-  const sideEffectLog = table('side_effect_log', {
-    effectKey: text('effect_key').primaryKey(),
-    label: text('label').notNull(),
-    appliedAt: timestamp('applied_at', { withTimezone: true }).notNull(),
-  });
+  const sideEffectLog = table(
+    'side_effect_log',
+    {
+      effectKey: text('effect_key').primaryKey(),
+      label: text('label').notNull(),
+      appliedAt: timestamp('applied_at', { withTimezone: true }).notNull(),
+    },
+    // The retention sweep's scan by age.
+    (t) => [index('side_effect_log_applied_idx').on(t.appliedAt)],
+  );
 
   return {
     executionState,
@@ -172,6 +188,16 @@ export function createSpineDispatchTable(schemaName?: string) {
         t.expectedRevision,
       ),
       index('opaque_dispatch_claim_idx').on(t.deliveryState, t.notBefore, t.leaseExpiresAt),
+      // The spine claim's `ORDER BY created_at` over claimable hints (`claimSpineDispatch`).
+      index('opaque_dispatch_runnable_idx')
+        .on(t.createdAt)
+        .where(sql`delivery_state IN ('ready', 'retry-scheduled', 'leased')`),
+      // Finding an execution's plane by its hints (`findSpineDispatchTenantRoute`).
+      index('opaque_dispatch_execution_idx').on(t.executionId, t.createdAt),
+      // The retention sweep's scan of acknowledged hints.
+      index('opaque_dispatch_acked_idx')
+        .on(t.createdAt)
+        .where(sql`delivery_state = 'acknowledged'`),
     ],
   );
 }

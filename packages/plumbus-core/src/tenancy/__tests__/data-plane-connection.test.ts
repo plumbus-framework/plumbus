@@ -285,9 +285,61 @@ describe('openDataPlaneConnection — refusals before a socket is opened', () =>
     expect(error).toBeInstanceOf(PlumbusError);
     expect((error as PlumbusError).metadata?.field).toBe('connectTimeoutSeconds');
   });
+
+  it('refuses a server-side timeout that is not a whole number of milliseconds', async () => {
+    for (const field of ['statementTimeoutMs', 'idleInTransactionTimeoutMs'] as const) {
+      for (const value of [0, -1, 1.5, 2_147_483_648, Number.NaN]) {
+        const error = await openDataPlaneConnection({
+          target: runtimeTarget(primary),
+          [field]: value,
+        }).catch((thrown: unknown) => thrown);
+        expect(error).toBeInstanceOf(PlumbusError);
+        expect((error as PlumbusError).code).toBe('validation');
+        expect((error as PlumbusError).metadata?.field).toBe(field);
+      }
+    }
+  });
 });
 
 describe('openDataPlaneConnection — against a provisioned data plane', () => {
+  it(
+    'applies the server-side statement and idle-in-transaction timeouts to its sessions',
+    async () => {
+      const connection = await openDataPlaneConnection({
+        target: runtimeTarget(primary),
+        applicationName: 'plumbus-timeouts',
+        statementTimeoutMs: 250,
+        idleInTransactionTimeoutMs: 4000,
+      });
+      try {
+        const rows = await connection.db.execute<{
+          statement: string;
+          idle: string;
+          application: string;
+        }>(
+          sql`SELECT current_setting('statement_timeout') AS statement,
+                     current_setting('idle_in_transaction_session_timeout') AS idle,
+                     current_setting('application_name') AS application`,
+        );
+        expect(rows[0]).toEqual({
+          statement: '250ms',
+          idle: '4s',
+          application: 'plumbus-timeouts',
+        });
+        const slow = await connection.db
+          .execute(sql`SELECT pg_sleep(2)`)
+          .catch((thrown: unknown) => thrown);
+        // 57014 query_canceled: the server cut the statement at the configured timeout.
+        expect(
+          (slow as { code?: string }).code ?? (slow as { cause?: { code?: string } }).cause?.code,
+        ).toBe('57014');
+      } finally {
+        await connection.close();
+      }
+    },
+    DB_TIMEOUT,
+  );
+
   it(
     'opens the named database as the named role and answers a query',
     async () => {

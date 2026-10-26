@@ -168,6 +168,12 @@ hint, and its replacement hint cannot be claimed before `notBefore`. A hint whos
 whose tenant plane fails to resolve claim after claim (a closed or dropped tenant) is parked
 as `dead-lettered` after `FlowSpineDispatchConfig.maxClaimAttempts` (default 10) claims, with
 `privacy_safe_failure_category_id = 'plane-unresolved'`, instead of being re-leased forever.
+The spine claim walks `opaque_dispatch_runnable_idx` and finding an execution's plane walks
+`opaque_dispatch_execution_idx`; both ship in `migrations/spine/0002_claim_and_retention_indexes.sql`
+(core 0.9.0-beta.5), which the spine needs applied. With `frameworkRetention` the worker pool
+also prunes finished rows on the spine and on every listed plane — acknowledged hints a later
+revision replaced, and a pruned execution's own hints — see
+[Flows: claim indexes and retention](../core-concepts/flows.md#operations-claim-indexes-and-retention-of-finished-rows).
 
 Three actions need more than the row on the plane, because a tenant-placed execution
 only runs when the spine holds a ready hint for it:
@@ -211,5 +217,6 @@ Shipped durable-core / human-task SQL under `packages/plumbus-core/migrations/` 
 `openDataPlaneConnection` stays the only supported way to open a data plane:
 
 - **Bounded.** Default pool size 5; ceiling 64. Migrate uses `maxConnections: 1`.
+- **Server-side timeouts (opt-in).** `statementTimeoutMs` and `idleInTransactionTimeoutMs` (whole milliseconds, 1–2147483647; core 0.9.0-beta.5+) become the sessions' `statement_timeout` and `idle_in_transaction_session_timeout`. Unset keeps the server's settings; migrate opens its connection without them.
 - **Quiet.** Passwords and connection strings never reach a message or error metadata.
 - **Per-tenant.** Each call owns its pool. `close` is idempotent.

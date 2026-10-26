@@ -1,3 +1,4 @@
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { and, eq, sql } from 'drizzle-orm';
@@ -17,7 +18,7 @@ export async function persistJobIntent(options: DispatchJobOptions): Promise<str
   if (capability.kind !== 'job') throw new DataValidationError('Queued target must be a job');
   const access = evaluateAccess(capability.access, auth);
   if (!access.allowed) throw new DataForbiddenError(access.reason ?? 'Job access denied');
-  const input = capability.input.safeParse(options.input);
+  const input = safeParseBounded(capability.input, options.input);
   if (!input.success) throw new DataValidationError('Invalid job input');
   let inputJson: unknown;
   try {
@@ -29,7 +30,7 @@ export async function persistJobIntent(options: DispatchJobOptions): Promise<str
   } catch {
     throw new DataValidationError('Job input must be JSON serializable');
   }
-  if (!capability.input.safeParse(inputJson).success) {
+  if (!safeParseBounded(capability.input, inputJson).success) {
     throw new DataValidationError(
       'Job input schema must accept its JSON representation; use JSON-compatible coercing schemas',
     );

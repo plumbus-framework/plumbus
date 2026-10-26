@@ -186,7 +186,7 @@ plumbus start --port $PLUMBUS_START_PORT
 plumbus start --port 8080 --host 127.0.0.1
 ```
 
-Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`) are loaded automatically.
+Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify trusts `X-Forwarded-*` headers. `app/server.ts` extension hooks (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `classifyProcessError`, `onAICostRecorded`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`) are loaded automatically.  `start`, `dev` and `worker` keep running after an uncaught exception or unhandled rejection and report it to `onProcessError`; wrap one-shot scripts in `runScript` so they exit non-zero.
 
 ## Background work
 

@@ -1,12 +1,12 @@
 # @plumbus/mcp
 
-Release **0.8.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+Release **0.8.0-beta.1** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
 
 > **Serve your existing [Plumbus](https://github.com/plumbus-framework/plumbus) capabilities to AI agents over MCP.** Mark a capability with `exposeAs: ['mcp']`, configure agent tokens, and it becomes a callable tool for Claude Desktop, Cursor, custom agent runners — with the **same validation, access policies, and audit pipeline** as your HTTP routes.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/mcp.svg)](https://www.npmjs.com/package/@plumbus/mcp)
 [![license](https://img.shields.io/npm/l/@plumbus/mcp.svg)](./LICENSE)
-[![peer: @plumbus/core >=0.9.0-beta.0 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.0%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core >=0.9.0-beta.5 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.5%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![MCP spec: tools + tasks](https://img.shields.io/badge/MCP-tools%20%2B%20tasks-7c5cff)](https://modelcontextprotocol.io)
 
 ## What is this?
@@ -44,7 +44,7 @@ Plumbus already has all of that for HTTP. This package routes it through MCP. **
 
 ## Status
 
-MCP 0.8.0-beta.0 (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.7.x` in the core 0.8 stabilization family) is an optional peer of core and requires the core peer `>=0.9.0-beta.0 <0.10.0`. Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
+MCP 0.8.0-beta.1 (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.7.x` in the core 0.8 stabilization family) is an optional peer of core and requires the core peer `>=0.9.0-beta.5 <0.10.0`. Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
 
 ## Install
 

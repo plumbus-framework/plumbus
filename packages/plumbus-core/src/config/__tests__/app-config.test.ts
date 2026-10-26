@@ -55,6 +55,36 @@ describe('configuration resolution', () => {
     });
     expect(config.database.database).toBe('file-db');
   });
+  it('takes the session timeouts and auditSuccessfulQueries from the file and the env', async () => {
+    const root = await fixture(
+      `export default { database: { statementTimeoutMs: 15000, idleInTransactionTimeoutMs: 20000 }, execution: { auditSuccessfulQueries: false } };`,
+    );
+    const fromFile = await loadAppConfig({ env: {} }, root);
+    expect(fromFile.database.statementTimeoutMs).toBe(15000);
+    expect(fromFile.database.idleInTransactionTimeoutMs).toBe(20000);
+    expect(fromFile.execution?.auditSuccessfulQueries).toBe(false);
+    expect(fromFile.execution?.transactionalOutbox).toBe(true);
+
+    const fromEnv = await loadAppConfig(
+      {
+        env: {
+          DATABASE_STATEMENT_TIMEOUT_MS: '5000',
+          PLUMBUS_AUDIT_SUCCESSFUL_QUERIES: 'true',
+        },
+      },
+      root,
+    );
+    expect(fromEnv.database.statementTimeoutMs).toBe(5000);
+    expect(fromEnv.database.idleInTransactionTimeoutMs).toBe(20000);
+    expect(fromEnv.execution?.auditSuccessfulQueries).toBe(true);
+
+    const bad = await fixture(`export default { database: { statementTimeoutMs: 0 } };`);
+    await expect(loadAppConfig({ env: {} }, bad)).rejects.toThrow('Invalid configuration');
+    const badFlag = await fixture(
+      `export default { execution: { auditSuccessfulQueries: 'no' } };`,
+    );
+    await expect(loadAppConfig({ env: {} }, badFlag)).rejects.toThrow('Invalid configuration');
+  });
   it('supports default exports and rejects unsupported file settings', async () => {
     const root = await fixture(`export default { queue: { prefix: 'default-export' } };`);
     expect((await loadAppConfig({ env: {} }, root)).queue.prefix).toBe('default-export');

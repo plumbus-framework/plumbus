@@ -88,7 +88,23 @@ Generates a minimal `package.json`:
 }
 ```
 
-The generator emits empty dependency objects. Dependency management is left to the consuming app, workspace, or CLI wrapper. In a workspace this may be handled by the surrounding Plumbus setup; standalone generated apps should declare the runtime and build dependencies they use.
+The generator emits empty dependency objects on purpose. `@plumbus/ui` supplies `next`, `react`, `react-dom`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/postcss` and `typescript`; the app adds `@plumbus/ui` (and `next-intl`, a peer) and never declares those packages itself, so a Plumbus upgrade is what moves them, security fixes included. A second declaration in the app pins its own copy, which keeps an old version after the framework moves on and can put two copies of Next or React in one build.
+
+With pnpm, an app reaches a dependency's dependencies only when they are hoisted. List them under `publicHoistPattern` in the app's `pnpm-workspace.yaml` (`plumbus create --monorepo` writes this):
+
+```yaml
+publicHoistPattern:
+  - next
+  - react
+  - react-dom
+  - '@types/react'
+  - '@types/react-dom'
+  - tailwindcss
+  - '@tailwindcss/postcss'
+  - typescript
+```
+
+npm and Yarn's `node-modules` linker hoist them already. `plumbus ui deps` checks all of this on demand (no declared copy, hoisted, one locked version each).
 
 ### `generateTsConfig()`
 

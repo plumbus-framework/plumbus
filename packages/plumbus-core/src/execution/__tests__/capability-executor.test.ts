@@ -347,3 +347,77 @@ describe('executeCapability', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('execution.auditSuccessfulQueries', () => {
+  function makeConfiguredCtx(execution?: Record<string, unknown>, authOverrides = {}) {
+    const audit = { record: vi.fn().mockResolvedValue(undefined) };
+    const ctx = createExecutionContext({
+      auth: makeAuth(authOverrides),
+      data: {},
+      audit,
+      config: execution ? { execution } : {},
+    });
+    return { ctx, audit };
+  }
+
+  it('audits a successful query by default', async () => {
+    const { ctx, audit } = makeConfiguredCtx();
+    const result = await executeCapability(makeCapability(), ctx, { id: 'u1' });
+    expect(result.success).toBe(true);
+    expect(audit.record).toHaveBeenCalledWith(
+      'capability.users.getUser',
+      expect.objectContaining({ outcome: 'success' }),
+    );
+  });
+
+  it('skips the success row of a query when set to false', async () => {
+    const { ctx, audit } = makeConfiguredCtx({ auditSuccessfulQueries: false });
+    const result = await executeCapability(makeCapability(), ctx, { id: 'u1' });
+    expect(result.success).toBe(true);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('still audits a query that opts in with audit.enabled: true', async () => {
+    const { ctx, audit } = makeConfiguredCtx({ auditSuccessfulQueries: false });
+    const cap = makeCapability({ audit: { enabled: true, event: 'users.lookup' } });
+    await executeCapability(cap, ctx, { id: 'u1' });
+    expect(audit.record).toHaveBeenCalledWith(
+      'users.lookup',
+      expect.objectContaining({ outcome: 'success' }),
+    );
+  });
+
+  it('always records failed and denied queries', async () => {
+    const failing = makeCapability({
+      handler: async () => {
+        throw new Error('boom');
+      },
+    });
+    const failed = makeConfiguredCtx({ auditSuccessfulQueries: false });
+    await executeCapability(failing, failed.ctx, { id: 'u1' });
+    expect(failed.audit.record).toHaveBeenCalledWith(
+      'capability.users.getUser',
+      expect.objectContaining({ outcome: 'failure' }),
+    );
+
+    const denied = makeConfiguredCtx({ auditSuccessfulQueries: false }, { roles: ['viewer'] });
+    await executeCapability(makeCapability(), denied.ctx, { id: 'u1' });
+    expect(denied.audit.record).toHaveBeenCalledWith(
+      'capability.users.getUser',
+      expect.objectContaining({ outcome: 'denied' }),
+    );
+  });
+
+  it('leaves non-query kinds audited', async () => {
+    const { ctx, audit } = makeConfiguredCtx({
+      auditSuccessfulQueries: false,
+      transactionalOutbox: false,
+    });
+    const cap = makeCapability({ kind: 'action' } as Partial<CapabilityContract>);
+    await executeCapability(cap, ctx, { id: 'u1' });
+    expect(audit.record).toHaveBeenCalledWith(
+      'capability.users.getUser',
+      expect.objectContaining({ outcome: 'success' }),
+    );
+  });
+});

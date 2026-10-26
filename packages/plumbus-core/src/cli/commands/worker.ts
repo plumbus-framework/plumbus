@@ -1,6 +1,7 @@
 // ── plumbus worker ──
 // Dedicated worker process for background queues, flows, and jobs.
 
+import { installKeepAliveProcessHandlers } from '../../runtime/process-errors.js';
 import type { Command } from 'commander';
 import { eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -30,7 +31,6 @@ import { startWorkerPool } from '../../runtime/start-worker-pool.js';
 import { createWorkerHealthServer } from '../../runtime/worker-health.js';
 import { createPlumbusMetrics } from '../../observability/metrics.js';
 import type { WorkerPool } from '../../worker/bootstrap.js';
-import { logHookError } from '../../errors/hook-log.js';
 import { info, error as logError, warn } from '../utils.js';
 
 export interface WorkerStartOptions {
@@ -190,31 +190,15 @@ export async function startWorkerProcess(
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
-  if (extensions.onProcessError) {
-    const errorHook = extensions.onProcessError;
-    process.on('uncaughtException', (err) => {
-      logError(`Uncaught exception: ${err.message}`);
-      Promise.resolve(
-        errorHook({ source: 'uncaughtException', message: err.message, stack: err.stack }),
-      ).catch((hookErr) => {
-        logHookError('onProcessError', hookErr);
-      });
-    });
-    process.on('unhandledRejection', (reason) => {
-      const message =
-        reason instanceof Error ? reason.message : String(reason ?? 'Unknown rejection');
-      logError(`Unhandled rejection: ${message}`);
-      Promise.resolve(
-        errorHook({
-          source: 'unhandledRejection',
-          message,
-          stack: reason instanceof Error ? reason.stack : undefined,
-        }),
-      ).catch((hookErr) => {
-        logHookError('onProcessError', hookErr);
-      });
-    });
-  }
+  // Long-running process: report every uncaught error and keep serving (process-errors.ts).
+  installKeepAliveProcessHandlers({
+    ...(extensions.onProcessError ? { onProcessError: extensions.onProcessError } : {}),
+    ...(extensions.classifyProcessError
+      ? { classifyProcessError: extensions.classifyProcessError }
+      : {}),
+    logError,
+    logWarn: warn,
+  });
 
   return { shutdown };
 }

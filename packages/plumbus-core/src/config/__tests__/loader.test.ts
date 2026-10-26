@@ -18,6 +18,14 @@ describe('Config Loader', () => {
       expect(config.execution?.transactionalOutbox).toBe(true);
     });
 
+    it('audits successful queries unless PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false', () => {
+      expect(loadConfig({ env: {} }).execution?.auditSuccessfulQueries).toBe(true);
+      expect(
+        loadConfig({ env: { PLUMBUS_AUDIT_SUCCESSFUL_QUERIES: 'false' } }).execution
+          ?.auditSuccessfulQueries,
+      ).toBe(false);
+    });
+
     it('disables transactional outbox when PLUMBUS_TRANSACTIONAL_OUTBOX=false', () => {
       const config = loadConfig({ env: { PLUMBUS_TRANSACTIONAL_OUTBOX: 'false' } });
       expect(config.execution?.transactionalOutbox).toBe(false);
@@ -154,6 +162,43 @@ describe('Config Loader', () => {
         );
       }
       expect(validateConfig(loadConfig({ env: { DATABASE_POOL_SIZE: '7' } })).errors).toEqual([]);
+    });
+
+    it('leaves the server-side session timeouts unset by default', () => {
+      const config = loadConfig({ env: {} });
+      expect(config.database).not.toHaveProperty('statementTimeoutMs');
+      expect(config.database).not.toHaveProperty('idleInTransactionTimeoutMs');
+    });
+
+    it('reads the session timeouts from env vars', () => {
+      const config = loadConfig({
+        env: {
+          DATABASE_STATEMENT_TIMEOUT_MS: '30000',
+          DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: '60000',
+        },
+      });
+      expect(config.database.statementTimeoutMs).toBe(30000);
+      expect(config.database.idleInTransactionTimeoutMs).toBe(60000);
+      expect(validateConfig(config).errors).toEqual([]);
+    });
+
+    it('refuses a session timeout that is not a whole number of milliseconds', () => {
+      for (const value of ['0', '-5', '1.5', 'soon', '2147483648']) {
+        const config = loadConfig({
+          env: {
+            DATABASE_STATEMENT_TIMEOUT_MS: value,
+            DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: value,
+          },
+        });
+        expect(validateConfig(config).errors).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining('database.statementTimeoutMs (DATABASE_STATEMENT_TIMEOUT_MS)'),
+            expect.stringContaining(
+              'database.idleInTransactionTimeoutMs (DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS)',
+            ),
+          ]),
+        );
+      }
     });
 
     it('reads queue config from env vars', () => {

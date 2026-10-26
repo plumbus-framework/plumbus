@@ -1,9 +1,27 @@
+import { PlumbusError, UnauthorizedError } from '../errors/index.js';
+import { ErrorCode } from '../types/enums.js';
 import { resolveAuthRoles } from './auth-roles.js';
 import type { AccessPolicy, AuthContext } from '../types/security.js';
 
 export interface AuthorizationResult {
   allowed: boolean;
   reason?: string;
+  /** Set when the caller presented no identity at all: a 401, not a 403. */
+  unauthenticated?: boolean;
+}
+
+/**
+ * The error for a refused {@link AuthorizationResult}: `unauthorized` (401) when the caller
+ * is not authenticated, so a client knows to sign in; `forbidden` (403) otherwise.
+ */
+export function accessDenialError(
+  result: AuthorizationResult,
+  metadata: Record<string, unknown>,
+): PlumbusError {
+  if (result.unauthenticated) {
+    return new UnauthorizedError(result.reason ?? 'Authentication required', metadata);
+  }
+  return new PlumbusError(ErrorCode.Forbidden, result.reason ?? 'Access denied', metadata);
 }
 
 /**
@@ -26,7 +44,7 @@ export function evaluateAccess(
 
   // Must be authenticated (have a userId)
   if (!auth.userId) {
-    return { allowed: false, reason: 'Authentication required' };
+    return { allowed: false, reason: 'Authentication required', unauthenticated: true };
   }
 
   // Service account check — if the caller is a recognized service account, allow

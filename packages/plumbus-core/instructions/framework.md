@@ -162,7 +162,8 @@ Read [stabilization.md](./stabilization.md) for the core 0.8 / 0.9 beta migratio
 | `onCapabilityError` | After a capability returns a non-success result in an HTTP route, flow step, job, or event handler (`info.source`: `'http'`, `'flow'`, `'job'`, `'event'`) | Logging capability failures to a system log table |
 | `onEventDeadLetter` | After event dead-letter persistence; best-effort identifiers-only notification | Terminal delivery alerts |
 | `onFlowError` | After a flow fails permanently (retries exhausted) | Logging flow failures to a system log table |
-| `onProcessError` | On uncaught exceptions, unhandled rejections, and Fastify-level errors | Logging process-level crashes that bypass capability/flow hooks |
+| `onProcessError` | On uncaught exceptions, unhandled rejections, Fastify-level errors and failed scripts (`runScript`) | Reporting process-level errors that bypass capability/flow hooks (logs, alerts, Sentry). `plumbus start`, `dev` and `worker` keep running after them (core 0.9.0-beta.5+) |
+| `classifyProcessError` | Before an uncaught exception or unhandled rejection is reported (core 0.9.0-beta.5+) | Naming an error the app knows to be harmless; it is reported as a `warning` |
 | `resolveAiOverrides` | Before each AI call | Dynamic model/provider configuration from DB |
 | `onAICostRecorded` | After each AI cost record is written | Custom cost analytics or billing hooks |
 | `aiProviderConcurrency` | Around each provider attempt | Immediate per-tenant/provider/package concurrency admission |
@@ -180,8 +181,9 @@ The framework provides the following hooks. Queue/persistence failures also have
 |------------|------|-------------|
 | Capability failure (handler throw, validation, access) in HTTP routes, flow steps, jobs, and event handlers | `onCapabilityError` | capability name, domain, error code, `source` |
 | Flow permanent failure (retries exhausted) | `onFlowError` | flow name, step, execution ID |
-| Uncaught exception (process crash) | `onProcessError` | `source: 'uncaughtException'` |
-| Unhandled promise rejection | `onProcessError` | `source: 'unhandledRejection'` |
+| Uncaught exception | `onProcessError` | `source: 'uncaughtException'`, `severity` |
+| Unhandled promise rejection | `onProcessError` | `source: 'unhandledRejection'`, `severity` |
+| Failed one-shot script run through `runScript` | `onProcessError` | `source: 'script'` |
 | Fastify request error (malformed request, timeout) | `onProcessError` | `source: 'fastify'` |
 
 `onCapabilityError` fires once per failed attempt: an event handler that fails on all N delivery attempts fires N times, and a retried flow step fires once per failed attempt. A failed job fires once. `sourceIp` and `userAgent` are set only for `source: 'http'`. Rejections before the capability runs (HTTP authentication, the worker's event/job payload and access checks) and nested `ctx.capabilities.invoke()` calls do not fire it.
@@ -208,3 +210,26 @@ export const onProcessError: NonNullable<ServerConfig['onProcessError']> = async
 ```
 
 Hook failures are isolated and logged to prevent logging from breaking the application.
+
+### Process-level errors: servers stay up, scripts exit
+
+Long-running processes (`plumbus start`, `dev`, `worker`) never exit on an uncaught exception or unhandled rejection (core 0.9.0-beta.5+). The handler is always installed, with or without `onProcessError`. Each error is logged and passed to `onProcessError` with a `severity`:
+
+- `'warning'` for an error `classifyProcessError` names as known-harmless (`known` holds the name);
+- `'error'` for every other error;
+- `'critical'`, once per window, when the same unknown error (same class, message and first stack frame) repeats 5 times within 60 s (`repeated: { count, windowMs }`). The process still keeps serving and `/ready` is not changed, so a load balancer does not take it out of service: alert on this report.
+
+`info.error` is the thrown value itself, for reporters that capture it whole. Recognise known errors by structure (error class, `code`, the frame that threw), never by wording:
+
+```ts
+// app/server.ts
+export const classifyProcessError = (error: unknown) =>
+  error instanceof TypeError && /\bnextWrite\b/.test(error.stack ?? '') ? 'postgres-closed-socket-write' : undefined;
+```
+
+One-shot scripts must exit non-zero on failure, so a deploy or CI step stops. Plumbus's own one-shot commands (`migrate`, `generate`, `flow schedule sync`, …) already do. Wrap an app's own scripts in `runScript`: it reports the failure (or any uncaught error while the script runs) to the hook you pass, waits up to `reportTimeoutMs` (5 s), prints it, and exits with code 1.
+
+```ts
+import { runScript } from '@plumbus/core';
+await runScript(async () => { /* … */ }, { onProcessError: report });
+```

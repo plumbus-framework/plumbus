@@ -99,7 +99,7 @@ describe('registerCapabilityRoute', () => {
       ...config,
       ...(kind === 'job' ? { jobQueue: { publish } as any } : {}),
     });
-    const handler = app.post.mock.calls[0]?.[1];
+    const handler = app.post.mock.calls[0]?.at(-1);
     const reply = makeMockReply();
     await handler(makeMockRequest({}, {}), reply);
     expect(reply.status).toHaveBeenCalledWith(403);
@@ -221,7 +221,7 @@ describe('job capability with jobQueue', () => {
     });
     const app = makeMockApp();
     registerCapabilityRoute(app as any, cap, config as any);
-    const handler = app.post.mock.calls[0]?.[1];
+    const handler = app.post.mock.calls[0]?.at(-1);
     return { handler, publish, cap };
   }
 
@@ -233,11 +233,11 @@ describe('job capability with jobQueue', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it('returns 403 and does not publish for unauthenticated callers', async () => {
+  it('returns 401 and does not publish for unauthenticated callers', async () => {
     const { handler, publish } = makeJobSetup(['admin'], null);
     const reply = makeMockReply();
     await handler(makeMockRequest({}, { reportId: 'r1' }), reply);
-    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(reply.status).toHaveBeenCalledWith(401);
     expect(publish).not.toHaveBeenCalled();
   });
 
@@ -300,7 +300,7 @@ describe('declared idempotency on the core /api surface', () => {
       handler: async (_ctx, input) => handler(input as { orderId: string }),
     } as Partial<CapabilityContract>);
     registerCapabilityRoute(app as any, cap, config as any);
-    const route = app.post.mock.calls[0]?.[1];
+    const route = app.post.mock.calls[0]?.at(-1);
     const request = (key: string | undefined, body: Record<string, unknown>) => ({
       headers: { authorization: 'Bearer test-token', ...(key ? { 'idempotency-key': key } : {}) },
       query: {},
@@ -552,7 +552,7 @@ describe('declared idempotency on the core /api surface', () => {
       handler: async () => handler(),
     } as Partial<CapabilityContract>);
     registerCapabilityRoute(app as any, cap, config as any);
-    const route = app.post.mock.calls[0]?.[1];
+    const route = app.post.mock.calls[0]?.at(-1);
     let deep: unknown = { leaf: true };
     for (let level = 0; level < 20_000; level += 1) deep = { a: [deep] };
     const reply = makeMockReply();
@@ -581,7 +581,7 @@ describe('declared idempotency on the core /api surface', () => {
       handler: async () => ({ ok: true }),
     });
     registerCapabilityRoute(app as any, cap, config as any);
-    const route = app.post.mock.calls[0]?.[1];
+    const route = app.post.mock.calls[0]?.at(-1);
     const reply = makeMockReply();
     await route(makeMockRequest({}, {}), reply);
     expect(reply.status).toHaveBeenCalledWith(200);
@@ -637,7 +637,7 @@ describe('registerStreamingRoute', () => {
     });
     const app = makeMockApp();
     registerStreamingRoute(app as any, cap, config as any, streamHandler);
-    const handler = app.post.mock.calls[0]?.[1];
+    const handler = app.post.mock.calls[0]?.at(-1);
     return { handler, reply, written, streamHandler };
   }
 
@@ -713,7 +713,7 @@ describe('HTTP correlation ID propagation', () => {
 
     registerCapabilityRoute(app as any, cap, config);
 
-    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const registeredHandler = app.get.mock.calls[0]?.at(-1);
     const request = {
       headers: {
         authorization: 'Bearer test-token',
@@ -753,7 +753,7 @@ describe('GET query param coercion', () => {
     registerCapabilityRoute(app as any, cap, config);
 
     // Simulate Fastify calling the registered GET handler
-    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const registeredHandler = app.get.mock.calls[0]?.at(-1);
     const request = makeMockRequest({ search: 'hello', limit: '25', offset: '0' });
     const reply = makeMockReply();
 
@@ -785,7 +785,7 @@ describe('GET query param coercion', () => {
 
     registerCapabilityRoute(app as any, cap, config);
 
-    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const registeredHandler = app.get.mock.calls[0]?.at(-1);
     const request = makeMockRequest({ active: 'true', verbose: 'false' });
     const reply = makeMockReply();
 
@@ -811,7 +811,7 @@ describe('GET query param coercion', () => {
 
     registerCapabilityRoute(app as any, cap, config);
 
-    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const registeredHandler = app.get.mock.calls[0]?.at(-1);
     const request = makeMockRequest({ id: 'abc-123' });
     const reply = makeMockReply();
 
@@ -837,7 +837,7 @@ describe('GET query param coercion', () => {
 
     registerCapabilityRoute(app as any, cap, config);
 
-    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const registeredHandler = app.get.mock.calls[0]?.at(-1);
     const request = makeMockRequest({ limit: 'notanumber' });
     const reply = makeMockReply();
 
@@ -875,7 +875,7 @@ describe('onCapabilityError', () => {
     registerCapabilityRoute(app as any, cap, config);
     const request = makeMockRequest({}, { id: '1' });
     const reply = makeMockReply();
-    await app.post.mock.calls[0]?.[1](
+    await app.post.mock.calls[0]?.at(-1)(
       { ...request, headers: { ...request.headers, 'idempotency-key': 'attempt-1' } },
       reply,
     );
@@ -899,7 +899,7 @@ describe('onCapabilityError', () => {
 
     registerCapabilityRoute(app as any, cap, config);
     const reply = makeMockReply();
-    await app.get.mock.calls[0]?.[1](makeMockRequest({ id: '1' }), reply);
+    await app.get.mock.calls[0]?.at(-1)(makeMockRequest({ id: '1' }), reply);
 
     expect(reply.status).toHaveBeenCalledWith(409);
     expect(onCapabilityError).toHaveBeenCalledTimes(1);
@@ -966,7 +966,7 @@ describe('registerCapabilityRoute locale wiring', () => {
 
     registerCapabilityRoute(app as any, cap, config);
 
-    const registeredHandler = app.get.mock.calls[0]?.[1];
+    const registeredHandler = app.get.mock.calls[0]?.at(-1);
     const request = {
       ...makeMockRequest({ id: '1' }),
       headers: {
@@ -989,7 +989,7 @@ describe('requestAuthenticator path', () => {
   function registerHandler(config: ReturnType<typeof makeMockConfig>, cap = makeCapability()) {
     const app = makeMockApp();
     registerCapabilityRoute(app as any, cap, config);
-    return app.get.mock.calls[0]?.[1] as (request: any, reply: any) => Promise<void>;
+    return app.get.mock.calls[0]?.at(-1) as (request: any, reply: any) => Promise<void>;
   }
 
   it('uses legacy authAdapter path when requestAuthenticator is undefined', async () => {
@@ -1143,5 +1143,79 @@ describe('requestAuthenticator path', () => {
         message: 'Authentication temporarily unavailable',
       },
     });
+  });
+});
+
+describe('missing credentials on a real route', () => {
+  async function serve(identity: { userId: string; roles: string[] } | null) {
+    const { default: Fastify } = await import('fastify');
+    const app = Fastify();
+    const config = makeMockConfig();
+    config.authAdapter.authenticate.mockResolvedValue(
+      identity === null
+        ? null
+        : { ...identity, scopes: [], provider: 'test', tenantId: 'tenant-1' },
+    );
+    config.createDependencies.mockImplementation((auth: unknown) => ({
+      auth,
+      data: {},
+      audit: { record: vi.fn(async () => {}) },
+    }));
+    registerCapabilityRoute(app as any, makeCapability(), config);
+    await app.ready();
+    return app;
+  }
+
+  it('answers 401 with a Bearer challenge when nobody is signed in, without an authenticator', async () => {
+    const app = await serve(null);
+    const res = await app.inject({ method: 'GET', url: '/api/users/get-user?id=1' });
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['www-authenticate']).toBe('Bearer');
+    expect(res.json()).toMatchObject({ error: { code: 'unauthorized' } });
+    await app.close();
+  });
+
+  it('keeps 403 without a challenge for a signed-in caller who lacks the role', async () => {
+    const app = await serve({ userId: 'u2', roles: ['viewer'] });
+    const res = await app.inject({ method: 'GET', url: '/api/users/get-user?id=1' });
+    expect(res.statusCode).toBe(403);
+    expect(res.headers['www-authenticate']).toBeUndefined();
+    await app.close();
+  });
+});
+
+describe('oversized arrays on a real route (GHSA-mrhx-c7xc-m3w5)', () => {
+  it('answers 400 for an array over its .max() without validating every element', async () => {
+    const { default: Fastify } = await import('fastify');
+    const app = Fastify({ bodyLimit: 32 * 1024 * 1024 });
+    const config = makeMockConfig();
+    config.createDependencies.mockImplementation((auth: unknown) => ({
+      auth,
+      data: {},
+      audit: { record: vi.fn(async () => {}) },
+    }));
+    registerCapabilityRoute(
+      app as any,
+      makeCapability({
+        name: 'tagUsers',
+        kind: 'action',
+        input: z.object({ ids: z.array(z.string().uuid()).max(100) }),
+        output: z.object({ ok: z.boolean() }),
+        handler: async () => ({ ok: true }),
+      }),
+      config,
+    );
+    await app.ready();
+    const started = performance.now();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/users/tag-users',
+      payload: { ids: Array(1_000_000).fill(0) },
+    });
+    const elapsed = performance.now() - started;
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: { code: 'validation', metadata: { field: 'ids' } } });
+    expect(elapsed).toBeLessThan(2_000);
+    await app.close();
   });
 });

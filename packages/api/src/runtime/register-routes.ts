@@ -4,6 +4,7 @@ import {
   executeCapability,
   executeIdempotently,
   isApiExposed,
+  safeParseBounded,
   type AuthContext,
   type CapabilityContract,
   type RouteGeneratorConfig,
@@ -283,7 +284,7 @@ export function registerApiRoutes(
           throw err;
         }
 
-        const parsed = cap.input.safeParse(rawInput);
+        const parsed = safeParseBounded(cap.input, rawInput);
         if (!parsed.success) {
           const validationErr = ctx.errors.validation('Invalid input', {
             capability: cap.name,

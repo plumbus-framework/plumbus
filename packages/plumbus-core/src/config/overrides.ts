@@ -57,6 +57,8 @@ export const configOverridesSchema = z
         password: text,
         ssl: z.boolean(),
         poolSize: positive.int(),
+        statementTimeoutMs: timeoutMs,
+        idleInTransactionTimeoutMs: timeoutMs,
       })
       .partial()
       .strict(),
@@ -81,7 +83,10 @@ export const configOverridesSchema = z
       .object({ provider: text, issuer: text, audience: text, jwksUri: text, secret: text })
       .partial()
       .strict(),
-    execution: z.object({ transactionalOutbox: z.boolean() }).partial().strict(),
+    execution: z
+      .object({ transactionalOutbox: z.boolean(), auditSuccessfulQueries: z.boolean() })
+      .partial()
+      .strict(),
     ai,
     aiProviders: z
       .object({

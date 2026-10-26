@@ -13,6 +13,8 @@ interface PlumbusConfig {
   execution?: {
     /** Global kill switch for transactional outbox (default: true). Env: PLUMBUS_TRANSACTIONAL_OUTBOX=false */
     transactionalOutbox?: boolean;
+    /** false = no audit row for a successful `query` call (default: true). Env: PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false */
+    auditSuccessfulQueries?: boolean;
   };
   ai?: AIProviderConfig;               // Single provider (legacy)
   aiProviders?: AIProvidersConfig;      // Multi-provider (takes precedence)
@@ -82,6 +84,8 @@ interface DatabaseConfig {
   password: string;
   ssl?: boolean;
   poolSize?: number;
+  statementTimeoutMs?: number;          // server-side statement_timeout, main pool only
+  idleInTransactionTimeoutMs?: number;  // server-side idle_in_transaction_session_timeout, main pool only
 }
 ```
 
@@ -95,9 +99,18 @@ DB_USER=postgres           # aliases: DATABASE_USER, PGUSER
 DB_PASSWORD=secret         # aliases: DATABASE_PASSWORD, PGPASSWORD
 DATABASE_SSL=true          # TLS to Postgres; production defaults to true, false turns it off
 DATABASE_POOL_SIZE=10      # max connections in this process's main pool (default 10)
+DATABASE_STATEMENT_TIMEOUT_MS=30000            # optional: server cancels a statement after 30 s
+DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS=60000  # optional: server ends a session idle in a transaction for 60 s
 ```
 
 `DATABASE_POOL_SIZE` (`database.poolSize`) is the `max` of the main postgres.js pool that `plumbus start`, `plumbus dev`, `plumbus worker` and the operational CLI commands open; unset, it stays at the driver's default of 10. It must be a whole number of at least 1. It does not size tenant data-plane pools (`openDataPlaneConnection({ maxConnections })`, default 5) or one-off maintenance connections. Before core 0.9.0-beta.1 the value was parsed (default 5, or 20 in production) but never applied, so every process opened up to 10.
+
+`DATABASE_STATEMENT_TIMEOUT_MS` (`database.statementTimeoutMs`) and `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` (`database.idleInTransactionTimeoutMs`) are opt-in server-side session timeouts (core 0.9.0-beta.5+). They are sent as the PostgreSQL `statement_timeout` and `idle_in_transaction_session_timeout` startup parameters of every connection in the **main pool** only: `plumbus migrate`'s maintenance connections, `plumbus seed` and `plumbus run` do not get them, so long DDL is never cut. A statement over the limit fails with SQLSTATE `57014` (`query_canceled`); a session that keeps a transaction open and idle past the limit is ended by the server, releasing its locks and its pool slot. Each must be a whole number of milliseconds from 1 to 2147483647; unset keeps the server's own settings. Tenant data-plane pools take the same limits through `openDataPlaneConnection({ statementTimeoutMs, idleInTransactionTimeoutMs })`. A connection pooler that refuses startup parameters (some PgBouncer setups) needs the limits set on the role or database instead.
+
+## Execution Configuration
+
+- `execution.transactionalOutbox` (`PLUMBUS_TRANSACTIONAL_OUTBOX`, default `true`) — global kill switch for the transactional outbox; see [execution lifecycle](../architecture/execution-lifecycle.md#transactional-outbox-default-on).
+- `execution.auditSuccessfulQueries` (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES`, default `true`, core 0.9.0-beta.5+) — set `false` to stop writing an audit row for every **successful** `query` capability call, which is most audit volume in a read-heavy app. A query that sets `audit: { enabled: true, event: '...' }` keeps its success row; failed and denied calls of every kind are always recorded; `action`, `eventHandler` and `job` capabilities are unaffected.
 
 ## Runtime Role
 
@@ -478,12 +491,13 @@ interface ServerConfig {
   logger?: LoggerService;
   host?: string;           // Default: "0.0.0.0"
   port?: number;           // Default: 3000
-  trustProxy?: boolean | string | string[] | number;
+  trustProxy?: boolean | string | string[]; // no hop count: Fastify 5.12 trusts no proxy for a number
   jobQueue?: EventQueue;
   metrics?: PlumbusMetrics;
   onRoutesRegistered?: (app, routeConfig) => void;
   onCapabilityError?: (info) => void | Promise<void>;
-  onProcessError?: (info) => void | Promise<void>;
+  onProcessError?: (info: ProcessErrorInfo) => void | Promise<void>; // start/dev/worker keep running after it
+  classifyProcessError?: (error: unknown) => string | undefined; // names a known-harmless error
   resolveAiOverrides?: (db) => Promise<{ defaultModel?; defaultProvider?; promptOverrides? }>;
   onAICostRecorded?: (record, costContext, db) => void | Promise<void>;
   aiProviderConcurrency?: AIProviderConcurrencyConfig;

@@ -31,6 +31,11 @@ const DEFAULT_LEASE_MS = 60_000;
 /** Kept this long when the route declares no `ttl`. */
 const DEFAULT_TTL_MS = 86_400_000;
 const SWEEP_INTERVAL_MS = 3_600_000;
+/** When a sweep stopped at its cap with expired rows left, the next one may start this soon. */
+const SWEEP_BACKLOG_INTERVAL_MS = 60_000;
+const DEFAULT_SWEEP_BATCH_SIZE = 1000;
+const DEFAULT_SWEEP_MAX_BATCHES = 50;
+const DEFAULT_SWEEP_MAX_DURATION_MS = 5_000;
 
 export interface DatabaseIdempotencyStoreOptions {
   /**
@@ -48,6 +53,36 @@ export interface DatabaseIdempotencyStoreOptions {
   spineSchema?: string;
   /** Receives sweep failures (default: silent). */
   onSweepError?: (error: unknown) => void;
+  /**
+   * How often the store sweeps expired records on each database it has seen (default one
+   * hour). The sweep starts beside a claim and is never awaited by the request. A sweep that
+   * stopped at its cap with expired rows left lets the next one start after a minute.
+   */
+  sweepIntervalMs?: number;
+  /** Bounds of one sweep (defaults: 1000 rows per statement, 50 statements, 5 s). */
+  sweep?: Pick<IdempotencySweepOptions, 'batchSize' | 'maxBatches' | 'maxDurationMs'>;
+}
+
+export interface IdempotencySweepOptions {
+  /** Schema of the table (`undefined` → unqualified, the spine). */
+  schemaName?: string;
+  /** Rows deleted per statement (default 1000). */
+  batchSize?: number;
+  /** Statements per sweep (default 50). */
+  maxBatches?: number;
+  /** Stop starting new statements after this long (default 5000 ms). */
+  maxDurationMs?: number;
+  /**
+   * The former single-statement form: at most `limit` rows, one statement. Used only when
+   * neither `batchSize` nor `maxBatches` is given.
+   */
+  limit?: number;
+}
+
+interface IdempotencySweepResult {
+  deleted: number;
+  /** False when the sweep stopped at `maxBatches` or `maxDurationMs` with expired rows left. */
+  drained: boolean;
 }
 
 /** Thrown inside the business transaction when another request took the claim over. */
@@ -94,26 +129,54 @@ export function requestIdempotencyDdl(schemaName?: string): string {
 
 /**
  * Delete expired records (completed past their TTL, abandoned claims past theirs) on one plane,
- * at most `limit` per call. The store runs it on each database at most once an hour; a host
- * may also schedule it. Returns how many rows were deleted.
+ * in batches of `batchSize` through the `expires_at` index until none is left, or until
+ * `maxBatches` statements or `maxDurationMs` have been spent. The store runs it on each
+ * database at most once per `sweepIntervalMs`; a host may also schedule it. A record a claim
+ * renews while the sweep runs is never deleted (each statement re-checks the expiry and skips
+ * locked rows). Returns how many rows were deleted.
  */
 export async function sweepExpiredIdempotencyRecords(
   db: PostgresJsDatabase,
-  options: { schemaName?: string; limit?: number } = {},
+  options: IdempotencySweepOptions = {},
 ): Promise<number> {
+  return (await sweepIdempotencyBatches(db, options)).deleted;
+}
+
+async function sweepIdempotencyBatches(
+  db: PostgresJsDatabase,
+  options: IdempotencySweepOptions,
+): Promise<IdempotencySweepResult> {
   const table = qualifyTable(options.schemaName, REQUEST_IDEMPOTENCY_TABLE);
-  const rows = asRows(
-    await db.execute(sql`
-      DELETE FROM ${sql.raw(table)}
-      WHERE key_hash IN (
-        SELECT key_hash FROM ${sql.raw(table)}
-        WHERE expires_at < now()
-        LIMIT ${options.limit ?? 1000}
-      )
-      RETURNING key_hash
-    `),
-  );
-  return rows.length;
+  const legacySingle =
+    options.limit !== undefined &&
+    options.batchSize === undefined &&
+    options.maxBatches === undefined;
+  const batchSize = Math.max(1, options.batchSize ?? options.limit ?? DEFAULT_SWEEP_BATCH_SIZE);
+  const maxBatches = legacySingle
+    ? 1
+    : Math.max(1, options.maxBatches ?? DEFAULT_SWEEP_MAX_BATCHES);
+  const deadline = Date.now() + (options.maxDurationMs ?? DEFAULT_SWEEP_MAX_DURATION_MS);
+  let deleted = 0;
+  for (let batch = 0; batch < maxBatches; batch += 1) {
+    const rows = asRows(
+      await db.execute(sql`
+        DELETE FROM ${sql.raw(table)}
+        WHERE key_hash IN (
+          SELECT key_hash FROM ${sql.raw(table)}
+          WHERE expires_at < now()
+          ORDER BY expires_at
+          LIMIT ${batchSize}
+          FOR UPDATE SKIP LOCKED
+        )
+          AND expires_at < now()
+        RETURNING key_hash
+      `),
+    );
+    deleted += rows.length;
+    if (rows.length < batchSize) return { deleted, drained: true };
+    if (Date.now() >= deadline) break;
+  }
+  return { deleted, drained: false };
 }
 
 /**
@@ -129,7 +192,9 @@ export function createDatabaseIdempotencyStore(
   const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
   const defaultTtlMs = options.defaultTtlMs ?? DEFAULT_TTL_MS;
   const tenantSchema = options.tenantSchema ?? FRAMEWORK_SCHEMA;
-  const lastSweepAt = new WeakMap<object, number>();
+  const sweepIntervalMs = options.sweepIntervalMs ?? SWEEP_INTERVAL_MS;
+  /** When the next sweep may start on each database. */
+  const nextSweepAt = new WeakMap<object, number>();
 
   function target(storeOptions: IdempotencyStoreOptions | undefined): {
     database: PostgresJsDatabase;
@@ -148,12 +213,24 @@ export function createDatabaseIdempotencyStore(
     return { database, table: qualifyTable(schemaName, REQUEST_IDEMPOTENCY_TABLE), schemaName };
   }
 
+  /** Start a sweep beside the request when one is due; the request never waits for it. */
   function sweepWhenDue(database: PostgresJsDatabase, schemaName: string | undefined): void {
-    const last = lastSweepAt.get(database) ?? 0;
-    if (Date.now() - last < SWEEP_INTERVAL_MS) return;
-    lastSweepAt.set(database, Date.now());
-    void sweepExpiredIdempotencyRecords(database, { schemaName }).catch((error) =>
-      options.onSweepError?.(error),
+    if (Date.now() < (nextSweepAt.get(database) ?? 0)) return;
+    // Held off until this sweep ends, so one database never runs two sweeps at once.
+    nextSweepAt.set(database, Number.POSITIVE_INFINITY);
+    void sweepIdempotencyBatches(database, { ...options.sweep, schemaName }).then(
+      (result) =>
+        nextSweepAt.set(
+          database,
+          Date.now() +
+            (result.drained
+              ? sweepIntervalMs
+              : Math.min(sweepIntervalMs, SWEEP_BACKLOG_INTERVAL_MS)),
+        ),
+      (error) => {
+        nextSweepAt.set(database, Date.now() + sweepIntervalMs);
+        options.onSweepError?.(error);
+      },
     );
   }
 

@@ -95,6 +95,18 @@ const RETRY_WAIT_KIND = 'retry';
 const MALFORMED_EXECUTION_ID = '(malformed)';
 
 /**
+ * Which rows a claim may take, with the states as SQL literals: `flow_exec_runnable_idx` is
+ * partial on `status IN ('created', 'running', 'waiting')`, and Postgres uses a partial index
+ * only when it can prove the query implies the index predicate — which it cannot do from bind
+ * parameters under a generic prepared plan.
+ */
+const RUNNABLE_CLAIM_PREDICATE = sql.raw(`(
+             status = '${FlowStatus.Created}'
+          OR (status = '${FlowStatus.Running}' AND lease_expires_at < now())
+          OR (status = '${FlowStatus.Waiting}' AND waiting_for_event IS NULL AND wake_at <= now())
+        )`);
+
+/**
  * Read the affected-row count from a Drizzle UPDATE/INSERT/DELETE result in a
  * driver-agnostic way. postgres-js exposes this as `.count` (the array-like
  * `Result` has `length === 0` when no RETURNING clause is used), while
@@ -943,11 +955,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       WHERE id IN (
         SELECT id
         FROM flow_executions
-        WHERE (
-             status = ${FlowStatus.Created}
-          OR (status = ${FlowStatus.Running} AND lease_expires_at < now())
-          OR (status = ${FlowStatus.Waiting} AND waiting_for_event IS NULL AND wake_at <= now())
-        )
+        WHERE ${RUNNABLE_CLAIM_PREDICATE}
         ${skipped.length > 0 ? sql`AND NOT (id::text = ANY(${skipped}::text[]))` : sql``}
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED

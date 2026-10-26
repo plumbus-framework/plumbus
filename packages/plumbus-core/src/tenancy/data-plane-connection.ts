@@ -133,6 +133,18 @@ export interface OpenDataPlaneConnectionOptions {
   /** Reported to the server as `application_name`; visible in `pg_stat_activity`. */
   applicationName?: string;
   /**
+   * Server-side `statement_timeout` for every connection of this pool, in milliseconds:
+   * a statement running longer is cancelled by the server. Unset leaves the server's
+   * setting. Must be an integer between 1 and 2147483647.
+   */
+  statementTimeoutMs?: number;
+  /**
+   * Server-side `idle_in_transaction_session_timeout`, in milliseconds: a session that keeps
+   * a transaction open and idle this long is ended, releasing its locks and its slot. Unset
+   * leaves the server's setting. Must be an integer between 1 and 2147483647.
+   */
+  idleInTransactionTimeoutMs?: number;
+  /**
    * Round-trip a probe before returning, so an unusable placement fails here
    * rather than inside the first query. Default true.
    */
@@ -199,6 +211,23 @@ function assertSeconds(value: unknown, field: string): number {
     throw validationError(`${field} must be a positive, finite number of seconds`, { field });
   }
   return value;
+}
+
+/** Postgres keeps millisecond settings as a 32-bit integer. */
+const MAX_SERVER_MILLISECONDS = 2_147_483_647;
+
+function assertMilliseconds(value: unknown, field: string): number {
+  if (
+    !Number.isInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > MAX_SERVER_MILLISECONDS
+  ) {
+    throw validationError(
+      `${field} must be an integer number of milliseconds between 1 and ${MAX_SERVER_MILLISECONDS}`,
+      { field },
+    );
+  }
+  return value as number;
 }
 
 function normalizePoolSize(value: number | undefined): number {
@@ -394,6 +423,22 @@ export async function openDataPlaneConnection(
     options.applicationName === undefined
       ? undefined
       : normalizeApplicationName(options.applicationName);
+  const statementTimeout =
+    options.statementTimeoutMs === undefined
+      ? undefined
+      : assertMilliseconds(options.statementTimeoutMs, 'statementTimeoutMs');
+  const idleInTransactionTimeout =
+    options.idleInTransactionTimeoutMs === undefined
+      ? undefined
+      : assertMilliseconds(options.idleInTransactionTimeoutMs, 'idleInTransactionTimeoutMs');
+  // Startup parameters: applied by the server to every session the pool opens.
+  const connection = {
+    ...(applicationName === undefined ? {} : { application_name: applicationName }),
+    ...(statementTimeout === undefined ? {} : { statement_timeout: statementTimeout }),
+    ...(idleInTransactionTimeout === undefined
+      ? {}
+      : { idle_in_transaction_session_timeout: idleInTransactionTimeout }),
+  };
 
   const postgresModule = (await import('postgres')).default;
   const { drizzle } = await import('drizzle-orm/postgres-js');
@@ -406,7 +451,7 @@ export async function openDataPlaneConnection(
     // logging is the record, not this module's stderr.
     onnotice: () => {},
     ...(maxLifetime === undefined ? {} : { max_lifetime: maxLifetime }),
-    ...(applicationName === undefined ? {} : { connection: { application_name: applicationName } }),
+    ...(Object.keys(connection).length === 0 ? {} : { connection }),
   };
 
   let client: postgres.Sql;

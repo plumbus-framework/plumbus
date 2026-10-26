@@ -47,15 +47,38 @@ export function postgresConnectionOptions(
 }
 
 /**
+ * Server-side session timeouts for the main pool, as postgres.js `connection` parameters
+ * (sent in the startup packet). Empty when neither timeout is configured.
+ */
+function postgresSessionTimeouts(config: {
+  statementTimeoutMs?: number;
+  idleInTransactionTimeoutMs?: number;
+}): { statement_timeout?: number; idle_in_transaction_session_timeout?: number } {
+  return {
+    ...(config.statementTimeoutMs === undefined
+      ? {}
+      : { statement_timeout: config.statementTimeoutMs }),
+    ...(config.idleInTransactionTimeoutMs === undefined
+      ? {}
+      : { idle_in_transaction_session_timeout: config.idleInTransactionTimeoutMs }),
+  };
+}
+
+/**
  * Open the process's main pool (server, worker, operational CLI commands). `config.poolSize`
  * (`DATABASE_POOL_SIZE`) is the pool's `max`; left unset, postgres.js opens up to 10.
+ * `statementTimeoutMs` / `idleInTransactionTimeoutMs` become the sessions' server-side
+ * `statement_timeout` / `idle_in_transaction_session_timeout`; only this pool carries them —
+ * `migrate`'s maintenance connections do not, so long DDL is never cut.
  */
 export async function connectPostgresDatabase(config: DatabaseConfig): Promise<DatabaseConnection> {
   const postgresModule = (await import('postgres')).default;
   const { drizzle } = await import('drizzle-orm/postgres-js');
+  const timeouts = postgresSessionTimeouts(config);
   const sql = postgresModule({
     ...postgresConnectionOptions(config),
     ...(config.poolSize === undefined ? {} : { max: config.poolSize }),
+    ...(Object.keys(timeouts).length > 0 ? { connection: timeouts } : {}),
   });
   return { db: drizzle(sql), sql };
 }

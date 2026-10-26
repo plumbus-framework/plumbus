@@ -1,6 +1,6 @@
 # @plumbus/ui
 
-Release **0.10.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+Release **0.10.0-beta.1** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
 
 UI source-code generation for the Plumbus framework.
 

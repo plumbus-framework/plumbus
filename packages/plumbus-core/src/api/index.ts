@@ -41,7 +41,10 @@ export {
   requestIdempotencyDdl,
   sweepExpiredIdempotencyRecords,
 } from './database-idempotency-store.js';
-export type { DatabaseIdempotencyStoreOptions } from './database-idempotency-store.js';
+export type {
+  DatabaseIdempotencyStoreOptions,
+  IdempotencySweepOptions,
+} from './database-idempotency-store.js';
 export { executeIdempotently } from './idempotent-execution.js';
 export type {
   ExecuteIdempotentlyParams,

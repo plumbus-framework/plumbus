@@ -1,3 +1,4 @@
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -42,7 +43,7 @@ export async function createFlowExecutionRecord(
   options: FlowStartOptions = {},
   overrides: FlowExecutionRecordOverrides = {},
 ): Promise<{ id: string; flowName: string; status: 'created' }> {
-  const parsed = flow.input.safeParse(input);
+  const parsed = safeParseBounded(flow.input, input);
   if (!parsed.success)
     throw new DataValidationError(`Flow "${flow.name}": invalid input`, { flowName: flow.name });
   const state = flow.state?.safeParse({});

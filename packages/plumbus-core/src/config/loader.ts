@@ -70,8 +70,10 @@ export function loadEnvironmentConfig(
 
 function loadExecutionConfig(env: Record<string, string | undefined>): ExecutionConfig {
   const raw = env.PLUMBUS_TRANSACTIONAL_OUTBOX;
+  const auditQueries = env.PLUMBUS_AUDIT_SUCCESSFUL_QUERIES;
   return {
     transactionalOutbox: raw === undefined ? true : raw !== 'false',
+    auditSuccessfulQueries: auditQueries === undefined ? true : auditQueries !== 'false',
   };
 }
 
@@ -108,6 +110,13 @@ function loadDatabaseConfig(
     // Maximum connections in the process's main postgres.js pool. Unset keeps the driver's
     // default of 10, which every process used before the setting was applied.
     poolSize: parseInt(env.DATABASE_POOL_SIZE ?? String(DEFAULT_DATABASE_POOL_SIZE), 10),
+    // Server-side session timeouts for the main pool; unset leaves the server's settings.
+    ...(env.DATABASE_STATEMENT_TIMEOUT_MS !== undefined
+      ? { statementTimeoutMs: Number(env.DATABASE_STATEMENT_TIMEOUT_MS) }
+      : {}),
+    ...(env.DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS !== undefined
+      ? { idleInTransactionTimeoutMs: Number(env.DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS) }
+      : {}),
   };
 }
 
@@ -511,6 +520,18 @@ export function validateConfig(config: PlumbusConfig): ConfigValidationResult {
     (!Number.isInteger(config.database.poolSize) || config.database.poolSize < 1)
   ) {
     errors.push('database.poolSize (DATABASE_POOL_SIZE) must be a whole number of at least 1');
+  }
+  for (const [field, envName] of [
+    ['statementTimeoutMs', 'DATABASE_STATEMENT_TIMEOUT_MS'],
+    ['idleInTransactionTimeoutMs', 'DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS'],
+  ] as const) {
+    const value = config.database[field];
+    // Postgres keeps both settings as a 32-bit integer of milliseconds.
+    if (value !== undefined && (!Number.isInteger(value) || value < 1 || value > 2_147_483_647)) {
+      errors.push(
+        `database.${field} (${envName}) must be a whole number of milliseconds between 1 and 2147483647`,
+      );
+    }
   }
   if (config.environment === 'production' && !config.database.password) {
     errors.push('database.password is required in production');

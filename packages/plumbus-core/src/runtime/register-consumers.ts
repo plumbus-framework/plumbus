@@ -1,3 +1,4 @@
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import {
   DataValidationError,
   DataForbiddenError,
@@ -226,7 +227,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
           if (!authz.allowed) {
             throw new DataForbiddenError(authz.reason ?? 'Event handler access denied');
           }
-          const parsed = cap.input.safeParse(envelope.payload);
+          const parsed = safeParseBounded(cap.input, envelope.payload);
           if (!parsed.success) {
             throw new DataValidationError(
               `Event payload validation failed for handler "${cap.name}"`,
@@ -321,7 +322,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
             causationId: envelope.id,
           });
           const jobInput = record.inputJson ?? payload.input;
-          const parsed = cap.input.safeParse(jobInput);
+          const parsed = safeParseBounded(cap.input, jobInput);
           if (!parsed.success) {
             await jobs.markFailed(payload.jobExecutionId, {
               code: 'validation',

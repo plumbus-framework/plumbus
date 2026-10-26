@@ -58,8 +58,8 @@ function makeConfig(overrides: Partial<RouteGeneratorConfig> = {}): RouteGenerat
 function makeApp() {
   const handlers = new Map<string, (request: unknown, reply: unknown) => Promise<void>>();
   return {
-    get: vi.fn((path: string, handler: never) => handlers.set(path, handler)),
-    post: vi.fn((path: string, handler: never) => handlers.set(path, handler)),
+    get: vi.fn((path: string, ...rest: never[]) => handlers.set(path, rest.at(-1) as never)),
+    post: vi.fn((path: string, ...rest: never[]) => handlers.set(path, rest.at(-1) as never)),
     handlerFor: (path: string) => {
       const handler = handlers.get(path);
       if (!handler) throw new Error(`No handler registered for ${path}`);

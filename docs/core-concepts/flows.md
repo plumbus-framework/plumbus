@@ -377,7 +377,7 @@ persist-before-ack: `execution_state`, the retry `wait_state`, and a future-date
 
 Plumbus uses fenced database transitions for horizontal scale. Execution and external side effects remain at-least-once; capability effects must be idempotent. Safety is enforced at the row level — each flow execution is held by at most one worker at a time via a time-bounded lease.
 
-**How claims work.** Each poll cycle, `claimNext()` runs a single atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` against `flow_executions`. Postgres' `SKIP LOCKED` guarantees that concurrent workers never lock the same row, so each returned execution is owned by exactly the worker that claimed it. Expired leases (from a crashed worker) are picked up by the same query.
+**How claims work.** Each poll cycle, `claimNext()` runs a single atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` against `flow_executions`. Postgres' `SKIP LOCKED` guarantees that concurrent workers never lock the same row, so each returned execution is owned by exactly the worker that claimed it. Expired leases (from a crashed worker) are picked up by the same query. The claim walks `flow_exec_runnable_idx` — `(created_at) WHERE status IN ('created', 'running', 'waiting')` — so its cost follows the runnable rows, not the finished history. The claim writes its states as SQL literals, because Postgres uses a partial index only when it can prove the query implies the index predicate, which it cannot do from bind parameters under a generic prepared plan. The spine claim (`opaque_dispatch_runnable_idx`) and the outbox pump (`dispatch_outbox_unpublished_idx`) follow the same rule.
 
 **Automatic heartbeat.** While a step is running, the engine extends the lease on a timer (`flowHeartbeatIntervalMs`, default 1/3 of the lease duration). Each update checks execution ID, worker ID, claim token, running status, and an unexpired lease; tenant-placed flows first extend the same worker's opaque spine hint, then the tenant row. If either guarded update matches zero rows, ownership is lost and the worker aborts the step. Transient infrastructure failures on extend (or best-effort audit writes) are logged and retried on the next tick — they do not abort the step, surface as unhandled rejections, or permit a commit after the lease expires.
 
@@ -486,6 +486,50 @@ plumbus migrate apply
 The preflight runs automatically when workers start. For custom worker bootstraps, import `assertFlowLeaseColumns` from `@plumbus/core` (re-exported via `worker/index.ts`) and call it against your Drizzle database before starting the pool.
 
 `auth_snapshot_json` is included in generated migrations. Current core rejects missing or invalid snapshots; recover legacy work from a verified initiating identity and never inject worker/system roles. Core 0.8 additionally requires claim tokens, wait/replay metadata, schedule definitions/ticks, and pending job dispatch fields. The older lease-column preflight does not replace the [full stabilization migration](../upgrading-stabilization.md).
+
+## Operations: claim indexes and retention of finished rows
+
+Since core 0.9.0-beta.5 the framework tables carry indexes that match their claim queries exactly, plus the indexes the retention sweep scans:
+
+| Table | Index | Used by |
+|-------|-------|---------|
+| `flow_executions` | `flow_exec_runnable_idx (created_at) WHERE status IN ('created', 'running', 'waiting')` | `claimNext` |
+| `flow_executions` | `flow_exec_finished_idx (updated_at) WHERE status IN ('completed', 'cancelled')` | retention |
+| `flow_schedule_ticks` | `flow_schedule_ticks_created_idx (created_at)` | retention |
+| `job_executions` | `job_exec_dispatch_pending_idx (dispatch_after) WHERE dispatch_pending = true AND status = 'queued'` | pending job publication |
+| `core_plumbus.dispatch_outbox` | `dispatch_outbox_unpublished_idx (created_at) WHERE published_at IS NULL AND spine_acked_at IS NULL AND superseded = false` | outbox pump |
+| `core_plumbus.dispatch_outbox` | `dispatch_outbox_spine_row_idx (spine_row_id) WHERE spine_acked_at IS NULL` | closing the row behind an acknowledged hint |
+| `core_plumbus.dispatch_outbox` | `dispatch_outbox_acked_idx (created_at) WHERE spine_acked_at IS NOT NULL` | retention |
+| `core_plumbus.execution_state` | `execution_state_terminal_idx (updated_at) WHERE terminal = true` | retention |
+| `core_plumbus.side_effect_log` | `side_effect_log_applied_idx (applied_at)` | retention |
+| `opaque_dispatch` (spine) | `opaque_dispatch_runnable_idx (created_at) WHERE delivery_state IN ('ready', 'retry-scheduled', 'leased')` | spine claim |
+| `opaque_dispatch` (spine) | `opaque_dispatch_execution_idx (execution_id, created_at)` | finding an execution's plane |
+| `opaque_dispatch` (spine) | `opaque_dispatch_acked_idx (created_at) WHERE delivery_state = 'acknowledged'` | retention |
+
+The tables in the app's schema reach it like every framework table change: `plumbus migrate generate` emits one `CREATE INDEX IF NOT EXISTS` per index, `plumbus migrate apply` runs them on every database the app migrates (the spine and each tenant plane). `opaque_dispatch` is not in app migrations: apply `migrations/spine/0002_claim_and_retention_indexes.sql` on the spine (hosts that provision `core_plumbus` from the shipped journal also apply `migrations/durable-tenant/0004_claim_and_retention_indexes.sql`). `CREATE INDEX` without `CONCURRENTLY` blocks writes to the table while it builds; on a large table create the same indexes `CONCURRENTLY` by hand first, and the migration's `IF NOT EXISTS` statements then do nothing. The existing single-column indexes stay: the scheduler's overlap check reads `flow_name` / `tenant_id`, and resuming by event reads `status`.
+
+**Retention (opt-in).** Finished framework rows are never deleted unless the worker pool is given `frameworkRetention`. Export it from `app/server.ts` (`plumbus start`, `plumbus worker`, `plumbus dev`), or pass it to `createWorkerPool`:
+
+```ts
+export const frameworkRetention = { keepDays: 30 }; // or `true` for every default
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `keepDays` | `30` (at least 1) | Rows stay this long after they finished |
+| `batchSize` | `500` | Rows per `DELETE` |
+| `maxBatchesPerTable` | `20` | Statements per table per run; a larger backlog continues on the next run |
+| `intervalMs` | one hour | How often the pool runs it (first run a minute after start) |
+
+Each run, with the flow runner, covers the pool's database, the spine and every tenant plane the pool lists (`listTenantRefs` plus planes it resolved), one plane at a time, each `DELETE` locking its batch with `FOR UPDATE SKIP LOCKED`. It deletes:
+
+- `flow_executions` rows `completed` or `cancelled` before the window — not while a `flow_start_intents` row or non-terminal durable state exists for the same id;
+- terminal `execution_state` rows that `succeeded` or were `cancelled`, with their `step_execution`, `wait_state`, `terminal_state` and `dispatch_outbox` rows and their acknowledged spine hints;
+- acknowledged `dispatch_outbox` rows; `side_effect_log` rows (each key is fenced by the revision it was applied under);
+- `flow_schedule_ticks` behind their schedule's `next_run_at` (a tick at or after it is the slot dedupe the scheduler relies on);
+- on the spine, acknowledged hints a later revision of the same execution replaced. The newest hint of an execution stays until its tenant state is pruned: a request-side engine finds the plane through it.
+
+It never deletes `failed` executions or their durable state (operator retry and replay need them), `flow_dead_letter` rows, unacknowledged outbox rows, hints that are not acknowledged, audit records, or the event and job tables. A deleted execution is no longer found by `ctx.flows.status`; keep `keepDays` above the longest time anything reads an execution after it finished. `pruneFrameworkTables(db, options)` and `pruneSpineDispatchHints(spineDb, options)` run one pass yourself; both skip tables a database does not have.
 
 ## Flow State Machine
 

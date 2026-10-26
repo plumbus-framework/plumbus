@@ -284,4 +284,34 @@ describe('executeCapability transactional outbox integration', () => {
 
     expect(withTransaction).not.toHaveBeenCalled();
   });
+
+  it('gives the handler the transaction-bound audit service as ctx.audit', async () => {
+    const boundAudit = { record: vi.fn().mockResolvedValue(undefined) };
+    let seen: unknown;
+    const cap = makeActionCap(async (handlerCtx, input) => {
+      seen = handlerCtx.audit;
+      await handlerCtx.audit.record('inside.tx');
+      return { id: input.id };
+    });
+    const withTransaction = vi.fn(async <T>(fn: (scope: TransactionScope) => Promise<T>) =>
+      fn({
+        data: {} as never,
+        events: { emit: vi.fn(), emitMany: vi.fn() },
+        audit: boundAudit,
+      }),
+    );
+    const { ctx } = createTransactionalCtx({ withTransaction });
+
+    const result = await executeCapability(cap, ctx, { id: 'o1' });
+
+    expect(result.success).toBe(true);
+    expect(seen).toBe(boundAudit);
+    expect(boundAudit.record).toHaveBeenCalledWith('inside.tx');
+    // The capability's own success row is written after commit on the outer service.
+    expect(ctx.audit.record).toHaveBeenCalledWith(
+      'capability.orders.createOrder',
+      expect.objectContaining({ outcome: 'success' }),
+    );
+    expect(boundAudit.record).toHaveBeenCalledTimes(1);
+  });
 });

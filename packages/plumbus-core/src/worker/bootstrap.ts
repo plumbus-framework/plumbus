@@ -41,7 +41,15 @@ import {
 import type { FlowDefinitionUnavailableInfo, FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
 import { createFlowService } from '../flows/flow-service.js';
-import { recoverFlowStartIntents, sweepFailedFlows } from '../flows/index.js';
+import {
+  type FrameworkRetentionOptions,
+  type FrameworkRetentionResult,
+  pruneFrameworkTables,
+  pruneSpineDispatchHints,
+  recoverFlowStartIntents,
+  resolveFrameworkRetentionOptions,
+  sweepFailedFlows,
+} from '../flows/index.js';
 import { FlowStatus } from '../flows/state-machine.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
@@ -312,6 +320,17 @@ export interface WorkerPoolConfig {
    */
   flowStartRecoveryIntervalMs?: number;
   /**
+   * Opt-in retention of finished framework rows (`pruneFrameworkTables`): completed and
+   * cancelled flow executions, their finished tenant durable state and acknowledged spine
+   * hints, acknowledged `dispatch_outbox` rows, `side_effect_log` and old schedule ticks, kept
+   * `keepDays` (default 30) and deleted in bounded batches every `intervalMs` (default one
+   * hour) on the pool's database, the spine and every listed tenant plane. Failed executions,
+   * dead letters, audit records, event and job tables are never touched. `true` runs it with
+   * the defaults; omitted or `false` it does not run. Runs with the flow runner. Hosts run by
+   * the CLI export it from `app/server.ts` (`export const frameworkRetention`).
+   */
+  frameworkRetention?: FrameworkRetentionOptions | boolean;
+  /**
    * Resolve the database a claimed unit of work runs against, per unit rather
    * than per boot.
    *
@@ -450,6 +469,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   } = poolConfig;
 
   const jobsQueue = poolConfig.jobsQueue ?? queue;
+  // Validated up front: a bad option fails the pool's construction, not a sweep an hour later.
+  const retention = resolveFrameworkRetentionOptions(poolConfig.frameworkRetention);
   const flowsQueue = poolConfig.flowsQueue ?? queue;
   const flowPollIntervalMs = poolConfig.queuesDurable
     ? Math.max(flowPollIntervalMsConfig, 30_000)
@@ -908,6 +929,83 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     intentRecoveryInFlight = sweep;
   }
 
+  let retentionTimer: ReturnType<typeof setInterval> | null = null;
+  let retentionFirstRun: ReturnType<typeof setTimeout> | null = null;
+  /** The retention sweep in flight; stop() waits for it like a poll. */
+  let retentionInFlight: Promise<void> | null = null;
+  const lastRetentionWarningAt = new Map<string, number>();
+
+  function warnRetentionFailed(err: unknown, source: string): void {
+    if (Date.now() - (lastRetentionWarningAt.get(source) ?? -Infinity) < 60_000) return;
+    lastRetentionWarningAt.set(source, Date.now());
+    logger.warn('Framework retention sweep failed', { source, ...describeError(err) });
+  }
+
+  function reportRetention(source: string, result: Partial<FrameworkRetentionResult>): void {
+    const deleted = Object.values(result).reduce<number>(
+      (sum, value) => sum + (typeof value === 'number' ? value : 0),
+      0,
+    );
+    if (deleted > 0) logger.info('Framework retention pruned finished rows', { source, ...result });
+  }
+
+  /**
+   * One retention pass: the pool's database, then (under a resolver) the spine's superseded
+   * hints and every listed tenant plane in turn. Never throws; stops at the next plane once
+   * the pool is stopping.
+   */
+  async function runRetention(
+    options: NonNullable<ReturnType<typeof resolveFrameworkRetentionOptions>>,
+  ): Promise<void> {
+    const spine = dataPlaneResolver ? { spineDb: db } : {};
+    try {
+      const result = await pruneFrameworkTables(db, {
+        ...options,
+        coreSchema: frameworkSchema ?? resolveFrameworkSchema() ?? FRAMEWORK_SCHEMA,
+        ...spine,
+      });
+      reportRetention('pool', result);
+    } catch (err) {
+      warnRetentionFailed(err, 'pool');
+    }
+    if (!dataPlaneResolver) return;
+    if (!running) return;
+    try {
+      reportRetention('spine', await pruneSpineDispatchHints(db, options));
+    } catch (err) {
+      warnRetentionFailed(err, 'spine');
+    }
+    let tenantRefs: string[];
+    try {
+      tenantRefs = await listedTenantRefs();
+    } catch (err) {
+      warnRetentionFailed(err, 'tenant-list');
+      return;
+    }
+    for (const tenantRef of tenantRefs) {
+      if (!running) return;
+      try {
+        const handle = await dataPlaneResolver.resolve(tenantRef);
+        const result = await pruneFrameworkTables(handle.db, {
+          ...options,
+          coreSchema: handle.coreSchema,
+          spineDb: db,
+        });
+        reportRetention(`tenant-plane:${tenantRef}`, result);
+      } catch (err) {
+        warnRetentionFailed(err, `tenant-plane:${tenantRef}`);
+      }
+    }
+  }
+
+  function triggerRetention(): void {
+    if (!retention || !running || retentionInFlight) return;
+    const sweep = runRetention(retention).finally(() => {
+      if (retentionInFlight === sweep) retentionInFlight = null;
+    });
+    retentionInFlight = sweep;
+  }
+
   /** Hand a running execution back between steps; a failure leaves it to lease expiry. */
   async function releaseForShutdown(executionId: string, leaseToken?: string): Promise<void> {
     try {
@@ -1239,6 +1337,15 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           poolConfig.flowStartRecoveryIntervalMs ?? 10_000,
         );
         triggerIntentRecovery();
+        if (retention) {
+          retentionTimer = setInterval(triggerRetention, retention.intervalMs);
+          // The first pass a minute after start (sooner with a shorter interval), not at boot.
+          retentionFirstRun = setTimeout(triggerRetention, Math.min(retention.intervalMs, 60_000));
+          logger.info('Framework retention sweep scheduled', {
+            keepDays: retention.keepDays,
+            intervalMs: retention.intervalMs,
+          });
+        }
         logger.info('Flow execution runner started');
       }
 
@@ -1308,6 +1415,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         // The tenant sweeps end at their next plane now that `running` is false.
         await tenantSweepInFlight?.catch(() => undefined);
         await intentRecoveryInFlight?.catch(() => undefined);
+        if (retentionTimer) clearInterval(retentionTimer);
+        if (retentionFirstRun) clearTimeout(retentionFirstRun);
+        retentionTimer = null;
+        retentionFirstRun = null;
+        await retentionInFlight?.catch(() => undefined);
         // The step running now gets until the deadline; the cycle claims nothing more.
         const cycle = flowCycleInFlight;
         if (cycle && options?.deadlineAt !== undefined) {

@@ -83,3 +83,43 @@ describe('connectPostgresDatabase pool size', () => {
     expect(postgresConnectionOptions({ ...base, poolSize: 3 })).not.toHaveProperty('max');
   });
 });
+
+describe('connectPostgresDatabase session timeouts', () => {
+  beforeEach(() => {
+    vi.mocked(postgres).mockClear();
+  });
+
+  it('passes statement and idle-in-transaction timeouts as connection parameters', async () => {
+    await connectPostgresDatabase({
+      ...base,
+      statementTimeoutMs: 30000,
+      idleInTransactionTimeoutMs: 60000,
+    });
+    expect(vi.mocked(postgres)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connection: { statement_timeout: 30000, idle_in_transaction_session_timeout: 60000 },
+      }),
+    );
+  });
+
+  it('passes only the timeout that is configured', async () => {
+    await connectPostgresDatabase({ ...base, statementTimeoutMs: 1000 });
+    const options = vi.mocked(postgres).mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(options.connection).toEqual({ statement_timeout: 1000 });
+  });
+
+  it('sends no connection parameters when no timeout is configured', async () => {
+    await connectPostgresDatabase(base);
+    const options = vi.mocked(postgres).mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(options).not.toHaveProperty('connection');
+  });
+
+  it('keeps maintenance connection options free of the timeouts', () => {
+    const options = postgresConnectionOptions(
+      { ...base, statementTimeoutMs: 1000, idleInTransactionTimeoutMs: 1000 },
+      'postgres',
+    );
+    expect(options).not.toHaveProperty('connection');
+    expect(options).not.toHaveProperty('statement_timeout');
+  });
+});

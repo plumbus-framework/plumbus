@@ -1,3 +1,4 @@
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
@@ -15,7 +16,7 @@ import { isPlumbusError } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
 import { JobExecutionSource } from '../jobs/schema.js';
 import { dispatchQueuedJob } from '../jobs/dispatch.js';
-import { evaluateAccess } from '../execution/authorization.js';
+import { accessDenialError, evaluateAccess } from '../execution/authorization.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
 import { authorizeCapability, executeCapability } from '../execution/capability-executor.js';
 import {
@@ -248,13 +249,11 @@ export function registerCapabilityRoute(
     if (capability.kind === 'job' && config.jobQueue) {
       const authz = evaluateAccess(capability.access, ctx.auth);
       if (!authz.allowed) {
-        const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
-          capability: canonicalName,
-        });
+        const err = accessDenialError(authz, { capability: canonicalName });
         const { statusCode, body } = errorToHttpResponse(err);
         return reply.status(statusCode).send(body);
       }
-      const parsed = capability.input.safeParse(input);
+      const parsed = safeParseBounded(capability.input, input);
       if (!parsed.success) {
         const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
         const { statusCode, body } = errorToHttpResponse(err);
@@ -296,7 +295,7 @@ export function registerCapabilityRoute(
       }
       // Only a request that would execute claims a key: invalid input is answered by the
       // executor as always, and leaves nothing behind for a retry to hit.
-      const parsed = capability.input.safeParse(input);
+      const parsed = safeParseBounded(capability.input, input);
       const principal: IdempotencyPrincipal = {
         userId: ctx.auth.userId,
         tenantId: ctx.auth.tenantId,
@@ -465,22 +464,38 @@ export function registerCapabilityRoute(
    * declared `PATCH` that silently registered as `POST` is the same defect as a declared `POST`
    * served as `GET`: the contract says one thing and the wire does another.
    */
+  const options = { onSend: challengeUnauthorized };
   switch (method) {
     case 'GET':
-      app.get(path, handler);
+      app.get(path, options, handler);
       break;
     case 'PATCH':
-      app.patch(path, handler);
+      app.patch(path, options, handler);
       break;
     case 'PUT':
-      app.put(path, handler);
+      app.put(path, options, handler);
       break;
     case 'DELETE':
-      app.delete(path, handler);
+      app.delete(path, options, handler);
       break;
     default:
-      app.post(path, handler);
+      app.post(path, options, handler);
   }
+}
+
+/**
+ * Every `401` a capability route sends names the scheme to authenticate with, whether the
+ * request authenticator refused it before the handler or the access check found no identity.
+ */
+async function challengeUnauthorized(
+  _request: FastifyRequest,
+  reply: FastifyReply,
+  payload: unknown,
+): Promise<unknown> {
+  if (reply.statusCode === 401 && !reply.hasHeader('www-authenticate')) {
+    reply.header('www-authenticate', 'Bearer');
+  }
+  return payload;
 }
 
 /**
@@ -606,9 +621,7 @@ export function registerStreamingRoute(
 
     const authz = evaluateAccess(capability.access, ctx.auth);
     if (!authz.allowed) {
-      const err = ctx.errors.forbidden(authz.reason ?? 'Access denied', {
-        capability: canonicalName,
-      });
+      const err = accessDenialError(authz, { capability: canonicalName });
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -618,7 +631,7 @@ export function registerStreamingRoute(
       reply.raw.end();
       return;
     }
-    const parsed = capability.input.safeParse(input);
+    const parsed = safeParseBounded(capability.input, input);
     if (!parsed.success) {
       const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
       reply.raw.writeHead(200, {

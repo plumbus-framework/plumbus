@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { ExecutionContext } from '../../types/context.js';
+import { createAuditService } from '../../audit/index.js';
 import { createExecutionContext } from '../context-factory.js';
 import { createTransactionRunner, shouldUseTransactionalOutbox } from '../transactional-outbox.js';
 
@@ -187,6 +188,116 @@ describe('createTransactionRunner', () => {
 
     expect(result).toBe('ok');
     expect(second).toHaveBeenCalledOnce();
+  });
+
+  describe('audit bound to the transaction', () => {
+    const auth = { userId: 'u1', roles: [], scopes: [], provider: 'test' } as const;
+
+    /** A fake database whose inserts are recorded per handle ('outer' or 'tx'). */
+    function makeDb(options: { rollback?: boolean } = {}) {
+      const writes: Array<{ via: string; action: string; outcome: string; id: string }> = [];
+      const handle = (via: string) => ({
+        via,
+        insert: vi.fn(() => ({
+          values: vi.fn((row: { action: string; outcome: string; id: string }) => ({
+            onConflictDoNothing: async () => {
+              writes.push({ via, action: row.action, outcome: row.outcome, id: row.id });
+            },
+          })),
+        })),
+      });
+      const tx = handle('tx');
+      const db = {
+        ...handle('outer'),
+        transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => {
+          const before = writes.length;
+          try {
+            return await fn(tx);
+          } catch (err) {
+            // A rollback discards what the transaction wrote.
+            if (options.rollback !== false) {
+              for (let i = writes.length - 1; i >= before; i--) {
+                if (writes[i]?.via === 'tx') writes.splice(i, 1);
+              }
+            }
+            throw err;
+          }
+        }),
+      };
+      return { db, writes };
+    }
+
+    function runnerFor(db: unknown, audit: unknown) {
+      return createTransactionRunner({
+        db: db as never,
+        entities: {
+          createDataService: vi.fn(({ audit: scopedAudit }) => ({ scopedAudit })),
+        } as never,
+        events: { get: vi.fn() } as never,
+        getAuth: () => auth,
+        getAudit: () => audit as never,
+      });
+    }
+
+    it('gives scope data, events and scope.audit a service that writes through tx', async () => {
+      const { db, writes } = makeDb();
+      const outerAudit = createAuditService({ db: db as never, auth });
+      const runner = runnerFor(db, outerAudit);
+
+      const scope = await runner(async (s) => {
+        await s.audit?.record('inside');
+        return s;
+      });
+
+      expect(scope.audit).toBeDefined();
+      expect(scope.audit).not.toBe(outerAudit);
+      expect((scope.data as unknown as { scopedAudit: unknown }).scopedAudit).toBe(scope.audit);
+      expect(writes).toEqual([expect.objectContaining({ via: 'tx', action: 'inside' })]);
+    });
+
+    it('replays failure/denied through the outer writer after a rollback; drops success', async () => {
+      const { db, writes } = makeDb();
+      const runner = runnerFor(db, createAuditService({ db: db as never, auth }));
+
+      await expect(
+        runner(async (s) => {
+          await s.audit?.record('ok');
+          await s.audit?.record('broken', { outcome: 'failure' });
+          await s.audit?.record('refused', { outcome: 'denied' });
+          throw new Error('rollback me');
+        }),
+      ).rejects.toThrow('rollback me');
+
+      expect(writes.map((w) => [w.via, w.action])).toEqual([
+        ['outer', 'broken'],
+        ['outer', 'refused'],
+      ]);
+    });
+
+    it('routes post-commit deferred audits to the outer writer', async () => {
+      const { db, writes } = makeDb();
+      const runner = runnerFor(db, createAuditService({ db: db as never, auth }));
+
+      await runner(async (s) => {
+        const bound = s.audit;
+        s.deferred?.push(async () => {
+          await bound?.record('after.commit');
+        });
+        return 'ok';
+      });
+
+      expect(writes).toEqual([expect.objectContaining({ via: 'outer', action: 'after.commit' })]);
+    });
+
+    it('leaves a custom audit service on the outer path', async () => {
+      const { db } = makeDb();
+      const custom = { record: vi.fn(async () => undefined) };
+      const runner = runnerFor(db, custom);
+
+      const scope = await runner(async (s) => s);
+
+      expect(scope.audit).toBe(custom);
+    });
   });
 
   it('omits persist-before-ack helpers when durableDispatch is unset', async () => {

@@ -217,6 +217,8 @@ Apps export `payments` from `app/payments/index.ts`, export `payments.capabiliti
 | @types/react | `dependencies` |
 | @types/react-dom | `dependencies` |
 
+Apps add `@plumbus/ui` and never declare these packages: a second declaration pins the app's own copy, which keeps an old (possibly vulnerable) Next after the framework moves on and can load two copies of Next or React. Under pnpm, the app's `pnpm-workspace.yaml` lists them in `publicHoistPattern` so the frontend's `next/*` / `react` imports and its `next` / `tsc` commands resolve the framework's copy (`plumbus create --monorepo` writes it; see `packages/ui/instructions/nextjs-template.md`). `plumbus ui deps` reports a declared copy, a missing hoist or two locked versions on demand (`plumbus doctor` only warns).
+
 Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command resolves vitest from within the framework.
 
 ## `@plumbus/core` peer ranges — CRITICAL

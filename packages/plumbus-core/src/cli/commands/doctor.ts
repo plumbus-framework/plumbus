@@ -5,6 +5,7 @@ import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
+import { checkUiProvidedPackages } from '../ui-provided-packages.js';
 import {
   detectMonorepoLayout,
   info,
@@ -435,6 +436,23 @@ export function checkPlumbusUi(): DoctorCheck {
   }
 }
 
+/** The app takes Next.js, React, Tailwind and TypeScript from @plumbus/ui (`plumbus ui deps`). */
+export function checkUiDependencies(root: string = process.cwd()): DoctorCheck {
+  const report = checkUiProvidedPackages(root);
+  if (report.status === 'skip') {
+    return { name: 'ui-dependencies', status: 'ok', message: 'no @plumbus/ui installed' };
+  }
+  if (report.status === 'ok') {
+    return {
+      name: 'ui-dependencies',
+      status: 'ok',
+      message: 'packages supplied by @plumbus/ui come from it',
+    };
+  }
+  // Advisory for now: reported, never fails doctor. `plumbus ui deps` exits 1 when run on purpose.
+  return { name: 'ui-dependencies', status: 'warn', message: report.issues.join('; ') };
+}
+
 /** Resolve the frontend directory for legacy artifact detection */
 function resolveFrontendDir(): string | undefined {
   const layout = detectMonorepoLayout();
@@ -679,6 +697,7 @@ export function runDoctorChecks(resolvedConfig = loadConfig()): DoctorCheck[] {
     checkTypeScript(),
     checkPlumbusCore(),
     checkPlumbusUi(),
+    checkUiDependencies(),
     checkPackageJson(),
     checkConfig(),
     checkAppStructure(),

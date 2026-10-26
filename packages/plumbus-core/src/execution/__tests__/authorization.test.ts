@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AccessPolicy, AuthContext } from '../../types/security.js';
-import { evaluateAccess } from '../authorization.js';
+import { accessDenialError, evaluateAccess } from '../authorization.js';
 
 function makeAuth(overrides: Partial<AuthContext> = {}): AuthContext {
   return {
@@ -31,6 +31,21 @@ describe('evaluateAccess', () => {
     const result = evaluateAccess(policy, makeAuth({ userId: undefined }));
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('Authentication required');
+    expect(result.unauthenticated).toBe(true);
+  });
+
+  it('turns a refusal into unauthorized (401) without identity and forbidden (403) with one', () => {
+    const anonymous = evaluateAccess({ roles: ['admin'] }, makeAuth({ userId: undefined }));
+    const signedIn = evaluateAccess(
+      { roles: ['admin'] },
+      makeAuth({ userId: 'u1', roles: ['viewer'] }),
+    );
+    expect(signedIn.unauthenticated).toBeUndefined();
+    expect(accessDenialError(anonymous, { capability: 'c' })).toMatchObject({
+      code: 'unauthorized',
+      metadata: { capability: 'c' },
+    });
+    expect(accessDenialError(signedIn, { capability: 'c' })).toMatchObject({ code: 'forbidden' });
   });
 
   it('allows when caller has a required role', () => {

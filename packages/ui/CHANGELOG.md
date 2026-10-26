@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0-beta.1 — 2026-10-25
+
+- **`next` `^16.4.3`** (was `^16.2.1`): GHSA-2464-fhr4-w9xw, unauthenticated remote code execution in the image optimizer for SVG through `sharp` < 0.35.5; 16.4.1+ ships `sharp` 0.35.5. Until an app moves to this version, keep `images.dangerouslyAllowSVG` off.
+- **`next-intl` `^4.9.2`** in dependencies and peers (dependency `^4.14.9`), for the next-intl / icu-minify advisories below 4.9.2. No code change.
+- **Apps never declare the packages this one supplies** (`next`, `react`, `react-dom`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/postcss`, `typescript`). The Next.js template instructions said the opposite for standalone apps; a second declaration in the app keeps its own, older copy after a Plumbus upgrade (so the `next` fix above never reaches it) and can load two copies of Next or React. Under pnpm the app lists them in `publicHoistPattern` in `pnpm-workspace.yaml` (`instructions/nextjs-template.md`). **Action:** remove them from the frontend's `package.json`, add the hoist list, `pnpm install`, and check `pnpm why next` shows one version.
+- **`plumbus.provides`** in this package's `package.json` names the packages it supplies; `plumbus ui deps` (core 0.9.0-beta.5) reads it to check an app.
+
 ## 0.10.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

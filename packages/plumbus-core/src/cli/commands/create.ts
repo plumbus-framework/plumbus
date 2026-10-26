@@ -1,6 +1,9 @@
 // ── plumbus create <app-name> ──
 // Interactive project scaffolding
 
+import { UI_PROVIDED_PACKAGES } from '../ui-provided-packages.js';
+
+export { UI_PROVIDED_PACKAGES };
 import { z } from 'zod';
 import { createErrorService } from '../../errors/index.js';
 import { assertScaffoldName } from '../scaffold-validation.js';
@@ -265,6 +268,24 @@ config/
   return files;
 }
 
+/** The monorepo's `pnpm-workspace.yaml`: members, and the hoisting that exposes UI-provided packages. */
+export function monorepoWorkspaceYaml(): string {
+  const hoisted = UI_PROVIDED_PACKAGES.map((name) =>
+    name.startsWith('@') ? `  - '${name}'` : `  - ${name}`,
+  ).join('\n');
+  return [
+    'packages:',
+    '  - "backend"',
+    '  - "frontend"',
+    '  - "libs/*"',
+    '',
+    '# Supplied by @plumbus/ui; hoisted so the frontend resolves them without declaring them.',
+    'publicHoistPattern:',
+    hoisted,
+    '',
+  ].join('\n');
+}
+
 /** Generate a pnpm-workspace monorepo with backend, frontend, and shared libs */
 function generateMonorepoStructure(appName: string, options: CreateOptions): Map<string, string> {
   const files = new Map<string, string>();
@@ -272,7 +293,7 @@ function generateMonorepoStructure(appName: string, options: CreateOptions): Map
 
   // ── Root workspace files ──
 
-  files.set('pnpm-workspace.yaml', 'packages:\n  - "backend"\n  - "frontend"\n  - "libs/*"\n');
+  files.set('pnpm-workspace.yaml', monorepoWorkspaceYaml());
 
   files.set(
     'package.json',

@@ -1,3 +1,4 @@
+import type { ProcessErrorClassifier, ProcessErrorHook } from '../runtime/process-errors.js';
 import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 import type { IdempotencyStore } from '../api/idempotency.js';
 import type { AIReasoningConfig, ReasoningEffort } from '../types/prompt.js';
@@ -141,8 +142,12 @@ export interface ServerConfig {
   host?: string;
   /** Fastify listen port. Required to call `start()` — no default is assumed. */
   port?: number;
-  /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
-  trustProxy?: boolean | string | string[] | number;
+  /**
+   * Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option:
+   * `true`, or the proxies' IP/CIDR as a string or list. A hop count is not accepted: Fastify 5.12
+   * trusts nothing for a number, because a hop count cannot check who sent the request.
+   */
+  trustProxy?: boolean | string | string[];
   /**
    * Largest request body the server accepts, in bytes. Passed to Fastify's `bodyLimit`.
    *
@@ -173,17 +178,17 @@ export interface ServerConfig {
    */
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   /**
-   * Called on uncaught exceptions, unhandled rejections, and Fastify-level errors.
-   * Use to log process-level crashes that bypass capability/flow hooks.
-   * The `source` field indicates origin: 'uncaughtException', 'unhandledRejection', 'fastify', or 'startup'.
+   * Called on uncaught exceptions, unhandled rejections, Fastify-level errors and failed scripts.
+   * The place to report process-level errors that bypass capability/flow hooks (logs, alerts,
+   * Sentry). `plumbus start`, `dev` and `worker` keep running after an uncaught exception or
+   * unhandled rejection and report it here with a `severity`; see `installKeepAliveProcessHandlers`.
    */
-  onProcessError?: (info: {
-    source: 'uncaughtException' | 'unhandledRejection' | 'fastify' | 'startup';
-    message: string;
-    stack?: string;
-    metadata?: Record<string, unknown>;
-    db?: PostgresJsDatabase;
-  }) => void | Promise<void>;
+  onProcessError?: ProcessErrorHook;
+  /**
+   * Names an error the app knows to be harmless (reported as a `warning`), or returns `undefined`.
+   * Read by `plumbus start`, `dev` and `worker` from `app/server.ts`.
+   */
+  classifyProcessError?: ProcessErrorClassifier;
   /**
    * Optional async hook to resolve AI config overrides dynamically (e.g. from DB).
    * Called before each AI generate/stream call. The framework passes the DB connection.

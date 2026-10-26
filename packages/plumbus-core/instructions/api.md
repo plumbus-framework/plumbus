@@ -83,5 +83,9 @@ spine (unqualified) for control-plane requests, `<framework schema>.request_idem
   must carry their own idempotency keys.
 - **Failure:** a failed or throwing run deletes its claim, so the caller may retry at once.
 - **TTL:** the route's `ttl` (default 24 h). Each store sweeps a database at most once an hour
-  as it claims on it; `sweepExpiredIdempotencyRecords(db, { schemaName })` is exported for a
-  scheduled job.
+  (`sweepIntervalMs`) as it claims on it, beside the request and never awaited by it: batches
+  of 1000 through the `expires_at` index until no expired record is left, capped at 50
+  statements or 5 s (`sweep: { batchSize, maxBatches, maxDurationMs }`); a capped sweep comes
+  back after a minute. `sweepExpiredIdempotencyRecords(db, { schemaName, batchSize?,
+  maxBatches?, maxDurationMs? })` is exported for a scheduled job (`{ limit }` alone keeps the
+  former single statement).

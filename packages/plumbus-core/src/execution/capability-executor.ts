@@ -1,11 +1,13 @@
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { z } from 'zod';
 import { isProviderAPIError } from '../ai/provider.js';
 import { isPlumbusError } from '../errors/index.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext, TransactionScope } from '../types/context.js';
+import { CapabilityKind } from '../types/enums.js';
 import type { PlumbusErrorLike } from '../types/errors.js';
-import { evaluateAccess } from './authorization.js';
+import { accessDenialError, evaluateAccess } from './authorization.js';
 import { getCanonicalCapabilityName } from './canonical-name.js';
 import { createDeferredFlowService } from './deferred-flow-service.js';
 import { createDeferredJobDispatchService } from '../jobs/deferred-job-dispatch-service.js';
@@ -54,9 +56,7 @@ async function authorizeAccessPolicy(
   const access = evaluateAccess(capability.access, ctx.auth);
   if (access.allowed) return { success: true, data: undefined };
   const canonicalName = getCanonicalCapabilityName(capability);
-  const error = ctx.errors.forbidden(access.reason ?? 'Access denied', {
-    capability: canonicalName,
-  });
+  const error = accessDenialError(access, { capability: canonicalName });
   await recordAudit(ctx, capability, canonicalName, 'denied', { error });
   return { success: false, error };
 }
@@ -118,6 +118,8 @@ function buildHandlerContext(
   const handlerCtx: ExecutionContext = {
     ...ctx,
     ...(scope ? { data: scope.data, events: scope.events } : {}),
+    // Audit inside the transaction uses its connection, not a second pool connection.
+    ...(scope?.audit ? { audit: scope.audit } : {}),
     ...(flows ? { flows } : {}),
     ...(jobs ? { jobs } : {}),
     capabilities: createUnavailableCapabilityService(ctx),
@@ -241,7 +243,7 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   if (!access.success) return access;
 
   // Parse only after static access has been granted. Input-aware hooks receive parsed input.
-  const inputResult = capability.input.safeParse(rawInput);
+  const inputResult = safeParseBounded(capability.input, rawInput);
   if (!inputResult.success) {
     const error = ctx.errors.validation('Invalid input', {
       capability: canonicalName,
@@ -393,6 +395,7 @@ async function recordAudit(
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   if (capability.audit?.enabled === false) return;
+  if (outcome === 'success' && skipsSuccessfulQueryAudit(ctx, capability)) return;
 
   const auditEvent = capability.audit?.event ?? `capability.${canonicalName}`;
   const stack = ctx.__runtime?.capabilityStack ?? [];
@@ -416,4 +419,20 @@ async function recordAudit(
     ctx.logger.error(`Failed to record audit for capability "${canonicalName}"`);
     throw ctx.errors.internal('Audit persistence failed', { capability: canonicalName });
   }
+}
+
+/**
+ * `execution.auditSuccessfulQueries: false` drops the success row of a `query` capability —
+ * the bulk of audit volume for read-heavy apps — unless the capability asks for it with
+ * `audit.enabled: true`. Failed and denied calls, and other kinds, are always recorded.
+ */
+function skipsSuccessfulQueryAudit(
+  ctx: ExecutionContext,
+  capability: CapabilityContract<any, any>,
+): boolean {
+  if (capability.kind !== CapabilityKind.Query) return false;
+  if (capability.audit?.enabled === true) return false;
+  const execution = (ctx.config as { execution?: { auditSuccessfulQueries?: boolean } } | undefined)
+    ?.execution;
+  return execution?.auditSuccessfulQueries === false;
 }
