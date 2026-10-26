@@ -29,9 +29,9 @@ const schema = z.object({
   scenarios: z.array(
     z.object({
       name: z.string(),
-      given: z.record(z.unknown()),
+      given: z.record(z.string(), z.unknown()),
       when: z.object({ send: z.string() }),
-      then: z.array(z.record(z.unknown())),
+      then: z.array(z.record(z.string(), z.unknown())),
     }),
   ),
 });
@@ -44,7 +44,7 @@ export function defineChatEvaluation(config: {
   const parsed = schema.safeParse(config);
   if (!parsed.success) {
     const detail = parsed.error.issues
-      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .map((issue) => `${issue.path.map(String).join('.')}: ${issue.message}`)
       .join('; ');
     throwDefineValidationError(`defineChatEvaluation: ${detail}`);
   }

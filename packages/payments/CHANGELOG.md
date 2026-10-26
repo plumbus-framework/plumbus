@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-10-26
+
+- **zod 4.** The config-option walker follows `z.ZodPipe` (zod 4's transforms) and a record's `valueType`; keyed `z.record`. Core peer `>=0.9.0-beta.6 <0.10.0`.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

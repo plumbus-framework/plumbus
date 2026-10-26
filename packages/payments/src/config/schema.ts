@@ -484,23 +484,24 @@ export function listPaymentsConfigOptions(): string[] {
   return paths;
 }
 
-function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
+function unwrap(schema: z.core.$ZodType): z.core.$ZodType {
   let current = schema;
   for (;;) {
     if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
       current = current.unwrap();
-    } else if (current instanceof z.ZodEffects) {
-      current = current.innerType();
+    } else if (current instanceof z.ZodPipe) {
+      // `.transform()` / `.pipe()`: the documented options are the input side.
+      current = current.in;
     } else {
       return current;
     }
   }
 }
 
-function walk(schema: z.ZodTypeAny, prefix: string, out: string[]): void {
+function walk(schema: z.core.$ZodType, prefix: string, out: string[]): void {
   const inner = unwrap(schema);
   if (inner instanceof z.ZodObject) {
-    for (const [name, child] of Object.entries(inner.shape as Record<string, z.ZodTypeAny>)) {
+    for (const [name, child] of Object.entries(inner.shape as Record<string, z.core.$ZodType>)) {
       const path = prefix ? `${prefix}.${name}` : name;
       out.push(path);
       walk(child, path, out);
@@ -508,13 +509,13 @@ function walk(schema: z.ZodTypeAny, prefix: string, out: string[]): void {
     return;
   }
   if (inner instanceof z.ZodUnion) {
-    for (const option of inner.options as z.ZodTypeAny[]) {
+    for (const option of inner.options as readonly z.core.$ZodType[]) {
       walk(option, prefix, out);
     }
     return;
   }
   // Records keyed by the app (plans, meters): document the shape of one entry as `<key>`.
   if (inner instanceof z.ZodRecord) {
-    walk(inner.valueSchema as z.ZodTypeAny, `${prefix}.<key>`, out);
+    walk(inner.valueType, `${prefix}.<key>`, out);
   }
 }

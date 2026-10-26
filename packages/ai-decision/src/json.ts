@@ -2,16 +2,32 @@
 import { z } from '@plumbus/core/zod';
 import type { DecisionJson } from './types.js';
 
-export function jsonRecord<T extends z.ZodTypeAny>(schema: T) {
-  return z
-    .custom<Record<string, z.input<T>>>((value) => {
+/**
+ * `first.pipe(then)`, where `then` narrows a value `first` already accepted. zod 4 types a pipe's
+ * second schema by its input, which must accept everything the first one outputs; a narrowing
+ * schema (a record of questions after plain JSON) accepts less, by design.
+ */
+export function narrow<A extends z.ZodType, B extends z.ZodType>(
+  first: A,
+  then: B,
+): z.ZodPipe<A, B> {
+  return first.pipe(then as unknown as z.ZodType<z.output<B>, z.output<A>>) as unknown as z.ZodPipe<
+    A,
+    B
+  >;
+}
+
+export function jsonRecord<T extends z.ZodType>(schema: T) {
+  return narrow(
+    z.custom<Record<string, z.input<T>>>((value) => {
       if (value === null || typeof value !== 'object') return false;
       const prototype = Object.getPrototypeOf(value);
       return (
         (prototype === Object.prototype || prototype === null) && !Object.hasOwn(value, '__proto__')
       );
-    }, 'Expected a plain JSON object without __proto__')
-    .pipe(z.record(UnicodeString, schema));
+    }, 'Expected a plain JSON object without __proto__'),
+    z.record(UnicodeString, schema),
+  );
 }
 
 // Look for isolated halves instead of repeating a whole-string regex over large inputs.

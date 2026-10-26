@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0-beta.2 — 2026-10-26
+
+- **zod 4.** The client and form-hint generators read zod 4 schemas through a zod 3-shaped view of their definition, so the generated client and hooks are unchanged. Form hints become more exact: a `.refine()`d field keeps its type and limits (zod 3 reported it as `ZodEffects` with no validation), and a refined input object lists its fields. Core peer `>=0.9.0-beta.6 <0.10.0`.
+
 ## 0.10.0-beta.1 — 2026-10-25
 
 - **`next` `^16.4.3`** (was `^16.2.1`): GHSA-2464-fhr4-w9xw, unauthenticated remote code execution in the image optimizer for SVG through `sharp` < 0.35.5; 16.4.1+ ships `sharp` 0.35.5. Until an app moves to this version, keep `images.dangerouslyAllowSVG` off.

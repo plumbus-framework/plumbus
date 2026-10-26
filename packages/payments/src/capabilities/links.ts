@@ -217,7 +217,7 @@ export function createLinkCapabilities(runtime: PaymentsRuntime) {
     kind: 'action',
     domain: 'payments',
     description: 'Turn a payment link off (nobody can pay through it) or back on',
-    input: z.object({ linkId: z.string().uuid(), active: z.boolean() }),
+    input: z.object({ linkId: z.string().guid(), active: z.boolean() }),
     output: z.object({ link: linkViewSchema }),
     access: config.access.sellers,
     effects: { data: [PaymentEntityName.Link], events: [], external, ai: false },

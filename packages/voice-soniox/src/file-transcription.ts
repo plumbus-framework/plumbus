@@ -21,7 +21,7 @@ import type {
 import { FetchHttpClient, SonioxHttpError, SonioxNodeClient } from '@soniox/node';
 
 const opaque = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/);
-const id = z.string().uuid();
+const id = z.string().guid();
 const quantity = z.number().finite().nonnegative();
 const count = quantity.int().safe();
 const datetime = z.string().datetime({ offset: true });
@@ -67,7 +67,7 @@ const windowSchema = z
       Date.parse(before) > Date.parse(after) &&
       Date.parse(before) - Date.parse(after) <= 7 * 86400000,
   );
-function checked<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): T {
+function checked<T>(schema: z.ZodType<T, unknown>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success)
     throw new PlumbusError(ErrorCode.Validation, 'Invalid file transcription data');

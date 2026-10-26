@@ -1,41 +1,33 @@
-import type { CapabilityContract } from '@plumbus/core';
+import { type CapabilityContract, zodInnerType, zodObjectShape, zodTypeName } from '@plumbus/core';
 
-function getZodDef(schema: unknown): Record<string, unknown> | null {
-  if (schema && typeof schema === 'object' && '_def' in schema) {
-    return (schema as Record<string, unknown>)._def as Record<string, unknown>;
-  }
-  return null;
-}
-
+/** One wrapper in: optional, default, nullable, catch, readonly, and the input side of a pipe. */
 function unwrapWrappers(schema: unknown): unknown {
-  const def = getZodDef(schema);
-  if (!def) return schema;
-  const tn = typeof def.typeName === 'string' ? def.typeName : '';
-  if (tn === 'ZodOptional' || tn === 'ZodDefault' || tn === 'ZodNullable') {
-    return unwrapWrappers(def.innerType);
-  }
-  if (tn === 'ZodEffects' || tn === 'ZodPipeline' || tn === 'ZodBranded' || tn === 'ZodCatch') {
-    const inner = def.schema ?? def.innerType ?? def.out;
+  const tn = zodTypeName(schema);
+  if (
+    tn === 'ZodOptional' ||
+    tn === 'ZodDefault' ||
+    tn === 'ZodNullable' ||
+    tn === 'ZodEffects' ||
+    tn === 'ZodCatch' ||
+    tn === 'ZodReadonly'
+  ) {
+    const inner = zodInnerType(schema);
     if (inner) return unwrapWrappers(inner);
   }
   return schema;
 }
 
 function isFieldOptional(schema: unknown): boolean {
-  const def = getZodDef(schema);
-  if (!def) return false;
-  const tn = typeof def.typeName === 'string' ? def.typeName : '';
+  const tn = zodTypeName(schema);
   if (tn === 'ZodOptional' || tn === 'ZodDefault') return true;
-  if (tn === 'ZodNullable' && def.innerType) return isFieldOptional(def.innerType);
+  if (tn === 'ZodNullable') return isFieldOptional(zodInnerType(schema));
   return false;
 }
 
 function listObjectFields(schema: unknown): Array<{ key: string; optional: boolean }> {
-  const def = getZodDef(unwrapWrappers(schema));
-  if (!def || def.typeName !== 'ZodObject' || typeof def.shape !== 'function') {
-    return [];
-  }
-  const shape = (def.shape as () => Record<string, unknown>)();
+  const inner = unwrapWrappers(schema);
+  if (zodTypeName(inner) !== 'ZodObject') return [];
+  const shape = zodObjectShape(inner) ?? {};
   return Object.entries(shape).map(([key, fieldSchema]) => ({
     key,
     optional: isFieldOptional(fieldSchema),
@@ -45,8 +37,7 @@ function listObjectFields(schema: unknown): Array<{ key: string; optional: boole
 /** True only for a plain Zod object with no required fields (not transforms, not non-objects). */
 export function isZeroInputCapabilityInput(schema: unknown): boolean {
   const inner = unwrapWrappers(schema);
-  const def = getZodDef(inner);
-  if (!def || def.typeName !== 'ZodObject') {
+  if (zodTypeName(inner) !== 'ZodObject') {
     return false;
   }
   const fields = listObjectFields(inner);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-10-26
+
+- **zod 4.** A secret source function is checked with `z.custom` (zod 4's `z.function()` is not a schema for a union); `resolveSecretSource` refuses a function that does not resolve to a string, which zod 3 checked through its wrapper. Core peer `>=0.9.0-beta.6 <0.10.0`.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

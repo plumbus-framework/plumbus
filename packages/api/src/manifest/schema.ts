@@ -57,7 +57,7 @@ const ApiKeySecuritySchemeSchema = z
 const OAuth2FlowSchema = z
   .object({
     tokenUrl: z.string(),
-    scopes: z.record(z.string()).optional(),
+    scopes: z.record(z.string(), z.string()).optional(),
     authorizationUrl: z.string().optional(),
     refreshUrl: z.string().optional(),
   })
@@ -161,7 +161,7 @@ export const ApiManifestSchema = z
       })
       .strict()
       .optional(),
-    securitySchemes: z.record(SecuritySchemeSchema).optional(),
+    securitySchemes: z.record(z.string(), SecuritySchemeSchema).optional(),
     policy: ApiPolicySchema,
     expose: z.array(ApiManifestEntrySchema),
   })

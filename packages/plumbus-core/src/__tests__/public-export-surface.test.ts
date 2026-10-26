@@ -420,8 +420,15 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'workerRules',
   'wrapAuthAdapter',
   'writeAgentFiles',
+  'zodDefaultValue',
+  'zodDefinition',
+  'zodEnumValues',
+  'zodInnerType',
   'zodInputToJsonSchema',
+  'zodObjectShape',
+  'zodToJsonSchemaObject',
   'zodToProviderJsonSchema',
+  'zodTypeName',
   'zodTypeToString',
 ];
 

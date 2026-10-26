@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-10-26
+
+- **zod 4.** Keyed `z.record`s; `defineChat` no longer freezes the zod schemas inside a definition (zod 4 fills some of their properties lazily, which failed on a frozen schema). Core peer `>=0.9.0-beta.6 <0.10.0`.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

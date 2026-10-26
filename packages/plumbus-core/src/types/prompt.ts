@@ -1,3 +1,4 @@
+import type { AnyZodSchema } from './schema.js';
 import type { z } from 'zod';
 
 // ── Model Config ──
@@ -55,8 +56,8 @@ export interface ModelConfig {
 
 // ── Prompt Definition ──
 export interface PromptDefinition<
-  TInput extends z.ZodTypeAny = z.ZodTypeAny,
-  TOutput extends z.ZodTypeAny = z.ZodTypeAny,
+  TInput extends z.ZodTypeAny = AnyZodSchema,
+  TOutput extends z.ZodTypeAny = AnyZodSchema,
 > {
   name: string;
   /**

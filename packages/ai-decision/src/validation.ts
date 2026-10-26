@@ -1,7 +1,7 @@
 import { z } from '@plumbus/core/zod';
 import { isDeepStrictEqual } from 'node:util';
 import { DecisionProviderError } from './errors/index.js';
-import { DecisionJsonSchema, jsonRecord } from './json.js';
+import { DecisionJsonSchema, jsonRecord, narrow } from './json.js';
 import type {
   DecisionAnswers,
   DecisionQuestions,
@@ -10,7 +10,8 @@ import type {
   DecisionUsage,
 } from './types.js';
 
-const DescriptionSchema = DecisionJsonSchema.pipe(
+const DescriptionSchema = narrow(
+  DecisionJsonSchema,
   z.union([z.string(), z.array(DecisionJsonSchema), jsonRecord(DecisionJsonSchema)]),
 );
 const QuestionSchema = z.discriminatedUnion('type', [
@@ -50,7 +51,7 @@ export const DecisionTimeoutSchema = z.number().int().min(1).max(300_000);
 export const DecisionSignalSchema = z.instanceof(AbortSignal).optional();
 const RequestSchema = z.object({
   state: DescriptionSchema,
-  questions: jsonRecord(DecisionJsonSchema.pipe(QuestionSchema)).refine(
+  questions: jsonRecord(narrow(DecisionJsonSchema, QuestionSchema)).refine(
     (questions) =>
       Object.keys(questions).length > 0 &&
       Object.keys(questions).length <= 256 &&

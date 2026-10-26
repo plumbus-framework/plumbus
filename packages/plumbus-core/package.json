@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/core",
-  "version": "0.9.0-beta.5",
+  "version": "0.9.0-beta.6",
   "description": "Plumbus framework core — types, SDK, runtime, CLI, test utilities",
   "type": "module",
   "main": "./dist/index.js",
@@ -98,12 +98,11 @@
     "jsonc-parser": "^3.3.1",
     "playwright": "^1.52.0",
     "postgres": "^3.4.8",
-    "tsx": "^4.19.0",
-    "vitest": "5.0.4",
+    "tsx": "^4.23.15",
+    "vitest": "5.0.5",
     "xml-crypto": "^6.4.0",
     "xpath": "^0.0.34",
-    "zod": "^3.24.0",
-    "zod-to-json-schema": "^3.25.2",
+    "zod": "^4.6.7",
     "@plumbus/ai-decision": "workspace:~",
     "cron-parser": "^4.9.0",
     "vite": "^7.3.7"
@@ -137,6 +136,6 @@
     "@types/node": "^25.4.0",
     "esbuild": "^0.25.12",
     "typescript": "^5.7.0",
-    "@vitest/browser-playwright": "5.0.4"
+    "@vitest/browser-playwright": "5.0.5"
   }
 }

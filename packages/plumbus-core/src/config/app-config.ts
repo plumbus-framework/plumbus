@@ -29,8 +29,8 @@ export async function loadAppConfig(
       .parse(module);
     const nested = z
       .object({
-        config: z.record(z.unknown()).optional(),
-        default: z.record(z.unknown()).optional(),
+        config: z.record(z.string(), z.unknown()).optional(),
+        default: z.record(z.string(), z.unknown()).optional(),
       })
       .passthrough()
       .safeParse(exports.default);

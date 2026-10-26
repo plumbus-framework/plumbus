@@ -103,7 +103,7 @@ export function createDisputeCapabilities(runtime: PaymentsRuntime) {
         domain: 'payments',
         description: 'Save evidence for a dispute, and submit it (submitting is final)',
         input: z.object({
-          disputeId: z.string().uuid(),
+          disputeId: z.string().guid(),
           evidence: z.object({
             productDescription: text(20_000),
             customerName: text(500),
@@ -140,7 +140,7 @@ export function createDisputeCapabilities(runtime: PaymentsRuntime) {
         kind: 'action',
         domain: 'payments',
         description: 'Accept a dispute: the client keeps the money and the dispute closes as lost',
-        input: z.object({ disputeId: z.string().uuid() }),
+        input: z.object({ disputeId: z.string().guid() }),
         output: z.object({ dispute: disputeViewSchema }),
         access: config.access.disputes,
         effects: { data: [PaymentEntityName.Dispute], events: [], external, ai: false },

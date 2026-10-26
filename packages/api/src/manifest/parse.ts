@@ -14,7 +14,9 @@ export function parseManifest(source: string, format: 'yaml' | 'json'): ApiManif
 
   const result = ApiManifestSchema.safeParse(parsed);
   if (!result.success) {
-    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    const issues = result.error.issues
+      .map((i) => `${i.path.map(String).join('.')}: ${i.message}`)
+      .join('; ');
     throw new ApiManifestError(`Invalid manifest schema: ${issues}`, 'api.manifest.schema-invalid');
   }
 

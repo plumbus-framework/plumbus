@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-10-26
+
+- **`@livekit/agents` `1.9.4`** (was `1.9.0`), for its `sharp` `0.35.5` (GHSA-wq5f-xc86-pv6w, librsvg in sharp 0.35.4). Agents 1.9.1 and later need `@livekit/rtc-node` 1.x, and the worker and this package must share one rtc-node, so **`@livekit/rtc-node` is now `^1.2.1`** (was `^0.13.34`; 1.0 only marked the package stable, the API is unchanged) and **`@livekit/noise-cancellation-node` `^0.3.0`** (was `^0.1.9`, whose peer allows rtc-node 0.13 only). `livekit-dependency-compat.test.ts` checks one resolved rtc-node inside agents' peer range.
+- **Action:** an app that declares `@livekit/rtc-node` or `@livekit/noise-cancellation-node` itself moves them to the same ranges, or drops them and uses this package's.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

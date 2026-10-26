@@ -18,7 +18,8 @@ describe('packages integrated into the core 0.9 family', () => {
   ])('%s requires the beta core family and stays outside legacy release ranges', (name) => {
     const manifest = readManifest(name);
     expect(manifest.version).toMatch(/^0\.4\.0-beta\.\d+$/);
-    expect(manifest.peerDependencies['@plumbus/core']).toBe('>=0.9.0-beta.0 <0.10.0');
+    // Any 0.9 beta floor: a package that needs a later beta (zod 4 is core beta.6) raises it.
+    expect(manifest.peerDependencies['@plumbus/core']).toMatch(/^>=0\.9\.0-beta\.\d+ <0\.10\.0$/);
   });
 
   it('the Stripe provider requires the matching payments family', () => {

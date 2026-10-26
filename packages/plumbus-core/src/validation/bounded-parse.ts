@@ -3,8 +3,8 @@ import { z } from 'zod';
 /**
  * Validation that bounds collections before zod walks them (GHSA-mrhx-c7xc-m3w5).
  *
- * zod 3 checks an array's `.max()` / `.length()` first, but only marks the result failed and then
- * parses every element anyway, building one issue per bad element: a 4 MB JSON array of two
+ * zod 3 checked an array's `.max()` / `.length()` first, but only marked the result failed and
+ * then parsed every element anyway, building one issue per bad element: a 4 MB JSON array of two
  * million junk values costs ~530 MB and ~1.8 s before the `too_big` issue is reported. zod 4.6.6
  * fixed the bounded case only; an array with no limit is walked in full in every version.
  *
@@ -40,10 +40,28 @@ export interface CollectionBoundViolation {
   readonly exact: boolean;
 }
 
-type Def = { typeName?: string } & Record<string, unknown>;
+type Def = { type?: string; checks?: unknown[] } & Record<string, unknown>;
 
 function defOf(schema: unknown): Def | undefined {
-  return (schema as { _def?: Def } | null | undefined)?._def;
+  return (schema as { _zod?: { def?: Def } } | null | undefined)?._zod?.def;
+}
+
+/** The `max_length` / `length_equals` bound a zod 4 array declares, if any. */
+function arrayBound(def: Def): { maximum: number; exact: boolean } | undefined {
+  let found: { maximum: number; exact: boolean } | undefined;
+  for (const check of def.checks ?? []) {
+    const checkDef = defOf(check) as
+      | { check?: string; maximum?: number; length?: number }
+      | undefined;
+    if (checkDef?.check === 'length_equals' && typeof checkDef.length === 'number') {
+      return { maximum: checkDef.length, exact: true };
+    }
+    if (checkDef?.check === 'max_length' && typeof checkDef.maximum === 'number') {
+      if (!found || checkDef.maximum < found.maximum)
+        found = { maximum: checkDef.maximum, exact: false };
+    }
+  }
+  return found;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -89,31 +107,28 @@ export function findCollectionBoundViolation(
 ): CollectionBoundViolation | undefined {
   if (depth > MAX_DEPTH) return undefined;
   const def = defOf(schema);
-  switch (def?.typeName) {
-    case 'ZodOptional':
-    case 'ZodNullable':
-    case 'ZodDefault':
-    case 'ZodCatch':
-    case 'ZodReadonly':
+  switch (def?.type) {
+    case 'optional':
+    case 'nullable':
+    case 'default':
+    case 'prefault':
+    case 'nonoptional':
+    case 'catch':
+    case 'readonly':
       return findCollectionBoundViolation(def.innerType, value, limit, path, depth + 1);
-    case 'ZodBranded':
-      return findCollectionBoundViolation(def.type, value, limit, path, depth + 1);
-    case 'ZodEffects':
-      return findCollectionBoundViolation(def.schema, value, limit, path, depth + 1);
-    case 'ZodPipeline':
+    case 'pipe':
       return findCollectionBoundViolation(def.in, value, limit, path, depth + 1);
-    case 'ZodArray': {
+    case 'array': {
       if (!Array.isArray(value)) return undefined;
-      const exact = (def.exactLength as { value: number } | null)?.value;
-      const max = (def.maxLength as { value: number } | null)?.value;
-      if (exact !== undefined && value.length > exact) return { path, maximum: exact, exact: true };
-      if (max !== undefined && value.length > max) return { path, maximum: max, exact: false };
-      if (exact === undefined && max === undefined && value.length > limit) {
+      const bound = arrayBound(def);
+      if (bound) {
+        if (value.length > bound.maximum) return { path, ...bound };
+      } else if (value.length > limit) {
         return { path, maximum: limit, exact: false };
       }
       for (let i = 0; i < value.length; i++) {
         const found = findCollectionBoundViolation(
-          def.type,
+          def.element,
           value[i],
           limit,
           [...path, i],
@@ -123,21 +138,20 @@ export function findCollectionBoundViolation(
       }
       return undefined;
     }
-    case 'ZodObject': {
+    case 'object': {
       if (!isPlainObject(value)) return undefined;
-      const shape =
-        typeof def.shape === 'function' ? (def.shape as () => Record<string, unknown>)() : {};
+      const shape = (def.shape ?? {}) as Record<string, unknown>;
       for (const key of Object.keys(value)) {
-        const child = shape[key] ?? def.catchall;
+        const child = Object.hasOwn(shape, key) ? shape[key] : def.catchall;
         const found =
-          child === undefined || defOf(child)?.typeName === 'ZodNever'
+          child === undefined || defOf(child)?.type === 'never'
             ? walkUnguided(value[key], [...path, key], limit, depth + 1)
             : findCollectionBoundViolation(child, value[key], limit, [...path, key], depth + 1);
         if (found) return found;
       }
       return undefined;
     }
-    case 'ZodRecord': {
+    case 'record': {
       if (!isPlainObject(value)) return undefined;
       for (const key of Object.keys(value)) {
         const found = findCollectionBoundViolation(
@@ -151,11 +165,11 @@ export function findCollectionBoundViolation(
       }
       return undefined;
     }
-    case 'ZodTuple': {
+    case 'tuple': {
       if (!Array.isArray(value)) return undefined;
       const items = (def.items as unknown[]) ?? [];
       if (def.rest === null && value.length > items.length) {
-        // zod reports a too_big here itself, but walks nothing past the tuple: bounded.
+        // zod reports a too_big here itself and walks nothing past the tuple: bounded.
         return undefined;
       }
       if (value.length > items.length + limit)
@@ -167,35 +181,37 @@ export function findCollectionBoundViolation(
       }
       return undefined;
     }
-    case 'ZodIntersection':
+    case 'intersection':
       return (
         findCollectionBoundViolation(def.left, value, limit, path, depth + 1) ??
         findCollectionBoundViolation(def.right, value, limit, path, depth + 1)
       );
-    case 'ZodString':
-    case 'ZodNumber':
-    case 'ZodBigInt':
-    case 'ZodBoolean':
-    case 'ZodDate':
-    case 'ZodLiteral':
-    case 'ZodEnum':
-    case 'ZodNativeEnum':
-    case 'ZodNull':
-    case 'ZodUndefined':
+    case 'string':
+    case 'number':
+    case 'int':
+    case 'bigint':
+    case 'boolean':
+    case 'date':
+    case 'literal':
+    case 'enum':
+    case 'null':
+    case 'undefined':
+    case 'nan':
+    case 'template_literal':
       return undefined;
     default:
-      // Unions, `any`, `unknown`, lazy schemas, sets, maps: the schema cannot be followed here,
-      // so every array inside gets the default limit.
+      // Unions, `any`, `unknown`, lazy schemas, sets, maps, custom: the schema cannot be followed
+      // here, so every array inside gets the default limit.
       return walkUnguided(value, path, limit, depth);
   }
 }
 
 /** `schema.safeParse(value)`, refusing an over-long array first (see the module comment). */
-export function safeParseBounded<S extends z.ZodTypeAny>(
+export function safeParseBounded<S extends z.ZodType>(
   schema: S,
   value: unknown,
   limit?: number,
-): z.SafeParseReturnType<z.input<S>, z.output<S>> {
+): z.ZodSafeParseResult<z.output<S>> {
   const violation = findCollectionBoundViolation(
     schema,
     value,
@@ -206,18 +222,18 @@ export function safeParseBounded<S extends z.ZodTypeAny>(
       success: false,
       error: new z.ZodError([
         {
-          code: z.ZodIssueCode.too_big,
+          code: 'too_big',
+          origin: 'array',
           maximum: violation.maximum,
-          type: 'array',
           inclusive: true,
-          exact: violation.exact,
+          ...(violation.exact ? { exact: true } : {}),
           path: violation.path,
           message: violation.exact
-            ? `Array must contain exactly ${violation.maximum} element(s)`
-            : `Array must contain at most ${violation.maximum} element(s)`,
+            ? `Too big: expected array to have exactly ${violation.maximum} items`
+            : `Too big: expected array to have <=${violation.maximum} items`,
         },
-      ]),
+      ]) as z.ZodError<z.output<S>>,
     };
   }
-  return schema.safeParse(value);
+  return schema.safeParse(value) as z.ZodSafeParseResult<z.output<S>>;
 }

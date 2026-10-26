@@ -16,7 +16,7 @@ export function createChatTurnCapability(chat: ChatDefinition, opts?: RunChatTur
     description: `Execute one turn of chat "${chat.name}"`,
 
     input: z.object({
-      sessionId: z.string().uuid(),
+      sessionId: z.string().guid(),
       userMessage: z.string().min(1),
       audience: z.string(),
       locale: z.string(),
@@ -26,7 +26,7 @@ export function createChatTurnCapability(chat: ChatDefinition, opts?: RunChatTur
     }),
 
     output: z.object({
-      events: z.array(z.record(z.unknown())),
+      events: z.array(z.record(z.string(), z.unknown())),
     }),
 
     access: chat.access,

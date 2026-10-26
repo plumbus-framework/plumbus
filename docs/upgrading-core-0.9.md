@@ -6,6 +6,15 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.6 (2026-10-26): zod 4
+
+`@plumbus/core` 0.9.0-beta.6 moves to `zod` `^4.6.7`, and `@plumbus/core/zod` re-exports zod 4. Packages released with it, each requiring core `>=0.9.0-beta.6`: `@plumbus/ui` 0.10.0-beta.2, `@plumbus/api` 0.4.0-beta.4, `@plumbus/ai-decision`, `ai-decision-openai`, `ai-decision-typesafe`, `auth`, `chat`, `payments`, `knowledge-base`, `browser-extension` and `voice-soniox` 0.4.0-beta.1, `@plumbus/voice` 0.7.0-beta.1. No database change.
+
+- **Upgrade them together.** The earlier betas of these add-ons call zod 3 APIs at load time and their peer ranges still admit core beta.6; with core beta.6 and, say, `@plumbus/auth` 0.4.0-beta.0 the app fails to start.
+- **Generated output does not change.** OpenAPI contracts, the JSON Schema sent to models (structured output and tool parameters), the generated client and hooks come out as under zod 3 (`zodToJsonSchemaObject` keeps zod-to-json-schema's shape). Form hints become more exact for `.refine()`d fields and objects. Regenerate (`plumbus generate`, your contract, SDK and UI steps) and review the diff anyway.
+- **Your own schemas** need zod 4's changes; see the core changelog's "Action for apps" list: `z.record(z.string(), value)`, no `z.ZodEffects` (`.refine()` keeps the type), `.prefault()` where `.default()` relied on parsing its value, `z.strictObject(shape, { error })` for a strict message, `z.ipv4()` / `z.cidrv4()` …, `z.ZodType<Output, Input>`, issue shapes (`origin`, `invalid_format`), and `.guid()` for zod 3's lenient `.uuid()` (zod 4's `.uuid()` refuses an identifier without RFC 9562 version and variant bits).
+- `safeParseBounded` keeps guarding capability input; zod 4 still walks an array with no `.max()` in full.
+
 ## v0.9.0-beta.5 (2026-10-25): 401 for anonymous callers, patched dependencies
 
 Four packages change: `@plumbus/core` 0.9.0-beta.5, `@plumbus/api` 0.4.0-beta.3, `@plumbus/ui` 0.10.0-beta.1 and `@plumbus/mcp` 0.8.0-beta.1. `@plumbus/api` and `@plumbus/mcp` now need core `>=0.9.0-beta.5` (they call `safeParseBounded`). Database: new framework indexes, applied by `plumbus migrate generate` + `apply` (see below).

@@ -26,7 +26,7 @@ export function createVoiceSessionBudget(
   config: VoiceSessionBudgetConfig = {},
 ): VoiceSessionBudget {
   const amount = z.number().finite().nonnegative();
-  if (!z.record(amount.optional()).safeParse(config).success)
+  if (!z.record(z.string(), amount.optional()).safeParse(config).success)
     throw new PlumbusError(ErrorCode.Validation, 'Invalid voice session budget');
   const state: VoiceSessionBudgetState = {
     connectionMinutes: 0,
@@ -42,7 +42,7 @@ export function createVoiceSessionBudget(
       return { ...state };
     },
     check(nextUsage = {}) {
-      if (!z.record(amount.optional()).safeParse(nextUsage).success)
+      if (!z.record(z.string(), amount.optional()).safeParse(nextUsage).success)
         return { allowed: false, reason: 'Invalid voice usage' };
       const nextState = mergeUsage(state, nextUsage);
 
@@ -99,7 +99,7 @@ export function createVoiceSessionBudget(
       return { allowed: true };
     },
     record(usage) {
-      if (!z.record(amount.optional()).safeParse(usage).success)
+      if (!z.record(z.string(), amount.optional()).safeParse(usage).success)
         throw new PlumbusError(ErrorCode.Validation, 'Invalid voice usage');
       const nextState = mergeUsage(state, usage);
       state.connectionMinutes = nextState.connectionMinutes;

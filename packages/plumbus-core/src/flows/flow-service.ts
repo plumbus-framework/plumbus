@@ -1,5 +1,5 @@
 import { ProviderJsonSchemaError, zodToProviderJsonSchema } from '../ai/zod-to-provider-schema.js';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchemaObject } from '../schema/json-schema.js';
 import type {
   FlowDescription,
   FlowExecution,
@@ -64,10 +64,11 @@ export function createFlowService(
       const flow = registry.get(flowName);
       if (!flow) return undefined;
 
-      const inputSchema = zodToJsonSchema(flow.input, {
-        $refStrategy: 'none',
-        target: 'jsonSchema7',
-      }) as Record<string, unknown>;
+      // zod-to-json-schema's jsonSchema7 target ended with `$schema`; kept for consumers that read it.
+      const inputSchema: Record<string, unknown> = {
+        ...zodToJsonSchemaObject(flow.input, 'draft-07'),
+        $schema: 'http://json-schema.org/draft-07/schema#',
+      };
 
       // Provider tool parameters degrade to `undefined` when the flow input
       // schema cannot be represented as a structured-output tool schema.

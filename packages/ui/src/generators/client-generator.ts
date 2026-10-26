@@ -2,6 +2,7 @@
 // Generates typed fetch-based API clients, React hooks, and flow trigger functions
 // from capability contracts and flow definitions.
 
+import { zod3Def } from './zod3-def.js';
 import { capabilityHttpMethod, isApiExposed, type CapabilityContract } from '@plumbus/core';
 
 /** Fetch/hook wrappers target HTTP routes. Operator-only capabilities are not `exposeAs: ['api']`. */
@@ -187,10 +188,7 @@ function withIdempotencyKey(headers?: Record<string, string>): Record<string, st
 // ── Zod Schema → TypeScript Type String ──
 
 function getZodDef(schema: unknown): Record<string, unknown> | null {
-  if (schema && typeof schema === 'object' && '_def' in schema) {
-    return (schema as Record<string, unknown>)._def as Record<string, unknown>;
-  }
-  return null;
+  return zod3Def(schema);
 }
 
 function zodSchemaToTypeString(

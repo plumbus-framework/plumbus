@@ -50,7 +50,7 @@ describe('canonical agent instructions', () => {
       expect(read('AGENTS.md')).toContain(
         monorepo ? 'backend/app/capabilities/' : 'app/capabilities/',
       );
-      if (inline) expect(read('AGENTS.md')).toContain('Vitest **5.0.4**');
+      if (inline) expect(read('AGENTS.md')).toContain('Vitest **5.0.5**');
       expect(checkAgentWiring().status).toBe('ok');
     }
   });

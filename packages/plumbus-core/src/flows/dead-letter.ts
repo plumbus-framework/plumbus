@@ -296,8 +296,8 @@ export async function replayDeadLetterFlow(
         .where(eq(flowDeadLetterTable.executionId, executionId))
         .for('update');
       if (!deadLetter) throw new DataValidationError('Flow dead letter not found', { executionId });
-      const metadata = z.record(z.unknown()).parse(deadLetter.metadata ?? {});
-      const previous = z.string().uuid().safeParse(metadata.replayExecutionId);
+      const metadata = z.record(z.string(), z.unknown()).parse(deadLetter.metadata ?? {});
+      const previous = z.string().guid().safeParse(metadata.replayExecutionId);
       if (previous.success) return { id: previous.data };
       const [row] = await tx
         .select()

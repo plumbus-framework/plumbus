@@ -11,7 +11,7 @@ const junk = (n: number) => Array(n).fill(0);
 
 describe('safeParseBounded', () => {
   it('refuses an array over its .max() before zod walks it (GHSA-mrhx-c7xc-m3w5)', () => {
-    const schema = z.object({ ids: z.array(z.string().uuid()).max(100) });
+    const schema = z.object({ ids: z.array(z.string().guid()).max(100) });
     const started = performance.now();
     const result = safeParseBounded(schema, { ids: junk(2_000_000) });
     const elapsed = performance.now() - started;
@@ -19,7 +19,7 @@ describe('safeParseBounded', () => {
     if (result.success) return;
     // Plain zod 3 builds 2 000 001 issues here (~1.8 s, ~530 MB).
     expect(result.error.issues).toEqual([
-      expect.objectContaining({ code: 'too_big', maximum: 100, type: 'array', path: ['ids'] }),
+      expect.objectContaining({ code: 'too_big', maximum: 100, origin: 'array', path: ['ids'] }),
     ]);
     expect(elapsed).toBeLessThan(200);
   });
@@ -47,7 +47,7 @@ describe('safeParseBounded', () => {
     const schema = z
       .object({
         groups: z.array(z.object({ members: z.array(z.string()).max(2) })).max(5),
-        byKey: z.record(z.array(z.number()).max(1)).optional(),
+        byKey: z.record(z.string(), z.array(z.number()).max(1)).optional(),
         pair: z.tuple([z.string()]).rest(z.array(z.number()).max(1)),
         both: z.intersection(
           z.object({ a: z.array(z.number()).max(1) }),
@@ -90,13 +90,17 @@ describe('safeParseBounded', () => {
   });
 
   it('parses normally, with zod issues as before, when every array is within bounds', () => {
-    const schema = z.object({ ids: z.array(z.string().uuid()).max(3) });
+    const schema = z.object({ ids: z.array(z.string().guid()).max(3) });
     const ok = safeParseBounded(schema, { ids: ['3b241101-e2bb-4255-8caf-4136c566a962'] });
     expect(ok.success).toBe(true);
     const bad = safeParseBounded(schema, { ids: ['nope'] });
     expect(bad.success).toBe(false);
     if (!bad.success)
-      expect(bad.error.issues[0]).toMatchObject({ validation: 'uuid', path: ['ids', 0] });
+      expect(bad.error.issues[0]).toMatchObject({
+        code: 'invalid_format',
+        format: 'guid',
+        path: ['ids', 0],
+      });
   });
 
   it('reads PLUMBUS_INPUT_ARRAY_MAX_ITEMS and refuses a malformed value', () => {

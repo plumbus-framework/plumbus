@@ -80,7 +80,12 @@ export async function authorizeCapability<TInput extends z.ZodTypeAny>(
       await recordAudit(ctx, capability, canonicalName, 'denied', { error });
       return { success: false, error };
     }
-    return handleExecutionError(error, ctx, contract, canonicalName);
+    return (await handleExecutionError(
+      error,
+      ctx,
+      contract,
+      canonicalName,
+    )) as CapabilityResult<void>;
   }
 }
 
@@ -305,20 +310,28 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
   try {
     if (useTransactional && existingScope) {
       const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, existingScope);
-      validatedOutput = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+      validatedOutput = (await runHandlerWithOutputValidation(
+        anyCap,
+        handlerCtx,
+        input,
+      )) as z.infer<TOutput>;
       if (options?.beforeCommit && existingScope.db) {
         await options.beforeCommit(existingScope.db, validatedOutput);
       }
     } else if (useTransactional && withTransaction) {
-      validatedOutput = await withTransaction(async (scope) => {
+      validatedOutput = await withTransaction(async (scope): Promise<z.infer<TOutput>> => {
         const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, scope);
         const output = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
         if (options?.beforeCommit && scope.db) await options.beforeCommit(scope.db, output);
-        return output;
+        return output as z.infer<TOutput>;
       });
     } else {
       const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime);
-      validatedOutput = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+      validatedOutput = (await runHandlerWithOutputValidation(
+        anyCap,
+        handlerCtx,
+        input,
+      )) as z.infer<TOutput>;
     }
   } catch (err) {
     if (isNestedInTransaction) {
@@ -340,7 +353,7 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
       throw err;
     }
     const failure = await handleExecutionError(err, ctx, anyCap, canonicalName);
-    return failure;
+    return failure as CapabilityResult<z.infer<TOutput>>;
   } finally {
     if (emitScope) {
       emitScope.executingCapability = undefined;

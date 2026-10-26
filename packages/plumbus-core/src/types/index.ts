@@ -13,6 +13,7 @@ export {
 } from '../approvals/action-risk.js';
 export { APPROVAL_PENDING_WAIT } from '../approvals/wait.js';
 // ── Audit ──
+export type { AnyZodSchema } from './schema.js';
 export type { AuditRecord, AuditService } from './audit.js';
 // ── Capability ──
 export type {

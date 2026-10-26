@@ -433,10 +433,10 @@ export function createChargeCapabilities(runtime: PaymentsRuntime) {
     description:
       'Charge a payment method a client saved earlier, without them (no-show fees, charging after the service)',
     input: z.object({
-      clientId: z.string().uuid(),
+      clientId: z.string().guid(),
       paymentMethodId: z
         .string()
-        .uuid()
+        .guid()
         .optional()
         .describe("Omit to use the client's most recently saved method"),
       amount: amountSchema.optional(),
@@ -551,7 +551,7 @@ export function createChargeCapabilities(runtime: PaymentsRuntime) {
     input: z.object({
       status: chargeStatusSchema.optional(),
       collection: collectionSchema.optional(),
-      clientId: z.string().uuid().optional(),
+      clientId: z.string().guid().optional(),
       limit: z.number().int().min(1).max(100).optional(),
       offset: z.number().int().min(0).optional(),
     }),
@@ -584,7 +584,7 @@ export function createChargeCapabilities(runtime: PaymentsRuntime) {
     kind: 'query',
     domain: 'payments',
     description: 'Read one charge and its refunds',
-    input: z.object({ chargeId: z.string().uuid() }),
+    input: z.object({ chargeId: z.string().guid() }),
     output: z.object({ charge: chargeViewSchema, refunds: z.array(refundViewSchema) }),
     access: config.access.sellers,
     effects: {
@@ -610,7 +610,7 @@ export function createChargeCapabilities(runtime: PaymentsRuntime) {
     domain: 'payments',
     description: 'Refund all or part of a paid charge to the client',
     input: z.object({
-      chargeId: z.string().uuid(),
+      chargeId: z.string().guid(),
       amount: amountSchema.optional().describe('Omit to refund everything not yet refunded'),
       reason: z.enum(['duplicate', 'fraudulent', 'requested_by_customer']).optional(),
       requestId: z.string().min(1).max(100).optional(),
@@ -649,7 +649,7 @@ export function createChargeCapabilities(runtime: PaymentsRuntime) {
     domain: 'payments',
     description: 'Capture all or part of a held (authorized) charge; the rest is released',
     input: z.object({
-      chargeId: z.string().uuid(),
+      chargeId: z.string().guid(),
       amount: amountSchema.optional().describe('Omit to capture the whole hold'),
     }),
     output: z.object({ charge: chargeViewSchema }),
@@ -690,7 +690,7 @@ export function createChargeCapabilities(runtime: PaymentsRuntime) {
     kind: 'action',
     domain: 'payments',
     description: 'Withdraw an unpaid charge (its payment page or invoice) or release a hold',
-    input: z.object({ chargeId: z.string().uuid() }),
+    input: z.object({ chargeId: z.string().guid() }),
     output: z.object({ charge: chargeViewSchema }),
     access: config.access.sellers,
     effects: {

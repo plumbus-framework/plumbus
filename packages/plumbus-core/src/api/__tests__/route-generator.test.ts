@@ -1199,7 +1199,7 @@ describe('oversized arrays on a real route (GHSA-mrhx-c7xc-m3w5)', () => {
       makeCapability({
         name: 'tagUsers',
         kind: 'action',
-        input: z.object({ ids: z.array(z.string().uuid()).max(100) }),
+        input: z.object({ ids: z.array(z.string().guid()).max(100) }),
         output: z.object({ ok: z.boolean() }),
         handler: async () => ({ ok: true }),
       }),

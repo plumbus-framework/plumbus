@@ -1,3 +1,4 @@
+import type { AnyZodSchema } from '../types/schema.js';
 import { z } from 'zod';
 import { resolveRetryPolicy } from '../config/index.js';
 import type {
@@ -39,7 +40,7 @@ interface DefineFlowInput<TInput extends z.ZodTypeAny, TState extends z.ZodTypeA
   budget?: FlowBudget;
 }
 
-export function defineFlow<TInput extends z.ZodTypeAny, TState extends z.ZodTypeAny = z.ZodTypeAny>(
+export function defineFlow<TInput extends z.ZodTypeAny, TState extends z.ZodTypeAny = AnyZodSchema>(
   config: DefineFlowInput<TInput, TState>,
 ): FlowDefinition<TInput, TState> {
   if (!config.name) {

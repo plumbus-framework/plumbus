@@ -52,9 +52,9 @@ export interface GenerateOptions {
  * ZodBoolean, ZodEnum, ZodOptional, ZodNullable, ZodDefault, and ZodLiteral.
  * Falls back to `unknown` for unsupported types.
  */
-export function zodTypeToString(schema: z.ZodTypeAny): string {
+export function zodTypeToString(schema: z.core.$ZodType): string {
   if (schema instanceof z.ZodObject) {
-    const shape = schema.shape as Record<string, z.ZodTypeAny>;
+    const shape = schema.shape as Record<string, z.core.$ZodType>;
     const entries = Object.entries(shape);
     if (entries.length === 0) return 'Record<string, never>';
     const fields = entries.map(([key, value]) => {
@@ -76,15 +76,15 @@ export function zodTypeToString(schema: z.ZodTypeAny): string {
     return typeof val === 'string' ? `"${val}"` : String(val);
   }
   if (schema instanceof z.ZodEnum) {
-    const values = schema.options as string[];
-    return values.map((v) => `"${v}"`).join(' | ');
+    // zod 4 folds native enums into ZodEnum; their options may be numbers.
+    const values = schema.options as (string | number)[];
+    return values.map((v) => (typeof v === 'string' ? `"${v}"` : String(v))).join(' | ');
   }
-  if (schema instanceof z.ZodNativeEnum) return 'string | number';
   if (schema instanceof z.ZodOptional) return zodTypeToString(schema.unwrap());
   if (schema instanceof z.ZodNullable) return `${zodTypeToString(schema.unwrap())} | null`;
   if (schema instanceof z.ZodDefault) return zodTypeToString(schema.removeDefault());
   if (schema instanceof z.ZodUnion) {
-    const opts = schema.options as z.ZodTypeAny[];
+    const opts = schema.options as readonly z.core.$ZodType[];
     return opts.map((o) => zodTypeToString(o)).join(' | ');
   }
   if (schema instanceof z.ZodRecord) return 'Record<string, unknown>';

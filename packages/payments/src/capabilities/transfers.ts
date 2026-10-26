@@ -19,7 +19,7 @@ export function createTransferCapabilities(runtime: PaymentsRuntime) {
     domain: 'payments',
     description: 'List money the platform transferred to the caller, newest first',
     input: z.object({
-      chargeId: z.string().uuid().optional(),
+      chargeId: z.string().guid().optional(),
       limit: z.number().int().min(1).max(100).optional(),
       offset: z.number().int().min(0).optional(),
     }),

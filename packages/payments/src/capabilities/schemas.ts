@@ -176,7 +176,7 @@ export const chargeViewSchema = z.object({
   linkId: z.string().nullable(),
   transferGroup: z.string().nullable(),
   billingCustomerId: z.string().nullable(),
-  metadata: z.record(z.string()),
+  metadata: z.record(z.string(), z.string()),
   createdAt: z.string().nullable(),
   livemode: z.boolean(),
 });

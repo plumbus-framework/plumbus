@@ -34,7 +34,7 @@ export function capabilityBacked<Cap extends CapabilityContract>(opts: {
       if (!result.success) {
         return JSON.stringify({ error: result.error?.message ?? 'capability failed' });
       }
-      if (opts.format) return opts.format(result.data);
+      if (opts.format) return opts.format(result.data as z.infer<Cap['output']>);
       return JSON.stringify(result.data);
     },
     async getTools() {

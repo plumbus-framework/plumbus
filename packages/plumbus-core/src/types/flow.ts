@@ -1,3 +1,4 @@
+import type { AnyZodSchema } from './schema.js';
 import type { RetryPolicy } from '../config/index.js';
 import type { z } from 'zod';
 import type { BackoffStrategy, FlowStepType } from './enums.js';
@@ -117,8 +118,8 @@ export interface FlowSchedule {
 
 // ── Flow Definition ──
 export interface FlowDefinition<
-  TInput extends z.ZodTypeAny = z.ZodTypeAny,
-  TState extends z.ZodTypeAny = z.ZodTypeAny,
+  TInput extends z.ZodTypeAny = AnyZodSchema,
+  TState extends z.ZodTypeAny = AnyZodSchema,
 > {
   name: string;
   domain: string;

@@ -201,7 +201,7 @@ const envelopeSchema = z.object({
   correlationId: z.string(),
   causationId: z.string().optional(),
   payload: z.unknown(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions): EventQueue {

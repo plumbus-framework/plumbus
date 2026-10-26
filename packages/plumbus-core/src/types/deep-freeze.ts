@@ -2,7 +2,12 @@ function shouldSkipDeepFreeze(value: unknown): boolean {
   if (typeof value === 'function') {
     return true;
   }
-  if (typeof value === 'object' && value !== null && '_def' in value && 'safeParse' in value) {
+  // Zod schemas: zod 4 fills some properties lazily (`shape`), which fails on a frozen schema.
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    ('_zod' in value || ('_def' in value && 'safeParse' in value))
+  ) {
     return true;
   }
   return false;

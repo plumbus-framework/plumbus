@@ -1,3 +1,4 @@
+import type { AnyZodSchema } from './schema.js';
 import type { ActionRiskTier } from '../approvals/action-risk.js';
 import type { RetryPolicy } from '../config/index.js';
 import type { z } from 'zod';
@@ -115,8 +116,8 @@ export interface EventHandlerTrigger {
 
 // ── Capability Contract ──
 export interface CapabilityContract<
-  TInput extends z.ZodTypeAny = z.ZodTypeAny,
-  TOutput extends z.ZodTypeAny = z.ZodTypeAny,
+  TInput extends z.ZodTypeAny = AnyZodSchema,
+  TOutput extends z.ZodTypeAny = AnyZodSchema,
 > {
   name: string;
   kind: CapabilityKind;

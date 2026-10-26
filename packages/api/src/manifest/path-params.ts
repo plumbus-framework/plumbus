@@ -1,5 +1,4 @@
-import type { CapabilityContract } from '@plumbus/core';
-import type { z } from 'zod';
+import { zodObjectShape, type CapabilityContract } from '@plumbus/core';
 import type { ApiExposureConfig } from '@plumbus/core';
 import type { ApiManifestFinding } from './types.js';
 
@@ -12,19 +11,8 @@ export function toFastifyPath(apiPath: string): string {
   return apiPath.replace(/\{([^}]+)\}/g, ':$1');
 }
 
-function getInputShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> | undefined {
-  const def = (
-    schema as { _def?: { typeName?: string; shape?: () => Record<string, z.ZodTypeAny> } }
-  )._def;
-  if (!def) return undefined;
-  if (def.typeName === 'ZodObject') {
-    return typeof def.shape === 'function' ? def.shape() : undefined;
-  }
-  if (def.typeName === 'ZodEffects') {
-    const inner = (schema as { _def: { schema: z.ZodTypeAny } })._def.schema;
-    return getInputShape(inner);
-  }
-  return undefined;
+function getInputShape(schema: unknown): Record<string, unknown> | undefined {
+  return zodObjectShape(schema);
 }
 
 export function validatePathParams(

@@ -1,6 +1,7 @@
 import {
   createDecisionHttpTransport,
   DecisionJsonSchema,
+  narrow,
   DecisionProviderError,
   parseDecisionResponse,
   validateDecisionRequest,
@@ -113,7 +114,10 @@ export function createOpenAIDecisionAdapter(
     .object({
       apiKey: z.string().min(1),
       model: z.string().trim().min(1).max(256).default('gpt-6-luna'),
-      inputRates: DecisionJsonSchema.pipe(z.record(z.number().finite().nonnegative())).optional(),
+      inputRates: narrow(
+        DecisionJsonSchema,
+        z.record(z.string(), z.number().finite().nonnegative()),
+      ).optional(),
     })
     .safeParse(config);
   if (!settings.success)

@@ -3,7 +3,7 @@
 ## 0.8.0-beta.1 — 2026-10-25
 
 - **Tool arguments are validated with core's `safeParseBounded`**: an array over its `.max()`, or over `PLUMBUS_INPUT_ARRAY_MAX_ITEMS` without one, is refused before zod walks it (zod GHSA-mrhx-c7xc-m3w5). **Core peer is now `>=0.9.0-beta.5 <0.10.0`.**
-- **Patched dependencies:** `@modelcontextprotocol/sdk` `^1.32.2` (was `^1.29.0`; the SDK advisories below 1.32.0 and its `express` / `hono` / `proxy-addr` / `body-parser` chain), `fastify` `^5.12.7`, `drizzle-orm` `^0.45.2` (dev).
+- **Patched dependencies:** `@modelcontextprotocol/sdk` `^1.32.2` (was `^1.29.0`; the SDK advisories below 1.32.0), with patched `qs` 6.16.1 (through `express`) and `@hono/node-server` 1.19.17 in the lockfile; a fresh install resolves them from the SDK's ranges, `fastify` `^5.12.7`, `drizzle-orm` `^0.45.2` (dev).
 
 ## 0.8.0-beta.0 — 2026-10-14 — core 0.9 beta family
 

@@ -1779,7 +1779,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * racing another wake, or the scheduled wake-up, exactly one changes the row.
    */
   async function wakeTimedWait(executionId: string, auth: AuthContext): Promise<FlowWakeResult> {
-    const wellFormed = z.string().uuid().safeParse(executionId).success;
+    const wellFormed = z.string().guid().safeParse(executionId).success;
     const recordedId = wellFormed ? executionId : MALFORMED_EXECUTION_ID;
     const store = await storeForCaller(auth);
     if (!store) {

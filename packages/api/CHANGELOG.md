@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.4 — 2026-10-26
+
+- **zod 4.** Query coercion, path parameters and the forbidden-field policy read schemas through core's `zodTypeName` / `zodObjectShape` (zod 4 has no `_def.typeName`, so the old checks silently matched nothing); OpenAPI schemas come from core's `zodToJsonSchemaObject` (same output as before). `zod-to-json-schema` is no longer a dependency. Core peer `>=0.9.0-beta.6 <0.10.0`.
+
 ## 0.4.0-beta.3 — 2026-10-25
 
 - **`fastify` `^5.12.7`** (was `^5.8.2`): GHSA-667r-xxjv-c9mm (request body replacement through an async validation result collision) and the `fast-uri` advisories in `@fastify/ajv-compiler`.

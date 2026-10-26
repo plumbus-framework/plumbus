@@ -1,5 +1,35 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.6 — 2026-10-26 — zod 4
+
+### zod 4
+
+- **`@plumbus/core` depends on `zod` `^4.6.7`, and `@plumbus/core/zod` re-exports zod 4.** Every app and add-on that imports zod through core moves with it. zod 3's `.max()` on arrays only marked a long array failed and still validated every element (GHSA-mrhx-c7xc-m3w5); `safeParseBounded` stays, rewritten for zod 4's internals, because zod 4 still walks an array with no `.max()` in full.
+- **The JSON Schema Plumbus produces does not change.** `zod-to-json-schema` (zod 3 only) is gone; the new `zodToJsonSchemaObject(schema, 'draft-07' | 'openapi-3.0')` wraps zod 4's `z.toJSONSchema()` and keeps the old output: the input side of transforms, `additionalProperties: false` on default objects, no implicit safe-integer bounds, standard `format`s without zod 4's extra `pattern` (zod-only formats such as `cidrv4` as their `pattern`), `z.date()` as a `date-time` string, `unknown` / `any` / `.catch()` properties not required, discriminated unions as `anyOf`, literal unions as one `enum`, records without `propertyNames`, intersections as `allOf` (zod 4 flattens them and can drop a property's second constraint), tuples positionally, `z.null()` as the OpenAPI 3.0 sentinel, `required` and string keywords in declaration order. Checked on Quinovium: all 515 schemas it sends to models (34 prompts, every capability input as a tool) and its OpenAPI contracts are byte-identical to zod 3's (the YAML contract only loses two YAML anchors for repeated defaults).
+- **Reading a schema's structure:** zod 4 has no `_def.typeName`; code that compared it silently matched nothing. New `zodTypeName` (zod 3's names, `'ZodEffects'` for a transform or pipe, `'ZodDiscriminatedUnion'`, `'ZodNativeEnum'`), `zodDefinition`, `zodInnerType`, `zodObjectShape`, `zodEnumValues`, `zodDefaultValue`. The route generator's query coercion uses them.
+- **Definition generics:** `CapabilityContract`, `PromptDefinition`, `FlowDefinition`, `EventDefinition` and `defineFlow` default to the new `AnyZodSchema` (`z.ZodType<any, any>`), which is what zod 3's `z.ZodTypeAny` meant; zod 4's `z.ZodTypeAny` infers `unknown`, so a list of capabilities with typed handlers no longer fitted a bare `CapabilityContract[]`.
+- `deepFreeze` skips zod 4 schemas (`_zod`): they fill some properties lazily, which fails on a frozen schema.
+- **UUIDs keep zod 3's rule.** zod 4's `.uuid()` accepts only RFC 9562 UUIDs (version 1–8, variant `8`–`b`); zod 3's accepted any `8-4-4-4-12` hex string. Plumbus's own schemas use `.guid()`, zod 4's name for the old rule, so identifiers that passed before still pass. The JSON Schema is the same (`format: 'uuid'`).
+
+### Action for apps (zod 4 changes your own schemas too)
+
+- `z.record(value)` needs the key schema: `z.record(z.string(), value)`.
+- `.refine()` keeps the schema's type: `z.ZodEffects` is gone; drop explicit return types such as `z.ZodEffects<z.ZodString>`. `.transform()` is a `z.ZodPipe`.
+- `.default(value)` no longer parses its value; use `.prefault(value)` where zod 3 filled inner defaults from it (`.default({})` on an object with defaulted fields).
+- `.strict('message')` takes no message: `z.strictObject(shape, { error: (issue) => … })`.
+- `z.string().ip()` / `.cidr()` are `z.ipv4()`, `z.ipv6()`, `z.cidrv4()`, `z.cidrv6()` (or a union); `z.function().returns()` is gone.
+- `z.ZodType<Output, Def, Input>` is `z.ZodType<Output, Input>`; `z.ZodTypeDef` is gone.
+- `.uuid()` is strict RFC 9562 now; use `.guid()` (or `z.guid()`) where stored identifiers may not carry version and variant bits, as zod 3's `.uuid()` allowed.
+- Issues: `{ code: 'too_big', origin: 'array' }` (was `type`), `{ code: 'invalid_format', format: 'uuid' }` (was `validation`); paths are `PropertyKey[]`.
+- **Upgrade every Plumbus add-on with core.** Add-ons published before this beta use zod 3 APIs at load time (`@plumbus/auth` 0.4.0-beta.0 calls `z.function().returns()`), and their peer range still admits core beta.6. The versions listed below require it.
+
+### Dependencies
+
+- **`vitest` `5.0.5`** (was `5.0.4`; core ships it as a dependency, and every package's dev copy and `@vitest/browser-playwright` move with it): GHSA-p458-7748-mcp3, the Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env` files, private keys, `.git` and the API token file.
+- **`tsx` `^4.23.15`** (was `^4.19.0`): its esbuild is `~0.28.0`, past GHSA-g7r4-m6w7-qqqr (arbitrary file read through esbuild's development server on Windows).
+- `pnpm audit` on this repository reports no advisory. The lockfile takes patched `qs` 6.16.1 and `@hono/node-server` 1.19.17 (through `@modelcontextprotocol/sdk`), `baseline-browser-mapping` 2.11.33 (through `next`), `fast-copy` 3.1.0 / 4.3.1 (through `pino-pretty`) and `esbuild` 0.28.2 (through `vite`); a fresh install of an app resolves the same versions from the existing ranges.
+- **drizzle-kit's `@esbuild-kit` loader** pins `esbuild` `~0.18.20` (GHSA-67mh-4wv8-2f99, a development-server advisory; the loader only calls esbuild's transform API). The repository overrides it to `^0.25.0`; an app whose own audit lists it can add the same override, `"@esbuild-kit/core-utils>esbuild": "^0.25.0"` under `overrides` in `pnpm-workspace.yaml` (pnpm) or `package.json` (npm).
+
 ## 0.9.0-beta.5 — 2026-10-25 — 401 for anonymous callers, patched dependencies
 
 ### Bounded input validation

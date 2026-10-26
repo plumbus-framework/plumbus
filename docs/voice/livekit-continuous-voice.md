@@ -248,11 +248,11 @@ process — no app-local worker file required. The CLI dynamically imports
 `startVoiceAgentWorker()` calls LiveKit's `initializeLogger()` before
 constructing `AgentServer` (required by `@livekit/agents` since 1.4).
 
-`@plumbus/voice-livekit` pins `@livekit/agents` to 1.9.0 with `@livekit/rtc-node`
-`^0.13.34`: `@livekit/agents` 1.9.1 and later need rtc-node 1.x, and the worker and
-this package must share one rtc-node (the room objects cross between them). A
-dependency test (`livekit-dependency-compat.test.ts`) fails if they ever resolve
-different copies.
+`@plumbus/voice-livekit` pins `@livekit/agents` to 1.9.4 with `@livekit/rtc-node`
+`^1.2.1`: the worker and this package must share one rtc-node (the room objects
+cross between them), so this package's rtc-node range has to sit inside the
+agents release's peer range (`^1.1.0` for 1.9.1 and later). A dependency test
+(`livekit-dependency-compat.test.ts`) fails if they ever resolve different copies.
 
 For `joinVoiceRoomSession()` and the legacy `startVoiceWorker()` wrapper, call
 `stop()` during shutdown. Concurrent or repeated calls share one cleanup and one

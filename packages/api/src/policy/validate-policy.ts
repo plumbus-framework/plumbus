@@ -1,16 +1,17 @@
-import { isApiExposed, type CapabilityContract } from '@plumbus/core';
+import {
+  isApiExposed,
+  zodDefinition,
+  zodObjectShape,
+  type CapabilityContract,
+} from '@plumbus/core';
 import { extractPathParamNames } from '../manifest/path-params.js';
 import { resolveExposure } from '../manifest/resolve.js';
 import type { ApiManifest } from '../manifest/types.js';
 import type { ApiPolicyFinding } from './finding.js';
 
 function getInputFieldNames(cap: CapabilityContract): string[] {
-  const def = (cap.input as { _def?: { typeName?: string; shape?: () => Record<string, unknown> } })
-    ._def;
-  if (def?.typeName === 'ZodObject' && typeof def.shape === 'function') {
-    return Object.keys(def.shape());
-  }
-  return [];
+  const shape = zodDefinition(cap.input)?.type === 'object' ? zodObjectShape(cap.input) : undefined;
+  return shape ? Object.keys(shape) : [];
 }
 
 const DEFAULT_FORBIDDEN = ['orgId', 'tenantId'];

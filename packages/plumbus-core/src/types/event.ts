@@ -1,7 +1,8 @@
+import type { AnyZodSchema } from './schema.js';
 import type { z } from 'zod';
 
 // ── Event Definition ──
-export interface EventDefinition<TPayload extends z.ZodTypeAny = z.ZodTypeAny> {
+export interface EventDefinition<TPayload extends z.ZodTypeAny = AnyZodSchema> {
   name: string;
   description?: string;
   domain?: string;

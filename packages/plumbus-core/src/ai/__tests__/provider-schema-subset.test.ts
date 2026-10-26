@@ -173,13 +173,10 @@ const shapes: [string, z.ZodTypeAny][] = [
     'an object intersected with a nullable object',
     card.and(z.object({ n: z.number() }).nullable()),
   ],
-  ['a cidr() string', z.object({ network: z.string().cidr() })],
-  [
-    'a cidr() string with another pattern',
-    z.object({ network: z.string().cidr().startsWith('10.') }),
-  ],
+  ['a cidr() string', z.object({ network: z.union([z.cidrv4(), z.cidrv6()]) })],
+  ['a cidr() string with another pattern', z.object({ network: z.cidrv4().startsWith('10.') })],
   ['a string with two patterns', z.object({ code: z.string().regex(/^a/).regex(/z$/) })],
-  ['an ip() string', z.object({ host: z.string().ip() })],
+  ['an ip() string', z.object({ host: z.union([z.ipv4(), z.ipv6()]) })],
   ['an optional root', card.optional()],
   ['an array of optional items', z.object({ tags: z.array(z.string().optional()) })],
   ['a tuple', z.object({ point: z.tuple([z.string(), z.number()]) })],
@@ -189,7 +186,7 @@ const shapes: [string, z.ZodTypeAny][] = [
   [
     'all of them nested',
     z.object({
-      items: z.array(card.and(z.object({ network: z.string().cidr().optional() }))),
+      items: z.array(card.and(z.object({ network: z.union([z.cidrv4(), z.cidrv6()]).optional() }))),
       pair: z.tuple([z.string().default('x'), z.number()]).optional(),
     }),
   ],
@@ -310,7 +307,7 @@ describe('the neutral schema Anthropic and Bedrock receive', () => {
   });
 
   it('sends both the IPv4 and the IPv6 pattern of cidr() as alternatives', () => {
-    const schema = z.object({ network: z.string().cidr() });
+    const schema = z.object({ network: z.union([z.cidrv4(), z.cidrv6()]) });
     const sent = neutral(schema);
 
     // zod-to-json-schema lists them in allOf (both required), and the IPv4 one, which uses
@@ -326,7 +323,7 @@ describe('the neutral schema Anthropic and Bedrock receive', () => {
   });
 
   it('keeps cidr() an alternative next to another pattern', () => {
-    const sent = neutral(z.object({ network: z.string().cidr().startsWith('10.') }));
+    const sent = neutral(z.object({ network: z.cidrv4().startsWith('10.') }));
     const network = (sent.properties as Record<string, Record<string, unknown>>).network;
 
     expect(satisfies('10.0.0.0/8', network)).toBe(true);
@@ -489,7 +486,10 @@ describe('the Anthropic adapter (structured outputs, fake fetch)', () => {
 
   it('sends an intersection with a cidr() and a tuple in documented keywords, satisfiable by the answer', async () => {
     const output = card.and(
-      z.object({ network: z.string().cidr(), point: z.tuple([z.string(), z.number()]) }),
+      z.object({
+        network: z.union([z.cidrv4(), z.cidrv6()]),
+        point: z.tuple([z.string(), z.number()]),
+      }),
     );
     const text = '{"title":"T","network":"10.0.0.0/8","point":["a",1]}';
 

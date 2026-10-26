@@ -504,6 +504,18 @@ export {
 // ── Types (re-export everything) ──
 export * from './types/index.js';
 export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
+// ── Zod schema structure and JSON Schema ──
+export {
+  zodDefaultValue,
+  zodDefinition,
+  zodEnumValues,
+  zodInnerType,
+  zodObjectShape,
+  zodTypeName,
+} from './schema/zod-introspection.js';
+export type { ZodDefinition } from './schema/zod-introspection.js';
+export { zodToJsonSchemaObject } from './schema/json-schema.js';
+export type { JsonSchemaObject, JsonSchemaTarget } from './schema/json-schema.js';
 // ── Bounded input validation ──
 export {
   DEFAULT_INPUT_ARRAY_MAX_ITEMS,

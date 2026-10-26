@@ -70,7 +70,7 @@ export function resolveFrameworkRetentionOptions(
   if (!parsed.success) {
     throw new DataValidationError(
       `Invalid frameworkRetention options: ${parsed.error.issues
-        .map((issue) => `${issue.path.join('.') || '(root)'} ${issue.message}`)
+        .map((issue) => `${issue.path.map(String).join('.') || '(root)'} ${issue.message}`)
         .join('; ')}`,
     );
   }

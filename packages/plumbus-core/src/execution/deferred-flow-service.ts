@@ -116,7 +116,7 @@ export function createDeferredFlowService(
         };
       }
       // A malformed id is the caller's input of any length: never copied into a log line.
-      const loggedId = z.string().uuid().safeParse(executionId).success
+      const loggedId = z.string().guid().safeParse(executionId).success
         ? executionId
         : '(malformed)';
       deferred.push(async () => {

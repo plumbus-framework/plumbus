@@ -2,7 +2,7 @@
 
 Plumbus provides a complete testing toolkit exported from `@plumbus/core/testing`. Every testing utility is designed to work with Vitest.
 
-Core provides **Vitest 5.0.4** and its Vite dependency. Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. See the [Vitest upgrade guide](../upgrading-vitest.md) for config and mock changes.
+Core provides **Vitest 5.0.5** and its Vite dependency. Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. See the [Vitest upgrade guide](../upgrading-vitest.md) for config and mock changes.
 
 **Important**: Vitest, Vite, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
 

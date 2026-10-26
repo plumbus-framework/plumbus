@@ -9,12 +9,12 @@ export const chatListTurns = defineCapability({
   description: 'List turns for a chat session',
 
   input: z.object({
-    sessionId: z.string().uuid(),
+    sessionId: z.string().guid(),
     limit: z.number().int().min(1).max(100).optional(),
   }),
 
   output: z.object({
-    turns: z.array(z.record(z.unknown())),
+    turns: z.array(z.record(z.string(), z.unknown())),
   }),
 
   access: {},

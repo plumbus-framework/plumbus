@@ -339,7 +339,7 @@ describe('OpenAI strict outputs whose root is not an object', () => {
 
 describe('OpenAI strict outputs with allOf', () => {
   const output = z.object({
-    network: z.string().cidr(),
+    network: z.union([z.cidrv4(), z.cidrv6()]),
     owner: z.object({ id: z.string() }).and(z.object({ email: z.string().email().optional() })),
   });
 

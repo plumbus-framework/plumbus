@@ -270,7 +270,7 @@ Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Framework test paralle
 
 Integration prerequisites for `pnpm test`: the stabilization fixtures start their own processes and need `redis-server` plus PostgreSQL 16 binaries (`PLUMBUS_TEST_POSTGRES_BIN` overrides `/usr/lib/postgresql/16/bin`); the core `*.pg.test.ts` suites (durable dispatch, approvals, tenant data planes) connect to an isolated PostgreSQL test database set through `PLUMBUS_TEST_PG_HOST`, `PLUMBUS_TEST_PG_PORT`, `PLUMBUS_TEST_PG_DATABASE`, `PLUMBUS_TEST_PG_USER`, and `PLUMBUS_TEST_PG_PASSWORD`, and fail without one. See `docs/testing/testing-guide.md`.
 
-- **Vitest 5.0.4** — tests in `src/<module>/__tests__/*.test.ts`
+- **Vitest 5.0.5** — tests in `src/<module>/__tests__/*.test.ts`
 - Use `createTestContext()` for a fully-mocked `ExecutionContext`
 - Test through `runCapability()` / `simulateFlow()`, not internals
 - Tests must be self-contained — no shared mutable state
@@ -313,7 +313,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `docs/security/` — security model, auth, tenant isolation
 - `docs/upgrading-core-0.9.md` — core 0.9 beta family: version table, breaking changes, beta dist-tag
 - `docs/upgrading-stabilization.md` — core 0.8 stabilization family, migrations, worker cutover, schedule reconciliation, and agent wiring v21
-- `docs/upgrading-vitest.md` — Vitest 5.0.4 toolchain upgrade, Node floor, and `VITEST_MAX_WORKERS`
+- `docs/upgrading-vitest.md` — Vitest 5.0.5 toolchain upgrade, Node floor, and `VITEST_MAX_WORKERS`
 - `docs/upgrading-security-release.md` — coordinated security release, compatibility checks, and agent wiring v16
 - `docs/upgrading-classification.md` — core 0.7.4, decision packages 0.2.2, and classification agent wiring v17
 - `docs/upgrading-voice-and-decision-release.md` — core 0.7.2, chat/provider 0.2.2, voice 0.5.2, and initial decision-package releases

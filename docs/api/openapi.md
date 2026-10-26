@@ -155,7 +155,7 @@ Example: `input: { refundId, reason }` on `POST /refunds/{refundId}/approve` pro
 
 ## Schema generation
 
-Request and response schemas are produced via `zod-to-json-schema` with OpenAPI 3 target (`zodToOpenApiSchema`). This preserves:
+Request and response schemas are produced by core's `zodToJsonSchemaObject(schema, 'openapi-3.0')` (`zodToOpenApiSchema`), zod 4's `z.toJSONSchema()` shaped to keep what zod-to-json-schema wrote under zod 3. This preserves:
 
 - `min` / `max` on numbers
 - `pattern` on strings

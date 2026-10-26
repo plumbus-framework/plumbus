@@ -36,7 +36,7 @@ export async function persistJobIntent(options: DispatchJobOptions): Promise<str
     );
   }
   const id = options.jobId ?? randomUUID();
-  if (!z.string().uuid().safeParse(id).success)
+  if (!z.string().guid().safeParse(id).success)
     throw new DataValidationError('jobId must be a UUID');
   const inserted = await db
     .insert(jobExecutionsTable)

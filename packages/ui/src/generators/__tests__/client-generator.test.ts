@@ -82,7 +82,7 @@ describe('generateCapabilityTypes', () => {
     const cap = makeCap({
       input: z
         .object({
-          orderIntakeId: z.string().uuid(),
+          orderIntakeId: z.string().guid(),
           sortBy: z.literal('name').default('name'),
         })
         .superRefine(() => undefined),

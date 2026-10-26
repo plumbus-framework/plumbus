@@ -1,6 +1,6 @@
 # Vitest 5 upgrade
 
-Core 0.8 includes Vitest **5.0.4**, the stable npm `latest` release checked for this upgrade. All framework packages use the same version; Browser Mode uses `@vitest/browser-playwright` 5.0.4. Core also supplies Vite (`^7.3.7`) because Vitest 5 makes Vite a required peer. Consumer apps continue running `plumbus test` without installing Vitest or Vite directly.
+Core 0.8 includes Vitest **5.0.4**, the stable npm `latest` release checked for this upgrade. All framework packages use the same version; Browser Mode uses `@vitest/browser-playwright` 5.0.4. Core also supplies Vite (`^7.3.7`) because Vitest 5 makes Vite a required peer. Consumer apps continue running `plumbus test` without installing Vitest or Vite directly. Core 0.9.0-beta.6 moves every package to Vitest **5.0.5** (and `@vitest/browser-playwright` 5.0.5) for GHSA-p458-7748-mcp3: the Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env` files, private keys and `.git`.
 
 ## Node and package installation
 

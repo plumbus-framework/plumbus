@@ -8,7 +8,7 @@ import type { ChatConfig, ChatDefinition } from '../types/chat.js';
 const chatConfigSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  access: z.record(z.unknown()),
+  access: z.record(z.string(), z.unknown()),
   context: z.array(z.custom()).optional(),
   actions: z.array(z.string()).optional(),
   policy: z
@@ -94,7 +94,7 @@ const chatConfigSchema = z.object({
         .optional(),
     })
     .optional(),
-  budget: z.record(z.unknown()).optional(),
+  budget: z.record(z.string(), z.unknown()).optional(),
   history: z
     .object({
       includeLastTurns: z.number().int().min(1).optional(),
@@ -125,7 +125,7 @@ export function defineChat(config: ChatConfig): ChatDefinition {
   const parsed = chatConfigSchema.safeParse(config);
   if (!parsed.success) {
     const detail = parsed.error.issues
-      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .map((issue) => `${issue.path.map(String).join('.')}: ${issue.message}`)
       .join('; ');
     throwDefineValidationError(`defineChat: ${detail}`);
   }

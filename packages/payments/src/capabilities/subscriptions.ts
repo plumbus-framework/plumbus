@@ -206,7 +206,7 @@ export function createSubscriptionCapabilities(runtime: PaymentsRuntime) {
     description: "List subscriptions of the caller's clients, newest first",
     input: z.object({
       status: subscriptionStatusSchema.optional(),
-      clientId: z.string().uuid().optional(),
+      clientId: z.string().guid().optional(),
       limit: z.number().int().min(1).max(100).optional(),
       offset: z.number().int().min(0).optional(),
     }),
@@ -239,7 +239,7 @@ export function createSubscriptionCapabilities(runtime: PaymentsRuntime) {
     kind: 'query',
     domain: 'payments',
     description: 'Read one client subscription and its invoices',
-    input: z.object({ subscriptionId: z.string().uuid() }),
+    input: z.object({ subscriptionId: z.string().guid() }),
     output: z.object({
       subscription: subscriptionViewSchema,
       invoices: z.array(invoiceViewSchema),
@@ -267,7 +267,7 @@ export function createSubscriptionCapabilities(runtime: PaymentsRuntime) {
     domain: 'payments',
     description: 'Cancel a client subscription now or at the end of the paid period',
     input: z.object({
-      subscriptionId: z.string().uuid(),
+      subscriptionId: z.string().guid(),
       atPeriodEnd: z.boolean().optional().describe('Default true: keep it until the period ends'),
     }),
     output: z.object({ subscription: subscriptionViewSchema }),
@@ -300,7 +300,7 @@ export function createSubscriptionCapabilities(runtime: PaymentsRuntime) {
     kind: 'action',
     domain: 'payments',
     description: 'Keep a client subscription that was set to cancel at the end of the period',
-    input: z.object({ subscriptionId: z.string().uuid() }),
+    input: z.object({ subscriptionId: z.string().guid() }),
     output: z.object({ subscription: subscriptionViewSchema }),
     access: config.access.sellers,
     effects: {
@@ -327,7 +327,7 @@ export function createSubscriptionCapabilities(runtime: PaymentsRuntime) {
     kind: 'action',
     domain: 'payments',
     description: 'Pull a client subscription from the provider now',
-    input: z.object({ subscriptionId: z.string().uuid() }),
+    input: z.object({ subscriptionId: z.string().guid() }),
     output: z.object({ subscription: subscriptionViewSchema }),
     access: config.access.sellers,
     effects: {

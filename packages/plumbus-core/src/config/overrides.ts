@@ -92,8 +92,9 @@ export const configOverridesSchema = z
       .object({
         defaultProvider: text,
         defaultModel: text,
-        providers: z.record(ai),
+        providers: z.record(z.string(), ai),
         promptOverrides: z.record(
+          z.string(),
           z
             .object({
               provider: text,
@@ -107,7 +108,7 @@ export const configOverridesSchema = z
             .partial()
             .strict(),
         ),
-        security: z.record(z.unknown()),
+        security: z.record(z.string(), z.unknown()),
         cache: ai.shape.cache,
       })
       .partial()
@@ -116,6 +117,7 @@ export const configOverridesSchema = z
       .object({
         agents: z
           .record(
+            z.string(),
             z
               .object({ serviceAccountId: text, scopes: z.array(text), tenantId: text.optional() })
               .strict(),
@@ -147,7 +149,7 @@ export function parseConfigOverrides(input: unknown): ConfigOverrides {
     // Values can be secrets. Only report paths and issue codes.
     throw new DataValidationError('Invalid configuration overrides', {
       issues: parsed.error.issues.map((issue) => ({
-        path: issue.path.join('.'),
+        path: issue.path.map(String).join('.'),
         code: issue.code,
         ...(issue.code === 'unrecognized_keys' ? { keys: issue.keys } : {}),
       })),
@@ -162,8 +164,8 @@ export function mergeConfig<T extends object>(base: T, override: object): T {
     if (['__proto__', 'constructor', 'prototype'].includes(key))
       throw new DataValidationError('Unsafe configuration key');
     if (value === undefined) continue;
-    const record = z.record(z.unknown()).safeParse(value);
-    const previous = z.record(z.unknown()).safeParse(result[key]);
+    const record = z.record(z.string(), z.unknown()).safeParse(value);
+    const previous = z.record(z.string(), z.unknown()).safeParse(result[key]);
     result[key] =
       record.success && previous.success ? mergeConfig(previous.data, record.data) : value;
   }

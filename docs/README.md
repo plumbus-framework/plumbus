@@ -34,7 +34,7 @@ docs/
 │   └── diagrams.md
 ├── upgrading-core-0.9.md      Core 0.9 beta family: versions, breaking changes, dist-tag
 ├── upgrading-stabilization.md  Core 0.8 family, migrations, cutover, and wiring v21
-├── upgrading-vitest.md        Vitest 5.0.4, Node requirements, worker limits
+├── upgrading-vitest.md        Vitest 5.0.5, Node requirements, worker limits
 ├── upgrading-workers.md       0.5.0 workers/queues migration guide
 ├── upgrading-capability-names.md  Canonical names, invoke policy, flow auth snapshot
 ├── upgrading-voice-provider-packages.md  0.4.0 voice provider add-on packages

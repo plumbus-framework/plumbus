@@ -7,10 +7,10 @@ import { describe, expect, it } from 'vitest';
 /**
  * `@livekit/agents` and this package must share ONE `@livekit/rtc-node`: the
  * worker hands agents' room objects to our audio code, and two copies of the
- * native bindings do not interoperate. `@livekit/agents` 1.9.1 raised its
- * rtc-node peer to 1.x while this package uses 0.13, so a range that admitted
- * it made npm install a second rtc-node beside ours. Pinned to 1.9.0, the
- * newest release whose peer (`^0.13.34`) our own rtc-node range satisfies.
+ * native bindings do not interoperate. When this package's rtc-node range
+ * fell outside the agents release's peer range (agents 1.9.1 raised it to 1.x
+ * while we were on 0.13), npm installed a second rtc-node beside ours. Pinned
+ * to 1.9.4 (patched `sharp` 0.35.5), whose peer `^1.1.0` contains our `^1.2.1`.
  */
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
@@ -40,9 +40,9 @@ function version(dir: string): string {
 }
 
 describe('LiveKit dependency compatibility', () => {
-  it('pins @livekit/agents to a release that works with rtc-node 0.13', () => {
-    expect(manifest.dependencies['@livekit/agents']).toBe('1.9.0');
-    expect(manifest.dependencies['@livekit/rtc-node']).toBe('^0.13.34');
+  it('pins @livekit/agents to a release whose rtc-node peer contains ours', () => {
+    expect(manifest.dependencies['@livekit/agents']).toBe('1.9.4');
+    expect(manifest.dependencies['@livekit/rtc-node']).toBe('^1.2.1');
   });
 
   it('resolves one @livekit/rtc-node for both this package and @livekit/agents', () => {
@@ -50,8 +50,8 @@ describe('LiveKit dependency compatibility', () => {
     const ours = packageRoot(packageDir, '@livekit/rtc-node');
     const agents = packageRoot(agentsDir, '@livekit/rtc-node');
     expect(agents).toBe(ours);
-    expect(version(agentsDir)).toBe('1.9.0');
-    expect(version(ours)).toMatch(/^0\.13\.(3[4-9]|[4-9]\d)/);
+    expect(version(agentsDir)).toBe('1.9.4');
+    expect(version(ours)).toMatch(/^1\.([3-9]|\d{2,})\.\d+|^1\.2\.([1-9]|\d{2,})/);
   });
 
   it("satisfies @livekit/agents' own rtc-node peer range", () => {
@@ -61,6 +61,6 @@ describe('LiveKit dependency compatibility', () => {
         peerDependencies: Record<string, string>;
       }
     ).peerDependencies['@livekit/rtc-node'];
-    expect(peer).toBe('^0.13.34');
+    expect(peer).toBe('^1.1.0');
   });
 });

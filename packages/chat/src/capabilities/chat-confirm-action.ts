@@ -15,7 +15,7 @@ export const chatConfirmAction = defineCapability({
   description: 'Confirm or reject a pending chat action',
 
   input: z.object({
-    actionId: z.string().uuid(),
+    actionId: z.string().guid(),
     chatName: z.string(),
     decision: z.enum(['confirm', 'reject']),
     // Binding proof re-verified atomically at claim time (C4). Client-supplied,

@@ -3,6 +3,7 @@
 // so that UI components can consume field names, types, validation rules,
 // and required flags for rendering form fields.
 
+import { zod3Def } from './zod3-def.js';
 import type { CapabilityContract } from '@plumbus/core';
 
 // ── Form Metadata Types ──
@@ -88,18 +89,14 @@ function zodTypeToFieldType(typeName: string): FormFieldType {
 }
 
 function getZodTypeName(schema: unknown): string {
-  if (schema && typeof schema === 'object' && '_def' in schema) {
-    const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
-    if (typeof def.typeName === 'string') return def.typeName;
-  }
-  return 'ZodUnknown';
+  return zod3Def(schema)?.typeName ?? 'ZodUnknown';
 }
 
 function extractChecks(schema: unknown): FormValidation {
   const validation: FormValidation = {};
-  if (!schema || typeof schema !== 'object' || !('_def' in schema)) return validation;
+  const def = zod3Def(schema);
 
-  const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  if (!def) return validation;
 
   // ZodString/ZodNumber checks
   if (Array.isArray(def.checks)) {
@@ -129,8 +126,8 @@ function extractChecks(schema: unknown): FormValidation {
 }
 
 function unwrapSchema(schema: unknown): unknown {
-  if (!schema || typeof schema !== 'object' || !('_def' in schema)) return schema;
-  const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  const def = zod3Def(schema);
+  if (!def) return schema;
   const typeName = def.typeName;
 
   // Unwrap wrappers to find underlying type
@@ -141,8 +138,8 @@ function unwrapSchema(schema: unknown): unknown {
 }
 
 function getEnumValues(schema: unknown): string[] | undefined {
-  if (!schema || typeof schema !== 'object' || !('_def' in schema)) return undefined;
-  const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  const def = zod3Def(schema);
+  if (!def) return undefined;
   if (def.typeName === 'ZodEnum' && Array.isArray(def.values)) {
     return def.values as string[];
   }
@@ -150,8 +147,8 @@ function getEnumValues(schema: unknown): string[] | undefined {
 }
 
 function getDefault(schema: unknown): unknown | undefined {
-  if (!schema || typeof schema !== 'object' || !('_def' in schema)) return undefined;
-  const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  const def = zod3Def(schema);
+  if (!def) return undefined;
   if (def.typeName === 'ZodDefault' && 'defaultValue' in def) {
     const fn = def.defaultValue;
     if (typeof fn === 'function') {
@@ -167,14 +164,14 @@ function getDefault(schema: unknown): unknown | undefined {
 }
 
 function getDescription(schema: unknown): string | undefined {
-  if (!schema || typeof schema !== 'object' || !('_def' in schema)) return undefined;
-  const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  const def = zod3Def(schema);
+  if (!def) return undefined;
   return typeof def.description === 'string' ? def.description : undefined;
 }
 
 function isOptional(schema: unknown): boolean {
-  if (!schema || typeof schema !== 'object' || !('_def' in schema)) return false;
-  const def = (schema as Record<string, unknown>)._def as Record<string, unknown>;
+  const def = zod3Def(schema);
+  if (!def) return false;
   if (def.typeName === 'ZodOptional' || def.typeName === 'ZodDefault') return true;
   if (def.typeName === 'ZodNullable') return isOptional(def.innerType);
   return false;
@@ -210,9 +207,8 @@ export function extractFormHints(cap: CapabilityContract): FormHints {
   const fields: FormFieldHint[] = [];
 
   const schema = cap.input;
-  if (schema && typeof schema === 'object' && '_def' in schema) {
-    const def = (schema as unknown as Record<string, unknown>)._def as Record<string, unknown>;
-
+  const def = zod3Def(schema);
+  if (def) {
     // ZodObject — iterate the shape
     if (def.typeName === 'ZodObject' && def.shape && typeof def.shape === 'function') {
       const shape = (def.shape as () => Record<string, unknown>)();

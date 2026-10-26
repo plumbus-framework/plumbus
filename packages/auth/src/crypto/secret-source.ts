@@ -7,7 +7,9 @@ export const secretSourceSchema = z.union([
   z.string(),
   secretEnvSchema,
   secretLiteralSchema,
-  z.function().returns(z.promise(z.string())),
+  // zod 3 wrapped the function to check its result; zod 4's z.function() is not a schema to
+  // put in a union, so the result is checked where the function is called.
+  z.custom<() => Promise<string>>((value) => typeof value === 'function', 'Expected a function'),
 ]);
 
 export type SecretSource = z.infer<typeof secretSourceSchema>;
@@ -17,7 +19,11 @@ export async function resolveSecretSource(source: SecretSource): Promise<string>
     return source;
   }
   if (typeof source === 'function') {
-    return source();
+    const value: unknown = await source();
+    if (typeof value !== 'string') {
+      throw new Error('A secret source function must resolve to a string');
+    }
+    return value;
   }
   if ('env' in source) {
     const value = process.env[source.env];

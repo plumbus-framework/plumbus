@@ -20,18 +20,18 @@ const deliveryToneSchema = z.object({
 const voiceConfigSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  access: z.record(z.unknown()),
+  access: z.record(z.string(), z.unknown()),
   transport: z.object({
     provider: z.string().min(1),
     mode: z.string().optional(),
     audioFormat: z.string().optional(),
-    options: z.record(z.unknown()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
   }),
   stt: z.object({
     provider: z.string().min(1),
     model: z.string().optional(),
     languages: z.array(z.string().min(1)).optional(),
-    options: z.record(z.unknown()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
   }),
   transcript: z
     .object({ maxChars: z.number().finite().int().positive().safe().optional() })
@@ -42,7 +42,7 @@ const voiceConfigSchema = z.object({
     model: z.string().optional(),
     voiceId: z.string().optional(),
     locale: z.string().optional(),
-    options: z.record(z.unknown()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
   }),
   brain: z.custom<VoiceBrain>(
     (value: unknown) =>
@@ -55,7 +55,7 @@ const voiceConfigSchema = z.object({
     },
   ),
   instructions: z.array(z.string()).optional(),
-  toneProfiles: z.record(deliveryToneSchema).optional(),
+  toneProfiles: z.record(z.string(), deliveryToneSchema).optional(),
   resolveSttContext: z
     .custom((value: unknown) => value === undefined || typeof value === 'function', {
       message: 'resolveSttContext must be a function',
@@ -82,10 +82,7 @@ export function defineVoice(config: VoiceConfig): VoiceDefinition {
   const parsed = voiceConfigSchema.safeParse(config);
   if (!parsed.success) {
     const detail = parsed.error.issues
-      .map(
-        (issue: { path: Array<string | number>; message: string }) =>
-          `${issue.path.join('.')}: ${issue.message}`,
-      )
+      .map((issue) => `${issue.path.map(String).join('.')}: ${issue.message}`)
       .join('; ');
     throwDefineValidationError(`defineVoice: ${detail}`);
   }

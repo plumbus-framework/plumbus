@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchemaObject } from '../../schema/json-schema.js';
 import { isApiExposed } from '../../api/exposure.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { CapabilityKind } from '../../types/enums.js';
@@ -57,12 +57,7 @@ function wrapGenerateSuccessEnvelope(outputSchema: JsonSchema): JsonSchema {
 
 /** Convert a Zod schema to an OpenAPI 3 object schema (no `$schema` wrapper). */
 export function zodToGenerateOpenApiSchema(schema: z.ZodTypeAny): JsonSchema {
-  const json = zodToJsonSchema(schema, {
-    $refStrategy: 'none',
-    target: 'openApi3',
-  }) as JsonSchema;
-  const { $schema: _schema, ...rest } = json;
-  return rest;
+  return zodToJsonSchemaObject(schema, 'openapi-3.0') as JsonSchema;
 }
 
 function inputObjectSchema(schema: z.ZodTypeAny): JsonSchema | undefined {

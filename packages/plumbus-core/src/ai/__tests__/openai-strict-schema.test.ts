@@ -208,12 +208,12 @@ describe('toOpenAIStrictJsonSchema string formats', () => {
       z.object({ kind: z.literal('text'), body: z.string() }),
     ]),
     contact: z.string().email(),
-    id: z.string().uuid(),
+    id: z.string().guid(),
     at: z.string().datetime(),
     day: z.string().date(),
     clock: z.string().time(),
     span: z.string().duration(),
-    address: z.string().ip(),
+    address: z.union([z.ipv4(), z.ipv6()]),
   });
 
   function collectFormats(schema: unknown, found: string[] = []): string[] {
@@ -480,8 +480,8 @@ describe('toOpenAIStrictJsonSchema allOf (strict mode has no allOf)', () => {
   const ipv4Cidr = '10.0.0.0/8';
   const ipv6Cidr = '2001:db8::/32';
 
-  it('sends the two patterns of z.string().cidr() as alternatives, so both IP versions stay possible', () => {
-    const schema = z.object({ network: z.string().cidr() });
+  it('sends the two patterns of z.union([z.cidrv4(), z.cidrv6()]) as alternatives, so both IP versions stay possible', () => {
+    const schema = z.object({ network: z.union([z.cidrv4(), z.cidrv6()]) });
     const neutral = neutralSchema(schema);
     // The neutral schema already joins them (zod-to-json-schema's allOf would require both).
     expect(collectKeyword(neutral, 'allOf')).toEqual([]);
@@ -676,9 +676,14 @@ describe('toOpenAIStrictJsonSchema allOf (strict mode has no allOf)', () => {
     expect(restoreOmittedOptionalProperties(null, neutral)).toBeNull();
   });
 
-  it('gives each branch of z.string().ip() the type it shares, optional or not', () => {
+  it('gives each branch of z.union([z.ipv4(), z.ipv6()]) the type it shares, optional or not', () => {
     const strict = toOpenAIStrictJsonSchema(
-      neutralSchema(z.object({ host: z.string().ip(), backup: z.string().ip().optional() })),
+      neutralSchema(
+        z.object({
+          host: z.union([z.ipv4(), z.ipv6()]),
+          backup: z.union([z.ipv4(), z.ipv6()]).optional(),
+        }),
+      ),
     );
 
     expect(strict.properties).toEqual({
@@ -700,9 +705,11 @@ describe('toOpenAIStrictJsonSchema allOf (strict mode has no allOf)', () => {
 
   it('leaves no allOf anywhere, does not mutate its input, and is a fixed point', () => {
     const schema = z.object({
-      network: z.string().cidr(),
+      network: z.union([z.cidrv4(), z.cidrv6()]),
       items: z.array(
-        z.object({ a: z.string() }).and(z.object({ b: z.string().cidr().optional() })),
+        z
+          .object({ a: z.string() })
+          .and(z.object({ b: z.union([z.cidrv4(), z.cidrv6()]).optional() })),
       ),
       choice: z.union([
         z.object({ kind: z.literal('x') }).and(z.object({ x: z.string().regex(/^a/).regex(/b$/) })),
@@ -710,7 +717,12 @@ describe('toOpenAIStrictJsonSchema allOf (strict mode has no allOf)', () => {
       ]),
       tagged: z
         .object({ id: z.string() })
-        .and(z.union([z.object({ ip: z.string().ip() }), z.object({ n: z.number().optional() })]))
+        .and(
+          z.union([
+            z.object({ ip: z.union([z.ipv4(), z.ipv6()]) }),
+            z.object({ n: z.number().optional() }),
+          ]),
+        )
         .optional(),
     });
     const neutral = neutralSchema(schema);

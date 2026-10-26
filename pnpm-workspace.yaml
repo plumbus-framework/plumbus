@@ -1,2 +1,7 @@
 packages:
   - "packages/*"
+
+overrides:
+  # drizzle-kit's @esbuild-kit loader pins esbuild ~0.18.20 (GHSA-67mh-4wv8-2f99,
+  # dev server only). The loader only calls esbuild's transform API, which 0.25 keeps.
+  "@esbuild-kit/core-utils>esbuild": "^0.25.0"

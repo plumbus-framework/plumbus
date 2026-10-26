@@ -111,7 +111,7 @@ async function fixture(
           project: z.string().default('project'),
         })
         .passthrough(),
-      output: z.record(z.unknown()),
+      output: z.record(z.string(), z.unknown()),
       access: { roles: ['tester'] },
       effects: { data: [], events: [], external: [], ai: true },
       audit: { enabled: false, event: 'test.decision' },

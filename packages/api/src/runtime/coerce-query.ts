@@ -1,32 +1,21 @@
+import { zodInnerType, zodObjectShape, zodTypeName } from '@plumbus/core';
 import type { z } from 'zod';
 
 /** Unwrap ZodOptional / ZodDefault / ZodNullable to find the inner type name. */
-function getExpectedType(field: z.ZodTypeAny | undefined): string | undefined {
+function getExpectedType(field: unknown): string | undefined {
   if (!field) return undefined;
-  const typeName = (field as { _def?: { typeName?: string } })._def?.typeName;
+  const typeName = zodTypeName(field);
   if (typeName === 'ZodNumber') return 'number';
   if (typeName === 'ZodBoolean') return 'boolean';
   if (typeName === 'ZodOptional' || typeName === 'ZodDefault' || typeName === 'ZodNullable') {
-    const inner = (field as { _def: { innerType: z.ZodTypeAny } })._def.innerType;
-    return getExpectedType(inner);
+    return getExpectedType(zodInnerType(field));
   }
   return typeName;
 }
 
-/** Extract the shape from a ZodObject, unwrapping ZodEffects if needed. */
-function getSchemaShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> | undefined {
-  const def = (
-    schema as { _def?: { typeName?: string; shape?: () => Record<string, z.ZodTypeAny> } }
-  )._def;
-  if (!def) return undefined;
-  if (def.typeName === 'ZodObject') {
-    return typeof def.shape === 'function' ? def.shape() : undefined;
-  }
-  if (def.typeName === 'ZodEffects') {
-    const inner = (schema as { _def: { schema: z.ZodTypeAny } })._def.schema;
-    return getSchemaShape(inner);
-  }
-  return undefined;
+/** Extract the shape from a ZodObject, looking through transforms and pipes. */
+function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
+  return zodObjectShape(schema);
 }
 
 /**

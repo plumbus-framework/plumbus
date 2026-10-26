@@ -39,7 +39,7 @@ export function normalizePaymentsConfig(input: PaymentsConfig): NormalizedPaymen
   const parsed = paymentsConfigSchema.safeParse(input);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => ({
-      path: issue.path.join('.'),
+      path: issue.path.map(String).join('.'),
       message: issue.message,
     }));
     throw new PlumbusError(

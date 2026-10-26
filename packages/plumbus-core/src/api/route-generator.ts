@@ -1,3 +1,4 @@
+import { zodInnerType, zodObjectShape, zodTypeName } from '../schema/zod-introspection.js';
 import { safeParseBounded } from '../validation/bounded-parse.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -800,22 +801,18 @@ function coerceQueryParams(query: unknown, schema: z.ZodTypeAny): Record<string,
 }
 
 /** Unwrap ZodOptional / ZodDefault / ZodNullable to find the inner type name. */
-function getExpectedType(field: z.ZodTypeAny | undefined): string | undefined {
+function getExpectedType(field: unknown): string | undefined {
   if (!field) return undefined;
-  const typeName = (field as any)._def?.typeName as string | undefined;
+  const typeName = zodTypeName(field);
   if (typeName === 'ZodNumber') return 'number';
   if (typeName === 'ZodBoolean') return 'boolean';
   if (typeName === 'ZodOptional' || typeName === 'ZodDefault' || typeName === 'ZodNullable') {
-    return getExpectedType((field as any)._def?.innerType);
+    return getExpectedType(zodInnerType(field));
   }
   return typeName;
 }
 
-/** Extract the shape from a ZodObject, unwrapping ZodEffects if needed. */
-function getSchemaShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> | undefined {
-  const def = (schema as any)._def;
-  if (!def) return undefined;
-  if (def.typeName === 'ZodObject') return def.shape?.() ?? def.shape;
-  if (def.typeName === 'ZodEffects') return getSchemaShape(def.schema);
-  return undefined;
+/** Extract the shape from a ZodObject, looking through transforms and pipes. */
+function getSchemaShape(schema: unknown): Record<string, unknown> | undefined {
+  return zodObjectShape(schema);
 }

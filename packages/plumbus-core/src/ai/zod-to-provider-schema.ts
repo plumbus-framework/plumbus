@@ -24,8 +24,8 @@
 //
 // The Zod output schema still validates the original.
 
-import type { z } from 'zod';
-import { zodPatterns, zodToJsonSchema } from 'zod-to-json-schema';
+import { z } from 'zod';
+import { zodToJsonSchemaObject } from '../schema/json-schema.js';
 import { mergeTwoSchemas, structuralSchema } from './openai-strict-schema.js';
 
 const allowedStringFormats = new Set([
@@ -164,8 +164,8 @@ function isObjectLike(schema: unknown): boolean {
 /** Keys a union node may carry beside `anyOf` without them constraining its branches. */
 const unionAnnotationKeys = new Set(['anyOf', 'description', 'title', 'default']);
 
-const ipv4CidrPattern = zodPatterns.ipv4Cidr.source;
-const ipv6CidrPattern = zodPatterns.ipv6Cidr.source;
+const ipv4CidrPattern = z.regexes.cidrv4.source;
+const ipv6CidrPattern = z.regexes.cidrv6.source;
 
 function isOnlyPattern(schema: unknown, pattern: string): boolean {
   return isRecord(schema) && Object.keys(schema).length === 1 && schema.pattern === pattern;
@@ -485,10 +485,7 @@ export function zodToProviderJsonSchema(
   zodSchema: z.ZodTypeAny,
   options: ProviderJsonSchemaOptions = {},
 ): ProviderJsonSchemaResult {
-  const raw = zodToJsonSchema(zodSchema, {
-    $refStrategy: 'none',
-    target: 'jsonSchema7',
-  });
+  const raw = zodToJsonSchemaObject(zodSchema, 'draft-07');
 
   const state: NormalizationState = {
     promptName: options.promptName,

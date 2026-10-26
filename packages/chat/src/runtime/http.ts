@@ -28,7 +28,7 @@ import { runChatTurn } from './run-turn.js';
 
 const turnBodySchema = z
   .object({
-    sessionId: z.string().uuid(),
+    sessionId: z.string().guid(),
     userMessage: z.string().min(1),
     audience: z.string(),
     locale: z.string(),
@@ -49,7 +49,7 @@ const turnBodySchema = z
 
 const confirmBodySchema = z
   .object({
-    actionId: z.string().uuid(),
+    actionId: z.string().guid(),
     /** Echoed from the confirmation_required event; server derives capability/input from storage. */
     inputSchemaHash: z.string().min(1),
     decision: z.enum(['confirm', 'reject']),

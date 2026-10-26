@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-livekit",
-  "version": "0.4.0-beta.0",
+  "version": "0.4.0-beta.1",
   "description": "LiveKit transport, agent worker, and browser session helpers for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",
@@ -64,10 +64,10 @@
     }
   },
   "dependencies": {
-    "@livekit/agents": "1.9.0",
+    "@livekit/agents": "1.9.4",
     "@livekit/krisp-noise-filter": "^0.4.3",
-    "@livekit/noise-cancellation-node": "^0.1.9",
-    "@livekit/rtc-node": "^0.13.34",
+    "@livekit/noise-cancellation-node": "^0.3.0",
+    "@livekit/rtc-node": "^1.2.1",
     "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "livekit-server-sdk": "^2.15.4",
     "ws": "^8.21.0"
@@ -77,8 +77,8 @@
     "@plumbus/voice": "workspace:*",
     "fastify": "^5.12.7",
     "livekit-client": "^2.19.2",
-    "tsx": "^4.21.0",
-    "vitest": "5.0.4"
+    "tsx": "^4.23.15",
+    "vitest": "5.0.5"
   },
   "license": "MIT"
 }
