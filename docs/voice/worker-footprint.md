@@ -224,3 +224,23 @@ need not enter a call process when only their summaries are used. This retains
 the governed repository, tenant/soft-delete filters and selected-field decryption.
 See [field projection](../sdk-reference/data-layer.md#findmany). It reduces data-heavy
 read allocations, not the fixed Node/RTC startup cost.
+
+## Prewarmed call processes
+
+LiveKit runs every call in its own job process. The worker's `prewarm` hook loads
+the voice runtime from the bootstrap module before the process is offered a job,
+so a call that takes over an idle process starts with that work already done.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `PLUMBUS_VOICE_IDLE_PROCESSES` (`numIdleProcesses`) | SDK default (0 outside LiveKit production mode) | Job processes kept started and prewarmed ahead of calls |
+| `PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS` (`initializeProcessTimeoutMs`) | 30000 | Time a job process may take to start and prewarm |
+
+With any idle process, the SDK also starts job processes one at a time. That matters
+because LiveKit's server stops dispatching to a worker whose reported load reaches
+its `target_load` (0.7 by default), and a call that is not dispatched is not retried.
+Measured 2026-10-28 in a 2-CPU, 1,200 MiB container: six calls started together
+dispatched 4 without an idle process (load 0.95) and 5 with one (load 0.82). A
+process start still uses most of two CPUs, so clients should retry a call that no
+agent joins. Each idle process holds about 73 MiB while it waits. A failed prewarm
+is logged and retried at job start, which reports the real error on the call.

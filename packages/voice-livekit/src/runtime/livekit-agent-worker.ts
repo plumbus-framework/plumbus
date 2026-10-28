@@ -481,7 +481,27 @@ async function voiceAgentEntry(ctx: JobContext): Promise<void> {
   await runVoiceAgentEntry(ctx, config);
 }
 
+/**
+ * Runs in every job process before it is offered a job. With idle processes
+ * (`numIdleProcesses`) that happens ahead of time, so a call takes over a
+ * process whose voice runtime is already loaded. A failure here is not fatal:
+ * the job entry bootstraps again and reports the real error on the call.
+ */
+export async function prewarmVoiceAgentProcess(): Promise<void> {
+  if (!process.env[PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE_ENV]) return;
+  const startedAt = Date.now();
+  try {
+    await bootstrapVoiceAgentConfigsFromModule();
+    console.info('[voice-agent] prewarmed voice runtime', { ms: Date.now() - startedAt });
+  } catch (error) {
+    console.warn('[voice-agent] prewarm bootstrap failed; retrying at job start', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 const voiceAgentDefinition = defineAgent({
+  prewarm: prewarmVoiceAgentProcess,
   entry: voiceAgentEntry,
 });
 
@@ -499,6 +519,43 @@ export async function stopActiveVoiceAgentSessions(): Promise<void> {
   const sessions = [...activeSessions];
   activeSessions.clear();
   await Promise.all(sessions.map((session) => session.dispose()));
+}
+
+export const PLUMBUS_VOICE_IDLE_PROCESSES_ENV = 'PLUMBUS_VOICE_IDLE_PROCESSES';
+export const PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS_ENV = 'PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS';
+/** Prewarm now loads the voice runtime, which can outlast LiveKit's 10 s default on a small host. */
+const DEFAULT_PROCESS_INIT_TIMEOUT_MS = 30_000;
+
+function readNonNegativeInteger(name: string): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new PlumbusError(ErrorCode.Validation, `${name} must be a non-negative integer`, {
+      [name]: raw,
+    });
+  }
+  return value;
+}
+
+/**
+ * Process-pool settings for the LiveKit worker. Idle processes are started one
+ * at a time by the SDK, so a burst of calls no longer starts several runtimes at
+ * once; each idle process holds one loaded voice runtime in memory.
+ */
+export function resolveVoiceAgentProcessPoolOptions(
+  options: Pick<StartVoiceAgentWorkerOptions, 'numIdleProcesses' | 'initializeProcessTimeoutMs'>,
+): { numIdleProcesses?: number; initializeProcessTimeout: number } {
+  const numIdleProcesses =
+    options.numIdleProcesses ?? readNonNegativeInteger(PLUMBUS_VOICE_IDLE_PROCESSES_ENV);
+  const initializeProcessTimeout =
+    options.initializeProcessTimeoutMs ??
+    readNonNegativeInteger(PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS_ENV) ??
+    DEFAULT_PROCESS_INIT_TIMEOUT_MS;
+  return {
+    ...(numIdleProcesses !== undefined ? { numIdleProcesses } : {}),
+    initializeProcessTimeout,
+  };
 }
 
 export async function startVoiceAgentWorker(
@@ -569,6 +626,7 @@ export async function startVoiceAgentWorker(
       requestFunc: async (job) => {
         await job.accept();
       },
+      ...resolveVoiceAgentProcessPoolOptions(options),
     }),
   );
 

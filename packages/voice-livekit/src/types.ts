@@ -82,6 +82,10 @@ export interface StartVoiceAgentWorkerOptions {
   apiKey?: string;
   apiSecret?: string;
   bootstrapModule?: string;
+  /** Job processes kept started and prewarmed ahead of calls (env PLUMBUS_VOICE_IDLE_PROCESSES; SDK default otherwise). */
+  numIdleProcesses?: number;
+  /** Time a job process may take to start and prewarm (env PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS; default 30000). */
+  initializeProcessTimeoutMs?: number;
 }
 
 export interface VoiceAgentWorkerHandle {
