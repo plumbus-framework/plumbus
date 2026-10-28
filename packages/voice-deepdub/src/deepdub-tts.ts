@@ -51,6 +51,8 @@ class DeepdubTTSProvider implements TTSProvider {
   #client: DeepdubSdkClient | undefined;
   #connectPromise: Promise<DeepdubSdkClient> | undefined;
   #lastUsedAt = 0;
+  /** Cancels the reply being synthesized; set while one is in progress. */
+  #retireActive: (() => void) | undefined;
   readonly #reconnectDelayMs: number;
   readonly #idleReconnectMs: number;
 
@@ -143,16 +145,32 @@ class DeepdubTTSProvider implements TTSProvider {
     let finished = false;
     let failure: Error | undefined;
     let firstChunkLogged = false;
+    let generationSettled = false;
+    let retired = false;
+    let activeClient: DeepdubSdkClient | undefined;
 
-    const onAbort = () => {
+    // A cancelled reply (barge-in, abortAll, or the consumer leaving early) drops
+    // its queued audio and closes its socket. The SDK keeps buffering a whole
+    // reply until the server finishes it and has no cancel call, so closing the
+    // socket is what stops late audio piling up; the next reply reconnects.
+    const retire = () => {
+      if (retired || generationSettled) return;
+      retired = true;
       finished = true;
+      queue.length = 0;
       wake?.();
+      if (activeClient && this.#client === activeClient) {
+        this.#resetClient();
+      }
     };
-    signal?.addEventListener('abort', onAbort, { once: true });
+    signal?.addEventListener('abort', retire, { once: true });
+    this.#retireActive = retire;
 
     const pushChunk = (chunk: Uint8Array) => {
       if (!chunk || chunk.length === 0) return;
+      // Generated audio is billed even when nobody hears it.
       this.#audioBytes += chunk.byteLength;
+      if (retired) return;
       if (!firstChunkLogged) {
         firstChunkLogged = true;
         console.info('[voice-tts] first deepdub audio chunk received', {
@@ -164,7 +182,21 @@ class DeepdubTTSProvider implements TTSProvider {
     };
 
     this.#discardIfStale();
-    const client = await this.#connectWithRetry(signal);
+    let client: DeepdubSdkClient;
+    try {
+      client = await this.#connectWithRetry(signal);
+    } catch (error) {
+      signal?.removeEventListener('abort', retire);
+      if (this.#retireActive === retire) this.#retireActive = undefined;
+      throw error;
+    }
+    // Cancelled while connecting: nothing was requested, so the socket stays for reuse.
+    if (retired || signal?.aborted) {
+      signal?.removeEventListener('abort', retire);
+      if (this.#retireActive === retire) this.#retireActive = undefined;
+      return;
+    }
+    activeClient = client;
 
     console.info('[voice-tts] deepdub synthesis requested', {
       characters: text.length,
@@ -175,11 +207,14 @@ class DeepdubTTSProvider implements TTSProvider {
 
     const generation = this.#startGeneration(client, text, options, pushChunk)
       .then(() => {
+        generationSettled = true;
         finished = true;
         wake?.();
       })
       .catch(async (error: unknown) => {
         const settle = (result?: Error) => {
+          generationSettled = true;
+          if (retired) return;
           failure = result;
           finished = true;
           wake?.();
@@ -200,7 +235,7 @@ class DeepdubTTSProvider implements TTSProvider {
           if (attempt > 1) {
             await sleep(this.#reconnectDelayMs, signal);
           }
-          if (signal?.aborted) {
+          if (signal?.aborted || retired) {
             settle();
             return;
           }
@@ -212,6 +247,12 @@ class DeepdubTTSProvider implements TTSProvider {
           this.#resetClient();
           try {
             const retryClient = await this.#getClient();
+            activeClient = retryClient;
+            if (retired) {
+              if (this.#client === retryClient) this.#resetClient();
+              settle();
+              return;
+            }
             await this.#startGeneration(retryClient, text, options, pushChunk);
             settle();
             return;
@@ -249,14 +290,18 @@ class DeepdubTTSProvider implements TTSProvider {
         via: 'sdk',
       });
     } finally {
-      signal?.removeEventListener('abort', onAbort);
+      if (!generationSettled) retire();
+      signal?.removeEventListener('abort', retire);
+      if (this.#retireActive === retire) this.#retireActive = undefined;
       void generation.catch(() => undefined);
     }
   }
 
   abortGeneration(): void {}
 
-  abortAll(): void {}
+  abortAll(): void {
+    this.#retireActive?.();
+  }
 
   async flush(): Promise<void> {
     this.#resetClient();

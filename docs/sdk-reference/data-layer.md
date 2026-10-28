@@ -136,8 +136,11 @@ interface Repository<
   delete(id: string): Promise<void>;
 
   // Query multiple records
-  findMany<K extends keyof T = keyof T>(
-    query?: Partial<T>, options?: FindManyOptions<T, K>,
+  findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+
+  // Query multiple records, reading only the listed fields
+  findManyFields<K extends keyof T>(
+    query: Partial<T> | undefined, fields: readonly K[], options?: QueryOptions,
   ): Promise<Pick<T, K>[]>;
 
   // Count rows matching query (tenant scoping applies like findMany)
@@ -199,19 +202,22 @@ Notes:
 
 `findMany(query?, options?)` returns all rows matching `query` (or all rows when omitted). Tenant scoping and access policies apply on tenant-scoped entities.
 
-Pass `select` to fetch only fields needed by a read. The repository selects these
-columns in SQL, before decoding rows, and infers `Pick<T, K>[]` for the result:
+Use `findManyFields(query, fields, options?)` to fetch only the fields a read needs.
+The repository selects these columns in SQL, before decoding rows, and infers
+`Pick<T, K>[]` for the result:
 
 ```typescript
-const documents = await ctx.data.Document.findMany(
-  { projectId },
-  { select: ['id', 'summary'], orderBy: 'createdAt', orderDir: 'asc' },
-);
+const documents = await ctx.data.Document.findManyFields({ projectId }, ['id', 'summary'], {
+  orderBy: 'createdAt',
+  orderDir: 'asc',
+});
 // Large body fields never enter this read.
 ```
 
-`FindManyOptions<T, K>` extends `QueryOptions` with `select?: readonly K[]`.
-Omitting it returns complete records as before. Empty or malformed selections and
+It takes the same `QueryOptions` as `findMany`, which keeps returning complete
+records. Projection is a separate method so `findMany` stays non-generic: code that
+calls `findMany` on a repository picked at runtime (`ctx.data[name]`, a union of
+repository types) keeps type-checking. Empty or malformed field lists and
 unknown database columns raise a validation error; they never fall back to all
 fields. Duplicate fields are deduplicated. Filters, ordering and pagination may
 reference unselected columns. Tenant/soft-delete predicates and encrypted-filter

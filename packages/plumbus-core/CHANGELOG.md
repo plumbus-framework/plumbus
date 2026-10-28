@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add typed `findMany(..., { select: [...] })` field projection in SQL and in-memory test repositories. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
+- Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories; `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
 
 - Allow `voiceRuntime.resources.securityEntities` to supplement AI classifications and log masking without registering data repositories. Registered entities always remain in the classification set.
 

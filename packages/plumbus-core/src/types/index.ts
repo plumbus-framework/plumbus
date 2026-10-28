@@ -64,7 +64,6 @@ export type {
   AggregateRow,
   AggregateValue,
   QueryOptions,
-  FindManyOptions,
   Repository,
   ConditionalUpdateResult,
   RequestMeta,

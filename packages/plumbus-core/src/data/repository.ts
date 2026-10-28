@@ -29,7 +29,6 @@ import type {
   AggregateValue,
   ConditionalUpdateResult,
   QueryOptions,
-  FindManyOptions,
   Repository,
 } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
@@ -292,6 +291,35 @@ export function createRepository<
     return cols.length ? qb.orderBy(...cols) : qb;
   }
 
+  /** Shared by findMany and findManyFields; `fields` narrows the SQL columns. */
+  async function queryMany(
+    query: Partial<T> | undefined,
+    options: QueryOptions | undefined,
+    fields?: readonly unknown[],
+  ): Promise<Record<string, unknown>[]> {
+    await assertTenantContext('findMany');
+    const columns = getTableColumns(table);
+    const selected = resolveSelectedFields(fields, new Set(Object.keys(columns)));
+    const selection = selected
+      ? Object.fromEntries(selected.map((name) => [name, columns[name]]))
+      : undefined;
+    const where = combine(buildConditions(query, options));
+    let qb = (selection ? db.select(selection as any) : db.select()).from(table).where(where);
+    qb = applyOrder(qb, options);
+    if (options?.limit != null) {
+      qb = qb.limit(Math.max(1, Math.min(100, options.limit))) as typeof qb;
+    }
+    if (options?.offset != null) {
+      qb = qb.offset(Math.max(0, options.offset)) as typeof qb;
+    }
+    const result = await qb;
+    const rows = Array.isArray(result) ? result : [];
+    return rows.flatMap((row) => {
+      const decrypted = decryptRow(row as T);
+      return decrypted ? [decrypted] : [];
+    });
+  }
+
   return {
     async findById(id: string): Promise<T | null> {
       await assertTenantContext('findById');
@@ -471,31 +499,16 @@ export function createRepository<
       await auditMutation('delete', { id });
     },
 
-    async findMany<K extends keyof T = keyof T>(
-      query?: Partial<T>,
-      options?: FindManyOptions<T, K>,
+    findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]> {
+      return queryMany(query, options) as Promise<T[]>;
+    },
+
+    findManyFields<K extends keyof T>(
+      query: Partial<T> | undefined,
+      fields: readonly K[],
+      options?: QueryOptions,
     ): Promise<Pick<T, K>[]> {
-      await assertTenantContext('findMany');
-      const columns = getTableColumns(table);
-      const selected = resolveSelectedFields(options?.select, new Set(Object.keys(columns)));
-      const selection = selected
-        ? Object.fromEntries(selected.map((name) => [name, columns[name]]))
-        : undefined;
-      const where = combine(buildConditions(query, options));
-      let qb = (selection ? db.select(selection) : db.select()).from(table).where(where);
-      qb = applyOrder(qb, options);
-      if (options?.limit != null) {
-        qb = qb.limit(Math.max(1, Math.min(100, options.limit))) as typeof qb;
-      }
-      if (options?.offset != null) {
-        qb = qb.offset(Math.max(0, options.offset)) as typeof qb;
-      }
-      const result = await qb;
-      const rows = Array.isArray(result) ? result : [];
-      return rows.flatMap((row) => {
-        const decrypted = decryptRow(row as T);
-        return decrypted ? [decrypted] : [];
-      });
+      return queryMany(query, options, fields ?? null) as Promise<Pick<T, K>[]>;
     },
 
     async count(

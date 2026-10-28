@@ -6,6 +6,7 @@ import { field } from '../../fields/index.js';
 import { startPostgres } from '../../flows/__tests__/postgres-fixture.js';
 import { createInMemoryRepository } from '../../testing/index.js';
 import { createRepository, generateDrizzleSchema } from '../index.js';
+import type { Repository } from '../../types/context.js';
 
 const entity = defineEntity({
   name: 'ProjectionDocument',
@@ -74,10 +75,12 @@ beforeEach(async () => {
 
 describe('repository field projection', () => {
   it('selects only requested columns while retaining tenant, deletion, sorting and pagination', async () => {
-    const rows = await repo.findMany(
-      {},
-      { select: ['title'], orderBy: 'title', orderDir: 'asc', offset: 1, limit: 1 },
-    );
+    const rows = await repo.findManyFields({}, ['title'], {
+      orderBy: 'title',
+      orderDir: 'asc',
+      offset: 1,
+      limit: 1,
+    });
     expectTypeOf(rows).toEqualTypeOf<Pick<Document, 'title'>[]>();
     expect(rows).toEqual([{ title: 'B' }]);
     expect(queries[0]).toMatch(/^select "title" from/);
@@ -90,27 +93,30 @@ describe('repository field projection', () => {
   });
 
   it('decrypts selected secrets and does not load or decrypt an omitted corrupt secret', async () => {
-    expect(await repo.findMany({ title: 'A' }, { select: ['secret'] })).toEqual([
-      { secret: 'first' },
-    ]);
+    expect(await repo.findManyFields({ title: 'A' }, ['secret'])).toEqual([{ secret: 'first' }]);
     await pg.sql`UPDATE projection_document SET secret = 'plumbus:enc:v1:invalid' WHERE title = 'A'`;
-    expect(await repo.findMany({ title: 'A' }, { select: ['title'] })).toEqual([{ title: 'A' }]);
-    await expect(repo.findMany({ title: 'A' }, { select: ['secret'] })).rejects.toThrow();
-    await expect(repo.findMany({ secret: 'first' }, { select: ['title'] })).rejects.toThrow(
-      /encrypted/,
-    );
+    expect(await repo.findManyFields({ title: 'A' }, ['title'])).toEqual([{ title: 'A' }]);
+    await expect(repo.findManyFields({ title: 'A' }, ['secret'])).rejects.toThrow();
+    await expect(repo.findManyFields({ secret: 'first' }, ['title'])).rejects.toThrow(/encrypted/);
   });
 
   it('fails closed for malformed projections without querying or returning full rows', async () => {
-    for (const select of [[], ['missing'], ['__proto__'], ['constructor'], 'title', null, [1]]) {
-      await expect(repo.findMany({}, { select: select as any })).rejects.toMatchObject({
+    for (const select of [
+      [],
+      ['missing'],
+      ['__proto__'],
+      ['constructor'],
+      'title',
+      null,
+      undefined,
+      [1],
+    ]) {
+      await expect(repo.findManyFields({}, select as any)).rejects.toMatchObject({
         code: 'validation',
       });
     }
     expect(queries).toHaveLength(0);
-    expect(await repo.findMany({ title: 'A' }, { select: ['title', 'title'] })).toEqual([
-      { title: 'A' },
-    ]);
+    expect(await repo.findManyFields({ title: 'A' }, ['title', 'title'])).toEqual([{ title: 'A' }]);
   });
 
   it('still rejects missing tenant context even when tenantId is not selected', async () => {
@@ -120,7 +126,7 @@ describe('repository field projection', () => {
       db: pg.db,
       auth: { ...auth, tenantId: undefined },
     });
-    await expect(denied.findMany({}, { select: ['title'] })).rejects.toMatchObject({
+    await expect(denied.findManyFields({}, ['title'])).rejects.toMatchObject({
       code: 'forbidden',
     });
   });
@@ -130,13 +136,27 @@ describe('repository field projection', () => {
       { id: '1', title: 'A', body: 'large', secret: 'first', deletedAt: null },
       { id: '2', title: 'B', body: 'large', secret: 'second', deletedAt: null },
     ]);
-    const rows = await memory.findMany(
-      {},
-      { select: ['title'], orderBy: 'title', orderDir: 'asc', offset: 1, limit: 1 },
-    );
+    const rows = await memory.findManyFields({}, ['title'], {
+      orderBy: 'title',
+      orderDir: 'asc',
+      offset: 1,
+      limit: 1,
+    });
     expectTypeOf(rows).toEqualTypeOf<Pick<Document, 'title'>[]>();
     expect(rows).toEqual([{ title: 'B' }]);
-    await expect(memory.findMany({}, { select: [] })).rejects.toMatchObject({ code: 'validation' });
+    await expect(memory.findManyFields({}, [])).rejects.toMatchObject({ code: 'validation' });
     expect((await memory.findMany())[0]).toMatchObject({ body: 'large' });
+  });
+
+  it('keeps findMany callable on a union of repositories', async () => {
+    type Note = { id: string; text: string };
+    const notes = createInMemoryRepository<Note>([{ id: 'n', text: 'kept' }]);
+    const memory = createInMemoryRepository<Document>([
+      { id: '1', title: 'A', body: 'large', secret: 'first', deletedAt: null },
+    ]);
+    const repos: Record<string, Repository<Document> | Repository<Note>> = { notes, memory };
+    for (const repository of Object.values(repos)) {
+      expect(await repository.findMany({})).toHaveLength(1);
+    }
   });
 });

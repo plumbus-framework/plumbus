@@ -11,11 +11,11 @@ export function resolveSelectedFields(
   if (select === undefined) return undefined;
   const result = projectionSchema.safeParse(select);
   if (!result.success) {
-    throw new DataValidationError('findMany select must be a nonempty array of field names');
+    throw new DataValidationError('findManyFields fields must be a nonempty array of field names');
   }
   const fields = [...new Set(result.data)];
   if (availableFields && fields.some((name) => !availableFields.has(name))) {
-    throw new DataValidationError('findMany select contains an unknown entity field');
+    throw new DataValidationError('findManyFields fields contain an unknown entity field');
   }
   return fields;
 }

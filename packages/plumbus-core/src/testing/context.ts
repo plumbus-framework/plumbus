@@ -24,7 +24,6 @@ import type {
   FlowService,
   LoggerService,
   QueryOptions,
-  FindManyOptions,
   Repository,
   TimeService,
 } from '../types/context.js';
@@ -377,6 +376,17 @@ export function createInMemoryRepository<
     return results;
   }
 
+  function pageRows(query?: Partial<T>, options?: QueryOptions): T[] {
+    let results = filterRows(query, options);
+    if (options?.offset) {
+      results = results.slice(options.offset);
+    }
+    if (options?.limit) {
+      results = results.slice(0, options.limit);
+    }
+    return results;
+  }
+
   return {
     async findById(id) {
       return store.get(id) ?? null;
@@ -420,23 +430,21 @@ export function createInMemoryRepository<
     async delete(id) {
       store.delete(id);
     },
-    async findMany<K extends keyof T = keyof T>(
-      query?: Partial<T>,
-      options?: FindManyOptions<T, K>,
+    async findMany(query, options) {
+      return pageRows(query, options);
+    },
+    async findManyFields<K extends keyof T>(
+      query: Partial<T> | undefined,
+      fields: readonly K[],
+      options?: QueryOptions,
     ): Promise<Pick<T, K>[]> {
-      const selected = resolveSelectedFields(options?.select);
-      let results = filterRows(query, options);
-      if (options?.offset) {
-        results = results.slice(options.offset);
-      }
-      if (options?.limit) {
-        results = results.slice(0, options.limit);
-      }
-      return selected
-        ? results.map(
-            (row) => Object.fromEntries(selected.map((name) => [name, row[name]])) as Pick<T, K>,
-          )
-        : results;
+      const selected = resolveSelectedFields(fields ?? null) as string[];
+      return pageRows(query, options).map(
+        (row) =>
+          Object.fromEntries(
+            selected.map((name) => [name, (row as Record<string, unknown>)[name]]),
+          ) as Pick<T, K>,
+      );
     },
     async count(query, options) {
       return filterRows(query, options).length;
@@ -605,6 +613,7 @@ function withFieldValidation<T extends Record<string, unknown>>(
     },
     delete: (id) => repo.delete(id),
     findMany: (query, options) => repo.findMany(query, options),
+    findManyFields: (query, fields, options) => repo.findManyFields(query, fields, options),
     count: (query, options) => repo.count(query, options),
     aggregate: (query, options) => repo.aggregate(query, options),
   };
