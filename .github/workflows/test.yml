@@ -7,6 +7,7 @@ on:
 jobs:
   test:
     name: Unit Tests
+    # The integration fixtures require PostgreSQL 16 from Ubuntu 24.04's repositories.
     runs-on: ubuntu-24.04
 
     # The core suite includes *.pg.test.ts files that need a real Postgres

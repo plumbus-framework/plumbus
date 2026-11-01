@@ -15,6 +15,7 @@ Two packages change: `@plumbus/core` 0.9.0-beta.7 and `@plumbus/voice-soniox` 0.
 - **Retry waits end on the caller's `signal`.** Before, an aborted call still slept out the backoff.
 - **Soniox:** a 429 starts a cooldown for that Soniox endpoint; requests made during it are refused without being sent. The `rate_limit` error now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call, so come back after `retryAfterMs` (a flow `delay` step, for example).
 - **Action:** if your own code retries provider 429s on a fixed schedule, read `retryAfterMs` instead. A schedule shorter than the cooldown is answered 429 without reaching the provider.
+- **From stable core 0.8.2:** Redis queue lease renewal is clamped to Node's maximum timer delay (~24.8 days). Before, a very large `queue.visibilityTimeoutSec` (a decade-long "never reclaim" value) overflowed the timer, which then fired every 1 ms: about 1,000 renew calls per second per in-flight delivery. No action needed.
 
 ## v0.9.0-beta.6 (2026-10-26): zod 4
 

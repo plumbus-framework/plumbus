@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   publish:
+    # Match test CI: Ubuntu 24.04 provides the PostgreSQL 16 integration binaries.
     runs-on: ubuntu-24.04
 
     # The core suite includes *.pg.test.ts files that need a real Postgres

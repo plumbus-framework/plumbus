@@ -7,6 +7,7 @@
 - **Waits end on the caller's `signal`.** Retry backoff used to sleep out its full delay after the call was aborted.
 - **A call cancelled at a cooldown costs nothing** when nothing of it could have been billed: it throws `ProviderRequestNotSentError` (`cause` = the caller's abort reason), which `isCostFreeProviderFailure` treats as free. If an earlier attempt got a 408/5xx, the caller's own abort reason is thrown as before and the call is still charged.
 - New exports for adapters pacing other providers: `extendProviderCooldown`, `providerCooldownRemainingMs`, `waitForProviderCooldown`, `sleepUnlessAborted`, `parseRetryAfterMs`, `resetProviderCooldowns` (tests), type `ProviderCooldownWait`.
+- **From main (stable 0.8.2): Redis lease renewal no longer runs every 1 ms.** The renewal timer was `visibilityTimeoutSec / 3`; above Node's ~24.8-day timer maximum (a decade-long "never reclaim" visibility timeout) it overflowed and fired every millisecond, about 1,000 renew calls per second per in-flight delivery. It is now clamped to 2^31 − 1 ms (`leaseRenewalIntervalMs`); ordinary timeouts renew as before.
 
 ## 0.9.0-beta.6 — 2026-10-26 — zod 4
 
@@ -215,6 +216,12 @@ The stabilization changes reach the beta line with this version. An app coming f
 ### Fixed
 
 - **Tenant flow delays wake at their own time** (prepared as 0.8.0-beta.11, never published). With spine dispatch, an ordinary `delay` step of a tenant-placed flow left the worker's spine hint lease on the sleeping step, so the next step was claimed only once that lease (five minutes) expired. The delay now goes through the durable schedule/outbox path: the prior hint is acknowledged without handing its lease to the sleeping step, and the next hint is published with the persisted wake time (`notBefore`), so any worker claims the step when it is due. A lost guarded tenant checkpoint fails with `LeaseLostError` before any delayed notification is sent, and a delay as the last step still wakes to completion. The original auth snapshot is kept; no schema or public API change.
+
+## 0.8.2 — 2026-10-20
+
+- Pin the test and publish workflows to Ubuntu 24.04 so their PostgreSQL 16 prerequisites remain installable after `ubuntu-latest` moves to Ubuntu 26.04.
+
+- Fix a Redis lease-renewal regression that could hammer Redis with ~1,000 renew calls per second per in-flight delivery. Plumbus 0.8 renewed each active lease on a timer of `visibilityTimeoutSec / 3`; with a very large visibility timeout (for example the 10-year "never reclaim" value used to keep extra pollers in multi-worker deployments from stealing stale messages), the interval exceeded Node's ~24.8-day timer maximum, so `setInterval` overflowed (`TimeoutOverflowWarning`) and silently fired every 1 ms. The renewal interval is now clamped to 2^31 − 1 ms: ordinary timeouts keep renewing every `visibilityTimeoutSec / 3`, and decade-long timeouts renew at most once per ~24.8 days. 0.7.9 only compared this value and was unaffected.
 
 ## 0.8.1 — 2026-10-13
 
