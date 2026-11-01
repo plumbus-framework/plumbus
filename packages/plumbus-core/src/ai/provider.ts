@@ -19,6 +19,15 @@ import {
   toOpenAIStrictOutputSchema,
   unwrapOpenAIStrictOutput,
 } from './openai-strict-schema.js';
+import {
+  extendProviderCooldown,
+  parseRetryAfterMs,
+  type ProviderCooldownWait,
+  ProviderRequestNotSentError,
+  providerCooldownRemainingMs,
+  sleepUnlessAborted,
+  waitForProviderCooldown,
+} from './provider-cooldown.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
@@ -605,6 +614,11 @@ export class ProviderAPIError extends Error {
    * asking again with the same limit usually ends the same way.
    */
   readonly timeoutMs?: number;
+  /**
+   * Set on a rate-limit failure (429): how long, in milliseconds, the provider asked every caller
+   * to stay away. Schedule the next try no earlier than this.
+   */
+  readonly retryAfterMs?: number;
 
   constructor(args: {
     providerName: string;
@@ -613,6 +627,7 @@ export class ProviderAPIError extends Error {
     attempts: number;
     statusCode?: number;
     timeoutMs?: number;
+    retryAfterMs?: number;
     cause?: unknown;
   }) {
     super(args.message, args.cause === undefined ? undefined : { cause: args.cause });
@@ -622,6 +637,7 @@ export class ProviderAPIError extends Error {
     this.retryable = args.retryable;
     this.attempts = args.attempts;
     if (args.timeoutMs !== undefined) this.timeoutMs = args.timeoutMs;
+    if (args.retryAfterMs !== undefined) this.retryAfterMs = args.retryAfterMs;
   }
 }
 
@@ -657,30 +673,36 @@ const retryableStatusCodes = new Set([408, 429, 500, 502, 503, 504]);
 const maxProviderAttempts = 3;
 const baseRetryDelayMs = 750;
 const maxRetryDelayMs = 5_000;
+/**
+ * Longest a call waits out a provider's rate-limit cooldown, summed over its attempts. A longer
+ * cooldown fails the call with `retryAfterMs` instead, so callers can come back later.
+ */
+const maxRateLimitWaitMs = 60_000;
 
 function isRetryableStatusCode(statusCode: number): boolean {
   return retryableStatusCodes.has(statusCode);
 }
 
-function parseRetryAfterMs(retryAfterHeader: string | null): number | undefined {
-  if (!retryAfterHeader) return undefined;
-
-  const retryAfterSeconds = Number(retryAfterHeader);
-  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
-    return retryAfterSeconds * 1000;
-  }
-
-  const retryAt = Date.parse(retryAfterHeader);
-  if (Number.isNaN(retryAt)) return undefined;
-  return Math.max(retryAt - Date.now(), 0);
+/** Backoff for a 408/5xx answer: the provider's hint or exponential, at most 5 s. */
+function computeRetryDelayMs(attempt: number, headers: Headers): number {
+  const retryAfterMs = parseRetryAfterMs(headers);
+  if (retryAfterMs != null) return Math.min(retryAfterMs, maxRetryDelayMs);
+  return Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs);
 }
 
-function computeRetryDelayMs(attempt: number, retryAfterHeader: string | null): number {
-  const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
-  if (retryAfterMs != null) {
-    return Math.min(Math.max(retryAfterMs, 0), maxRetryDelayMs);
+/**
+ * True when a 429 body says the account has no credit left (OpenAI's `error.code`
+ * `insufficient_quota`). Waiting cannot fix that, so it is neither retried nor a cooldown.
+ */
+function isQuotaExhausted(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as { error?: { code?: unknown; type?: unknown } } | null;
+    return (
+      parsed?.error?.code === 'insufficient_quota' || parsed?.error?.type === 'insufficient_quota'
+    );
+  } catch {
+    return false;
   }
-  return Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs);
 }
 
 // Every OpenAI structured-output path is strict, and strict mode refuses optional properties:
@@ -1077,10 +1099,6 @@ function anthropicUsageToTokenUsage(usage: {
   };
 }
 
-async function waitForRetry(delayMs: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
-}
-
 function buildProviderErrorMessage(
   label: string,
   statusCode: number,
@@ -1167,6 +1185,8 @@ interface RequestDeadline {
   readonly providerName: string;
   readonly errorLabel: string;
   readonly timeoutMs: number;
+  /** The caller's own signal; it also ends retry and cooldown waits. */
+  readonly signal: AbortSignal | undefined;
   /** Starts an HTTP attempt: the caller's signal joined with a fresh timeout. */
   attempt(): RequestTransport;
   /** `error` as callers see it: a `ProviderAPIError` with `timeoutMs` when the timeout ended it. */
@@ -1209,6 +1229,7 @@ function createRequestDeadline(args: {
     providerName: args.providerName,
     errorLabel: args.errorLabel,
     timeoutMs,
+    signal: args.signal,
     attempt() {
       attempts += 1;
       timer = AbortSignal.timeout(timeoutMs);
@@ -1253,7 +1274,38 @@ async function executeRequestWithRetry(args: {
   send: (transport: RequestTransport) => Promise<Response>;
 }): Promise<Response> {
   const { deadline } = args;
+  // One cooldown per provider in this process: a 429 to any caller pauses every caller.
+  const cooldownKey = deadline.providerName;
+  let rateLimitWaitedMs = 0;
+  // Whether an earlier attempt of this call may have been billed (a 408/5xx answer; a 429 is free).
+  let possiblyBilled = false;
   for (let attempt = 1; attempt <= maxProviderAttempts; attempt++) {
+    let gate: ProviderCooldownWait;
+    try {
+      gate = await waitForProviderCooldown(cooldownKey, {
+        maxWaitMs: maxRateLimitWaitMs - rateLimitWaitedMs,
+        signal: deadline.signal,
+      });
+    } catch (error) {
+      // Cancelled at the gate: this attempt was never sent, so the call is free unless an earlier one may have been billed.
+      if (possiblyBilled) throw deadline.classify(error);
+      throw new ProviderRequestNotSentError(
+        `${deadline.errorLabel} request cancelled before it was sent`,
+        error,
+      );
+    }
+    rateLimitWaitedMs += gate.waitedMs;
+    if (gate.state === 'closed') {
+      throw new ProviderAPIError({
+        providerName: deadline.providerName,
+        statusCode: 429,
+        retryable: true,
+        attempts: attempt - 1,
+        retryAfterMs: gate.retryAfterMs,
+        message: `${deadline.errorLabel} is rate limited; retry after ${gate.retryAfterMs} ms`,
+      });
+    }
+
     let response: Response;
     let body: string;
     try {
@@ -1266,18 +1318,37 @@ async function executeRequestWithRetry(args: {
       throw deadline.classify(error);
     }
 
-    const retryable = isRetryableStatusCode(response.status);
+    const quotaExhausted = response.status === 429 && isQuotaExhausted(body);
+    const retryable = isRetryableStatusCode(response.status) && !quotaExhausted;
+    if (response.status === 429 && !quotaExhausted) {
+      extendProviderCooldown(
+        cooldownKey,
+        parseRetryAfterMs(response.headers) ??
+          Math.min(baseRetryDelayMs * 2 ** (attempt - 1), maxRetryDelayMs),
+      );
+    }
     if (!retryable || attempt === maxProviderAttempts) {
+      const retryAfterMs =
+        response.status === 429 && retryable ? providerCooldownRemainingMs(cooldownKey) : 0;
       throw new ProviderAPIError({
         providerName: deadline.providerName,
         statusCode: response.status,
         retryable,
         attempts: attempt,
+        ...(retryAfterMs > 0 ? { retryAfterMs } : {}),
         message: buildProviderErrorMessage(deadline.errorLabel, response.status, body, attempt),
       });
     }
 
-    await waitForRetry(computeRetryDelayMs(attempt, response.headers.get('retry-after')));
+    // A 429 waits at the cooldown gate above; other retryable answers back off here.
+    if (response.status !== 429) {
+      possiblyBilled = true;
+      try {
+        await sleepUnlessAborted(computeRetryDelayMs(attempt, response.headers), deadline.signal);
+      } catch (error) {
+        throw deadline.classify(error);
+      }
+    }
   }
 
   throw new ProviderAPIError({

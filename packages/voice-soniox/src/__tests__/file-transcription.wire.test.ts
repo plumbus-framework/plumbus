@@ -3,7 +3,8 @@ import type {
   FileTranscriptionConfig,
   FileTranscriptionContext,
 } from '@plumbus/voice/provider-kit';
-import { describe, expect, it, vi } from 'vitest';
+import { resetProviderCooldowns } from '@plumbus/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SONIOX_FILE_TRANSCRIPTION_REGISTRATION } from '../index.js';
 
 const fileId = '11111111-1111-4111-8111-111111111111';
@@ -88,6 +89,23 @@ function uploadInput(bytes: Uint8Array | AsyncIterable<Uint8Array> = new Uint8Ar
 }
 
 describe('Soniox asynchronous file transcription (official SDK with fake transport)', () => {
+  afterEach(() => resetProviderCooldowns());
+  it('keeps the rate-limit wait on a 429 refusal and answers later calls without sending', async () => {
+    const value = setup(
+      () => new Response('{}', { status: 429, headers: { 'retry-after': '45' } }),
+    );
+    await expect(value.runtime.upload(ctx, uploadInput(), admitted)).rejects.toMatchObject({
+      metadata: { reason: 'rate_limit', providerStatus: 429, retryAfterMs: 45_000 },
+    });
+    // The cooldown answers here: Soniox is not asked again before its time.
+    const second = value.runtime.submit(ctx, { fileId, clientReference: reference }, admitted);
+    await expect(second).rejects.toMatchObject({
+      metadata: { reason: 'rate_limit', providerStatus: 429 },
+    });
+    const error = await second.catch((reason: { metadata: { retryAfterMs: number } }) => reason);
+    expect(error.metadata.retryAfterMs).toBeGreaterThan(40_000);
+    expect(value.fetcher).toHaveBeenCalledTimes(1);
+  });
   it('uploads MP4 bytes under only an opaque filename and configured region', async () => {
     const value = setup(async (url, init) => {
       expect(url.origin).toBe('https://api.eu.soniox.com');

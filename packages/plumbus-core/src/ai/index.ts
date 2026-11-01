@@ -52,6 +52,16 @@ export {
 } from './model-pricing.js';
 // Prompt registry
 export { PromptRegistry, createPromptRegistry } from './prompt-registry.js';
+// Shared rate-limit cooldowns (one per provider in this process)
+export {
+  extendProviderCooldown,
+  parseRetryAfterMs,
+  providerCooldownRemainingMs,
+  resetProviderCooldowns,
+  type ProviderCooldownWait,
+  sleepUnlessAborted,
+  waitForProviderCooldown,
+} from './provider-cooldown.js';
 // Provider adapters
 export {
   createAnthropicAdapter,

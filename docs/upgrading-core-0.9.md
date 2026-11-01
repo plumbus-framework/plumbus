@@ -6,6 +6,16 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.7 (2026-11-01): provider rate limits
+
+Two packages change: `@plumbus/core` 0.9.0-beta.7 and `@plumbus/voice-soniox` 0.4.0-beta.2 (needs core `>=0.9.0-beta.7`). No database change.
+
+- **A 429 now pauses every call to that provider in the process** for the full `Retry-After` the provider gave (no 5 s cap any more). A call waits out up to 60 s of cooldown; beyond that it fails at once with a retryable `ProviderAPIError` carrying `retryAfterMs`. See [Transient Provider Failures](ai/ai-integration.md#transient-provider-failures).
+- **Out-of-credit 429s** (`insufficient_quota`) are no longer retried and are `retryable: false`.
+- **Retry waits end on the caller's `signal`.** Before, an aborted call still slept out the backoff.
+- **Soniox:** a 429 starts a cooldown for that Soniox endpoint; requests made during it are refused without being sent. The `rate_limit` error now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call, so come back after `retryAfterMs` (a flow `delay` step, for example).
+- **Action:** if your own code retries provider 429s on a fixed schedule, read `retryAfterMs` instead. A schedule shorter than the cooldown is answered 429 without reaching the provider.
+
 ## v0.9.0-beta.6 (2026-10-26): zod 4
 
 `@plumbus/core` 0.9.0-beta.6 moves to `zod` `^4.6.7`, and `@plumbus/core/zod` re-exports zod 4. Packages released with it, each requiring core `>=0.9.0-beta.6`: `@plumbus/ui` 0.10.0-beta.2, `@plumbus/api` 0.4.0-beta.4, `@plumbus/ai-decision`, `ai-decision-openai`, `ai-decision-typesafe`, `auth`, `chat`, `payments`, `knowledge-base`, `browser-extension` and `voice-soniox` 0.4.0-beta.1, `@plumbus/voice` 0.7.0-beta.1. No database change.

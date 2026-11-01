@@ -1,4 +1,10 @@
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import {
+  ErrorCode,
+  extendProviderCooldown,
+  parseRetryAfterMs,
+  PlumbusError,
+  providerCooldownRemainingMs,
+} from '@plumbus/core';
 import { z } from '@plumbus/core/zod';
 import type {
   FileTranscriptionConfig,
@@ -73,8 +79,15 @@ function checked<T>(schema: z.ZodType<T, unknown>, value: unknown): T {
     throw new PlumbusError(ErrorCode.Validation, 'Invalid file transcription data');
   return result.data;
 }
+/** Pause used when Soniox answers 429 without saying how long to wait. */
+const DEFAULT_RATE_LIMIT_PAUSE_MS = 10_000;
+
 function remoteError(error: unknown): PlumbusError {
   const status = error instanceof SonioxHttpError ? error.statusCode : undefined;
+  const retryAfterMs =
+    status === 429 && error instanceof SonioxHttpError && error.headers
+      ? parseRetryAfterMs(new Headers(error.headers))
+      : undefined;
   return new PlumbusError(
     ErrorCode.DependencyViolation,
     'File transcription provider operation failed',
@@ -88,6 +101,7 @@ function remoteError(error: unknown): PlumbusError {
               ? 'rate_limit'
               : 'provider_unavailable',
       ...(status ? { providerStatus: status } : {}),
+      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     },
   );
 }
@@ -162,9 +176,25 @@ class SonioxFileTranscriptionProvider implements FileTranscriptionProvider {
             z.custom<typeof fetch>((value) => typeof value === 'function'),
             credentials.options.fetch,
           );
+    // One rate-limit cooldown per Soniox endpoint in this process. While it runs, requests are
+    // answered 429 here without reaching Soniox, so nothing is sent before the provider's time.
+    // Nothing is re-sent inside a call: the SDK's request timeout keeps running during a wait,
+    // so callers come back later (the error carries `retryAfterMs`).
+    const cooldownKey = `soniox:${url.origin}`;
     // Bound the SDK's JSON allocation as well as decoded output. No redirect may forward credentials.
     const boundedFetch: typeof fetch = async (input, init) => {
+      const coolingMs = providerCooldownRemainingMs(cooldownKey);
+      if (coolingMs > 0)
+        return new Response(null, {
+          status: 429,
+          headers: { 'retry-after-ms': String(coolingMs) },
+        });
       const response = await fetcher(input, { ...init, redirect: 'error' });
+      if (response.status === 429)
+        extendProviderCooldown(
+          cooldownKey,
+          parseRetryAfterMs(response.headers) ?? DEFAULT_RATE_LIMIT_PAUSE_MS,
+        );
       const maxBytes = Math.min(16 * 1024 * 1024, Math.max(config.maxOutputBytes * 8, 1024 * 1024));
       if (!response.body) return response;
       const reader = response.body.getReader();

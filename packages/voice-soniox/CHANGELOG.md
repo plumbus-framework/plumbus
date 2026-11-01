@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.2 — 2026-11-01
+
+- **Rate limits.** A Soniox 429 starts a cooldown for that endpoint (its `Retry-After`, else 10 s), shared by every call in the process. Requests made while it runs are answered 429 locally, without reaching Soniox. The `rate_limit` refusal now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call: the SDK's request timeout keeps running during a wait, so come back after `retryAfterMs`. Core peer `>=0.9.0-beta.7 <0.10.0`.
+
 ## 0.4.0-beta.1 — 2026-10-26
 
 - **zod 4.** `z.ZodType<T, unknown>` (zod 4's two-argument form). Core peer `>=0.9.0-beta.6 <0.10.0`.

@@ -663,7 +663,14 @@ A console export that sets `OPENAI_API_KEY=bedrock-api-key-…` and `OPENAI_BASE
 
 ### Transient Provider Failures
 
-Plumbus automatically retries transient upstream provider responses for AI requests. OpenAI-compatible and Anthropic adapters retry status codes `408`, `429`, `500`, `502`, `503`, and `504` with short exponential backoff before failing the request.
+Plumbus automatically retries transient upstream provider responses for AI requests. OpenAI-compatible and Anthropic adapters make up to 3 attempts on status codes `408`, `429`, `500`, `502`, `503`, and `504`.
+
+- **`408` and `5xx`:** short exponential backoff (750 ms, then 1.5 s; a `Retry-After` hint, capped at 5 s, replaces it).
+- **`429` (rate limit):** the provider's `retry-after-ms` or `Retry-After` is honoured in full and becomes a **cooldown shared by every call to that provider in the process**: while it runs, no call to the provider is sent, first attempts included. A later 429 can only make the cooldown longer. A call waits out at most 60 s of cooldown in total; when the remaining cooldown is longer it fails at once, without sending, with a retryable `ProviderAPIError` (`statusCode` 429) whose `retryAfterMs` says when to try again. Schedule the retry no earlier than that.
+- **Out of credit:** a 429 whose body has `error.code` `insufficient_quota` is not retried, starts no cooldown and fails with `retryable: false`: waiting cannot help.
+- The caller's `signal` ends every wait (backoff and cooldown) at once.
+
+`extendProviderCooldown`, `providerCooldownRemainingMs`, `waitForProviderCooldown` and `parseRetryAfterMs` are exported from `@plumbus/core` for adapters that pace other providers the same way (`@plumbus/voice-soniox` does).
 
 If those retries are exhausted, the capability returns a retryable internal error with HTTP status `503` so clients can tell the user the AI provider is temporarily unavailable and invite them to try again.
 

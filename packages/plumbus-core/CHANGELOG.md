@@ -1,5 +1,13 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.7 — 2026-11-01 — provider rate limits
+
+- **Rate limits are paced across the process.** The OpenAI-compatible and Anthropic adapters honour a 429's `retry-after-ms` / `Retry-After` in full, no longer capped at 5 s. The wait becomes a cooldown shared by every call to that provider in the process, so other calls (first attempts too) wait instead of being sent into the limit. A cooldown only ever grows. A call waits out at most 60 s of it; when more is left it fails at once, without sending, with a retryable `ProviderAPIError` (`statusCode` 429) whose new `retryAfterMs` says when to come back. 408 and 5xx keep the short backoff.
+- **Out of credit is final.** A 429 whose body has `error.code` `insufficient_quota` is not retried, starts no cooldown and is `retryable: false`.
+- **Waits end on the caller's `signal`.** Retry backoff used to sleep out its full delay after the call was aborted.
+- **A call cancelled at a cooldown costs nothing** when nothing of it could have been billed: it throws `ProviderRequestNotSentError` (`cause` = the caller's abort reason), which `isCostFreeProviderFailure` treats as free. If an earlier attempt got a 408/5xx, the caller's own abort reason is thrown as before and the call is still charged.
+- New exports for adapters pacing other providers: `extendProviderCooldown`, `providerCooldownRemainingMs`, `waitForProviderCooldown`, `sleepUnlessAborted`, `parseRetryAfterMs`, `resetProviderCooldowns` (tests), type `ProviderCooldownWait`.
+
 ## 0.9.0-beta.6 — 2026-10-26 — zod 4
 
 ### zod 4

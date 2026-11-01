@@ -40,8 +40,11 @@ const PRE_REQUEST_CODES = new Set([
   'HOSTNAME_MISMATCH',
 ]);
 
-/** Local request validation thrown by the built-in adapters before any provider I/O. */
-const PRE_REQUEST_ERROR_NAMES = new Set(['AIInvalidRequestError']);
+/**
+ * Thrown by the built-in adapters before any provider I/O: local request validation, and a call
+ * cancelled while it waited at a rate-limit cooldown with nothing sent.
+ */
+const PRE_REQUEST_ERROR_NAMES = new Set(['AIInvalidRequestError', 'ProviderRequestNotSentError']);
 
 /**
  * 4xx answers that can follow work the model already did, so they are not free: a model that
