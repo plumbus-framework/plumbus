@@ -160,7 +160,9 @@ describe('cache-write pricing by model', () => {
     ['gpt-6-luna', 0.000125],
     ['gpt-6-sol', 0.0025],
     ['gpt-6.1-sol', 0.0025],
+    ['gpt-6.1-terra', 0.00125],
     ['gpt-6-astra', 0.0125],
+    ['gpt-6-rosalind', 0.01875],
     ['gpt-5.6-terra', 0.0025],
     ['gpt-5.6-luna', 0.00025],
     ['gpt-5.6-cyber', 0.015625],
@@ -178,6 +180,7 @@ describe('cache-write pricing by model', () => {
     ['gpt-4o', 0.0025],
     ['o3', 0.002],
     ['gpt-rosalind-research', 0.005],
+    ['gpt-rosalind-discovery', 0.005],
     ['chat-latest', 0.005],
   ])('charges %s nothing extra for a cache write: it costs ordinary input', (model, cost) => {
     expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(cost);

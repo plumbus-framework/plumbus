@@ -2676,6 +2676,7 @@ describe('model reasoning metadata', () => {
         { id: 'gpt-6-luna' },
         { id: 'gpt-6-astra' },
         { id: 'gpt-6.1-sol' },
+        { id: 'gpt-6.1-terra' },
       ],
       filter: undefined,
       isOfficial: true,
@@ -2686,6 +2687,7 @@ describe('model reasoning metadata', () => {
       all,
       all.slice(1),
       all.slice(1),
+      all,
     ]);
   });
 });

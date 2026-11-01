@@ -123,6 +123,11 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'gpt-5-search-api')).toBe(0.00625);
     // gpt-rosalind-research (Life Sciences): input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'gpt-rosalind-research')).toBe(0.0175);
+    expect(calculateModelCost(1000, 500, 'gpt-rosalind-discovery')).toBe(0.0175);
+    // gpt-6-rosalind: input $15/MTok, output $75/MTok, then $30 / $112.50 above 272K input
+    expect(calculateModelCost(1000, 500, 'gpt-6-rosalind')).toBe(0.0525);
+    expect(calculateModelCost(272_000, 1000, 'gpt-6-rosalind')).toBe(4.155);
+    expect(calculateModelCost(272_001, 1000, 'gpt-6-rosalind')).toBe(8.27253);
     for (const model of ['chat-latest', 'gpt-5.3-chat-latest', 'gpt-5.2-chat-latest']) {
       expect(findModelRate(model)?.kind, model).toBe('text');
       expect(calculateModelCost(1000, 500, model), model).toBeGreaterThan(0);
@@ -415,6 +420,20 @@ describe.each([
     premiumCost: 1.103004,
     mixedShortCost: 0.389,
     mixedLongCost: 0.885,
+  },
+  {
+    // Half of GPT-6.1 Sol at every rate, cache reads included.
+    model: 'gpt-6.1-terra',
+    input: 1,
+    cached: 0.05,
+    output: 5,
+    shortCost: 0.0035,
+    cacheCost: 0.00005,
+    writeCost: 0.00125,
+    boundaryCost: 0.277,
+    premiumCost: 0.551502,
+    mixedShortCost: 0.1945,
+    mixedLongCost: 0.4425,
   },
   {
     model: 'gpt-6-sol',
