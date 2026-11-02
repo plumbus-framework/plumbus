@@ -545,8 +545,8 @@ importers:
         specifier: ^0.4.3
         version: 0.4.3(livekit-client@2.19.2(@types/dom-mediacapture-record@1.0.22))
       '@livekit/noise-cancellation-node':
-        specifier: ^0.1.9
-        version: 0.1.9
+        specifier: ^0.3.0
+        version: 0.3.0(@livekit/rtc-node@1.1.0)
       '@livekit/rtc-node':
         specifier: 1.1.0
         version: 1.1.0
@@ -1786,31 +1786,33 @@ packages:
   '@livekit/mutex@1.1.1':
     resolution: {integrity: sha512-EsshAucklmpuUAfkABPxJNhzj9v2sG7JuzFDL4ML1oJQSV14sqrpTYnsaOudMAw9yOaW53NU3QQTlUQoRs4czw==}
 
-  '@livekit/noise-cancellation-darwin-arm64@0.1.9':
-    resolution: {integrity: sha512-IBUY2O2FG+zZESxtgghGBxoDsGqk6IYHQyQfkvDjdM41iv0+N9zA1YdMbAbV8W+ZGIxiQ3iS5W6ZCw9JeUf9cA==}
+  '@livekit/noise-cancellation-darwin-arm64@0.3.0':
+    resolution: {integrity: sha512-FFz3KC58iunLZL6gnnrHnE/zye+Z5kawXRT5K93TKatUBYD+lwxpg6j8LQBXrCvCpOsahR4sG+fCFXFiZdhnDg==}
     cpu: [arm64]
     os: [darwin]
 
-  '@livekit/noise-cancellation-darwin-x64@0.1.9':
-    resolution: {integrity: sha512-tpSWmwP1WuIqrwXcSKM+4uLRwfRJmXuOSo/jskxsRKraPZmNgvqxeZhKj9bhCWLTo/Y4PZolRayIeZAiMAltAw==}
+  '@livekit/noise-cancellation-darwin-x64@0.3.0':
+    resolution: {integrity: sha512-wHHfAdIJdhmMyNmQj0D0rrGWFWZqRYRs0GD80ThZjYrGlnKq8Y+q3Lwlgb+mHcsgPf4DcW/bjM4Wqnb0vlNsuA==}
     cpu: [x64]
     os: [darwin]
 
-  '@livekit/noise-cancellation-linux-arm64@0.1.9':
-    resolution: {integrity: sha512-lCb56HMBqjCv02BPpJXwQ3srx2103f2HhFINblZozkVxvQmeyMECaK8neGgviGVSp2noXMKet/rDrB08aw3Bvw==}
+  '@livekit/noise-cancellation-linux-arm64@0.3.0':
+    resolution: {integrity: sha512-NpRGVzO7xfX4PWY8kUL1J/YyW8Y9FBxhhDn4eFK/AFWwGp+ZlJ6AEtBTB3OWoO7nMsJubPSeZ2ad57QzU11Cug==}
     cpu: [arm64]
     os: [linux]
 
-  '@livekit/noise-cancellation-linux-x64@0.1.9':
-    resolution: {integrity: sha512-Uzfujifj5P1rysndzsVpElCy57c81UA0ZCfUHh9Sl4cemJ/WVbwC8FsQVqs3QeDqDd8upZxVsJxLCIz3TFp4yQ==}
+  '@livekit/noise-cancellation-linux-x64@0.3.0':
+    resolution: {integrity: sha512-YcpFmRV298ytqul+YQmH6HpkE76YhoZDmft06M6YmsTJMyuYyEGlP21jjhjEPo7Up0q4miwwt7sFw79zzKXnTw==}
     cpu: [x64]
     os: [linux]
 
-  '@livekit/noise-cancellation-node@0.1.9':
-    resolution: {integrity: sha512-4dnyecpUggKi7LtwcW/oeiiNtkymk0MoXTR7WK5QoGhNZlok1ROz4vnsnh76xcEgYJt6eguMoY6DHHjG19qtgg==}
+  '@livekit/noise-cancellation-node@0.3.0':
+    resolution: {integrity: sha512-/n23yTh2wEMiKHEQdzjNJ7Qv7DZXrT+eD+4WyTSoUE4RnyOBj5mRswTyyOOkpyhUrHLLCz22na+pfTi0/3UDlg==}
+    peerDependencies:
+      '@livekit/rtc-node': ^0.13.11 || ^1.0.0
 
-  '@livekit/noise-cancellation-win32-x64@0.1.9':
-    resolution: {integrity: sha512-/CXJWZD9aRU77ggL5SyUYLKFWKIQ7g2SZYE/IPVa93G9nUQBAujX5FP0U2n9+nO9GNsfA0I0rfomEWaO20ZZ/g==}
+  '@livekit/noise-cancellation-win32-x64@0.3.0':
+    resolution: {integrity: sha512-rCrKEMLzK9At+XITF6656z4FIjKGASCr8OKfLvvXYXRdLZMk0eIL10E3trAnDeBbrMypchPCiaAOKLac9Z+Iaw==}
     cpu: [x64]
     os: [win32]
 
@@ -1857,10 +1859,6 @@ packages:
 
   '@livekit/rtc-ffi-bindings@0.12.73':
     resolution: {integrity: sha512-ZxkCQlsfTG7Eqi6KBXulEWJBUxeRVRYqCc795CsmKsGfqmBX5gE5CnTiynN8fFdzSGwApaVogeGSB6JszCf/Xw==}
-    engines: {node: '>= 18'}
-
-  '@livekit/rtc-node@0.13.35':
-    resolution: {integrity: sha512-ZRkVKie0/6sfKX3J4SrEaQeRJ4pdBi4DlweQ61dAvJqvRIf5NoJCX8SVimmJKwvyLYppbqANezzFGJpU2IxalA==}
     engines: {node: '>= 18'}
 
   '@livekit/rtc-node@1.1.0':
@@ -5329,30 +5327,29 @@ snapshots:
 
   '@livekit/mutex@1.1.1': {}
 
-  '@livekit/noise-cancellation-darwin-arm64@0.1.9':
+  '@livekit/noise-cancellation-darwin-arm64@0.3.0':
     optional: true
 
-  '@livekit/noise-cancellation-darwin-x64@0.1.9':
+  '@livekit/noise-cancellation-darwin-x64@0.3.0':
     optional: true
 
-  '@livekit/noise-cancellation-linux-arm64@0.1.9':
+  '@livekit/noise-cancellation-linux-arm64@0.3.0':
     optional: true
 
-  '@livekit/noise-cancellation-linux-x64@0.1.9':
+  '@livekit/noise-cancellation-linux-x64@0.3.0':
     optional: true
 
-  '@livekit/noise-cancellation-node@0.1.9':
+  '@livekit/noise-cancellation-node@0.3.0(@livekit/rtc-node@1.1.0)':
     dependencies:
-      '@livekit/rtc-node': 0.13.35
-      tsx: 4.21.0
+      '@livekit/rtc-node': 1.1.0
     optionalDependencies:
-      '@livekit/noise-cancellation-darwin-arm64': 0.1.9
-      '@livekit/noise-cancellation-darwin-x64': 0.1.9
-      '@livekit/noise-cancellation-linux-arm64': 0.1.9
-      '@livekit/noise-cancellation-linux-x64': 0.1.9
-      '@livekit/noise-cancellation-win32-x64': 0.1.9
+      '@livekit/noise-cancellation-darwin-arm64': 0.3.0
+      '@livekit/noise-cancellation-darwin-x64': 0.3.0
+      '@livekit/noise-cancellation-linux-arm64': 0.3.0
+      '@livekit/noise-cancellation-linux-x64': 0.3.0
+      '@livekit/noise-cancellation-win32-x64': 0.3.0
 
-  '@livekit/noise-cancellation-win32-x64@0.1.9':
+  '@livekit/noise-cancellation-win32-x64@0.3.0':
     optional: true
 
   '@livekit/protocol@1.45.8':
@@ -5391,15 +5388,6 @@ snapshots:
       '@livekit/rtc-ffi-bindings-linux-arm64-gnu': 0.12.73
       '@livekit/rtc-ffi-bindings-linux-x64-gnu': 0.12.73
       '@livekit/rtc-ffi-bindings-win32-x64-msvc': 0.12.73
-
-  '@livekit/rtc-node@0.13.35':
-    dependencies:
-      '@datastructures-js/deque': 1.0.8
-      '@livekit/mutex': 1.1.1
-      '@livekit/rtc-ffi-bindings': 0.12.73
-      '@livekit/typed-emitter': 3.0.0
-      pino: 9.14.0
-      pino-pretty: 13.1.3
 
   '@livekit/rtc-node@1.1.0':
     dependencies:
