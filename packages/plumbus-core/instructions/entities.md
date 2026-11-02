@@ -114,10 +114,10 @@ const total = await ctx.data.User.count({ active: true }, filters);
 When a read needs a few columns of rows that also hold large fields (document bodies, transcripts), use `findManyFields(query, fields, options?)`. It selects only those columns in SQL and returns `Pick<T, K>[]`:
 
 ```ts
-const docs = await ctx.data.Document.findManyFields({ projectId }, ['id', 'summary'], { orderBy: 'createdAt' });
+const docs = await ctx.data.Document.findManyFields!({ projectId }, ['id', 'summary'], { orderBy: 'createdAt' });
 ```
 
-It takes the same options as `findMany` and keeps tenant scoping, soft-delete filters and decryption of selected encrypted fields. Empty, malformed or unknown field lists throw. `findMany` is unchanged and still returns complete records.
+It takes the same options as `findMany` and keeps tenant scoping, soft-delete filters and decryption of selected encrypted fields. Empty, malformed or unknown field lists throw. `findMany` is unchanged and still returns complete records. It is optional on the `Repository` type, like `updateWhere`, so custom repositories and mocks written before core 0.8.3 still compile; the framework's repositories always have it, so call it with `!`.
 
 ### Aggregates (SUM / GROUP BY / DISTINCT)
 

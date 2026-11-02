@@ -7,6 +7,7 @@
   },
   "files": [
     "legacy-cost-api.ts",
-    "decisions.ts"
+    "decisions.ts",
+    "legacy-repository.ts"
   ]
 }

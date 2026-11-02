@@ -1,15 +1,5 @@
 /** Load only voices and provider registrations for the dispatch parent. */
-async function loadVoicePackage(): Promise<typeof import('@plumbus/voice/session')> {
-  try {
-    return await import('@plumbus/voice/session');
-  } catch {
-    console.error('');
-    console.error('Voice runtime not installed.');
-    console.error('Run: pnpm add @plumbus/voice');
-    console.error('');
-    process.exit(1);
-  }
-}
+import { loadVoiceSession as loadVoicePackage } from './load-voice-session.js';
 
 export async function loadVoiceWorkerDefinitions() {
   const voicePkg = await loadVoicePackage();

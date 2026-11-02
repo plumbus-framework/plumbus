@@ -218,7 +218,7 @@ and module identities as their compatibility roots.
 
 ## Projected data reads
 
-Scope query fields as well as registered resources. `ctx.data.Entity.findManyFields(query,
+Scope query fields as well as registered resources. `ctx.data.Entity.findManyFields!(query,
 ['id', 'summary'])` reads only those columns, so large document bodies and JSON chunks
 need not enter a call process when only their summaries are used. This retains
 the governed repository, tenant/soft-delete filters and selected-field decryption.

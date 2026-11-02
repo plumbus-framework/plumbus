@@ -22,10 +22,11 @@ export async function loadAppConfig(
   for (const extension of moduleOptions.javascriptOnly ? ['js', 'mjs'] : ['ts', 'js', 'mjs']) {
     const path = resolve(root, `config/app.config.${extension}`);
     if (!existsSync(path)) continue;
-    const module =
-      extension === 'ts'
-        ? await (await import('tsx/esm/api')).tsImport(pathToFileURL(path).href, import.meta.url)
-        : await import(pathToFileURL(path).href);
+    // Compiled voice workers load JavaScript natively (no tsx). Everywhere else every
+    // extension goes through tsx, as before 0.8.3, so a .js config may import .ts siblings.
+    const module = moduleOptions.javascriptOnly
+      ? await import(pathToFileURL(path).href)
+      : await (await import('tsx/esm/api')).tsImport(pathToFileURL(path).href, import.meta.url);
     const exports = z
       .object({ config: z.unknown().optional(), default: z.unknown().optional() })
       .passthrough()
