@@ -105,18 +105,21 @@ export interface RedisQueueOptions extends Partial<RedisQueueConfig> {
   logger?: Pick<LoggerService, 'error' | 'warn'>;
 }
 
+// Node timers silently clamp delays above 2^31 - 1 ms to 1 ms
+// (TimeoutOverflowWarning), so the lease-renewal interval must never
+// exceed the timer cap no matter how large the visibility timeout is.
+const MAX_TIMER_INTERVAL_MS = 2 ** 31 - 1;
+
 /**
- * Create a Redis-backed event queue.
- *
- * Uses a simple list-based pattern:
- * - Publish: LPUSH events to the queue list
- * - Subscribe: Poll with RPOPLPUSH to a processing list
- * - Ack: LREM from processing list after successful handling
- *
- * This provides at-least-once delivery with crash recovery:
- * if the consumer crashes, unacknowledged events remain in the
- * processing list and can be recovered.
+ * Lease-renewal tick interval: one third of the visibility timeout, bounded
+ * to Node's maximum timer delay. Huge "never reclaim" visibility timeouts
+ * (multi-poller setups) renew at most once per ~24.8 days instead of
+ * overflowing the timer and firing every 1 ms.
  */
+export function leaseRenewalIntervalMs(visibilityTimeoutMs: number): number {
+  return Math.min(Math.max(1, Math.floor(visibilityTimeoutMs / 3)), MAX_TIMER_INTERVAL_MS);
+}
+
 function unwrapEnvelope(raw: string): string {
   try {
     const parsed = JSON.parse(raw) as { envelope?: string };
@@ -204,6 +207,18 @@ const envelopeSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+/**
+ * Create a Redis-backed event queue.
+ *
+ * Uses a simple list-based pattern:
+ * - Publish: LPUSH events to the queue list
+ * - Subscribe: Poll with RPOPLPUSH to a processing list
+ * - Ack: LREM from processing list after successful handling
+ *
+ * This provides at-least-once delivery with crash recovery:
+ * if the consumer crashes, unacknowledged events remain in the
+ * processing list and can be recovered.
+ */
 export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions): EventQueue {
   if (!client.eval) throw new DataValidationError('Redis queues require atomic script support');
   const evaluate = client.eval.bind(client);
@@ -285,27 +300,24 @@ export function createRedisQueue(client: RedisClient, config?: RedisQueueOptions
       const envelope = { ...parsed.data, payload: parsed.data.payload } as EventEnvelope;
       let lost = false;
       let renewing: Promise<void> | undefined;
-      const renewalTimer = setInterval(
-        () => {
-          if (renewing || closed || lost) return;
-          renewing = (async () => {
-            const updated = await evaluate(RedisQueueScripts.renew, {
-              keys: [processingKey],
-              arguments: [raw],
-            });
-            if (typeof updated === 'string') raw = updated;
-            else lost = true;
-          })()
-            .catch(() => {
-              lost = true;
-              report('renew');
-            })
-            .finally(() => {
-              renewing = undefined;
-            });
-        },
-        Math.max(1, Math.floor(visibilityTimeoutMs / 3)),
-      );
+      const renewalTimer = setInterval(() => {
+        if (renewing || closed || lost) return;
+        renewing = (async () => {
+          const updated = await evaluate(RedisQueueScripts.renew, {
+            keys: [processingKey],
+            arguments: [raw],
+          });
+          if (typeof updated === 'string') raw = updated;
+          else lost = true;
+        })()
+          .catch(() => {
+            lost = true;
+            report('renew');
+          })
+          .finally(() => {
+            renewing = undefined;
+          });
+      }, leaseRenewalIntervalMs(visibilityTimeoutMs));
       activeRenewal = renewalTimer;
       let results: PromiseSettledResult<void>[];
       try {

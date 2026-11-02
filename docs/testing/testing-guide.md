@@ -562,7 +562,7 @@ Custom execution-context fixtures must inject an audit service when exercising a
 
 Framework stabilization integration tests start disposable PostgreSQL and Redis instances, using separate connections for race tests. Install `redis-server` and PostgreSQL binaries; `PLUMBUS_TEST_POSTGRES_BIN` overrides `/usr/lib/postgresql/16/bin`. Fixtures use a private temporary Unix socket for PostgreSQL and stop processes they start. Tests exercise real SQL guards, tick transactions, queue scripts, replay, and job publication recovery.
 
-The PR test and publish workflows install `redis-server` and `postgresql-16` explicitly before running the suite. For local Ubuntu development, install the same prerequisites once:
+The PR test and publish workflows pin `ubuntu-24.04` and install `redis-server` and `postgresql-16` explicitly before running the suite. Keep the runner image aligned with the PostgreSQL package and fixture paths: `ubuntu-latest` can move to a release that no longer provides PostgreSQL 16 (as happened with Ubuntu 26.04). For local Ubuntu 24.04 development, install the same prerequisites once:
 
 ```bash
 sudo apt-get update

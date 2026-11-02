@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Match test CI: Ubuntu 24.04 provides the PostgreSQL 16 integration binaries.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4

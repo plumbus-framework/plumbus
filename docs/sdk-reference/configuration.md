@@ -141,7 +141,7 @@ QUEUE_BACKEND=redis                 # force memory or redis
 
 The runtime creates three logical queues (`events`, `flows`, `jobs`) sharing the same backend. `plumbus dev` always uses in-memory queues regardless of Redis configuration. Once Redis is selected outside that deliberate development mode, connection/driver failures fail startup; runtime disconnects never switch to memory. Redis readiness covers API and worker processes wired by the CLI.
 
-Timing environment variables are `QUEUE_VISIBILITY_TIMEOUT_SEC`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_RECLAIM_INTERVAL_MS`, `QUEUE_STARTUP_TIMEOUT_MS`, and `QUEUE_OPERATION_TIMEOUT_MS`. Configure `shutdownTimeoutMs` through the file or programmatic options. Timings must be positive.
+Timing environment variables are `QUEUE_VISIBILITY_TIMEOUT_SEC`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_RECLAIM_INTERVAL_MS`, `QUEUE_STARTUP_TIMEOUT_MS`, and `QUEUE_OPERATION_TIMEOUT_MS`. Configure `shutdownTimeoutMs` through the file or programmatic options. Timings must be positive. While a delivery is in flight, the worker renews its lease every `visibilityTimeoutSec / 3`, clamped to Node's maximum timer delay (~24.8 days) — so very large values (for example, a decade-long "never reclaim" timeout used to keep extra pollers from stealing stale messages) do not renew more often than once per ~24.8 days.
 
 ### Event delivery and scheduler activation
 
