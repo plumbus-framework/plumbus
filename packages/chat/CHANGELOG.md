@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-02
 
 - Add `@plumbus/chat/session` for governed worker execution, entity definitions and events without HTTP/evaluation tooling. Runtime modules import the core SDK instead of the broad tooling entry.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-02
 
 - Add `@plumbus/payments/entities` for schema/classification imports without payment services; entity definitions use the core SDK.
 

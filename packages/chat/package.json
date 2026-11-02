@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/chat",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Plumbus chat primitive \u2014 policy, context sources, guards, budgets, evals.",
   "type": "module",
   "main": "./dist/index.js",
@@ -54,7 +54,7 @@
     "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "peerDependencies": {
-    "@plumbus/core": "0.8.x",
+    "@plumbus/core": "^0.8.3",
     "@plumbus/knowledge-base": "0.3.x"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-02
 
 - Use the core error subpath to avoid loading CLI/governance tooling for provider errors. See [worker footprint](../../docs/voice/worker-footprint.md).
 

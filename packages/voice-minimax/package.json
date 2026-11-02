@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice-minimax",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MiniMax TTS provider for @plumbus/voice.",
   "type": "module",
   "main": "./dist/index.js",

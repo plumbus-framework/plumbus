@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-02
 
 - Upgrade the coordinated vendor pins to `@livekit/agents` 1.9.3 and `@livekit/rtc-node` 1.1.0. This provides the upstream `LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE=0` opt-out for workloads using external endpointing. Both pins must move together; dependency tests enforce one native RTC binding. The flag defers local model loading, not necessarily the helper process.
 
