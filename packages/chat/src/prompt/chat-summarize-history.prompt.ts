@@ -1,4 +1,4 @@
-import { definePrompt } from '@plumbus/core';
+import { definePrompt } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 
 export const chatSummarizeHistoryPrompt = definePrompt({

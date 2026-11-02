@@ -1,5 +1,18 @@
 # @plumbus/core changelog
 
+## Unreleased
+
+- Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories; `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
+
+- Allow `voiceRuntime.resources.securityEntities` to supplement AI classifications and log masking without registering data repositories. Registered entities always remain in the classification set.
+
+- Add `@plumbus/core/sdk`, a runtime-only entry that shares implementations with the full root. `voice worker` uses a small CLI parser and no longer constructs the application context in the dispatch parent.
+- Add `voice build` and `voice worker --compiled` for statically compiled scoped apps; direct JS config imports avoid TypeScript loaders. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Add opt-in `app/voice/runtime.ts` resources and AI hooks for `--room` mode and the default LiveKit child bootstrap; skip full discovery, server extensions, MCP auth and queue connections in scoped mode while preserving governed context wiring. See [worker footprint](../../docs/voice/worker-footprint.md).
+- Load Fastify, SAML/XML dependencies and cron parsing only when used, preserving synchronous public APIs.
+- Share resource context construction with MCP, forward configured decision providers/definitions, and close acquired connections if context initialization fails.
+
 ## 0.8.2 — 2026-10-20
 
 - Pin the test and publish workflows to Ubuntu 24.04 so their PostgreSQL 16 prerequisites remain installable after `ubuntu-latest` moves to Ubuntu 26.04.

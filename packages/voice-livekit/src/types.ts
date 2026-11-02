@@ -1,5 +1,5 @@
 import type { ContextDependencies } from '@plumbus/core';
-import type { VoiceProviderRegistry } from '@plumbus/voice';
+import type { VoiceProviderRegistry } from '@plumbus/voice/session';
 import type {
   TransportProvider,
   VoiceDefinition,
@@ -66,7 +66,8 @@ export interface MintLiveKitParticipantTokenArgs {
 export interface StartVoiceAgentWorkerOptions {
   voices: VoiceDefinition[];
   providers: VoiceProvidersConfig;
-  createDependencies: (auth: {
+  /** Optional for a dispatch-only parent when bootstrapModule supplies child dependencies. */
+  createDependencies?: (auth: {
     userId: string;
     tenantId?: string;
     roles: string[];
@@ -81,6 +82,10 @@ export interface StartVoiceAgentWorkerOptions {
   apiKey?: string;
   apiSecret?: string;
   bootstrapModule?: string;
+  /** Job processes kept started and prewarmed ahead of calls (env PLUMBUS_VOICE_IDLE_PROCESSES; SDK default otherwise). */
+  numIdleProcesses?: number;
+  /** Time a job process may take to start and prewarm (env PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS; default 30000). */
+  initializeProcessTimeoutMs?: number;
 }
 
 export interface VoiceAgentWorkerHandle {

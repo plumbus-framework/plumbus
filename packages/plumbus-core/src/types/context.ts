@@ -165,6 +165,16 @@ export interface Repository<
   ): Promise<ConditionalUpdateResult<T>>;
   delete(id: string): Promise<void>;
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
+  /**
+   * `findMany` that reads only `fields` (nonempty; unknown fields fail rather than
+   * selecting all columns). A separate method so `findMany` stays non-generic and
+   * callable on a union of repositories.
+   */
+  findManyFields<K extends keyof T>(
+    query: Partial<T> | undefined,
+    fields: readonly K[],
+    options?: QueryOptions,
+  ): Promise<Pick<T, K>[]>;
   count(
     query?: Partial<T>,
     options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,

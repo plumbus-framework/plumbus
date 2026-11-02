@@ -12,6 +12,7 @@ export interface AppVoiceRegistryModule {
 
 export interface LoadAppVoiceRegistryOptions {
   appRoot?: string;
+  javascriptOnly?: boolean;
 }
 
 function looksLikeRegistry(value: unknown): value is VoiceProviderRegistry {
@@ -34,7 +35,7 @@ export async function loadAppVoiceRegistry(
 ): Promise<AppVoiceRegistryModule | null> {
   const appRoot = options.appRoot ?? process.cwd();
   const candidates = [
-    path.join(appRoot, 'app', 'voice', 'registry.ts'),
+    ...(!options.javascriptOnly ? [path.join(appRoot, 'app', 'voice', 'registry.ts')] : []),
     path.join(appRoot, 'app', 'voice', 'registry.js'),
   ];
   const filePath = candidates.find((candidate) => fs.existsSync(candidate));

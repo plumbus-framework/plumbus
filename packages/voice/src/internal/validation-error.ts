@@ -1,4 +1,4 @@
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 
 export function throwDefineValidationError(
   message: string,

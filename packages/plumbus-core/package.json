@@ -32,6 +32,10 @@
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
       "import": "./dist/mcp/index.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk.d.ts",
+      "import": "./dist/sdk.js"
     }
   },
   "files": [
@@ -88,7 +92,8 @@
     "zod-to-json-schema": "^3.25.2",
     "@plumbus/ai-decision": "workspace:~",
     "cron-parser": "^4.9.0",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "esbuild": "^0.25.12"
   },
   "peerDependencies": {
     "@plumbus/api": "0.3.x",
@@ -117,7 +122,6 @@
     "@plumbus/mcp": "workspace:*",
     "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",
-    "esbuild": "^0.25.12",
     "typescript": "^5.7.0",
     "@vitest/browser-playwright": "5.0.4"
   }

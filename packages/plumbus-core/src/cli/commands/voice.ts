@@ -1,11 +1,15 @@
+import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { z } from 'zod';
+import { createErrorService } from '../../errors/index.js';
 import type { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
-import { buildVoiceServeContext } from '../voice-serve-context.js';
+import { loadVoiceWorkerDefinitions } from '../voice-worker-definitions.js';
 import { info } from '../utils.js';
 
-async function loadVoiceRuntime(): Promise<typeof import('@plumbus/voice')> {
+async function loadVoiceRuntime(): Promise<typeof import('@plumbus/voice/session')> {
   try {
-    return await import('@plumbus/voice');
+    return await import('@plumbus/voice/session');
   } catch {
     console.error('');
     console.error('Voice runtime not installed.');
@@ -20,7 +24,7 @@ interface VoiceLiveKitCliModule {
   startVoiceAgentWorker(options: {
     voices: unknown[];
     providers: unknown;
-    createDependencies: (auth: {
+    createDependencies?: (auth: {
       userId: string;
       tenantId?: string;
       roles: string[];
@@ -61,6 +65,7 @@ async function loadVoiceLiveKitRuntime(): Promise<VoiceLiveKitCliModule> {
 export interface VoiceWorkerOptions {
   room?: string;
   voice?: string;
+  compiled?: string;
 }
 
 export function isVoiceWorkerDisabled(): boolean {
@@ -88,28 +93,54 @@ export function registerVoiceCommand(program: Command): void {
   const voice = program.command('voice').description('Realtime voice worker and tooling');
 
   voice
+    .command('build')
+    .description('Compile scoped voice application modules for production workers')
+    .option('--out-dir <directory>', 'Empty output directory', '.plumbus/voice-build')
+    .action(async (options: { outDir: string }) => {
+      const { buildVoiceApplication } = await import('../voice-build.js');
+      await buildVoiceApplication(process.cwd(), resolve(options.outDir));
+      info(`Voice application built in ${resolve(options.outDir)}`);
+    });
+
+  voice
     .command('worker')
     .description('Join a LiveKit voice room as the agent worker (dev: --room <sessionId>)')
     .option('--room <room>', 'LiveKit room name to join (typically interview sessionId)')
     .option('--voice <name>', 'Voice definition name to use')
+    .option('--compiled <directory>', 'Run a compiled voice application without TypeScript loaders')
     .action(async (opts: VoiceWorkerOptions) => {
       if (isVoiceWorkerDisabled()) {
         info('Voice worker disabled (VOICE_AGENT_ENABLED=false)');
         process.exit(0);
       }
 
-      const voicePkg = await loadVoiceRuntime();
+      if (opts.compiled) {
+        const root = resolve(opts.compiled);
+        let valid = false;
+        try {
+          valid = z
+            .object({ version: z.literal(1) })
+            .safeParse(JSON.parse(readFileSync(resolve(root, 'voice-build.json'), 'utf8'))).success;
+        } catch {
+          /* Report the same structured error for missing or malformed output. */
+        }
+        if (!valid)
+          throw createErrorService().validation(
+            'Invalid compiled voice directory; run plumbus voice build first',
+          );
+        process.env.PLUMBUS_VOICE_APP_ROOT = root;
+        process.env.PLUMBUS_VOICE_JAVASCRIPT_ONLY = 'true';
+      }
       const livekitPkg = await loadVoiceLiveKitRuntime();
-      const ctx = await buildVoiceServeContext();
       const branch = resolveVoiceWorkerBranch(opts);
 
       if (branch === 'agent-dispatch') {
+        const ctx = await loadVoiceWorkerDefinitions();
         info('Starting LiveKit voice agent dispatch worker');
         ensureVoiceAgentBootstrapEnv();
         const handle = await livekitPkg.startVoiceAgentWorker({
           voices: ctx.voices,
           providers: ctx.providers,
-          createDependencies: (auth) => ctx.routeConfig.createDependencies(auth),
           agentName: opts.voice,
           bootstrapModule: process.env.PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE,
           registry: ctx.registry,
@@ -117,8 +148,6 @@ export function registerVoiceCommand(program: Command): void {
 
         const shutdown = async () => {
           await handle.stop();
-          await ctx.closeQueues();
-          await ctx.closeDb();
           process.exit(0);
         };
 
@@ -133,6 +162,9 @@ export function registerVoiceCommand(program: Command): void {
         return;
       }
 
+      const voicePkg = await loadVoiceRuntime();
+      const { buildVoiceServeContext } = await import('../voice-serve-context.js');
+      const ctx = await buildVoiceServeContext();
       const selectedVoice =
         ctx.voices.find((candidate) => candidate.name === opts.voice) ??
         ctx.voices.find((candidate) => candidate.transport.provider === 'livekit');

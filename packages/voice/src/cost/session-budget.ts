@@ -1,5 +1,5 @@
 import { z } from '@plumbus/core/zod';
-import { PlumbusError, ErrorCode } from '@plumbus/core';
+import { PlumbusError, ErrorCode } from '@plumbus/core/errors';
 import type {
   VoiceMediaUsage,
   VoiceSessionBudgetConfig,

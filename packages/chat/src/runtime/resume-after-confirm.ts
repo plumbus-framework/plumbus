@@ -1,5 +1,5 @@
 import type { AuthContext, ChatMessage, ExecutionContext } from '@plumbus/core';
-import { executeCapability } from '@plumbus/core';
+import { executeCapability } from '@plumbus/core/sdk';
 import { chatActionConfirmedEvent, chatTurnCompletedEvent } from '../events/chat-events.js';
 import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
 import type { ChatDefinition } from '../types/chat.js';

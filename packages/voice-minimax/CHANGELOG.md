@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Use the core error subpath to avoid loading CLI/governance tooling for provider errors. See [worker footprint](../../docs/voice/worker-footprint.md).
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

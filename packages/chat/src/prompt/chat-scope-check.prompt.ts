@@ -1,5 +1,5 @@
 // packages/chat/src/prompt/chat-scope-check.prompt.ts
-import { definePrompt } from '@plumbus/core';
+import { definePrompt } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 
 export const chatScopeCheckPrompt = definePrompt({

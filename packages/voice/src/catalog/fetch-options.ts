@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import type {
   VoiceCatalogSource,
   VoiceModelOption,

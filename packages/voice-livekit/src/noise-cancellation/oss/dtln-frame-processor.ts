@@ -1,5 +1,5 @@
 import { AudioFrame, FrameProcessor } from '@livekit/rtc-node';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 
 /**
  * Agent-side DTLN noise suppression via ONNX Runtime.

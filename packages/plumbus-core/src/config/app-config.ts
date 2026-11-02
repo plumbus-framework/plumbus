@@ -11,6 +11,7 @@ import type { PlumbusConfig } from '../types/config.js';
 export async function loadAppConfig(
   options: ConfigLoadOptions = {},
   cwd = process.cwd(),
+  moduleOptions: { javascriptOnly?: boolean } = {},
 ): Promise<PlumbusConfig> {
   const env = options.env ?? process.env;
   let file = {};
@@ -18,11 +19,13 @@ export async function loadAppConfig(
     existsSync(resolve(cwd, 'backend/package.json')) && !existsSync(resolve(cwd, 'app'))
       ? resolve(cwd, 'backend')
       : cwd;
-  for (const extension of ['ts', 'js', 'mjs']) {
+  for (const extension of moduleOptions.javascriptOnly ? ['js', 'mjs'] : ['ts', 'js', 'mjs']) {
     const path = resolve(root, `config/app.config.${extension}`);
     if (!existsSync(path)) continue;
-    const { tsImport } = await import('tsx/esm/api');
-    const module = await tsImport(pathToFileURL(path).href, import.meta.url);
+    const module =
+      extension === 'ts'
+        ? await (await import('tsx/esm/api')).tsImport(pathToFileURL(path).href, import.meta.url)
+        : await import(pathToFileURL(path).href);
     const exports = z
       .object({ config: z.unknown().optional(), default: z.unknown().optional() })
       .passthrough()

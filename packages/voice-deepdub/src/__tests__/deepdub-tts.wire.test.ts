@@ -509,4 +509,98 @@ describe('Deepdub TTS via @deepdub/node SDK', () => {
     expect(connectCount).toBe(3);
     expect(chunks).toHaveLength(1);
   });
+
+  describe('cancelled replies', () => {
+    /** An SDK client whose generation stays pending, as it does when nobody cancels it. */
+    function makePendingFactory() {
+      const state = {
+        connects: 0,
+        disconnects: 0,
+        onChunk: undefined as ((c: Uint8Array) => void) | undefined,
+      };
+      const factory = () => ({
+        async connect() {
+          state.connects += 1;
+          return {};
+        },
+        generateToBuffer(_text: string, params: Record<string, unknown> = {}) {
+          state.onChunk = params.onChunk as (c: Uint8Array) => void;
+          state.onChunk(new Uint8Array(4800));
+          return new Promise(() => undefined);
+        },
+        disconnect() {
+          state.disconnects += 1;
+        },
+      });
+      return { state, factory };
+    }
+
+    it('drops late audio and closes the socket when the turn is interrupted', async () => {
+      const { state, factory } = makePendingFactory();
+      const provider = createDeepdubProvider(factory, { targetGender: 'female' });
+      const controller = new AbortController();
+      const heard: Uint8Array[] = [];
+      for await (const chunk of provider.synthesizeStream('שלום', undefined, controller.signal)) {
+        heard.push(chunk);
+        controller.abort();
+        // Audio the server still sends after the interruption.
+        for (let i = 0; i < 100; i += 1) state.onChunk?.(new Uint8Array(65536));
+      }
+      expect(heard).toHaveLength(1);
+      expect(state.disconnects).toBe(1);
+      // Generated audio stays billed although it was never played.
+      expect(provider.usage?.()[0]?.quantity).toBeCloseTo((4800 + 100 * 65536) / (2 * 48000));
+    });
+
+    it('abortAll retires the reply without a signal, and the next reply reconnects', async () => {
+      const { state, factory } = makePendingFactory();
+      const provider = createDeepdubProvider(factory, { targetGender: 'female' });
+      const heard: Uint8Array[] = [];
+      for await (const chunk of provider.synthesizeStream('שלום', undefined)) {
+        heard.push(chunk);
+        // Bounded: without a working abortAll this loop would read late audio forever.
+        if (heard.length > 1) break;
+        await provider.abortAll?.();
+        state.onChunk?.(new Uint8Array(65536));
+      }
+      expect(heard).toHaveLength(1);
+      expect(state.disconnects).toBe(1);
+
+      for await (const chunk of provider.synthesizeStream('שוב', undefined)) {
+        heard.push(chunk);
+        break;
+      }
+      expect(state.connects).toBe(2);
+      expect(heard).toHaveLength(2);
+    });
+
+    it('closes the socket when the consumer stops reading early', async () => {
+      const { state, factory } = makePendingFactory();
+      const provider = createDeepdubProvider(factory, { targetGender: 'female' });
+      for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+        break;
+      }
+      expect(state.disconnects).toBe(1);
+    });
+
+    it('keeps the socket after a reply that finished normally', async () => {
+      let disconnects = 0;
+      const captured: CapturedCall[] = [];
+      const base = makeFakeDeepdubFactory(captured);
+      const provider = createDeepdubProvider(
+        (apiKey: string, opts: { protocol: 'websocket' }) => ({
+          ...base(apiKey, opts),
+          disconnect() {
+            disconnects += 1;
+          },
+        }),
+        { targetGender: 'female' },
+      );
+      for await (const _chunk of provider.synthesizeStream('שלום', undefined)) {
+        // drain
+      }
+      await provider.abortAll?.();
+      expect(disconnects).toBe(0);
+    });
+  });
 });

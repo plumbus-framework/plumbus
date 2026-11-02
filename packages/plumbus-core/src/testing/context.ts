@@ -1,5 +1,6 @@
 import type { DecisionResult } from '@plumbus/ai-decision/types';
 import { PlumbusError } from '../errors/index.js';
+import { resolveSelectedFields } from '../data/index.js';
 // ── Test Context Builder ──
 // Factory for building test-friendly ExecutionContexts with mock services.
 
@@ -375,6 +376,17 @@ export function createInMemoryRepository<
     return results;
   }
 
+  function pageRows(query?: Partial<T>, options?: QueryOptions): T[] {
+    let results = filterRows(query, options);
+    if (options?.offset) {
+      results = results.slice(options.offset);
+    }
+    if (options?.limit) {
+      results = results.slice(0, options.limit);
+    }
+    return results;
+  }
+
   return {
     async findById(id) {
       return store.get(id) ?? null;
@@ -419,14 +431,20 @@ export function createInMemoryRepository<
       store.delete(id);
     },
     async findMany(query, options) {
-      let results = filterRows(query, options);
-      if (options?.offset) {
-        results = results.slice(options.offset);
-      }
-      if (options?.limit) {
-        results = results.slice(0, options.limit);
-      }
-      return results;
+      return pageRows(query, options);
+    },
+    async findManyFields<K extends keyof T>(
+      query: Partial<T> | undefined,
+      fields: readonly K[],
+      options?: QueryOptions,
+    ): Promise<Pick<T, K>[]> {
+      const selected = resolveSelectedFields(fields ?? null) as string[];
+      return pageRows(query, options).map(
+        (row) =>
+          Object.fromEntries(
+            selected.map((name) => [name, (row as Record<string, unknown>)[name]]),
+          ) as Pick<T, K>,
+      );
     },
     async count(query, options) {
       return filterRows(query, options).length;
@@ -595,6 +613,7 @@ function withFieldValidation<T extends Record<string, unknown>>(
     },
     delete: (id) => repo.delete(id),
     findMany: (query, options) => repo.findMany(query, options),
+    findManyFields: (query, fields, options) => repo.findManyFields(query, fields, options),
     count: (query, options) => repo.count(query, options),
     aggregate: (query, options) => repo.aggregate(query, options),
   };
