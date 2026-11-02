@@ -6,6 +6,8 @@ Core provides **Vitest 5.0.5** (5.0.4 before core 0.8.3) and its Vite dependency
 
 **Important**: Vitest, Vite, Zod, and Playwright are all provided by the framework. Consumer apps must **not** install them separately. Run tests with `plumbus test` — never `vitest run` or `npx vitest`.
 
+From core 0.8.4, `chromium`, `firefox` and `webkit` from `@plumbus/core/testing` load Playwright on first use, not at import, so unit test files that import the entry without opening a browser start about 0.5 s faster.
+
 ## Framework repository resource limits
 
 When developing this repository, `pnpm test` runs at most two package tasks at a
