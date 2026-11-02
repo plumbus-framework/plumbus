@@ -12,7 +12,8 @@ The previous family remains core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and ad
 
 | Declaring package | Peer target | Literal |
 | --- | --- | --- |
-| Every add-on that peers on core | `@plumbus/core` | `"0.8.x"` |
+| Every add-on that peers on core (except the three below) | `@plumbus/core` | `"0.8.x"` |
+| `@plumbus/chat` 0.3.1+, `@plumbus/payments` 0.3.1+, `@plumbus/voice-livekit` 0.3.1+ | `@plumbus/core` | `">=0.8.3 <0.9.0"` (they import `@plumbus/core/sdk`, added in core 0.8.3) |
 | `@plumbus/core` | `@plumbus/mcp` | `"0.7.x"` (optional) |
 | `@plumbus/core` | `@plumbus/api` | `"0.3.x"` (optional) |
 | `@plumbus/core` | `@plumbus/ai-bedrock` | `"0.3.x"` (optional) |
@@ -20,7 +21,8 @@ The previous family remains core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and ad
 | `@plumbus/chat-ui` | `@plumbus/chat` | `"0.3.x"` |
 | `@plumbus/auth-cognito` | `@plumbus/auth` | `"0.3.x"` |
 | `@plumbus/payments-stripe` | `@plumbus/payments` | `"0.3.x"` |
-| Every `@plumbus/voice-*` provider | `@plumbus/voice` | `"0.6.x"` |
+| Every `@plumbus/voice-*` provider (except voice-livekit) | `@plumbus/voice` | `"0.6.x"` |
+| `@plumbus/voice-livekit` 0.3.1+ | `@plumbus/voice` | `">=0.6.1 <0.7.0"` (imports `@plumbus/voice/session`, added in voice 0.6.1) |
 
 UI 0.9.x uses the required peer `"@plumbus/core": "0.8.x"` and `workspace:*` only for development. This prevents npm from accepting old application core plus a hidden new core nested inside UI. Install core and UI together. All Plumbus packages share the application runtime through peers.
 
@@ -28,6 +30,7 @@ Voice does not peer on vendor add-ons. Apps explicitly install only providers th
 
 ## Rules
 
+- When an add-on starts importing an export that only exists from a later patch of core or voice, raise that add-on's peer to an explicit floor within the family (`">=0.8.N <0.9.0"`), list it in the table above, and say so in its changelog. Otherwise npm installs it next to an older core or voice and the import fails.
 - Copy literals from the table and canonical manifests (`packages/mcp/package.json`, `packages/plumbus-core/package.json`, `packages/voice-livekit/package.json`). Never use `^0.x` core peers or derive unions from intuition.
 - New-family packages require the new family. Do not publish narrowed peers or migration-requiring behavior as a patch on an old line: an existing caret could select that patch.
 - `pnpm install` passing in this workspace does not prove npm consumer compatibility. Validate packed tarballs with npm; production installs use npm.

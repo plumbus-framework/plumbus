@@ -32,6 +32,7 @@ Barge-in still discards speech queued before the interrupt. Speech after barge-i
 | `stt.options.backchannelMinTranscriptChars` | `defineVoice` | Minimum pending transcript length (default `40`) |
 | `stt.options.backchannelCooldownMs` | `defineVoice` | Minimum gap between continuers (default `6000`) |
 | `stt.options.backchannelPhrases` | `defineVoice` | Flat `string[]` or `{ he, en, default }` map. Default pool is `['mm-hm']` |
+| `interruptions.whileWriting` | `defineVoice` | voice 0.6.1+. `'queue'` (default) keeps speech heard while the brain is writing for the next turn. `'restart'` aborts that turn (`isVoiceTurnSuperseded(signal)` is true, `turn.interrupted` has `reason: 'superseded'`) and runs one combined turn with both transcripts. `brain.run` gets `turnId` on every call and `supersededTurnId` on the combined turn: delete what you stored for that turn before reading history. Speech after synthesis starts is still queued. |
 | `DeliveryTone.voiceId` / `targetGender` | `toneProfiles` / `resolveTone` | Per-turn voice / gender; Deepdub maps `voiceId` over static `tts.voiceId` |
 
 ## Knobs that do not exist

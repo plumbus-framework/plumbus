@@ -2,6 +2,7 @@
 
 ## 0.3.1 — 2026-11-02
 
+- **Requires `@plumbus/core` 0.8.3 or later** (peer `">=0.8.3 <0.9.0"`, was `0.8.x`): this release imports `@plumbus/core/sdk`, which core 0.8.2 does not have. Upgrade core together with this package.
 - Add `@plumbus/chat/session` for governed worker execution, entity definitions and events without HTTP/evaluation tooling. Runtime modules import the core SDK instead of the broad tooling entry.
 
 ## 0.3.0 — Stabilization compatibility family

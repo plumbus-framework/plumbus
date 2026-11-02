@@ -21,6 +21,7 @@ Package overview: [../README.md](../README.md). Conceptual voice docs: `docs/voi
 - **Require `DEEPDUB_API_KEY`** at runtime for synthesis and live voice listing.
 - **Default model is `dd-etts-3.2`**. Never pass ledger key `deepdub-phantom-x` as `tts.model`. (`dd-etts-3.0` remains available.)
 - **Per-turn style voice:** set `DeliveryTone.voiceId` on a tone profile or `resolveTone` result. Do not swap `tts.voiceId` mid-session from app code. Requires `@plumbus/voice` ≥ 0.4.4.
+- **Cancelled replies (0.3.1+):** barge-in or `abortAll` drops the reply's queued audio and closes its socket; late chunks are ignored but still billed. Do not add your own audio-dropping on top.
 - **REST base** defaults to `https://restapi.deepdub.ai/api/v1` (not `api.deepdub.com`).
 - **Voice cloning** — use `createVoiceCloneProvider` / `registerVoiceCloneRoutes` from `@plumbus/voice`; gender is `male`|`female` only; instant `voiceReference` is preview-only. See `docs/voice/voice-cloning.md`.
 - Vendor skill: https://raw.githubusercontent.com/deepdub-ai/deepdub-api/main/docs/skills/SKILL.md

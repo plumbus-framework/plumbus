@@ -2,6 +2,7 @@
 
 ## 0.3.1 — 2026-11-02
 
+- **Requires `@plumbus/core` 0.8.3+ and `@plumbus/voice` 0.6.1+** (peers `">=0.8.3 <0.9.0"` / `">=0.6.1 <0.7.0"`, were `0.8.x` / `0.6.x`): this release imports `@plumbus/core/sdk` and `@plumbus/voice/session`, which earlier versions do not have. Upgrade core and voice together with this package.
 - Upgrade the coordinated vendor pins to `@livekit/agents` 1.9.3 and `@livekit/rtc-node` 1.1.0. This provides the upstream `LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE=0` opt-out for workloads using external endpointing. Both pins must move together; dependency tests enforce one native RTC binding. The flag defers local model loading, not necessarily the helper process.
 
 - Use the voice session and core SDK/error entry points. Allow a dispatch-only parent to omit `createDependencies` when a child bootstrap module is configured; child entries still require governed dependencies. See [worker footprint](../../docs/voice/worker-footprint.md).
