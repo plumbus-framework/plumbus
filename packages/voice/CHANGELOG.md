@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.1
+## 0.6.1 — 2026-11-02
 
 - Add opt-in `interruptions.whileWriting: 'restart'` for continuous server-STT sessions: speech recognised while the brain is still writing a reply (before synthesis) aborts that turn with `VOICE_TURN_SUPERSEDED_REASON`, emits `turn.interrupted` with `reason: 'superseded'`, and runs one combined turn with the aborted transcript prefixed to the new speech. `brain.run` now receives `turnId` on every call and `supersededTurnId` on the combined turn, so a brain can discard what it persisted for the superseded turn; `isVoiceTurnSuperseded(signal)` identifies the abort reason. The default `'queue'` keeps the existing behaviour; peers are unchanged.
 

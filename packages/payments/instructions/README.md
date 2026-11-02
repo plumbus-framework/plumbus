@@ -14,6 +14,8 @@ Read in this order:
 
 Provider recipes: `node_modules/@plumbus/payments-stripe/instructions/README.md`.
 
+Code that only needs the payment entity definitions (schemas, classifications, e.g. a worker registering `paymentEntities`) can import them from `@plumbus/payments/entities` (0.3.1+, requires core 0.8.3+) without loading the payment services.
+
 Critical rules (details in [framework.md](./framework.md)):
 
 1. Money moves only through the payments capabilities. Never call the provider SDK from app capabilities to create charges or refunds.

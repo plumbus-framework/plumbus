@@ -50,6 +50,22 @@ export const voiceProviderRegistry = createProviderRegistry({
 });
 ```
 
+## Process pool and prewarm (0.3.1+)
+
+Each call runs in its own LiveKit job process. The worker's `prewarm` hook loads the voice runtime before a process gets a call.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `PLUMBUS_VOICE_IDLE_PROCESSES` (`numIdleProcesses`) | SDK default (0 outside LiveKit production mode) | Prewarmed processes kept ready; with any, processes start one at a time |
+| `PLUMBUS_VOICE_PROCESS_INIT_TIMEOUT_MS` (`initializeProcessTimeoutMs`) | 30000 | Time a process may take to start and prewarm |
+
+Each idle process holds roughly 73 MiB. A failed prewarm is logged and retried when the call starts.
+
+- Pins `@livekit/agents` 1.9.3 with `@livekit/rtc-node` 1.1.0. Do not upgrade Agents alone.
+- With external endpointing (e.g. Soniox), set `LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE=0` to skip the local model preload.
+- For a smaller per-call footprint use the scoped `app/voice/runtime.ts` and `plumbus voice build` / `voice worker --compiled` (core instructions `cli.md`, *Voice worker*).
+- Requires `@plumbus/core` 0.8.3+ and `@plumbus/voice` 0.6.1+.
+
 ## Related recipes
 
 | Task | Read |

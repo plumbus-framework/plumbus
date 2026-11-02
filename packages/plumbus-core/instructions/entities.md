@@ -109,6 +109,16 @@ const total = await ctx.data.User.count({ active: true }, filters);
 
 `findMany` applies `limit`/`offset`/`orderBy`; `count` returns the matching row count over the same filters (so page totals stay correct). `search` uses case-insensitive `ILIKE` (OR across columns), `in` is SQL `IN`, `notEq` is `<>`. Multi-column sort: `orderBy: [{ column: "name", dir: "asc" }, { column: "createdAt", dir: "desc" }]`. Tenant isolation and soft-delete filters are applied automatically.
 
+### Reading only some fields (core 0.8.3+)
+
+When a read needs a few columns of rows that also hold large fields (document bodies, transcripts), use `findManyFields(query, fields, options?)`. It selects only those columns in SQL and returns `Pick<T, K>[]`:
+
+```ts
+const docs = await ctx.data.Document.findManyFields({ projectId }, ['id', 'summary'], { orderBy: 'createdAt' });
+```
+
+It takes the same options as `findMany` and keeps tenant scoping, soft-delete filters and decryption of selected encrypted fields. Empty, malformed or unknown field lists throw. `findMany` is unchanged and still returns complete records.
+
 ### Aggregates (SUM / GROUP BY / DISTINCT)
 
 To total, average, or group **in the database** — instead of loading rows and reducing in memory — use `aggregate`. Filtering is identical to `findMany`/`count` (the `query` equality arg plus `dateFilters`/`search`/`in`/`notEq`), and tenant scoping, soft-delete, and encrypted-field guards all apply.

@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-02
 
+- A cancelled reply (barge-in or `abortAll`) now drops its queued audio, ignores chunks that arrive late (they are still counted for billing) and closes its socket; the next reply opens a new one.
 - Use the core error subpath to avoid loading CLI/governance tooling for provider errors. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 ## 0.3.0 — Stabilization compatibility family

@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-02
 
+- **Requires `@plumbus/core` 0.8.3 or later** (peer `">=0.8.3 <0.9.0"`, was `0.8.x`): this release imports `@plumbus/core/sdk`, which core 0.8.2 does not have. Upgrade core together with this package.
 - Add `@plumbus/payments/entities` for schema/classification imports without payment services; entity definitions use the core SDK.
 
 ## 0.3.0 — Stabilization compatibility family

@@ -247,6 +247,22 @@ plumbus payments catalog check          # read-only; exits 1 when the provider d
 
 Read `node_modules/@plumbus/payments/instructions/README.md` for payments.
 
+## Voice worker
+
+Requires `@plumbus/voice` and `@plumbus/voice-livekit`. See `node_modules/@plumbus/voice-livekit/instructions/agent-worker.md`.
+
+```bash
+# Run the LiveKit voice worker (loads app/voices and app/voice/registry.ts)
+plumbus voice worker
+
+# Production (core 0.8.3+): compile the voice runtime to JavaScript, then run the compiled output
+plumbus voice build --out-dir .plumbus/voice-build
+plumbus voice worker --compiled .plumbus/voice-build --voice <name>
+```
+
+- **Scoped runtime (core 0.8.3+, opt-in):** create `app/voice/runtime.ts` exporting `voiceRuntime` (`VoiceRuntimeConfig`): `resources` lists every capability, entity, event, prompt, translation and flow the voice uses (transitively), and `extensions` holds the AI hooks (`onAICostRecorded`, `resolveAiOverrides`, …). The worker then skips full discovery and does not import `app/server.ts`, so move shared AI hooks into a module both import. Anything not listed is unavailable to the call. Without the file, the full-app path applies as before.
+- `voice build` needs `app/voice/runtime.ts`, an empty `--out-dir`, and static imports only; it fails on unresolved or computed imports. It does not embed env values. Keep the output inside the app install so `node_modules` resolves.
+
 ## App Commands
 
 Run custom command scripts defined in your project's `app/commands/` directory. Use this for setup scripts, data migration tasks, and other one-off operations that need framework infrastructure (DB, config, password hashing).

@@ -43,6 +43,7 @@ This package is the voice primitive for Plumbus apps. Use it when the user wants
 | Run one turn in-process | `runVoiceTurn(ctx, args)` | `@plumbus/voice` |
 | Inspect provider catalog | `listVoiceProviderCatalog(registry?)` | `@plumbus/voice` |
 | Write tests | `mockVoiceRuntime`, `createVoiceTestContext` | `@plumbus/voice/testing` |
+| Worker/session runtime without HTTP/admin routes (0.6.1+) | definitions, provider registry, costs, session execution | `@plumbus/voice/session` |
 | LiveKit browser session | `createLiveKitVoiceSession` | `@plumbus/voice-livekit/client` |
 | LiveKit agent entry / worker | `createVoiceAgentEntry`, `startVoiceAgentWorker`, `joinVoiceRoomSession` | `@plumbus/voice-livekit` |
 
