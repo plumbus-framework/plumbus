@@ -85,7 +85,7 @@
     "playwright": "^1.52.0",
     "postgres": "^3.4.8",
     "tsx": "^4.19.0",
-    "vitest": "5.0.4",
+    "vitest": "5.0.5",
     "xml-crypto": "^6.1.2",
     "xpath": "^0.0.34",
     "zod": "^3.24.0",
@@ -123,6 +123,6 @@
     "@plumbus/voice": "workspace:*",
     "@types/node": "^25.4.0",
     "typescript": "^5.7.0",
-    "@vitest/browser-playwright": "5.0.4"
+    "@vitest/browser-playwright": "5.0.5"
   }
 }
