@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## 0.8.4 — 2026-11-02
+
+- **`@plumbus/core/testing` loads Playwright only when a test uses a browser.** `chromium`, `firefox` and `webkit` are still exported from it and behave the same; Playwright (about 280 modules) now loads the first time one of them is used, not when the entry is imported. Unit test files import this entry too, and with Vitest's default isolation each file loads it again, so every file paid for Playwright without opening a browser. Importing the entry now takes about 0.77 s instead of 1.26 s, roughly 0.5 s saved per unit test file.
+
 ## 0.8.3 — 2026-11-02
 
 - **Vitest 5.0.5** (was 5.0.4), the bundled test runner behind `plumbus test`. Bug fixes only, including GHSA-p458-7748-mcp3 (the Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env` files, private keys and the API token file). It also makes `npm install` work again with npm 10: npm 10 crashes resolving vitest 5.0.4's peer dependencies (`Cannot read properties of null (reading 'edgesOut')`), which affected every core 0.8.x install with npm 10.
