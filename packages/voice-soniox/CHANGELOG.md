@@ -2,7 +2,8 @@
 
 ## 0.4.0-beta.2 — 2026-11-01
 
-- **Rate limits.** A Soniox 429 starts a cooldown for that endpoint (its `Retry-After`, else 10 s), shared by every call in the process. Requests made while it runs are answered 429 locally, without reaching Soniox. The `rate_limit` refusal now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call: the SDK's request timeout keeps running during a wait, so come back after `retryAfterMs`. Core peer `>=0.9.0-beta.7 <0.10.0`.
+- **Rate limits.** A Soniox 429 starts a cooldown for that endpoint and API key (its `Retry-After`, else 10 s), shared by every call in the process that uses both; other keys are not paused. Requests made while it runs are answered 429 locally, without reaching Soniox. The `rate_limit` refusal now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call: the SDK's request timeout keeps running during a wait, so come back after `retryAfterMs`. Core peer `>=0.9.0-beta.7 <0.10.0`.
+- Imports core through `@plumbus/core/sdk`, so a voice worker that loads this package does not load core's CLI and governance modules.
 - **From main (stable 0.3.1):** Use the core error subpath to avoid loading CLI/governance tooling for provider errors. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 ## 0.4.0-beta.1 — 2026-10-26

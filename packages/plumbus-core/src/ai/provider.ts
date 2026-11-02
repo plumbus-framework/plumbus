@@ -1,6 +1,7 @@
 // ── AI Provider Adapter Interface ──
 // Abstract interface for AI provider adapters (OpenAI, Anthropic, etc.)
 
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { AIProviderSlotConfig } from '../types/config.js';
 import type {
@@ -28,6 +29,7 @@ import {
   sleepUnlessAborted,
   waitForProviderCooldown,
 } from './provider-cooldown.js';
+import { markPossiblyBilledFailure } from './provider-failure.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
 // ── Provider Request ──
@@ -1185,6 +1187,8 @@ interface RequestDeadline {
   readonly providerName: string;
   readonly errorLabel: string;
   readonly timeoutMs: number;
+  /** Which rate limit this request counts against: see `rateLimitScope`. */
+  readonly rateLimitScope: string;
   /** The caller's own signal; it also ends retry and cooldown waits. */
   readonly signal: AbortSignal | undefined;
   /** Starts an HTTP attempt: the caller's signal joined with a fresh timeout. */
@@ -1214,8 +1218,38 @@ export function assertRequestTimeout(timeoutMs: number): void {
   }
 }
 
+/**
+ * The rate limit a request counts against, used as its cooldown key. Providers set limits per
+ * account (API key, OpenAI organization and project) and per model, so a 429 pauses only the
+ * calls that share all of them: other models, other keys and other OpenAI-compatible servers
+ * keep running. The account part is hashed, so no credential appears in the key.
+ */
+function rateLimitScope(
+  providerName: string,
+  args: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    headers?: Readonly<Record<string, string>> | undefined;
+  },
+): string {
+  const account = createHash('sha256')
+    .update(
+      JSON.stringify([
+        args.baseUrl,
+        args.apiKey,
+        args.headers?.['openai-organization'] ?? '',
+        args.headers?.['openai-project'] ?? '',
+      ]),
+    )
+    .digest('hex')
+    .slice(0, 16);
+  return `${providerName}:${account}:${args.model}`;
+}
+
 function createRequestDeadline(args: {
   providerName: string;
+  rateLimitScope: string;
   errorLabel: string;
   signal: AbortSignal | undefined;
   timeout: number | undefined;
@@ -1229,6 +1263,7 @@ function createRequestDeadline(args: {
     providerName: args.providerName,
     errorLabel: args.errorLabel,
     timeoutMs,
+    rateLimitScope: args.rateLimitScope,
     signal: args.signal,
     attempt() {
       attempts += 1;
@@ -1274,11 +1309,14 @@ async function executeRequestWithRetry(args: {
   send: (transport: RequestTransport) => Promise<Response>;
 }): Promise<Response> {
   const { deadline } = args;
-  // One cooldown per provider in this process: a 429 to any caller pauses every caller.
-  const cooldownKey = deadline.providerName;
+  // One cooldown per rate limit in this process: a 429 pauses every caller that shares it.
+  const cooldownKey = deadline.rateLimitScope;
   let rateLimitWaitedMs = 0;
   // Whether an earlier attempt of this call may have been billed (a 408/5xx answer; a 429 is free).
   let possiblyBilled = false;
+  // After a possibly billed attempt the call is not free, however it ends.
+  const fail = (error: unknown): unknown =>
+    possiblyBilled ? markPossiblyBilledFailure(error) : error;
   for (let attempt = 1; attempt <= maxProviderAttempts; attempt++) {
     let gate: ProviderCooldownWait;
     try {
@@ -1288,7 +1326,7 @@ async function executeRequestWithRetry(args: {
       });
     } catch (error) {
       // Cancelled at the gate: this attempt was never sent, so the call is free unless an earlier one may have been billed.
-      if (possiblyBilled) throw deadline.classify(error);
+      if (possiblyBilled) throw fail(deadline.classify(error));
       throw new ProviderRequestNotSentError(
         `${deadline.errorLabel} request cancelled before it was sent`,
         error,
@@ -1296,14 +1334,16 @@ async function executeRequestWithRetry(args: {
     }
     rateLimitWaitedMs += gate.waitedMs;
     if (gate.state === 'closed') {
-      throw new ProviderAPIError({
-        providerName: deadline.providerName,
-        statusCode: 429,
-        retryable: true,
-        attempts: attempt - 1,
-        retryAfterMs: gate.retryAfterMs,
-        message: `${deadline.errorLabel} is rate limited; retry after ${gate.retryAfterMs} ms`,
-      });
+      throw fail(
+        new ProviderAPIError({
+          providerName: deadline.providerName,
+          statusCode: 429,
+          retryable: true,
+          attempts: attempt - 1,
+          retryAfterMs: gate.retryAfterMs,
+          message: `${deadline.errorLabel} is rate limited; retry after ${gate.retryAfterMs} ms`,
+        }),
+      );
     }
 
     let response: Response;
@@ -1315,7 +1355,7 @@ async function executeRequestWithRetry(args: {
       }
       body = await response.text();
     } catch (error) {
-      throw deadline.classify(error);
+      throw fail(deadline.classify(error));
     }
 
     const quotaExhausted = response.status === 429 && isQuotaExhausted(body);
@@ -1330,14 +1370,16 @@ async function executeRequestWithRetry(args: {
     if (!retryable || attempt === maxProviderAttempts) {
       const retryAfterMs =
         response.status === 429 && retryable ? providerCooldownRemainingMs(cooldownKey) : 0;
-      throw new ProviderAPIError({
-        providerName: deadline.providerName,
-        statusCode: response.status,
-        retryable,
-        attempts: attempt,
-        ...(retryAfterMs > 0 ? { retryAfterMs } : {}),
-        message: buildProviderErrorMessage(deadline.errorLabel, response.status, body, attempt),
-      });
+      throw fail(
+        new ProviderAPIError({
+          providerName: deadline.providerName,
+          statusCode: response.status,
+          retryable,
+          attempts: attempt,
+          ...(retryAfterMs > 0 ? { retryAfterMs } : {}),
+          message: buildProviderErrorMessage(deadline.errorLabel, response.status, body, attempt),
+        }),
+      );
     }
 
     // A 429 waits at the cooldown gate above; other retryable answers back off here.
@@ -1346,17 +1388,19 @@ async function executeRequestWithRetry(args: {
       try {
         await sleepUnlessAborted(computeRetryDelayMs(attempt, response.headers), deadline.signal);
       } catch (error) {
-        throw deadline.classify(error);
+        throw fail(deadline.classify(error));
       }
     }
   }
 
-  throw new ProviderAPIError({
-    providerName: deadline.providerName,
-    retryable: false,
-    attempts: maxProviderAttempts,
-    message: `${deadline.errorLabel} request failed`,
-  });
+  throw fail(
+    new ProviderAPIError({
+      providerName: deadline.providerName,
+      retryable: false,
+      attempts: maxProviderAttempts,
+      message: `${deadline.errorLabel} request failed`,
+    }),
+  );
 }
 
 // ── Provider tool-calling helpers ──
@@ -1750,6 +1794,12 @@ async function completeOpenAIResponses(args: {
 
   const deadline = createRequestDeadline({
     providerName: 'openai',
+    rateLimitScope: rateLimitScope('openai', {
+      baseUrl: args.baseUrl,
+      apiKey: args.apiKey,
+      model,
+      headers: request.transportHeaders,
+    }),
     errorLabel: 'OpenAI Responses API',
     signal: request.signal,
     timeout: request.timeout,
@@ -1986,6 +2036,12 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
       const deadline = createRequestDeadline({
         providerName: 'openai',
+        rateLimitScope: rateLimitScope('openai', {
+          baseUrl,
+          apiKey: config.apiKey,
+          model,
+          headers: request.transportHeaders,
+        }),
         errorLabel: 'OpenAI API',
         signal: request.signal,
         timeout: request.timeout,
@@ -2118,6 +2174,12 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
       const deadline = createRequestDeadline({
         providerName: 'openai',
+        rateLimitScope: rateLimitScope('openai', {
+          baseUrl,
+          apiKey: config.apiKey,
+          model,
+          headers: request.transportHeaders,
+        }),
         errorLabel: 'OpenAI API',
         signal: request.signal,
         timeout: request.timeout,
@@ -2160,6 +2222,11 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
       const deadline = createRequestDeadline({
         providerName: 'openai',
+        rateLimitScope: rateLimitScope('openai', {
+          baseUrl,
+          apiKey: config.apiKey,
+          model: body.model,
+        }),
         errorLabel: 'OpenAI Embedding API',
         signal: request.signal,
         timeout: request.timeout,
@@ -2304,6 +2371,11 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
 
       const deadline = createRequestDeadline({
         providerName: 'anthropic',
+        rateLimitScope: rateLimitScope('anthropic', {
+          baseUrl,
+          apiKey: config.apiKey,
+          model: String(body.model),
+        }),
         errorLabel: 'Anthropic API',
         signal: request.signal,
         timeout: request.timeout,
@@ -2422,6 +2494,11 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
 
       const deadline = createRequestDeadline({
         providerName: 'anthropic',
+        rateLimitScope: rateLimitScope('anthropic', {
+          baseUrl,
+          apiKey: config.apiKey,
+          model: String(body.model),
+        }),
         errorLabel: 'Anthropic API',
         signal: request.signal,
         timeout: request.timeout,

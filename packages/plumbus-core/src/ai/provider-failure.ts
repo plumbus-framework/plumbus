@@ -96,13 +96,29 @@ function isPreRequestError(error: object): boolean {
 }
 
 /**
+ * Errors that end a call after one of its earlier attempts may have been billed (a 408/5xx
+ * answer). Whatever the final failure looks like, a cooldown, a 4xx or a refused connection,
+ * the call as a whole is not free. Kept beside the error, not on it, so callers see the error
+ * exactly as raised.
+ */
+const possiblyBilledFailures = new WeakSet<object>();
+
+/** Records that `error` ends a call an earlier attempt of which may have been billed. */
+export function markPossiblyBilledFailure<T>(error: T): T {
+  if (typeof error === 'object' && error !== null) possiblyBilledFailures.add(error);
+  return error;
+}
+
+/**
  * True when a failed provider attempt cannot have been billed: the host did not resolve, the
  * connection or TLS handshake never completed, the adapter rejected the request locally, or
  * the provider declined it with a 4xx. Anything else (a dropped connection, a read timeout, a
  * 5xx, a 408/424 model timeout or model error, an unrecognised error) may have been billed and
- * is not cost-free.
+ * is not cost-free, and so is any failure that ends a call after a possibly billed attempt.
  */
 export function isCostFreeProviderFailure(error: unknown): boolean {
+  if (typeof error === 'object' && error !== null && possiblyBilledFailures.has(error))
+    return false;
   let current: unknown = error;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth += 1) {
     if (typeof current !== 'object' || current === null) return false;

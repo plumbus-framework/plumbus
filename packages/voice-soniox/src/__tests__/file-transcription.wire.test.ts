@@ -68,13 +68,14 @@ function json(value: unknown, status = 200) {
 function setup(
   handler: (url: URL, init?: RequestInit) => Response | Promise<Response>,
   override: Partial<FileTranscriptionConfig> = {},
+  apiKey = 'test-no-live-key',
 ) {
   const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) =>
     handler(new URL(String(url)), init),
   );
   const runtime = createFileTranscriptionRuntime({
     registration: SONIOX_FILE_TRANSCRIPTION_REGISTRATION,
-    credentials: { apiKey: 'test-no-live-key', options: { fetch: fetcher } },
+    credentials: { apiKey, options: { fetch: fetcher } },
     config: { ...config, ...override },
   });
   return { runtime, fetcher };
@@ -106,6 +107,19 @@ describe('Soniox asynchronous file transcription (official SDK with fake transpo
     expect(error.metadata.retryAfterMs).toBeGreaterThan(40_000);
     expect(value.fetcher).toHaveBeenCalledTimes(1);
   });
+  it('keeps a 429 cooldown to its own API key', async () => {
+    const limited = setup(
+      () => new Response('{}', { status: 429, headers: { 'retry-after': '45' } }),
+    );
+    await expect(limited.runtime.upload(ctx, uploadInput(), admitted)).rejects.toMatchObject({
+      metadata: { reason: 'rate_limit' },
+    });
+    const other = setup(() => new Response('{}', { status: 503 }), {}, 'test-no-live-key-2');
+    // A different key is not paused: its request reaches Soniox.
+    await other.runtime.upload(ctx, uploadInput(), admitted).catch(() => undefined);
+    expect(other.fetcher).toHaveBeenCalled();
+  });
+
   it('uploads MP4 bytes under only an opaque filename and configured region', async () => {
     const value = setup(async (url, init) => {
       expect(url.origin).toBe('https://api.eu.soniox.com');

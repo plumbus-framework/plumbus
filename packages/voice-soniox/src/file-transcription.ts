@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import {
   ErrorCode,
   extendProviderCooldown,
   parseRetryAfterMs,
   PlumbusError,
   providerCooldownRemainingMs,
-} from '@plumbus/core';
+} from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 import type {
   FileTranscriptionConfig,
@@ -176,11 +177,13 @@ class SonioxFileTranscriptionProvider implements FileTranscriptionProvider {
             z.custom<typeof fetch>((value) => typeof value === 'function'),
             credentials.options.fetch,
           );
-    // One rate-limit cooldown per Soniox endpoint in this process. While it runs, requests are
-    // answered 429 here without reaching Soniox, so nothing is sent before the provider's time.
-    // Nothing is re-sent inside a call: the SDK's request timeout keeps running during a wait,
-    // so callers come back later (the error carries `retryAfterMs`).
-    const cooldownKey = `soniox:${url.origin}`;
+    // One rate-limit cooldown per Soniox endpoint and API key in this process. While it runs,
+    // requests are answered 429 here without reaching Soniox, so nothing is sent before the
+    // provider's time. Other keys keep running. Nothing is re-sent inside a call: the SDK's
+    // request timeout keeps running during a wait, so callers come back later (the error
+    // carries `retryAfterMs`). The key is hashed, so no credential appears in the cooldown key.
+    const account = createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
+    const cooldownKey = `soniox:${url.origin}:${account}`;
     // Bound the SDK's JSON allocation as well as decoded output. No redirect may forward credentials.
     const boundedFetch: typeof fetch = async (input, init) => {
       const coolingMs = providerCooldownRemainingMs(cooldownKey);

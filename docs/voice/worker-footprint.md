@@ -70,6 +70,17 @@ outbox for the application's ordinary workers. Flow services are constructed onl
 when `resources.flows` is nonempty; flow execution remains worker-owned. This
 bootstrap does not supply job enqueue wiring.
 
+**Not supported in scoped mode (core 0.9 beta).** "Tenant-scoped data" above means rows
+filtered by tenant in the one database from `config/app.config.*`. The voice context does
+not route through a `dataPlaneResolver`: an app whose tenant data lives in per-tenant data
+planes must not use scoped mode, because every repository, audit record, event and flow
+in a voice call would use the default connection. The `extensions` envelope also accepts
+only `onAICostRecorded`, `resolveAiOverrides`, `enableStrictStructuredOutputs` and
+`decisions`. `resolveAIProviderHeaders`, `aiProviderConcurrency` and `onAIProviderSpan`
+are rejected, so voice-call AI requests carry no propagated headers, no concurrency
+admission and no provider spans. The legacy path and `plumbus mcp serve` have the same
+limits; they just don't reject the extra hooks.
+
 If the module is missing, the legacy path still applies, including its MCP auth
 configuration requirements. If it exists but cannot be imported or has an invalid
 module envelope, startup fails instead of silently loading the full app.
