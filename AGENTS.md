@@ -264,7 +264,7 @@ src/<module>/
 
 Use Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Framework test parallelism uses `VITEST_MAX_WORKERS`; old thread/fork limits and `poolOptions` no longer apply. See `docs/upgrading-vitest.md`.
 
-- **Vitest 5.0.4** — tests in `src/<module>/__tests__/*.test.ts`
+- **Vitest 5.0.5** — tests in `src/<module>/__tests__/*.test.ts`
 - Use `createTestContext()` for a fully-mocked `ExecutionContext`
 - Test through `runCapability()` / `simulateFlow()`, not internals
 - Tests must be self-contained — no shared mutable state

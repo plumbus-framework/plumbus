@@ -61,7 +61,7 @@
     "@plumbus/core": "workspace:*",
     "@plumbus/knowledge-base": "workspace:*",
     "fastify": "^5.0.0",
-    "vitest": "5.0.4"
+    "vitest": "5.0.5"
   },
   "peerDependenciesMeta": {
     "fastify": {

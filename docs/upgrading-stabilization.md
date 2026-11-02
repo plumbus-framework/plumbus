@@ -1,6 +1,6 @@
 # Stabilization release
 
-This family also upgrades the bundled test runner to **Vitest 5.0.4**. Update local/CI/container Node to Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Review existing test configs and mocks using [the Vitest migration guide](./upgrading-vitest.md).
+This family also upgrades the bundled test runner to **Vitest 5** (5.0.5 from core 0.8.3). Update local/CI/container Node to Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Review existing test configs and mocks using [the Vitest migration guide](./upgrading-vitest.md).
 
 Core 0.8.0 fixes the reviewed queue, flow, scheduler, configuration, and agent-guidance issues (PLB-01 through PLB-10). This release requires database migrations and a coordinated cutover. UI is 0.9.0, MCP 0.7.0, voice 0.6.0, and all other Plumbus packages 0.3.0. Install matching versions together; do not widen peer ranges to admit the previous family.
 

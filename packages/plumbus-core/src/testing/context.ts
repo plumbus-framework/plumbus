@@ -613,7 +613,12 @@ function withFieldValidation<T extends Record<string, unknown>>(
     },
     delete: (id) => repo.delete(id),
     findMany: (query, options) => repo.findMany(query, options),
-    findManyFields: (query, fields, options) => repo.findManyFields(query, fields, options),
+    findManyFields: (query, fields, options) => {
+      if (!repo.findManyFields) {
+        throw new Error('findManyFields is not supported by the wrapped repository');
+      }
+      return repo.findManyFields(query, fields, options);
+    },
     count: (query, options) => repo.count(query, options),
     aggregate: (query, options) => repo.aggregate(query, options),
   };

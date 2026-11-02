@@ -5,19 +5,8 @@ import { createErrorService } from '../../errors/index.js';
 import type { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 import { loadVoiceWorkerDefinitions } from '../voice-worker-definitions.js';
+import { loadVoiceSession as loadVoiceRuntime } from '../load-voice-session.js';
 import { info } from '../utils.js';
-
-async function loadVoiceRuntime(): Promise<typeof import('@plumbus/voice/session')> {
-  try {
-    return await import('@plumbus/voice/session');
-  } catch {
-    console.error('');
-    console.error('Voice runtime not installed.');
-    console.error('Run: pnpm add @plumbus/voice');
-    console.error('');
-    process.exit(1);
-  }
-}
 
 /** Minimal surface used by `plumbus voice worker` — typed locally to avoid a core→livekit type graph. */
 interface VoiceLiveKitCliModule {

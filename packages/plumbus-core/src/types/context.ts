@@ -169,8 +169,12 @@ export interface Repository<
    * `findMany` that reads only `fields` (nonempty; unknown fields fail rather than
    * selecting all columns). A separate method so `findMany` stays non-generic and
    * callable on a union of repositories.
+   *
+   * Optional, like `updateWhere`, so a custom `Repository` implementation or mock written
+   * before core 0.8.3 still satisfies this interface. The framework's own repositories
+   * (drizzle + in-memory) always provide it.
    */
-  findManyFields<K extends keyof T>(
+  findManyFields?<K extends keyof T>(
     query: Partial<T> | undefined,
     fields: readonly K[],
     options?: QueryOptions,

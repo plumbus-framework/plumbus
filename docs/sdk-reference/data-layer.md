@@ -139,7 +139,7 @@ interface Repository<
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
 
   // Query multiple records, reading only the listed fields
-  findManyFields<K extends keyof T>(
+  findManyFields?<K extends keyof T>(
     query: Partial<T> | undefined, fields: readonly K[], options?: QueryOptions,
   ): Promise<Pick<T, K>[]>;
 
@@ -203,11 +203,12 @@ Notes:
 `findMany(query?, options?)` returns all rows matching `query` (or all rows when omitted). Tenant scoping and access policies apply on tenant-scoped entities.
 
 Use `findManyFields(query, fields, options?)` to fetch only the fields a read needs.
+It is optional on the `Repository` type, like `updateWhere`, so custom repositories and mocks written before core 0.8.3 still compile; the framework's repositories always have it, so call it with `!`.
 The repository selects these columns in SQL, before decoding rows, and infers
 `Pick<T, K>[]` for the result:
 
 ```typescript
-const documents = await ctx.data.Document.findManyFields({ projectId }, ['id', 'summary'], {
+const documents = await ctx.data.Document.findManyFields!({ projectId }, ['id', 'summary'], {
   orderBy: 'createdAt',
   orderDir: 'asc',
 });

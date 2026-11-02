@@ -2,14 +2,16 @@
 
 ## 0.8.3 — 2026-11-02
 
+- **Vitest 5.0.5** (was 5.0.4), the bundled test runner behind `plumbus test`. Bug fixes only, including GHSA-p458-7748-mcp3 (the Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env` files, private keys and the API token file). It also makes `npm install` work again with npm 10: npm 10 crashes resolving vitest 5.0.4's peer dependencies (`Cannot read properties of null (reading 'edgesOut')`), which affected every core 0.8.x install with npm 10.
 - **GPT-6.1 Terra is priced.** `gpt-6.1-terra` costs $1 input, $0.05 cached input, $1.25 cache writes and $5 output per MTok, with the 2× / 1.5× premium above 272K input tokens. It accepts reasoning `none` to `max` and, like the other GPT-6 models, sends tool calls through the Responses API. Also new in the catalog: `gpt-6-rosalind` ($15 / $1.50 / $75, long-context premium), `gpt-rosalind-research` and `gpt-rosalind-discovery` ($5 / $0.50 / $25). Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-11-02.
 
-- Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories; `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
+- Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories. It is optional on the `Repository` interface (like `updateWhere`), so custom repositories and mocks written for 0.8.2 still type-check; the framework's repositories always provide it (call it as `findManyFields!(…)`); `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
 
 - Allow `voiceRuntime.resources.securityEntities` to supplement AI classifications and log masking without registering data repositories. Registered entities always remain in the classification set.
 
 - Add `@plumbus/core/sdk`, a runtime-only entry that shares implementations with the full root. `voice worker` uses a small CLI parser and no longer constructs the application context in the dispatch parent.
-- Add `voice build` and `voice worker --compiled` for statically compiled scoped apps; direct JS config imports avoid TypeScript loaders. See [worker footprint](../../docs/voice/worker-footprint.md).
+- Add `voice build` and `voice worker --compiled` for statically compiled scoped apps; in that compiled mode the JS config is imported directly, without TypeScript loaders. Everywhere else `config/app.config.js` / `.mjs` still loads through tsx as in 0.8.2.
+- `plumbus voice worker` uses `@plumbus/voice/session` when the installed voice has it (0.6.1+) and the `@plumbus/voice` root otherwise, so core 0.8.3 still runs the voice worker with voice 0.6.0. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 - Add opt-in `app/voice/runtime.ts` resources and AI hooks for `--room` mode and the default LiveKit child bootstrap; skip full discovery, server extensions, MCP auth and queue connections in scoped mode while preserving governed context wiring. See [worker footprint](../../docs/voice/worker-footprint.md).
 - Load Fastify, SAML/XML dependencies and cron parsing only when used, preserving synchronous public APIs.

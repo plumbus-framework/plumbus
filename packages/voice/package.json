@@ -70,7 +70,7 @@
     "@plumbus/core": "workspace:*",
     "fastify": "^5.0.0",
     "tsx": "^4.21.0",
-    "vitest": "5.0.4"
+    "vitest": "5.0.5"
   },
   "peerDependenciesMeta": {
     "fastify": {
