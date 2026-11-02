@@ -1219,3 +1219,55 @@ describe('oversized arrays on a real route (GHSA-mrhx-c7xc-m3w5)', () => {
     await app.close();
   });
 });
+
+describe('original error diagnostics', () => {
+  it.each([
+    false,
+    true,
+  ])('keeps the throw-site error out of HTTP/JSON (idempotency: %s)', async (idempotent) => {
+    const app = makeMockApp();
+    const onCapabilityError = vi.fn();
+    const original = new TypeError('native failure', { cause: new Error('private cause') });
+    original.stack =
+      'TypeError: native failure\n at originalHandler (/private/handler.ts:17:3)\nPRIVATE_STACK_SENTINEL';
+    const cap = makeCapability({
+      kind: 'action',
+      ...(idempotent ? { api: { idempotency: { required: true } } } : {}),
+      handler: async () => {
+        throw original;
+      },
+    });
+    registerCapabilityRoute(app as any, cap, { ...makeMockConfig(), onCapabilityError });
+    const request = makeMockRequest({}, { id: '1' });
+    const reply = makeMockReply();
+    await app.post.mock.calls[0]?.at(-1)(
+      { ...request, headers: { ...request.headers, 'idempotency-key': 'diagnostic-attempt' } },
+      reply,
+    );
+    const info = onCapabilityError.mock.calls[0]?.[0];
+    expect(info?.originalError).toBe(original);
+    expect(info?.originalError.cause).toBe(original.cause);
+    expect(info?.diagnostics.capabilityStack).toEqual(['users.getUser']);
+    expect(info?.diagnostics).toMatchObject({
+      httpMethod: 'POST',
+      httpRoute: '/api/users/get-user',
+      httpStatus: 500,
+    });
+    expect(Object.keys(info ?? {})).not.toContain('originalError');
+    expect(JSON.stringify(info)).not.toContain('PRIVATE_STACK_SENTINEL');
+    expect(JSON.stringify(reply.send.mock.calls)).not.toContain('PRIVATE_STACK_SENTINEL');
+    expect(JSON.stringify(reply.send.mock.calls)).not.toContain('private cause');
+    expect(reply.status).toHaveBeenCalledWith(500);
+  });
+
+  it('does not invent an original exception for a validation result', async () => {
+    const app = makeMockApp(),
+      hook = vi.fn();
+    registerCapabilityRoute(app as any, makeCapability(), {
+      ...makeMockConfig(),
+      onCapabilityError: hook,
+    });
+    await app.get.mock.calls[0]?.at(-1)(makeMockRequest({}), makeMockReply());
+    expect(hook.mock.calls[0]?.[0].originalError).toBeUndefined();
+  });
+});

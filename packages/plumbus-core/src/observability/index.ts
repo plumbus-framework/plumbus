@@ -4,6 +4,15 @@
 //
 // Key exports: createStructuredLogger, createPlumbusMetrics, createTracer
 
+// Internal provenance helpers; deliberately not re-exported by the public SDK root.
+export {
+  exposeOriginalError,
+  getOriginalError,
+  getErrorExecutionDetails,
+  preserveOriginalError,
+} from './error-diagnostics.js';
+export type { ErrorExecutionDetails } from './error-diagnostics.js';
+
 export {
   createChildSpan,
   createMetricsRegistry,

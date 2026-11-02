@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { defineFlow } from '../../define/defineFlow.js';
+import { defineCapability } from '../../define/index.js';
+import { executeCapability } from '../../execution/index.js';
+import { createTestContext } from '../../testing/context.js';
 import { LeaseLostError } from '../../errors/index.js';
 import { FlowStepType } from '../../types/enums.js';
 import { compileFlowDefinition } from '../compile-flow.js';
@@ -1499,4 +1502,113 @@ it.each([
   );
   expect(result.status).toBe('failed');
   expect(executeCapability).not.toHaveBeenCalled();
+});
+
+describe('live terminal failure diagnostics', () => {
+  it.each([
+    false,
+    true,
+  ])('preserves the current throw site and definition coordinates (parallel: %s)', async (parallel) => {
+    const original = new TypeError('handler failed');
+    original.stack = 'PRIVATE_FLOW_STACK_SENTINEL';
+    const cap = defineCapability({
+      name: 'fail',
+      domain: 'diagnostic',
+      version: '3',
+      kind: 'query',
+      access: { public: true },
+      input: z.object({}),
+      output: z.object({}),
+      effects: { data: [], events: [], external: [] },
+      handler: async () => {
+        throw original;
+      },
+    });
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'diagnostic-flow',
+        domain: 'diagnostic',
+        version: '7',
+        input: z.object({}),
+        steps: parallel
+          ? [
+              { name: 'together', type: FlowStepType.Parallel, branches: ['first'] },
+              { name: 'first', type: FlowStepType.Capability, capability: 'diagnostic.fail' },
+            ]
+          : [{ name: 'first', type: FlowStepType.Capability, capability: 'diagnostic.fail' }],
+      }),
+    );
+    const compiledRegistry = new CompiledFlowRegistry();
+    const definition = registry.get('diagnostic-flow');
+    assert.ok(definition);
+    compiledRegistry.publish(compileFlowDefinition(definition, { definitionVersion: '7' }));
+    const db = mockDb(),
+      hook = vi.fn();
+    const engine = createFlowEngine({
+      db,
+      registry,
+      onFlowError: hook,
+      compiledRegistry,
+      stepDeps: {
+        executeCapability: (_name, ctx, input) => executeCapability(cap, ctx, input),
+        evaluateCondition: () => true,
+      },
+    });
+    const ctx = createTestContext({ auth: makeAuth() });
+    const execution = await engine.start('diagnostic-flow', {}, makeAuth(), {
+      correlationId: 'verified-correlation',
+    });
+    await engine.runNext(execution.id, ctx);
+    const info = hook.mock.calls[0]?.[0];
+    expect(info?.originalError).toBe(original);
+    expect(info?.tenantId).toBe('tenant-1');
+    expect(info?.actor).toBe('user-1');
+    expect(info?.diagnostics.flowId).toBe(execution.id);
+    expect(info?.diagnostics.capabilityStack).toEqual(['diagnostic.fail']);
+    expect(info?.diagnostics.capabilityVersion).toBe('3');
+    expect(info?.diagnostics.flowDefinitionVersion).toBe('7');
+    expect(JSON.stringify(info)).not.toContain('PRIVATE_FLOW_STACK_SENTINEL');
+    expect(JSON.stringify(db._updates)).not.toContain('PRIVATE_FLOW_STACK_SENTINEL');
+    expect(JSON.stringify([...db._rows.values()])).not.toContain('PRIVATE_FLOW_STACK_SENTINEL');
+  });
+
+  it('does not retain an earlier retry exception or serialize live provenance into checkpoints', async () => {
+    const first = new TypeError('first'),
+      last = new RangeError('last');
+    first.stack = 'PRIVATE_FIRST_STACK';
+    last.stack = 'PRIVATE_LAST_STACK';
+    let attempts = 0;
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'diagnostic-retry',
+        domain: 'diagnostic',
+        input: z.object({}),
+        retry: { maxAttempts: 2, backoff: 'fixed', baseDelayMs: 1, maxDelayMs: 1 },
+        steps: [{ name: 'fail', type: FlowStepType.Capability }],
+      }),
+    );
+    const hook = vi.fn(),
+      db = mockDb();
+    const engine = createFlowEngine({
+      db,
+      registry,
+      onFlowError: hook,
+      stepDeps: {
+        executeCapability: async () => {
+          throw attempts++ === 0 ? first : last;
+        },
+        evaluateCondition: () => true,
+      },
+    });
+    const execution = await engine.start('diagnostic-retry', {}, makeAuth());
+    await engine.runNext(execution.id, makeCtx());
+    expect(hook).not.toHaveBeenCalled();
+    db._rows.get(execution.id).wakeAt = new Date(0);
+    await engine.runNext(execution.id, makeCtx());
+    expect(hook.mock.calls[0]?.[0].originalError).toBe(last);
+    expect(JSON.stringify(db._updates)).not.toContain('PRIVATE_FIRST_STACK');
+    expect(JSON.stringify(db._updates)).not.toContain('PRIVATE_LAST_STACK');
+  });
 });

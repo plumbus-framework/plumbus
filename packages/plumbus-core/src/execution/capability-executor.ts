@@ -3,6 +3,8 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { z } from 'zod';
 import { isProviderAPIError } from '../ai/provider.js';
 import { isPlumbusError } from '../errors/index.js';
+import { preserveOriginalError } from '../observability/index.js';
+import { capabilityExecutionDetails } from './capability-error-hook.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext, TransactionScope } from '../types/context.js';
 import { CapabilityKind } from '../types/enums.js';
@@ -168,6 +170,7 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
   capability: CapabilityContract<z.ZodTypeAny, TOutput>,
   canonicalName: string,
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
+  const details = capabilityExecutionDetails(capability, ctx);
   if (err instanceof CapabilityOutputValidationError) {
     const error = ctx.errors.internal('Invalid output from capability', {
       capability: canonicalName,
@@ -177,12 +180,12 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
       issues: err.issues,
     });
     await recordAudit(ctx, capability, canonicalName, 'failure', { error });
-    return { success: false, error };
+    return { success: false, error: preserveOriginalError(error, err, details) };
   }
 
   if (isPlumbusError(err)) {
     await recordAudit(ctx, capability, canonicalName, 'failure', { error: err });
-    return { success: false, error: err };
+    return { success: false, error: preserveOriginalError(err, err, details) };
   }
 
   if (isProviderAPIError(err) && err.retryable) {
@@ -206,7 +209,7 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
       attempts: err.attempts,
     });
     await recordAudit(ctx, capability, canonicalName, 'failure', { error });
-    return { success: false, error };
+    return { success: false, error: preserveOriginalError(error, err, details) };
   }
 
   const causeMessage =
@@ -224,7 +227,7 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
     error: errorMessage,
   });
   await recordAudit(ctx, capability, canonicalName, 'failure', { error });
-  return { success: false, error };
+  return { success: false, error: preserveOriginalError(error, err, details) };
 }
 
 /**
@@ -350,6 +353,8 @@ export async function executeCapability<TInput extends z.ZodTypeAny, TOutput ext
         });
         await recordAudit(ctx, anyCap, canonicalName, 'failure', { error });
       }
+      if (typeof err === 'object' && err !== null)
+        preserveOriginalError(err, err, capabilityExecutionDetails(anyCap, ctx));
       throw err;
     }
     const failure = await handleExecutionError(err, ctx, anyCap, canonicalName);

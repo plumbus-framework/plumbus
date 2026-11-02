@@ -558,6 +558,30 @@ export const onCapabilityError: NonNullable<ServerConfig['onCapabilityError']> =
 };
 ```
 
+The callback additionally exposes **non-enumerable**, in-memory diagnostic properties:
+
+- `originalError?: unknown`: the actual thrown value, including an Error's original stack and
+  cause. It is absent for non-throwing validation/access failures and serialized/cached results
+  whose exception no longer exists. Do not fabricate a replacement throw-site stack.
+- `diagnostics?`: correlation ID, canonical capability call chain, capability kind/version,
+  flow/step/worker coordinates when present, and HTTP method/registered route/status or job/event
+  identifiers. Event `initiatingActor` comes from the persisted outbox; `userId` still identifies
+  the executing service account. Tenant/user IDs retain their existing meanings.
+
+Read these properties explicitly. Spreading or JSON-serializing `info` intentionally does not
+copy them. Likewise, failure results, HTTP responses, idempotency records, job failure JSON,
+flow checkpoints/history and dead letters do not acquire raw exceptions or stacks. Apps must
+apply their privacy policy before forwarding diagnostic data to a shared error tracker.
+
+`onFlowError` also exposes `originalError` and `diagnostics` for the terminal live attempt,
+including parallel-branch failures and runner finalization. Its diagnostic coordinates include
+correlation, failed operation and the stored definition version/digest when available. Retry
+attempts do not retain old errors: the final callback receives the current attempt's error.
+An old persisted failure does not gain a stack after a process restart; rerun under authorized
+recovery or request a sanitized reproduction fixture instead.
+
+See [agent-readable failure evidence](observability.md#agent-readable-failure-evidence).
+
 The payload type is exported as `CapabilityErrorInfo`. `source` tells you where the capability ran:
 
 | `source` | Where | `userId` / `tenantId` |

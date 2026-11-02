@@ -494,9 +494,10 @@ describe('registerCapabilityConsumers onCapabilityError', () => {
   function registerFailingJob(
     onMcpJobComplete: NonNullable<RegisterCapabilityConsumersOptions['onMcpJobComplete']>,
     onCapabilityError: NonNullable<RegisterCapabilityConsumersOptions['onCapabilityError']>,
+    cap = failingJobCap,
   ) {
     const capabilities = new CapabilityRegistry();
-    capabilities.register(failingJobCap);
+    capabilities.register(cap);
     const consumers = new ConsumerRegistry();
     const db = mockDb({
       id: 'job-1',
@@ -540,6 +541,81 @@ describe('registerCapabilityConsumers onCapabilityError', () => {
       });
     return { db, run };
   }
+
+  it('reports an event throw site and the persisted initiator, not a forged envelope actor', async () => {
+    const original = new TypeError('event failure'),
+      hook = vi.fn();
+    const { handler } = registerEventHandler(
+      {
+        ...failingEventHandlerCap,
+        handler: async () => {
+          throw original;
+        },
+      },
+      hook,
+    );
+    // The stored outbox, not queue metadata, is authoritative for the originating principal.
+    const capabilities = new CapabilityRegistry();
+    capabilities.register({
+      ...failingEventHandlerCap,
+      handler: async () => {
+        throw original;
+      },
+    });
+    const consumers = new ConsumerRegistry();
+    const db = mockOutboxDb({
+      tenantId: 'tenant-db',
+      eventType: 'order.placed',
+      actor: 'verified-originator',
+      correlationId: 'stored-correlation',
+    });
+    registerCapabilityConsumers({
+      capabilities,
+      consumers,
+      events: new EventRegistry(),
+      entities: new EntityRegistry(),
+      db,
+      config: { environment: 'test' } as never,
+      onCapabilityError: hook,
+    });
+    expect(handler).toBeDefined();
+    await expect(
+      consumers.getById('onOrderPlaced')?.handler({
+        ...delivery({ orderId: 'o1' }),
+        actor: 'forged-person',
+        correlationId: 'forged-correlation',
+      }),
+    ).rejects.toThrow();
+    const info = hook.mock.calls[0]?.[0];
+    expect(info?.originalError).toBe(original);
+    expect(info?.userId).toBe('event-worker');
+    expect(info?.tenantId).toBe('tenant-db');
+    expect(info?.diagnostics.initiatingActor).toBe('verified-originator');
+    expect(info?.diagnostics.correlationId).toBe('stored-correlation');
+    expect(info?.diagnostics.eventId).toBe('evt-1');
+    expect(Object.keys(info ?? {})).not.toContain('originalError');
+  });
+
+  it('keeps the original job exception and job coordinates outside persisted failure data', async () => {
+    const original = new RangeError('job failure'),
+      hook = vi.fn();
+    original.stack = 'PRIVATE_JOB_STACK_SENTINEL';
+    const { db, run } = registerFailingJob(async () => {}, hook, {
+      ...failingJobCap,
+      handler: async () => {
+        throw original;
+      },
+    });
+    await expect(run()).rejects.toThrow();
+    const info = hook.mock.calls[0]?.[0];
+    expect(info?.originalError).toBe(original);
+    expect(info?.diagnostics.jobId).toBe('job-1');
+    expect(info?.userId).toBe('real-user');
+    const updates = db.update.mock.results.flatMap(
+      (result: any) => result.value?.set?.mock.calls ?? [],
+    );
+    expect(JSON.stringify(updates)).not.toContain('PRIVATE_JOB_STACK_SENTINEL');
+  });
 
   it('fires with source job after the job is marked failed', async () => {
     const onMcpJobComplete = vi.fn(async () => {});

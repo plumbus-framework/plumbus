@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ErrorCode } from '../../types/enums.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import { isPlumbusError } from '../../errors/index.js';
+import { getOriginalError, getErrorExecutionDetails } from '../../observability/index.js';
 import { getCanonicalCapabilityName } from '../canonical-name.js';
 import { CapabilityRegistry } from '../capability-registry.js';
 import { executeCapability } from '../capability-executor.js';
@@ -472,4 +473,37 @@ describe('handler thrown dependency violations', () => {
     if (result.success) return;
     expect(result.error.code).toBe(ErrorCode.DependencyViolation);
   });
+});
+
+it('preserves a nested invocation throw site and the full capability chain', async () => {
+  const original = new TypeError('nested failure');
+  const inner = makeCap('chargeCard', 'billing', {
+    kind: 'query',
+    handler: async () => {
+      throw original;
+    },
+  });
+  const outer = makeCap('createOrder', 'orders', {
+    kind: 'query',
+    effects: {
+      data: [],
+      events: [],
+      external: [],
+      ai: false,
+      capabilities: ['billing.chargeCard'],
+    },
+    handler: async (ctx) => {
+      await ctx.capabilities.invoke('billing.chargeCard', {});
+      return { ok: true };
+    },
+  });
+  const ctx = createTestContext({ auth: { roles: ['admin'] }, capabilities: [outer, inner] });
+  const result = await executeCapability(outer, ctx, {});
+  expect(result.success).toBe(false);
+  if (result.success) throw new Error('Expected nested failure');
+  expect(getOriginalError(result.error)).toBe(original);
+  expect(getErrorExecutionDetails(result.error)?.capabilityStack).toEqual([
+    'orders.createOrder',
+    'billing.chargeCard',
+  ]);
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { getOriginalError } from '../../observability/index.js';
 import { AIBudgetExceededError } from '../../errors/data-errors.js';
 import type { ExecutionContext } from '../../types/context.js';
 import { FlowStepType } from '../../types/enums.js';
@@ -333,4 +334,41 @@ describe('buildHistoryEntry', () => {
       error: undefined,
     });
   });
+});
+
+it.each([
+  'conditional',
+  'eventEmit',
+] as const)('retains a thrown %s error without adding it to step history', async (kind) => {
+  const original = new TypeError('runtime failure');
+  original.stack = 'PRIVATE_STEP_STACK';
+  const step =
+    kind === 'conditional'
+      ? { name: 'choose', type: FlowStepType.Conditional, if: 'state.ok', then: 'next' }
+      : { name: 'emit', type: FlowStepType.EventEmit, event: 'order.placed' };
+  const ctx = {
+    ...mockCtx,
+    events: {
+      ...mockCtx.events,
+      emit: async () => {
+        throw original;
+      },
+    },
+  };
+  const result = await executeStep(
+    step,
+    ctx,
+    {},
+    {},
+    {
+      ...defaultDeps,
+      evaluateCondition: () => {
+        throw original;
+      },
+    },
+  );
+  expect(getOriginalError(result)).toBe(original);
+  expect(
+    JSON.stringify(buildHistoryEntry(step.name, result, new Date(), new Date())),
+  ).not.toContain('PRIVATE_STEP_STACK');
 });

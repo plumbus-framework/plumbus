@@ -35,6 +35,7 @@ import { executeIdempotently } from './idempotent-execution.js';
 import {
   type CapabilityErrorInfo,
   fireCapabilityErrorHook,
+  capabilityExecutionDetails,
 } from '../execution/capability-error-hook.js';
 import type { ContextDependencies } from '../execution/context-factory.js';
 import { createExecutionContext } from '../execution/context-factory.js';
@@ -418,19 +419,29 @@ export function registerCapabilityRoute(
         }
         const httpError = errorToHttpResponse(claimed.error);
         reply.status(httpError.statusCode).send(httpError.body);
-        fireCapabilityErrorHook(config.onCapabilityError, {
-          capabilityName: capability.name,
-          domain: capability.domain,
-          errorCode: claimed.error.code,
-          errorMessage: claimed.error.message,
-          metadata: claimed.error.metadata,
-          userId: ctx.auth.userId,
-          tenantId: ctx.auth.tenantId,
-          sourceIp: request.ip,
-          userAgent: request.headers['user-agent'],
-          db: requestDb,
-          source: 'http',
-        });
+        fireCapabilityErrorHook(
+          config.onCapabilityError,
+          {
+            capabilityName: capability.name,
+            domain: capability.domain,
+            errorCode: claimed.error.code,
+            errorMessage: claimed.error.message,
+            metadata: claimed.error.metadata,
+            userId: ctx.auth.userId,
+            tenantId: ctx.auth.tenantId,
+            sourceIp: request.ip,
+            userAgent: request.headers['user-agent'],
+            db: requestDb,
+            source: 'http',
+          },
+          claimed.error,
+          {
+            ...capabilityExecutionDetails(capability, ctx),
+            httpMethod: method,
+            httpRoute: path,
+            httpStatus: httpError.statusCode,
+          },
+        );
         return;
       }
     }
@@ -444,19 +455,29 @@ export function registerCapabilityRoute(
       reply.status(httpError.statusCode).send(httpError.body);
 
       // Fire error hook (fire-and-forget, never blocks the response).
-      fireCapabilityErrorHook(config.onCapabilityError, {
-        capabilityName: capability.name,
-        domain: capability.domain,
-        errorCode: result.error.code,
-        errorMessage: result.error.message,
-        metadata: result.error.metadata,
-        userId: ctx.auth.userId,
-        tenantId: ctx.auth.tenantId,
-        sourceIp: request.ip,
-        userAgent: request.headers['user-agent'],
-        db: requestDb,
-        source: 'http',
-      });
+      fireCapabilityErrorHook(
+        config.onCapabilityError,
+        {
+          capabilityName: capability.name,
+          domain: capability.domain,
+          errorCode: result.error.code,
+          errorMessage: result.error.message,
+          metadata: result.error.metadata,
+          userId: ctx.auth.userId,
+          tenantId: ctx.auth.tenantId,
+          sourceIp: request.ip,
+          userAgent: request.headers['user-agent'],
+          db: requestDb,
+          source: 'http',
+        },
+        result.error,
+        {
+          ...capabilityExecutionDetails(capability, ctx),
+          httpMethod: method,
+          httpRoute: path,
+          httpStatus: httpError.statusCode,
+        },
+      );
     }
   };
 

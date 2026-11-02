@@ -1,4 +1,9 @@
 import { isPermanentFailure } from '../config/index.js';
+import {
+  getOriginalError,
+  getErrorExecutionDetails,
+  preserveOriginalError,
+} from '../observability/index.js';
 import { AIBudgetExceededError } from '../errors/data-errors.js';
 import type { ExecutionContext } from '../types/context.js';
 import { FlowStepType } from '../types/enums.js';
@@ -145,27 +150,43 @@ async function executeCapabilityStep(
     if (result.success) {
       return { status: StepStatus.Completed, data: result.data };
     }
-    return {
-      status: StepStatus.Failed,
-      permanent: isPermanentFailure(result.error),
-      error:
-        typeof result.error === 'object' && result.error !== null
-          ? JSON.stringify(result.error)
-          : String(result.error),
-    };
+    return preserveOriginalError(
+      {
+        status: StepStatus.Failed,
+        permanent: isPermanentFailure(result.error),
+        error:
+          typeof result.error === 'object' && result.error !== null
+            ? JSON.stringify(result.error)
+            : String(result.error),
+      },
+      getOriginalError(result.error),
+      getErrorExecutionDetails(result.error, {
+        actorUserId: ctx.auth?.userId,
+        tenantId: ctx.auth?.tenantId,
+        correlationId: ctx.__runtime?.correlationId,
+        flowId: ctx.flowId,
+        step: ctx.step,
+      }),
+    );
   } catch (err) {
     if (err instanceof AIBudgetExceededError) {
-      return {
-        status: StepStatus.Failed,
-        error: `budget-exhausted: ${err.message}`,
-        permanent: isPermanentFailure(err),
-      };
+      return preserveOriginalError(
+        {
+          status: StepStatus.Failed,
+          error: `budget-exhausted: ${err.message}`,
+          permanent: isPermanentFailure(err),
+        },
+        err,
+      );
     }
-    return {
-      status: StepStatus.Failed,
-      error: err instanceof Error ? err.message : String(err),
-      permanent: isPermanentFailure(err),
-    };
+    return preserveOriginalError(
+      {
+        status: StepStatus.Failed,
+        error: err instanceof Error ? err.message : String(err),
+        permanent: isPermanentFailure(err),
+      },
+      err,
+    );
   }
 }
 
@@ -188,10 +209,15 @@ function executeConditionalStep(
         : err instanceof Error
           ? err.message
           : String(err);
-    return Promise.resolve({
-      status: StepStatus.Failed,
-      error: message,
-    });
+    return Promise.resolve(
+      preserveOriginalError(
+        {
+          status: StepStatus.Failed,
+          error: message,
+        },
+        err,
+      ),
+    );
   }
 }
 
@@ -260,10 +286,13 @@ async function executeEventEmitStep(
     await ctx.events.emit(step.event, resolveStepPayload(undefined, flowInput, state));
     return { status: StepStatus.Completed };
   } catch (err) {
-    return {
-      status: StepStatus.Failed,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return preserveOriginalError(
+      {
+        status: StepStatus.Failed,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      err,
+    );
   }
 }
 

@@ -30,6 +30,7 @@ import type { ApprovalService, AuthorizationProvider } from '../approvals/types.
 import {
   type CapabilityErrorInfo,
   fireCapabilityErrorHook,
+  capabilityExecutionDetails,
 } from '../execution/capability-error-hook.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
@@ -147,17 +148,22 @@ function withCapabilityErrorHook(
       const result = await stepDeps.executeCapability(capabilityName, ctx, input);
       if (!result.success && result.capability && !ctx.signal?.aborted) {
         const error = result.error as PlumbusErrorLike;
-        fireCapabilityErrorHook(hook, {
-          capabilityName: result.capability.name,
-          domain: result.capability.domain,
-          errorCode: error.code,
-          errorMessage: error.message,
-          metadata: error.metadata,
-          userId: ctx.auth.userId,
-          tenantId: ctx.auth.tenantId,
-          db: resolveDb(ctx.auth),
-          source: 'flow',
-        });
+        fireCapabilityErrorHook(
+          hook,
+          {
+            capabilityName: result.capability.name,
+            domain: result.capability.domain,
+            errorCode: error.code,
+            errorMessage: error.message,
+            metadata: error.metadata,
+            userId: ctx.auth.userId,
+            tenantId: ctx.auth.tenantId,
+            db: resolveDb(ctx.auth),
+            source: 'flow',
+          },
+          error,
+          capabilityExecutionDetails(result.capability, ctx),
+        );
       }
       return result;
     },

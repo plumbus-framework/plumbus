@@ -23,6 +23,7 @@ import { wireContextDependencies } from '../execution/context-deps.js';
 import {
   type CapabilityErrorInfo,
   fireCapabilityErrorHook,
+  capabilityExecutionDetails,
 } from '../execution/capability-error-hook.js';
 import { executeCapability } from '../execution/capability-executor.js';
 import { evaluateAccess } from '../execution/authorization.js';
@@ -73,18 +74,24 @@ function reportCapabilityError(
   ctx: ExecutionContext,
   error: PlumbusErrorLike,
   source: 'event' | 'job',
+  details?: import('../observability/index.js').ErrorExecutionDetails,
 ): void {
-  fireCapabilityErrorHook(opts.onCapabilityError, {
-    capabilityName: cap.name,
-    domain: cap.domain,
-    errorCode: error.code,
-    errorMessage: error.message,
-    metadata: error.metadata,
-    userId: ctx.auth.userId,
-    tenantId: ctx.auth.tenantId,
-    db: opts.db,
-    source,
-  });
+  fireCapabilityErrorHook(
+    opts.onCapabilityError,
+    {
+      capabilityName: cap.name,
+      domain: cap.domain,
+      errorCode: error.code,
+      errorMessage: error.message,
+      metadata: error.metadata,
+      userId: ctx.auth.userId,
+      tenantId: ctx.auth.tenantId,
+      db: opts.db,
+      source,
+    },
+    error,
+    { ...capabilityExecutionDetails(cap, ctx), ...details },
+  );
 }
 
 function eventWorkerAuth(
@@ -122,13 +129,18 @@ function tenantFromTrustedReplay(envelope: EventEnvelope): string | null | undef
   return undefined;
 }
 
-async function resolveEventHandlerTenantId(
+async function resolveEventHandlerOrigin(
   db: PostgresJsDatabase,
   envelope: EventEnvelope,
   logger?: LoggerService,
-): Promise<string | null | undefined> {
+): Promise<{ tenantId?: string | null; initiatingActor?: string; correlationId?: string }> {
   const rows = await db
-    .select({ tenantId: outboxTable.tenantId, eventType: outboxTable.eventType })
+    .select({
+      tenantId: outboxTable.tenantId,
+      eventType: outboxTable.eventType,
+      actor: outboxTable.actor,
+      correlationId: outboxTable.correlationId,
+    })
     .from(outboxTable)
     .where(eq(outboxTable.id, envelope.id))
     .limit(1);
@@ -142,7 +154,7 @@ async function resolveEventHandlerTenantId(
         actor: envelope.actor,
         tenantId,
       });
-      return tenantId;
+      return { tenantId };
     }
     throw new Error(
       `Event handler rejected: no outbox row for event "${envelope.id}" — possible forged queue message. ` +
@@ -159,7 +171,11 @@ async function resolveEventHandlerTenantId(
       `Event envelope tenant mismatch for "${envelope.id}": queue=${envelope.tenantId} outbox=${row.tenantId}`,
     );
   }
-  return row.tenantId ?? envelope.tenantId;
+  return {
+    tenantId: row.tenantId ?? envelope.tenantId,
+    initiatingActor: row.actor ?? undefined,
+    correlationId: row.correlationId ?? undefined,
+  };
 }
 
 function buildConsumerContext(
@@ -221,7 +237,8 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
         active: cap.trigger.active !== false,
         retry: cap.trigger.retry,
         handler: async (envelope) => {
-          const tenantId = await resolveEventHandlerTenantId(opts.db, envelope, opts.logger);
+          const origin = await resolveEventHandlerOrigin(opts.db, envelope, opts.logger);
+          const tenantId = origin.tenantId;
           const auth = eventWorkerAuth(cap, envelope, tenantId);
           const authz = evaluateAccess(cap.access, auth);
           if (!authz.allowed) {
@@ -234,7 +251,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
             );
           }
           const ctx = buildConsumerContext(opts, auth, {
-            correlationId: envelope.correlationId,
+            correlationId: origin.correlationId ?? envelope.correlationId,
             causationId: envelope.id,
           });
           const started = Date.now();
@@ -245,7 +262,10 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
           });
           if (!result.success) {
             opts.metrics?.eventFailed.inc({ consumer: cap.name });
-            reportCapabilityError(opts, cap, ctx, result.error, 'event');
+            reportCapabilityError(opts, cap, ctx, result.error, 'event', {
+              eventId: envelope.id,
+              initiatingActor: origin.initiatingActor,
+            });
             throw new PlumbusError(result.error.code, result.error.message, result.error.metadata);
           }
           opts.metrics?.eventDelivered.inc({ consumer: cap.name });
@@ -362,7 +382,10 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
               opts.metrics?.eventFailed.inc({ consumer: consumerId });
             } finally {
               // Report even if the bookkeeping above throws: the capability still failed.
-              reportCapabilityError(opts, cap, ctx, result.error, 'job');
+              reportCapabilityError(opts, cap, ctx, result.error, 'job', {
+                jobId: payload.jobExecutionId,
+                eventId: envelope.id,
+              });
             }
             throw new PlumbusError(result.error.code, result.error.message, result.error.metadata);
           }

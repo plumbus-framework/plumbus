@@ -6,5 +6,4 @@ import type { z } from 'zod';
  * would no longer accept a handler typed for its own schema; collections of definitions
  * (`capabilities: CapabilityContract[]`) depend on that.
  */
-// biome-ignore lint/suspicious/noExplicitAny: this is the any-typed schema the defaults mean.
 export type AnyZodSchema = z.ZodType<any, any>;

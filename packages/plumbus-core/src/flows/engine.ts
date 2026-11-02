@@ -4,6 +4,12 @@ import { hostname } from 'node:os';
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
+import {
+  exposeOriginalError,
+  getOriginalError,
+  getErrorExecutionDetails,
+  type ErrorExecutionDetails,
+} from '../observability/index.js';
 import type { ApprovalService } from '../approvals/types.js';
 import { parseDurationToMs, resolveRetryPolicy, retryDelay } from '../config/index.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
@@ -159,6 +165,9 @@ export interface FlowEngineConfig {
     flowName: string;
     step: string | null;
     error: string;
+    /** Last live attempt's thrown value. Non-enumerable and never persisted. */
+    originalError?: unknown;
+    diagnostics?: ErrorExecutionDetails;
     tenantId?: string | null;
     actor?: string;
     db?: PostgresJsDatabase;
@@ -1459,7 +1468,16 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
       // Handle result
       if (result.status === StepStatus.Failed) {
-        return handleStepFailure(executionId, row, flow, history, result.error, result.permanent);
+        return handleStepFailure(
+          executionId,
+          row,
+          flow,
+          history,
+          result.error,
+          result.permanent,
+          getOriginalError(result),
+          getErrorExecutionDetails(result),
+        );
       }
 
       // Wait step — pause the flow
@@ -1493,6 +1511,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
             flow,
             history,
             err instanceof Error ? err.message : String(err),
+            false,
+            err,
           );
         }
         const wakeAt = new Date((await databaseTime(storeFor(executionId))).getTime() + delayMs);
@@ -1565,12 +1585,28 @@ export function createFlowEngine(config: FlowEngineConfig) {
         );
 
         if (anyFailed) {
+          const firstFailure = branchResults.find(
+            (branch) =>
+              branch.status === 'rejected' ||
+              branch.value.branchResult.status === StepStatus.Failed,
+          );
+          const originalError =
+            firstFailure?.status === 'rejected'
+              ? firstFailure.reason
+              : firstFailure?.status === 'fulfilled'
+                ? getOriginalError(firstFailure.value.branchResult)
+                : undefined;
           return handleStepFailure(
             executionId,
             row,
             flow,
             history,
             'One or more parallel branches failed',
+            false,
+            originalError,
+            firstFailure?.status === 'fulfilled'
+              ? getErrorExecutionDetails(firstFailure.value.branchResult)
+              : undefined,
           );
         }
 
@@ -2195,6 +2231,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
     history: StepHistoryEntry[],
     error?: string,
     permanent = false,
+    originalError?: unknown,
+    details?: ErrorExecutionDetails,
   ): Promise<FlowExecution> {
     const retryCount = (row.retryCount ?? 0) + 1;
     const { attempts, ...policy } = flow.retry ?? {};
@@ -2243,7 +2281,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       retryCount,
       lastError: error ?? null,
     });
-    await failFlow(executionId, row.flowName, error, row);
+    await failFlow(executionId, row.flowName, error, row, originalError, details);
     return { id: executionId, flowName: row.flowName, status: FlowStatus.Failed };
   }
 
@@ -2266,6 +2304,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
     flowName: string,
     error?: string,
     row?: FlowExecutionRow,
+    originalError?: unknown,
+    details?: ErrorExecutionDetails,
   ): Promise<void> {
     await guardedUpdate(executionId, {
       status: FlowStatus.Failed,
@@ -2290,15 +2330,28 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
     if (onFlowError) {
       try {
-        await onFlowError({
-          executionId,
-          flowName,
-          step: row?.currentStep ?? null,
-          error: error ?? 'Unknown error',
-          tenantId: row?.tenantId,
-          actor: row?.actor,
-          db: storeFor(executionId),
-        });
+        await onFlowError(
+          exposeOriginalError(
+            {
+              executionId,
+              flowName,
+              step: row?.currentStep ?? null,
+              error: error ?? 'Unknown error',
+              tenantId: row?.tenantId,
+              actor: row?.actor,
+              db: storeFor(executionId),
+            },
+            originalError,
+            {
+              ...details,
+              correlationId: row?.correlationId ?? details?.correlationId,
+              flowId: executionId,
+              step: row?.currentStep ?? details?.step,
+              flowDefinitionVersion: row?.definitionVersion ?? undefined,
+              flowDefinitionDigest: row?.definitionDigest ?? undefined,
+            },
+          ),
+        );
       } catch {
         // Swallow — error logging must never break flow processing
       }
@@ -2347,6 +2400,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           row.flowName,
           error instanceof Error ? error.message : 'Runner failed',
           row,
+          error,
         );
         return true;
       } catch (failure) {
