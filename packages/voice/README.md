@@ -2,6 +2,8 @@
 
 Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-stabilization.md).
 
+Worker startup and compiled applications: [footprint guide](../../docs/voice/worker-footprint.md).
+
 > **Real-time voice runtime for [Plumbus](https://github.com/plumbus-framework/plumbus) apps.** Define a voice once, pick a transport + STT + TTS stack, and mount governed session routes with shared cost tracking — your brain stays in normal Plumbus primitives.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice.svg)](https://www.npmjs.com/package/@plumbus/voice)

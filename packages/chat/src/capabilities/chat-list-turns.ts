@@ -1,4 +1,4 @@
-import { defineCapability } from '@plumbus/core';
+import { defineCapability } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 import { chatTurnRepo } from '../internal/chat-repos.js';
 

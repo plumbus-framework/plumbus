@@ -1,6 +1,6 @@
 /** Frame provider PCM into bounded LiveKit captures without changing audio samples. */
 import { AudioFrame } from '@livekit/rtc-node';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import { z } from '@plumbus/core/zod';
 
 export function createPcmAudioPublisher(

@@ -71,8 +71,9 @@ hook without coupling the framework to your domain.
 
 ## Agent child-process bootstrap
 
-LiveKit runs the default agent entry in a forked child process. The parent
-registers runtime config in memory, but the child starts with an empty registry.
+LiveKit runs the default agent entry in a forked child process. The CLI dispatch
+parent validates voice/provider definitions without constructing the application
+resource context. The child starts with an empty runtime registry.
 `plumbus voice worker` sets `PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE` to
 `@plumbus/core`'s `dist/cli/voice-agent-bootstrap.js`, which exports
 `bootstrapVoiceAgentRuntime()`. On the first dispatched job, the child imports
@@ -86,9 +87,13 @@ snapshot includes the bootstrap module.
 
 The child process inherits the worker environment, so AI provider env such as
 `AI_DEFAULT_PROVIDER` and `AI_OPENAI_API_KEY` must be present on
-`plumbus voice worker`. The bootstrap loads app server extensions
+`plumbus voice worker`. By default, the bootstrap loads app server extensions
 (`app/server.ts`) so DB-backed `resolveAiOverrides` and prompt overrides are
-available to the voice brain.
+available to the voice brain. To avoid loading unrelated application features,
+export explicit resources and shared AI hooks from `app/voice/runtime.ts`. The child
+and `--room` mode then use the scoped bootstrap without importing `app/server.ts`;
+the dispatch parent always skips the application context.
+See [worker footprint and migration](./worker-footprint.md).
 
 ## Agent audio track
 

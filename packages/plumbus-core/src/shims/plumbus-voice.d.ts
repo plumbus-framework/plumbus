@@ -65,6 +65,7 @@ export interface VoiceSessionBudgetConfig {
 
 export interface DiscoverVoicesOptions {
   appRoot?: string;
+  javascriptOnly?: boolean;
 }
 
 export declare function discoverVoices(options?: DiscoverVoicesOptions): Promise<VoiceDefinition[]>;
@@ -87,6 +88,7 @@ export interface AppVoiceRegistryModule {
 
 export declare function loadAppVoiceRegistry(options?: {
   appRoot?: string;
+  javascriptOnly?: boolean;
 }): Promise<AppVoiceRegistryModule | null>;
 
 export interface CreateVoiceExecutionContextFromRouteArgs {

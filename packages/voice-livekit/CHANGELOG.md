@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Upgrade the coordinated vendor pins to `@livekit/agents` 1.9.3 and `@livekit/rtc-node` 1.1.0. This provides the upstream `LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE=0` opt-out for workloads using external endpointing. Both pins must move together; dependency tests enforce one native RTC binding. The flag defers local model loading, not necessarily the helper process.
+
+- Use the voice session and core SDK/error entry points. Allow a dispatch-only parent to omit `createDependencies` when a child bootstrap module is configured; child entries still require governed dependencies. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Defer RNNoise WebAssembly imports until agent RNNoise is selected; disabled noise cancellation no longer loads the bundle.
+- Defer the transport token-minting SDK import until token creation. The vendor agent SDK still imports it independently; this does not remove it from dispatched call processes. See [worker footprint](../../docs/voice/worker-footprint.md).
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

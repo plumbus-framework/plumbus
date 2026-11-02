@@ -1,4 +1,4 @@
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import { z } from '@plumbus/core/zod';
 import {
   type DeliveryTone,

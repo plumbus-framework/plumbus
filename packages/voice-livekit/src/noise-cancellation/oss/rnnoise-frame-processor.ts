@@ -1,6 +1,6 @@
 import { AudioFrame, FrameProcessor } from '@livekit/rtc-node';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
-import { type DenoiseState, Rnnoise } from '@shiguredo/rnnoise-wasm';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
+import type { DenoiseState, Rnnoise } from '@shiguredo/rnnoise-wasm';
 
 const RNNOISE_SAMPLE_RATE = 48_000;
 
@@ -8,7 +8,9 @@ let rnnoiseFactoryPromise: Promise<Rnnoise | null> | undefined;
 
 async function loadRnnoiseFactory(): Promise<Rnnoise | null> {
   if (!rnnoiseFactoryPromise) {
-    rnnoiseFactoryPromise = Rnnoise.load().catch(() => null);
+    rnnoiseFactoryPromise = import('@shiguredo/rnnoise-wasm')
+      .then(({ Rnnoise }) => Rnnoise.load())
+      .catch(() => null);
   }
   return rnnoiseFactoryPromise;
 }

@@ -1,6 +1,6 @@
 import { z } from '@plumbus/core/zod';
-import { PlumbusError, ErrorCode } from '@plumbus/core';
-import { createJwtAdapter, signJwt } from '@plumbus/core';
+import { PlumbusError, ErrorCode } from '@plumbus/core/errors';
+import { createJwtAdapter, signJwt } from '@plumbus/core/sdk';
 import type { AuthContext } from '@plumbus/core';
 
 export interface VoiceSessionTokenClaims {

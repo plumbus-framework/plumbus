@@ -64,10 +64,10 @@
     }
   },
   "dependencies": {
-    "@livekit/agents": "1.9.0",
+    "@livekit/agents": "1.9.3",
     "@livekit/krisp-noise-filter": "^0.4.3",
     "@livekit/noise-cancellation-node": "^0.1.9",
-    "@livekit/rtc-node": "^0.13.34",
+    "@livekit/rtc-node": "1.1.0",
     "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "livekit-server-sdk": "^2.15.4",
     "ws": "^8.21.0"

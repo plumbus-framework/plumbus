@@ -4,6 +4,17 @@
 
 - **GPT-6.1 Terra is priced.** `gpt-6.1-terra` costs $1 input, $0.05 cached input, $1.25 cache writes and $5 output per MTok, with the 2× / 1.5× premium above 272K input tokens. It accepts reasoning `none` to `max` and, like the other GPT-6 models, sends tool calls through the Responses API. Also new in the catalog: `gpt-6-rosalind` ($15 / $1.50 / $75, long-context premium), `gpt-rosalind-research` and `gpt-rosalind-discovery` ($5 / $0.50 / $25). Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-11-02.
 
+- Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories; `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
+
+- Allow `voiceRuntime.resources.securityEntities` to supplement AI classifications and log masking without registering data repositories. Registered entities always remain in the classification set.
+
+- Add `@plumbus/core/sdk`, a runtime-only entry that shares implementations with the full root. `voice worker` uses a small CLI parser and no longer constructs the application context in the dispatch parent.
+- Add `voice build` and `voice worker --compiled` for statically compiled scoped apps; direct JS config imports avoid TypeScript loaders. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Add opt-in `app/voice/runtime.ts` resources and AI hooks for `--room` mode and the default LiveKit child bootstrap; skip full discovery, server extensions, MCP auth and queue connections in scoped mode while preserving governed context wiring. See [worker footprint](../../docs/voice/worker-footprint.md).
+- Load Fastify, SAML/XML dependencies and cron parsing only when used, preserving synchronous public APIs.
+- Share resource context construction with MCP, forward configured decision providers/definitions, and close acquired connections if context initialization fails.
+
 ## 0.8.2 — 2026-10-20
 
 - Pin the test and publish workflows to Ubuntu 24.04 so their PostgreSQL 16 prerequisites remain installable after `ubuntu-latest` moves to Ubuntu 26.04.

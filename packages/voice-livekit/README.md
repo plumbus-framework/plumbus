@@ -2,6 +2,8 @@
 
 Release notes: [changelog](./CHANGELOG.md) and [version/upgrade guide](../../docs/upgrading-stabilization.md).
 
+Worker startup and compiled applications: [footprint guide](../../docs/voice/worker-footprint.md).
+
 > **LiveKit transport, agent worker, and browser session helpers for [Plumbus](https://github.com/plumbus-framework/plumbus) voice.** Register as `transport.provider: 'livekit'`, mint room tokens, join agent workers, and run continuous or push-to-talk sessions without pulling LiveKit into `@plumbus/voice` itself.
 
 [![npm](https://img.shields.io/npm/v/@plumbus/voice-livekit.svg)](https://www.npmjs.com/package/@plumbus/voice-livekit)

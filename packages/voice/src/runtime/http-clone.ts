@@ -10,7 +10,7 @@ import {
   ErrorCode,
   PlumbusError,
   type RouteGeneratorConfig,
-} from '@plumbus/core';
+} from '@plumbus/core/sdk';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   assertCloneSampleWithinLimit,

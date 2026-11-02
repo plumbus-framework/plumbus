@@ -1,4 +1,4 @@
-import { defineEntity, field } from '@plumbus/core';
+import { defineEntity, field } from '@plumbus/core/sdk';
 
 export const chatPendingActionEntity = defineEntity({
   name: 'ChatPendingAction',

@@ -6,7 +6,7 @@ import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
-import Fastify from 'fastify';
+import { createFastify } from './fastify.js';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
 import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
@@ -223,7 +223,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       : denyAllAuthAdapter);
 
   // Fastify instance
-  const app = Fastify({
+  const app = createFastify({
     logger:
       config.environment !== 'production'
         ? {

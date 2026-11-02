@@ -1,4 +1,4 @@
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import type { VoiceProviderCredentials } from '@plumbus/voice/provider-kit';
 
 export const DEEPDUB_REST_BASE_URL = 'https://restapi.deepdub.ai/api/v1';

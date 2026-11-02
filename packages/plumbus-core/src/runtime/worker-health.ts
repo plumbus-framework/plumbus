@@ -1,7 +1,7 @@
 // ── Worker Health / Metrics Server ──
 // Lightweight HTTP endpoints for split worker processes.
 
-import Fastify from 'fastify';
+import { createFastify } from '../server/index.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import { createPlumbusMetrics } from '../observability/metrics.js';
@@ -24,7 +24,7 @@ export interface WorkerHealthServer {
 }
 
 export function createWorkerHealthServer(config: WorkerHealthServerConfig): WorkerHealthServer {
-  const app = Fastify({ logger: false });
+  const app = createFastify({ logger: false });
   const metrics = config.metrics ?? createPlumbusMetrics();
   const host = config.host ?? '0.0.0.0';
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `@plumbus/payments/entities` for schema/classification imports without payment services; entity definitions use the core SDK.
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.
