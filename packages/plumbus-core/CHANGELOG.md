@@ -1,5 +1,9 @@
 # @plumbus/core changelog
 
+## 0.8.3 — 2026-11-02
+
+- **GPT-6.1 Terra is priced.** `gpt-6.1-terra` costs $1 input, $0.05 cached input, $1.25 cache writes and $5 output per MTok, with the 2× / 1.5× premium above 272K input tokens. It accepts reasoning `none` to `max` and, like the other GPT-6 models, sends tool calls through the Responses API. Also new in the catalog: `gpt-6-rosalind` ($15 / $1.50 / $75, long-context premium), `gpt-rosalind-research` and `gpt-rosalind-discovery` ($5 / $0.50 / $25). Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-11-02.
+
 ## 0.8.2 — 2026-10-20
 
 - Pin the test and publish workflows to Ubuntu 24.04 so their PostgreSQL 16 prerequisites remain installable after `ubuntu-latest` moves to Ubuntu 26.04.
