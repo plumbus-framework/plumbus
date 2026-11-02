@@ -5,8 +5,9 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-10-08 (GPT-6.1 Sol, GPT-6 Astra, Claude Sonnet 5.5 and Haiku 5.5,
-// GPT-5.4 to GPT-5.6 long-context rows; GPT-6 and current Anthropic rows rechecked).
+// Last updated: 2026-11-02 (GPT-6.1 Terra, GPT-6 Rosalind, GPT-Rosalind Research and
+// Discovery; OpenAI rows rechecked). 2026-10-08: GPT-6.1 Sol, GPT-6 Astra, Claude Sonnet 5.5
+// and Haiku 5.5, GPT-5.4 to GPT-5.6 long-context rows; current Anthropic rows rechecked.
 // Other entries last synced 2026-09-10.
 //
 // Unknown models (Ollama, custom endpoints) have no catalog cost.
@@ -66,6 +67,14 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
     inputPerMTok: 2,
     outputPerMTok: 10,
     cachedInputPerMTok: 0.1,
+    longContextThreshold: 272_000,
+  },
+  // https://developers.openai.com/api/docs/models/gpt-6.1-terra
+  'gpt-6.1-terra': {
+    kind: 'text',
+    inputPerMTok: 1,
+    outputPerMTok: 5,
+    cachedInputPerMTok: 0.05,
     longContextThreshold: 272_000,
   },
   'gpt-6-sol': {
@@ -159,6 +168,25 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.6-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
   'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
+  'gpt-6-rosalind': {
+    kind: 'text',
+    inputPerMTok: 15,
+    outputPerMTok: 75,
+    cachedInputPerMTok: 1.5,
+    longContextThreshold: 272_000,
+  },
+  'gpt-rosalind-research': {
+    kind: 'text',
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    cachedInputPerMTok: 0.5,
+  },
+  'gpt-rosalind-discovery': {
+    kind: 'text',
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    cachedInputPerMTok: 0.5,
+  },
   'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
   // ── OpenAI: Embeddings ──
   'text-embedding-3-small': { kind: 'embedding', inputPerMTok: 0.02, outputPerMTok: 0 },

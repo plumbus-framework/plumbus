@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Plumbus realtime voice runtime \u2014 defineVoice, provider registry, session routes, and cost ledger integration.",
   "type": "module",
   "main": "./dist/index.js",

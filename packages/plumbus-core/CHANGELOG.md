@@ -1,6 +1,8 @@
 # @plumbus/core changelog
 
-## Unreleased
+## 0.8.3 — 2026-11-02
+
+- **GPT-6.1 Terra is priced.** `gpt-6.1-terra` costs $1 input, $0.05 cached input, $1.25 cache writes and $5 output per MTok, with the 2× / 1.5× premium above 272K input tokens. It accepts reasoning `none` to `max` and, like the other GPT-6 models, sends tool calls through the Responses API. Also new in the catalog: `gpt-6-rosalind` ($15 / $1.50 / $75, long-context premium), `gpt-rosalind-research` and `gpt-rosalind-discovery` ($5 / $0.50 / $25). Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-11-02.
 
 - Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories; `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
 

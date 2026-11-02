@@ -69,6 +69,14 @@ export interface VoiceBrainRunArgs {
   transcript?: string;
   language?: string;
   sessionId?: string;
+  /** Unique per controller turn; stable for every brain call within that turn. */
+  turnId?: string;
+  /**
+   * The turn this one replaces (`interruptions.whileWriting: 'restart'`). Its
+   * transcript is the prefix of this turn's transcript; a brain that persisted
+   * records for it discards them before reading history.
+   */
+  supersededTurnId?: string;
   input?: Record<string, unknown>;
   onAssistantDelta?: (text: string) => void | Promise<void>;
   signal?: AbortSignal;
@@ -128,6 +136,20 @@ export interface VoiceHearingRepairUtterance {
  */
 export type VoiceHearingRepairResult = string | VoiceHearingRepairUtterance | undefined | null;
 
+/**
+ * Speech that arrives while the brain is still writing a reply (before speech
+ * synthesis starts):
+ * - `'queue'` (default): the reply is spoken, then the new speech becomes the
+ *   next turn.
+ * - `'restart'`: the first recognised words abort the turn with
+ *   `VOICE_TURN_SUPERSEDED_REASON`, and the aborted transcript is prefixed to
+ *   the new speech, so one combined turn runs at the next endpoint.
+ * Speech during playback keeps the barge-in behaviour either way.
+ */
+export interface VoiceInterruptionsConfig {
+  whileWriting?: 'queue' | 'restart';
+}
+
 export interface VoiceConfig {
   name: string;
   description?: string;
@@ -141,6 +163,8 @@ export interface VoiceConfig {
   ) => Promise<VoiceRecognitionContext | undefined> | VoiceRecognitionContext | undefined;
   /** Per-utterance input bound, after trimming. Defaults to 4,000 UTF-16 code units. */
   transcript?: { maxChars?: number };
+  /** What happens when the user speaks during a turn (continuous server-STT sessions). */
+  interruptions?: VoiceInterruptionsConfig;
   tts: VoiceTtsConfig;
   brain: VoiceBrain;
   instructions?: string[];

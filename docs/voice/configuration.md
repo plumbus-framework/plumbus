@@ -188,7 +188,7 @@ See [voice definition](./defining-voices.md), [security](./security.md), and [co
 
 ## Complete-reply delivery
 
-`tts.responseMode: 'reply'` runs the brain once, forwards its visible text deltas, then calls `resolveTone` with `assistantText` and the original `brainResult`. It synthesizes the complete reply in one request after `preprocessForTts`; no sentence rewriting or extra model call is performed. Omitted or `'sentence'` retains the existing streaming sentence pipeline. Complete replies give a provider more prosodic context but delay first audio until the brain finishes. Provider text limits still apply. Aborting before synthesis prevents speech.
+`tts.responseMode: 'reply'` runs the brain once, forwards its visible text deltas, then calls `resolveTone` with `assistantText` and the original `brainResult`. It synthesizes the complete reply in one request after `preprocessForTts`; no sentence rewriting or extra model call is performed. Omitted or `'sentence'` retains the existing streaming sentence pipeline. Complete replies give a provider more prosodic context but delay first audio until the brain finishes. Provider text limits still apply. Aborting before synthesis prevents speech. With `interruptions.whileWriting: 'restart'`, speech during that window aborts the reply and the next turn carries both answers; see [continuous sessions](./livekit-continuous-voice.md).
 
 `VoiceBrainRunArgs.transcriptConfidence` carries the STT confidence when available. It is a signal for an application's contextual decision, not an automatic classification.
 

@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
+
+- Add opt-in `interruptions.whileWriting: 'restart'` for continuous server-STT sessions: speech recognised while the brain is still writing a reply (before synthesis) aborts that turn with `VOICE_TURN_SUPERSEDED_REASON`, emits `turn.interrupted` with `reason: 'superseded'`, and runs one combined turn with the aborted transcript prefixed to the new speech. `brain.run` now receives `turnId` on every call and `supersededTurnId` on the combined turn, so a brain can discard what it persisted for the superseded turn; `isVoiceTurnSuperseded(signal)` identifies the abort reason. The default `'queue'` keeps the existing behaviour; peers are unchanged.
 
 - Add `@plumbus/voice/session` for worker runtime imports without HTTP/admin routes; support JavaScript-only voice and registry discovery with fail-fast compiled imports. Use core error/runtime subpaths instead of importing tooling. See [worker footprint](../../docs/voice/worker-footprint.md).
 
