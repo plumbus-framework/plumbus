@@ -50,5 +50,6 @@ export {
   resolveEncryptionKey,
   ENCRYPTION_PREFIX,
 } from './field-encryption.js';
+export { resolveSelectedFields } from './projection.js';
 export { createRepository, type RepositoryOptions } from './repository.js';
 export { generateDrizzleSchema, generateSchemas } from './schema-generator.js';

@@ -159,7 +159,7 @@ Use it when the product needs speech I/O around an app-owned brain hook. It comp
 
 ### Optional add-ons: `@plumbus/voice-*` providers
 
-Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.7.x` (and `@plumbus/core` `0.9.x`). Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
+Cloud/vendor voice providers ship as separate packages that peer-depend on `@plumbus/voice` `0.7.x` (and `@plumbus/core` `0.9.x`); voice-livekit 0.4.0-beta.2+ needs voice 0.7.0-beta.2+ and core 0.9.0-beta.7+. Install only what you use, then **explicitly register** each package’s `*_REGISTRATION` with `createProviderRegistry({ stt/tts/transport })` and pass that registry to routes/workers. CLI/workers also require `app/voice/registry.ts` exporting `voiceProviderRegistry` (optional `voiceProviders`). There is no auto-load / `createRegistryForVoices` / `VOICE_ADDON_PACKAGES`:
 
 ```
 pnpm add @plumbus/voice-openai     # openai-whisper / openai-realtime STT + openai TTS
@@ -226,7 +226,7 @@ Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command reso
 When editing `peerDependencies` in any `packages/*/package.json` (releases, new add-ons, compatibility bumps):
 
 - Read `packages/plumbus-core/instructions/peer-dependencies.md` first.
-- **Copy literals — do not derive ranges.** During the 0.9 beta most add-ons use exactly `">=0.9.0-beta.0 <0.10.0"` (see `packages/mcp/package.json`); the stable 0.8 family on `main` uses `"0.8.x"`, and at 0.9 stable the beta literal becomes `"0.9.x"`. Never use `^0.x` caret ranges on `@plumbus/core` peers.
+- **Copy literals — do not derive ranges.** During the 0.9 beta most add-ons use exactly `">=0.9.0-beta.0 <0.10.0"` (see `packages/mcp/package.json`); the stable 0.8 family on `main` uses `"0.8.x"`, and at 0.9 stable the beta literal becomes `"0.9.x"`. Voice, chat, payments and voice-livekit use `">=0.9.0-beta.7 <0.10.0"` because they import `@plumbus/core/sdk` (voice-livekit also `"@plumbus/voice": ">=0.7.0-beta.2 <0.8.0"` for `@plumbus/voice/session`). Never use `^0.x` caret ranges on `@plumbus/core` peers. When an add-on starts using an export added in a later beta, raise its floor the same way and update the table in `peer-dependencies.md`.
 - **pnpm passing locally does not prove peers are correct.** Backend Docker installs with **npm**; wrong peers break production builds.
 
 ## Release compatibility — core 0.9 family (beta) and core 0.8 stabilization family

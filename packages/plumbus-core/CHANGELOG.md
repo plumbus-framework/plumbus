@@ -218,6 +218,31 @@ The stabilization changes reach the beta line with this version. An app coming f
 
 - **Tenant flow delays wake at their own time** (prepared as 0.8.0-beta.11, never published). With spine dispatch, an ordinary `delay` step of a tenant-placed flow left the worker's spine hint lease on the sleeping step, so the next step was claimed only once that lease (five minutes) expired. The delay now goes through the durable schedule/outbox path: the prior hint is acknowledged without handing its lease to the sleeping step, and the next hint is published with the persisted wake time (`notBefore`), so any worker claims the step when it is due. A lost guarded tenant checkpoint fails with `LeaseLostError` before any delayed notification is sent, and a delay as the last step still wakes to completion. The original auth snapshot is kept; no schema or public API change.
 
+### From main (stable 0.8.3)
+
+- **`@plumbus/core/sdk`**, a runtime-only entry sharing implementations with the root; the root re-exports it plus CLI/governance tooling. Unlike main, `createExecutionContext` is not on `/sdk` (it stays on `@plumbus/core/runtime`).
+- **Typed `findManyFields(query, fields, options)`** field projection in SQL and in-memory repositories; optional on `Repository` (like `updateWhere`), so custom repositories still type-check. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
+- **Voice worker footprint:** `voice build` and `voice worker --compiled` (compiled JS config imported natively only in that mode; tsx everywhere else), opt-in `app/voice/runtime.ts` resources and `voiceRuntime.resources.securityEntities`, a dispatch-only parent with a small CLI parser, and `@plumbus/voice/session` when the installed voice has it (the voice root otherwise). See [worker footprint](../../docs/voice/worker-footprint.md).
+- Fastify, SAML/XML and cron parsing load only when used; MCP and voice share the resource-context construction and close acquired connections if it fails.
+- `gpt-rosalind-research` and `gpt-rosalind-discovery` gain their $0.50 cached-input rate (checked 2026-11-02). Vitest 5.0.5 and GPT-6.1 Terra were already on this line.
+
+## 0.8.3 — 2026-11-02
+
+- **Vitest 5.0.5** (was 5.0.4), the bundled test runner behind `plumbus test`. Bug fixes only, including GHSA-p458-7748-mcp3 (the Vitest browser and UI servers misapplied `server.fs.deny` and could serve `.env` files, private keys and the API token file). It also makes `npm install` work again with npm 10: npm 10 crashes resolving vitest 5.0.4's peer dependencies (`Cannot read properties of null (reading 'edgesOut')`), which affected every core 0.8.x install with npm 10.
+- **GPT-6.1 Terra is priced.** `gpt-6.1-terra` costs $1 input, $0.05 cached input, $1.25 cache writes and $5 output per MTok, with the 2× / 1.5× premium above 272K input tokens. It accepts reasoning `none` to `max` and, like the other GPT-6 models, sends tool calls through the Responses API. Also new in the catalog: `gpt-6-rosalind` ($15 / $1.50 / $75, long-context premium), `gpt-rosalind-research` and `gpt-rosalind-discovery` ($5 / $0.50 / $25). Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-11-02.
+
+- Add typed `findManyFields(query, fields, options)` field projection in SQL and in-memory test repositories. It is optional on the `Repository` interface (like `updateWhere`), so custom repositories and mocks written for 0.8.2 still type-check; the framework's repositories always provide it (call it as `findManyFields!(…)`); `findMany` keeps its non-generic signature. Preserve tenant/soft-delete filters and selected-field decryption, reject invalid database columns, and avoid loading unneeded large text/JSON fields. See [data layer](../../docs/sdk-reference/data-layer.md#findmany).
+
+- Allow `voiceRuntime.resources.securityEntities` to supplement AI classifications and log masking without registering data repositories. Registered entities always remain in the classification set.
+
+- Add `@plumbus/core/sdk`, a runtime-only entry that shares implementations with the full root. `voice worker` uses a small CLI parser and no longer constructs the application context in the dispatch parent.
+- Add `voice build` and `voice worker --compiled` for statically compiled scoped apps; in that compiled mode the JS config is imported directly, without TypeScript loaders. Everywhere else `config/app.config.js` / `.mjs` still loads through tsx as in 0.8.2.
+- `plumbus voice worker` uses `@plumbus/voice/session` when the installed voice has it (0.6.1+) and the `@plumbus/voice` root otherwise, so core 0.8.3 still runs the voice worker with voice 0.6.0. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Add opt-in `app/voice/runtime.ts` resources and AI hooks for `--room` mode and the default LiveKit child bootstrap; skip full discovery, server extensions, MCP auth and queue connections in scoped mode while preserving governed context wiring. See [worker footprint](../../docs/voice/worker-footprint.md).
+- Load Fastify, SAML/XML dependencies and cron parsing only when used, preserving synchronous public APIs.
+- Share resource context construction with MCP, forward configured decision providers/definitions, and close acquired connections if context initialization fails.
+
 ## 0.8.2 — 2026-10-20
 
 - Pin the test and publish workflows to Ubuntu 24.04 so their PostgreSQL 16 prerequisites remain installable after `ubuntu-latest` moves to Ubuntu 26.04.

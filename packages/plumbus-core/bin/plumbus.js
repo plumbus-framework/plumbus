@@ -20,6 +20,7 @@ if (existsSync(".env") && isPlumbusProjectRoot(process.cwd())) {
     console.warn(`[plumbus] ${ErrorHints.envNotLoaded}`);
 }
 
-import { createCli } from "../dist/cli/cli.js";
-const program = createCli();
-program.parse();
+const program = process.argv[2] === 'voice' && process.argv[3] === 'worker'
+    ? (await import('../dist/cli/voice-cli.js')).createVoiceCli()
+    : (await import('../dist/cli/cli.js')).createCli();
+await program.parseAsync(process.argv, { from: 'node' });

@@ -4,7 +4,7 @@ import {
   PlumbusError,
   type ExecutionContext,
   type RouteGeneratorConfig,
-} from '@plumbus/core';
+} from '@plumbus/core/sdk';
 import { createExecutionContext } from '@plumbus/core/runtime';
 import { z } from '@plumbus/core/zod';
 import websocket from '@fastify/websocket';

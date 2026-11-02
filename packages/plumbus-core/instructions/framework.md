@@ -139,6 +139,8 @@ The framework provides common dependencies — **consumer apps must NOT install 
 
 **CRITICAL**: Never add `zod`, `vitest`, `playwright`, or `@playwright/test` to a consumer app's `package.json`. They are provided by `@plumbus/core`.
 
+**Runtime-only entry (core 0.8.3+):** `@plumbus/core/sdk` exports the same runtime API as `@plumbus/core` (primitives, `ctx`, data, auth, events, flows, AI, config) without the CLI commands and governance tooling, so a process that imports it loads less code. It is the same implementation, not a second runtime. Use it in long-running worker code such as voice runtimes; keep `@plumbus/core` everywhere else. `plumbus voice build` rewrites voice-worker imports to it automatically.
+
 ### CLI Commands
 
 | Task | Command |

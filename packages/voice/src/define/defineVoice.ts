@@ -36,6 +36,7 @@ const voiceConfigSchema = z.object({
   transcript: z
     .object({ maxChars: z.number().finite().int().positive().safe().optional() })
     .optional(),
+  interruptions: z.object({ whileWriting: z.enum(['queue', 'restart']).optional() }).optional(),
   tts: z.object({
     responseMode: z.enum(['sentence', 'reply']).optional(),
     provider: z.string().min(1),

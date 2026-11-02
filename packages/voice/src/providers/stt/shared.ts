@@ -1,4 +1,4 @@
-import { PlumbusError, ErrorCode } from '@plumbus/core';
+import { PlumbusError, ErrorCode } from '@plumbus/core/errors';
 import { Buffer } from 'node:buffer';
 import WebSocket from 'ws';
 import type { VoiceProviderCredentials } from '../../types/provider.js';

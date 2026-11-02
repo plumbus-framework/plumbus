@@ -1,6 +1,6 @@
 # Core 0.8 stabilization upgrade
 
-This family also upgrades the bundled test runner to **Vitest 5.0.4**. Update local/CI/container Node to Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Review existing test configs and mocks using [testing.md](./testing.md).
+This family also upgrades the bundled test runner to **Vitest 5** (5.0.5 from core 0.8.3). Update local/CI/container Node to Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Review existing test configs and mocks using [testing.md](./testing.md).
 
 Install the coordinated family: core 0.8.x, UI 0.9.x, MCP 0.7.x, voice 0.6.x, other add-ons 0.3.x. The core 0.9 beta family (npm dist-tag `plumbus-next`: core 0.9.0-beta, UI 0.10, MCP 0.8, voice 0.7, other add-ons 0.4) contains every change in this guide; apps moving to it follow the same checklist with the prerelease-inclusive peer literals (core `>=0.9.0-beta.0 <0.10.0`). Follow `peer-dependencies.md`. Generate/apply database migrations before starting the new runtime; drain old flow-mutating APIs, workers, and schedulers. Old binaries cannot honor new ownership/tick guards. Keep additive schema and history during rollback; stop new processes before rolling back.
 

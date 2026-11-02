@@ -85,6 +85,22 @@ describe('configuration resolution', () => {
     );
     await expect(loadAppConfig({ env: {} }, badFlag)).rejects.toThrow('Invalid configuration');
   });
+
+  it('loads a compiled JS config natively in JavaScript-only mode', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'plumbus-config-'));
+    directories.push(root);
+    await mkdir(join(root, 'config'));
+    await writeFile(
+      join(root, 'config/app.config.ts'),
+      `export const config = { queue: { prefix: 'ts' } };`,
+    );
+    await writeFile(
+      join(root, 'config/app.config.js'),
+      `export const config = { queue: { prefix: 'compiled-js' } };`,
+    );
+    const config = await loadAppConfig({ env: {} }, root, { javascriptOnly: true });
+    expect(config.queue.prefix).toBe('compiled-js');
+  });
   it('supports default exports and rejects unsupported file settings', async () => {
     const root = await fixture(`export default { queue: { prefix: 'default-export' } };`);
     expect((await loadAppConfig({ env: {} }, root)).queue.prefix).toBe('default-export');

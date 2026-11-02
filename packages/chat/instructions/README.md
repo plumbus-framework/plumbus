@@ -11,4 +11,6 @@ This folder ships with the npm tarball and is the entry point for AI coding agen
 | [`testing.md`](./testing.md) | When writing tests with `mockChatRuntime` or the pure UI helpers. |
 | [`extending.md`](./extending.md) | When the built-ins don't cover the use case (custom prompt, custom context source, custom guard). |
 
+Worker code that runs chat turns without HTTP or evaluation tooling can import from `@plumbus/chat/session` (0.3.1+, requires core 0.8.3+): `defineChat`, `runChatTurn`, the chat entities and events.
+
 These files are **prescriptive** (do this, don't do that). For the **conceptual** reference (what it is, why it exists, design tradeoffs), see `/docs/chat/` in the Plumbus monorepo, which is also linked from each instruction file.

@@ -1,4 +1,4 @@
-import { defineCapability } from '@plumbus/core';
+import { defineCapability } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 import { runChatTurn, type RunChatTurnOpts } from '../runtime/run-turn.js';
 import type { ChatDefinition } from '../types/chat.js';

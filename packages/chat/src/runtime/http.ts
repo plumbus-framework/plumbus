@@ -1,6 +1,6 @@
 import type { AuthContext, ExecutionContext } from '@plumbus/core';
 import type { RouteGeneratorConfig } from '@plumbus/core';
-import { evaluateAccess } from '@plumbus/core';
+import { evaluateAccess } from '@plumbus/core/sdk';
 import { createExecutionContext } from '@plumbus/core/runtime';
 import { z } from '@plumbus/core/zod';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';

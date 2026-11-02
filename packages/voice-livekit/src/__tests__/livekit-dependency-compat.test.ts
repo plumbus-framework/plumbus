@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
  * fell outside the agents release's peer range (agents 1.9.1 raised it to 1.x
  * while we were on 0.13), npm installed a second rtc-node beside ours. Pinned
  * to 1.9.4 (patched `sharp` 0.35.5), whose peer `^1.1.0` contains our `^1.2.1`.
+ * Agents 1.9.3+ also has the inference-preload opt-out the prewarm path uses.
+ * Upgrade both pins together.
  */
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {

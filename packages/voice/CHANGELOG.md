@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0-beta.2 — 2026-11-02
+
+- **Requires `@plumbus/core` 0.9.0-beta.7 or later** (peer `">=0.9.0-beta.7 <0.10.0"`, was `">=0.9.0-beta.6 <0.10.0"`): the runtime imports `@plumbus/core/sdk`, which earlier betas do not have. On the beta line `@plumbus/core/sdk` does not export `createExecutionContext`; it stays on `@plumbus/core/runtime`, as before.
+
+### From main (stable 0.6.1)
+
+- Add opt-in `interruptions.whileWriting: 'restart'` for continuous server-STT sessions: speech recognised while the brain is still writing a reply (before synthesis) aborts that turn with `VOICE_TURN_SUPERSEDED_REASON`, emits `turn.interrupted` with `reason: 'superseded'`, and runs one combined turn with the aborted transcript prefixed to the new speech. `brain.run` now receives `turnId` on every call and `supersededTurnId` on the combined turn, so a brain can discard what it persisted for the superseded turn; `isVoiceTurnSuperseded(signal)` identifies the abort reason. The default `'queue'` keeps the existing behaviour; peers are unchanged.
+
+- Add `@plumbus/voice/session` for worker runtime imports without HTTP/admin routes; support JavaScript-only voice and registry discovery with fail-fast compiled imports. Use core error/runtime subpaths instead of importing tooling. See [worker footprint](../../docs/voice/worker-footprint.md).
+
 ## 0.7.0-beta.1 — 2026-10-26
 
 - **zod 4.** Keyed `z.record`s; definitions no longer freeze their zod schemas. Core peer `>=0.9.0-beta.6 <0.10.0`.
@@ -26,6 +36,13 @@
 
 - **Vitest 5.0.4** test toolchain and the Node floor `^22.12.0 || ^24.0.0 || >=26.0.0` (was `>=20.6.0`), with package instructions and compatibility guidance refreshed for core 0.8 and agent wiring v21 (stable 0.6.0).
 - Runs on `@plumbus/core` 0.9.0-beta.0, which also carries the stable core 0.8.0 fixes (PLB-01..PLB-10: event delivery policy, Redis startup and claim/reclaim recovery, flow claim fencing, durable scheduler ticks and schedule definitions, retry deadlines and flow dead letters, durable job publication, configuration overrides and app config files) and core 0.8.1's background-loop fixes (scheduler poll, delayed-wake promoter).
+
+## 0.6.1 — 2026-11-02
+
+- **Requires `@plumbus/core` 0.8.3 or later** (peer `">=0.8.3 <0.9.0"`, was `0.8.x`): the runtime imports `@plumbus/core/sdk`, which core 0.8.2 does not have. Upgrade core together with voice.
+- Add opt-in `interruptions.whileWriting: 'restart'` for continuous server-STT sessions: speech recognised while the brain is still writing a reply (before synthesis) aborts that turn with `VOICE_TURN_SUPERSEDED_REASON`, emits `turn.interrupted` with `reason: 'superseded'`, and runs one combined turn with the aborted transcript prefixed to the new speech. `brain.run` now receives `turnId` on every call and `supersededTurnId` on the combined turn, so a brain can discard what it persisted for the superseded turn; `isVoiceTurnSuperseded(signal)` identifies the abort reason. The default `'queue'` keeps the existing behaviour; peers are unchanged.
+
+- Add `@plumbus/voice/session` for worker runtime imports without HTTP/admin routes; support JavaScript-only voice and registry discovery with fail-fast compiled imports. Use core error/runtime subpaths instead of importing tooling. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 ## 0.6.0 — Stabilization compatibility family
 

@@ -71,8 +71,9 @@ hook without coupling the framework to your domain.
 
 ## Agent child-process bootstrap
 
-LiveKit runs the default agent entry in a forked child process. The parent
-registers runtime config in memory, but the child starts with an empty registry.
+LiveKit runs the default agent entry in a forked child process. The CLI dispatch
+parent validates voice/provider definitions without constructing the application
+resource context. The child starts with an empty runtime registry.
 `plumbus voice worker` sets `PLUMBUS_VOICE_AGENT_BOOTSTRAP_MODULE` to
 `@plumbus/core`'s `dist/cli/voice-agent-bootstrap.js`, which exports
 `bootstrapVoiceAgentRuntime()`. On the first dispatched job, the child imports
@@ -86,9 +87,13 @@ snapshot includes the bootstrap module.
 
 The child process inherits the worker environment, so AI provider env such as
 `AI_DEFAULT_PROVIDER` and `AI_OPENAI_API_KEY` must be present on
-`plumbus voice worker`. The bootstrap loads app server extensions
+`plumbus voice worker`. By default, the bootstrap loads app server extensions
 (`app/server.ts`) so DB-backed `resolveAiOverrides` and prompt overrides are
-available to the voice brain.
+available to the voice brain. To avoid loading unrelated application features,
+export explicit resources and shared AI hooks from `app/voice/runtime.ts`. The child
+and `--room` mode then use the scoped bootstrap without importing `app/server.ts`;
+the dispatch parent always skips the application context.
+See [worker footprint and migration](./worker-footprint.md).
 
 ## Agent audio track
 
@@ -156,6 +161,24 @@ transport: {
   the transport is lost. Barge-in during a reply still discards the pending
   turn — an explicit interrupt means the user is restarting (barge-in is a
   no-op while a repair prompt plays).
+- Optional `interruptions.whileWriting: 'restart'` (default `'queue'`) changes
+  what happens when the user speaks while the brain is still **writing** the
+  reply, before speech synthesis starts (`Transcribing` / `AwaitingLLM`; with
+  `tts.responseMode: 'reply'` that is the whole brain call). The first
+  recognised words abort the turn with `VOICE_TURN_SUPERSEDED_REASON`, emit
+  `turn.interrupted` with `reason: 'superseded'` and `agent.state: Listening`,
+  and prefix the aborted transcript to the new speech, so `stt.partial` shows
+  the combined answer and the next endpoint runs **one** combined turn (replayed
+  after the aborted turn unwinds if it is still in flight). Nothing the aborted
+  turn emits afterwards reaches the client, and it is never synthesized. Speech
+  after synthesis starts keeps the queue behaviour above. The combined turn's
+  `brain.run` receives `supersededTurnId` (the aborted turn's `turnId`); a brain
+  that persists records per turn (keyed by `args.turnId`) discards the
+  superseded turn's records there, before reading history, because the combined
+  transcript re-sends them. `isVoiceTurnSuperseded(args.signal)` tells the
+  aborted brain call why it stopped. Barge-in, a hearing repair or teardown
+  before the combined turn drops `supersededTurnId` with the pending speech.
+  Server STT only; each restart discards the brain call in progress.
 - Optional `stt.options.backchannelEnabled` (default `false`) emits short
   audio-only continuers during reflective pauses mid-utterance without starting
   a brain turn or writing `assistant.delta`. Tuned via `backchannelPauseMs`

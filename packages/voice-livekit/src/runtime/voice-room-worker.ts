@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ExecutionContext } from '@plumbus/core';
-import { ErrorCode, PlumbusError } from '@plumbus/core';
+import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
 import {
   createSTTProvider,
   createTransportProvider,
@@ -9,7 +9,7 @@ import {
   type VoiceProviderRegistry,
   VoiceSessionController,
   validateVoiceProviders,
-} from '@plumbus/voice';
+} from '@plumbus/voice/session';
 import {
   createVoiceSessionBudget,
   type VoiceDefinition,

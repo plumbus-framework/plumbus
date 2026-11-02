@@ -1,5 +1,5 @@
 import type { CapabilityContract } from '@plumbus/core';
-import { defineCapability, executeCapability } from '@plumbus/core';
+import { defineCapability, executeCapability } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 import { chatActionConfirmedEvent, chatActionRejectedEvent } from '../events/chat-events.js';
 import {

@@ -927,7 +927,7 @@ const { data, usage, cost } = await ctx.ai.generateWithUsage({
 // cost = 0.00234 (USD)
 ```
 
-For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.6-sol` (including the `gpt-5.6` alias), `gpt-5.6-terra`, `gpt-5.6-luna`, and the GPT-6 models apply their documented long-context premium above 272K input tokens. Other OpenAI models list no long-context price and use the base rate at any length. OpenAI rates were checked on 2026-11-01 and current Anthropic rates on 2026-10-08; the remaining catalog was last synced on 2026-10-01. Run the `update-model-pricing` skill to refresh rates.
+For OpenAI/Anthropic, cost comes from `estimateModelCost()` and the built-in table. The table records **standard-tier** rates only — Batch, Flex, Fast mode, and regional processing uplifts are not modelled. `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.6-sol` (including the `gpt-5.6` alias), `gpt-5.6-terra`, `gpt-5.6-luna`, and the GPT-6 models apply their documented long-context premium above 272K input tokens. Other OpenAI models list no long-context price and use the base rate at any length. OpenAI rates were checked on 2026-11-02 and current Anthropic rates on 2026-10-08; the remaining catalog was last synced on 2026-10-01. Run the `update-model-pricing` skill to refresh rates.
 
 The GPT-6 models use these USD rates per million tokens for requests with at most 272,000 input tokens:
 

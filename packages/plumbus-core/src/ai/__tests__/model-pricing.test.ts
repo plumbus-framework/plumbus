@@ -121,7 +121,7 @@ describe('calculateModelCost', () => {
     expect(calculateModelCost(1000, 500, 'gpt-5.5-cyber')).toBe(0.05);
     // gpt-5-search-api: input $1.25/MTok, output $10/MTok
     expect(calculateModelCost(1000, 500, 'gpt-5-search-api')).toBe(0.00625);
-    // gpt-rosalind-research (Life Sciences): input $5/MTok, output $25/MTok
+    // GPT-Rosalind Research and Discovery (Life Sciences): input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'gpt-rosalind-research')).toBe(0.0175);
     expect(calculateModelCost(1000, 500, 'gpt-rosalind-discovery')).toBe(0.0175);
     // gpt-6-rosalind: input $15/MTok, output $75/MTok, then $30 / $112.50 above 272K input

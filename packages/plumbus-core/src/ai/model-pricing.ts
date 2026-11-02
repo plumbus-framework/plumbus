@@ -5,9 +5,9 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-11-01 (GPT-6.1 Terra, GPT-6 Rosalind, GPT-Rosalind Discovery; OpenAI
-// rows rechecked). 2026-10-08: GPT-6.1 Sol, GPT-6 Astra, Claude Sonnet 5.5 and Haiku 5.5,
-// GPT-5.4 to GPT-5.6 long-context rows; current Anthropic rows rechecked.
+// Last updated: 2026-11-02 (GPT-6.1 Terra, GPT-6 Rosalind, GPT-Rosalind Research and
+// Discovery; OpenAI rows rechecked). 2026-10-08: GPT-6.1 Sol, GPT-6 Astra, Claude Sonnet 5.5
+// and Haiku 5.5, GPT-5.4 to GPT-5.6 long-context rows; current Anthropic rows rechecked.
 // Other entries last synced 2026-10-01.
 //
 // Unknown models (Ollama, custom endpoints) have no catalog cost.
@@ -177,8 +177,18 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
     cachedInputPerMTok: 1.5,
     longContextThreshold: 272_000,
   },
-  'gpt-rosalind-research': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
-  'gpt-rosalind-discovery': { kind: 'text', inputPerMTok: 5, outputPerMTok: 25 },
+  'gpt-rosalind-research': {
+    kind: 'text',
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    cachedInputPerMTok: 0.5,
+  },
+  'gpt-rosalind-discovery': {
+    kind: 'text',
+    inputPerMTok: 5,
+    outputPerMTok: 25,
+    cachedInputPerMTok: 0.5,
+  },
   'gpt-5-search-api': { kind: 'text', inputPerMTok: 1.25, outputPerMTok: 10 },
   // ── OpenAI: Embeddings ──
   'text-embedding-3-small': { kind: 'embedding', inputPerMTok: 0.02, outputPerMTok: 0 },

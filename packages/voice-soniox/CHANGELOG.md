@@ -3,6 +3,7 @@
 ## 0.4.0-beta.2 — 2026-11-01
 
 - **Rate limits.** A Soniox 429 starts a cooldown for that endpoint (its `Retry-After`, else 10 s), shared by every call in the process. Requests made while it runs are answered 429 locally, without reaching Soniox. The `rate_limit` refusal now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call: the SDK's request timeout keeps running during a wait, so come back after `retryAfterMs`. Core peer `>=0.9.0-beta.7 <0.10.0`.
+- **From main (stable 0.3.1):** Use the core error subpath to avoid loading CLI/governance tooling for provider errors. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 ## 0.4.0-beta.1 — 2026-10-26
 
@@ -29,6 +30,10 @@
 
 - **Vitest 5.0.4** test toolchain and the Node floor `^22.12.0 || ^24.0.0 || >=26.0.0` (was `>=20.6.0`), with package instructions and compatibility guidance refreshed for core 0.8 and agent wiring v21 (stable 0.3.0).
 - Runs on `@plumbus/core` 0.9.0-beta.0, which also carries the stable core 0.8.0 fixes (PLB-01..PLB-10: event delivery policy, Redis startup and claim/reclaim recovery, flow claim fencing, durable scheduler ticks and schedule definitions, retry deadlines and flow dead letters, durable job publication, configuration overrides and app config files) and core 0.8.1's background-loop fixes (scheduler poll, delayed-wake promoter).
+
+## 0.3.1 — 2026-11-02
+
+- Use the core error subpath to avoid loading CLI/governance tooling for provider errors. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 ## 0.3.0 — Stabilization compatibility family
 

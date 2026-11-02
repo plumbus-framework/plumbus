@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0-beta.2 — 2026-11-02
+
+- **Requires `@plumbus/core` 0.9.0-beta.7+ and `@plumbus/voice` 0.7.0-beta.2+** (peers `">=0.9.0-beta.7 <0.10.0"` / `">=0.7.0-beta.2 <0.8.0"`): this release imports `@plumbus/core/sdk` and `@plumbus/voice/session`, which earlier betas do not have.
+- The beta keeps its newer vendor pins, `@livekit/agents` 1.9.4 with `@livekit/rtc-node` `^1.2.1` (main pins 1.9.3 / 1.1.0); 1.9.4 also has the `LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE=0` opt-out. `@livekit/noise-cancellation-node` is `^0.3.0` on both.
+
+### From main (stable 0.3.1)
+
+- Use the voice session and core SDK/error entry points. Allow a dispatch-only parent to omit `createDependencies` when a child bootstrap module is configured; child entries still require governed dependencies. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Defer RNNoise WebAssembly imports until agent RNNoise is selected; disabled noise cancellation no longer loads the bundle.
+- Defer the transport token-minting SDK import until token creation. The vendor agent SDK still imports it independently; this does not remove it from dispatched call processes. See [worker footprint](../../docs/voice/worker-footprint.md).
+
 ## 0.4.0-beta.1 — 2026-10-26
 
 - **`@livekit/agents` `1.9.4`** (was `1.9.0`), for its `sharp` `0.35.5` (GHSA-wq5f-xc86-pv6w, librsvg in sharp 0.35.4). Agents 1.9.1 and later need `@livekit/rtc-node` 1.x, and the worker and this package must share one rtc-node, so **`@livekit/rtc-node` is now `^1.2.1`** (was `^0.13.34`; 1.0 only marked the package stable, the API is unchanged) and **`@livekit/noise-cancellation-node` `^0.3.0`** (was `^0.1.9`, whose peer allows rtc-node 0.13 only). `livekit-dependency-compat.test.ts` checks one resolved rtc-node inside agents' peer range.
@@ -22,6 +34,16 @@
 - **Vitest 5.0.4** test toolchain and the Node floor `^22.12.0 || ^24.0.0 || >=26.0.0` (was `>=20.6.0`), with package instructions and compatibility guidance refreshed for core 0.8 and agent wiring v21 (stable 0.3.0).
 - Room and AudioStream constructor mocks migrated to constructable implementations for Vitest 5, keeping the audio/session assertions (stable 0.3.0).
 - Runs on `@plumbus/core` 0.9.0-beta.0, which also carries the stable core 0.8.0 fixes (PLB-01..PLB-10: event delivery policy, Redis startup and claim/reclaim recovery, flow claim fencing, durable scheduler ticks and schedule definitions, retry deadlines and flow dead letters, durable job publication, configuration overrides and app config files) and core 0.8.1's background-loop fixes (scheduler poll, delayed-wake promoter).
+
+## 0.3.1 — 2026-11-02
+
+- **Requires `@plumbus/core` 0.8.3+ and `@plumbus/voice` 0.6.1+** (peers `">=0.8.3 <0.9.0"` / `">=0.6.1 <0.7.0"`, were `0.8.x` / `0.6.x`): this release imports `@plumbus/core/sdk` and `@plumbus/voice/session`, which earlier versions do not have. Upgrade core and voice together with this package.
+- Upgrade the coordinated vendor pins to `@livekit/agents` 1.9.3 and `@livekit/rtc-node` 1.1.0, with `@livekit/noise-cancellation-node` `^0.3.0` (the first version whose peer accepts rtc-node 1.x; 0.1.x requires `^0.13`, which npm installs refuse next to rtc-node 1.1.0). This provides the upstream `LIVEKIT_AGENTS_PRELOAD_LOCAL_INFERENCE=0` opt-out for workloads using external endpointing. Both pins must move together; dependency tests enforce one native RTC binding. The flag defers local model loading, not necessarily the helper process.
+
+- Use the voice session and core SDK/error entry points. Allow a dispatch-only parent to omit `createDependencies` when a child bootstrap module is configured; child entries still require governed dependencies. See [worker footprint](../../docs/voice/worker-footprint.md).
+
+- Defer RNNoise WebAssembly imports until agent RNNoise is selected; disabled noise cancellation no longer loads the bundle.
+- Defer the transport token-minting SDK import until token creation. The vendor agent SDK still imports it independently; this does not remove it from dispatched call processes. See [worker footprint](../../docs/voice/worker-footprint.md).
 
 ## 0.3.0 — Stabilization compatibility family
 

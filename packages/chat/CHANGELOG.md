@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0-beta.2 — 2026-11-02
+
+- **Requires `@plumbus/core` 0.9.0-beta.7 or later** (peer `">=0.9.0-beta.7 <0.10.0"`, was `">=0.9.0-beta.6 <0.10.0"`): this release imports `@plumbus/core/sdk`, which earlier betas do not have. On the beta line `@plumbus/core/sdk` does not export `createExecutionContext`; it stays on `@plumbus/core/runtime`, as before.
+
+### From main (stable 0.3.1)
+
+- Add `@plumbus/chat/session` for governed worker execution, entity definitions and events without HTTP/evaluation tooling. Runtime modules import the core SDK instead of the broad tooling entry.
+
 ## 0.4.0-beta.1 — 2026-10-26
 
 - **zod 4.** Keyed `z.record`s; `defineChat` no longer freezes the zod schemas inside a definition (zod 4 fills some of their properties lazily, which failed on a frozen schema). Core peer `>=0.9.0-beta.6 <0.10.0`.
@@ -20,6 +28,11 @@
 
 - **Vitest 5.0.4** test toolchain and the Node floor `^22.12.0 || ^24.0.0 || >=26.0.0` (was `>=20.6.0`), with package instructions and compatibility guidance refreshed for core 0.8 and agent wiring v21 (stable 0.3.0).
 - Runs on `@plumbus/core` 0.9.0-beta.0, which also carries the stable core 0.8.0 fixes (PLB-01..PLB-10: event delivery policy, Redis startup and claim/reclaim recovery, flow claim fencing, durable scheduler ticks and schedule definitions, retry deadlines and flow dead letters, durable job publication, configuration overrides and app config files) and core 0.8.1's background-loop fixes (scheduler poll, delayed-wake promoter).
+
+## 0.3.1 — 2026-11-02
+
+- **Requires `@plumbus/core` 0.8.3 or later** (peer `">=0.8.3 <0.9.0"`, was `0.8.x`): this release imports `@plumbus/core/sdk`, which core 0.8.2 does not have. Upgrade core together with this package.
+- Add `@plumbus/chat/session` for governed worker execution, entity definitions and events without HTTP/evaluation tooling. Runtime modules import the core SDK instead of the broad tooling entry.
 
 ## 0.3.0 — Stabilization compatibility family
 

@@ -380,6 +380,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.4(@opentelemetry/api@1.9.1)(postgres@3.4.8)
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -435,9 +438,6 @@ importers:
       '@vitest/browser-playwright':
         specifier: 5.0.5
         version: 5.0.5(playwright@1.58.2)(vite@7.3.7(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.23.15)(yaml@2.9.0))(vitest@5.0.5)
-      esbuild:
-        specifier: ^0.25.12
-        version: 0.25.12
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

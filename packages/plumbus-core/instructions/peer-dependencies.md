@@ -8,7 +8,7 @@ Core **0.9.x**, UI **0.10.x**, MCP **0.8.x**, voice **0.7.x**, and the remaining
 
 The 0.9 beta family includes the stabilization changes from the stable 0.8 family. Read [stabilization.md](./stabilization.md) before upgrading. Migrate durable flow, scheduler, and job records; drain old flow-mutating API/worker processes before activation. Do not mix old and new schedulers or workers against the same queues.
 
-The 0.8 numbers belong to the **stabilization family** published from `main` to npm `latest`: core 0.8.x (0.8.1), UI 0.9.x, MCP 0.7.x, voice 0.6.x, and add-ons 0.3.x (auth 0.3.1). Its manifests use the plain literals in the last column of the table below; they are context for this branch, not literals to copy here. The earlier `0.8.0-beta.N` prereleases (peers `>=0.8.0-beta.0 <0.9.0`) are superseded by the 0.9 beta family; do not mix them with it.
+The 0.8 numbers belong to the **stabilization family** published from `main` to npm `latest`: core 0.8.x (0.8.3), UI 0.9.x, MCP 0.7.x, voice 0.6.x, and add-ons 0.3.x (auth 0.3.1). Its manifests use the plain literals in the last column of the table below; they are context for this branch, not literals to copy here. The earlier `0.8.0-beta.N` prereleases (peers `>=0.8.0-beta.0 <0.9.0`) are superseded by the 0.9 beta family; do not mix them with it.
 
 The family before that remains core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and add-ons 0.2.x (the security release). Historical feature floors describe earlier releases, not current peer declarations.
 
@@ -23,6 +23,8 @@ On this branch copy the **0.9 beta literal**. The next column is the literal tha
 | Every add-on that peers on core, unless listed below | `@plumbus/core` | `">=0.9.0-beta.0 <0.10.0"` | `"0.9.x"` | `"0.8.x"` |
 | `@plumbus/mcp` (0.8.0-beta.1+) | `@plumbus/core` | `">=0.9.0-beta.5 <0.10.0"` (needs `safeParseBounded`) | `"0.9.x"` | `"0.8.x"` |
 | `@plumbus/ui` (0.10.0-beta.2+), `@plumbus/api` (0.4.0-beta.4+), and the zod 4 releases of `ai-decision`, `ai-decision-openai`, `ai-decision-typesafe`, `auth`, `chat`, `payments`, `knowledge-base`, `browser-extension`, `voice-soniox` (0.4.0-beta.1) and `voice` (0.7.0-beta.1) | `@plumbus/core` | `">=0.9.0-beta.6 <0.10.0"` (zod 4) | `"0.9.x"` | `"0.8.x"` |
+| `@plumbus/voice` (0.7.0-beta.2+), `@plumbus/chat` (0.4.0-beta.2+), `@plumbus/payments` (0.4.0-beta.2+), `@plumbus/voice-livekit` (0.4.0-beta.2+) | `@plumbus/core` | `">=0.9.0-beta.7 <0.10.0"` (they import `@plumbus/core/sdk`, added in core 0.9.0-beta.7) | `"0.9.x"` | `">=0.8.3 <0.9.0"` |
+| `@plumbus/voice-soniox` (0.4.0-beta.2+) | `@plumbus/core` | `">=0.9.0-beta.7 <0.10.0"` (provider cooldown exports) | `"0.9.x"` | `"0.8.x"` |
 | `@plumbus/core` | `@plumbus/mcp` | `">=0.8.0-beta.0 <0.9.0"` (optional) | `"0.8.x"` | `"0.7.x"` (optional) |
 | `@plumbus/core` | `@plumbus/api` | `">=0.4.0-beta.0 <0.5.0"` (optional) | `"0.4.x"` | `"0.3.x"` (optional) |
 | `@plumbus/core` | `@plumbus/ai-bedrock` | `">=0.4.0-beta.0 <0.5.0"` (optional) | `"0.4.x"` | `"0.3.x"` (optional) |
@@ -30,7 +32,8 @@ On this branch copy the **0.9 beta literal**. The next column is the literal tha
 | `@plumbus/chat-ui` | `@plumbus/chat` | `">=0.4.0-beta.0 <0.5.0"` | `"0.4.x"` | `"0.3.x"` |
 | `@plumbus/auth-cognito` | `@plumbus/auth` | `">=0.4.0-beta.0 <0.5.0"` | `"0.4.x"` | `"0.3.x"` |
 | `@plumbus/payments-stripe` | `@plumbus/payments` | `">=0.4.0-beta.0 <0.5.0"` | `"0.4.x"` | `"0.3.x"` |
-| Every `@plumbus/voice-*` provider | `@plumbus/voice` | `">=0.7.0-beta.0 <0.8.0"` | `"0.7.x"` | `"0.6.x"` |
+| Every `@plumbus/voice-*` provider, unless listed below | `@plumbus/voice` | `">=0.7.0-beta.0 <0.8.0"` | `"0.7.x"` | `"0.6.x"` |
+| `@plumbus/voice-livekit` (0.4.0-beta.2+) | `@plumbus/voice` | `">=0.7.0-beta.2 <0.8.0"` (imports `@plumbus/voice/session`, added in voice 0.7.0-beta.2) | `"0.7.x"` | `">=0.6.1 <0.7.0"` |
 
 Core's optional `redis` peer stays `"^4.7.0"`. `cron-parser` is a regular core dependency (the framework owns cron parsing), not a peer; apps do not install it.
 
@@ -40,6 +43,7 @@ Voice does not peer on vendor add-ons. Apps explicitly install only providers th
 
 ## Rules
 
+- When an add-on starts importing an export that only exists from a later patch of core or voice, raise that add-on's peer to an explicit floor within the family (`">=0.9.0-beta.N <0.10.0"` on this branch, `">=0.8.N <0.9.0"` on `main`), list it in the table above, and say so in its changelog. Otherwise npm installs it next to an older core or voice and the import fails.
 - Copy literals from the table and canonical manifests (`packages/mcp/package.json`, `packages/plumbus-core/package.json`, `packages/voice-livekit/package.json`). Never use `^0.x` core peers or derive unions from intuition.
 - New-family packages require the new family. Do not publish narrowed peers or migration-requiring behavior as a patch on an old line: an existing caret could select that patch.
 - `pnpm install` passing in this workspace does not prove npm consumer compatibility. Validate packed tarballs with npm; production installs use npm.

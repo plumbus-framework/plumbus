@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createProviderRegistry } from '@plumbus/voice';
+import { createProviderRegistry } from '@plumbus/voice/session';
 
-vi.mock('@plumbus/voice', async () => {
-  const actual = await vi.importActual<typeof import('@plumbus/voice')>('@plumbus/voice');
+vi.mock('@plumbus/voice/session', async () => {
+  const actual =
+    await vi.importActual<typeof import('@plumbus/voice/session')>('@plumbus/voice/session');
   return {
     ...actual,
     discoverVoices: async () => [],
@@ -13,12 +14,16 @@ vi.mock('@plumbus/voice', async () => {
   };
 });
 
+vi.mock('../../runtime/voice-runtime.js', () => ({ loadVoiceRuntime: vi.fn(async () => null) }));
+import { loadVoiceRuntime } from '../../runtime/voice-runtime.js';
+
 import { buildVoiceServeContext } from '../voice-serve-context.js';
 
 describe('buildVoiceServeContext', () => {
   beforeEach(() => {
     vi.stubEnv('PLUMBUS_ENV', 'development');
     vi.stubEnv('AUTH_SECRET', undefined);
+    vi.mocked(loadVoiceRuntime).mockReset().mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -48,5 +53,23 @@ describe('buildVoiceServeContext', () => {
       code: 'validation',
       message: expect.stringContaining('MCP serve requires mcp.agents or an explicit AUTH_SECRET'),
     });
+  });
+  it('uses explicit resources in production without MCP credentials', async () => {
+    vi.stubEnv('PLUMBUS_ENV', 'production');
+    vi.mocked(loadVoiceRuntime).mockResolvedValue({
+      resources: { capabilities: [], entities: [], events: [], prompts: [] },
+      extensions: {},
+    });
+    const ctx = await buildVoiceServeContext();
+    expect(ctx.capabilities.getAll()).toEqual([]);
+    expect(ctx.jobQueue).toBeUndefined();
+    await expect(ctx.routeConfig.authAdapter.authenticate('Bearer forged')).resolves.toBeNull();
+    await ctx.closeQueues();
+    await ctx.closeDb();
+  });
+
+  it('propagates an explicit runtime failure rather than silently doing full discovery', async () => {
+    vi.mocked(loadVoiceRuntime).mockRejectedValue(new Error('invalid scoped runtime'));
+    await expect(buildVoiceServeContext()).rejects.toThrow('invalid scoped runtime');
   });
 });

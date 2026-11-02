@@ -4,7 +4,12 @@ import {
   lookupVoicePricing,
   calculateVoiceCost,
 } from '../cost/index.js';
-import { evaluateAccess, ErrorCode, PlumbusError, type RouteGeneratorConfig } from '@plumbus/core';
+import {
+  evaluateAccess,
+  ErrorCode,
+  PlumbusError,
+  type RouteGeneratorConfig,
+} from '@plumbus/core/sdk';
 import { createExecutionContext } from '@plumbus/core/runtime';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {

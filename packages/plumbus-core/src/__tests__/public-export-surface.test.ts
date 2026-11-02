@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as core from '../index.js';
 import * as runtimeSeam from '../runtime-entry.js';
+import * as sdk from '../sdk.js';
 import * as testing from '../testing/index.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -18,7 +19,7 @@ import * as testing from '../testing/index.js';
 // in the same change. Deleting one is a breaking change for consumers and needs
 // a major version bump.
 //
-// `SEAM_ONLY` names must never appear on the root or `./testing` entry points.
+// `SEAM_ONLY` names must never appear on the root, `./sdk` or `./testing` entry points.
 // `createExecutionContext` mints the platform-established actor; anything that
 // can call it can fabricate one, so ordinary application code — which imports
 // `@plumbus/core` — cannot reach it. It stays available to runtime hosts (the
@@ -438,7 +439,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'zodTypeToString',
 ];
 
-/** Names reachable only through the `./runtime` seam, never from `.` or `./testing`. */
+/** Names reachable only through the `./runtime` seam, never from `.`, `./sdk` or `./testing`. */
 const SEAM_ONLY: readonly string[] = ['createExecutionContext'];
 
 /**
@@ -455,6 +456,7 @@ const PUBLISHED_ENTRY_POINTS: readonly string[] = [
   '.',
   './errors',
   './runtime',
+  './sdk',
   './testing',
   './zod',
   './vitest',
@@ -482,6 +484,17 @@ describe('@plumbus/core export surface', () => {
       expect(Object.keys(core)).not.toContain(name);
       expect(PUBLIC_EXPORTS).not.toContain(name);
     }
+  });
+
+  it('does not publish the execution-context factory from the SDK entry point', () => {
+    for (const name of SEAM_ONLY) {
+      expect(Object.keys(sdk)).not.toContain(name);
+    }
+  });
+
+  it('the SDK entry point is a subset of the root entry point', () => {
+    const root = new Set(Object.keys(core));
+    expect(Object.keys(sdk).filter((name) => !root.has(name))).toEqual([]);
   });
 
   it('does not publish the execution-context factory from the testing entry point', () => {

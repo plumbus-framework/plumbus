@@ -54,6 +54,7 @@ export function onRoutesRegistered(app, routeConfig) {
 | `transport` | realtime session strategy (`websocket` built-in, or `livekit` with `@plumbus/voice-livekit` installed) |
 | `stt` | transcript source/provider |
 | `transcript.maxChars` | finite positive per-utterance length bound; defaults to 4,000 UTF-16 code units |
+| `interruptions.whileWriting` | optional; `'queue'` (default) answers speech given while the reply is written as the next turn, `'restart'` aborts the reply and answers both as one turn — see [continuous sessions](./livekit-continuous-voice.md) |
 | `tts` | synthesis provider |
 | `brain.run` | app logic hook |
 

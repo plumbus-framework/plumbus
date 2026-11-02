@@ -1,7 +1,7 @@
 // packages/chat/src/runtime/bind-tools.ts
 import { createHash } from 'node:crypto';
 import type { AITool, CapabilityContract, ExecutionContext } from '@plumbus/core';
-import { zodToProviderJsonSchema } from '@plumbus/core';
+import { zodToProviderJsonSchema } from '@plumbus/core/sdk';
 import type { z } from '@plumbus/core/zod';
 import { capabilityInputSchemaHashV2 } from '../policy/action-schema-hash.js';
 import { isConfirmCapability } from './tool-effects.js';

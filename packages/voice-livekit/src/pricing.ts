@@ -1,4 +1,4 @@
-import type { VoicePricingEntry } from '@plumbus/voice';
+import type { VoicePricingEntry } from '@plumbus/voice/session';
 
 export const LIVEKIT_VOICE_PRICING: VoicePricingEntry = {
   model: 'livekit-cloud',

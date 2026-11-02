@@ -6,9 +6,9 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## v0.9.0-beta.7 (2026-11-01): provider rate limits
+## v0.9.0-beta.7 (2026-11-02): provider rate limits, stable 0.8.3 merged
 
-Two packages change: `@plumbus/core` 0.9.0-beta.7 and `@plumbus/voice-soniox` 0.4.0-beta.2 (needs core `>=0.9.0-beta.7`). No database change.
+Packages: `@plumbus/core` 0.9.0-beta.7; `@plumbus/voice` 0.7.0-beta.2, `@plumbus/chat` 0.4.0-beta.2, `@plumbus/payments` 0.4.0-beta.2 and `@plumbus/voice-soniox` 0.4.0-beta.2 (each needs core `>=0.9.0-beta.7`); `@plumbus/voice-livekit` 0.4.0-beta.2 (core `>=0.9.0-beta.7`, voice `>=0.7.0-beta.2`); `@plumbus/voice-deepdub`, `-elevenlabs`, `-minimax` and `-openai` 0.4.0-beta.1 (peers unchanged). Upgrade core, voice and these add-ons together. No database change.
 
 - **A 429 now pauses every call to that provider in the process** for the full `Retry-After` the provider gave (no 5 s cap any more). A call waits out up to 60 s of cooldown; beyond that it fails at once with a retryable `ProviderAPIError` carrying `retryAfterMs`. See [Transient Provider Failures](ai/ai-integration.md#transient-provider-failures).
 - **Out-of-credit 429s** (`insufficient_quota`) are no longer retried and are `retryable: false`.
@@ -16,6 +16,8 @@ Two packages change: `@plumbus/core` 0.9.0-beta.7 and `@plumbus/voice-soniox` 0.
 - **Soniox:** a 429 starts a cooldown for that Soniox endpoint; requests made during it are refused without being sent. The `rate_limit` error now carries `retryAfterMs` in its metadata. Nothing is re-sent inside a call, so come back after `retryAfterMs` (a flow `delay` step, for example).
 - **Action:** if your own code retries provider 429s on a fixed schedule, read `retryAfterMs` instead. A schedule shorter than the cooldown is answered 429 without reaching the provider.
 - **From stable core 0.8.2:** Redis queue lease renewal is clamped to Node's maximum timer delay (~24.8 days). Before, a very large `queue.visibilityTimeoutSec` (a decade-long "never reclaim" value) overflowed the timer, which then fired every 1 ms: about 1,000 renew calls per second per in-flight delivery. No action needed.
+- **From stable core 0.8.3 / voice 0.6.1:** a runtime-only entry `@plumbus/core/sdk` (the root still exports everything; `createExecutionContext` stays on `@plumbus/core/runtime` and is not on `/sdk`), typed `findManyFields` projection (optional on `Repository`), `voice build` / `voice worker --compiled`, opt-in `app/voice/runtime.ts` resources, lazily loaded Fastify/SAML/cron, `@plumbus/voice/session`, `@plumbus/chat/session`, `@plumbus/payments/entities`, voice `interruptions.whileWriting: 'restart'`, and Deepdub dropping a cancelled reply's queued audio. See [worker footprint](voice/worker-footprint.md).
+- **Action:** none for existing apps. Code that hosts a transport keeps importing `createExecutionContext` from `@plumbus/core/runtime`. To shrink voice workers, follow [worker footprint](voice/worker-footprint.md).
 
 ## v0.9.0-beta.6 (2026-10-26): zod 4
 

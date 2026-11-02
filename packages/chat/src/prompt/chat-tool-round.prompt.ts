@@ -1,5 +1,5 @@
 // packages/chat/src/prompt/chat-tool-round.prompt.ts
-import { definePrompt } from '@plumbus/core';
+import { definePrompt } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 
 export const chatToolRoundPrompt = definePrompt({

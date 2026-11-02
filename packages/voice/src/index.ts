@@ -51,6 +51,10 @@ export { mergeRoomBrainInput } from './runtime/merge-room-brain-input.js';
 export { runVoiceTurn } from './runtime/run-turn.js';
 export { runStreamingTurnPipeline } from './runtime/streaming-turn-pipeline.js';
 export {
+  isVoiceTurnSuperseded,
+  VOICE_TURN_SUPERSEDED_REASON,
+} from './runtime/turn-superseded.js';
+export {
   applyDeliveryToneToText,
   mapDeliveryToneForProvider,
 } from './runtime/tone-mapper.js';
