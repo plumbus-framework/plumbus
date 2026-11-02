@@ -22,6 +22,7 @@ import {
   resolvePcm16InputGainOptions,
 } from './pcm-input-gain.js';
 import { runVoiceTurn } from './run-turn.js';
+import { VOICE_TURN_SUPERSEDED_REASON } from './turn-superseded.js';
 import { recordDirectUtteranceCost } from './record-provider-usage.js';
 import {
   createVoiceRuntimeSession,
@@ -116,6 +117,13 @@ export class VoiceSessionController {
   #lowLevelWarningLogged = false;
   #hadSpeechEnergyInWindow = false;
   #turnAbort?: AbortController;
+  /** The in-flight turn has not started speech synthesis yet (brain still writing). */
+  #turnWriting = false;
+  /** Transcript the in-flight turn was started with; re-sent if the turn is superseded. */
+  #inFlightTranscript?: string;
+  #inFlightTurnId?: string;
+  /** Superseded turn whose transcript prefixes the pending speech; handed to the next turn. */
+  #supersededTurnId?: string;
   #lastSpeechEnergyAt?: number;
   #lastBackchannelAt?: number;
   #backchannelInFlight = false;
@@ -286,6 +294,7 @@ export class VoiceSessionController {
           });
           if (repairUtterance) {
             this.#pendingTranscript = undefined;
+            this.#supersededTurnId = undefined;
             this.#pendingLanguage = undefined;
             this.#pendingConfidence = undefined;
             this.#resetListeningWindow();
@@ -346,6 +355,9 @@ export class VoiceSessionController {
         });
         return;
       }
+      if (this.#shouldSupersedeWritingTurn()) {
+        await this.#supersedeWritingTurn(text.length);
+      }
       // Server partials are cumulative per utterance, so the deferred fragment
       // must be re-prefixed on every event — consuming it on the first partial
       // would let the next cumulative partial clobber the pre-pause speech. It
@@ -365,6 +377,47 @@ export class VoiceSessionController {
     }
 
     this.#scheduleServerTurn();
+  }
+
+  #shouldSupersedeWritingTurn(): boolean {
+    return (
+      this.options.voice.interruptions?.whileWriting === 'restart' &&
+      this.continuousMode &&
+      this.#turnInFlight &&
+      this.#turnWriting &&
+      !this.#disposed
+    );
+  }
+
+  /**
+   * `interruptions.whileWriting: 'restart'`: the user kept speaking while the
+   * brain was writing. Abort the turn before anything is spoken and make its
+   * transcript the deferred prefix, so the new speech stitches onto it and the
+   * next endpoint runs one combined turn (replayed by runTurn's finally if the
+   * aborted turn is still unwinding then).
+   */
+  async #supersedeWritingTurn(newChars: number): Promise<void> {
+    const prior = this.#inFlightTranscript?.trim();
+    const queued = this.#deferredEndpointTranscript?.trim();
+    this.#turnWriting = false;
+    this.#inFlightTranscript = undefined;
+    this.#supersededTurnId = this.#inFlightTurnId;
+    this.#deferredEndpointTranscript =
+      [prior, queued].filter((part): part is string => Boolean(part)).join(' ') || undefined;
+    this.#turnAbort?.abort(VOICE_TURN_SUPERSEDED_REASON);
+    console.info('[voice-session] superseding turn: user spoke while the reply was written', {
+      sessionId: this.session.id,
+      turn: this.#turnCount,
+      priorChars: prior?.length ?? 0,
+      newChars,
+    });
+    await this.options.onEvent({
+      type: 'turn.interrupted',
+      sessionId: this.session.id,
+      reason: VOICE_TURN_SUPERSEDED_REASON,
+    });
+    setVoiceSessionState(this.session, 'Listening');
+    await this.options.onEvent(createAgentStateEvent('Listening'));
   }
 
   #serverSilenceMs(): number {
@@ -731,6 +784,7 @@ export class VoiceSessionController {
       });
       if (repairUtterance) {
         this.#pendingTranscript = undefined;
+        this.#supersededTurnId = undefined;
         this.#pendingLanguage = undefined;
         this.#pendingConfidence = undefined;
         this.#resetListeningWindow();
@@ -1115,6 +1169,7 @@ export class VoiceSessionController {
     // barge-in queues fresh and is still replayed once the aborted turn
     // unwinds (see runTurn's finally).
     this.#turnQueuedWhileInFlight = false;
+    this.#supersededTurnId = undefined;
     this.#clearEndpointGraceTimer();
     this.#clearDeferredEndpointTranscript();
     this.#clearBackchannelState();
@@ -1155,6 +1210,11 @@ export class VoiceSessionController {
     this.#pendingTranscript = undefined;
     this.#pendingLanguage = undefined;
     this.#pendingConfidence = undefined;
+    this.#turnWriting = true;
+    this.#inFlightTranscript = transcript;
+    this.#inFlightTurnId = turnId;
+    const supersededTurnId = this.#supersededTurnId;
+    this.#supersededTurnId = undefined;
 
     try {
       const language =
@@ -1182,14 +1242,22 @@ export class VoiceSessionController {
         transportProvider: this.options.transportProvider,
         cleanupProviders: false,
         abortSignal,
+        supersededTurnId,
         onEvent: async (event) => {
           if (event.type === 'agent.state') {
             setVoiceSessionState(this.session, event.state);
+            if (event.state === 'Synthesizing' || event.state === 'Playing') {
+              this.#turnWriting = false;
+            }
           }
+          // A superseded turn may still emit while its brain unwinds; its
+          // events must not reach the client after the replacement started.
+          if (abortSignal.reason === VOICE_TURN_SUPERSEDED_REASON) return;
           await this.options.onEvent(event);
         },
         onAudioChunk: this.options.onAudioChunk,
         onAssistantDelta: async (delta) => {
+          if (abortSignal.reason === VOICE_TURN_SUPERSEDED_REASON) return;
           await this.options.onEvent({ type: 'assistant.delta', text: delta });
         },
       })) {
@@ -1199,6 +1267,9 @@ export class VoiceSessionController {
       const aborted = abortSignal.aborted;
       this.#turnInFlight = false;
       this.#turnAbort = undefined;
+      this.#turnWriting = false;
+      this.#inFlightTranscript = undefined;
+      this.#inFlightTurnId = undefined;
       const queued = this.#turnQueuedWhileInFlight;
       this.#turnQueuedWhileInFlight = false;
       if (!aborted) {
@@ -1237,6 +1308,7 @@ export class VoiceSessionController {
     this.#disposed = true;
     this.#turnQueuedWhileInFlight = false;
     this.#pendingTranscript = undefined;
+    this.#supersededTurnId = undefined;
     this.#clearServerTurnTimer();
     this.#clearEndpointGraceTimer();
     this.#clearDeferredEndpointTranscript();
@@ -1255,6 +1327,7 @@ export class VoiceSessionController {
     this.#disposed = true;
     this.#turnQueuedWhileInFlight = false;
     this.#pendingTranscript = undefined;
+    this.#supersededTurnId = undefined;
     this.#clearEndpointGraceTimer();
     this.#clearServerTurnTimer();
     this.#clearDeferredEndpointTranscript();

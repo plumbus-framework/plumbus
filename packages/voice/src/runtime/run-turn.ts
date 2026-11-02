@@ -37,6 +37,8 @@ export interface RunVoiceTurnArgs {
   transportProvider?: TransportProvider;
   cleanupProviders?: boolean;
   abortSignal?: AbortSignal;
+  /** Set when this turn replaces a turn aborted with `VOICE_TURN_SUPERSEDED_REASON`. */
+  supersededTurnId?: string;
   onEvent?: (event: VoiceEvent) => Promise<void> | void;
   onAudioChunk?: (chunk: Uint8Array) => Promise<void> | void;
   onAssistantDelta?: (delta: string) => Promise<void> | void;
@@ -162,6 +164,7 @@ export async function* runVoiceTurn(
     let completedBrainResult: unknown;
     const brainArgs = {
       ...args,
+      turnId,
       transcriptConfidence: finalizedTranscript?.confidence ?? args.transcriptConfidence,
     };
     if (voice.tts.responseMode === 'reply') {
@@ -332,6 +335,8 @@ async function runBrainWithDeltas(
     transcriptConfidence: args.transcriptConfidence,
     language: transcript.language,
     sessionId: args.sessionId,
+    turnId: args.turnId,
+    supersededTurnId: args.supersededTurnId,
     input: args.input,
     signal: args.abortSignal,
     onAssistantDelta(delta: string) {
@@ -389,6 +394,8 @@ async function runBatchBrainAndTts(args: {
           transcriptConfidence: args.args.transcriptConfidence,
           language: args.transcript.language,
           sessionId: args.args.sessionId,
+          turnId: args.args.turnId,
+          supersededTurnId: args.args.supersededTurnId,
           input: args.args.input,
           signal: args.args.abortSignal,
           onAssistantDelta(delta: string) {
