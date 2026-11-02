@@ -2,7 +2,7 @@
 
 ## Release family 0.6.0
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `0.8.x`. Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers: `@plumbus/core` `>=0.8.3 <0.9.0` (voice 0.6.1+ imports `@plumbus/core/sdk`; 0.6.0 accepted `0.8.x`). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 ## Security release guidance (0.5.0)

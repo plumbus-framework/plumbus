@@ -222,7 +222,7 @@ Consumer apps run tests with `plumbus test` (wraps vitest). The CLI command reso
 When editing `peerDependencies` in any `packages/*/package.json` (releases, new add-ons, compatibility bumps):
 
 - Read `packages/plumbus-core/instructions/peer-dependencies.md` first.
-- **Copy literals — do not derive ranges.** Most add-ons use exactly `"0.8.x"` (see `packages/mcp/package.json`); chat, payments and voice-livekit use `">=0.8.3 <0.9.0"` because they import `@plumbus/core/sdk` (voice-livekit also `"@plumbus/voice": ">=0.6.1 <0.7.0"` for `@plumbus/voice/session`). Never use `^0.x` caret ranges on `@plumbus/core` peers. When an add-on starts using an export added in a later patch, raise its floor the same way and update the table in `peer-dependencies.md`.
+- **Copy literals — do not derive ranges.** Most add-ons use exactly `"0.8.x"` (see `packages/mcp/package.json`); voice, chat, payments and voice-livekit use `">=0.8.3 <0.9.0"` because they import `@plumbus/core/sdk` (voice-livekit also `"@plumbus/voice": ">=0.6.1 <0.7.0"` for `@plumbus/voice/session`). Never use `^0.x` caret ranges on `@plumbus/core` peers. When an add-on starts using an export added in a later patch, raise its floor the same way and update the table in `peer-dependencies.md`.
 - **pnpm passing locally does not prove peers are correct.** Backend Docker installs with **npm**; wrong peers break production builds.
 
 ## Release compatibility — core 0.8 stabilization family

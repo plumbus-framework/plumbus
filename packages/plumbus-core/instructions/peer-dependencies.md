@@ -12,8 +12,8 @@ The previous family remains core 0.7.x, UI 0.8.x, MCP 0.6.x, voice 0.5.x, and ad
 
 | Declaring package | Peer target | Literal |
 | --- | --- | --- |
-| Every add-on that peers on core (except the three below) | `@plumbus/core` | `"0.8.x"` |
-| `@plumbus/chat` 0.3.1+, `@plumbus/payments` 0.3.1+, `@plumbus/voice-livekit` 0.3.1+ | `@plumbus/core` | `">=0.8.3 <0.9.0"` (they import `@plumbus/core/sdk`, added in core 0.8.3) |
+| Every add-on that peers on core (except the four below) | `@plumbus/core` | `"0.8.x"` |
+| `@plumbus/voice` 0.6.1+, `@plumbus/chat` 0.3.1+, `@plumbus/payments` 0.3.1+, `@plumbus/voice-livekit` 0.3.1+ | `@plumbus/core` | `">=0.8.3 <0.9.0"` (they import `@plumbus/core/sdk`, added in core 0.8.3) |
 | `@plumbus/core` | `@plumbus/mcp` | `"0.7.x"` (optional) |
 | `@plumbus/core` | `@plumbus/api` | `"0.3.x"` (optional) |
 | `@plumbus/core` | `@plumbus/ai-bedrock` | `"0.3.x"` (optional) |

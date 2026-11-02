@@ -36,7 +36,9 @@ async function scanVoicesDir(dir: string, javascriptOnly = false): Promise<Voice
   const voices: VoiceDefinition[] = [];
   let unregister: (() => void) | undefined;
 
-  if (files.some((file) => file.endsWith('.ts'))) {
+  // Outside compiled (JavaScript-only) workers, register tsx as 0.6.0 did, even when the
+  // directory has only .js voices: they may import TypeScript helpers elsewhere in the app.
+  if (!javascriptOnly) {
     try {
       const require = createRequire(import.meta.url);
       const tsxPath = require.resolve('tsx/esm/api');
