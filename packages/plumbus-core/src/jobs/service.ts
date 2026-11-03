@@ -1,11 +1,12 @@
 import { and, eq, lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { validatedTraceparent } from '../observability/index.js';
 import type { AuthContext } from '../types/security.js';
 import {
-  jobExecutionsTable,
   JobExecutionSource,
   JobExecutionStatus,
   type JobExecutionSource as JobSource,
+  jobExecutionsTable,
 } from './schema.js';
 import type { JobExecutionRecord } from './types.js';
 
@@ -16,6 +17,7 @@ export interface CreateJobExecutionInput {
   input: Record<string, unknown>;
   auth: AuthContext;
   correlationId?: string;
+  traceparent?: string;
   source?: JobSource;
 }
 
@@ -31,6 +33,7 @@ function rowToRecord(row: typeof jobExecutionsTable.$inferSelect): JobExecutionR
     authSnapshotJson: row.authSnapshotJson as AuthContext | undefined,
     tenantId: row.tenantId,
     correlationId: row.correlationId,
+    traceparent: validatedTraceparent(row.traceparent),
     source: row.source as JobExecutionRecord['source'],
     createdAt: row.createdAt,
     startedAt: row.startedAt,
@@ -59,6 +62,7 @@ export function createJobService(db: PostgresJsDatabase) {
           inputJson: input.input,
           authSnapshotJson: input.auth,
           tenantId: input.auth.tenantId ?? null,
+          traceparent: validatedTraceparent(input.traceparent),
           correlationId: input.correlationId ?? input.id,
           source: input.source ?? JobExecutionSource.Http,
         })

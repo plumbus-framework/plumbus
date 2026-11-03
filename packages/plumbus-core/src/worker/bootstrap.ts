@@ -5,42 +5,42 @@
 
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { resolveEncryptionKey } from '../data/field-encryption.js';
-import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
+import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
+import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
+import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { createAuditService } from '../audit/service.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
+import type { EntityRegistry } from '../data/registry.js';
+import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import { FlowDefinitionUnavailableError } from '../errors/index.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
-import { ErrorCode } from '../types/enums.js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { DispatcherConfig } from '../events/dispatcher.js';
 import { createOutboxDispatcher } from '../events/dispatcher.js';
 import { createEventEmitter } from '../events/emitter.js';
 import { createIdempotencyService } from '../events/idempotency.js';
-import type { EventQueue } from '../events/queue.js';
-import type { EventRegistry } from '../events/registry.js';
 import type { EventDeadLetterInfo, EventDeliveryOptions } from '../events/index.js';
+import type { EventQueue, RedisClient } from '../events/queue.js';
+import type { EventRegistry } from '../events/registry.js';
 import type { WorkerConfig } from '../events/worker.js';
 import { createEventWorker } from '../events/worker.js';
-import { createJobDispatchService, publishPendingJobs } from '../jobs/index.js';
-import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
-import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
-import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
-import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import {
   type CapabilityErrorInfo,
-  fireCapabilityErrorHook,
   capabilityExecutionDetails,
+  fireCapabilityErrorHook,
 } from '../execution/capability-error-hook.js';
 import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
+import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { wireContextDependencies } from '../execution/context-deps.js';
 import { createExecutionContext } from '../execution/context-factory.js';
 import {
-  resolveCompiledFlowRegistry,
   type CompiledFlowRegistry,
+  resolveCompiledFlowRegistry,
 } from '../flows/compiled-registry.js';
 import type { FlowDefinitionUnavailableInfo, FlowEngineConfig } from '../flows/engine.js';
 import { createFlowEngine, generateWorkerId } from '../flows/engine.js';
+import { createFlowDelayedPromoter, scheduleDelayedFlowWake } from '../flows/flow-delayed.js';
 import { createFlowService } from '../flows/flow-service.js';
 import {
   type FrameworkRetentionOptions,
@@ -51,24 +51,23 @@ import {
   resolveFrameworkRetentionOptions,
   sweepFailedFlows,
 } from '../flows/index.js';
-import { FlowStatus } from '../flows/state-machine.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
 import { createFlowScheduler } from '../flows/scheduler.js';
-import type { StepExecutorDeps } from '../flows/step-executor.js';
-import { createFlowDelayedPromoter, scheduleDelayedFlowWake } from '../flows/flow-delayed.js';
+import { FlowStatus } from '../flows/state-machine.js';
 import { createFlowStepConsumer } from '../flows/step-consumer.js';
+import type { StepExecutorDeps } from '../flows/step-executor.js';
 import { createFlowTriggerHandler } from '../flows/triggers.js';
-import type { RedisClient } from '../events/queue.js';
-import type { CapabilityRegistry } from '../execution/capability-registry.js';
-import type { EntityRegistry } from '../data/registry.js';
+import { createJobDispatchService, publishPendingJobs } from '../jobs/index.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
 import { settleBy } from '../runtime/graceful-shutdown.js';
 import { registerCapabilityConsumers } from '../runtime/register-consumers.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, DataService, LoggerService } from '../types/context.js';
+import { ErrorCode } from '../types/enums.js';
 import type { PlumbusErrorLike } from '../types/errors.js';
-import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { AuthContext } from '../types/security.js';
 
 // ── Error description helper ──
@@ -312,6 +311,7 @@ export interface WorkerPoolConfig {
    * jobs and event handlers when the pool registers their consumers (`capabilities`,
    * `entities` and `eventRegistry` set).
    */
+  onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   /** Lease duration in milliseconds for flow execution claims. Default: 300,000 (5 min). */
   flowLeaseDurationMs?: number;
@@ -739,6 +739,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       approvals: poolConfig.approvals,
       authorizationProvider: poolConfig.authorizationProvider,
       onCapabilityError: poolConfig.onCapabilityError,
+      onTelemetrySpan: poolConfig.onTelemetrySpan,
     });
   }
 
@@ -912,6 +913,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         start: (intent) =>
           flowEngine.start(intent.flowName, intent.input, intent.auth, {
             executionId: intent.executionId,
+            traceparent: intent.traceparent,
           }),
         logger,
       });
@@ -1176,7 +1178,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       provider: 'worker',
     },
     contextDb: PostgresJsDatabase = db,
-    metadata?: { correlationId: string; flowId: string },
+    metadata?: { correlationId: string; flowId: string; traceparent?: string },
   ): import('../types/context.js').ExecutionContext {
     // A unit on a resolved tenant plane gets no job queue: its transaction would write the job
     // intent on the plane while publication, recovery and the job consumer all read the pool, so
@@ -1191,6 +1193,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             auth: systemAuth,
             source: 'flow',
             correlationId: metadata?.correlationId,
+            traceparent: metadata?.traceparent,
             logger,
           })
         : undefined;
@@ -1204,6 +1207,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
             db: contextDb,
             auth: systemAuth,
             correlationId: metadata?.correlationId,
+            traceparent: metadata?.traceparent,
             getCausationId: () => metadata?.flowId,
             // The host audit records on the pool; a tenant unit keeps its plane-local audit.
             ...(contextDb === db && audit ? { audit } : {}),
@@ -1215,6 +1219,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           },
           {
             jobs,
+            traceparent: metadata?.traceparent,
+            onTelemetrySpan: poolConfig.onTelemetrySpan,
             flows: createFlowService(flowEngine, systemAuth, flows),
             ai: poolConfig.aiService,
             logger,
@@ -1236,6 +1242,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
           db: contextDb,
           auth: systemAuth,
           correlationId: metadata?.correlationId,
+          traceparent: metadata?.traceparent,
           causationId: metadata?.flowId,
           registry: eventRegistry,
           audit: systemAudit,
@@ -1243,6 +1250,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       : undefined;
     return createExecutionContext({
       auth: systemAuth,
+      traceparent: metadata?.traceparent,
+      onTelemetrySpan: poolConfig.onTelemetrySpan,
       data: dataService,
       events: eventService,
       jobs,

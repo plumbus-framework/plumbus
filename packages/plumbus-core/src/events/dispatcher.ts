@@ -1,12 +1,13 @@
 import { and, eq, lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
+import { validatedTraceparent } from '../observability/index.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
+import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
-import type { PlumbusMetrics } from '../observability/metrics.js';
 import { recordPipelineAudit } from './pipeline-audit.js';
 import type { EventQueue } from './queue.js';
 
@@ -183,6 +184,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         occurredAt: row.occurredAt,
         actor: row.actor,
         tenantId: row.tenantId ?? undefined,
+        traceparent: validatedTraceparent(row.traceparent),
         correlationId: row.correlationId,
         causationId: row.causationId ?? undefined,
         payload: row.payload as Record<string, unknown>,
@@ -232,6 +234,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
             lastError: errorMsg,
             retryCount: String(retryCount),
             metadata: {
+              traceparent: validatedTraceparent(row.traceparent),
               correlationId: row.correlationId,
               causationId: row.causationId,
               actor: row.actor,

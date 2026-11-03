@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DataInternalError, DataValidationError } from '../errors/index.js';
+import { validatedTraceparent } from '../observability/index.js';
 import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 
@@ -202,6 +203,10 @@ const envelopeSchema = z.object({
   actor: z.string().min(1),
   tenantId: z.string().optional(),
   correlationId: z.string(),
+  traceparent: z
+    .unknown()
+    .transform((value) => validatedTraceparent(value))
+    .optional(),
   causationId: z.string().optional(),
   payload: z.unknown(),
   metadata: z.record(z.string(), z.unknown()).optional(),

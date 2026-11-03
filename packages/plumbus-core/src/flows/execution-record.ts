@@ -1,10 +1,11 @@
-import { safeParseBounded } from '../validation/bounded-parse.js';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import { DataValidationError } from '../errors/index.js';
-import type { AuthContext } from '../types/security.js';
+import { validatedTraceparent } from '../observability/index.js';
 import type { FlowDefinition } from '../types/flow.js';
+import type { AuthContext } from '../types/security.js';
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import { flowExecutionsTable } from './schema.js';
 
 export const flowAuthSchema = z.object({
@@ -19,6 +20,7 @@ export const flowAuthSchema = z.object({
 export interface FlowStartOptions {
   executionId?: string;
   correlationId?: string;
+  traceparent?: string;
   triggerEventId?: string;
   scheduleId?: string;
   scheduleTickId?: string;
@@ -63,6 +65,7 @@ export async function createFlowExecutionRecord(
     actor: auth.userId ?? 'system',
     tenantId: auth.tenantId ?? null,
     authSnapshotJson: flowAuthSchema.parse(auth),
+    traceparent: validatedTraceparent(options.traceparent),
     correlationId: options.correlationId ?? null,
     triggerEventId: options.triggerEventId ?? null,
     scheduleId: options.scheduleId,

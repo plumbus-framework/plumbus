@@ -1,46 +1,47 @@
-import { zodInnerType, zodObjectShape, zodTypeName } from '../schema/zod-introspection.js';
-import { safeParseBounded } from '../validation/bounded-parse.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { AuthAdapter } from '../auth/adapter.js';
 import type { RequestAuthenticator } from '../auth/http-authentication.js';
-import { authenticationFailureToHttp, buildAuthenticationRequest } from './authentication-http.js';
 import {
   errorToHttpResponse,
   errorToSsePayload,
   GENERIC_INTERNAL_MESSAGE,
   unknownErrorToSsePayload,
 } from '../errors/http.js';
-import { capabilityHttpMethod } from './exposure.js';
 import { isPlumbusError } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
-import { JobExecutionSource } from '../jobs/schema.js';
-import { dispatchQueuedJob } from '../jobs/dispatch.js';
 import { accessDenialError, evaluateAccess } from '../execution/authorization.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
+import {
+  type CapabilityErrorInfo,
+  capabilityExecutionDetails,
+  fireCapabilityErrorHook,
+} from '../execution/capability-error-hook.js';
 import { authorizeCapability, executeCapability } from '../execution/capability-executor.js';
+import type { ContextDependencies } from '../execution/context-factory.js';
+import { createExecutionContext } from '../execution/context-factory.js';
+import { dispatchQueuedJob } from '../jobs/dispatch.js';
+import { JobExecutionSource } from '../jobs/schema.js';
+import { startTelemetrySpan, validatedTraceparent } from '../observability/index.js';
+import { zodInnerType, zodObjectShape, zodTypeName } from '../schema/zod-introspection.js';
+import type { CapabilityContract } from '../types/capability.js';
+import type { ExecutionContext } from '../types/context.js';
+import { safeParseBounded } from '../validation/bounded-parse.js';
+import { authenticationFailureToHttp, buildAuthenticationRequest } from './authentication-http.js';
+import { capabilityHttpMethod } from './exposure.js';
 import {
   buildIdempotencyStoreKey,
   createInMemoryIdempotencyStore,
   hashPayload,
-  PayloadTooDeepError,
-  isAnonymousIdempotencyPrincipal,
-  parseIdempotencyTtl,
   type IdempotencyPrincipal,
   type IdempotencyStore,
   type IdempotencyStoreOptions,
+  isAnonymousIdempotencyPrincipal,
+  PayloadTooDeepError,
+  parseIdempotencyTtl,
 } from './idempotency.js';
 import { executeIdempotently } from './idempotent-execution.js';
-import {
-  type CapabilityErrorInfo,
-  fireCapabilityErrorHook,
-  capabilityExecutionDetails,
-} from '../execution/capability-error-hook.js';
-import type { ContextDependencies } from '../execution/context-factory.js';
-import { createExecutionContext } from '../execution/context-factory.js';
-import type { CapabilityContract } from '../types/capability.js';
-import type { ExecutionContext } from '../types/context.js';
 
 export interface DependencyOptions {
   /** When true, repositories skip tenant-scope filtering (for cross-tenant admin access) */
@@ -120,6 +121,7 @@ export interface RouteGeneratorConfig {
   /** Locales supported by registered translation definitions */
   supportedLocales?: string[];
   /** Called when a capability execution fails */
+  onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
 }
 
@@ -152,7 +154,11 @@ export function registerCapabilityRoute(
   const method = capabilityHttpMethod(capability);
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}`;
 
-  const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  const executeHandler = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    carrier?: string,
+  ): Promise<void> => {
     const requestId = resolveRequestCorrelationId(request.headers);
 
     let authContext: Awaited<ReturnType<AuthAdapter['authenticate']>>;
@@ -236,6 +242,8 @@ export function registerCapabilityRoute(
       deps = config.createDependencies(authContext, { bypassTenantScope, locale });
     }
     deps.correlationId = resolveRequestCorrelationId(request.headers);
+    deps.traceparent = carrier ?? validatedTraceparent(deps.traceparent);
+    deps.onTelemetrySpan = config.onTelemetrySpan;
     deps.request = {
       sourceIp: request.ip,
       userAgent: request.headers['user-agent'],
@@ -262,6 +270,7 @@ export function registerCapabilityRoute(
         return reply.status(statusCode).send(body);
       }
       const jobId = await dispatchQueuedJob({
+        traceparent: ctx.__runtime?.traceparent,
         db: requestDb,
         jobQueue: config.jobQueue,
         capability,
@@ -347,6 +356,8 @@ export function registerCapabilityRoute(
                   .dependencies
               : config.createDependencies(authContext, { bypassTenantScope, locale });
             fresh.correlationId = deps.correlationId;
+            fresh.traceparent = deps.traceparent;
+            fresh.onTelemetrySpan = config.onTelemetrySpan;
             fresh.request = deps.request;
             const current = createExecutionContext(fresh);
             if (
@@ -486,6 +497,22 @@ export function registerCapabilityRoute(
    * declared `PATCH` that silently registered as `POST` is the same defect as a declared `POST`
    * served as `GET`: the contract says one thing and the wire does another.
    */
+  const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const span = startTelemetrySpan(
+      request.headers.traceparent,
+      'request',
+      getCanonicalCapabilityName(capability),
+      config.onTelemetrySpan,
+    );
+    try {
+      await executeHandler(request, reply, span.traceparent);
+    } catch (error) {
+      span.finish('error');
+      throw error;
+    } finally {
+      span.finish(reply.statusCode >= 500 ? 'error' : reply.statusCode >= 400 ? 'refused' : 'ok');
+    }
+  };
   const options = { onSend: challengeUnauthorized };
   switch (method) {
     case 'GET':
@@ -551,7 +578,7 @@ export function registerStreamingRoute(
 ): void {
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}/stream`;
 
-  app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+  const executeStream = async (request: FastifyRequest, reply: FastifyReply, carrier?: string) => {
     const requestId = resolveRequestCorrelationId(request.headers);
 
     let authContext: Awaited<ReturnType<AuthAdapter['authenticate']>>;
@@ -631,6 +658,8 @@ export function registerStreamingRoute(
       deps = config.createDependencies(authContext, { bypassTenantScope, locale });
     }
     deps.correlationId = resolveRequestCorrelationId(request.headers);
+    deps.traceparent = carrier ?? validatedTraceparent(deps.traceparent);
+    deps.onTelemetrySpan = config.onTelemetrySpan;
     deps.request = {
       sourceIp: request.ip,
       userAgent: request.headers['user-agent'],
@@ -683,6 +712,22 @@ export function registerStreamingRoute(
     }
 
     reply.raw.end();
+  };
+  app.post(path, async (request: FastifyRequest, reply: FastifyReply) => {
+    const span = startTelemetrySpan(
+      request.headers.traceparent,
+      'request',
+      `${getCanonicalCapabilityName(capability)}.stream`,
+      config.onTelemetrySpan,
+    );
+    try {
+      await executeStream(request, reply, span.traceparent);
+    } catch (error) {
+      span.finish('error');
+      throw error;
+    } finally {
+      span.finish(reply.statusCode >= 500 ? 'error' : reply.statusCode >= 400 ? 'refused' : 'ok');
+    }
   });
 }
 

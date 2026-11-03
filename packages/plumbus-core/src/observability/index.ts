@@ -4,30 +4,14 @@
 //
 // Key exports: createStructuredLogger, createPlumbusMetrics, createTracer
 
+export type { ErrorExecutionDetails } from './error-diagnostics.js';
 // Internal provenance helpers; deliberately not re-exported by the public SDK root.
 export {
   exposeOriginalError,
-  getOriginalError,
   getErrorExecutionDetails,
+  getOriginalError,
   preserveOriginalError,
 } from './error-diagnostics.js';
-export type { ErrorExecutionDetails } from './error-diagnostics.js';
-
-export {
-  createChildSpan,
-  createMetricsRegistry,
-  createPlumbusMetrics,
-  createStructuredLogger,
-  createTraceContext,
-  createTracer,
-  extractTraceFromHeaders,
-  formatTraceparent,
-  generateSpanId,
-  generateTraceId,
-  injectTraceHeaders,
-  parseTraceparent,
-  withLogMasking,
-} from './metrics.js';
 export type {
   Counter,
   Histogram,
@@ -45,3 +29,20 @@ export type {
   Tracer,
   W3CTraceContext,
 } from './metrics.js';
+export {
+  createChildSpan,
+  createMetricsRegistry,
+  createPlumbusMetrics,
+  createStructuredLogger,
+  createTraceContext,
+  createTracer,
+  extractTraceFromHeaders,
+  formatTraceparent,
+  generateSpanId,
+  generateTraceId,
+  injectTraceHeaders,
+  parseTraceparent,
+  withLogMasking,
+} from './metrics.js';
+export type { CompletedTelemetrySpan, TelemetrySpanHook } from './telemetry.js';
+export { startTelemetrySpan, validatedTraceparent } from './telemetry.js';

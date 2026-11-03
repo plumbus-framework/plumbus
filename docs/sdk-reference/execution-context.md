@@ -658,3 +658,8 @@ See the [Testing Guide](../testing/testing-guide.md) for full details.
 
 
 Queued job input must survive a JSON round trip. The built-in dispatcher persists and compares the validated JSON representation (dates as ISO strings, big integers as decimal strings). Use coercing input schemas such as `z.coerce.date()` and `z.coerce.bigint()` so workers can validate the serialized payload. Unsupported non-serializable inputs fail before a job ID is accepted.
+
+### Optional diagnostic carrier (unreleased)
+
+`ContextDependencies.traceparent` carries opaque W3C context independently of auth/correlation.
+See [propagation, privacy and migrations](telemetry.md).

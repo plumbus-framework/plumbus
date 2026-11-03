@@ -28,7 +28,7 @@ export function createFlowService(
     async start(
       flowName: string,
       input: unknown,
-      opts?: { executionId?: string },
+      opts?: { executionId?: string; traceparent?: string },
     ): Promise<FlowExecution> {
       return engine.start(flowName, input, auth, opts);
     },

@@ -6,6 +6,34 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.8 (2026-11-03): sampled execution telemetry
+
+Prepared for repository release `v0.9.0-beta.8` under npm dist-tag `plumbus-next`.
+Only `@plumbus/core` changes, from **0.9.0-beta.7** to **0.9.0-beta.8**; every
+other package and all peer ranges stay unchanged.
+
+- **Migrate before starting the new runtime, even when telemetry is off.** Run
+  `plumbus migrate generate` and review the additive nullable text `traceparent`
+  columns on `flow_executions`, `flow_start_intents`, `event_outbox` and
+  `job_executions`. Apply through the existing migration stream on the spine and
+  every affected tenant plane (`plumbus migrate apply --database <name>` or
+  `applyDataPlaneMigrations`) before activating beta.8 API and worker processes.
+  Old rows stay null; no business/auth JSON is rewritten. Opaque dispatch hints
+  and Protocol A state gain no fields.
+- **Optional `onTelemetrySpan`** reports sampled request, capability and worker-step
+  spans. The host supplies valid W3C context and owns head sampling, bounded
+  buffering, export and shutdown flushing. Core adds no collector or vendor SDK.
+  Nested capabilities and persisted flows/events/jobs retain execution context;
+  invalid, absent or unsampled carriers produce no span reports.
+- **Privacy and isolation:** reports contain only validated trace context, canonical
+  code names, timing, structured outcomes and allowlisted codes. Identity, business
+  data, raw errors and AI content are excluded; callback failures never delay or
+  fail execution. Existing diagnostic hooks retain their own contracts.
+
+See [sampled execution telemetry](sdk-reference/telemetry.md) for the hook contract,
+propagation and migration details. Application migrations and collector read-back
+still require consumer staging validation.
+
 ## v0.9.0-beta.7 (2026-11-02): provider rate limits, stable 0.8.3 merged
 
 Packages: `@plumbus/core` 0.9.0-beta.7; `@plumbus/voice` 0.7.0-beta.2, `@plumbus/chat` 0.4.0-beta.2, `@plumbus/payments` 0.4.0-beta.2 and `@plumbus/voice-soniox` 0.4.0-beta.2 (each needs core `>=0.9.0-beta.7`); `@plumbus/voice-livekit` 0.4.0-beta.2 (core `>=0.9.0-beta.7`, voice `>=0.7.0-beta.2`); `@plumbus/voice-deepdub`, `-elevenlabs`, `-minimax` and `-openai` 0.4.0-beta.1 (peers unchanged). Upgrade core, voice and these add-ons together. No database change.

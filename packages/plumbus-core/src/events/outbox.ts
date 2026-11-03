@@ -13,6 +13,7 @@ export const outboxTable = pgTable(
     payload: jsonb('payload').notNull(),
     actor: text('actor').notNull(),
     tenantId: text('tenant_id'),
+    traceparent: text('traceparent'),
     correlationId: text('correlation_id').notNull(),
     causationId: text('causation_id'),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),

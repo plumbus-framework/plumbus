@@ -1,4 +1,4 @@
-import { CapabilityKind } from '../types/enums.js';
+import { zodInputToJsonSchema } from '../schema/zod-input-to-json-schema.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type {
   CapabilityDescription,
@@ -6,12 +6,12 @@ import type {
   ExecutionContext,
   ExecutionRuntimeMetadata,
 } from '../types/context.js';
+import { CapabilityKind } from '../types/enums.js';
 import type { RegisteredCapabilityName } from '../types/registry.js';
-import { zodInputToJsonSchema } from '../schema/zod-input-to-json-schema.js';
-import type { CapabilityRegistry } from './capability-registry.js';
 import { getCanonicalCapabilityName } from './canonical-name.js';
 import type { CapabilityResult } from './capability-executor.js';
 import { executeCapability } from './capability-executor.js';
+import type { CapabilityRegistry } from './capability-registry.js';
 import type { InvocationEmitScope } from './invocation-emit-scope.js';
 
 export type DependencyViolationReason =
@@ -46,13 +46,14 @@ export function stripHandlerRuntime(
   options?: { preserveCapabilityRuntime?: boolean },
 ): ExecutionRuntimeMetadata | undefined {
   if (!runtime) return undefined;
-  if (options?.preserveCapabilityRuntime) return runtime;
+  const { onTelemetrySpan: _telemetry, ...withoutTelemetry } = runtime;
+  if (options?.preserveCapabilityRuntime) return withoutTelemetry;
   const {
     invokeCapability: _invoker,
     resolveCapability: _resolve,
     invocationEmitScope: _emitScope,
     ...handlerVisible
-  } = runtime;
+  } = withoutTelemetry;
   return handlerVisible;
 }
 

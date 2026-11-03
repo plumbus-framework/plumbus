@@ -19,6 +19,8 @@ export interface WireContextDependenciesOptions {
   audit?: AuditService;
   bypassTenantScope?: boolean;
   correlationId?: string;
+  traceparent?: string;
+  onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   getCausationId?: () => string | undefined;
   encryptionKey?: Buffer;
   durableDispatch?: DurableDispatchRunnerConfig;
@@ -67,6 +69,9 @@ export function wireContextDependencies(
     events: eventService,
     audit,
     withTransaction,
+    correlationId: options.correlationId,
+    traceparent: options.traceparent,
+    onTelemetrySpan: options.onTelemetrySpan,
     ...extras,
   };
 }

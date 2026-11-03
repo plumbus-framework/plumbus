@@ -1,0 +1,36 @@
+{
+  "validatedAt": "2026-11-03T10:05:43.317634+00:00",
+  "status": "source patch validated; unreleased",
+  "node": "v22.23.2",
+  "commands": {
+    "pnpm lint": 0,
+    "pnpm format:check": 0,
+    "pnpm typecheck": 0,
+    "pnpm test": 0
+  },
+  "core": {
+    "filesPassed": 272,
+    "testsPassed": 4011
+  },
+  "testInfrastructure": {
+    "isolatedPostgres": true,
+    "stoppedAfterRun": true
+  },
+  "privacyCases": [
+    "exact completion-field allowlist",
+    "planted input/identity/error content excluded",
+    "host callback hidden including privileged adapter",
+    "CR/LF and malformed carrier rejection",
+    "sampled and unsampled worker recreation",
+    "concurrent nested trace isolation",
+    "additive nullable migrations and reapplication on separate planes",
+    "throwing/rejected/pending host callbacks isolated"
+  ],
+  "releaseLimits": [
+    "not published",
+    "not installed in Quinovium",
+    "no production/application migrations applied",
+    "publication Node 24 validation not performed"
+  ],
+  "logsPrefix": "/tmp/plumbus-telemetry-"
+}

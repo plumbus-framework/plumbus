@@ -1,19 +1,19 @@
-import { createAuditService } from '../audit/service.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
+import { createAuditService } from '../audit/service.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
+import type { EntityRegistry } from '../data/registry.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventRegistry } from '../events/registry.js';
+import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { enqueueFlowStep } from '../flows/flow-queue.js';
 import type { FlowRegistry } from '../flows/registry.js';
-import type { CapabilityRegistry } from '../execution/capability-registry.js';
-import type { EntityRegistry } from '../data/registry.js';
-import { resolveEncryptionKey } from '../data/field-encryption.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AuthContext } from '../types/security.js';
 import type { WorkerPool } from '../worker/bootstrap.js';
 import { createWorkerPool } from '../worker/bootstrap.js';
 import { buildStepDeps, buildWorkerAiService, type ServerExtensions } from './bootstrap.js';
-import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { RuntimeQueues } from './queue-factory.js';
 
 export interface StartWorkerPoolOptions {
@@ -172,6 +172,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
       ? { frameworkRetention: extensions.frameworkRetention }
       : {}),
     onCapabilityError: extensions?.onCapabilityError,
+    onTelemetrySpan: extensions?.onTelemetrySpan,
     logger,
     metrics,
     onFlowStepEnqueue: (executionId, correlationId) =>

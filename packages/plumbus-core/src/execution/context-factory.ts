@@ -1,5 +1,5 @@
 import { createErrorService, PlumbusError } from '../errors/index.js';
-import { ErrorCode, FlowWakeSkipReason } from '../types/enums.js';
+import { validatedTraceparent } from '../observability/index.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIService,
@@ -12,6 +12,7 @@ import type {
   SecurityService,
   TimeService,
 } from '../types/context.js';
+import { ErrorCode, FlowWakeSkipReason } from '../types/enums.js';
 import type { AuthContext } from '../types/security.js';
 import type { TranslationService } from '../types/translation.js';
 import { createUnavailableCapabilityService } from './capability-invocation.js';
@@ -248,6 +249,8 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
     invokeCapability: deps.invokeCapability,
     resolveCapability: deps.resolveCapability,
     correlationId: deps.correlationId,
+    traceparent: validatedTraceparent(deps.traceparent),
+    onTelemetrySpan: deps.onTelemetrySpan,
     invocationEmitScope: deps.invocationEmitScope,
     withTransaction: deps.withTransaction,
     approvals: deps.approvals,
@@ -266,6 +269,7 @@ export function createExecutionContext(deps: ContextDependencies): ExecutionCont
         tenantId: deps.auth.tenantId,
         actor: deps.auth.userId,
         correlationId: deps.correlationId,
+        traceparent: validatedTraceparent(deps.traceparent),
       }) ??
       deps.ai ??
       noopAI,

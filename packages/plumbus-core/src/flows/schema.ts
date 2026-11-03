@@ -7,8 +7,8 @@ import {
   pgTable,
   text,
   timestamp,
-  uuid,
   uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -36,6 +36,7 @@ export const flowExecutionsTable = pgTable(
     tenantId: text('tenant_id'),
     /** Caller auth at enqueue time (roles/scopes/provider); used for step execution instead of worker auth. */
     authSnapshotJson: jsonb('auth_snapshot_json'),
+    traceparent: text('traceparent'),
     correlationId: text('correlation_id'),
     triggerEventId: text('trigger_event_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -140,6 +141,7 @@ export const flowScheduleTicksTable = pgTable(
 export const flowStartIntentsTable = pgTable(
   'flow_start_intents',
   {
+    traceparent: text('traceparent'),
     executionId: uuid('execution_id').primaryKey(),
     flowName: text('flow_name').notNull(),
     input: jsonb('input').notNull(),

@@ -1,9 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { z } from 'zod';
-import { DataValidationError } from '../errors/index.js';
-import type { FlowRegistry } from './registry.js';
-import { createFlowExecutionRecord, flowAuthSchema } from './execution-record.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import {
   type DispatchOutboxRow,
@@ -12,6 +9,10 @@ import {
   publishOutboxToSpine,
   reopenExecutionState,
 } from '../durable/index.js';
+import { DataValidationError } from '../errors/index.js';
+import { validatedTraceparent } from '../observability/index.js';
+import { createFlowExecutionRecord, flowAuthSchema } from './execution-record.js';
+import type { FlowRegistry } from './registry.js';
 import { flowDeadLetterTable, flowExecutionsTable } from './schema.js';
 import { FlowStatus } from './state-machine.js';
 
@@ -79,6 +80,7 @@ export async function deadLetterFlow(db: PostgresJsDatabase, executionId: string
         actor: row.actor,
         tenantId: row.tenantId,
         correlationId: row.correlationId,
+        traceparent: validatedTraceparent(row.traceparent),
         triggerEventId: row.triggerEventId,
         createdAt: row.createdAt?.toISOString(),
         failedAt: row.completedAt?.toISOString(),
@@ -327,6 +329,7 @@ export async function replayDeadLetterFlow(
         auth.data,
         {
           correlationId: row.correlationId ?? undefined,
+          traceparent: validatedTraceparent(row.traceparent),
           triggerEventId: executionId,
           scheduleId: row.scheduleId ?? undefined,
         },

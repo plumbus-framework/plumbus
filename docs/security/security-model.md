@@ -492,3 +492,10 @@ See [Security review remediation](review-remediation.md) for the finding-by-find
 ## Application-neutral framework source
 
 `pnpm check:no-app-vocabulary` checks framework source for application-specific identifiers, including comments. Runtime fixes and their regressions use generic capability, tenant, data-plane and schema vocabulary. Run its own fixtures with `pnpm check:no-app-vocabulary:test`; application policies and business concepts belong in consuming apps.
+
+## Diagnostic completion metadata (unreleased)
+
+The new `onTelemetrySpan` hook constructs and freezes an explicit schema of opaque trace coordinates,
+canonical code names, timing and structured outcomes. It copies no identity, input, request or
+raw exception data. Carriers confer no authority; consumers restore them from verified rows.
+See [the exact data boundary](../sdk-reference/telemetry.md).

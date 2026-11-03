@@ -1,13 +1,14 @@
-import { safeParseBounded } from '../validation/bounded-parse.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { and, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
 import { DataForbiddenError, DataValidationError } from '../errors/index.js';
-import { evaluateAccess } from '../execution/index.js';
-import type { LoggerService } from '../types/context.js';
 import type { EventQueue } from '../events/index.js';
+import { evaluateAccess } from '../execution/index.js';
+import { validatedTraceparent } from '../observability/index.js';
+import type { LoggerService } from '../types/context.js';
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import type { DispatchJobOptions } from './dispatch.js';
 import { jobExecutionsTable } from './schema.js';
 import { jobEventType } from './types.js';
@@ -47,6 +48,7 @@ export async function persistJobIntent(options: DispatchJobOptions): Promise<str
       inputJson,
       authSnapshotJson: auth,
       tenantId: auth.tenantId ?? null,
+      traceparent: validatedTraceparent(options.traceparent),
       correlationId: options.correlationId ?? id,
       source: options.source ?? 'http',
       dispatchPending: true,
@@ -112,6 +114,7 @@ export async function publishPendingJobs(
         occurredAt: row.createdAt,
         actor: auth.success ? (auth.data.userId ?? 'anonymous') : 'anonymous',
         tenantId: row.tenantId ?? undefined,
+        traceparent: validatedTraceparent(row.traceparent),
         correlationId: row.correlationId ?? id,
         payload: {
           jobExecutionId: id,

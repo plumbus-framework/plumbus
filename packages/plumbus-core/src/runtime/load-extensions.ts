@@ -1,8 +1,8 @@
-import type { DecisionDefinition } from '@plumbus/ai-decision/types';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { DecisionDefinition } from '@plumbus/ai-decision/types';
 import type { ServerExtensions } from './bootstrap.js';
 
 /** Load optional hooks from app/server.ts or app/server.js. */
@@ -40,6 +40,7 @@ export async function loadServerExtensions(
         mod.aiProviderConcurrency ?? mod.default?.aiProviderConcurrency;
       extensions.resolveAIProviderHeaders =
         mod.resolveAIProviderHeaders ?? mod.default?.resolveAIProviderHeaders;
+      extensions.onTelemetrySpan = mod.onTelemetrySpan ?? mod.default?.onTelemetrySpan;
       extensions.onAIProviderSpan = mod.onAIProviderSpan ?? mod.default?.onAIProviderSpan;
       extensions.enableStrictStructuredOutputs =
         mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;

@@ -1,3 +1,4 @@
+import { validatedTraceparent } from '../observability/index.js';
 // ── Durable deferred flow starts ──
 // A flow started inside a capability transaction runs after commit. The intent is written in
 // that transaction (`flow_start_intents`), so a process that dies between commit and start
@@ -8,8 +9,8 @@ import { eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { isPlumbusError } from '../errors/index.js';
 import type { LoggerService } from '../types/context.js';
-import type { AuthContext } from '../types/security.js';
 import { ErrorCode } from '../types/enums.js';
+import type { AuthContext } from '../types/security.js';
 import { flowAuthSchema } from './execution-record.js';
 import { flowStartIntentsTable } from './schema.js';
 
@@ -24,6 +25,7 @@ export interface FlowStartIntent {
   input: unknown;
   auth: AuthContext;
   attempts: number;
+  traceparent?: string;
 }
 
 const tablePresence = new WeakMap<object, Promise<boolean>>();
@@ -56,13 +58,20 @@ export function flowStartIntentsAvailable(
 /** Write the intent in the caller's transaction. */
 export async function writeFlowStartIntent(
   tx: PostgresJsDatabase,
-  intent: { executionId: string; flowName: string; input: unknown; auth: AuthContext },
+  intent: {
+    executionId: string;
+    flowName: string;
+    input: unknown;
+    auth: AuthContext;
+    traceparent?: string;
+  },
   graceMs: number = FLOW_START_INTENT_GRACE_MS,
 ): Promise<void> {
   await tx.insert(flowStartIntentsTable).values({
     executionId: intent.executionId,
     flowName: intent.flowName,
     input: intent.input ?? null,
+    traceparent: validatedTraceparent(intent.traceparent),
     authSnapshotJson: flowAuthSchema.parse(intent.auth),
     nextAttemptAt: sql`now() + ${`${graceMs} milliseconds`}::interval`,
   });
@@ -99,7 +108,7 @@ export async function claimDueFlowStartIntents(
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}
     )
-    RETURNING execution_id, flow_name, input, auth_snapshot_json, attempts
+    RETURNING execution_id, flow_name, input, auth_snapshot_json, traceparent, attempts
   `)) as unknown as Record<string, unknown>[];
   const intents: FlowStartIntent[] = [];
   for (const row of rows) {
@@ -111,6 +120,7 @@ export async function claimDueFlowStartIntents(
       input: row.input,
       auth: auth.data as AuthContext,
       attempts: Number(row.attempts),
+      traceparent: validatedTraceparent(row.traceparent),
     });
   }
   return intents;

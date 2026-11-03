@@ -723,3 +723,8 @@ Queue tuning: `pollIntervalMs`, `visibilityTimeoutSec`, `reclaimIntervalMs`, `st
 See [stabilization](../upgrading-stabilization.md) for defaults, legacy retry aliases, migrations, and durable dispatch/replay guarantees.
 
 The CLI wires Redis into API readiness automatically. Custom `createServer` bootstrap can supply `checkQueueReadiness: queues.pingRedis`. Within Redis connection settings, a URL takes precedence over separate host/port credentials. TypeScript config compilation loads lazily when an actual config file is read.
+
+### Optional sampled execution telemetry (unreleased)
+
+`onTelemetrySpan` reports allowlisted request/capability/worker timings and opaque context, without
+awaiting network delivery. See [privacy, sampling and required migrations](telemetry.md).

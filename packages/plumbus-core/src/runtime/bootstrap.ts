@@ -5,28 +5,28 @@ import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AIServiceConfig } from '../ai/ai-service.js';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
-import { buildAISecurityConfig } from '../ai/security.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
+import { buildAISecurityConfig } from '../ai/security.js';
 import type { DiscoveredResources } from '../cli/discover.js';
-import type { EntityDefinition } from '../types/entity.js';
 import type { EntityRegistry } from '../data/registry.js';
-import { CapabilityKind } from '../types/enums.js';
-import { executeCapability } from '../execution/capability-executor.js';
-import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
+import { executeCapability } from '../execution/capability-executor.js';
 import {
   buildDependencyViolationMessage,
   type DependencyViolationMetadata,
 } from '../execution/capability-invocation.js';
+import type { CapabilityRegistry } from '../execution/capability-registry.js';
 import { evaluateFlowCondition } from '../flows/evaluate-condition.js';
 import type { StepExecutorDeps } from '../flows/step-executor.js';
 import type { ServerConfig } from '../server/bootstrap.js';
 import { wrapAIServiceWithDynamicOverrides } from '../server/bootstrap.js';
 import type { PlumbusConfig } from '../types/config.js';
-import type { AIService, AICostContext } from '../types/context.js';
+import type { AICostContext, AIService } from '../types/context.js';
+import type { EntityDefinition } from '../types/entity.js';
+import { CapabilityKind } from '../types/enums.js';
 import type { WorkerPoolConfig } from '../worker/bootstrap.js';
 import type { OnBootHook } from './app-boot.js';
 import type { OnShutdownHook } from './graceful-shutdown.js';
@@ -265,6 +265,7 @@ export type ServerExtensions = Pick<
   | 'aiProviderConcurrency'
   | 'resolveAIProviderHeaders'
   | 'onAIProviderSpan'
+  | 'onTelemetrySpan'
   | 'decisions'
   | 'enableStrictStructuredOutputs'
   | 'credentials'

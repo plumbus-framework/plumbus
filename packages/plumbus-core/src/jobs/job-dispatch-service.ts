@@ -1,13 +1,15 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { createErrorService } from '../errors/index.js';
-import type { CapabilityContract } from '../types/capability.js';
 import type { EventQueue } from '../events/queue.js';
+import type { CapabilityContract } from '../types/capability.js';
 import type { LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import { persistJobIntent, publishPendingJobs } from './pending-dispatch.js';
 import type { JobExecutionSource } from './schema.js';
 
 export interface JobDispatchService {
+  /** @internal Rebind diagnostic carrier without changing auth. */
+  withTraceparent?(traceparent?: string): JobDispatchService;
   /** @internal Fail before reserving an ID when no dispatcher exists. */
   assertAvailable?(): void;
   /** @internal Bind durable intent creation to the capability transaction. */
@@ -28,6 +30,7 @@ export interface CreateJobDispatchServiceOptions {
   auth: AuthContext;
   /** Static correlation id, or omit and use getCorrelationId for lazy resolution. */
   correlationId?: string;
+  traceparent?: string;
   /** Lazy correlation/causation id — preferred for HTTP so it reflects the executing capability. */
   getCorrelationId?: () => string | undefined;
   source?: (typeof JobExecutionSource)[keyof typeof JobExecutionSource];
@@ -39,6 +42,8 @@ export function createJobDispatchService(
 ): JobDispatchService {
   const errors = createErrorService();
   return {
+    withTraceparent: (traceparent) =>
+      createJobDispatchService({ ...options, traceparent }, transaction),
     inTransaction: (db, deferred) => createJobDispatchService(options, { db, deferred }),
     async enqueue(capabilityName, input, opts) {
       const capability = options.resolveCapability(capabilityName);
@@ -53,6 +58,7 @@ export function createJobDispatchService(
         capability,
         input,
         auth: options.auth,
+        traceparent: options.traceparent,
         correlationId: options.getCorrelationId?.() ?? options.correlationId,
         source: options.source,
         jobId: opts?.jobId,

@@ -1,14 +1,14 @@
+import type { ApprovalRequestRecord } from '../approvals/types.js';
 import { isPermanentFailure } from '../config/index.js';
-import {
-  getOriginalError,
-  getErrorExecutionDetails,
-  preserveOriginalError,
-} from '../observability/index.js';
 import { AIBudgetExceededError } from '../errors/data-errors.js';
+import {
+  getErrorExecutionDetails,
+  getOriginalError,
+  preserveOriginalError,
+  startTelemetrySpan,
+} from '../observability/index.js';
 import type { ExecutionContext } from '../types/context.js';
 import { FlowStepType } from '../types/enums.js';
-import { FlowConditionError } from './evaluate-condition.js';
-import type { ApprovalRequestRecord } from '../approvals/types.js';
 import type {
   ApprovalOutcomeStep,
   CapabilityStep,
@@ -19,6 +19,7 @@ import type {
   ParallelStep,
   WaitStep,
 } from '../types/flow.js';
+import { FlowConditionError } from './evaluate-condition.js';
 import { type StepHistoryEntry, StepStatus } from './state-machine.js';
 
 export interface StepResult {
@@ -68,6 +69,41 @@ export interface StepExecutorDeps {
  * @param state     — the mutable flow state accumulated across steps
  */
 export async function executeStep(
+  step: FlowStep,
+  ctx: ExecutionContext,
+  flowInput: unknown,
+  state: unknown,
+  deps: StepExecutorDeps,
+): Promise<StepResult> {
+  const span = startTelemetrySpan(
+    ctx.__runtime?.traceparent,
+    'worker_step',
+    `step.${step.name}`,
+    ctx.__runtime?.onTelemetrySpan,
+  );
+  if (!span.traceparent) return executeStepBody(step, ctx, flowInput, state, deps);
+  const rebound: ExecutionContext['flows'] = ctx.flows && {
+    ...ctx.flows,
+    start: (name, input, opts) =>
+      ctx.flows.start(name, input, { ...opts, traceparent: span.traceparent }),
+  };
+  const child = {
+    ...ctx,
+    __runtime: { ...ctx.__runtime, traceparent: span.traceparent },
+    events: ctx.events?.withTraceparent?.(span.traceparent) ?? ctx.events,
+    jobs: ctx.jobs?.withTraceparent?.(span.traceparent) ?? ctx.jobs,
+    flows: rebound,
+  };
+  try {
+    const result = await executeStepBody(step, child, flowInput, state, deps);
+    span.finish(result.status === StepStatus.Failed ? 'error' : 'ok');
+    return result;
+  } catch (error) {
+    span.finish('error');
+    throw error;
+  }
+}
+async function executeStepBody(
   step: FlowStep,
   ctx: ExecutionContext,
   flowInput: unknown,

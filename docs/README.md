@@ -197,3 +197,5 @@ docs/
 | Integrate AI into my app | [AI → Integration](ai/ai-integration.md) |
 | Use Amazon Bedrock (optional AWS SDK package) | [AI → Amazon Bedrock](ai/bedrock.md) (detailed) · [AI Integration § Bedrock](ai/ai-integration.md#amazon-bedrock-plumbusai-bedrock) |
 | Use structured logging and metrics | [SDK Reference → Observability](sdk-reference/observability.md) |
+
+- [Sampled execution telemetry (unreleased): privacy and migrations](./sdk-reference/telemetry.md)

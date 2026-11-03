@@ -1,16 +1,14 @@
-import type { ProcessErrorClassifier, ProcessErrorHook } from '../runtime/process-errors.js';
 import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 import type { IdempotencyStore } from '../api/idempotency.js';
+import type { ProcessErrorClassifier, ProcessErrorHook } from '../runtime/process-errors.js';
 import type { AIReasoningConfig, ReasoningEffort } from '../types/prompt.js';
 // ── Fastify Server Bootstrap ──
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
 
 import { sql } from 'drizzle-orm';
-import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
-import { createFastify } from './fastify.js';
 import { createAIService, singleProviderConfig } from '../ai/ai-service.js';
 import type { AICostRecord } from '../ai/cost-tracker.js';
 import { createCostTracker } from '../ai/cost-tracker.js';
@@ -28,9 +26,10 @@ import { createJwtAdapter } from '../auth/adapter.js';
 import type { CredentialCatalog } from '../credentials/catalog.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { EntityRegistry } from '../data/registry.js';
+import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import { logHookError } from '../errors/hook-log.js';
 import { GENERIC_INTERNAL_MESSAGE } from '../errors/http.js';
-import { PlumbusError, isPlumbusError } from '../errors/index.js';
+import { isPlumbusError, PlumbusError } from '../errors/index.js';
 import type { ConsumerRegistry } from '../events/consumer-registry.js';
 import type { EventQueue } from '../events/queue.js';
 import type { EventRegistry } from '../events/registry.js';
@@ -67,6 +66,7 @@ import { ErrorCode } from '../types/enums.js';
 import type { AuthContext } from '../types/security.js';
 import type { TranslationDefinition } from '../types/translation.js';
 import type { HttpAuthenticationRuntime } from './authentication-runtime.js';
+import { createFastify } from './fastify.js';
 
 // ── Server Config ──
 
@@ -236,6 +236,8 @@ export interface ServerConfig {
   /** Trusted outbound propagation headers for each provider attempt. */
   resolveAIProviderHeaders?: import('../ai/ai-service.js').AIServiceConfig['resolveProviderHeaders'];
   /** Best-effort provider client span exporter. */
+  /** Vendor-neutral, sampled identifiers/timings only; never awaited on execution. */
+  onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   onAIProviderSpan?: import('../ai/ai-service.js').AIServiceConfig['onProviderSpan'];
   /** Enable provider-side constrained decoding for registered prompt output schemas. */
   enableStrictStructuredOutputs?: boolean;
@@ -703,6 +705,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         }
       : {}),
     onCapabilityError: serverConfig.onCapabilityError,
+    onTelemetrySpan: serverConfig.onTelemetrySpan,
     jobQueue: serverConfig.jobQueue,
     ...(serverConfig.idempotencyStore ? { idempotencyStore: serverConfig.idempotencyStore } : {}),
   };

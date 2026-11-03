@@ -1,25 +1,25 @@
-import { safeParseBounded } from '../validation/bounded-parse.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { z } from 'zod';
 import { isProviderAPIError } from '../ai/provider.js';
+import { evaluateApprovalGate } from '../approvals/gate.js';
 import { isPlumbusError } from '../errors/index.js';
-import { preserveOriginalError } from '../observability/index.js';
-import { capabilityExecutionDetails } from './capability-error-hook.js';
+import { createDeferredJobDispatchService } from '../jobs/deferred-job-dispatch-service.js';
+import { preserveOriginalError, startTelemetrySpan } from '../observability/index.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext, TransactionScope } from '../types/context.js';
 import { CapabilityKind } from '../types/enums.js';
 import type { PlumbusErrorLike } from '../types/errors.js';
+import { safeParseBounded } from '../validation/bounded-parse.js';
 import { accessDenialError, evaluateAccess } from './authorization.js';
 import { getCanonicalCapabilityName } from './canonical-name.js';
-import { createDeferredFlowService } from './deferred-flow-service.js';
-import { createDeferredJobDispatchService } from '../jobs/deferred-job-dispatch-service.js';
+import { capabilityExecutionDetails } from './capability-error-hook.js';
 import {
+  type CapabilityInvocationRuntime,
   createCapabilityInvokeService,
   createUnavailableCapabilityService,
   stripHandlerRuntime,
-  type CapabilityInvocationRuntime,
 } from './capability-invocation.js';
-import { evaluateApprovalGate } from '../approvals/gate.js';
+import { createDeferredFlowService } from './deferred-flow-service.js';
 import {
   CapabilityOutputValidationError,
   shouldUseTransactionalOutbox,
@@ -110,7 +110,13 @@ function buildHandlerContext(
           deferred,
           undefined,
           scope.db && scope.planeDb
-            ? { tx: scope.db, planeDb: scope.planeDb, auth: ctx.auth, logger: ctx.logger }
+            ? {
+                tx: scope.db,
+                planeDb: scope.planeDb,
+                auth: ctx.auth,
+                traceparent: ctx.__runtime?.traceparent,
+                logger: ctx.logger,
+              }
             : undefined,
           // A wake runs after commit, where its outcome reaches no caller: log it.
           ctx.logger,
@@ -124,7 +130,12 @@ function buildHandlerContext(
       : ctx.jobs;
   const handlerCtx: ExecutionContext = {
     ...ctx,
-    ...(scope ? { data: scope.data, events: scope.events } : {}),
+    ...(scope
+      ? {
+          data: scope.data,
+          events: scope.events.withTraceparent?.(ctx.__runtime?.traceparent) ?? scope.events,
+        }
+      : {}),
     // Audit inside the transaction uses its connection, not a second pool connection.
     ...(scope?.audit ? { audit: scope.audit } : {}),
     ...(flows ? { flows } : {}),
@@ -240,6 +251,51 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
  * 6. Record audit
  */
 export async function executeCapability<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
+  capability: CapabilityContract<TInput, TOutput>,
+  ctx: ExecutionContext,
+  rawInput: unknown,
+  options?: ExecuteCapabilityOptions,
+): Promise<CapabilityResult<z.infer<TOutput>>> {
+  const span = startTelemetrySpan(
+    ctx.__runtime?.traceparent,
+    'capability',
+    getCanonicalCapabilityName(capability),
+    ctx.__runtime?.onTelemetrySpan,
+  );
+  if (!span.traceparent) return executeCapabilityBody(capability, ctx, rawInput, options);
+  const reboundFlows: ExecutionContext['flows'] = ctx.flows && {
+    ...ctx.flows,
+    start: (name, input, opts) =>
+      ctx.flows.start(name, input, { ...opts, traceparent: span.traceparent }),
+  };
+  const child = Object.freeze({
+    ...ctx,
+    __runtime: { ...ctx.__runtime, traceparent: span.traceparent },
+    ai:
+      ctx.ai?.withContext?.({
+        tenantId: ctx.auth.tenantId,
+        actor: ctx.auth.userId,
+        correlationId: ctx.__runtime?.correlationId,
+        traceparent: span.traceparent,
+      }) ?? ctx.ai,
+    events: ctx.events?.withTraceparent?.(span.traceparent) ?? ctx.events,
+    flows: reboundFlows,
+    jobs: ctx.jobs?.withTraceparent?.(span.traceparent) ?? ctx.jobs,
+  });
+  try {
+    const result = await executeCapabilityBody(capability, child, rawInput, options);
+    span.finish(
+      result.success ? 'ok' : result.error.code === 'internal' ? 'error' : 'refused',
+      result.success ? undefined : result.error.code,
+    );
+    return result;
+  } catch (error) {
+    span.finish('error');
+    throw error;
+  }
+}
+
+async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
   capability: CapabilityContract<TInput, TOutput>,
   ctx: ExecutionContext,
   rawInput: unknown,

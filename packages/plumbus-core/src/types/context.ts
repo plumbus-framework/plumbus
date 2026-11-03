@@ -1,12 +1,12 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { JobDispatchService } from '../jobs/index.js';
+
 export type { JobDispatchService } from '../jobs/index.js';
+
 import type { DecisionCall, DecisionQuestions, DecisionResult } from '@plumbus/ai-decision/types';
 import type { z } from 'zod';
-import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
-import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
-import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
+import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type {
   AIPromptCacheOption,
   AITool,
@@ -16,20 +16,25 @@ import type {
   ChatMessage,
   ProviderAssistantState,
 } from '../ai/provider.js';
+import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
+import type { AIReasoningConfig, ReasoningEffort } from './prompt.js';
 
 // Re-export the provider tool-calling protocol types on the context surface.
 export type {
   AICacheConfig,
   AIPromptCacheOption,
   AIPromptCacheTtl,
+  AIProviderCapabilities,
   AITool,
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
-  AIProviderCapabilities,
   ProviderAssistantState,
 } from '../ai/provider.js';
+
+import type { InvocationEmitScope } from '../execution/invocation-emit-scope.js';
 import type { AuditService } from './audit.js';
+import type { CapabilityContract } from './capability.js';
 import type { FlowWakeSkipReason } from './enums.js';
 import type { ErrorService } from './errors.js';
 import type {
@@ -40,8 +45,6 @@ import type {
   RegisteredEventPayloadMap,
   RegisteredFlowName,
 } from './registry.js';
-import type { InvocationEmitScope } from '../execution/invocation-emit-scope.js';
-import type { CapabilityContract } from './capability.js';
 import type { AuthContext } from './security.js';
 import type { TranslationService } from './translation.js';
 
@@ -268,6 +271,8 @@ export type WithTransactionFn = <T>(fn: (scope: TransactionScope) => Promise<T>)
 
 // ── Event Service ──
 export interface EventService {
+  /** @internal Rebind opaque telemetry metadata, never auth or business data. */
+  withTraceparent?(traceparent?: string): EventService;
   emit<E extends RegisteredEventName>(
     eventName: E,
     payload: RegisteredEventPayloadMap[E],
@@ -334,7 +339,7 @@ export interface FlowService {
   start(
     flowName: RegisteredFlowName,
     input: unknown,
-    opts?: { executionId?: string },
+    opts?: { executionId?: string; traceparent?: string },
   ): Promise<FlowExecution>;
   resume(executionId: string, signal?: unknown): Promise<void>;
   cancel(executionId: string): Promise<void>;
@@ -538,6 +543,8 @@ export interface AIValidationOptions {
  * pre-0.3.0 behavior for consumers that haven't opted in.
  */
 export interface AICostContext {
+  /** Framework-owned opaque execution carrier, not content. */
+  traceparent?: string;
   /** Tenant-level project this AI call belongs to (primary grouping key). */
   projectId?: string;
   /** High-level area inside the project (e.g. "interview", "documents"). */
@@ -558,7 +565,12 @@ export type AIDecideResult<Q extends DecisionQuestions = DecisionQuestions> = De
 // ── AI Service ──
 export interface AIService {
   /** Bind a fresh service to the executing identity without mutating shared configuration. */
-  withContext?(identity: { tenantId?: string; actor?: string; correlationId?: string }): AIService;
+  withContext?(identity: {
+    tenantId?: string;
+    actor?: string;
+    correlationId?: string;
+    traceparent?: string;
+  }): AIService;
 
   /** Optional runtime feature flags for cross-version integrations. */
   readonly features?: {
@@ -769,6 +781,9 @@ export interface ExecutionRuntimeMetadata {
   resolveCapability?: (name: string) => CapabilityContract | undefined;
   capabilityStack?: readonly string[];
   correlationId?: string;
+  /** Optional W3C carrier; diagnostic only, never authorization or business input. */
+  traceparent?: string;
+  onTelemetrySpan?: import('../observability/telemetry.js').TelemetrySpanHook;
   /** Canonical name of the capability that invoked the current handler (for nested audit/events). */
   invocationCaller?: string;
   /** @internal Mutable emit causation scope — not visible to capability handlers. */
@@ -837,6 +852,9 @@ export interface ContextDependencies {
   invokeCapability?: ExecutionRuntimeMetadata['invokeCapability'];
   resolveCapability?: ExecutionRuntimeMetadata['resolveCapability'];
   correlationId?: string;
+  /** Optional W3C carrier; diagnostic only, never authorization or business input. */
+  traceparent?: string;
+  onTelemetrySpan?: import('../observability/telemetry.js').TelemetrySpanHook;
   /** @internal Wired by server/MCP bootstrap for nested event causation. */
   invocationEmitScope?: ExecutionRuntimeMetadata['invocationEmitScope'];
   /** Drizzle transaction runner — tx-scoped data + events (+ tx-bound audit for the default audit service). */

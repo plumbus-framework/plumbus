@@ -1,5 +1,5 @@
-import type { AnyZodSchema } from './schema.js';
 import type { z } from 'zod';
+import type { AnyZodSchema } from './schema.js';
 
 // ── Event Definition ──
 export interface EventDefinition<TPayload extends z.ZodTypeAny = AnyZodSchema> {
@@ -21,6 +21,7 @@ export interface EventEnvelope<TPayload = unknown> {
   actor: string;
   tenantId?: string;
   correlationId: string;
+  traceparent?: string;
   causationId?: string;
   payload: TPayload;
   /**

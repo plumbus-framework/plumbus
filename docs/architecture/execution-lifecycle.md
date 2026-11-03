@@ -349,3 +349,9 @@ See [Dispatch and execution-state protocol](dispatch-state-protocol.md) for the 
 Capability-owned pre-side-effect admission can use the [request admission primitives](../security/request-admission.md), with shared transaction locks and bundled work challenges.
 
 [Validation maintenance](../testing/validation-maintenance.md) documents explicit durable-record and compensation checks and their regression coverage.
+
+## Optional sampled telemetry (unreleased)
+
+Request, capability and worker-step boundaries derive children and report completion through a
+non-blocking host hook. Carriers live outside business/auth JSON and restore from verified rows.
+See [the contract and migration checklist](../sdk-reference/telemetry.md).

@@ -1,16 +1,17 @@
 import type {
-  DecisionRuntimeConfig,
-  DecisionRuntimeModule,
   DecisionQuestions,
   DecisionResult,
+  DecisionRuntimeConfig,
+  DecisionRuntimeModule,
 } from '@plumbus/ai-decision/types';
+import { validatedTraceparent } from '../observability/index.js';
 // ── AI Service Implementation ──
 // Full ctx.ai implementation: generate, extract, classify, retrieve
 // Integrates: provider adapter, prompt registry, validation, cost tracking, security, RAG, explainability
 
 import { z } from 'zod';
-import { createErrorService } from '../errors/index.js';
 import { AIBudgetExceededError, AISecurityBlockedError } from '../errors/data-errors.js';
+import { createErrorService } from '../errors/index.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import type {
   AICostContext,
@@ -27,31 +28,31 @@ import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../ty
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import { fillPromptTemplate } from './fill-prompt-template.js';
-import { normalizeCost, validateTokenUsage } from './usage-validation.js';
 import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
 import { restoreOmittedOptionalProperties } from './openai-strict-schema.js';
 import { type PromptOverrideMap, resolvePromptOverride } from './prompt-overrides.js';
 import type { PromptRegistry } from './prompt-registry.js';
 import { createPromptRegistry } from './prompt-registry.js';
-import { isCostFreeProviderFailure } from './provider-failure.js';
 import {
-  assertRequestTimeout,
   type AIPromptCacheOption,
   type AIProviderAdapter,
   type AITool,
   type AIToolCall,
   type AIToolChoice,
   type AIToolExecutionOptions,
+  assertRequestTimeout,
   type ChatMessage,
   normalizeFinishReason,
-  type ProviderRequest,
   type ProviderAssistantState,
+  type ProviderRequest,
   type TokenUsage,
 } from './provider.js';
+import { isCostFreeProviderFailure } from './provider-failure.js';
 import type { RAGPipeline } from './rag/pipeline.js';
 import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
 import type { AISecurityConfig } from './security.js';
 import { checkPromptSecurity } from './security.js';
+import { normalizeCost, validateTokenUsage } from './usage-validation.js';
 import {
   AIValidationError,
   generateWithValidation,
@@ -82,6 +83,7 @@ export interface AIProviderCallContext {
   readonly tenantId?: string;
   readonly actor?: string;
   readonly correlationId?: string;
+  readonly traceparent?: string;
   readonly costContext?: AICostContext;
 }
 
@@ -302,6 +304,7 @@ export interface AIServiceConfig {
     tenantId?: string;
     actor?: string;
     correlationId?: string;
+    traceparent?: string;
   };
   /**
    * Optional framework hook fired after every AI call completes and the
@@ -389,6 +392,9 @@ export function createAIService(config: AIServiceConfig): AIService {
       operation,
       ...(config.budget?.tenantId ? { tenantId: config.budget.tenantId } : {}),
       ...(config.budget?.actor ? { actor: config.budget.actor } : {}),
+      ...(validatedTraceparent(config.budget?.traceparent)
+        ? { traceparent: validatedTraceparent(config.budget?.traceparent) }
+        : {}),
       ...(config.budget?.correlationId ? { correlationId: config.budget.correlationId } : {}),
       ...(costContext ? { costContext } : {}),
     };
@@ -466,7 +472,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         startedAt: startedAt.toISOString(),
         durationMs,
         status,
-        ...(traceparent ? { traceparent } : {}),
+        traceparent: validatedTraceparent(traceparent),
         ...(status === 'error'
           ? { errorType: error instanceof Error ? error.name : 'UnknownError' }
           : {}),
@@ -740,7 +746,12 @@ export function createAIService(config: AIServiceConfig): AIService {
     costTracker?.record(finalEntry);
     if (onAICostRecorded) {
       try {
-        await onAICostRecorded(structuredClone(finalEntry), costContext);
+        await onAICostRecorded(
+          structuredClone(finalEntry),
+          costContext || config.budget?.traceparent
+            ? { ...costContext, traceparent: validatedTraceparent(config.budget?.traceparent) }
+            : undefined,
+        );
       } catch (hookErr) {
         const msg = hookErr instanceof Error ? hookErr.message : String(hookErr);
         console.error(`[plumbus:ai] onAICostRecorded hook threw: ${msg}`);

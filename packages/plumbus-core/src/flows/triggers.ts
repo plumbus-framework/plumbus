@@ -1,3 +1,4 @@
+import { validatedTraceparent } from '../observability/index.js';
 import type { EventEnvelope } from '../types/event.js';
 import type { AuthContext } from '../types/security.js';
 import type { createFlowEngine } from './engine.js';
@@ -33,6 +34,7 @@ export function createFlowTriggerHandler(config: {
     for (const flow of matchingFlows) {
       const exec = await engine.start(flow.name, envelope.payload, auth, {
         correlationId: envelope.correlationId,
+        traceparent: validatedTraceparent(envelope.traceparent),
         triggerEventId: envelope.id,
       });
       executionIds.push(exec.id);

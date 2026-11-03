@@ -20,6 +20,7 @@ export interface JobExecutionRecord {
   authSnapshotJson?: AuthContext;
   tenantId?: string | null;
   correlationId?: string | null;
+  traceparent?: string | null;
   source: JobExecutionSource;
   createdAt: Date;
   startedAt?: Date | null;

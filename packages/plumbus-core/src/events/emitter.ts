@@ -1,5 +1,6 @@
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { randomUUID } from 'node:crypto';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { validatedTraceparent } from '../observability/index.js';
 import type { AuditService } from '../types/audit.js';
 import type { EventService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
@@ -14,6 +15,7 @@ export interface EventEmitterConfig {
   audit?: AuditService;
   /** Optional correlation ID propagated from the triggering request/flow */
   correlationId?: string;
+  traceparent?: string;
   /** Optional causation ID linking to the originating event */
   causationId?: string;
   /** Resolve causation at emit time (e.g. nested capability invocation caller). */
@@ -33,6 +35,8 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
   }
 
   return {
+    withTraceparent: (traceparent) =>
+      createEventEmitter({ ...config, traceparent: validatedTraceparent(traceparent) }),
     async emit(eventName: string, payload: unknown): Promise<void> {
       // 1. Look up event definition for schema validation
       const eventDef = registry.get(eventName);
@@ -51,6 +55,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
         occurredAt: new Date(),
         actor: auth.userId ?? 'anonymous',
         tenantId: auth.tenantId,
+        traceparent: validatedTraceparent(config.traceparent),
         correlationId: correlationId ?? randomUUID(),
         causationId: resolveCausationId(),
         payload: payload as Record<string, unknown>,
@@ -64,6 +69,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
         payload: envelope.payload as any,
         actor: envelope.actor,
         tenantId: envelope.tenantId ?? null,
+        traceparent: validatedTraceparent(envelope.traceparent),
         correlationId: envelope.correlationId,
         causationId: envelope.causationId ?? null,
         occurredAt: envelope.occurredAt,
@@ -101,6 +107,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
           occurredAt: new Date(),
           actor: auth.userId ?? 'anonymous',
           tenantId: auth.tenantId,
+          traceparent: validatedTraceparent(config.traceparent),
           correlationId: correlationId ?? randomUUID(),
           causationId: resolveCausationId(),
           payload: payload as Record<string, unknown>,
@@ -116,6 +123,7 @@ export function createEventEmitter(config: EventEmitterConfig): EventService {
           payload: envelope.payload as any,
           actor: envelope.actor,
           tenantId: envelope.tenantId ?? null,
+          traceparent: validatedTraceparent(envelope.traceparent),
           correlationId: envelope.correlationId,
           causationId: envelope.causationId ?? null,
           occurredAt: envelope.occurredAt,

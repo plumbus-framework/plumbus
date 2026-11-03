@@ -49,6 +49,7 @@ export const jobExecutionsTable = pgTable(
     errorJson: jsonb('error_json'),
     authSnapshotJson: jsonb('auth_snapshot_json'),
     tenantId: text('tenant_id'),
+    traceparent: text('traceparent'),
     correlationId: text('correlation_id'),
     source: text('source').notNull().default(JobExecutionSource.Http),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

@@ -4,12 +4,6 @@ import { hostname } from 'node:os';
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
-import {
-  exposeOriginalError,
-  getOriginalError,
-  getErrorExecutionDetails,
-  type ErrorExecutionDetails,
-} from '../observability/index.js';
 import type { ApprovalService } from '../approvals/types.js';
 import { parseDurationToMs, resolveRetryPolicy, retryDelay } from '../config/index.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
@@ -44,6 +38,13 @@ import {
   PlumbusError,
 } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
+import {
+  type ErrorExecutionDetails,
+  exposeOriginalError,
+  getErrorExecutionDetails,
+  getOriginalError,
+  validatedTraceparent,
+} from '../observability/index.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type {
@@ -75,8 +76,8 @@ import {
 } from './definition-strategy.js';
 import {
   createFlowExecutionRecord,
-  flowAuthSchema,
   type FlowStartOptions,
+  flowAuthSchema,
 } from './execution-record.js';
 import type { FlowRegistry } from './registry.js';
 import { flowExecutionsTable } from './schema.js';
@@ -153,7 +154,7 @@ export interface FlowEngineConfig {
    */
   createContext?: (
     auth: AuthContext,
-    metadata: { correlationId: string; flowId: string },
+    metadata: { correlationId: string; flowId: string; traceparent?: string },
   ) => ExecutionContext;
   /** Create a data service scoped to a specific auth context (for tenant isolation in flows). */
   createDataService?: (auth: AuthContext) => DataService;
@@ -288,6 +289,7 @@ interface FlowExecutionRow {
   tenantId: string | null;
   authSnapshotJson: unknown;
   correlationId: string | null;
+  traceparent?: string | null;
   triggerEventId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1273,7 +1275,12 @@ export function createFlowEngine(config: FlowEngineConfig) {
       config.createContext?.(flowAuth, {
         correlationId: row.correlationId ?? executionId,
         flowId: executionId,
+        traceparent: validatedTraceparent(row.traceparent),
       }) ?? ctx;
+    ctx = {
+      ...ctx,
+      __runtime: { ...ctx.__runtime, traceparent: validatedTraceparent(row.traceparent) },
+    };
     const flowData = config.createDataService ? config.createDataService(flowAuth) : ctx.data;
     const flowEvents = createEventService ? createEventService(flowAuth) : ctx.events;
 
@@ -1304,6 +1311,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
         tenantId: flowAuth.tenantId,
         actor: flowAuth.userId,
         correlationId: row.correlationId ?? undefined,
+        traceparent: validatedTraceparent(row.traceparent),
       }) ?? ctx.ai;
     const flowAi = wrapAiWithDefaultSignal(scopedAi, stepAc.signal);
 
@@ -1327,9 +1335,15 @@ export function createFlowEngine(config: FlowEngineConfig) {
         // capability inside the inner flow would then reject with "Tenant
         // context required". Rebind `start` to use the current flowAuth so
         // nested flows inherit the calling flow's identity and tenant.
-        start: (flowName: string, input: unknown) =>
+        start: (
+          flowName: string,
+          input: unknown,
+          startOpts?: { executionId?: string; traceparent?: string },
+        ) =>
           start(flowName, input, flowAuth, {
+            ...startOpts,
             correlationId: row.correlationId ?? undefined,
+            traceparent: validatedTraceparent(startOpts?.traceparent ?? row.traceparent),
             triggerEventId: executionId,
           }),
         // Same reason: a wake from a step is scoped to the flow's own tenant, not the worker's.

@@ -18,6 +18,7 @@ export interface DurableFlowStartTarget {
   tx: PostgresJsDatabase;
   planeDb: PostgresJsDatabase;
   auth: AuthContext;
+  traceparent?: string;
   logger?: { warn(message: string, metadata?: Record<string, unknown>): void };
 }
 
@@ -60,6 +61,7 @@ export function createDeferredFlowService(
             flowName,
             input,
             auth: durable.auth,
+            traceparent: opts?.traceparent ?? durable.traceparent,
           });
           persisted = true;
         } else if (!warnedUnmigrated) {
@@ -72,7 +74,11 @@ export function createDeferredFlowService(
       pending.set(executionId, { flowName });
       deferred.push(async () => {
         try {
-          await flows.start(flowName, input, { executionId });
+          await flows.start(flowName, input, {
+            ...opts,
+            executionId,
+            traceparent: opts?.traceparent ?? durable?.traceparent,
+          });
         } finally {
           pending.delete(executionId);
         }

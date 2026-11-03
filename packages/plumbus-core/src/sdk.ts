@@ -15,9 +15,12 @@ export {
   withRequestAdmissionLock,
 } from './admission/index.js';
 export type {
+  AICacheConfig,
   AICostRecord,
   AIExplainabilityTracker,
   AIInvocationRecord,
+  AIPromptCacheOption,
+  AIPromptCacheTtl,
   AIProviderAdapter,
   AIProviderCallContext,
   AIProviderCapabilities,
@@ -31,14 +34,11 @@ export type {
   AIToolCall,
   AIToolChoice,
   AIToolExecutionOptions,
-  AICacheConfig,
-  AIPromptCacheOption,
-  AIPromptCacheTtl,
   AnthropicAdapterConfig,
   BudgetCheckResult,
   BudgetConfig,
-  ChunkConfig,
   ChatMessage,
+  ChunkConfig,
   CostTracker,
   DailyUsage,
   DerivedLedgerUsage,
@@ -46,12 +46,36 @@ export type {
   EmbeddingRequest,
   EmbeddingResponse,
   ExplainabilityConfig,
+  GovernedAiHost,
+  GovernedArtifact,
+  GovernedArtifactKind,
+  GovernedArtifactStore,
+  GovernedBudgetCheckInput,
+  GovernedBudgetCheckResult,
+  GovernedBudgetInput,
+  GovernedInvokeDeps,
+  GovernedInvokeInput,
+  GovernedInvokeSuccess,
+  GovernedModel,
+  GovernedModelPin,
+  GovernedModelRequest,
+  GovernedModelResult,
+  GovernedModelUsage,
   IngestDocumentInput,
   Kind,
   LedgerUsageKind,
   ListModelsFilter,
   ModelRate,
   OpenAIAdapterConfig,
+  PlumbusRuntime,
+  PlumbusRuntimeCallOptions,
+  PlumbusRuntimeConfig,
+  PlumbusRuntimeContextDeps,
+  PlumbusRuntimeEventPump,
+  PlumbusRuntimeEvents,
+  PlumbusRuntimeFlows,
+  PlumbusRuntimeSubscriptions,
+  PlumbusRuntimeTimers,
   ProviderAssistantState,
   ProviderCooldownWait,
   ProviderJsonSchemaOptions,
@@ -60,6 +84,7 @@ export type {
   ProviderRequest,
   ProviderResponse,
   ProviderStreamEvent,
+  PublishedGovernedArtifact,
   RAGPipeline,
   RAGPipelineConfig,
   RetrievalQuery,
@@ -77,114 +102,82 @@ export type {
   ValidatedResponse,
   ValidationRetryConfig,
   VectorStore,
-  GovernedAiHost,
-  GovernedBudgetCheckInput,
-  GovernedBudgetCheckResult,
-  GovernedBudgetInput,
-  GovernedInvokeDeps,
-  GovernedInvokeInput,
-  GovernedInvokeSuccess,
-  GovernedModel,
-  GovernedModelPin,
-  GovernedModelRequest,
-  GovernedModelResult,
-  GovernedModelUsage,
-  GovernedArtifact,
-  GovernedArtifactKind,
-  GovernedArtifactStore,
-  PublishedGovernedArtifact,
-  PlumbusRuntime,
-  PlumbusRuntimeCallOptions,
-  PlumbusRuntimeConfig,
-  PlumbusRuntimeContextDeps,
-  PlumbusRuntimeEventPump,
-  PlumbusRuntimeEvents,
-  PlumbusRuntimeFlows,
-  PlumbusRuntimeSubscriptions,
-  PlumbusRuntimeTimers,
 } from './ai/index.js';
 // ── AI Runtime ──
 export {
-  PromptRegistry,
-  createPromptRegistry,
-  UsageAPIError,
-  allKnownModels,
-  calculateModelCost,
-  checkGovernedBudget,
-  estimateModelCost,
-  checkPromptSecurity,
-  DEFAULT_GOVERNED_ARTIFACTS_DIRECTORY,
-  createFilesystemGovernedArtifactStore,
-  createMemoryGovernedArtifactStore,
-  createPlumbusRuntime,
-  digestGovernedArtifact,
-  resolveGovernedArtifactStore,
-  buildAISecurityConfig,
-  chunkDocument,
-  createAIService,
-  fillPromptTemplate,
-  createAnthropicAdapter,
-  createCostTracker,
-  deriveLedgerUsage,
-  createExplainabilityTracker,
-  createInMemoryVectorStore,
-  createOpenAIAdapter,
-  createProviderAdapter,
-  createRAGPipeline,
-  createUsageAPIClient,
-  documentChunksTable,
-  documentsTable,
-  findModelRate,
-  generateWithValidation,
-  governedReviewSubject,
-  invokeGovernedAi,
-  extendProviderCooldown,
-  isProviderAPIError,
-  isProviderTimeoutError,
-  joinAndFilterModels,
-  parseRetryAfterMs,
-  providerCooldownRemainingMs,
-  resetProviderCooldowns,
-  runToolLoop,
-  sleepUnlessAborted,
-  waitForProviderCooldown,
-  safeJsonStringify,
-  zodToProviderJsonSchema,
-  singleProviderConfig,
-  ProviderJsonSchemaError,
-  normalizeFinishReason,
   AIIncompleteOutputError,
   AIInvalidRequestError,
   AIRefusalError,
   AIValidationError,
+  allKnownModels,
+  buildAISecurityConfig,
+  calculateModelCost,
+  checkGovernedBudget,
+  checkPromptSecurity,
+  chunkDocument,
+  createAIService,
+  createAnthropicAdapter,
+  createCostTracker,
+  createExplainabilityTracker,
+  createFilesystemGovernedArtifactStore,
+  createInMemoryVectorStore,
+  createMemoryGovernedArtifactStore,
+  createOpenAIAdapter,
+  createPlumbusRuntime,
+  createPromptRegistry,
+  createProviderAdapter,
+  createRAGPipeline,
+  createUsageAPIClient,
+  DEFAULT_GOVERNED_ARTIFACTS_DIRECTORY,
+  deriveLedgerUsage,
+  digestGovernedArtifact,
+  documentChunksTable,
+  documentsTable,
+  estimateModelCost,
+  extendProviderCooldown,
+  fillPromptTemplate,
+  findModelRate,
   GovernedArtifactConflictError,
+  generateWithValidation,
+  governedReviewSubject,
+  invokeGovernedAi,
+  isProviderAPIError,
+  isProviderTimeoutError,
+  joinAndFilterModels,
+  normalizeFinishReason,
+  PromptRegistry,
   ProviderAPIError,
+  ProviderJsonSchemaError,
+  parseRetryAfterMs,
+  providerCooldownRemainingMs,
+  resetProviderCooldowns,
+  resolveGovernedArtifactStore,
+  runToolLoop,
+  safeJsonStringify,
+  singleProviderConfig,
+  sleepUnlessAborted,
+  UsageAPIError,
+  waitForProviderCooldown,
+  zodToProviderJsonSchema,
 } from './ai/index.js';
 export type {
+  DatabaseIdempotencyStoreOptions,
+  ExecuteIdempotentlyParams,
   IdempotencyClaimResult,
   IdempotencyPrincipal,
   IdempotencyRecord,
   IdempotencyStore,
   IdempotencyStoreOptions,
-  RouteGeneratorConfig,
-  DatabaseIdempotencyStoreOptions,
   IdempotencySweepOptions,
-  ExecuteIdempotentlyParams,
   IdempotentExecutionOutcome,
+  RouteGeneratorConfig,
 } from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
   authenticationFailureToHttp,
   buildAuthenticationRequest,
-  isApiExposed,
-  capabilityHttpMethod,
-  parseCookieHeader,
-  registerAllRoutes,
-  registerCapabilityRoute,
-  registerStreamingRoute,
-  resolveRequestLocale,
-  LOCALE_COOKIE_NAME,
   buildIdempotencyStoreKey,
+  capabilityHttpMethod,
   createDatabaseIdempotencyStore,
   createInMemoryIdempotencyStore,
   executeIdempotently,
@@ -192,22 +185,39 @@ export {
   IdempotencyAbortedError,
   IdempotencyClaimLostError,
   isAnonymousIdempotencyPrincipal,
+  isApiExposed,
+  LOCALE_COOKIE_NAME,
   MAX_PAYLOAD_DEPTH,
-  parseIdempotencyTtl,
   PayloadTooDeepError,
+  parseCookieHeader,
+  parseIdempotencyTtl,
   principalsMatch,
   REQUEST_IDEMPOTENCY_TABLE,
+  registerAllRoutes,
+  registerCapabilityRoute,
+  registerStreamingRoute,
   requestIdempotencyDdl,
+  resolveRequestLocale,
   sweepExpiredIdempotencyRecords,
 } from './api/index.js';
-export type { AuditEvent, AuditWriter } from './types/audit.js';
+export type {
+  ApprovalService,
+  AuthorizationProvider,
+  CancelApprovalInput,
+} from './approvals/index.js';
+// ── Approvals / human tasks ──
+export {
+  createApprovalService,
+  createMemoryApprovalStore,
+  createSqlApprovalStore,
+} from './approvals/index.js';
 export type { AuditServiceConfig } from './audit/index.js';
 // ── Audit ──
 export { auditRecords, createAuditService, createDatabaseAuditWriter } from './audit/index.js';
 export type {
+  AuthAdapter,
   AuthenticationRequest,
   AuthenticationResult,
-  AuthAdapter,
   JwtAdapterConfig,
   JwtClaimMapping,
   OidcAdapterConfig,
@@ -237,11 +247,32 @@ export {
   verifyPassword,
   wrapAuthAdapter,
 } from './auth/index.js';
-export { loadAppConfig } from './config/index.js';
-export type { ConfigOverrides } from './config/index.js';
-export type { ConfigLoadOptions, ConfigValidationResult } from './config/index.js';
+// ── Retry policy and event delivery options ──
+export type {
+  ConfigLoadOptions,
+  ConfigOverrides,
+  ConfigValidationResult,
+  RetryPolicy,
+} from './config/index.js';
 // ── Config Loader ──
-export { loadConfig, parseDurationToMs, validateConfig } from './config/index.js';
+export { loadAppConfig, loadConfig, parseDurationToMs, validateConfig } from './config/index.js';
+export type {
+  CredentialBinding,
+  CredentialCatalog,
+  CredentialFieldSpec,
+  CredentialMaterial,
+  CredentialRecord,
+  CredentialResolver,
+  CredentialTypeDeclaration,
+  CredentialTypeRecord,
+  MemoryCredentialCatalogOptions,
+} from './credentials/index.js';
+// ── Credential catalog (host-declared types, opaque refs; host supplies secrets) ──
+export {
+  CREDENTIAL_REDACTED,
+  CredentialCatalogError,
+  createMemoryCredentialCatalog,
+} from './credentials/index.js';
 export type {
   MigrationApplyResult,
   MigrationConfig,
@@ -251,14 +282,14 @@ export type {
 } from './data/index.js';
 // ── Data Layer ──
 export {
-  EntityRegistry,
-  MIGRATION_ADVISORY_LOCK_KEY,
   applyMigrations,
   collectMaskedFieldsFromEntities,
   collectSchemas,
   createRepository,
   decryptBytes,
   decryptFieldValue,
+  ENCRYPTION_PREFIX,
+  EntityRegistry,
   encryptBytes,
   encryptFieldValue,
   generateDrizzleSchema,
@@ -270,22 +301,11 @@ export {
   isEncryptedValue,
   like,
   lte,
+  MIGRATION_ADVISORY_LOCK_KEY,
   resolveEncryptionKey,
   rollbackLastMigration,
   sql,
-  ENCRYPTION_PREFIX,
 } from './data/index.js';
-// ── Approvals / human tasks ──
-export {
-  createApprovalService,
-  createMemoryApprovalStore,
-  createSqlApprovalStore,
-} from './approvals/index.js';
-export type {
-  ApprovalService,
-  AuthorizationProvider,
-  CancelApprovalInput,
-} from './approvals/index.js';
 // ── Define Functions ──
 export { defineCapability } from './define/defineCapability.js';
 export { defineEntity } from './define/defineEntity.js';
@@ -293,14 +313,14 @@ export { defineEvent } from './define/defineEvent.js';
 export { defineFlow } from './define/defineFlow.js';
 export { definePrompt } from './define/definePrompt.js';
 export { defineTranslation } from './define/defineTranslation.js';
-export { zodInputToJsonSchema } from './schema/zod-input-to-json-schema.js';
+export type { GovernedAiBlockedCode } from './errors/data-errors.js';
 // ── Error Utilities ──
 export { errorToHttpResponse, errorToHttpStatus } from './errors/http.js';
 export {
   AIBudgetExceededError,
   AISecurityBlockedError,
-  GovernedAiBlockedError,
   BudgetExhaustedError,
+  createErrorService,
   DataForbiddenError,
   DataInternalError,
   DataValidationError,
@@ -309,17 +329,18 @@ export {
   FlowCancelledError,
   FlowDefinitionUnavailableError,
   FlowDefinitionUnavailableReason,
+  GovernedAiBlockedError,
+  isPlumbusError,
   LeaseLostError,
   PlumbusError,
   UnauthorizedError,
-  createErrorService,
-  isPlumbusError,
 } from './errors/index.js';
-export type { GovernedAiBlockedCode } from './errors/data-errors.js';
 export type {
   DispatcherConfig,
   EventConsumer,
   EventConsumerHandler,
+  EventDeadLetterInfo,
+  EventDeliveryOptions,
   EventEmitterConfig,
   EventQueue,
   IdempotencyService,
@@ -330,15 +351,15 @@ export type {
 // ── Events ──
 export {
   ConsumerRegistry,
-  EventRegistry,
   createEventEmitter,
   createEventWorker,
   createIdempotencyService,
-  evaluateEventSubscriptionDelivery,
   createInMemoryQueue,
   createOutboxDispatcher,
   createRedisQueue,
   deadLetterTable,
+  EventRegistry,
+  evaluateEventSubscriptionDelivery,
   idempotencyTable,
   outboxTable,
 } from './events/index.js';
@@ -347,6 +368,8 @@ export type {
   CapabilityErrorInfo,
   CapabilityResult,
   ContextDependencies,
+  DependencyViolationMetadata,
+  DependencyViolationReason,
   ExecuteCapabilityOptions,
   ExecutionFailure,
   ExecutionResult,
@@ -359,17 +382,13 @@ export type {
 // transport or bootstraps a server imports it from there; capability bodies
 // receive a context and never build one; tests use `@plumbus/core/testing`.
 export {
+  authorizeCapability,
   buildCapabilityRuntimeDeps,
   CapabilityRegistry,
   evaluateAccess,
   executeCapability,
-  authorizeCapability,
   getCanonicalCapabilityName,
   isCanonicalCapabilityName,
-} from './execution/index.js';
-export type {
-  DependencyViolationMetadata,
-  DependencyViolationReason,
 } from './execution/index.js';
 export type {
   AIInvocationExplanation,
@@ -389,6 +408,9 @@ export { field } from './fields/index.js';
 export type {
   FlowDefinitionUnavailableInfo,
   FlowEngineConfig,
+  FrameworkRetentionOptions,
+  FrameworkRetentionResult,
+  PruneFrameworkTablesOptions,
   SchedulerConfig,
   StepExecutorDeps,
   StepHistoryEntry,
@@ -396,30 +418,30 @@ export type {
 } from './flows/index.js';
 // ── Flows ──
 export {
-  COMPILED_FLOW_CONTRACT_VERSION,
-  CompiledFlowRegistry,
-  DEFAULT_COMPILED_FLOWS_DIRECTORY,
-  DEFINITION_STRATEGY_NOT_SUPPORTED,
-  DefinitionInFlightStrategy,
-  DefinitionStrategyNotSupportedError,
-  FlowRegistry,
-  FlowStatus,
-  StepStatus,
   assertSupportedDefinitionStrategy,
   assertTransition,
   buildHistoryEntry,
+  COMPILED_FLOW_CONTRACT_VERSION,
+  CompiledFlowRegistry,
+  chargeExecutionBudget,
   compileFlowDefinition,
-  DEFAULT_SCHEDULE_CATCH_UP_MAX,
   computeNextRun,
   computeRetryDelay,
+  createExecutionBudgetLedger,
   createFlowEngine,
   createFlowScheduler,
   createFlowService,
   createFlowTriggerHandler,
-  createExecutionBudgetLedger,
-  chargeExecutionBudget,
+  DEFAULT_COMPILED_FLOWS_DIRECTORY,
+  DEFAULT_SCHEDULE_CATCH_UP_MAX,
+  DEFINITION_STRATEGY_NOT_SUPPORTED,
+  DefinitionInFlightStrategy,
+  DefinitionStrategyNotSupportedError,
   deadLetterFlow,
   executeStep,
+  FlowRegistry,
+  FlowStatus,
+  FRAMEWORK_RETENTION_DEFAULTS,
   flowDeadLetterTable,
   flowDefinitionId,
   flowExecutionsTable,
@@ -427,23 +449,39 @@ export {
   generateWorkerId,
   hydrateCompiledFlow,
   isTerminal,
+  isValidTransition,
   loadCompiledFlowRegistryFromDirectory,
   planMissedSchedule,
-  isValidTransition,
   pruneFrameworkTables,
   pruneSpineDispatchHints,
-  FRAMEWORK_RETENTION_DEFAULTS,
   resolveFrameworkRetentionOptions,
   retryDeadLetteredFlow,
+  StepStatus,
   sweepFailedFlows,
   tryLoadCompiledFlowRegistryFromDirectory,
 } from './flows/index.js';
 export type {
-  FrameworkRetentionOptions,
-  FrameworkRetentionResult,
-  PruneFrameworkTablesOptions,
-} from './flows/index.js';
+  CreateJobDispatchServiceOptions,
+  CreateJobExecutionInput,
+  DispatchJobOptions,
+  JobDispatchService,
+  JobExecutionRecord,
+  JobQueuePayload,
+  JobService,
+} from './jobs/index.js';
+export {
+  createDeferredJobDispatchService,
+  createJobDispatchService,
+  createJobService,
+  dispatchQueuedJob,
+  JobExecutionSource,
+  JobExecutionStatus,
+  jobEventType,
+  jobExecutionsTable,
+  registerJobStatusRoute,
+} from './jobs/index.js';
 export type {
+  CompletedTelemetrySpan,
   Counter,
   Histogram,
   MetricLabels,
@@ -456,6 +494,7 @@ export type {
   SpanStatusCode,
   StructuredLogEntry,
   StructuredLoggerConfig,
+  TelemetrySpanHook,
   TraceContext,
   Tracer,
   W3CTraceContext,
@@ -466,7 +505,6 @@ export {
   createMetricsRegistry,
   createPlumbusMetrics,
   createStructuredLogger,
-  withLogMasking,
   createTraceContext,
   createTracer,
   extractTraceFromHeaders,
@@ -475,65 +513,8 @@ export {
   generateTraceId,
   injectTraceHeaders,
   parseTraceparent,
+  withLogMasking,
 } from './observability/index.js';
-export type {
-  AuthComponentHealth,
-  HttpAuthenticationRuntime,
-  PlumbusServer,
-  ServerConfig,
-} from './server/index.js';
-// ── Server Bootstrap ──
-export { createServer } from './server/index.js';
-// ── Translations ──
-export type {
-  LocaleStatus,
-  NamespaceStatus,
-  TranslationStatus,
-} from './translations/index.js';
-export {
-  TranslationRegistry,
-  computeStatus,
-  createTranslationResolver,
-  createTranslationService,
-  formatTranslationStatus,
-} from './translations/index.js';
-// ── Types (re-export everything) ──
-export * from './types/index.js';
-export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
-export type { VoiceRuntimeConfig } from './runtime/voice-runtime.js';
-// ── Zod schema structure and JSON Schema ──
-export {
-  zodDefaultValue,
-  zodDefinition,
-  zodEnumValues,
-  zodInnerType,
-  zodObjectShape,
-  zodTypeName,
-} from './schema/zod-introspection.js';
-export type { ZodDefinition } from './schema/zod-introspection.js';
-export { zodToJsonSchemaObject } from './schema/json-schema.js';
-export type { JsonSchemaObject, JsonSchemaTarget } from './schema/json-schema.js';
-// ── Bounded input validation ──
-export {
-  DEFAULT_INPUT_ARRAY_MAX_ITEMS,
-  findCollectionBoundViolation,
-  resolveInputArrayMaxItems,
-  safeParseBounded,
-} from './validation/bounded-parse.js';
-export type { CollectionBoundViolation } from './validation/bounded-parse.js';
-// ── Process-level errors ──
-export type {
-  KeepAliveOptions,
-  ProcessErrorClassifier,
-  ProcessErrorHook,
-  ProcessErrorInfo,
-  ProcessErrorSeverity,
-  ProcessErrorSource,
-  RunScriptOptions,
-} from './runtime/process-errors.js';
-export { installKeepAliveProcessHandlers, runScript } from './runtime/process-errors.js';
-// ── Worker Bootstrap ──
-export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
 export type {
   AppBootContext,
   BuildWorkerAiServiceOptions,
@@ -547,11 +528,11 @@ export type {
   ShutdownContext,
 } from './runtime/index.js';
 export {
-  RuntimeRole,
   buildStepDeps,
   buildWorkerAiService,
   discoverRuntimeResources,
   needsWorkerPool,
+  RuntimeRole,
   registerCapabilityConsumers,
   resolveRuntimeQueues,
   resolveRuntimeRole,
@@ -560,79 +541,52 @@ export {
   shouldUseRedisBackend,
   tryCreateRedisClient,
 } from './runtime/index.js';
+// ── Process-level errors ──
 export type {
-  CreateJobExecutionInput,
-  CreateJobDispatchServiceOptions,
-  DispatchJobOptions,
-  JobDispatchService,
-  JobExecutionRecord,
-  JobQueuePayload,
-  JobService,
-} from './jobs/index.js';
+  KeepAliveOptions,
+  ProcessErrorClassifier,
+  ProcessErrorHook,
+  ProcessErrorInfo,
+  ProcessErrorSeverity,
+  ProcessErrorSource,
+  RunScriptOptions,
+} from './runtime/process-errors.js';
+export { installKeepAliveProcessHandlers, runScript } from './runtime/process-errors.js';
+export type { VoiceRuntimeConfig } from './runtime/voice-runtime.js';
+export type { JsonSchemaObject, JsonSchemaTarget } from './schema/json-schema.js';
+export { zodToJsonSchemaObject } from './schema/json-schema.js';
+export { zodInputToJsonSchema } from './schema/zod-input-to-json-schema.js';
+export type { ZodDefinition } from './schema/zod-introspection.js';
+// ── Zod schema structure and JSON Schema ──
 export {
-  JobExecutionSource,
-  JobExecutionStatus,
-  createDeferredJobDispatchService,
-  createJobDispatchService,
-  createJobService,
-  dispatchQueuedJob,
-  jobEventType,
-  jobExecutionsTable,
-  registerJobStatusRoute,
-} from './jobs/index.js';
-
-// ── Tenancy ──
-export {
-  DEFAULT_CORE_SCHEMA,
-  DEFAULT_DATA_PLANE_CACHE_SIZE,
-  DEFAULT_DATA_PLANE_POOL_SIZE,
-  DEFAULT_PACKAGE_SCHEMA_PREFIX,
-  DataPlaneConnectionError,
-  DataPlaneGuardError,
-  DataPlaneNameError,
-  DataPlaneProvisioningError,
-  MAX_DATA_PLANE_POOL_SIZE,
-  UnknownTenantError,
-  applyDataPlaneMigrations,
-  assertSafeIdentifier,
-  createPooledDataPlaneResolver,
-  createSingleDataPlaneResolver,
-  dropDataPlane,
-  openDataPlaneConnection,
-  provisionDataPlane,
-  quoteIdentifier,
-  DATA_PLANE_MIGRATE_APPLICATION_NAME,
-} from './tenancy/index.js';
-// ── Credential catalog (host-declared types, opaque refs; host supplies secrets) ──
-export {
-  CREDENTIAL_REDACTED,
-  CredentialCatalogError,
-  createMemoryCredentialCatalog,
-} from './credentials/index.js';
+  zodDefaultValue,
+  zodDefinition,
+  zodEnumValues,
+  zodInnerType,
+  zodObjectShape,
+  zodTypeName,
+} from './schema/zod-introspection.js';
 export type {
-  CredentialBinding,
-  CredentialCatalog,
-  CredentialFieldSpec,
-  CredentialMaterial,
-  CredentialRecord,
-  CredentialResolver,
-  CredentialTypeDeclaration,
-  CredentialTypeRecord,
-  MemoryCredentialCatalogOptions,
-} from './credentials/index.js';
+  AuthComponentHealth,
+  HttpAuthenticationRuntime,
+  PlumbusServer,
+  ServerConfig,
+} from './server/index.js';
+// ── Server Bootstrap ──
+export { createServer } from './server/index.js';
 export type {
   ApplyDataPlaneMigrationsOptions,
   DataPlaneAdminConnection,
-  DataPlaneConnectRequest,
   DataPlaneConnection,
   DataPlaneConnectionFields,
   DataPlaneConnectionTarget,
   DataPlaneConnectionUrl,
+  DataPlaneConnectRequest,
   DataPlaneDescriptor,
   DataPlaneDropResult,
   DataPlaneEndpoint,
-  DataPlaneMigrationApplyResult,
   DataPlaneHandle,
+  DataPlaneMigrationApplyResult,
   DataPlaneProvisionResult,
   DataPlaneResolver,
   DataPlaneRoleSpec,
@@ -648,7 +602,52 @@ export type {
   ProvisionDataPlaneOptions,
   SingleDataPlaneResolverOptions,
 } from './tenancy/index.js';
-
-// ── Retry policy and event delivery options ──
-export type { RetryPolicy } from './config/index.js';
-export type { EventDeadLetterInfo, EventDeliveryOptions } from './events/index.js';
+// ── Tenancy ──
+export {
+  applyDataPlaneMigrations,
+  assertSafeIdentifier,
+  createPooledDataPlaneResolver,
+  createSingleDataPlaneResolver,
+  DATA_PLANE_MIGRATE_APPLICATION_NAME,
+  DataPlaneConnectionError,
+  DataPlaneGuardError,
+  DataPlaneNameError,
+  DataPlaneProvisioningError,
+  DEFAULT_CORE_SCHEMA,
+  DEFAULT_DATA_PLANE_CACHE_SIZE,
+  DEFAULT_DATA_PLANE_POOL_SIZE,
+  DEFAULT_PACKAGE_SCHEMA_PREFIX,
+  dropDataPlane,
+  MAX_DATA_PLANE_POOL_SIZE,
+  openDataPlaneConnection,
+  provisionDataPlane,
+  quoteIdentifier,
+  UnknownTenantError,
+} from './tenancy/index.js';
+// ── Translations ──
+export type {
+  LocaleStatus,
+  NamespaceStatus,
+  TranslationStatus,
+} from './translations/index.js';
+export {
+  computeStatus,
+  createTranslationResolver,
+  createTranslationService,
+  formatTranslationStatus,
+  TranslationRegistry,
+} from './translations/index.js';
+export type { AuditEvent, AuditWriter } from './types/audit.js';
+// ── Types (re-export everything) ──
+export * from './types/index.js';
+export type { CollectionBoundViolation } from './validation/bounded-parse.js';
+// ── Bounded input validation ──
+export {
+  DEFAULT_INPUT_ARRAY_MAX_ITEMS,
+  findCollectionBoundViolation,
+  resolveInputArrayMaxItems,
+  safeParseBounded,
+} from './validation/bounded-parse.js';
+export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
+// ── Worker Bootstrap ──
+export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';

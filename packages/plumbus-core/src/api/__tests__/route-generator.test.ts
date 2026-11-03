@@ -1271,3 +1271,42 @@ describe('original error diagnostics', () => {
     expect(hook.mock.calls[0]?.[0].originalError).toBeUndefined();
   });
 });
+
+describe('HTTP telemetry data boundary', () => {
+  it.each([
+    '00',
+    '01',
+  ])('keeps %s sampling and excludes observed URL/headers/body', async (flags) => {
+    const app = makeMockApp();
+    const seen: any[] = [];
+    const secret = 'PRIVATE-url-cookie-token-input';
+    const config = {
+      ...makeMockConfig(),
+      onTelemetrySpan: (span: unknown) => {
+        seen.push(span);
+      },
+    };
+    registerCapabilityRoute(app as any, makeCapability(), config);
+    const handler = app.get.mock.calls[0]?.[2];
+    await handler(
+      {
+        ...makeMockRequest({ id: secret }),
+        url: `/users/${secret}`,
+        headers: {
+          authorization: secret,
+          cookie: secret,
+          traceparent: `00-${'a'.repeat(32)}-${'b'.repeat(16)}-${flags}`,
+        },
+      },
+      { ...makeMockReply(), statusCode: 200 },
+    );
+    expect(seen).toHaveLength(flags === '01' ? 2 : 0);
+    if (flags === '01') {
+      const request = seen.find((span) => span.kind === 'request');
+      const capability = seen.find((span) => span.kind === 'capability');
+      expect(capability.parentSpanId).toBe(request.traceparent.split('-')[2]);
+      expect(request.name).toBe('users.getUser');
+    }
+    expect(JSON.stringify(seen)).not.toContain(secret);
+  });
+});

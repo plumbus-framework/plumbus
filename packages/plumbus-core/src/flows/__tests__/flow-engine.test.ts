@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { PgDialect } from 'drizzle-orm/pg-core';
 import { defineFlow } from '../../define/defineFlow.js';
 import { defineCapability } from '../../define/index.js';
+import { LeaseLostError } from '../../errors/index.js';
 import { executeCapability } from '../../execution/index.js';
 import { createTestContext } from '../../testing/context.js';
-import { LeaseLostError } from '../../errors/index.js';
 import { FlowStepType } from '../../types/enums.js';
 import { compileFlowDefinition } from '../compile-flow.js';
 import { CompiledFlowRegistry } from '../compiled-registry.js';
@@ -1610,5 +1610,34 @@ describe('live terminal failure diagnostics', () => {
     expect(hook.mock.calls[0]?.[0].originalError).toBe(last);
     expect(JSON.stringify(db._updates)).not.toContain('PRIVATE_FIRST_STACK');
     expect(JSON.stringify(db._updates)).not.toContain('PRIVATE_LAST_STACK');
+  });
+});
+
+describe('persisted telemetry carrier', () => {
+  it.each([
+    '00',
+    '01',
+  ])('restores %s through a new worker engine without changing auth/input', async (flags) => {
+    const registry = new FlowRegistry();
+    registry.register(makeTestFlow());
+    const db = mockDb();
+    const stepDeps = makeStepDeps();
+    const carrier = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-${flags}`;
+    const auth = makeAuth();
+    const input = { orderId: 'PRIVATE' };
+    const first = createFlowEngine({ db, registry, stepDeps });
+    const execution = await first.start('order-processing', input, auth, { traceparent: carrier });
+    expect(db._inserts[0].traceparent).toBe(carrier);
+    expect(db._inserts[0].authSnapshotJson).toEqual(auth);
+    expect(db._inserts[0].input).toEqual(input);
+    const hook = vi.fn();
+    const restored = createFlowEngine({ db, registry, stepDeps });
+    await restored.runNext(execution.id, makeCtx({ __runtime: { onTelemetrySpan: hook } }));
+    const context = stepDeps.executeCapability.mock.calls[0]?.[1];
+    expect(context?.__runtime?.traceparent).toMatch(
+      new RegExp(`^00-${'a'.repeat(32)}-[a-f0-9]{16}-${flags}$`),
+    );
+    expect(hook.mock.calls.length > 0).toBe(flags === '01');
+    expect(JSON.stringify(hook.mock.calls)).not.toContain('PRIVATE');
   });
 });

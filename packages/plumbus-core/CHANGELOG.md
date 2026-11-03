@@ -1,5 +1,13 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.8 — 2026-11-03 — sampled execution telemetry
+
+- **Optional `onTelemetrySpan` hook** on `app/server.ts` / `ServerConfig`, loaded by dev, start and workers. Sampled request, capability and worker-step spans report validated W3C trace context, canonical code names, timing, structured outcomes and allowlisted framework error codes. Hook failures are contained and callback promises never delay execution. The host owns sampling, buffering, export and shutdown flushing.
+- **Execution trace propagation** follows nested capabilities, flows, deferred starts, events and jobs through persisted metadata outside business/auth JSON. Consumers restore carriers from authoritative database rows. Missing, invalid and unsampled carriers do not report spans. AI provider/cost hooks receive the validated execution carrier.
+- **Privacy:** reports exclude identity, payloads, headers, URLs, raw errors, SQL and AI content; the callback is hidden from handler-visible runtime metadata. No collector or vendor SDK is added.
+- **Required migration, including when telemetry is disabled:** generate and apply migrations adding nullable text `traceparent` columns to `flow_executions`, `flow_start_intents`, `event_outbox` and `job_executions` before starting beta.8 API or worker processes. Apply the existing migration stream on the spine and affected tenant planes. Existing rows stay null; opaque dispatch and Protocol A state are unchanged. See [telemetry and migration guidance](../../docs/sdk-reference/telemetry.md).
+- Only core changes version; existing beta-family add-ons and peer ranges remain compatible.
+
 ## 0.9.0-beta.7 — 2026-11-01 — provider rate limits
 
 - **Rate limits are paced across the process.** The OpenAI-compatible and Anthropic adapters honour a 429's `retry-after-ms` / `Retry-After` in full, no longer capped at 5 s. The wait becomes a cooldown shared by every call in the process to the same model on the same account (API key, plus OpenAI organization / project headers) and server, so those calls (first attempts too) wait instead of being sent into the limit. A cooldown only ever grows. A call waits out at most 60 s of it; when more is left it fails at once, without sending, with a retryable `ProviderAPIError` (`statusCode` 429) whose new `retryAfterMs` says when to come back. 408 and 5xx keep the short backoff.

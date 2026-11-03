@@ -1,44 +1,45 @@
-import { safeParseBounded } from '../validation/bounded-parse.js';
 import {
-  DataValidationError,
   DataForbiddenError,
   DataInternalError,
+  DataValidationError,
   PlumbusError,
 } from '../errors/index.js';
+import { validatedTraceparent } from '../observability/index.js';
+import { safeParseBounded } from '../validation/bounded-parse.js';
 // ── Capability Consumer Registration ──
 // Auto-wires eventHandler and job capabilities into the ConsumerRegistry.
 
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { resolveEncryptionKey } from '../data/field-encryption.js';
-import type { ConsumerRegistry } from '../events/consumer-registry.js';
-import type { EventRegistry } from '../events/registry.js';
-import { outboxTable } from '../events/outbox.js';
-import { TrustedReplayActor, type EventEnvelope } from '../types/event.js';
-import { CapabilityKind } from '../types/enums.js';
 import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
-import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
-import { wireContextDependencies } from '../execution/context-deps.js';
+import { resolveEncryptionKey } from '../data/field-encryption.js';
+import type { EntityRegistry } from '../data/registry.js';
+import type { ConsumerRegistry } from '../events/consumer-registry.js';
+import { outboxTable } from '../events/outbox.js';
+import type { EventRegistry } from '../events/registry.js';
+import { evaluateAccess } from '../execution/authorization.js';
 import {
   type CapabilityErrorInfo,
-  fireCapabilityErrorHook,
   capabilityExecutionDetails,
+  fireCapabilityErrorHook,
 } from '../execution/capability-error-hook.js';
 import { executeCapability } from '../execution/capability-executor.js';
-import { evaluateAccess } from '../execution/authorization.js';
+import { buildCapabilityRuntimeDeps } from '../execution/capability-invocation.js';
 import type { CapabilityRegistry } from '../execution/capability-registry.js';
+import { wireContextDependencies } from '../execution/context-deps.js';
 import { createExecutionContext } from '../execution/context-factory.js';
-import { createFlowService } from '../flows/flow-service.js';
 import type { createFlowEngine } from '../flows/engine.js';
+import { createFlowService } from '../flows/flow-service.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import { createJobService, JobClaimResult } from '../jobs/service.js';
-import { jobEventType, type JobQueuePayload } from '../jobs/types.js';
-import type { EntityRegistry } from '../data/registry.js';
+import { type JobQueuePayload, jobEventType } from '../jobs/types.js';
+import type { PlumbusMetrics } from '../observability/metrics.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, ExecutionContext, LoggerService } from '../types/context.js';
+import { CapabilityKind } from '../types/enums.js';
 import type { PlumbusErrorLike } from '../types/errors.js';
-import type { PlumbusMetrics } from '../observability/metrics.js';
+import { type EventEnvelope, TrustedReplayActor } from '../types/event.js';
 import type { AuthContext } from '../types/security.js';
 
 export interface RegisterCapabilityConsumersOptions {
@@ -65,6 +66,7 @@ export interface RegisterCapabilityConsumersOptions {
     tenantId?: string | null,
   ) => Promise<void>;
   /** Called when an event handler or job capability returns a non-success result (fire-and-forget). */
+  onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
 }
 
@@ -133,13 +135,19 @@ async function resolveEventHandlerOrigin(
   db: PostgresJsDatabase,
   envelope: EventEnvelope,
   logger?: LoggerService,
-): Promise<{ tenantId?: string | null; initiatingActor?: string; correlationId?: string }> {
+): Promise<{
+  tenantId?: string | null;
+  initiatingActor?: string;
+  correlationId?: string;
+  traceparent?: string;
+}> {
   const rows = await db
     .select({
       tenantId: outboxTable.tenantId,
       eventType: outboxTable.eventType,
       actor: outboxTable.actor,
       correlationId: outboxTable.correlationId,
+      traceparent: outboxTable.traceparent,
     })
     .from(outboxTable)
     .where(eq(outboxTable.id, envelope.id))
@@ -175,13 +183,14 @@ async function resolveEventHandlerOrigin(
     tenantId: row.tenantId ?? envelope.tenantId,
     initiatingActor: row.actor ?? undefined,
     correlationId: row.correlationId ?? undefined,
+    traceparent: validatedTraceparent(row.traceparent),
   };
 }
 
 function buildConsumerContext(
   opts: RegisterCapabilityConsumersOptions,
   auth: AuthContext,
-  eventMeta?: { correlationId?: string; causationId?: string },
+  eventMeta?: { correlationId?: string; causationId?: string; traceparent?: string },
 ): ReturnType<typeof createExecutionContext> {
   const flows = opts.flowEngine
     ? createFlowService(opts.flowEngine, auth, opts.flowRegistry)
@@ -196,6 +205,8 @@ function buildConsumerContext(
       entities: opts.entities,
       events: opts.events,
       correlationId: eventMeta?.correlationId,
+      traceparent: eventMeta?.traceparent,
+      onTelemetrySpan: opts.onTelemetrySpan,
       getCausationId: () => eventMeta?.causationId,
       encryptionKey,
     },
@@ -205,6 +216,8 @@ function buildConsumerContext(
       logger: opts.logger,
       config: opts.config as unknown as Record<string, unknown>,
       correlationId: eventMeta?.correlationId,
+      traceparent: eventMeta?.traceparent,
+      onTelemetrySpan: opts.onTelemetrySpan,
       ...capRuntime,
       ...hostApprovalRuntimeExtras(opts),
     },
@@ -252,6 +265,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
           }
           const ctx = buildConsumerContext(opts, auth, {
             correlationId: origin.correlationId ?? envelope.correlationId,
+            traceparent: origin.traceparent,
             causationId: envelope.id,
           });
           const started = Date.now();
@@ -339,6 +353,7 @@ export function registerCapabilityConsumers(opts: RegisterCapabilityConsumersOpt
 
           const ctx = buildConsumerContext(opts, auth, {
             correlationId: envelope.correlationId,
+            traceparent: validatedTraceparent(record.traceparent),
             causationId: envelope.id,
           });
           const jobInput = record.inputJson ?? payload.input;
