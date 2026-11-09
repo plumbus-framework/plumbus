@@ -36,7 +36,11 @@ export interface RegisterVoiceRoutesOpts {
   /**
    * Public origin of the app (e.g. `https://app.example.com`). Together with
    * `csrfSecret` it enables Origin + CSRF checks on cookie-authenticated writes
-   * (same model as `@plumbus/chat`). When set, `/session` also builds `wsUrl` from it (http→ws, https→wss) instead of request `Host` / `X-Forwarded-Proto` headers. Default: unset.
+   * (same model as `@plumbus/chat`). When set, `/session` also builds `wsUrl` from it
+   * (http→ws, https→wss). Without it, `wsUrl` is a same-origin path
+   * (`/api/voice/<name>/stream`) in production/staging, and is derived from the request
+   * `Host` / `X-Forwarded-Proto` headers only in other environments (or with
+   * `wsUrlFromRequestHeaders: true`). Default: unset.
    */
   externalBaseUrl?: string;
   /**
@@ -46,14 +50,33 @@ export interface RegisterVoiceRoutesOpts {
    */
   csrfSecret?: string;
   /**
+   * Refuse to register when cookie auth is on (`authCookieNames` non-empty) but
+   * `csrfSecret` or `externalBaseUrl` is missing. Default `true` (since 0.7). Set
+   * `false` only when cookie-authenticated writes are protected another way (e.g. a
+   * proxy); cookie requests are then accepted without Origin/CSRF checks and a
+   * one-time warning is logged.
+   */
+  requireBrowserSecurity?: boolean;
+  /**
+   * How `/session` builds `wsUrl` when `externalBaseUrl` is unset. Default: `false`
+   * when `PLUMBUS_ENV` (or `NODE_ENV`) is `production` or `staging` — `wsUrl` is then the
+   * same-origin path `/api/voice/<name>/stream` — and `true` elsewhere, where it is built
+   * from the request `Host` / `X-Forwarded-Proto` headers. Set `true` in production only
+   * behind a proxy that controls those headers and when one `externalBaseUrl` cannot
+   * describe the app (e.g. several public hostnames). Ignored when `externalBaseUrl` is set.
+   */
+  wsUrlFromRequestHeaders?: boolean;
+  /**
    * Reject `?sessionToken=` on the websocket handshake; only the
-   * `Sec-WebSocket-Protocol: voice-session.<token>` form is accepted. Default: false.
+   * `Sec-WebSocket-Protocol: voice-session.<token>` form is accepted. Default: true
+   * (since 0.7). `false` also accepts the query-string form.
    */
   rejectQuerySessionToken?: boolean;
   /**
    * Accept each websocket handshake token once (its `jti` is recorded in a bounded
    * in-process store until it expires). Per process: with several replicas a token
-   * can be redeemed once per replica. Default: false.
+   * can be redeemed once per replica. Default: true (since 0.7). `false` lets a token
+   * be reused until it expires.
    */
   singleUseSessionTokens?: boolean;
   registry?: import('../providers/registry.js').VoiceProviderRegistry;
@@ -128,4 +151,10 @@ export interface RegisterVoiceCloneRoutesOpts {
    * `csrfSecret` and `externalBaseUrl` are set. Default: unset.
    */
   csrfSecret?: string;
+  /**
+   * Refuse to register when cookie auth is on (`authCookieNames` non-empty) but
+   * `csrfSecret` or `externalBaseUrl` is missing. Default `true` (since 0.7); `false`
+   * downgrades it to a one-time warning on the first cookie request.
+   */
+  requireBrowserSecurity?: boolean;
 }

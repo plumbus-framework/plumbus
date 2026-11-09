@@ -26,9 +26,9 @@ export interface OidcAdapterConfig {
    */
   clockSkewSeconds?: number;
   /**
-   * Reject tokens without a numeric `exp` claim (default: false).
-   * When false, such tokens are still accepted and a one-time warning is logged.
-   * Turn this on unless your IdP issues non-expiring tokens on purpose.
+   * Reject tokens without a numeric `exp` claim (default: true since 0.9).
+   * Set `false` only if your IdP issues non-expiring tokens on purpose; such
+   * tokens are then accepted and a one-time warning is logged.
    */
   requireExp?: boolean;
   /** Logger for one-time security warnings (default: `console.warn`). */
@@ -86,13 +86,13 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
   let warnedMissingExp = false;
   const temporal: TemporalPolicy = {
     clockSkewMs: Math.max(0, config.clockSkewSeconds ?? DEFAULT_CLOCK_SKEW_SECONDS) * 1000,
-    requireExp: config.requireExp === true,
+    requireExp: config.requireExp !== false,
     onMissingExpAccepted: () => {
       if (warnedMissingExp) return;
       warnedMissingExp = true;
       const message =
         'OIDC token accepted without a numeric "exp" claim — it never expires. ' +
-        'Set requireExp: true in createOidcAdapter() to reject such tokens.';
+        'requireExp: false is set in createOidcAdapter(); remove it to reject such tokens.';
       if (config.logger) config.logger.warn(message, { issuer: config.issuer });
       else console.warn(`[plumbus] ${message}`);
     },

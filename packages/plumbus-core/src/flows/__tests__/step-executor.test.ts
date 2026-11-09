@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getOriginalError } from '../../observability/index.js';
+import { type ApprovalRequestRecord, HUMAN_TASK_CONTRACT_VERSION } from '../../approvals/types.js';
 import { AIBudgetExceededError } from '../../errors/data-errors.js';
+import { getOriginalError } from '../../observability/index.js';
 import type { ExecutionContext } from '../../types/context.js';
 import { FlowStepType } from '../../types/enums.js';
 import type {
@@ -297,27 +298,71 @@ describe('StepExecutor', () => {
     expect(result.error).toBe('emit failed');
   });
 
-  it('routes an approval-outcome step from the Stage 4 request state', async () => {
+  describe('approval-outcome', () => {
     const step: ApprovalOutcomeStep = {
       name: 'route',
       type: FlowStepType.ApprovalOutcome,
       outcomes: { approved: 'pay', rejected: 'deny' },
     };
-    const result = await executeStep(
-      step,
-      { ...mockCtx, flowId: 'exec-1' },
-      {},
-      {},
-      {
-        ...defaultDeps,
-        findApprovalForExecution: async () =>
-          ({ state: 'approved' }) as Awaited<
-            ReturnType<NonNullable<StepExecutorDeps['findApprovalForExecution']>>
-          >,
-      },
-    );
-    expect(result.status).toBe(StepStatus.Completed);
-    expect(result.nextStep).toBe('pay');
+    const now = new Date('2026-11-09T12:00:00.000Z');
+    const flowCtx = {
+      ...mockCtx,
+      flowId: 'exec-1',
+      auth: { userId: 'u-1', tenantId: 'tenant-a', roles: [], scopes: [], provider: 'oidc' },
+      time: { now: () => now },
+    } as unknown as ExecutionContext;
+
+    function record(overrides: Partial<ApprovalRequestRecord> = {}): ApprovalRequestRecord {
+      return {
+        contractVersion: HUMAN_TASK_CONTRACT_VERSION,
+        approvalRequestId: 'appr-1',
+        capabilityId: 'billing.refund',
+        definitionVersion: '1',
+        inputDigest: 'd',
+        riskClass: 'consequential',
+        reviewReason: 'risk-tier',
+        state: 'approved',
+        tenantId: 'tenant-a',
+        executionId: 'exec-1',
+        createdAt: '2026-11-09T11:00:00.000Z',
+        expiresAt: '2026-11-09T13:00:00.000Z',
+        updatedAt: '2026-11-09T11:30:00.000Z',
+        ...overrides,
+      };
+    }
+
+    function deps(row: ApprovalRequestRecord | undefined) {
+      const lookup = vi.fn(async () => row);
+      return {
+        lookup,
+        deps: { ...defaultDeps, findApprovalForExecution: lookup } satisfies StepExecutorDeps,
+      };
+    }
+
+    it('routes an approval-outcome step from the Stage 4 request state', async () => {
+      const { deps: d, lookup } = deps(record());
+      const result = await executeStep(step, flowCtx, {}, {}, d);
+      expect(result.status).toBe(StepStatus.Completed);
+      expect(result.nextStep).toBe('pay');
+      expect(lookup).toHaveBeenCalledWith({ tenantId: 'tenant-a', executionId: 'exec-1', now });
+    });
+
+    it('does not route an approved request whose expiry passed before consumption', async () => {
+      const { deps: d } = deps(record({ expiresAt: '2026-11-09T11:59:59.000Z' }));
+      const result = await executeStep(step, flowCtx, {}, {}, d);
+      expect(result.status).toBe(StepStatus.Failed);
+      expect(result.nextStep).toBeUndefined();
+      expect(result.error).toContain('"expired"');
+    });
+
+    it('does not route on a request bound to another tenant or execution', async () => {
+      for (const row of [record({ tenantId: 'tenant-b' }), record({ executionId: 'exec-2' })]) {
+        const { deps: d } = deps(row);
+        const result = await executeStep(step, flowCtx, {}, {}, d);
+        expect(result.status).toBe(StepStatus.Failed);
+        expect(result.nextStep).toBeUndefined();
+      }
+    });
   });
 });
 

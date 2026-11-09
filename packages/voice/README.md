@@ -126,9 +126,13 @@ onRoutesRegistered((app, routeConfig) => {
     },
     sessionTokenSecret: process.env['VOICE_SESSION_TOKEN_SECRET'],
     websocketOriginAllowlist: ['https://app.example.com'],
+    // Public URL: `/session` returns wss://app.example.com/api/voice/<name>/stream.
+    externalBaseUrl: 'https://app.example.com',
   });
 });
 ```
+
+Secure defaults (voice 0.7): the websocket token is accepted only in `Sec-WebSocket-Protocol` and only once (`rejectQuerySessionToken` / `singleUseSessionTokens`, opt out with `false`); cookie auth (`authCookieNames`) requires `csrfSecret` + `externalBaseUrl` (`requireBrowserSecurity: false` opts out); without `externalBaseUrl`, production/staging returns a same-origin `wsUrl` path instead of trusting `Host` / `X-Forwarded-*` (`wsUrlFromRequestHeaders: true` opts out). See [security.md](../../docs/voice/security.md#hardening-options-voice-062).
 
 With add-ons — **explicit registration** (no auto-load):
 

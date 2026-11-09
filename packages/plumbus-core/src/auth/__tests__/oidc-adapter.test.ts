@@ -350,9 +350,20 @@ describe('createOidcAdapter temporal claims', () => {
     expect(await adapterWith({ clockSkewSeconds: 0 }).authenticate(`Bearer ${strict}`)).toBeNull();
   });
 
-  it('accepts a token without exp by default and warns once', async () => {
+  it('rejects missing or non-numeric exp by default', async () => {
     const warn = vi.fn();
     const adapter = adapterWith({ logger: { warn } });
+    const missing = signRsaJwt(validPayload({ exp: undefined }));
+    const textual = signRsaJwt(validPayload({ exp: 'never' }));
+    expect(await adapter.authenticate(`Bearer ${missing}`)).toBeNull();
+    expect(await adapter.authenticate(`Bearer ${textual}`)).toBeNull();
+    expect(await adapter.authenticate(`Bearer ${signRsaJwt(validPayload())}`)).not.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('accepts a token without exp when requireExp is false and warns once', async () => {
+    const warn = vi.fn();
+    const adapter = adapterWith({ requireExp: false, logger: { warn } });
     const token = signRsaJwt(validPayload({ exp: undefined }));
     expect(await adapter.authenticate(`Bearer ${token}`)).not.toBeNull();
     expect(await adapter.authenticate(`Bearer ${token}`)).not.toBeNull();
@@ -360,10 +371,12 @@ describe('createOidcAdapter temporal claims', () => {
     expect(warn.mock.calls[0]?.[0]).toContain('requireExp');
   });
 
-  it('accepts a non-numeric exp by default and warns', async () => {
+  it('accepts a non-numeric exp when requireExp is false and warns', async () => {
     const warn = vi.fn();
     const token = signRsaJwt(validPayload({ exp: 'never' }));
-    expect(await adapterWith({ logger: { warn } }).authenticate(`Bearer ${token}`)).not.toBeNull();
+    expect(
+      await adapterWith({ requireExp: false, logger: { warn } }).authenticate(`Bearer ${token}`),
+    ).not.toBeNull();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
@@ -374,14 +387,9 @@ describe('createOidcAdapter temporal claims', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('rejects missing or non-numeric exp when requireExp is true', async () => {
-    const warn = vi.fn();
-    const adapter = adapterWith({ requireExp: true, logger: { warn } });
+  it('rejects missing exp when requireExp is explicitly true', async () => {
+    const adapter = adapterWith({ requireExp: true });
     const missing = signRsaJwt(validPayload({ exp: undefined }));
-    const textual = signRsaJwt(validPayload({ exp: 'never' }));
     expect(await adapter.authenticate(`Bearer ${missing}`)).toBeNull();
-    expect(await adapter.authenticate(`Bearer ${textual}`)).toBeNull();
-    expect(await adapter.authenticate(`Bearer ${signRsaJwt(validPayload())}`)).not.toBeNull();
-    expect(warn).not.toHaveBeenCalled();
   });
 });

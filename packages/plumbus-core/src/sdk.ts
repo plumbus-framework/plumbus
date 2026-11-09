@@ -171,7 +171,9 @@ export type {
   IdempotencySweepOptions,
   IdempotentExecutionOutcome,
   InMemoryIdempotencyStoreOptions,
+  RequestIdOptions,
   RouteGeneratorConfig,
+  RouteRequestIds,
 } from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
@@ -195,21 +197,30 @@ export {
   parseCookieHeader,
   parseIdempotencyTtl,
   principalsMatch,
+  isWellFormedRequestId,
+  REQUEST_ID_HEADER,
   REQUEST_IDEMPOTENCY_TABLE,
   registerAllRoutes,
   registerCapabilityRoute,
   registerStreamingRoute,
   requestIdempotencyDdl,
+  requestIdOf,
+  requestIdsFor,
+  resolveRequestId,
   resolveRequestLocale,
   sweepExpiredIdempotencyRecords,
+  withRequestId,
 } from './api/index.js';
 export type {
+  ApprovalBinding,
   ApprovalService,
   AuthorizationProvider,
   CancelApprovalInput,
 } from './approvals/index.js';
 // ── Approvals / human tasks ──
 export {
+  ApprovalDecisionConflictError,
+  createAllowAllAuthorizationProvider,
   createApprovalService,
   createMemoryApprovalStore,
   createSqlApprovalStore,

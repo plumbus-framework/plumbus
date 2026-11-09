@@ -196,7 +196,7 @@ describe('registerChatRoutes', () => {
         },
       } as never,
       [chat],
-      { authCookieNames: ['admin_auth_token'] },
+      { authCookieNames: ['admin_auth_token'], requireBrowserSecurity: false },
     );
 
     await app.ready();

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0-beta.1 — 2026-11-09 — app clients reconciled by default, opt-in profile attribute writes
+
+### Security
+
+- **Breaking: `ensureAttestedUserPool` rewrites a weaker same-named app client by default** (from main 0.3.1, where it was opt-in). It used to adopt an existing client as-is, keeping password/SRP flows, a disabled token revocation or long token lifetimes. The rewrite replaces every client setting; `reconcileClient: false` only reports the drift as `clientDrift` and warns.
+
+
+### Added
+
+- **Opt-in attribute writes: `createCognitoPoolDirectory({ …, writableAttributes: [...] })`.** `updateUserAttributes` accepts only the names listed there; without the option (the default) every call is refused with a `TypeError` before any request. The list itself is validated when the directory is created: only the standard profile attributes below and `custom:*` names may be listed — `email`, `sub`, `preferred_username`, `email_verified`, `phone_number_verified` or any other name fails creation with a `TypeError`. Reads (`getUserAttributes`, `listUserAttributes`) are always available: they need the same `AdminGetUser` / `ListUsers` actions as `getUser` / `listUsers`.
+- **Profile attributes on `createCognitoPoolDirectory()`** (`./server`): `getUserAttributes(username)` returns every attribute of a user — standard and `custom:*` — or `null` for an unknown user; `listUserAttributes()` returns every user's attributes by username across pages; `updateUserAttributes(username, changes)` sets attributes (a string) and removes them (`null` or `''`), answering `{ found: false }` for an unknown user. Only the standard profile attributes (`name`, `given_name`, `family_name`, `middle_name`, `nickname`, `phone_number`, `address`, `birthdate`, `gender`, `locale`, `picture`, `profile`, `website`, `zoneinfo`) and `custom:*` are writable; `email` (still `updateEmail`), `preferred_username`, `sub`, `email_verified` and `phone_number_verified` are refused with a `TypeError` before any request, as are a non-E.164 `phone_number` and values over 2048 characters. Removing an attribute needs the `AdminDeleteUserAttributes` IAM action.
+- New exported types `CognitoUserAttributes` and `CognitoUserAttributeChanges`.
+- `startFakeCognito()` (`./testing`) answers `AdminDeleteUserAttributes`.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

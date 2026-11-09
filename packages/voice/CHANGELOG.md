@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0-beta.3 — 2026-11-09 — security release
+
+- **Requires `@plumbus/core` 0.9.0-beta.9 or later** (peer `">=0.9.0-beta.9 <0.10.0"`, was `">=0.9.0-beta.7 <0.10.0"`).
+- **Breaking: cookie auth needs browser checks.** `registerVoiceRoutes` / `registerVoiceCloneRoutes` with `authCookieNames` but without both `csrfSecret` and `externalBaseUrl` is a startup error. With both, cookie-authenticated writes get an exact Origin check and a principal-bound CSRF token (`plumbus_voice_csrf` cookie, `x-plumbus-voice-csrf` header; `VOICE_CSRF_COOKIE_NAME` / `VOICE_CSRF_HEADER_NAME`, also from `@plumbus/voice/client`). `requireBrowserSecurity: false` keeps the old once-per-process warning. Bearer-only apps are unaffected.
+- **Breaking: handshake tokens.** The WebSocket session token is accepted only in `Sec-WebSocket-Protocol` (`rejectQuerySessionToken: false` re-allows the query string) and only once per process (`singleUseSessionTokens: false` allows reuse). Tokens carry a `jti`.
+- **`wsUrl` never trusts request headers in production.** With `externalBaseUrl`, `/session` builds `wsUrl` from it. Without it, production and staging (`PLUMBUS_ENV`, else `NODE_ENV`) return the same-origin path `/api/voice/<name>/stream` and warn once at registration; development and test still use `Host` / `X-Forwarded-Proto`. `wsUrlFromRequestHeaders: true | false` forces either.
+- **From main (stable 0.6.2):** clone uploads (`POST .../clones`, `.../synthesize-reference`) stop at the sample limit while streaming instead of buffering the whole upload, and `synthesize-reference` rejects unknown providers before reading it; clone and voice-turn errors no longer send raw vendor text or Plumbus metadata to clients; an empty `websocketOriginAllowlist` warns once.
+
 ## 0.7.0-beta.2 — 2026-11-02
 
 - **Requires `@plumbus/core` 0.9.0-beta.7 or later** (peer `">=0.9.0-beta.7 <0.10.0"`, was `">=0.9.0-beta.6 <0.10.0"`): the runtime imports `@plumbus/core/sdk`, which earlier betas do not have. On the beta line `@plumbus/core/sdk` does not export `createExecutionContext`; it stays on `@plumbus/core/runtime`, as before.

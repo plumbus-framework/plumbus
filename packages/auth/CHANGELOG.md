@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Opt-in `errorReturnToParam`.** When set (for example `errorReturnToParam: 'next'`), a failed callback redirects to `errorPath` with the login's validated `returnTo` in that query parameter, beside `code` and `requestId`, so the error page's «try again» can return to the screen the person asked for. It covers a cancel or provider error at the provider (the abandoned login transaction is consumed to read its `returnTo`, only when the `state` matches this browser's binding) and failures after the code exchange (identity refused, token or userinfo errors). Off by default; the parameter must be a plain name and not `code` or `requestId`. The value is the same local path that `startLogin` already validated.
+
 ## 0.4.0-beta.1 — 2026-10-26
 
 - **zod 4.** A secret source function is checked with `z.custom` (zod 4's `z.function()` is not a schema for a union); `resolveSecretSource` refuses a function that does not resolve to a string, which zod 3 checked through its wrapper. Core peer `>=0.9.0-beta.6 <0.10.0`.

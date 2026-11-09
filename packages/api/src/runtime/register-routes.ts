@@ -1,19 +1,19 @@
 import {
+  type AuthContext,
+  authorizeCapability,
   buildAuthenticationRequest,
+  type CapabilityContract,
   evaluateAccess,
   executeCapability,
   executeIdempotently,
   isApiExposed,
-  safeParseBounded,
-  type AuthContext,
-  type CapabilityContract,
   type RouteGeneratorConfig,
+  safeParseBounded,
 } from '@plumbus/core';
 import { createExecutionContext } from '@plumbus/core/runtime';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ApiManifestError } from '../errors.js';
 import { apiVersionFromManifest, joinApiPath } from '../manifest/api-version.js';
-import { requiredApiScopes } from '../manifest/scopes.js';
 import { buildDefaultManifest } from '../manifest/default-manifest.js';
 import {
   mergePathParamsIntoInput,
@@ -21,8 +21,11 @@ import {
   toFastifyPath,
 } from '../manifest/path-params.js';
 import { resolveExposure } from '../manifest/resolve.js';
+import { requiredApiScopes } from '../manifest/scopes.js';
 import type { ApiManifest, ApiManifestEntry } from '../manifest/types.js';
+import { coerceQueryParams } from './coerce-query.js';
 import {
+  type ApiErrorEnvelope,
   buildSuccessEnvelope,
   mapAuthenticationUnavailable,
   mapCoreError,
@@ -32,20 +35,18 @@ import {
   mapUnauthenticated,
   mapUnknownError,
   toPlumbusErrorLike,
-  type ApiErrorEnvelope,
 } from './envelope.js';
 import {
   buildIdempotencyStoreKey,
   createInMemoryIdempotencyStore,
   hashPayload,
-  PayloadTooDeepError,
-  isAnonymousIdempotencyPrincipal,
-  parseIdempotencyTtl,
   type IdempotencyPrincipal,
   type IdempotencyStore,
   type IdempotencyStoreOptions,
+  isAnonymousIdempotencyPrincipal,
+  PayloadTooDeepError,
+  parseIdempotencyTtl,
 } from './idempotency.js';
-import { coerceQueryParams } from './coerce-query.js';
 import { collectExplicitTenantViolations } from './tenant-boundary.js';
 import {
   buildTestEnvelope,
@@ -69,9 +70,10 @@ export interface RegisterApiRoutesOpts {
    */
   idempotencyStore?: IdempotencyStore;
   /**
-   * Refuse to register `action` capabilities exposed over `GET` (throws `ApiManifestError`
-   * with code `api.register.action-over-get`). Default false: such routes are registered
-   * and a warning is logged, because cookie CSRF protection does not cover `GET`.
+   * Refuse to register `action` and `job` capabilities exposed over `GET`: registration throws
+   * `ApiManifestError` with code `api.register.action-over-get`, because cookie CSRF protection
+   * does not cover `GET` and a cross-site link could trigger them. Default true. `false` registers
+   * such routes and only logs a warning (the pre-0.9 behaviour).
    */
   rejectActionsOverGet?: boolean;
 }
@@ -113,16 +115,16 @@ function checkActionsOverGet(
   const names = routes.map((r) => `GET ${r.path} (${r.capability}, ${r.operationId})`);
   if (reject) {
     throw new ApiManifestError(
-      `Action capabilities must not be exposed via GET (rejectActionsOverGet): ${names.join('; ')}`,
+      `Action and job capabilities must not be exposed via GET (rejectActionsOverGet): ${names.join('; ')}`,
       'api.register.action-over-get',
     );
   }
   app.log.warn(
     { routes: names },
-    '[@plumbus/api] Action capabilities are exposed via GET. Cookie CSRF protection only covers ' +
-      'POST/PUT/PATCH/DELETE, so a cross-site link or image can trigger these actions with the ' +
-      "visitor's session cookie. Expose actions with POST/PATCH/PUT/DELETE, or pass " +
-      '`rejectActionsOverGet: true` to registerApiRoutes to refuse them.',
+    '[@plumbus/api] Action or job capabilities are exposed via GET (rejectActionsOverGet: false). ' +
+      'Cookie CSRF protection only covers POST/PUT/PATCH/DELETE, so a cross-site link or image ' +
+      "can trigger them with the visitor's session cookie. Expose them with POST/PATCH/PUT/DELETE " +
+      'and remove `rejectActionsOverGet: false`.',
   );
 }
 
@@ -249,6 +251,8 @@ export function registerApiRoutes(
   const idempotencyStore =
     opts?.idempotencyStore ?? routeConfig.idempotencyStore ?? createInMemoryIdempotencyStore();
   const apiVersion = apiVersionFromManifest(manifest);
+  const exposeRequestIds =
+    (routeConfig as { requestIds?: { expose?: boolean } }).requestIds?.expose === true;
   if (
     idempotencyStore.kind === 'memory' &&
     isDeployedEnvironment() &&
@@ -271,13 +275,15 @@ export function registerApiRoutes(
   checkActionsOverGet(
     app,
     routes
-      .filter((r) => r.resolved.method === 'GET' && r.cap.kind === 'action')
+      .filter(
+        (r) => r.resolved.method === 'GET' && (r.cap.kind === 'action' || r.cap.kind === 'job'),
+      )
       .map((r) => ({
         capability: `${r.cap.domain}.${r.cap.name}`,
         operationId: r.resolved.operationId,
         path: r.fullPath,
       })),
-    opts?.rejectActionsOverGet === true,
+    opts?.rejectActionsOverGet !== false,
   );
 
   if (opts?.idempotencyStore === undefined) {
@@ -291,7 +297,10 @@ export function registerApiRoutes(
 
   for (const { cap, resolved, fullPath } of routes) {
     const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-      const requestId = crypto.randomUUID();
+      // `requestIds.expose` on the route config (core `createServer({ requestIds })`): the envelope,
+      // the `x-request-id` header and the audit row share one id. Off: a fresh envelope id, as before.
+      const requestId = exposeRequestIds ? partnerRequestIdOf(request) : crypto.randomUUID();
+      if (exposeRequestIds) reply.header('x-request-id', requestId);
 
       try {
         const headers = request.headers as Record<string, string | string[] | undefined>;
@@ -313,6 +322,8 @@ export function registerApiRoutes(
 
         const bypassTenantScope = cap.access?.tenantScoped === false;
         const deps = routeConfig.createDependencies(authContext, { bypassTenantScope });
+        // The envelope's requestId is the audit row's correlationId, so support finds the request.
+        if (exposeRequestIds) deps.correlationId = requestId;
         deps.request = {
           sourceIp: request.ip,
           userAgent: request.headers['user-agent'],
@@ -467,14 +478,23 @@ export function registerApiRoutes(
             userId: ctx.auth.userId,
             tenantId: ctx.auth.tenantId,
           };
-          if (isAnonymousIdempotencyPrincipal(principal)) {
+          // Callers without a user id share one principal (`operation:tenant::key`), so a claim
+          // could not tell them apart and one could replay another's result: refuse them.
+          if (!ctx.auth.userId || isAnonymousIdempotencyPrincipal(principal)) {
             const mapped = mapUnauthenticated(requestId, apiVersion);
             return reply.status(mapped.status).send(mapped.body);
           }
           const storeKey = buildIdempotencyStoreKey(resolved.operationId, principal, idemKey);
+          // A role or scope change can change what a permitted result may show, so the caller's
+          // authority is part of the fingerprint: the same key under other authority is another
+          // payload (422), never a replay. Same rule as the core /api surface.
+          const authority = hashPayload({
+            roles: [...ctx.auth.roles].sort(),
+            scopes: [...ctx.auth.scopes].sort(),
+          });
           let payloadHash: string;
           try {
-            payloadHash = hashPayload(parsed.data);
+            payloadHash = hashPayload({ input: parsed.data, authority });
           } catch (hashErr) {
             if (!(hashErr instanceof PayloadTooDeepError)) throw hashErr;
             return reply.status(400).send({
@@ -508,6 +528,15 @@ export function registerApiRoutes(
           });
 
           if (outcome.kind === 'replay') {
+            // A stored result is still a disclosure. Run the capability's current authorization
+            // (access policy and its input-aware `authorize`) for this request without running
+            // the handler again — also after waiting on an in-flight duplicate. A caller who would
+            // be refused now gets the refusal, not the stored result.
+            const authorized = await authorizeCapability(cap, ctx, parsed.data);
+            if (!authorized.success) {
+              const mapped = mapCoreError(authorized.error, requestId, apiVersion);
+              return reply.status(mapped.status).send(mapped.body);
+            }
             return reply
               .status(200)
               .send(buildSuccessEnvelope(outcome.result, requestId, apiVersion));
@@ -576,4 +605,23 @@ export function registerApiRoutes(
 
     registerMethod(app, resolved.method, fullPath, handler);
   }
+}
+
+const WELL_FORMED_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+
+/**
+ * Under `requestIds.expose`, the request id an envelope carries: the id Fastify assigned when it is
+ * well formed, else a new UUID.
+ *
+ * Under `@plumbus/core` `createServer` (0.9.0-beta.9+), Fastify's `request.id` is core's request
+ * id — a caller's well-formed `x-request-id`/`x-correlation-id`, or a UUID — so this envelope, the
+ * `x-request-id` header, the server log line's `reqId` and the audit `correlationId` agree. Same
+ * rule as core's `isWellFormedRequestId`, restated so this package keeps its existing core peer
+ * floor; Fastify's own default ids (`req-1`) are too short to pass and get a UUID.
+ */
+function partnerRequestIdOf(request: FastifyRequest): string {
+  const assigned = (request as { id?: unknown }).id;
+  return typeof assigned === 'string' && WELL_FORMED_REQUEST_ID.test(assigned)
+    ? assigned
+    : crypto.randomUUID();
 }

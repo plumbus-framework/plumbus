@@ -109,7 +109,9 @@ vi.mock('../../ai/cost-tracker.js', () => ({
 
 import { createAIService } from '../../ai/ai-service.js';
 import { registerAllRoutes } from '../../api/route-generator.js';
+import { createMemoryCredentialCatalog } from '../../credentials/catalog.js';
 import { EntityRegistry } from '../../data/registry.js';
+import { GENERIC_INTERNAL_MESSAGE } from '../../errors/http.js';
 import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { EventRegistry } from '../../events/registry.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
@@ -117,8 +119,6 @@ import { FlowRegistry } from '../../flows/registry.js';
 import type { TranslationDefinition } from '../../types/translation.js';
 import type { ServerConfig } from '../bootstrap.js';
 import { createServer } from '../bootstrap.js';
-import { GENERIC_INTERNAL_MESSAGE } from '../../errors/http.js';
-import { createMemoryCredentialCatalog } from '../../credentials/catalog.js';
 
 // ── Helpers ──
 
@@ -764,6 +764,76 @@ describe('Server Bootstrap', () => {
       });
       // The process-error hook does not treat a client refusal as a server fault.
       expect(onProcessError).not.toHaveBeenCalled();
+    });
+
+    it('adds no request id hooks, Fastify id generator or error-body field by default', async () => {
+      const { createFastify } = await import('../fastify.js');
+      vi.mocked(createFastify).mockClear();
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+      const server = createServer(makeServerConfig({ logger }));
+      const options = vi.mocked(createFastify).mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(options).not.toHaveProperty('genReqId');
+      const hooks = vi.mocked(server.app.addHook).mock.calls as unknown as [string, AnyFn][];
+      expect(hooks.some(([name]) => name === 'onSend')).toBe(false);
+
+      const handler = (server.app as { _errorHandler?: AnyFn })._errorHandler;
+      const reply = { status: vi.fn().mockReturnThis(), send: vi.fn() };
+      const err = Object.assign(new Error('boom'), { statusCode: 500 });
+      await handler?.(
+        err,
+        { url: '/x', method: 'GET', ip: '127.0.0.1', headers: { 'x-request-id': 'edge-req-0003' } },
+        reply,
+      );
+      expect(reply.send).toHaveBeenCalledWith({
+        error: { code: 'internal', message: GENERIC_INTERNAL_MESSAGE },
+      });
+      expect(logger.error.mock.calls[0]?.[1]).not.toHaveProperty('requestId');
+    });
+
+    it('under requestIds.expose, gives the error handler the proposed id, in body and log', async () => {
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+      const server = createServer(makeServerConfig({ logger, requestIds: { expose: true } }));
+      const handler = (server.app as { _errorHandler?: AnyFn })._errorHandler;
+      const reply = { status: vi.fn().mockReturnThis(), send: vi.fn() };
+      const err = Object.assign(new Error('boom'), { statusCode: 500 });
+      const request = {
+        url: '/x',
+        method: 'GET',
+        ip: '127.0.0.1',
+        headers: { 'x-request-id': 'edge-req-0003' },
+      };
+      await handler?.(err, request, reply);
+
+      expect(reply.send.mock.calls[0]?.[0].error.requestId).toBe('edge-req-0003');
+      expect(logger.error).toHaveBeenCalledWith(
+        'Fastify error: boom',
+        expect.objectContaining({ requestId: 'edge-req-0003' }),
+      );
+    });
+
+    it('under requestIds.expose, wires one id into Fastify ids, header and error bodies', async () => {
+      const { createFastify } = await import('../fastify.js');
+      vi.mocked(createFastify).mockClear();
+      const server = createServer(makeServerConfig({ requestIds: { expose: true } }));
+      const options = vi.mocked(createFastify).mock.calls[0]?.[0] as {
+        genReqId: (raw: unknown) => string;
+      };
+      const raw = { headers: { 'x-request-id': 'edge-req-0004' } };
+      expect(options.genReqId(raw)).toBe('edge-req-0004');
+
+      const hooks = vi.mocked(server.app.addHook).mock.calls as unknown as [string, AnyFn][];
+      const onRequest = hooks.find(([name]) => name === 'onRequest')?.[1];
+      const onSend = hooks.find(([name]) => name === 'onSend')?.[1];
+      const reply = { header: vi.fn(), statusCode: 404 };
+      await onRequest?.({ raw }, reply);
+      expect(reply.header).toHaveBeenCalledWith('x-request-id', 'edge-req-0004');
+
+      const sent = await onSend?.({ raw }, reply, JSON.stringify({ error: { code: 'not_found' } }));
+      expect(JSON.parse(sent)).toEqual({
+        error: { code: 'not_found', requestId: 'edge-req-0004' },
+      });
+      const ok = JSON.stringify({ data: 1 });
+      expect(await onSend?.({ raw }, { ...reply, statusCode: 200 }, ok)).toBe(ok);
     });
 
     it('calls resolver with DB before AI generate', async () => {

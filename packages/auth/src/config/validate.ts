@@ -63,6 +63,7 @@ const authRuntimeConfigSchema = z
     basePath: z.string().optional(),
     defaultReturnPath: z.string(),
     errorPath: z.string(),
+    errorReturnToParam: z.string().optional(),
     environment: z.enum(['development', 'production']),
     session: z
       .object({
@@ -265,6 +266,14 @@ export function validateAuthRuntimeConfig(config: AuthRuntimeConfig): Normalized
   const basePath = validateBasePath(config.basePath ?? '/auth');
   validateLocalPath(config.defaultReturnPath, 'defaultReturnPath');
   validateLocalPath(config.errorPath, 'errorPath');
+  if (config.errorReturnToParam !== undefined) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(config.errorReturnToParam)) {
+      throw new Error('errorReturnToParam must be a plain query parameter name');
+    }
+    if (config.errorReturnToParam === 'code' || config.errorReturnToParam === 'requestId') {
+      throw new Error('errorReturnToParam must not be "code" or "requestId"');
+    }
+  }
 
   const sessionTtlMs = parseDurationToMs(config.session.ttl, { label: 'session.ttl' });
   if (sessionTtlMs <= 0) {
@@ -350,6 +359,9 @@ export function validateAuthRuntimeConfig(config: AuthRuntimeConfig): Normalized
     basePath,
     defaultReturnPath: config.defaultReturnPath,
     errorPath: config.errorPath,
+    ...(config.errorReturnToParam !== undefined
+      ? { errorReturnToParam: config.errorReturnToParam }
+      : {}),
     environment: config.environment,
     session: {
       ttlMs: sessionTtlMs,

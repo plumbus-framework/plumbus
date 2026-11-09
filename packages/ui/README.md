@@ -73,7 +73,7 @@ const authCode = generateAuthModule({
 
 The generated module includes auth types, token helpers, login/logout/session-refresh functions, React auth hooks, a `RouteGuard`, and optional tenant helpers. The `provider` field is part of the config shape, but the current generator does not branch on provider type; generated behavior is driven by endpoints, token storage, and the `multiTenant` flag.
 
-The generated token helpers store bearer tokens in `localStorage`. This is frontend session scaffolding, not backend authorization. Backend capability access policies must remain authoritative.
+The default auth transport is `session` (HttpOnly cookie + CSRF via `@plumbus/auth`). With `transport: 'bearer'` the generated token helpers store bearer tokens in `localStorage`, readable by any XSS; the generator warns when bearer is chosen. Either way this is frontend session scaffolding, not backend authorization. Backend capability access policies must remain authoritative.
 
 ### Form hints
 

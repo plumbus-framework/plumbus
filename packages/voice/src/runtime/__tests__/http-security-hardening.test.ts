@@ -372,11 +372,29 @@ describe('clone errors sent to clients', () => {
   });
 });
 
-describe('cookie-authenticated voice writes (Origin + CSRF opt-in)', () => {
+describe('cookie-authenticated voice writes (Origin + CSRF)', () => {
   const cookie = 'voice_auth=user-token';
 
-  it('keeps accepting cookie auth without options and warns once', async () => {
-    const app = voiceApp({ authCookieNames: ['voice_auth'] });
+  it('refuses to register cookie auth without csrfSecret + externalBaseUrl by default', () => {
+    expect(() => voiceApp({ authCookieNames: ['voice_auth'] })).toThrow(
+      /registerVoiceRoutes: cookie auth is enabled.*csrfSecret and externalBaseUrl.*requireBrowserSecurity: false/s,
+    );
+    expect(() => voiceApp({ authCookieNames: ['voice_auth'], csrfSecret: CSRF_SECRET })).toThrow(
+      /externalBaseUrl is not set/,
+    );
+    expect(() => cloneApp(cloneImpl(), { authCookieNames: ['voice_auth'] })).toThrow(
+      /registerVoiceCloneRoutes: cookie auth is enabled/,
+    );
+    // Bearer-only apps are unaffected.
+    expect(() => voiceApp()).not.toThrow();
+    expect(() => cloneApp()).not.toThrow();
+  });
+
+  it('accepts cookie auth without the options only with requireBrowserSecurity: false, warning once', async () => {
+    const app = voiceApp({ authCookieNames: ['voice_auth'], requireBrowserSecurity: false });
+    expect(() =>
+      cloneApp(cloneImpl(), { authCookieNames: ['voice_auth'], requireBrowserSecurity: false }),
+    ).not.toThrow();
     for (let i = 0; i < 2; i += 1) {
       const res = await app.inject({
         method: 'POST',
@@ -499,7 +517,7 @@ describe('websocket URL returned by /session', () => {
     await app.close();
   });
 
-  it('keeps the header-derived URL without externalBaseUrl and warns once', async () => {
+  it('keeps the header-derived URL without externalBaseUrl outside production and warns once', async () => {
     const app = voiceApp();
     for (let i = 0; i < 2; i += 1) {
       const res = await app.inject({
@@ -514,6 +532,79 @@ describe('websocket URL returned by /session', () => {
       expect(res.json().wsUrl).toBe('wss://voice.local:8080/api/voice/socketVoice/stream');
     }
     expect(warnings().filter((w) => w.includes('wsUrl is built from the request')).length).toBe(1);
+    await app.close();
+  });
+
+  for (const environment of ['production', 'staging']) {
+    it(`returns a same-origin path, never header-derived, in ${environment} without externalBaseUrl`, async () => {
+      vi.stubEnv('PLUMBUS_ENV', environment);
+      try {
+        const app = voiceApp();
+        expect(warnings().some((w) => w.includes('same-origin wsUrl path'))).toBe(true);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/voice/socketVoice/session',
+          headers: {
+            authorization: 'Bearer user-token',
+            host: 'attacker.example',
+            'x-forwarded-proto': 'https',
+          },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().wsUrl).toBe('/api/voice/socketVoice/stream');
+        expect(warnings().some((w) => w.includes('wsUrl is built from the request'))).toBe(false);
+        await app.close();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  }
+
+  it('treats NODE_ENV=production as production-like when PLUMBUS_ENV is unset', async () => {
+    vi.stubEnv('PLUMBUS_ENV', undefined);
+    vi.stubEnv('NODE_ENV', 'production');
+    try {
+      const app = voiceApp();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/voice/socketVoice/session',
+        headers: { authorization: 'Bearer user-token', host: 'attacker.example' },
+      });
+      expect(res.json().wsUrl).toBe('/api/voice/socketVoice/stream');
+      await app.close();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('builds the URL from headers in production only with wsUrlFromRequestHeaders: true', async () => {
+    vi.stubEnv('PLUMBUS_ENV', 'production');
+    try {
+      const app = voiceApp({ wsUrlFromRequestHeaders: true });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/voice/socketVoice/session',
+        headers: {
+          authorization: 'Bearer user-token',
+          host: 'voice.example:8443',
+          'x-forwarded-proto': 'https',
+        },
+      });
+      expect(res.json().wsUrl).toBe('wss://voice.example:8443/api/voice/socketVoice/stream');
+      await app.close();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('can turn header-derived URLs off outside production with wsUrlFromRequestHeaders: false', async () => {
+    const app = voiceApp({ wsUrlFromRequestHeaders: false });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/voice/socketVoice/session',
+      headers: { authorization: 'Bearer user-token', host: 'voice.local:8080' },
+    });
+    expect(res.json().wsUrl).toBe('/api/voice/socketVoice/stream');
     await app.close();
   });
 });
@@ -555,8 +646,8 @@ describe('websocket handshake token hardening', () => {
     });
   }
 
-  it('accepts query-string tokens by default', async () => {
-    const { base, mint } = await start({});
+  it('accepts query-string tokens only with rejectQuerySessionToken: false', async () => {
+    const { base, mint } = await start({ rejectQuerySessionToken: false });
     const token = await mint();
     const frame = await firstFrame(
       `ws://${base}/api/voice/socketVoice/stream?sessionToken=${token}`,
@@ -564,8 +655,8 @@ describe('websocket handshake token hardening', () => {
     expect(frame).toContain('session.hello');
   });
 
-  it('rejects query-string tokens with rejectQuerySessionToken', async () => {
-    const { base, mint } = await start({ rejectQuerySessionToken: true });
+  it('rejects query-string tokens by default', async () => {
+    const { base, mint } = await start({});
     const token = await mint();
     const viaQuery = await firstFrame(
       `ws://${base}/api/voice/socketVoice/stream?sessionToken=${token}`,
@@ -577,16 +668,16 @@ describe('websocket handshake token hardening', () => {
     expect(viaProtocol).toContain('session.hello');
   });
 
-  it('allows token reuse by default', async () => {
-    const { base, mint } = await start({});
+  it('allows token reuse only with singleUseSessionTokens: false', async () => {
+    const { base, mint } = await start({ singleUseSessionTokens: false });
     const token = await mint();
     const url = `ws://${base}/api/voice/socketVoice/stream`;
     expect(await firstFrame(url, [`voice-session.${token}`])).toContain('session.hello');
     expect(await firstFrame(url, [`voice-session.${token}`])).toContain('session.hello');
   });
 
-  it('accepts each token once with singleUseSessionTokens', async () => {
-    const { base, mint } = await start({ singleUseSessionTokens: true });
+  it('accepts each token once by default', async () => {
+    const { base, mint } = await start({});
     const token = await mint();
     const url = `ws://${base}/api/voice/socketVoice/stream`;
     expect(await firstFrame(url, [`voice-session.${token}`])).toContain('session.hello');

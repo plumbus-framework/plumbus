@@ -11,7 +11,7 @@ export interface NextjsTemplateConfig {
   appName: string;
   /** Whether to include auth wiring */
   auth?: boolean;
-  /** Auth credential transport */
+  /** Auth credential transport. Default `session` (HttpOnly cookie); `bearer` keeps a token in localStorage. */
   authTransport?: AuthTransport;
   /** Base URL for API calls. Required for `.env.local` — no localhost port default. */
   apiBaseUrl?: string;
@@ -244,7 +244,7 @@ export default function ${pascal}Page() {
 
 /** Generate AuthProvider component */
 export function generateAuthProvider(config?: NextjsTemplateConfig): GeneratedFile {
-  const session = config?.authTransport === 'session';
+  const session = config?.authTransport !== 'bearer';
   const sessionInit = session
     ? `    loadSession()
       .then((user: AuthUser | null) => {
@@ -333,7 +333,7 @@ export function generateEnvLocal(config: NextjsTemplateConfig): GeneratedFile {
     );
   }
   const authLines =
-    config.authTransport === 'session'
+    config.authTransport !== 'bearer'
       ? `# Session auth uses HttpOnly cookies — no client-side secret required
 `
       : `# Bearer auth (local JWT verification in Next.js middleware)
@@ -404,7 +404,7 @@ export function generateLoadingComponent(): GeneratedFile {
 /** Generate proxy with transport-aware comments */
 export function generateProxy(config: NextjsTemplateConfig): GeneratedFile {
   const sessionComment =
-    config.authTransport === 'session'
+    config.authTransport !== 'bearer'
       ? `  // Session transport uses HttpOnly cookies validated by the Plumbus API layer.
   // Edge route gating may inspect the session cookie when deployment topology is same-site.`
       : `  // Authentication is enforced by the Plumbus API layer (deny-by-default capability access policies),
@@ -582,7 +582,7 @@ export default function LoginErrorPage() {
 
 /** Generate login page for the configured auth transport */
 export function generateLoginPage(config?: NextjsTemplateConfig): GeneratedFile {
-  return config?.authTransport === 'session'
+  return config?.authTransport !== 'bearer'
     ? generateSessionLoginPage()
     : generateBearerLoginPage();
 }
@@ -674,10 +674,10 @@ export function generateNextjsTemplate(
   if (config.auth !== false) {
     files.push(generateAuthProvider(config));
     files.push(generateLoginPage(config));
-    if (config.authTransport === 'session') {
+    if (config.authTransport !== 'bearer') {
       files.push(generateSessionLoginErrorPage());
     }
-    if (config.authTransport !== 'session') {
+    if (config.authTransport === 'bearer') {
       files.push(generateSignupPage());
     }
   }

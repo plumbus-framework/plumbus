@@ -429,12 +429,27 @@ describe('POST /chat/:name/confirm', () => {
 describe('registerChatRoutes browser-security configuration', () => {
   const chat = defineChat({ name: 'cfgChat', access: {}, streaming: false, instructions: ['x'] });
 
-  it('warns at registration when cookie auth is on without csrfSecret/externalBaseUrl', () => {
+  it('throws at registration by default when cookie auth is on without csrfSecret/externalBaseUrl', () => {
+    expect(() =>
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
+        authCookieNames: ['session'],
+      }),
+    ).toThrow(/csrfSecret and externalBaseUrl/);
+    expect(() =>
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
+        authCookieNames: ['session'],
+        csrfSecret: 'secret',
+      }),
+    ).toThrow(/externalBaseUrl.*requireBrowserSecurity: false/s);
+  });
+
+  it('only warns with requireBrowserSecurity: false', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
         authCookieNames: ['session'],
         csrfSecret: 'secret',
+        requireBrowserSecurity: false,
       });
       expect(warn).toHaveBeenCalledTimes(1);
       const message = String(warn.mock.calls[0]?.[0]);
@@ -445,7 +460,7 @@ describe('registerChatRoutes browser-security configuration', () => {
     }
   });
 
-  it('throws at registration with requireBrowserSecurity: true and incomplete settings', () => {
+  it('throws with an explicit requireBrowserSecurity: true and incomplete settings', () => {
     expect(() =>
       registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
         authCookieNames: ['session'],

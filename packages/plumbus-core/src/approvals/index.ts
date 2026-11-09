@@ -25,6 +25,7 @@ export { createSqlApprovalStore } from './sql-store.js';
 export type { ApprovalDbHandle, SqlApprovalStoreConfig } from './sql-store.js';
 export type { ApprovalServiceConfig } from './service.js';
 export {
+  ApprovalDecisionConflictError,
   ApprovalDecisionOutcome,
   ApprovalRequestState,
   HUMAN_TASK_CONTRACT_VERSION,
@@ -32,6 +33,7 @@ export {
   HumanTaskState,
 } from './types.js';
 export type {
+  ApprovalBinding,
   ApprovalDecisionRecord,
   ApprovalGateCode,
   ApprovalGateResult,

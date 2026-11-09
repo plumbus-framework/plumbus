@@ -371,6 +371,32 @@ describe('generateErrorTypes', () => {
     expect(code).toContain('message: string');
   });
 
+  it('names the request id on the error type', () => {
+    expect(generateErrorTypes()).toContain('requestId?: string;');
+  });
+
+  it('reads the request id from error, envelope meta, then the x-request-id header', async () => {
+    const ts = await import('typescript');
+    const js = ts.transpileModule(generateErrorTypes(), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const exports: Record<string, unknown> = {};
+    new Function('exports', js)(exports);
+    const requestIdOf = exports.plumbusRequestIdOf as (body: unknown, response: unknown) => unknown;
+    const response = (id: string | null) => ({ headers: { get: () => id } });
+
+    expect(requestIdOf({ error: { requestId: 'from-error-01' } }, response('hdr'))).toBe(
+      'from-error-01',
+    );
+    expect(requestIdOf({ ok: false, meta: { requestId: 'from-meta-01' } }, response(null))).toBe(
+      'from-meta-01',
+    );
+    expect(requestIdOf({ error: { code: 'x' } }, response('from-header-01'))).toBe(
+      'from-header-01',
+    );
+    expect(requestIdOf({}, response(null))).toBeUndefined();
+  });
+
   it('generates type guard', () => {
     const code = generateErrorTypes();
     expect(code).toContain('export function isPlumbusApiError');
@@ -440,6 +466,15 @@ describe('generateClientModule', () => {
     expect(code).toContain('PlumbusApiError');
   });
 
+  it('attaches requestId to every thrown capability and flow error', () => {
+    const code = generateClientModule(
+      [makeCap(), makeActionCap()],
+      [{ name: 'refundFlow', domain: 'billing', startPath: '/api/billing/request-refund' }],
+    );
+    expect(code.match(/requestId: plumbusRequestIdOf\(body, response\)/g)).toHaveLength(3);
+    expect(code.match(/export function plumbusRequestIdOf\(/g)).toHaveLength(1);
+  });
+
   it('includes session transport fetch helpers', () => {
     const code = generateClientModule([makeCap()], [], { authTransport: 'session' });
     expect(code).toContain('import { csrfHeaders } from "./auth"');
@@ -447,22 +482,31 @@ describe('generateClientModule', () => {
     expect(code).toContain('clientFetchInit');
   });
 
-  it('includes bearer auth headers helper by default', () => {
+  it('uses the session transport (cookies + CSRF) by default', () => {
     const code = generateClientModule([makeCap()], []);
+    expect(code).toContain('credentials: "include"');
+    expect(code).not.toContain('getAuthHeaders');
+  });
+
+  it('includes the bearer auth headers helper for the bearer transport', () => {
+    const code = generateClientModule([makeCap()], [], { authTransport: 'bearer' });
     expect(code).toContain('import { getAuthHeaders } from "./auth"');
     expect(code).not.toContain('credentials: "include"');
   });
 
   it('defaults to an extensionless auth specifier so bundler resolution works', () => {
     // Turbopack has no `extensionAlias`, so "./auth.js" cannot resolve to auth.ts.
-    const bearer = generateClientModule([makeCap()], []);
-    const session = generateClientModule([makeCap()], [], { authTransport: 'session' });
+    const bearer = generateClientModule([makeCap()], [], { authTransport: 'bearer' });
+    const session = generateClientModule([makeCap()], []);
     expect(bearer).not.toContain('"./auth.js"');
     expect(session).not.toContain('"./auth.js"');
   });
 
   it('emits an explicitly configured auth specifier verbatim for node16 targets', () => {
-    const code = generateClientModule([makeCap()], [], { authModuleImport: './auth.js' });
+    const code = generateClientModule([makeCap()], [], {
+      authTransport: 'bearer',
+      authModuleImport: './auth.js',
+    });
     expect(code).toContain('import { getAuthHeaders } from "./auth.js"');
   });
 

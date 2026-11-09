@@ -53,6 +53,25 @@ describe('validateAuthRuntimeConfig', () => {
     ).toThrow();
   });
 
+  it('keeps errorReturnToParam off by default and accepts a plain parameter name', () => {
+    expect(validateAuthRuntimeConfig(baseConfig()).errorReturnToParam).toBeUndefined();
+    expect(
+      validateAuthRuntimeConfig(baseConfig({ errorReturnToParam: 'next' })).errorReturnToParam,
+    ).toBe('next');
+  });
+
+  it('rejects an errorReturnToParam that is not a plain name or collides with code/requestId', () => {
+    expect(() => validateAuthRuntimeConfig(baseConfig({ errorReturnToParam: 'a b' }))).toThrow(
+      /errorReturnToParam/,
+    );
+    expect(() => validateAuthRuntimeConfig(baseConfig({ errorReturnToParam: 'code' }))).toThrow(
+      /errorReturnToParam/,
+    );
+    expect(() =>
+      validateAuthRuntimeConfig(baseConfig({ errorReturnToParam: 'requestId' })),
+    ).toThrow(/errorReturnToParam/);
+  });
+
   it('rejects session ttl over 365 days', () => {
     expect(() => validateAuthRuntimeConfig(baseConfig({ session: { ttl: '366d' } }))).toThrow(
       /365 days/,

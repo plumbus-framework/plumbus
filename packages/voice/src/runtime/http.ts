@@ -32,6 +32,7 @@ import {
 } from '../security/session-token.js';
 import {
   assertValidExternalBaseUrl,
+  assertVoiceBrowserSecurity,
   guardVoiceBrowserRequest,
   resolveVoiceRequestCredential,
 } from '../security/browser-guard.js';
@@ -172,6 +173,12 @@ export function registerVoiceRoutes(
       'Voice session token secret must have at least 32 non-padding characters',
     );
   assertValidExternalBaseUrl(opts.externalBaseUrl);
+  assertVoiceBrowserSecurity('registerVoiceRoutes', opts);
+  if (needsWebsocketPlugin && !opts.externalBaseUrl && !wsUrlFromRequestHeaders(opts))
+    warnOnce(
+      'voice.ws-url-relative',
+      '[plumbus:voice] externalBaseUrl is not set, so /session returns a same-origin wsUrl path (/api/voice/<name>/stream) instead of an absolute URL. Set externalBaseUrl to your public app URL so every client gets an absolute wss:// URL.',
+    );
   if (needsWebsocketPlugin && (opts.websocketOriginAllowlist ?? []).length === 0)
     warnOnce(
       'voice.ws-origin-allowlist-empty',
@@ -207,7 +214,8 @@ function registerVoiceRoutesOnApp(
     return cachedRegistry;
   };
   const cookieNames = opts.authCookieNames ?? [];
-  const consumedTokens = opts.singleUseSessionTokens ? new ConsumedVoiceTokenStore() : undefined;
+  const consumedTokens =
+    opts.singleUseSessionTokens === false ? undefined : new ConsumedVoiceTokenStore();
 
   registerVoiceCatalogRoutes(app, routeConfig, voices, { ...opts, resolveRegistry });
 
@@ -289,7 +297,7 @@ function registerVoiceRoutesOnApp(
         },
       });
 
-      const wsUrl = buildWebSocketUrl(req, voiceName, opts.externalBaseUrl);
+      const wsUrl = buildWebSocketUrl(req, voiceName, opts);
       const body = {
         wsUrl,
         sessionToken,
@@ -506,7 +514,7 @@ async function handleVoiceWebSocket(
     return;
   }
 
-  const sessionToken = extractSessionToken(req, !args.opts.rejectQuerySessionToken);
+  const sessionToken = extractSessionToken(req, args.opts.rejectQuerySessionToken === false);
   if (!sessionToken) {
     socket.send(
       JSON.stringify({
@@ -744,16 +752,32 @@ function resolveSessionTokenSecret(
   );
 }
 
+/** `PLUMBUS_ENV` (else `NODE_ENV`, with `test` treated as development) is production or staging. */
+function isProductionLikeEnvironment(env: NodeJS.ProcessEnv = process.env): boolean {
+  const environment = env.PLUMBUS_ENV ?? (env.NODE_ENV === 'test' ? 'development' : env.NODE_ENV);
+  return environment === 'production' || environment === 'staging';
+}
+
+/** Whether `/session` may build `wsUrl` from request headers when `externalBaseUrl` is unset. */
+function wsUrlFromRequestHeaders(opts: RegisterVoiceRoutesOpts): boolean {
+  return opts.wsUrlFromRequestHeaders ?? !isProductionLikeEnvironment();
+}
+
 function buildWebSocketUrl(
   req: FastifyRequest,
   voiceName: string,
-  externalBaseUrl: string | undefined,
+  opts: RegisterVoiceRoutesOpts,
 ): string {
-  if (externalBaseUrl) {
-    const base = new URL(externalBaseUrl);
+  const path = `/api/voice/${voiceName}/stream`;
+  if (opts.externalBaseUrl) {
+    const base = new URL(opts.externalBaseUrl);
     const protocol = base.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${base.host}/api/voice/${voiceName}/stream`;
+    return `${protocol}://${base.host}${path}`;
   }
+  // Never trust Host / X-Forwarded-* in production-like use unless the app opts in:
+  // a same-origin path keeps browser clients working (they resolve it against the page)
+  // without letting a forged header redirect the session token elsewhere.
+  if (!wsUrlFromRequestHeaders(opts)) return path;
   warnOnce(
     'voice.ws-url-from-request-headers',
     '[plumbus:voice] Voice wsUrl is built from the request Host / X-Forwarded-Proto headers. Set externalBaseUrl on registerVoiceRoutes options to build it from your public URL instead.',

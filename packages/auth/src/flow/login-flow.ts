@@ -2,12 +2,13 @@ import { LOGIN_CONTEXT_TYPE_MAX_BYTES } from '../config/constants.js';
 import type { LoginContextRequest, NormalizedAuthRuntimeConfig } from '../config/types.js';
 import { validateProviderParams } from '../providers/registry.js';
 import type { DiscoveredProvider } from '../providers/discovery.js';
-import type { TransactionManager } from '../transactions/manager.js';
+import type { LoginTransactionPayload, TransactionManager } from '../transactions/manager.js';
 import { resolveBindingRaw } from '../transactions/manager.js';
 import type { SessionManager } from '../sessions/manager.js';
 import type { AuthLoginApplicationContext, VerifiedExternalIdentity } from '../resolvers/types.js';
 import { executeResolveIdentity, withTimeout } from '../resolvers/execute.js';
 import * as client from 'openid-client';
+import { withCallbackReturnTo } from '../routes/responses.js';
 
 function containsForbiddenReturnToChars(value: string): boolean {
   if (/\s/.test(value)) {
@@ -287,12 +288,27 @@ export function createLoginFlow(deps: LoginFlowDeps) {
         }
       }
 
+      const bindingCookieName =
+        deps.config.environment === 'production'
+          ? '__Host-plumbus_auth_binding'
+          : 'plumbus_auth_binding';
+
       const providerError = input.query.get('error');
       if (providerError) {
-        if (providerError === 'access_denied') {
-          throw new Error('login_cancelled');
+        const failure = new Error(
+          providerError === 'access_denied' ? 'login_cancelled' : 'provider_unavailable',
+        );
+        // errorReturnToParam: the login is over either way, so its one-use transaction is consumed
+        // here to learn where the person was going.
+        const state = input.query.get('state');
+        const bindingRaw = input.cookies[bindingCookieName];
+        if (deps.config.errorReturnToParam && state && bindingRaw) {
+          const abandoned = await deps.transactions
+            .consumeTransaction({ state, bindingRaw, providerId: input.providerId, now: nowFn() })
+            .catch(() => null);
+          if (abandoned) throw withCallbackReturnTo(failure, abandoned.returnTo);
         }
-        throw new Error('provider_unavailable');
+        throw failure;
       }
 
       const code = input.query.get('code');
@@ -312,12 +328,7 @@ export function createLoginFlow(deps: LoginFlowDeps) {
         throw new Error('issuer_mismatch');
       }
 
-      const bindingRaw =
-        input.cookies[
-          deps.config.environment === 'production'
-            ? '__Host-plumbus_auth_binding'
-            : 'plumbus_auth_binding'
-        ];
+      const bindingRaw = input.cookies[bindingCookieName];
       if (!bindingRaw) {
         throw new Error('login_failed');
       }
@@ -331,88 +342,98 @@ export function createLoginFlow(deps: LoginFlowDeps) {
       if (!payload) {
         throw new Error('login_failed');
       }
-
-      const redirectUri = new URL(
-        `${deps.config.basePath}/callback/${input.providerId}`,
-        deps.config.externalBaseUrl,
-      );
-      const currentUrl = new URL(
-        `${redirectUri.pathname}${input.query.toString() ? `?${input.query.toString()}` : ''}`,
-        deps.config.externalBaseUrl,
-      );
-      const grantOptions: Record<string, unknown> = {
-        pkceCodeVerifier: payload.pkceVerifier,
-        expectedNonce: payload.nonce,
-        expectedState: payload.state,
-      };
-      if (deps.config.environment === 'development') {
-        grantOptions.execute = [client.allowInsecureRequests];
+      try {
+        return await completeCallback(input, provider, discovered, payload);
+      } catch (error) {
+        throw deps.config.errorReturnToParam
+          ? withCallbackReturnTo(error, payload.returnTo)
+          : error;
       }
-      const tokens = await client.authorizationCodeGrant(
-        discovered.config,
-        currentUrl,
-        grantOptions,
-      );
-
-      const claims = tokens.claims();
-      if (!claims?.sub) {
-        throw new Error('login_failed');
-      }
-
-      let userInfoClaims: Record<string, unknown> | undefined;
-      if (provider.fetchUserInfo && discovered.metadata.userinfoEndpoint) {
-        const userinfo = await client.fetchUserInfo(
-          discovered.config,
-          tokens.access_token ?? '',
-          claims.sub,
-        );
-        if (userinfo.sub !== claims.sub) {
-          throw new Error('userinfo_sub_mismatch');
-        }
-        userInfoClaims = userinfo as unknown as Record<string, unknown>;
-      }
-
-      const identity: VerifiedExternalIdentity = {
-        providerId: input.providerId,
-        issuer: provider.issuer,
-        subject: claims.sub,
-        idTokenClaims: claims as unknown as Record<string, unknown>,
-        userInfoClaims,
-        providerAuthenticatedAt: claims.auth_time
-          ? new Date(Number(claims.auth_time) * 1000)
-          : undefined,
-        acr: typeof claims.acr === 'string' ? claims.acr : undefined,
-        amr: Array.isArray(claims.amr) ? (claims.amr as string[]) : undefined,
-      };
-
-      const admission = await executeResolveIdentity(
-        deps.config.resolveIdentity,
-        identity,
-        deps.config.resolverTimeoutMs,
-        { applicationContext: payload.applicationContext },
-      );
-      if (admission.status === 'temporary') {
-        throw new Error('provider_unavailable');
-      }
-      if (admission.status === 'denied') {
-        throw new Error('login_denied');
-      }
-
-      const session = await deps.sessions.createSession({
-        userId: admission.userId,
-        providerId: input.providerId,
-        issuer: provider.issuer,
-        subject: claims.sub,
-        acr: identity.acr,
-        amr: identity.amr,
-        providerAuthenticatedAt: identity.providerAuthenticatedAt,
-        now: nowFn(),
-      });
-
-      return {
-        returnTo: payload.returnTo,
-        setCookie: session.setCookie,
-      };
     },
   };
+
+  async function completeCallback(
+    input: { providerId: string; query: URLSearchParams },
+    provider: NonNullable<NormalizedAuthRuntimeConfig['providers'][string]>,
+    discovered: DiscoveredProvider,
+    payload: LoginTransactionPayload,
+  ): Promise<{ returnTo: string; setCookie: string }> {
+    const redirectUri = new URL(
+      `${deps.config.basePath}/callback/${input.providerId}`,
+      deps.config.externalBaseUrl,
+    );
+    const currentUrl = new URL(
+      `${redirectUri.pathname}${input.query.toString() ? `?${input.query.toString()}` : ''}`,
+      deps.config.externalBaseUrl,
+    );
+    const grantOptions: Record<string, unknown> = {
+      pkceCodeVerifier: payload.pkceVerifier,
+      expectedNonce: payload.nonce,
+      expectedState: payload.state,
+    };
+    if (deps.config.environment === 'development') {
+      grantOptions.execute = [client.allowInsecureRequests];
+    }
+    const tokens = await client.authorizationCodeGrant(discovered.config, currentUrl, grantOptions);
+
+    const claims = tokens.claims();
+    if (!claims?.sub) {
+      throw new Error('login_failed');
+    }
+
+    let userInfoClaims: Record<string, unknown> | undefined;
+    if (provider.fetchUserInfo && discovered.metadata.userinfoEndpoint) {
+      const userinfo = await client.fetchUserInfo(
+        discovered.config,
+        tokens.access_token ?? '',
+        claims.sub,
+      );
+      if (userinfo.sub !== claims.sub) {
+        throw new Error('userinfo_sub_mismatch');
+      }
+      userInfoClaims = userinfo as unknown as Record<string, unknown>;
+    }
+
+    const identity: VerifiedExternalIdentity = {
+      providerId: input.providerId,
+      issuer: provider.issuer,
+      subject: claims.sub,
+      idTokenClaims: claims as unknown as Record<string, unknown>,
+      userInfoClaims,
+      providerAuthenticatedAt: claims.auth_time
+        ? new Date(Number(claims.auth_time) * 1000)
+        : undefined,
+      acr: typeof claims.acr === 'string' ? claims.acr : undefined,
+      amr: Array.isArray(claims.amr) ? (claims.amr as string[]) : undefined,
+    };
+
+    const admission = await executeResolveIdentity(
+      deps.config.resolveIdentity,
+      identity,
+      deps.config.resolverTimeoutMs,
+      { applicationContext: payload.applicationContext },
+    );
+    if (admission.status === 'temporary') {
+      throw new Error('provider_unavailable');
+    }
+    if (admission.status === 'denied') {
+      throw new Error('login_denied');
+    }
+
+    const session = await deps.sessions.createSession({
+      userId: admission.userId,
+      providerId: input.providerId,
+      issuer: provider.issuer,
+      subject: claims.sub,
+      acr: identity.acr,
+      amr: identity.amr,
+      providerAuthenticatedAt: identity.providerAuthenticatedAt,
+      now: nowFn(),
+    });
+
+    return {
+      returnTo: payload.returnTo,
+      setCookie: session.setCookie,
+    };
+  }
 }

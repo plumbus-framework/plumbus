@@ -16,6 +16,7 @@ Reference for `AuthRuntimeConfig` passed to `createAuthRuntime()`. Validation ru
 | `applicationBaseUrl` | `string` | SPA or server-rendered app origin (for `returnTo` validation) |
 | `defaultReturnPath` | `string` | Relative path after login when `returnTo` is omitted (must start with `/`) |
 | `errorPath` | `string` | Relative path for login error redirects |
+| `errorReturnToParam` | `string?` | Opt-in. Query parameter that carries the login's `returnTo` onto `errorPath` when the callback fails (e.g. `'next'`), so the error page can send the person back to where they were going. Off by default: the error URL carries `code` and `requestId` only |
 | `session.ttl` | duration string | Session lifetime (e.g. `"7d"`, `"12h"`) — parsed by core duration helper |
 | `sessionStore` | `SessionStore` | Opaque session persistence |
 | `transactionStore` | `LoginTransactionStore` | Short-lived login state |

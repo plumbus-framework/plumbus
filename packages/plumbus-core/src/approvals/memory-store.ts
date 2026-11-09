@@ -41,6 +41,18 @@ export function createMemoryApprovalStore(): ApprovalStore {
         .filter((row) => row.approvalRequestId === requestId)
         .map((row) => ({ ...row }));
     },
+    async decideRequest(row, decision) {
+      if (requests.get(row.approvalRequestId)?.state !== 'pending') return false;
+      requests.set(row.approvalRequestId, { ...row });
+      decisions.push({ ...decision });
+      return true;
+    },
+    async transitionRequest(row, fromStates) {
+      const stored = requests.get(row.approvalRequestId);
+      if (!stored || !fromStates.includes(stored.state)) return false;
+      requests.set(row.approvalRequestId, { ...row });
+      return true;
+    },
     async cancelRequest(row) {
       if (requests.get(row.approvalRequestId)?.state !== 'pending') return false;
       requests.set(row.approvalRequestId, { ...row });

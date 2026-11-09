@@ -1,8 +1,8 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { IdempotencyStore } from '../idempotency.js';
 import type { CapabilityContract } from '../../types/capability.js';
+import type { IdempotencyStore } from '../idempotency.js';
 import {
   registerAllRoutes,
   registerCapabilityRoute,
@@ -570,6 +570,69 @@ describe('declared idempotency on the core /api surface', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['anonymous', undefined],
+    ['tenant-only (no user id)', 'tenant-1'],
+  ])('refuses %s callers of a public idempotent capability instead of running unclaimed', async (_label, tenantId) => {
+    const app = makeMockApp();
+    const anonymous = {
+      userId: undefined,
+      roles: [],
+      scopes: [],
+      provider: 'anonymous',
+      ...(tenantId ? { tenantId } : {}),
+    };
+    const store: IdempotencyStore = {
+      kind: 'database',
+      claim: vi.fn(async () => ({ status: 'new' as const })),
+      complete: vi.fn(async () => {}),
+      abort: vi.fn(async () => {}),
+    };
+    const config = {
+      ...makeMockConfig(),
+      idempotencyStore: store,
+      authAdapter: { authenticate: vi.fn().mockResolvedValue(null) },
+      createDependencies: vi.fn().mockReturnValue({
+        auth: anonymous,
+        data: {},
+        audit: { record: vi.fn(async () => {}) },
+      }),
+    };
+    const handler = vi.fn(async (input: { orderId: string }) => ({ ...input, created: true }));
+    const cap = makeCapability({
+      kind: 'action',
+      name: 'createOrder',
+      input: z.object({ orderId: z.string() }),
+      output: z.object({ orderId: z.string(), created: z.boolean() }),
+      access: { public: true },
+      exposeAs: ['api'],
+      api: {
+        operationId: 'ordersCreate',
+        method: 'POST',
+        path: '/orders',
+        idempotency: { required: true, header: 'Idempotency-Key' },
+      },
+      handler: async (_ctx, input) => handler(input as { orderId: string }),
+    } as Partial<CapabilityContract>);
+    registerCapabilityRoute(app as any, cap, config as any);
+    const route = app.post.mock.calls[0]?.at(-1);
+    for (const visitor of ['a', 'b']) {
+      const reply = makeMockReply();
+      await route(
+        { headers: { 'idempotency-key': 'shared-key' }, query: {}, body: { orderId: visitor } },
+        reply,
+      );
+      expect(reply.status).toHaveBeenCalledWith(401);
+      expect(reply.header).toHaveBeenCalledWith('www-authenticate', 'Bearer');
+      expect(reply.send.mock.calls[0]?.[0]?.error?.metadata?.reason).toBe(
+        'idempotency-principal-required',
+      );
+    }
+    // Neither executed nor claimed: no visitor can replay another's stored result.
+    expect(handler).not.toHaveBeenCalled();
+    expect(store.claim).not.toHaveBeenCalled();
+  });
+
   it('leaves a capability that declares no idempotency exactly as it was', async () => {
     const app = makeMockApp();
     const config = makeMockConfig();
@@ -592,9 +655,11 @@ describe('registerStreamingRoute', () => {
   function makeStreamingSetup(
     authRoles: string[] = ['admin'],
     auth: { userId?: string; roles: string[] } | null = { userId: 'u1', roles: authRoles },
+    extra: Record<string, unknown> = {},
   ) {
     const written: string[] = [];
     const reply = {
+      header: vi.fn().mockReturnThis(),
       raw: {
         writeHead: vi.fn(),
         write: vi.fn((chunk: string) => {
@@ -615,6 +680,7 @@ describe('registerStreamingRoute', () => {
           };
     const config = {
       ...makeMockConfig(),
+      ...extra,
       authAdapter: {
         authenticate: vi.fn().mockResolvedValue(auth === null ? null : authContext),
       },
@@ -674,6 +740,42 @@ describe('registerStreamingRoute', () => {
     expect(payload.error?.code).toBe('validation');
     expect(reply.raw.end).toHaveBeenCalled();
   });
+
+  it('leaves the SSE error event and headers without a request id by default', async () => {
+    const { handler, reply, written } = makeStreamingSetup(['viewer']);
+    await handler(
+      {
+        headers: { authorization: 'Bearer t', 'x-request-id': 'edge-req-0006' },
+        body: { prompt: 'hi' },
+        ip: '127.0.0.1',
+      },
+      reply,
+    );
+    const payload = JSON.parse(written[0]?.replace(/^data: /, '').trim() ?? '{}');
+    expect(payload.error).not.toHaveProperty('requestId');
+    expect(reply.header).not.toHaveBeenCalled();
+    expect(reply.raw.writeHead.mock.calls[0]?.[1]).not.toHaveProperty('x-request-id');
+  });
+
+  it('names the request id in SSE headers and error events under requestIds.expose', async () => {
+    const { handler, reply, written } = makeStreamingSetup(['viewer'], undefined, {
+      requestIds: { expose: true },
+    });
+    await handler(
+      {
+        headers: { authorization: 'Bearer t', 'x-request-id': 'edge-req-0006' },
+        body: { prompt: 'hi' },
+        ip: '127.0.0.1',
+      },
+      reply,
+    );
+    const payload = JSON.parse(written[0]?.replace(/^data: /, '').trim() ?? '{}');
+    expect(payload.error.requestId).toBe('edge-req-0006');
+    expect(reply.header).toHaveBeenCalledWith('x-request-id', 'edge-req-0006');
+    expect(reply.raw.writeHead.mock.calls[0]?.[1]).toMatchObject({
+      'x-request-id': 'edge-req-0006',
+    });
+  });
 });
 
 describe('registerAllRoutes', () => {
@@ -727,6 +829,140 @@ describe('HTTP correlation ID propagation', () => {
     await registeredHandler(request, reply);
 
     expect(deps.correlationId).toBe('corr-from-client');
+  });
+});
+
+describe('request ids off (the default)', () => {
+  it('adds no header and no error.requestId to a refusal', async () => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const cap = makeCapability({ kind: 'query', access: { roles: ['operator'] } });
+    registerCapabilityRoute(app as any, cap, config);
+
+    const handler = app.get.mock.calls[0]?.at(-1);
+    const request = {
+      ...makeMockRequest({ id: '1' }),
+      headers: { authorization: 'Bearer t', 'x-request-id': 'edge-req-0001' },
+    };
+    const reply = makeMockReply();
+    await handler(request, reply);
+
+    expect(reply.header).not.toHaveBeenCalledWith('x-request-id', expect.anything());
+    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(reply.send.mock.calls[0]?.[0].error).not.toHaveProperty('requestId');
+  });
+
+  it('does not write a malformed proposed correlation id to the audit context', async () => {
+    const app = makeMockApp();
+    const config = makeMockConfig();
+    const deps = config.createDependencies() as Record<string, unknown>;
+    config.createDependencies.mockReturnValue(deps);
+    const cap = makeCapability({ kind: 'query' });
+    registerCapabilityRoute(app as any, cap, config);
+
+    const handler = app.get.mock.calls[0]?.at(-1);
+    const request = {
+      ...makeMockRequest({ id: '1' }),
+      headers: { authorization: 'Bearer t', 'x-correlation-id': 'bad id\nforged line' },
+    };
+    await handler(request, makeMockReply());
+
+    expect(deps.correlationId).toBeUndefined();
+  });
+
+  it('passes no requestId to onCapabilityError', async () => {
+    const app = makeMockApp();
+    const onCapabilityError = vi.fn();
+    const config = { ...makeMockConfig(), onCapabilityError };
+    const cap = makeCapability({
+      kind: 'query',
+      handler: async () => {
+        throw new Error('boom');
+      },
+    });
+    registerCapabilityRoute(app as any, cap, config);
+
+    const handler = app.get.mock.calls[0]?.at(-1);
+    await handler(makeMockRequest({ id: '1' }), makeMockReply());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onCapabilityError.mock.calls[0]?.[0]).not.toHaveProperty('requestId');
+  });
+});
+
+describe('request id on refusals and errors (requestIds.expose)', () => {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  const makeExposingConfig = () => ({ ...makeMockConfig(), requestIds: { expose: true } });
+
+  it('names the request id in the header and the refusal body, and audits with it', async () => {
+    const app = makeMockApp();
+    const config = makeExposingConfig();
+    const deps = config.createDependencies() as Record<string, unknown>;
+    config.createDependencies.mockReturnValue(deps);
+    const cap = makeCapability({ kind: 'query', access: { roles: ['operator'] } });
+    registerCapabilityRoute(app as any, cap, config);
+
+    const handler = app.get.mock.calls[0]?.at(-1);
+    const request = {
+      ...makeMockRequest({ id: '1' }),
+      headers: { 'x-request-id': 'edge-req-0001' },
+    };
+    const reply = makeMockReply();
+    await handler(request, reply);
+
+    expect(reply.header).toHaveBeenCalledWith('x-request-id', 'edge-req-0001');
+    expect(reply.status).toHaveBeenCalledWith(403);
+    expect(reply.send.mock.calls[0]?.[0].error.requestId).toBe('edge-req-0001');
+    expect(deps.correlationId).toBe('edge-req-0001');
+  });
+
+  it('issues a UUID when the proposed id is malformed, and uses it everywhere', async () => {
+    const app = makeMockApp();
+    const config = makeExposingConfig();
+    const cap = makeCapability({ kind: 'query' });
+    registerCapabilityRoute(app as any, cap, config);
+
+    const handler = app.get.mock.calls[0]?.at(-1);
+    const request = {
+      ...makeMockRequest({}),
+      headers: { authorization: 'Bearer t', 'x-request-id': 'bad id\nforged' },
+    };
+    const reply = makeMockReply();
+    await handler(request, reply);
+
+    const header = reply.header.mock.calls.find(([name]) => name === 'x-request-id')?.[1];
+    expect(header).toMatch(UUID);
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(reply.send.mock.calls[0]?.[0].error.requestId).toBe(header);
+  });
+
+  it('passes the request id to onCapabilityError', async () => {
+    const app = makeMockApp();
+    const onCapabilityError = vi.fn();
+    const config = { ...makeExposingConfig(), onCapabilityError };
+    const cap = makeCapability({
+      kind: 'query',
+      handler: async () => {
+        throw new Error('boom');
+      },
+    });
+    registerCapabilityRoute(app as any, cap, config);
+
+    const handler = app.get.mock.calls[0]?.at(-1);
+    const request = {
+      ...makeMockRequest({ id: '1' }),
+      headers: { 'x-request-id': 'edge-req-0002' },
+    };
+    const reply = makeMockReply();
+    await handler(request, reply);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(reply.status).toHaveBeenCalledWith(500);
+    expect(reply.send.mock.calls[0]?.[0].error).toMatchObject({
+      code: 'internal',
+      requestId: 'edge-req-0002',
+    });
+    expect(onCapabilityError.mock.calls[0]?.[0].requestId).toBe('edge-req-0002');
   });
 });
 

@@ -14,9 +14,13 @@ import {
 import { createTestContext } from '@plumbus/core/testing';
 import { z } from '@plumbus/core/zod';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mcpTaskEntity } from '../tasks/mcp-task-entity.js';
-import { type RegisterMcpOnFastifyOptions, registerMcpOnFastify } from '../transports/http.js';
+import {
+  type RegisterMcpOnFastifyOptions,
+  registerMcpOnFastify,
+  resolveSessionIdleTimeoutMs,
+} from '../transports/http.js';
 import type { McpServerConfig } from '../types.js';
 
 const echo = defineCapability({
@@ -274,6 +278,47 @@ describe('stateful HTTP transport', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }),
     });
     expect(after.status).toBe(404);
+  });
+
+  it('arms a 30-minute idle timer for stateful sessions by default', async () => {
+    const url = await startServer({ stateless: false });
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const init = await fetch(url, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer a1',
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'idle-default', version: '0.0.0' },
+          },
+        }),
+      });
+      expect(init.status).toBe(200);
+      await init.text();
+      await vi.waitFor(() =>
+        expect(spy.mock.calls.some((call) => call[1] === 30 * 60 * 1000)).toBe(true),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('resolves sessionIdleTimeoutMs: default 30 min, 0 / Infinity disable, negatives throw', () => {
+    expect(resolveSessionIdleTimeoutMs(undefined)).toBe(1_800_000);
+    expect(resolveSessionIdleTimeoutMs(50)).toBe(50);
+    expect(resolveSessionIdleTimeoutMs(0)).toBeUndefined();
+    expect(resolveSessionIdleTimeoutMs(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(() => resolveSessionIdleTimeoutMs(-1)).toThrow(RangeError);
+    expect(() => resolveSessionIdleTimeoutMs(Number.NaN)).toThrow(RangeError);
   });
 
   it('keeps tasks inside the session that created them (same user + tenant)', async () => {

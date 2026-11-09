@@ -1,4 +1,5 @@
 import { ErrorCode, PlumbusError } from '@plumbus/core/errors';
+import { VOICE_CSRF_COOKIE_NAME, VOICE_CSRF_HEADER_NAME } from '@plumbus/voice/client';
 import type { SerializedNoiseCancellation } from '@plumbus/voice/noise-cancellation';
 import type { VoiceEvent } from '@plumbus/voice/provider-kit';
 import { createVoiceEventReceiver, VOICE_EVENT_STREAM_TOPIC } from '../event-data/index.js';
@@ -47,6 +48,26 @@ interface LiveKitTokenResponse {
   noiseCancellation?: SerializedNoiseCancellation;
 }
 
+/**
+ * The `plumbus_voice_csrf` cookie the voice routes set on cookie-authenticated
+ * requests when `csrfSecret` + `externalBaseUrl` are configured. Echoing it in the
+ * `x-plumbus-voice-csrf` header is what lets a second `/token` call pass the CSRF check.
+ */
+function readVoiceCsrfCookie(): string | undefined {
+  const cookieHeader = (globalThis as { document?: { cookie?: string } }).document?.cookie;
+  if (!cookieHeader) return undefined;
+  for (const part of cookieHeader.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0 || part.slice(0, eq).trim() !== VOICE_CSRF_COOKIE_NAME) continue;
+    try {
+      return decodeURIComponent(part.slice(eq + 1).trim()) || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export async function createLiveKitVoiceSession(
   options: LiveKitVoiceSessionOptions,
 ): Promise<LiveKitVoiceSession> {
@@ -61,11 +82,13 @@ export async function createLiveKitVoiceSession(
     );
   }
 
+  const csrfToken = readVoiceCsrfCookie();
   const tokenResponse = await fetch(options.tokenUrl, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(options.authHeader ? { authorization: options.authHeader } : {}),
+      ...(csrfToken ? { [VOICE_CSRF_HEADER_NAME]: csrfToken } : {}),
     },
     body: JSON.stringify({ voiceName: options.voiceName, ...options.tokenRequestBody }),
   });

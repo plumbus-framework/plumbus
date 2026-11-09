@@ -9,8 +9,9 @@ export { VOICE_CSRF_COOKIE_NAME, VOICE_CSRF_HEADER_NAME };
 /**
  * Browser-request guard for cookie-authenticated voice HTTP routes. Same model as
  * `@plumbus/chat` (D3): exact Origin match against `externalBaseUrl`, plus a
- * principal-bound double-submit CSRF token. Opt-in: active only when both
- * `csrfSecret` and `externalBaseUrl` are configured.
+ * principal-bound double-submit CSRF token. Active when both `csrfSecret` and
+ * `externalBaseUrl` are configured — required for cookie auth unless
+ * `requireBrowserSecurity: false`.
  */
 export interface VoiceBrowserGuardConfig {
   csrfSecret?: string;
@@ -122,7 +123,33 @@ function readCookie(req: FastifyRequest, name: string): string | undefined {
   return undefined;
 }
 
-/** Validate opt-in options at registration; throws on a malformed externalBaseUrl. */
+/**
+ * Registration check: cookie auth (`authCookieNames`) needs `csrfSecret` +
+ * `externalBaseUrl` unless `requireBrowserSecurity: false` is passed.
+ */
+export function assertVoiceBrowserSecurity(
+  routes: 'registerVoiceRoutes' | 'registerVoiceCloneRoutes',
+  opts: VoiceBrowserGuardConfig & {
+    authCookieNames?: readonly string[];
+    requireBrowserSecurity?: boolean;
+  },
+): void {
+  if ((opts.authCookieNames ?? []).length === 0) return;
+  if (opts.requireBrowserSecurity === false) return;
+  const missing: string[] = [];
+  if (!opts.csrfSecret) missing.push('csrfSecret');
+  if (!opts.externalBaseUrl) missing.push('externalBaseUrl');
+  if (missing.length === 0) return;
+  throw new PlumbusError(
+    ErrorCode.DependencyViolation,
+    `${routes}: cookie auth is enabled (authCookieNames) but ${missing.join(' and ')} ` +
+      `${missing.length === 1 ? 'is' : 'are'} not set, so cookie-authenticated voice writes would not be ` +
+      'checked for Origin or CSRF. Set both csrfSecret and externalBaseUrl, or pass ' +
+      'requireBrowserSecurity: false if cookie-authenticated writes are protected another way.',
+  );
+}
+
+/** Validate options at registration; throws on a malformed externalBaseUrl. */
 export function assertValidExternalBaseUrl(externalBaseUrl: string | undefined): void {
   if (externalBaseUrl === undefined) return;
   let parsed: URL | undefined;
@@ -161,7 +188,7 @@ export function guardVoiceBrowserRequest(
   if (!browserGuardEnabled(config)) {
     warnOnce(
       'voice.cookie-auth-without-csrf',
-      '[plumbus:voice] Cookie-authenticated voice request accepted without Origin/CSRF checks. Set csrfSecret and externalBaseUrl on the voice route options to protect browser requests.',
+      '[plumbus:voice] Cookie-authenticated voice request accepted without Origin/CSRF checks (requireBrowserSecurity: false). Set csrfSecret and externalBaseUrl on the voice route options to protect browser requests.',
     );
     return { ok: true };
   }

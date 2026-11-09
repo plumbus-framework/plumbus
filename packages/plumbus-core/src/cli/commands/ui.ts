@@ -516,7 +516,7 @@ export function registerUiCommand(program: Command): void {
     .option('--auth-provider <provider>', 'Auth provider for generated auth helpers', 'jwt')
     .option(
       '--auth-transport <transport>',
-      'Auth credential transport for generated modules (session or bearer)',
+      'Auth credential transport for generated modules: session (default, HttpOnly cookie) or bearer (token in localStorage)',
     )
     .option('--token-key <key>', 'Storage key for generated auth helpers')
     .option('--multi-tenant', 'Include tenant helpers in generated auth module')
@@ -607,7 +607,7 @@ export function registerUiCommand(program: Command): void {
     .option('--auth-provider <provider>', 'Auth provider for generated auth helpers', 'jwt')
     .option(
       '--auth-transport <transport>',
-      'Auth credential transport for generated modules (session or bearer)',
+      'Auth credential transport for generated modules: session (default, HttpOnly cookie) or bearer (token in localStorage)',
     )
     .option('--token-key <key>', 'Storage key for generated auth helpers')
     .option('--multi-tenant', 'Include tenant helpers in generated auth module')

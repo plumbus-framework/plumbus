@@ -48,6 +48,7 @@ function mapRequest(row: {
   riskClass: string;
   reviewReason: string;
   state: string;
+  tenantId: string | null;
   executionId: string | null;
   createdAt: Date;
   expiresAt: Date;
@@ -69,6 +70,7 @@ function mapRequest(row: {
     riskClass: row.riskClass,
     reviewReason: row.reviewReason as ReviewMandateReason,
     state: row.state as ApprovalRequestState,
+    tenantId: row.tenantId,
     executionId: row.executionId ?? undefined,
     createdAt: toIso(row.createdAt),
     expiresAt: toIso(row.expiresAt),
@@ -140,6 +142,7 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
         riskClass: row.riskClass,
         reviewReason: row.reviewReason,
         state: row.state,
+        tenantId: row.tenantId ?? null,
         executionId: row.executionId ?? null,
         createdAt: toDate(row.createdAt),
         expiresAt: toDate(row.expiresAt),
@@ -161,6 +164,7 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
             riskClass: values.riskClass,
             reviewReason: values.reviewReason,
             state: values.state,
+            tenantId: values.tenantId,
             executionId: values.executionId,
             expiresAt: values.expiresAt,
             updatedAt: values.updatedAt,
@@ -256,6 +260,56 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
         .from(tables.humanTask)
         .where(eq(tables.humanTask.approvalRequestId, requestId));
       return rows.map(mapTask);
+    },
+
+    async decideRequest(row, decision) {
+      const db = await resolveDb();
+      return db.transaction(async (tx) => {
+        const updated = await tx
+          .update(tables.approvalRequest)
+          .set({
+            state: row.state,
+            updatedAt: toDate(row.updatedAt),
+            resolvedAt: row.resolvedAt ? toDate(row.resolvedAt) : null,
+          })
+          .where(
+            and(
+              eq(tables.approvalRequest.approvalRequestId, row.approvalRequestId),
+              eq(tables.approvalRequest.state, 'pending'),
+            ),
+          )
+          .returning({ approvalRequestId: tables.approvalRequest.approvalRequestId });
+        if (updated.length === 0) return false;
+        await tx.insert(tables.approvalDecision).values({
+          approvalDecisionId: decision.approvalDecisionId,
+          approvalRequestId: decision.approvalRequestId,
+          approverAccountId: decision.approverAccountId,
+          decision: decision.decision,
+          decidedAt: toDate(decision.decidedAt),
+        });
+        return true;
+      });
+    },
+
+    async transitionRequest(row, fromStates) {
+      if (fromStates.length === 0) return false;
+      const db = await resolveDb();
+      const updated = await db
+        .update(tables.approvalRequest)
+        .set({
+          state: row.state,
+          updatedAt: toDate(row.updatedAt),
+          resolvedAt: row.resolvedAt ? toDate(row.resolvedAt) : null,
+          invalidatedReason: row.invalidatedReason ?? null,
+        })
+        .where(
+          and(
+            eq(tables.approvalRequest.approvalRequestId, row.approvalRequestId),
+            inArray(tables.approvalRequest.state, [...fromStates]),
+          ),
+        )
+        .returning({ approvalRequestId: tables.approvalRequest.approvalRequestId });
+      return updated.length > 0;
     },
 
     async cancelRequest(row) {

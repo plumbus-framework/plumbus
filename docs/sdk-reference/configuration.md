@@ -492,6 +492,7 @@ interface ServerConfig {
   host?: string;           // Default: "0.0.0.0"
   port?: number;           // Default: 3000
   trustProxy?: boolean | string | string[]; // no hop count: Fastify 5.12 trusts no proxy for a number
+  requestIds?: { expose?: boolean }; // opt-in request ids on answers; default off
   jobQueue?: EventQueue;
   metrics?: PlumbusMetrics;
   onRoutesRegistered?: (app, routeConfig) => void;
@@ -507,6 +508,10 @@ interface ServerConfig {
   credentials?: CredentialCatalog;
 }
 ```
+
+### Request ids (`requestIds`, opt-in, core 0.9.0-beta.9+)
+
+Off by default: answers are byte-for-byte what they were. `requestIds: { expose: true }` (or `export const requestIds = { expose: true };` from `app/server.ts` for `plumbus dev` / `start`) gives each request one id — the caller's well-formed `x-request-id` / `x-correlation-id`, else a UUID — sent as the `x-request-id` header and as `error.requestId` in every refusal and error body (capability routes, SSE error events, the error handler, and other routes' JSON `{ error }` bodies through an `onSend` hook), and used as Fastify's `reqId`, the audit `correlationId` and `onCapabilityError`'s `requestId`. The option is also on the `routeConfig` given to `onRoutesRegistered`, so `@plumbus/api` 0.4.0-beta.5+ `registerApiRoutes` follows it. Whatever the setting, a malformed caller correlation id is never written to the audit row. See [Request ids](../security/security-model.md#request-ids).
 
 ### AI provider admission and trace hooks
 
@@ -553,7 +558,9 @@ import type { ServerConfig } from "@plumbus/core";
 
 export const onCapabilityError: NonNullable<ServerConfig['onCapabilityError']> = async (info) => {
   // info contains: capabilityName, domain, errorCode, errorMessage,
-  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?, db?, source?
+  //                metadata?, userId?, tenantId?, sourceIp?, userAgent?, db?, source?,
+  //                requestId? (HTTP, only under `requestIds: { expose: true }`: the id the
+  //                refusal body and x-request-id header carried)
   await writeToMyErrorTable(info);
 };
 ```

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createAllowAllAuthorizationProvider } from '../../approvals/authorization.js';
 // E5 three-flow compile pilot on the two-DB harness.
 // Fixture names are opaque examples (domain-agnostic).
 
@@ -154,7 +155,10 @@ describe('E5 three-flow compiled harness', () => {
     compiledRegistry.publish(compiledC);
 
     const ran: string[] = [];
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const engine = createFlowEngine({
       db: harness.spineDb,
       registry,
@@ -195,6 +199,7 @@ describe('E5 three-flow compiled harness', () => {
 
     const second = await engine.start('flow-b', { orderId: 'ord-1' }, startAuth);
     await approvals.requestApproval({
+      tenantId: TENANT,
       capabilityId: 'example.review',
       definitionVersion: '1',
       input: { orderId: 'ord-1' },
@@ -202,7 +207,7 @@ describe('E5 three-flow compiled harness', () => {
       expiresAt: new Date(Date.now() + 30_000),
       executionId: second.id,
     });
-    const pending = await approvals.findByExecutionId(second.id);
+    const pending = await approvals.findByExecutionId({ tenantId: TENANT, executionId: second.id });
     assert(pending);
     await approvals.decide({
       requestId: pending.approvalRequestId,

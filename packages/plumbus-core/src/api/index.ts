@@ -11,6 +11,15 @@ export {
   buildAuthenticationRequest,
 } from './authentication-http.js';
 export { parseCookieHeader } from './cookies.js';
+export type { RequestIdOptions, RouteRequestIds } from './request-id.js';
+export {
+  isWellFormedRequestId,
+  REQUEST_ID_HEADER,
+  requestIdOf,
+  requestIdsFor,
+  resolveRequestId,
+  withRequestId,
+} from './request-id.js';
 export {
   LOCALE_COOKIE_NAME,
   registerAllRoutes,

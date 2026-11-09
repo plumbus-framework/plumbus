@@ -378,7 +378,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     ...config.stepDeps,
     findApprovalForExecution:
       config.stepDeps.findApprovalForExecution ??
-      (approvals ? (executionId) => approvals.findByExecutionId(executionId) : undefined),
+      (approvals ? (binding) => approvals.findByExecutionId(binding) : undefined),
   };
   const workerId = config.workerId ?? generateWorkerId();
   const leaseDurationMs = config.flowLeaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;

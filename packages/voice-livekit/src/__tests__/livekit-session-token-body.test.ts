@@ -68,4 +68,38 @@ describe('createLiveKitVoiceSession token body', () => {
       language: 'he',
     });
   });
+
+  it('echoes the plumbus_voice_csrf cookie in the x-plumbus-voice-csrf header', async () => {
+    vi.stubGlobal('document', { cookie: 'session=abc; plumbus_voice_csrf=nonce.sig%3D; other=1' });
+    try {
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ url: 'wss://lk.test', token: 't', room: 'r', identity: 'u' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      const { createLiveKitVoiceSession } = await import('../client/livekit-session.js');
+      await createLiveKitVoiceSession({ voiceName: 'assistant', tokenUrl: '/token' });
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      const headers = init?.headers as Record<string, string>;
+      expect(headers['x-plumbus-voice-csrf']).toBe('nonce.sig=');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends no CSRF header when the cookie is absent', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ url: 'wss://lk.test', token: 't', room: 'r', identity: 'u' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const { createLiveKitVoiceSession } = await import('../client/livekit-session.js');
+    await createLiveKitVoiceSession({ voiceName: 'assistant', tokenUrl: '/token' });
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.headers as Record<string, string>).not.toHaveProperty('x-plumbus-voice-csrf');
+  });
 });

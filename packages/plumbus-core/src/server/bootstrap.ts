@@ -2,10 +2,12 @@ import type { DecisionRuntimeConfig } from '@plumbus/ai-decision/types';
 import type { IdempotencyStore } from '../api/idempotency.js';
 import type { ProcessErrorClassifier, ProcessErrorHook } from '../runtime/process-errors.js';
 import type { AIReasoningConfig, ReasoningEffort } from '../types/prompt.js';
+
 // ── Fastify Server Bootstrap ──
 // Wires together all runtime components into a running Fastify server:
 // config loading, database, queue, registries, routes, auth, audit, health check.
 
+import type { IncomingMessage } from 'node:http';
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance } from 'fastify';
@@ -17,6 +19,7 @@ import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import { buildAISecurityConfig } from '../ai/security.js';
+import { REQUEST_ID_HEADER, type RequestIdOptions, requestIdOf } from '../api/request-id.js';
 import type { DependencyOptions, RouteGeneratorConfig } from '../api/route-generator.js';
 import { registerAllRoutes } from '../api/route-generator.js';
 import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
@@ -157,6 +160,17 @@ export interface ServerConfig {
    * unset, the default stands.
    */
   bodyLimit?: number;
+  /**
+   * Request ids on answers. Omitted or `{ expose: false }` (the default): answers, log lines and
+   * Fastify's request ids are exactly what they were. `{ expose: true }`: each request gets one id
+   * — the caller's well-formed `x-request-id` / `x-correlation-id`, else a UUID — named in the
+   * `x-request-id` response header, as `error.requestId` in every refusal and error body
+   * (capability routes, SSE error events, the error handler, and other routes' error bodies via an
+   * `onSend` hook), as Fastify's `reqId` in log lines, as the audit `correlationId` and as
+   * `onCapabilityError`'s `requestId`. `plumbus dev` / `start` read `export const requestIds` from
+   * `app/server.ts`. See `docs/sdk-reference/configuration.md`.
+   */
+  requestIds?: RequestIdOptions;
   /** Jobs queue for async kind: 'job' capabilities (when API wires jobQueue). */
   jobQueue?: EventQueue;
   /**
@@ -338,6 +352,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     trustProxy,
     bodyLimit,
   } = serverConfig;
+  const exposeRequestIds = serverConfig.requestIds?.expose === true;
 
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
   const translationRegistry = new TranslationRegistry();
@@ -396,7 +411,22 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
           },
     ...(trustProxy != null && { trustProxy }),
     ...(bodyLimit != null && { bodyLimit }),
+    // Under `requestIds.expose`, Fastify's `reqId` in every request log line is the request id
+    // the answer carries, so the id a person reads to support finds this request's log lines.
+    ...(exposeRequestIds && { genReqId: (raw: IncomingMessage) => requestIdOf(raw) }),
   });
+
+  // Under `requestIds.expose`, every answer names its request id, and every refusal or error body
+  // carries it as `error.requestId` — including answers from routes that build their own error
+  // body (job status, the authentication runtime, an app's own routes, the error handler below).
+  if (exposeRequestIds) {
+    app.addHook('onRequest', async (request, reply) => {
+      reply.header(REQUEST_ID_HEADER, requestIdOf(request));
+    });
+    app.addHook('onSend', async (request, reply, payload) =>
+      reply.statusCode >= 400 ? errorPayloadWithRequestId(payload, requestIdOf(request)) : payload,
+    );
+  }
 
   // Health check endpoint
   app.get('/health', async () => {
@@ -714,6 +744,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     onTelemetrySpan: serverConfig.onTelemetrySpan,
     jobQueue: serverConfig.jobQueue,
     ...(serverConfig.idempotencyStore ? { idempotencyStore: serverConfig.idempotencyStore } : {}),
+    ...(exposeRequestIds ? { requestIds: { expose: true } } : {}),
   };
 
   // A process-local store forgets keys on restart and never sees a retry that reaches another
@@ -762,11 +793,14 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
       // with statusCode (415 unsupported media type, 400 malformed JSON body). Answering them
       // as 'internal' hid a request-shape mistake behind an outage-looking answer and leaked
       // the framework prose to the wire.
+      const requestId = exposeRequestIds ? requestIdOf(request) : undefined;
+      const idField = requestId ? { requestId } : {};
       if (statusCode < 500 && !isPlumbusError(err)) {
         reply.status(statusCode).send({
           error: {
             code: statusCode === 415 ? 'unsupported-media-type' : 'validation',
             message,
+            ...idField,
           },
         });
         return;
@@ -775,6 +809,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         url: request.url,
         method: request.method,
         statusCode,
+        ...idField,
       });
       Promise.resolve()
         .then(() =>
@@ -787,6 +822,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
               method: request.method,
               statusCode,
               ip: request.ip,
+              ...idField,
             },
             db,
           }),
@@ -796,7 +832,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         });
       const clientMessage = statusCode >= 500 ? GENERIC_INTERNAL_MESSAGE : message;
       reply.status(statusCode).send({
-        error: { code: 'internal', message: clientMessage },
+        error: { code: 'internal', message: clientMessage, ...idField },
       });
     });
   }
@@ -969,4 +1005,25 @@ function createConsoleLogger(env: string): LoggerService {
       console.error(`${prefix} ${message}`, metadata ? JSON.stringify(metadata) : '');
     },
   };
+}
+
+/**
+ * A refusal or error payload with `error.requestId` added when the route left it out.
+ *
+ * Only a JSON object with an `error` object is touched; any other payload (a stream, a buffer, a
+ * non-JSON or non-error body) is returned as it was, as is a body that already names an id.
+ */
+export function errorPayloadWithRequestId(payload: unknown, requestId: string): unknown {
+  if (typeof payload !== 'string' || !payload.startsWith('{')) return payload;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return payload;
+  const error = (parsed as { error?: unknown }).error;
+  if (typeof error !== 'object' || error === null || Array.isArray(error)) return payload;
+  if ('requestId' in error) return payload;
+  return JSON.stringify({ ...parsed, error: { ...error, requestId } });
 }

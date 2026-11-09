@@ -84,7 +84,7 @@ onRoutesRegistered(async (app, routeConfig) => {
     stateless: true,               // default — no session affinity
     requireDiscoveryAuth: false,   // default — discovery is unauthenticated
     // maxRequestBodySize: 1_048_576, // optional — route bodyLimit + SDK transport limit
-    // sessionIdleTimeoutMs: 1_800_000, // optional, stateful mode only
+    // sessionIdleTimeoutMs: 1_800_000, // default 30 min, stateful mode only; 0 disables
   });
 });
 ```
@@ -96,7 +96,7 @@ onRoutesRegistered(async (app, routeConfig) => {
 | `stateless` | `true` | When `true`, every request is served by a fresh MCP server + transport (the SDK refuses to reuse a stateless transport). Set `false` for sessions: each `initialize` creates its own server + transport under a UUID session id. |
 | `requireDiscoveryAuth` | `false` | When `true`, the discovery route requires a valid Bearer token. Turn this on if the tool *list* itself is sensitive (e.g. you don't want third parties enumerating capability descriptions). |
 | `maxRequestBodySize` | unset | Bytes. When set, used as the MCP route's Fastify `bodyLimit` (413 above it) and as the SDK transport's `maxRequestBodySize`. When unset, the Fastify instance `bodyLimit` applies (Fastify default 1 MiB). |
-| `sessionIdleTimeoutMs` | unset (off) | Stateful mode only. Closes a session after this long with no request or stream open; the client then gets `404 Session not found` and re-initializes. Set it on servers reachable by many clients so abandoned sessions are released. |
+| `sessionIdleTimeoutMs` | `1_800_000` (30 min) | Stateful mode only. Closes a session after this long with no request or stream open, so abandoned sessions are released; the client then gets `404 Session not found` and re-initializes. `0` or `Infinity` disables it (sessions live until DELETE or app close). Negative values throw at registration. Before mcp 0.8 the default was off. |
 
 ### Sessions (stateful mode)
 

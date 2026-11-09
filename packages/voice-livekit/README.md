@@ -120,6 +120,7 @@ import { createLiveKitVoiceSession } from '@plumbus/voice-livekit/client';
 - **Install alone does not register.** Pass `LIVEKIT_TRANSPORT_REGISTRATION` into `createProviderRegistry` and pass that registry to routes/workers.
 - **No soft auto-load.** There is no `createRegistryForVoices` / `VOICE_ADDON_PACKAGES` path — CLI/workers require `app/voice/registry.ts`.
 - **Import moves from 0.3.x:** session helpers → `@plumbus/voice-livekit/client`; worker helpers → `@plumbus/voice-livekit`. See [`docs/upgrading-voice-provider-packages.md`](../../docs/upgrading-voice-provider-packages.md).
+- **Cookie-authenticated `/token`:** `createLiveKitVoiceSession` echoes the `plumbus_voice_csrf` cookie in the `x-plumbus-voice-csrf` header, so it works with the voice CSRF check (required for cookie auth since voice 0.7) on a same-origin API. Cross-origin APIs: use `authHeader`.
 - **Do not import `@livekit/*` / `livekit-client` directly** for Plumbus voice sessions — use this package's exports.
 
 ## Documentation / Agent recipes

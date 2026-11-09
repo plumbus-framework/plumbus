@@ -1,6 +1,11 @@
 import type { AuthorizationProvider } from './types.js';
 
-/** Harness stub. The host application supplies the real gate. */
+/**
+ * Lets every authenticated human decide or cancel any approval. Never
+ * installed by default: `createApprovalService` refuses decisions when no
+ * provider is configured, so passing this is an explicit opt-out of
+ * authorization (tests, harnesses, single-operator tools).
+ */
 export function createAllowAllAuthorizationProvider(): AuthorizationProvider {
   return {
     async revalidate() {

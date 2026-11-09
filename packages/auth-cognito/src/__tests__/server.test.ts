@@ -166,7 +166,7 @@ describe('server against the fake Cognito', () => {
     ).rejects.toThrow(/ownership tag/);
   });
 
-  it('reports a weaker same-named app client, and rewrites it only with reconcileClient', async () => {
+  it('reports a weaker same-named app client with reconcileClient: false, and rewrites it by default', async () => {
     const warnings: string[] = [];
     const watched = createCognitoPoolAdministration({
       ...fake.clientConfig,
@@ -191,7 +191,7 @@ describe('server against the fake Cognito', () => {
     expect(clientId).toBeTruthy();
     expect(base.clientDrift).toBeUndefined();
 
-    const reported = await watched.ensureAttestedUserPool(spec);
+    const reported = await watched.ensureAttestedUserPool({ ...spec, reconcileClient: false });
     expect(reported.clientId).toBe(clientId);
     expect(reported.clientDrift).toEqual(
       expect.arrayContaining([
@@ -201,11 +201,12 @@ describe('server against the fake Cognito', () => {
         'refresh tokens live longer than 60 minutes',
       ]),
     );
-    expect(warnings.at(-1)).toMatch(/reconcileClient: true/);
+    expect(warnings.at(-1)).toMatch(/reconcileClient: false/);
     expect(fake.calls.some((call) => call.action === 'UpdateUserPoolClient')).toBe(false);
 
-    const fixed = await watched.ensureAttestedUserPool({ ...spec, reconcileClient: true });
+    const fixed = await watched.ensureAttestedUserPool(spec);
     expect(fixed.clientId).toBe(clientId);
+    expect(fixed.clientDrift).toEqual(expect.arrayContaining(['token revocation is off']));
     expect(warnings.at(-1)).toMatch(/was reconciled/);
     const after = await sdk.send(
       new DescribeUserPoolClientCommand({ UserPoolId: base.userPoolId, ClientId: clientId }),
@@ -457,6 +458,7 @@ describe('a pool directory, for administering a hosted-login pool', () => {
       ...fake.clientConfig,
       maxAttempts: 1,
       userPoolId: poolId,
+      writableAttributes: ['name', 'phone_number', 'custom:contact_hours'],
     });
   });
 
@@ -524,6 +526,150 @@ describe('a pool directory, for administering a hosted-login pool', () => {
       name: 'Omer Shahar',
       status: 'CONFIRMED',
     });
+  });
+
+  it('reads every attribute of a user, standard and custom, and knows an unknown one', async () => {
+    const sdk = await import('@aws-sdk/client-cognito-identity-provider');
+    const client = new sdk.CognitoIdentityProviderClient(fake.clientConfig);
+    await client.send(
+      new sdk.AdminUpdateUserAttributesCommand({
+        UserPoolId: poolId,
+        Username: 'omer@ops.example',
+        UserAttributes: [{ Name: 'custom:contact_hours', Value: 'Sun-Thu 9-18' }],
+      }),
+    );
+    const attributes = await directory.getUserAttributes('omer@ops.example');
+    expect(attributes).toMatchObject({
+      email: 'omer@ops.example',
+      name: 'Omer Shahar',
+      'custom:contact_hours': 'Sun-Thu 9-18',
+    });
+    expect(attributes?.sub).toMatch(/[0-9a-f-]{36}/);
+    expect(Object.isFrozen(attributes)).toBe(true);
+    expect(await directory.getUserAttributes('nobody@ops.example')).toBeNull();
+
+    const everyone = await directory.listUserAttributes();
+    expect(everyone.size).toBe(62);
+    expect(everyone.get('omer@ops.example')).toEqual(attributes);
+  });
+
+  it('sets and removes profile attributes, leaving the address alone', async () => {
+    expect(
+      await directory.updateUserAttributes('omer@ops.example', {
+        name: 'Omer S.',
+        phone_number: '+972521234567',
+        'custom:contact_hours': 'Sun-Thu 8-17',
+      }),
+    ).toEqual({ found: true });
+    expect(await directory.getUserAttributes('omer@ops.example')).toMatchObject({
+      email: 'omer@ops.example',
+      name: 'Omer S.',
+      phone_number: '+972521234567',
+      'custom:contact_hours': 'Sun-Thu 8-17',
+    });
+
+    const before = fake.calls.length;
+    expect(
+      await directory.updateUserAttributes('omer@ops.example', {
+        name: 'Omer Shahar',
+        phone_number: null,
+        'custom:contact_hours': '',
+      }),
+    ).toEqual({ found: true });
+    expect(fake.calls.slice(before).map((call) => call.action)).toEqual([
+      'AdminUpdateUserAttributes',
+      'AdminDeleteUserAttributes',
+    ]);
+    const after = await directory.getUserAttributes('omer@ops.example');
+    expect(after).toMatchObject({ name: 'Omer Shahar', email: 'omer@ops.example' });
+    expect(after).not.toHaveProperty('phone_number');
+    expect(after).not.toHaveProperty('custom:contact_hours');
+
+    expect(await directory.updateUserAttributes('nobody@ops.example', { name: 'x' })).toEqual({
+      found: false,
+    });
+    expect(await directory.updateUserAttributes('nobody@ops.example', {})).toEqual({
+      found: false,
+    });
+    expect(await directory.updateUserAttributes('omer@ops.example', {})).toEqual({ found: true });
+  });
+
+  it('refuses sign-in names, unknown names and malformed values before any request', async () => {
+    const before = fake.calls.length;
+    for (const name of [
+      'email',
+      'email_verified',
+      'phone_number_verified',
+      'preferred_username',
+      'sub',
+      'username',
+      'custom:',
+      'custom:has space',
+      'custom:a-name-longer-than-twenty',
+      'dev:custom:x',
+    ]) {
+      await expect(
+        directory.updateUserAttributes('omer@ops.example', { [name]: 'x' }),
+      ).rejects.toThrow(TypeError);
+    }
+    await expect(
+      directory.updateUserAttributes('omer@ops.example', { phone_number: '052-1234567' }),
+    ).rejects.toThrow(/E\.164/);
+    await expect(
+      directory.updateUserAttributes('omer@ops.example', { name: 'x'.repeat(2049) }),
+    ).rejects.toThrow(/2048/);
+    await expect(
+      directory.updateUserAttributes('omer@ops.example', { name: 'Omer', email: 'a@b.example' }),
+    ).rejects.toThrow(/email/);
+    expect(fake.calls.length).toBe(before);
+    expect(await directory.getUserAttributes('omer@ops.example')).toMatchObject({
+      email: 'omer@ops.example',
+      name: 'Omer Shahar',
+    });
+  });
+
+  it('refuses every attribute write by default, before any request, and still reads', async () => {
+    const readOnly = createCognitoPoolDirectory({
+      ...fake.clientConfig,
+      maxAttempts: 1,
+      userPoolId: poolId,
+    });
+    const before = fake.calls.length;
+    await expect(readOnly.updateUserAttributes('omer@ops.example', { name: 'x' })).rejects.toThrow(
+      /writableAttributes/,
+    );
+    await expect(readOnly.updateUserAttributes('omer@ops.example', {})).rejects.toThrow(TypeError);
+    expect(fake.calls.length).toBe(before);
+    expect(await readOnly.getUserAttributes('omer@ops.example')).toMatchObject({
+      email: 'omer@ops.example',
+    });
+  });
+
+  it('refuses a safe attribute the app did not list in writableAttributes', async () => {
+    const before = fake.calls.length;
+    await expect(
+      directory.updateUserAttributes('omer@ops.example', { given_name: 'Omer' }),
+    ).rejects.toThrow(/writableAttributes/);
+    expect(fake.calls.length).toBe(before);
+  });
+
+  it('refuses a writableAttributes list naming a sign-in or unknown attribute', () => {
+    for (const name of ['email', 'sub', 'preferred_username', 'email_verified', 'username']) {
+      expect(() =>
+        createCognitoPoolDirectory({
+          ...fake.clientConfig,
+          userPoolId: poolId,
+          writableAttributes: ['name', name],
+        }),
+      ).toThrow(TypeError);
+    }
+    expect(() =>
+      createCognitoPoolDirectory({
+        ...fake.clientConfig,
+        userPoolId: poolId,
+        writableAttributes: 'name' as unknown as string[],
+      }),
+    ).toThrow(TypeError);
   });
 
   it('deletes a user, and knows one that is already gone', async () => {

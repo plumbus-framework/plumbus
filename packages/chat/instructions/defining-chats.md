@@ -139,8 +139,8 @@ The optional fourth argument is `RegisterChatRoutesOpts`:
 | `store: ChatConversationStore` | **Required for confirmations.** Mounts `POST /chat/:name/confirm` and the lease/CAS commit path. Custom stores: `inspectSession(sessionId, now, { owner, chatName })` must report `{ pending: 'none' }` for a session that is not that owner's or that chat's. |
 | `sessionStore: ChatSessionStore` | Serve session/turn state from somewhere other than `ctx.data` — deployments with no local database. Validated against every registered chat at registration. See `/docs/chat/session-store.md`. |
 | `authenticator: ChatRequestAuthenticator` | Replace the default credential resolution (Authorization header, then cookies). |
-| `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` and either missing, cookie writes are unprotected and registration logs a warning. |
-| `requireBrowserSecurity: boolean` | Default `false`. `true` turns cookie auth without both `csrfSecret` and `externalBaseUrl` into a registration error. Set it whenever you use `authCookieNames`. |
+| `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` and either missing, registration fails (or only warns with `requireBrowserSecurity: false`, leaving cookie writes unprotected). |
+| `requireBrowserSecurity: boolean` | Default `true` (0.9+): cookie auth (`authCookieNames`) without both `csrfSecret` and `externalBaseUrl` is a registration error. `false` downgrades it to a warning — only for deployments that protect cookie-authenticated writes another way (e.g. a proxy). |
 
 ### `<ChatPanel turnUrl=… />`
 

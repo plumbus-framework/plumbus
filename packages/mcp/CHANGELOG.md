@@ -1,5 +1,15 @@
 # @plumbus/mcp changelog
 
+## 0.8.0-beta.2 — 2026-11-09 — security release
+
+- **Requires `@plumbus/core` 0.9.0-beta.9 or later** (peer `">=0.9.0-beta.9 <0.10.0"`, was `">=0.9.0-beta.5 <0.10.0"`). `fastify` ^5.12.8.
+- **From main (stable 0.7.1):**
+  - stateless Streamable HTTP serves each request with a fresh server and transport (SDK 1.32 refuses to reuse one, so the second request failed);
+  - stateful sessions (`stateless: false`) get their own server and transport, bound to the user and tenant that sent `initialize`; anyone else gets `404 Session not found`;
+  - a task created in a stateful session is visible only from that session while it is open;
+  - `McpServerConfig.maxToolInputElements` (default 100 000) refuses oversized `tools/call` arguments (GHSA-46jr-4wx8-v453), and `maxRequestBodySize` on `registerMcpOnFastify` / `startHttpServer` sets the route and SDK body limits.
+- **Idle stateful sessions close after 30 minutes by default** (`sessionIdleTimeoutMs`, opt-in on main). `0` or `Infinity` disables it; before, those values threw `RangeError`. Open streams and requests in flight keep a session alive.
+
 ## 0.8.0-beta.1 — 2026-10-25
 
 - **Tool arguments are validated with core's `safeParseBounded`**: an array over its `.max()`, or over `PLUMBUS_INPUT_ARRAY_MAX_ITEMS` without one, is refused before zod walks it (zod GHSA-mrhx-c7xc-m3w5). **Core peer is now `>=0.9.0-beta.5 <0.10.0`.**

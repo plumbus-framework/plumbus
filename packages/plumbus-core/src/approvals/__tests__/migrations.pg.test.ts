@@ -1,5 +1,5 @@
-import { afterAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { afterAll, describe, expect, it } from 'vitest';
 import { applyMigrations } from '../../data/migration.js';
 import { DURABLE_TEST_DB_PATTERN } from '../../durable/apply-ddl.js';
 import { createDurableTestDatabase } from '../../durable/harness.js';
@@ -30,6 +30,7 @@ describe('Stage 4 shipped human-task SQL', () => {
       '0002_approval_cancellation',
       '0003_request_idempotency',
       '0004_claim_and_retention_indexes',
+      '0005_approval_tenant_binding',
     ]);
 
     const tables = await tenant.db.execute(sql`
@@ -44,12 +45,12 @@ describe('Stage 4 shipped human-task SQL', () => {
     const columns = await tenant.db.execute(sql`
       SELECT column_name FROM information_schema.columns
       WHERE table_schema = 'core_plumbus' AND table_name = 'approval_request'
-        AND column_name IN ('cancelled_by_account_id', 'cancellation_reason')
+        AND column_name IN ('cancelled_by_account_id', 'cancellation_reason', 'tenant_id')
       ORDER BY column_name
     `);
     expect(
       (columns as unknown as Array<{ column_name: string }>).map((row) => row.column_name),
-    ).toEqual(['cancellation_reason', 'cancelled_by_account_id']);
+    ).toEqual(['cancellation_reason', 'cancelled_by_account_id', 'tenant_id']);
 
     const again = await applyMigrations({
       db: tenant.db,

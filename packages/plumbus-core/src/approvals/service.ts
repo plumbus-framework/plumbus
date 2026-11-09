@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { ActionRiskTier, ReviewMandateReason } from './action-risk.js';
 import { requireHumanActor } from './actors.js';
-import { createAllowAllAuthorizationProvider } from './authorization.js';
 import { digestApprovalInput } from './digest.js';
 import { createSqlApprovalStore, type ApprovalDbHandle } from './sql-store.js';
 import {
+  ApprovalDecisionConflictError,
+  ApprovalDecisionOutcome,
   ApprovalRequestState,
   HUMAN_TASK_CONTRACT_VERSION,
   HumanTaskState,
+  type ApprovalBinding,
   type ApprovalRequestRecord,
   type ApprovalService,
   type ApprovalStore,
@@ -28,6 +30,12 @@ export interface ApprovalServiceConfig {
    */
   db?: ApprovalDbHandle;
   schemaName?: string;
+  /**
+   * Decides who may approve, reject, request changes on, or cancel a request.
+   * Required for any decision: with no provider, `decide` and `cancel` refuse
+   * (fail closed). Pass `createAllowAllAuthorizationProvider()` only to opt
+   * out of authorization explicitly (tests, single-operator tools).
+   */
   authorization?: AuthorizationProvider;
   now?: () => Date;
   id?: () => string;
@@ -39,6 +47,19 @@ function toIso(value: Date | string): string {
 
 function isPast(expiresAt: string, now: Date): boolean {
   return new Date(expiresAt).getTime() <= now.getTime();
+}
+
+const DECISION_OUTCOMES = new Set<string>(Object.values(ApprovalDecisionOutcome));
+
+/** Tenant + execution the approval was requested for must equal the caller's. */
+function sameSubject(
+  row: ApprovalRequestRecord,
+  binding: { tenantId: string | null; executionId?: string | null },
+): boolean {
+  return (
+    (row.tenantId ?? null) === (binding.tenantId ?? null) &&
+    (row.executionId ?? null) === (binding.executionId ?? null)
+  );
 }
 
 function resolveStore(config: ApprovalServiceConfig): ApprovalStore {
@@ -53,70 +74,105 @@ function resolveStore(config: ApprovalServiceConfig): ApprovalStore {
 
 export function createApprovalService(config: ApprovalServiceConfig): ApprovalService {
   const store = resolveStore(config);
-  const authorization = config.authorization ?? createAllowAllAuthorizationProvider();
+  const authorization = config.authorization;
   const nowFn = config.now ?? (() => new Date());
   const idFn = config.id ?? (() => randomUUID());
 
-  async function persistRequest(row: ApprovalRequestRecord): Promise<ApprovalRequestRecord> {
-    await store.putRequest(row);
-    return { ...row };
+  /** Every decision type and cancellation goes through this one check. */
+  async function authorize(
+    action: string,
+    auth: DecideApprovalInput['auth'],
+    request: ApprovalRequestRecord,
+  ): Promise<void> {
+    if (!authorization) {
+      throw new Error(
+        `${action} refused: createApprovalService has no authorization provider. ` +
+          'Pass `authorization` (or createAllowAllAuthorizationProvider() to opt out explicitly).',
+      );
+    }
+    const check = await authorization.revalidate({
+      auth,
+      capabilityId: request.capabilityId,
+      request,
+    });
+    if (!check.allowed) {
+      throw new Error(check.reason ?? 'authorization revalidation denied');
+    }
   }
 
+  /**
+   * Pending or approved past `expiresAt` is expired. The state change is a
+   * compare-and-set; whatever the store ends up holding, an approval past its
+   * expiry is never returned as `approved`.
+   */
   async function expireIfNeeded(
     row: ApprovalRequestRecord,
     now: Date,
   ): Promise<ApprovalRequestRecord> {
-    if (row.state === ApprovalRequestState.Pending && isPast(row.expiresAt, now)) {
-      return persistRequest({
-        ...row,
-        state: ApprovalRequestState.Expired,
-        updatedAt: now.toISOString(),
-        resolvedAt: now.toISOString(),
-      });
+    const live =
+      row.state === ApprovalRequestState.Pending || row.state === ApprovalRequestState.Approved;
+    if (!live || !isPast(row.expiresAt, now)) {
+      return row;
     }
-    if (row.state === ApprovalRequestState.Approved && isPast(row.expiresAt, now)) {
-      return persistRequest({
-        ...row,
-        state: ApprovalRequestState.Expired,
-        updatedAt: now.toISOString(),
-        resolvedAt: row.resolvedAt ?? now.toISOString(),
-      });
+    const expired: ApprovalRequestRecord = {
+      ...row,
+      state: ApprovalRequestState.Expired,
+      updatedAt: now.toISOString(),
+      resolvedAt: row.resolvedAt ?? now.toISOString(),
+    };
+    if (await store.transitionRequest(expired, [row.state])) {
+      return { ...expired };
     }
-    return row;
+    const fresh = await store.getRequest(row.approvalRequestId);
+    if (!fresh) return { ...expired };
+    if (
+      (fresh.state === ApprovalRequestState.Pending ||
+        fresh.state === ApprovalRequestState.Approved) &&
+      isPast(fresh.expiresAt, now)
+    ) {
+      return { ...fresh, state: ApprovalRequestState.Expired };
+    }
+    return fresh;
   }
 
+  /**
+   * A new request (or a gate call) for the same subject and capability with a
+   * different definition version or input digest invalidates the live ones.
+   * Scoped to the same tenant and execution — another tenant's request never
+   * touches this tenant's approvals.
+   */
   async function invalidateMaterialChanges(
-    capabilityId: string,
-    definitionVersion: string,
-    inputDigest: string,
+    binding: ApprovalBinding,
     now: Date,
-  ): Promise<void> {
+  ): Promise<ApprovalRequestRecord[]> {
+    const invalidated: ApprovalRequestRecord[] = [];
     for (const existing of await store.listRequests()) {
-      if (existing.capabilityId !== capabilityId) continue;
+      if (existing.capabilityId !== binding.capabilityId) continue;
+      if (!sameSubject(existing, binding)) continue;
       if (
-        existing.inputDigest === inputDigest &&
-        existing.definitionVersion === definitionVersion
+        existing.inputDigest === binding.inputDigest &&
+        existing.definitionVersion === binding.definitionVersion
       ) {
         continue;
       }
-      const sameCapability =
-        existing.capabilityId === capabilityId &&
-        (existing.definitionVersion !== definitionVersion || existing.inputDigest !== inputDigest);
-      if (!sameCapability) continue;
       if (
         existing.state !== ApprovalRequestState.Pending &&
         existing.state !== ApprovalRequestState.Approved
       ) {
         continue;
       }
-      await persistRequest({
+      const next: ApprovalRequestRecord = {
         ...existing,
         state: ApprovalRequestState.Invalidated,
         updatedAt: now.toISOString(),
         resolvedAt: now.toISOString(),
         invalidatedReason: 'material-change',
-      });
+      };
+      if (await store.transitionRequest(next, [existing.state])) {
+        invalidated.push({ ...next });
+      }
     }
+    return invalidated;
   }
 
   return {
@@ -128,12 +184,24 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
           `Approval cannot be requested for prohibited capability "${input.capabilityId}"`,
         );
       }
+      if (
+        input.tenantId === undefined ||
+        (input.tenantId !== null && (typeof input.tenantId !== 'string' || input.tenantId === ''))
+      ) {
+        throw new Error(
+          'requestApproval requires tenantId (the requesting tenant, or null for an untenanted app)',
+        );
+      }
       const now = nowFn();
       const inputDigest = digestApprovalInput(input.input);
       await invalidateMaterialChanges(
-        input.capabilityId,
-        input.definitionVersion,
-        inputDigest,
+        {
+          tenantId: input.tenantId,
+          executionId: input.executionId,
+          capabilityId: input.capabilityId,
+          definitionVersion: input.definitionVersion,
+          inputDigest,
+        },
         now,
       );
       const createdAt = now.toISOString();
@@ -146,16 +214,21 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
         riskClass: input.riskClass,
         reviewReason: input.reviewReason ?? ReviewMandateReason.RiskTier,
         state: ApprovalRequestState.Pending,
+        tenantId: input.tenantId,
         executionId: input.executionId,
         createdAt,
         expiresAt: toIso(input.expiresAt),
         updatedAt: createdAt,
       };
-      return persistRequest(row);
+      await store.putRequest(row);
+      return { ...row };
     },
 
     async decide(input: DecideApprovalInput): Promise<ApprovalRequestRecord> {
       requireHumanActor(input.auth, 'Approval decision');
+      if (!DECISION_OUTCOMES.has(input.outcome)) {
+        throw new Error(`Unknown approval decision outcome "${String(input.outcome)}"`);
+      }
       const now = nowFn();
       const existing = await store.getRequest(input.requestId);
       if (!existing) {
@@ -166,19 +239,16 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
         throw new Error(`Approval request "${input.requestId}" is ${current.state}`);
       }
 
-      if (input.outcome === 'approved') {
-        const check = await authorization.revalidate({
-          auth: input.auth,
-          capabilityId: current.capabilityId,
-          request: current,
-        });
-        if (!check.allowed) {
-          throw new Error(check.reason ?? 'authorization revalidation denied');
-        }
-      }
+      await authorize('Approval decision', input.auth, current);
 
       const decidedAt = now.toISOString();
-      await store.putDecision({
+      const decided: ApprovalRequestRecord = {
+        ...current,
+        state: input.outcome,
+        updatedAt: decidedAt,
+        resolvedAt: decidedAt,
+      };
+      const applied = await store.decideRequest(decided, {
         contractVersion: HUMAN_TASK_CONTRACT_VERSION,
         approvalDecisionId: idFn(),
         approvalRequestId: current.approvalRequestId,
@@ -186,13 +256,11 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
         decision: input.outcome,
         decidedAt,
       });
-
-      return persistRequest({
-        ...current,
-        state: input.outcome,
-        updatedAt: decidedAt,
-        resolvedAt: decidedAt,
-      });
+      if (!applied) {
+        const winner = await store.getRequest(current.approvalRequestId);
+        throw new ApprovalDecisionConflictError(current.approvalRequestId, winner?.state);
+      }
+      return { ...decided };
     },
 
     async cancel(input: CancelApprovalInput): Promise<ApprovalRequestRecord> {
@@ -208,12 +276,7 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
       if (current.state !== ApprovalRequestState.Pending) {
         throw new Error(`Approval request "${input.requestId}" is ${current.state}`);
       }
-      const check = await authorization.revalidate({
-        auth: input.auth,
-        capabilityId: current.capabilityId,
-        request: current,
-      });
-      if (!check.allowed) throw new Error(check.reason ?? 'authorization revalidation denied');
+      await authorize('Approval cancellation', input.auth, current);
 
       const cancelledAt = now.toISOString();
       const cancelled: ApprovalRequestRecord = {
@@ -233,11 +296,15 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
       return { ...cancelled };
     },
 
-    async findByExecutionId(executionId: string) {
-      const matches = (await store.listRequests())
-        .filter((row) => row.executionId === executionId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      return matches[0];
+    async findByExecutionId(binding) {
+      const now = binding.now ?? nowFn();
+      const latest = (await store.listRequests())
+        .filter((row) => sameSubject(row, binding))
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(a.createdAt) || b.updatedAt.localeCompare(a.updatedAt),
+        )[0];
+      return latest ? expireIfNeeded(latest, now) : undefined;
     },
 
     async findMatchingApproval(binding) {
@@ -245,6 +312,7 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
       let match: ApprovalRequestRecord | undefined;
       let expired: ApprovalRequestRecord | undefined;
       for (const row of await store.listRequests()) {
+        if (!sameSubject(row, binding)) continue;
         if (row.capabilityId !== binding.capabilityId) continue;
         if (row.definitionVersion !== binding.definitionVersion) continue;
         if (row.inputDigest !== binding.inputDigest) continue;
@@ -262,6 +330,7 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
       const now = binding.now ?? nowFn();
       for (const row of await store.listRequests()) {
         if (row.capabilityId !== binding.capabilityId) continue;
+        if (!sameSubject(row, binding)) continue;
         const current = await expireIfNeeded(row, now);
         if (
           current.state !== ApprovalRequestState.Pending &&
@@ -280,23 +349,7 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
     },
 
     async invalidateOnMaterialChange(binding) {
-      const now = binding.now ?? nowFn();
-      const before = await store.listRequests();
-      await invalidateMaterialChanges(
-        binding.capabilityId,
-        binding.definitionVersion,
-        binding.inputDigest,
-        now,
-      );
-      return (await store.listRequests()).filter(
-        (row) =>
-          row.state === ApprovalRequestState.Invalidated &&
-          !before.find(
-            (prior) =>
-              prior.approvalRequestId === row.approvalRequestId &&
-              prior.state === ApprovalRequestState.Invalidated,
-          ),
-      );
+      return invalidateMaterialChanges(binding, binding.now ?? nowFn());
     },
 
     async createHumanTask(input: CreateHumanTaskInput): Promise<HumanTaskRecord> {

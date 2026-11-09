@@ -122,7 +122,7 @@ The generated module includes:
 
 ## Security notes
 
-The generated auth module stores bearer tokens in `localStorage`. This is convenient for local apps and scaffolding, but it has tradeoffs:
+The default transport is `session` (HttpOnly cookie + CSRF via `@plumbus/auth`). With `transport: 'bearer'` the generated auth module stores bearer tokens in `localStorage`, and the generator warns once. Bearer has these tradeoffs:
 
 - tokens are readable by JavaScript in the page;
 - tokens are not readable by Next.js proxy/middleware;

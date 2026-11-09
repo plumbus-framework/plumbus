@@ -289,15 +289,19 @@ export function tenantApprovalDdl(schemaName: string = FRAMEWORK_SCHEMA): string
       risk_class text NOT NULL,
       review_reason text NOT NULL,
       state text NOT NULL,
+      tenant_id text,
       execution_id text,
       created_at timestamptz NOT NULL,
       expires_at timestamptz NOT NULL,
       updated_at timestamptz NOT NULL,
       resolved_at timestamptz,
-      invalidated_reason text
+      invalidated_reason text,
+      cancelled_by_account_id text,
+      cancellation_reason text
     );`,
     `CREATE INDEX approval_request_capability_idx ON ${approvalRequest} (capability_id);`,
     `CREATE INDEX approval_request_binding_idx ON ${approvalRequest} (capability_id, definition_version, input_digest);`,
+    `CREATE INDEX approval_request_subject_idx ON ${approvalRequest} (tenant_id, execution_id);`,
     `CREATE TABLE ${approvalDecision} (
       approval_decision_id text PRIMARY KEY,
       approval_request_id text NOT NULL,

@@ -69,7 +69,7 @@ export function onRoutesRegistered(app, routeConfig) {
     manifest,                                        // parsed ApiManifest or undefined for inline-only
     appRoot: process.cwd(),                          // required for fixture path resolution
     // idempotencyStore: durableStore,               // production: supply durable store + TTL
-    // rejectActionsOverGet: true,                   // refuse action capabilities exposed via GET
+    // rejectActionsOverGet: false,                  // default true: GET actions throw at registration; false only warns
   });
 }
 ```
@@ -94,8 +94,8 @@ plumbus api diff --against ./published/openapi-v1.json
 - **Path parameters must map to input fields.** `{refundId}` must exist on the Zod `input` schema. Duplicates in the same path are rejected.
 - **`api.auth.scopes` are enforced at runtime.** When both `api.auth.scopes` and `access.scopes` are set, the effective requirement is their union. Missing scopes → `403 missing_scope`.
 - **HTTP auth semantics:** missing/invalid credentials → `401 unauthenticated` (with or without a `requestAuthenticator`, core 0.9.0-beta.5+); CSRF failure on session mutations → `403 csrf_failed`; authenticated but denied by access → `403 forbidden`. Cookie sessions work when `requestAuthenticator` is configured; machine callers use Bearer.
-- **Never expose an `action` via `GET`.** Cookie CSRF protection covers only `POST`/`PUT`/`PATCH`/`DELETE`, so a GET action can be triggered cross-site with the visitor's session cookie. `registerApiRoutes` logs a warning naming each such route; pass `rejectActionsOverGet: true` to make registration throw `ApiManifestError` (`api.register.action-over-get`) instead.
-- **Idempotency:** mutating operations may accept `Idempotency-Key`. Keys are scoped by `operationId`, principal, and header value. Supply a durable `idempotencyStore` in production — see [testing.md](./testing.md).
+- **Never expose an `action` via `GET`.** Cookie CSRF protection covers only `POST`/`PUT`/`PATCH`/`DELETE`, so a GET action can be triggered cross-site with the visitor's session cookie. Since `@plumbus/api` 0.9, `registerApiRoutes` throws `ApiManifestError` (`api.register.action-over-get`) naming each such route; `rejectActionsOverGet: false` registers them with only a warning (temporary migration escape hatch).
+- **Idempotency:** mutating operations may accept `Idempotency-Key`. Keys are scoped by `operationId`, principal, and header value. A replay re-runs the capability's current access policy and `authorize` for this request first, so a caller who would be refused now gets the refusal, not the stored result; a caller whose roles or scopes changed gets `422 idempotency_conflict`. A caller with no user id (anonymous on a public route) is refused with `401` on an idempotency-required route. Supply a durable `idempotencyStore` in production — see [testing.md](./testing.md).
 - **Never combine `access.public: true` with test intent enabled.** `plumbus api validate` flags `policy.public-test-forbidden`.
 
 ## What partners see

@@ -2,7 +2,7 @@
 
 ## Release family 0.7.0 (beta)
 
-This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.7 <0.10.0` (voice 0.7.0-beta.2+ imports `@plumbus/core/sdk`, added in core 0.9.0-beta.7). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
+This package requires an explicit upgrade from its previous minor line. Current Plumbus peers (core 0.9 beta family, npm dist-tag `plumbus-next`): `@plumbus/core` `>=0.9.0-beta.9 <0.10.0` (voice 0.7.0-beta.3+ needs the core 0.9.0-beta.9 security release). Install the matching versions of all Plumbus packages the app uses; do not bypass peer checks with `--force` or `--legacy-peer-deps`. Historical feature floors below describe earlier releases, not compatibility with this new family. Read the core `instructions/stabilization.md` checklist and refresh agent wiring with `plumbus init --patch --agent all` (v21).
 
 
 ## Security release guidance (0.5.0)

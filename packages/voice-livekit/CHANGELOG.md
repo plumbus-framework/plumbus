@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0-beta.3 — 2026-11-09 — security release
+
+- **Requires `@plumbus/core` 0.9.0-beta.9 and `@plumbus/voice` 0.7.0-beta.3 or later** (peers `">=0.9.0-beta.9 <0.10.0"` / `">=0.7.0-beta.3 <0.8.0"`, were `">=0.9.0-beta.7 <0.10.0"` / `">=0.7.0-beta.2 <0.8.0"`).
+- **The browser session sends the voice CSRF header.** `createLiveKitVoiceSession` reads the `plumbus_voice_csrf` cookie and sends it as `x-plumbus-voice-csrf` on `/token`. Without it, cookie-authenticated `/token` calls were refused once voice enforces CSRF (the default from voice 0.7.0-beta.3).
+
 ## 0.4.0-beta.2 — 2026-11-02
 
 - **Requires `@plumbus/core` 0.9.0-beta.7+ and `@plumbus/voice` 0.7.0-beta.2+** (peers `">=0.9.0-beta.7 <0.10.0"` / `">=0.7.0-beta.2 <0.8.0"`): this release imports `@plumbus/core/sdk` and `@plumbus/voice/session`, which earlier betas do not have.

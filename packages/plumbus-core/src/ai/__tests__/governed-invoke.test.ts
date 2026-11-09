@@ -1,17 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ActionRiskTier } from '../../approvals/action-risk.js';
+import { createAllowAllAuthorizationProvider } from '../../approvals/authorization.js';
 import { createMemoryApprovalStore } from '../../approvals/memory-store.js';
 import { createApprovalService } from '../../approvals/service.js';
-import type { AuthContext } from '../../types/security.js';
 import { GovernedAiBlockedError } from '../../errors/data-errors.js';
-import { checkGovernedBudget } from '../governed-budget.js';
+import type { AuthContext } from '../../types/security.js';
+import { createCostTracker } from '../cost-tracker.js';
 import {
   createMemoryGovernedArtifactStore,
   type GovernedArtifactStore,
 } from '../governed-artifacts.js';
+import { checkGovernedBudget } from '../governed-budget.js';
 import type { GovernedAiHost, GovernedModel, GovernedModelPin } from '../governed-host.js';
 import { governedReviewSubject, invokeGovernedAi } from '../governed-invoke.js';
-import { createCostTracker } from '../cost-tracker.js';
 
 function humanAuth(): AuthContext {
   return {
@@ -85,6 +86,7 @@ async function approve(
   pin: GovernedModelPin,
 ) {
   const request = await approvals.requestApproval({
+    tenantId: null,
     capabilityId: 'example.summarize',
     definitionVersion: '1',
     input: governedReviewSubject(input, pin),
@@ -102,7 +104,10 @@ async function approve(
 describe('invokeGovernedAi', () => {
   it('calls the host model only after review, artifacts, and budget pass', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin);
     const input = { documentId: 'doc-1' };
     await approve(approvals, input, pin);
@@ -130,7 +135,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model without a human review', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin);
 
     await expect(
@@ -155,7 +163,10 @@ describe('invokeGovernedAi', () => {
       id: 'example.summarize.other',
       body: 'Older prompt.',
     });
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin);
     const input = { documentId: 'doc-1' };
     await approve(approvals, input, { ...pin, promptDigest: other.digest });
@@ -177,7 +188,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model for an unpublished prompt digest', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin);
 
     await expect(
@@ -197,7 +211,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model when the prompt digest is empty', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin);
 
     await expect(
@@ -217,7 +234,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model for an unregistered pin', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin);
 
     await expect(
@@ -237,7 +257,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model when the host substitutes a different model', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const complete = vi.fn(async () => ({ text: 'ok' }));
     const { host } = createHost(pin, {
       model: {
@@ -264,7 +287,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model when the budget check refuses', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin, {
       allowed: false,
       budgetReason: 'Daily cost limit reached',
@@ -290,7 +316,10 @@ describe('invokeGovernedAi', () => {
 
   it('does not call the model when budget cost is unknown', async () => {
     const { artifacts, pin } = setupArtifacts();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const { host, complete } = createHost(pin, {
       allowed: false,
       budgetReason: 'Cost data unavailable — usage API not configured.',

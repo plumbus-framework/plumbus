@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0-beta.3 — 2026-11-09 — session auth by default, request id on generated client errors
+
+- **Breaking: the generated auth transport defaults to `session`** (HttpOnly cookie + CSRF via `@plumbus/auth`) in `generateClientModule`, `generateAuthModule`, `generateNextjsTemplate` and `plumbus ui generate` / `ui nextjs`. Before, an omitted transport meant `bearer`, which keeps the token in `localStorage` where any XSS can read and replay it. Apps that use bearer tokens pass `--auth-transport bearer` (or `transport: 'bearer'` / `authTransport: 'bearer'`); the generator then warns once.
+- **From main (stable 0.9.1):** `next` ^16.4.5 (the November 2026 Next.js security release: RCE, middleware bypass, SSRF, cache poisoning and cross-tenant cache disclosure; brings `sharp` 0.35.5).
+
+
+- **Generated client errors carry `requestId`.** `PlumbusApiError` gains `requestId?: string`, and every generated capability function and flow trigger attaches it to the error it throws: the body's `error.requestId`, else the envelope's `meta.requestId`, else the `x-request-id` response header (helper `plumbusRequestIdOf`, emitted once per client module). Show it on a failure screen so a person can quote it to support. Servers send an id only when they opt in (`@plumbus/core` 0.9.0-beta.9+ `createServer({ requestIds: { expose: true } })`); otherwise the field stays `undefined` and nothing else changes. Regenerate the client (`plumbus ui generate`).
+
 ## 0.10.0-beta.2 — 2026-10-26
 
 - **zod 4.** The client and form-hint generators read zod 4 schemas through a zod 3-shaped view of their definition, so the generated client and hooks are unchanged. Form hints become more exact: a `.refine()`d field keeps its type and limits (zod 3 reported it as `ZodEffects` with no validation), and a refined input object lists its fields. Core peer `>=0.9.0-beta.6 <0.10.0`.

@@ -9,7 +9,7 @@ import {
   GENERIC_INTERNAL_MESSAGE,
   unknownErrorToSsePayload,
 } from '../errors/http.js';
-import { isPlumbusError } from '../errors/index.js';
+import { isPlumbusError, UnauthorizedError } from '../errors/index.js';
 import type { EventQueue } from '../events/queue.js';
 import { accessDenialError, evaluateAccess } from '../execution/authorization.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
@@ -37,11 +37,16 @@ import {
   type IdempotencyPrincipal,
   type IdempotencyStore,
   type IdempotencyStoreOptions,
-  isAnonymousIdempotencyPrincipal,
   PayloadTooDeepError,
   parseIdempotencyTtl,
 } from './idempotency.js';
 import { executeIdempotently } from './idempotent-execution.js';
+import {
+  REQUEST_ID_HEADER,
+  type RequestIdOptions,
+  requestIdsFor,
+  withRequestId,
+} from './request-id.js';
 
 export interface DependencyOptions {
   /** When true, repositories skip tenant-scope filtering (for cross-tenant admin access) */
@@ -123,6 +128,13 @@ export interface RouteGeneratorConfig {
   /** Called when a capability execution fails */
   onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
+  /**
+   * Request ids on answers. Off (the default) the answers are what they always were.
+   * `{ expose: true }`: every answer carries `x-request-id`, every refusal and error body carries
+   * it as `error.requestId`, SSE error events carry it, and the audit `correlationId` and
+   * `onCapabilityError`'s `requestId` are the same id. Set from `createServer({ requestIds })`.
+   */
+  requestIds?: RequestIdOptions;
 }
 
 /**
@@ -159,7 +171,11 @@ export function registerCapabilityRoute(
     reply: FastifyReply,
     carrier?: string,
   ): Promise<void> => {
-    const requestId = resolveRequestCorrelationId(request.headers);
+    // `requestIds.expose`: one id for this request, in the answer, the log line and the audit row.
+    // Off (the default): the answer is as before; see request-id.ts.
+    const ids = requestIdsFor(request, config.requestIds);
+    const requestId = ids.echoed;
+    if (ids.exposed) reply.header(REQUEST_ID_HEADER, ids.exposed);
 
     let authContext: Awaited<ReturnType<AuthAdapter['authenticate']>>;
 
@@ -241,7 +257,7 @@ export function registerCapabilityRoute(
     } else {
       deps = config.createDependencies(authContext, { bypassTenantScope, locale });
     }
-    deps.correlationId = resolveRequestCorrelationId(request.headers);
+    deps.correlationId = ids.correlationId;
     deps.traceparent = carrier ?? validatedTraceparent(deps.traceparent);
     deps.onTelemetrySpan = config.onTelemetrySpan;
     deps.request = {
@@ -260,13 +276,13 @@ export function registerCapabilityRoute(
       const authz = evaluateAccess(capability.access, ctx.auth);
       if (!authz.allowed) {
         const err = accessDenialError(authz, { capability: canonicalName });
-        const { statusCode, body } = errorToHttpResponse(err);
+        const { statusCode, body } = httpRefusal(err, ids.exposed);
         return reply.status(statusCode).send(body);
       }
       const parsed = safeParseBounded(capability.input, input);
       if (!parsed.success) {
         const err = ctx.errors.validation('Invalid input', { capability: canonicalName });
-        const { statusCode, body } = errorToHttpResponse(err);
+        const { statusCode, body } = httpRefusal(err, ids.exposed);
         return reply.status(statusCode).send(body);
       }
       const jobId = await dispatchQueuedJob({
@@ -292,6 +308,21 @@ export function registerCapabilityRoute(
       method !== 'GET' &&
       evaluateAccess(capability.access, ctx.auth).allowed;
     if (idempotencyApplies && idempotency) {
+      // A key is claimed per principal (`operation:tenant:user:key`). Callers without a user id
+      // (anonymous visitors of a public capability) share one principal, so a claim could not
+      // tell them apart: one visitor's key, sent by another with the same input, would replay
+      // the first visitor's stored result. Running them without a claim instead would break
+      // the declared at-most-once guarantee. Neither is safe, so they are refused (401): a
+      // capability that requires idempotency needs an identified caller to key it under.
+      if (!ctx.auth.userId) {
+        const err = new UnauthorizedError('Authentication required', {
+          capability: canonicalName,
+          reason: 'idempotency-principal-required',
+        });
+        const { statusCode, body } = httpRefusal(err, ids.exposed);
+        reply.status(statusCode).header('www-authenticate', 'Bearer').send(body);
+        return;
+      }
       const headerName = (idempotency.header ?? 'Idempotency-Key').toLowerCase();
       const rawKey = request.headers[headerName];
       const idempotencyKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
@@ -300,7 +331,7 @@ export function registerCapabilityRoute(
           `Missing required header: ${idempotency.header ?? 'Idempotency-Key'}`,
           { capability: canonicalName, reason: 'idempotency-key-required' },
         );
-        const { statusCode, body } = errorToHttpResponse(err);
+        const { statusCode, body } = httpRefusal(err, ids.exposed);
         reply.status(statusCode).send(body);
         return;
       }
@@ -311,7 +342,7 @@ export function registerCapabilityRoute(
         userId: ctx.auth.userId,
         tenantId: ctx.auth.tenantId,
       };
-      if (parsed.success && !isAnonymousIdempotencyPrincipal(principal)) {
+      if (parsed.success) {
         const store = idempotencyStoreOf(config);
         const operationId = capability.api?.operationId ?? canonicalName;
         const storeKey = buildIdempotencyStoreKey(operationId, principal, idempotencyKey);
@@ -333,7 +364,7 @@ export function registerCapabilityRoute(
             capability: canonicalName,
             reason: 'payload-too-deep',
           });
-          const { statusCode, body } = errorToHttpResponse(err);
+          const { statusCode, body } = httpRefusal(err, ids.exposed);
           reply.status(statusCode).send(body);
           return;
         }
@@ -371,7 +402,7 @@ export function registerCapabilityRoute(
             }
             const authorized = await authorizeCapability(capability, current, parsed.data);
             if (!authorized.success) {
-              const failure = errorToHttpResponse(authorized.error);
+              const failure = httpRefusal(authorized.error, ids.exposed);
               reply.status(failure.statusCode).send(failure.body);
               return;
             }
@@ -408,7 +439,7 @@ export function registerCapabilityRoute(
               ...(outcome.reason === 'payload' ? { httpStatus: 422 } : {}),
             },
           );
-          const { statusCode, body } = errorToHttpResponse(err);
+          const { statusCode, body } = httpRefusal(err, ids.exposed);
           reply.status(statusCode).send(body);
           return;
         }
@@ -417,7 +448,7 @@ export function registerCapabilityRoute(
             capability: canonicalName,
             reason: 'idempotency-in-progress',
           });
-          const { statusCode, body } = errorToHttpResponse(err);
+          const { statusCode, body } = httpRefusal(err, ids.exposed);
           reply.header('retry-after', String(outcome.retryAfterSeconds));
           reply.status(statusCode).send(body);
           return;
@@ -428,7 +459,7 @@ export function registerCapabilityRoute(
           reply.status(200).send({ data: claimed.data });
           return;
         }
-        const httpError = errorToHttpResponse(claimed.error);
+        const httpError = httpRefusal(claimed.error, ids.exposed);
         reply.status(httpError.statusCode).send(httpError.body);
         fireCapabilityErrorHook(
           config.onCapabilityError,
@@ -444,6 +475,7 @@ export function registerCapabilityRoute(
             userAgent: request.headers['user-agent'],
             db: requestDb,
             source: 'http',
+            ...(ids.exposed ? { requestId: ids.exposed } : {}),
           },
           claimed.error,
           {
@@ -462,7 +494,7 @@ export function registerCapabilityRoute(
     if (result.success) {
       reply.status(200).send({ data: result.data });
     } else {
-      const httpError = errorToHttpResponse(result.error);
+      const httpError = httpRefusal(result.error, ids.exposed);
       reply.status(httpError.statusCode).send(httpError.body);
 
       // Fire error hook (fire-and-forget, never blocks the response).
@@ -480,6 +512,7 @@ export function registerCapabilityRoute(
           userAgent: request.headers['user-agent'],
           db: requestDb,
           source: 'http',
+          ...(ids.exposed ? { requestId: ids.exposed } : {}),
         },
         result.error,
         {
@@ -579,7 +612,11 @@ export function registerStreamingRoute(
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}/stream`;
 
   const executeStream = async (request: FastifyRequest, reply: FastifyReply, carrier?: string) => {
-    const requestId = resolveRequestCorrelationId(request.headers);
+    // `requestIds.expose`: one id for this request, in the answer, the log line and the audit row.
+    // Off (the default): the answer is as before; see request-id.ts.
+    const ids = requestIdsFor(request, config.requestIds);
+    const requestId = ids.echoed;
+    if (ids.exposed) reply.header(REQUEST_ID_HEADER, ids.exposed);
 
     let authContext: Awaited<ReturnType<AuthAdapter['authenticate']>>;
 
@@ -657,7 +694,7 @@ export function registerStreamingRoute(
     } else {
       deps = config.createDependencies(authContext, { bypassTenantScope, locale });
     }
-    deps.correlationId = resolveRequestCorrelationId(request.headers);
+    deps.correlationId = ids.correlationId;
     deps.traceparent = carrier ?? validatedTraceparent(deps.traceparent);
     deps.onTelemetrySpan = config.onTelemetrySpan;
     deps.request = {
@@ -677,8 +714,11 @@ export function registerStreamingRoute(
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
+        ...(ids.exposed ? { [REQUEST_ID_HEADER]: ids.exposed } : {}),
       });
-      reply.raw.write(`data: ${JSON.stringify(errorToSsePayload(err))}\n\n`);
+      reply.raw.write(
+        `data: ${JSON.stringify(sseRefusal(errorToSsePayload(err), ids.exposed))}\n\n`,
+      );
       reply.raw.end();
       return;
     }
@@ -689,8 +729,11 @@ export function registerStreamingRoute(
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
+        ...(ids.exposed ? { [REQUEST_ID_HEADER]: ids.exposed } : {}),
       });
-      reply.raw.write(`data: ${JSON.stringify(errorToSsePayload(err))}\n\n`);
+      reply.raw.write(
+        `data: ${JSON.stringify(sseRefusal(errorToSsePayload(err), ids.exposed))}\n\n`,
+      );
       reply.raw.end();
       return;
     }
@@ -700,6 +743,7 @@ export function registerStreamingRoute(
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      ...(ids.exposed ? { [REQUEST_ID_HEADER]: ids.exposed } : {}),
     });
 
     try {
@@ -707,7 +751,7 @@ export function registerStreamingRoute(
         reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (err) {
-      const payload = unknownErrorToSsePayload(err);
+      const payload = sseRefusal(unknownErrorToSsePayload(err), ids.exposed);
       reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
     }
 
@@ -741,13 +785,7 @@ export function registerStreamingRoute(
  * back to the caller. Streaming routes call this before any SSE header is
  * written, so the refusal is a plain HTTP status there too.
  */
-function dependencyResolutionToHttp(
-  err: unknown,
-  requestId: string | undefined,
-): {
-  statusCode: number;
-  body: { error: { code: string; message: string; metadata?: Record<string, unknown> } };
-} {
+function dependencyResolutionToHttp(err: unknown, requestId: string | undefined): HttpRefusal {
   const mapped = isPlumbusError(err)
     ? errorToHttpResponse(err)
     : {
@@ -756,20 +794,43 @@ function dependencyResolutionToHttp(
       };
   return {
     statusCode: mapped.statusCode,
-    body: { error: { ...mapped.body.error, ...(requestId ? { requestId } : {}) } },
+    body: requestId ? withRequestId(mapped.body, requestId) : mapped.body,
   };
 }
 
-function resolveRequestCorrelationId(
-  headers: Record<string, string | string[] | undefined>,
-): string | undefined {
-  for (const key of ['x-correlation-id', 'x-request-id']) {
-    const value = headers[key];
-    if (typeof value === 'string' && value.length > 0) {
-      return value;
-    }
-  }
-  return undefined;
+interface HttpRefusal {
+  statusCode: number;
+  body: {
+    error: {
+      code: string;
+      message: string;
+      metadata?: Record<string, unknown>;
+      requestId?: string;
+    };
+  };
+}
+
+/**
+ * A capability's refusal or failure as the route sends it: `errorToHttpResponse`, plus — under
+ * `requestIds.expose` — the request id a person can read to support and an operator can find in
+ * the log and audit trail. Without an exposed id the body is exactly `errorToHttpResponse`'s.
+ */
+function httpRefusal(
+  err: Parameters<typeof errorToHttpResponse>[0],
+  requestId: string | undefined,
+): HttpRefusal {
+  const mapped = errorToHttpResponse(err);
+  return requestId
+    ? { statusCode: mapped.statusCode, body: withRequestId(mapped.body, requestId) }
+    : mapped;
+}
+
+/** An SSE error payload with `requestId` added when the id is exposed; else unchanged. */
+function sseRefusal<P extends { error: Record<string, unknown> }>(
+  payload: P,
+  requestId: string | undefined,
+): P {
+  return requestId ? withRequestId(payload, requestId) : payload;
 }
 
 export const LOCALE_COOKIE_NAME = 'plumbus-ui-locale';

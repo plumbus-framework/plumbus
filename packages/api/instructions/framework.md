@@ -11,7 +11,7 @@ Read `node_modules/@plumbus/core/instructions/stabilization.md` before upgrading
 
 Do not advertise query-string API-key schemes: the runtime does not read them and OpenAPI export rejects them. Use the configured framework authenticator and stable error codes. Keep partner business behavior in API-exposed capabilities, not custom routes.
 
-`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version `0.4.0-beta.4`, core 0.9 beta family, npm dist-tag `plumbus-next`; declared peer `@plumbus/core` `>=0.9.0-beta.6 <0.10.0`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`).
+`@plumbus/api` is the **partner external API contract layer** for Plumbus apps. It serves capabilities marked `exposeAs: ['api']` on versioned partner routes with OpenAPI export, docs generation, compatibility diff, and test intent. It is an **optional peer** of `@plumbus/core` (version `0.4.0-beta.5`, core 0.9 beta family, npm dist-tag `plumbus-next`; declared peer `@plumbus/core` `>=0.9.0-beta.6 <0.10.0`). **Runtime floor:** `@plumbus/api` 0.1.4 requires `@plumbus/core` **≥ 0.6.9** (session auth on partner routes via `buildAuthenticationRequest`).
 
 **`package.json` peer (framework releases):** `"@plumbus/core": ">=0.9.0-beta.6 <0.10.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 

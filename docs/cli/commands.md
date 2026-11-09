@@ -236,7 +236,7 @@ Behavior:
 
 - Loads `config/app.config.ts` with `environment: "production"` and runs `validateConfig` (fails if required env vars are missing).
 - Discovers resources from `app/`, populates registries, connects to the database.
-- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `classifyProcessError`, `onBoot`, `onShutdown`, `idempotencyStore`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `schedulePlanes`, `frameworkRetention` (opt-in pruning of finished framework rows by the worker pool), and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
+- Loads server extensions from `app/server.ts` if present (`onRoutesRegistered`, `resolveAiOverrides`, `onCapabilityError`, `onProcessError`, `classifyProcessError`, `onBoot`, `onShutdown`, `idempotencyStore`, `onAICostRecorded`, `aiProviderConcurrency`, `resolveAIProviderHeaders`, `onAIProviderSpan`, `onFlowError`, `enableStrictStructuredOutputs`, `credentials`, `authenticationRuntime`, `bodyLimit`, `requestIds` (opt-in request ids on answers; `{ expose: true }`), `schedulePlanes`, `frameworkRetention` (opt-in pruning of finished framework rows by the worker pool), and the data-plane resolver family `dataPlaneResolver` / `listTenantRefs` / `untenantedDataPlane` / `requestDataPlane` / `workerDataPlane` / `resolveTenantRef` — see [Tenant Data Planes](../sdk-reference/tenant-data-planes.md)).
 - Default runtime role is `all` (API + workers colocated). Starts a worker pool when background work is detected (events, flows with triggers/schedules, eventHandlers, jobs).
 - Registers process-level handlers for `uncaughtException` / `unhandledRejection` and graceful `SIGINT` / `SIGTERM` shutdown: `/ready` answers 503 at once, HTTP drains (after `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS`, default 0), workers stop claiming and the running flow step gets the remaining time (its execution is then released for another worker), `onShutdown` from `app/server.ts` runs, then queues and the database close — all within `PLUMBUS_SHUTDOWN_TIMEOUT_MS` (default 10000). See [Graceful shutdown](../../packages/plumbus-core/instructions/deployment.md#graceful-shutdown).
 - Exposes `GET /health` and `GET /ready`.
@@ -737,7 +737,7 @@ plumbus certify policy gdpr --json
 Partner API contract tooling. Requires `@plumbus/api` installed (`pnpm add @plumbus/api`). Uses `api.yaml` in the project root by default (`--manifest` overrides).
 
 ```bash
-plumbus api validate [--manifest <path>] [--json] [--fail-on-governance] [--fail-on-security]
+plumbus api validate [--manifest <path>] [--json] [--fail-on-governance] [--no-fail-on-security]
 plumbus api generate openapi --out <file> [--format json|yaml] [--manifest <path>]
 plumbus api generate docs --out <dir> [--manifest <path>]
 plumbus api diff --against <file> [--manifest <path>] [--json]
@@ -752,7 +752,7 @@ plumbus api test-fixtures validate [--json]
 | `diff` | 1 on breaking changes | Compare current OpenAPI to a published spec |
 | `test-fixtures validate` | 1 on findings | Validate fixture files against capability schemas |
 
-`validate` always prints security-config findings (`manifest.security.*`) and includes them under `security` in `--json` output. In 0.8.x they do **not** affect the exit code unless you pass `--fail-on-security` (exit 1 on error-severity security findings; `severity: "warning"` findings never fail). Without the flag, a notice says so (on stderr with `--json`), and the JSON carries `securityFailsCommand: false` — so `ok: false` with exit code 0 means only security findings were found. `--fail-on-governance` makes advisory governance signals fail the same way.
+`validate` always prints security-config findings (`manifest.security.*`) and includes them under `security` in `--json` output. Since 0.9, error-severity security findings fail the command (exit 1); `severity: "warning"` findings never fail. Pass `--no-fail-on-security` to report them without failing: a notice then says so (on stderr with `--json`) and the JSON carries `securityFailsCommand: false`. `--fail-on-security` is still accepted and does nothing (it is the default). In `--json` output `ok` always matches the exit code: `ok: true` exactly when the command exits 0, counting `--fail-on-governance` and `--no-fail-on-security`. `--fail-on-governance` makes advisory governance signals fail the same way.
 
 ---
 

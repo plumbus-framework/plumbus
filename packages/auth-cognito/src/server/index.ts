@@ -16,9 +16,14 @@ export {
   cognitoUserPoolIssuer,
   regionOfUserPool,
 } from './connection.js';
-export type { CognitoPoolDirectory, CognitoPoolDirectoryOptions } from './directory.js';
-export { createCognitoPoolDirectory } from './directory.js';
 export { CognitoServerError, CognitoServerErrorReason, toCognitoServerError } from './errors.js';
+export { createCognitoPoolDirectory } from './directory.js';
+export type {
+  CognitoPoolDirectory,
+  CognitoPoolDirectoryOptions,
+  CognitoUserAttributeChanges,
+  CognitoUserAttributes,
+} from './directory.js';
 export type {
   AttestedUserPoolSpec,
   CognitoMfaPolicy,

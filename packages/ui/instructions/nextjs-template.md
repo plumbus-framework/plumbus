@@ -146,7 +146,7 @@ This file expects a generated or app-provided `@/lib/auth` module.
 
 Generates `proxy.ts` using the Next.js proxy convention.
 
-The current proxy does not enforce route authorization. It returns `NextResponse.next()` and includes an explicit comment explaining that generated tokens are stored in `localStorage`, which is not readable by Next.js proxy/middleware.
+The current proxy does not enforce route authorization. It returns `NextResponse.next()` and includes a transport-aware comment: with the default `session` transport the API layer validates the HttpOnly cookie; with `bearer`, tokens are stored in `localStorage`, which is not readable by Next.js proxy/middleware.
 
 Backend Plumbus capability policies remain authoritative. If an app needs edge route gating, it must move the token/session to an HttpOnly cookie or another server-readable mechanism and validate it server-side.
 

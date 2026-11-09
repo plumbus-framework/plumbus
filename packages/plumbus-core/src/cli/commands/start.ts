@@ -177,6 +177,7 @@ export async function startProductionServer(
       credentials: extensions.credentials,
       authenticationRuntime: extensions.authenticationRuntime,
       ...(extensions.bodyLimit != null && { bodyLimit: extensions.bodyLimit }),
+      ...(extensions.requestIds && { requestIds: extensions.requestIds }),
       ...(extensions.dataPlaneResolver && { dataPlaneResolver: extensions.dataPlaneResolver }),
       ...(extensions.untenantedDataPlane && {
         untenantedDataPlane: extensions.untenantedDataPlane,

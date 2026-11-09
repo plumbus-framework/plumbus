@@ -22,6 +22,7 @@ import type { ClonedVoice } from '../types/clone.js';
 import type { RegisterVoiceCloneRoutesOpts, VoiceCloneAuth } from '../types/http.js';
 import {
   assertValidExternalBaseUrl,
+  assertVoiceBrowserSecurity,
   guardVoiceBrowserRequest,
   resolveVoiceRequestCredential,
 } from '../security/browser-guard.js';
@@ -36,6 +37,7 @@ export function registerVoiceCloneRoutes(
   opts: RegisterVoiceCloneRoutesOpts,
 ): void {
   assertValidExternalBaseUrl(opts.externalBaseUrl);
+  assertVoiceBrowserSecurity('registerVoiceCloneRoutes', opts);
   let cachedRegistry: VoiceProviderRegistry | undefined = opts.registry;
   const resolveRegistry = async (): Promise<VoiceProviderRegistry> => {
     if (opts.resolveRegistry) {

@@ -197,9 +197,9 @@ See [upgrading-capability-names](../upgrading-capability-names.md) when migratin
 
 `defineCapability` accepts optional `riskTier` from the action-risk vocabulary (`analytical`, `limited-reversible`, `consequential`, `prohibited`). Omit it and existing capabilities keep working — the gate is a no-op.
 
-Only `consequential` requires a bound, unexpired approval before the handler runs. The approval binds the canonical capability name, definition version (`version` or `"1"`), and an input digest. A material input or version change invalidates the prior request. After an `approval_pending` wait, execution revalidates authorization through an `AuthorizationProvider` (harness stub; the host supplies the real gate later).
+Only `consequential` requires a bound, unexpired approval before the handler runs. The approval binds the tenant (`ctx.auth.tenantId`), the flow execution (`ctx.flowId`, unset outside a flow), the canonical capability name, definition version (`version` or `"1"`), and an input digest — another tenant's or execution's approval never matches. A material input or version change invalidates the prior request. After an `approval_pending` wait, execution revalidates authorization through an `AuthorizationProvider` (harness stub; the host supplies the real gate later).
 
-Wire `createApprovalService` / `createMemoryApprovalStore` onto the execution context (`approvals`, optional `authorizationProvider`). A human task is never completable by a service principal (`system` / `internal`, `worker` / `scheduler` provider) or an unauthenticated callback.
+Wire `createApprovalService` / `createMemoryApprovalStore` onto the execution context (`approvals`, optional `authorizationProvider`). `createApprovalService` needs its own `authorization` provider before anyone can decide a request — without one every decision is refused. A human task is never completable by a service principal (`system` / `internal`, `worker` / `scheduler` provider) or an unauthenticated callback.
 
 See [approvals](./approvals.md).
 

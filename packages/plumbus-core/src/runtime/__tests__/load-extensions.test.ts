@@ -25,6 +25,21 @@ describe('loadServerExtensions', () => {
     expect(extensions.credentials).toEqual({ id: 'host-catalog' });
   });
 
+  it('loads opt-in requestIds only when expose is exactly true', async () => {
+    const on = await loadServerExtensions(
+      await writeServerModule('export const requestIds = { expose: true };\n'),
+    );
+    expect(on.requestIds).toEqual({ expose: true });
+    const off = await loadServerExtensions(
+      await writeServerModule('export const requestIds = { expose: "yes" };\n'),
+    );
+    expect(off.requestIds).toBeUndefined();
+    const absent = await loadServerExtensions(
+      await writeServerModule('export function onRoutesRegistered() {}\n'),
+    );
+    expect(absent.requestIds).toBeUndefined();
+  });
+
   it('leaves credentials unset when app/server.js does not export it', async () => {
     const cwd = await writeServerModule('export function onRoutesRegistered() {}\n');
     const extensions = await loadServerExtensions(cwd);

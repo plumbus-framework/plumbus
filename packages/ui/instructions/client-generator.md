@@ -135,10 +135,17 @@ interface PlumbusApiError {
   code?: string;
   message: string;
   metadata?: Record<string, unknown>;
+  /** Server's id for the failed request (core 0.9.0-beta.9+ with `requestIds: { expose: true }`); quote it to support. */
+  requestId?: string;
 }
 
 function isPlumbusApiError(error: unknown): error is PlumbusApiError;
 ```
+
+`requestId` comes from the body's `error.requestId`, else the envelope's `meta.requestId`, else the
+`x-request-id` header, and is `undefined` from a server that sends none. Show it on failure
+screens (folded away is fine) so a person can read it to support; the server log's `reqId` and the
+audit `correlationId` carry the same id.
 
 ## Module generators
 

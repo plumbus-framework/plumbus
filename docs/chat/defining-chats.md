@@ -284,6 +284,9 @@ import { registerChatRoutes, type RegisterChatRoutesOpts } from '@plumbus/chat';
 
 const opts: RegisterChatRoutesOpts = {
   authCookieNames: ['session', 'auth_token'],
+  // Required with authCookieNames (0.9+): Origin + CSRF checks on cookie writes.
+  csrfSecret: process.env.CHAT_CSRF_SECRET,
+  externalBaseUrl: 'https://app.example.com',
   audienceTenantOverride: (audience, auth) =>
     audience === 'admin' ? auth.tenantId : undefined,
   beforeTurn: async (ctx, parsed, rawBody) => {
@@ -310,8 +313,8 @@ registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
 | `store` | A `ChatConversationStore`. Mounting it enables the `POST /chat/:name/confirm` route and switches the pre-turn live-pending check to the store's `inspectSession`. Required for tool confirmations. Without it, the pre-turn check falls back to reading `ctx.data` directly. Either way the check first resolves the session by id, caller and chat (chat 0.3.2+): a session that is not the caller's reports no pending action, so its action id and expiry are never returned. Custom stores receive `{ owner, chatName }` as `inspectSession`'s third argument and should honor it the same way. |
 | `sessionStore` | A `ChatSessionStore`. Serves session and turn state from somewhere other than `ctx.data` — for deployments with no local database. Validated against every registered chat at registration time. Supplying it without `store` also **skips** the pre-turn live-pending probe, which would otherwise read `ctx.data`: a tier-1-only deployment cannot hold pending actions. See [session-store.md](./session-store.md). |
 | `authenticator` | Replace the default credential resolution (Authorization header, then cookies). |
-| `externalBaseUrl` + `csrfSecret` | Set both to enable exact-Origin and session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` set and either one missing, cookie-authenticated `/turn` and `/confirm` are **not** checked for Origin or CSRF; registration logs a warning (chat 0.3.2+). |
-| `requireBrowserSecurity` | Default `false`. Set `true` to make cookie auth (`authCookieNames`) without both `csrfSecret` and `externalBaseUrl` a registration error instead of a warning. Recommended for every browser deployment that authenticates by cookie. |
+| `externalBaseUrl` + `csrfSecret` | Set both to enable exact-Origin and session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` set and either one missing, registration fails (0.9+). With `requireBrowserSecurity: false` it only logs a warning and cookie-authenticated `/turn` and `/confirm` are **not** checked for Origin or CSRF. |
+| `requireBrowserSecurity` | Default `true` (0.9+): cookie auth (`authCookieNames`) without both `csrfSecret` and `externalBaseUrl` is a registration error. Set `false` to downgrade it to a warning — only when cookie-authenticated writes are protected another way (e.g. a proxy). |
 
 ## Examples
 

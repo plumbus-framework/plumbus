@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/voice",
-  "version": "0.7.0-beta.2",
+  "version": "0.7.0-beta.3",
   "description": "Plumbus realtime voice runtime — defineVoice, provider registry, session routes, and cost ledger integration.",
   "type": "module",
   "main": "./dist/index.js",
@@ -67,7 +67,7 @@
     "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "peerDependencies": {
-    "@plumbus/core": ">=0.9.0-beta.7 <0.10.0",
+    "@plumbus/core": ">=0.9.0-beta.9 <0.10.0",
     "fastify": "^5.0.0"
   },
   "devDependencies": {

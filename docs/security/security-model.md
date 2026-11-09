@@ -169,7 +169,7 @@ const adapter = createOidcAdapter({
   // jwksUri: "...",       // optional — defaults from OIDC discovery
   // jwksCacheTtl: 3600,   // optional
   // clockSkewSeconds: 60, // optional — tolerance for nbf / iat (0.8.5+)
-  // requireExp: true,     // optional, default false — reject tokens without numeric exp (0.8.5+)
+  // requireExp: false,    // optional, default true (0.9+) — false accepts tokens without numeric exp
   // logger,               // optional — receives one-time security warnings
 });
 ```
@@ -182,7 +182,7 @@ The adapter:
 - Verifies RS256/ES256 token signatures using the matching `kid`
 - Validates `iss`, `aud`, and `exp` claims
 - Rejects tokens whose `nbf` or `iat` lies more than `clockSkewSeconds` (default 60) in the future (0.8.5+)
-- Accepts tokens without a numeric `exp` by default (0.8 compatibility) and logs a one-time warning; set `requireExp: true` to reject them
+- Rejects tokens without a numeric `exp` by default (0.9+); `requireExp: false` accepts them and logs a one-time warning (for IdPs that issue non-expiring tokens on purpose)
 - Maps standard OIDC claims (`sub`, `email`, `roles`) to `AuthContext`
 
 Use this adapter for **stateless bearer** traffic (API clients, MCP, optional `createAuthRuntime({ bearer })` coexistence). It does **not** implement browser login redirects or session cookies.
@@ -493,6 +493,31 @@ HTTP, SSE, and MCP capability failures use generic internal-error messages and g
 Flows with missing, malformed, or actor/tenant-inconsistent auth snapshots fail before a step executes. They must be restarted from a verified caller context; there is no automatic migration to worker/system privileges. New snapshots keep authorization fields and omit session identifiers/timestamps. AI services are rebound to that stored identity for each flow step.
 
 See [Security review remediation](review-remediation.md) for the finding-by-finding resolution and compatibility notes.
+
+## Request ids
+
+Opt-in. Off by default, answers, log lines and Fastify request ids are exactly what they were before request ids existed. Turn it on with `createServer({ requestIds: { expose: true } })`, or for `plumbus dev` / `start` from `app/server.ts`:
+
+```ts
+export const requestIds = { expose: true };
+```
+
+One part applies either way, because it changes no answer: a caller's `x-correlation-id` / `x-request-id` is written to the execution context and the audit `correlationId` only when it is well formed (rule below). A malformed value is dropped and the context issues its own correlation id, so a header cannot forge an audit or log line. Without the option, authentication refusals still echo the caller's header as `error.requestId` exactly as before.
+
+With `expose: true`, every HTTP request has one id (`requestIdOf(request)` in `@plumbus/core`). It is decided once: a caller's well-formed `x-correlation-id` or `x-request-id` (8–128 characters of `A–Z a–z 0–9 . _ : -`, first a letter or digit), else a fresh UUID. A malformed proposal — empty, too long, or carrying spaces, quotes or line breaks that could forge a log line — is ignored, never echoed.
+
+| Where | How the id appears |
+| --- | --- |
+| Every answer | `x-request-id` response header (also on SSE streams) |
+| Every refusal and error body | `error.requestId` — capability routes; under `createServer` every other JSON `{ error }` body via an `onSend` hook |
+| SSE error events | `error.requestId` on `type: 'error'` |
+| Server log | Fastify `reqId` on each request log line (`createServer` sets `genReqId`); the error handler logs `requestId` |
+| Audit | capability audit rows (`success`, `failure`, `denied`) record it as `correlationId` |
+| Hooks | `onCapabilityError` `info.requestId` (HTTP); `onProcessError` `metadata.requestId` (Fastify errors) |
+| Partner API | `@plumbus/api` 0.4.0-beta.5+ envelope `meta.requestId` / `error.requestId` and `x-request-id`, when `routeConfig.requestIds` is passed to `registerApiRoutes` |
+| Generated client | `PlumbusApiError.requestId` (`@plumbus/ui` 0.10.0-beta.3+; `undefined` when the server does not expose ids) |
+
+The id is safe to show to the person who met the failure, so they can read it to whoever supports them: it names the request, not the resource, the reason or the caller. A 403 body still says only `Access denied` and `metadata.reason`.
 
 ## Application-neutral framework source
 

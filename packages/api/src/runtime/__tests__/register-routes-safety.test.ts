@@ -77,16 +77,83 @@ describe('registerApiRoutes — actions over GET', () => {
     await app.close();
   });
 
-  it('registers a GET action by default but logs a CSRF warning naming the route', async () => {
+  function registrationError(register: () => void): unknown {
+    try {
+      register();
+    } catch (err) {
+      return err;
+    }
+    return undefined;
+  }
+
+  it.each([
+    ['an inline GET action', 'action', 'GET', false],
+    ['a GET action from the manifest', 'action', 'POST', true],
+  ] as const)('refuses to register %s by default (no CSRF cover on GET)', async (_label, _kind, inlineMethod, viaManifest) => {
+    let ran = false;
+    app = Fastify();
+    const cap = actionCap(inlineMethod, () => {
+      ran = true;
+    });
+    const thrown = registrationError(() =>
+      registerApiRoutes(
+        app,
+        buildRouteConfig(),
+        [cap, queryCap],
+        viaManifest
+          ? {
+              manifest: {
+                apiVersion: 'plumbus.dev/v1',
+                name: 'widgets-api',
+                basePath: '/api/v1',
+                expose: [
+                  {
+                    capability: 'widgets.deleteWidget',
+                    operationId: 'deleteWidget',
+                    method: 'GET',
+                    path: '/widgets/{widgetId}/delete',
+                  },
+                  {
+                    capability: 'widgets.getWidget',
+                    operationId: 'getWidget',
+                    method: 'GET',
+                    path: '/widgets/{widgetId}',
+                  },
+                ],
+              },
+            }
+          : undefined,
+      ),
+    );
+    expect(thrown).toBeInstanceOf(ApiManifestError);
+    expect((thrown as ApiManifestError).code).toBe('api.register.action-over-get');
+    expect((thrown as ApiManifestError).message).toContain('widgets.deleteWidget');
+
+    await app.ready();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/widgets/w1/delete',
+      headers: { authorization: 'Bearer test' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(ran).toBe(false);
+  });
+
+  it('rejectActionsOverGet: false registers the GET action and logs a CSRF warning naming the route', async () => {
     let ran = false;
     app = Fastify();
     const warn = vi.spyOn(app.log, 'warn');
-    registerApiRoutes(app, buildRouteConfig(), [
-      actionCap('GET', () => {
-        ran = true;
-      }),
-      queryCap,
-    ]);
+    registerApiRoutes(
+      app,
+      buildRouteConfig(),
+      [
+        actionCap('GET', () => {
+          ran = true;
+        }),
+        queryCap,
+      ],
+      { rejectActionsOverGet: false },
+    );
     await app.ready();
 
     expect(warn).toHaveBeenCalledTimes(1);
@@ -106,43 +173,12 @@ describe('registerApiRoutes — actions over GET', () => {
     expect(ran).toBe(true);
   });
 
-  it('does not warn for queries over GET or actions over POST', async () => {
+  it('registers POST actions and GET queries by default, without a warning', async () => {
     app = Fastify();
     const warn = vi.spyOn(app.log, 'warn');
     registerApiRoutes(app, buildRouteConfig(), [actionCap('POST', () => {}), queryCap]);
     await app.ready();
     expect(warn).not.toHaveBeenCalled();
-  });
-
-  it('rejectActionsOverGet: true refuses to register the GET action', async () => {
-    app = Fastify();
-    let thrown: unknown;
-    try {
-      registerApiRoutes(app, buildRouteConfig(), [actionCap('GET', () => {}), queryCap], {
-        rejectActionsOverGet: true,
-      });
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(ApiManifestError);
-    expect((thrown as ApiManifestError).code).toBe('api.register.action-over-get');
-    expect((thrown as ApiManifestError).message).toContain('widgets.deleteWidget');
-
-    await app.ready();
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/v1/widgets/w1/delete',
-      headers: { authorization: 'Bearer test' },
-    });
-    expect(res.statusCode).toBe(404);
-  });
-
-  it('rejectActionsOverGet: true still registers POST actions and GET queries', async () => {
-    app = Fastify();
-    registerApiRoutes(app, buildRouteConfig(), [actionCap('POST', () => {}), queryCap], {
-      rejectActionsOverGet: true,
-    });
-    await app.ready();
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/widgets/w1',

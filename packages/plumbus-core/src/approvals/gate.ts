@@ -9,6 +9,10 @@ import {
 import { digestApprovalInput } from './digest.js';
 import { ApprovalRequestState, type ApprovalGateResult } from './types.js';
 
+function isPast(expiresAt: string, now: Date): boolean {
+  return new Date(expiresAt).getTime() <= now.getTime();
+}
+
 export interface ApprovalGateCapability {
   name: string;
   domain: string;
@@ -53,27 +57,23 @@ export async function evaluateApprovalGate(opts: {
     };
   }
 
-  const match = await approvals.findMatchingApproval({
+  // Bind the lookup to the tenant and flow execution this gate runs for, so a
+  // shared service never lets one tenant's (or execution's) approval satisfy
+  // another's gate.
+  const binding = {
+    tenantId: ctx.auth?.tenantId ?? null,
+    executionId: ctx.flowId ?? null,
     capabilityId,
     definitionVersion,
     inputDigest,
     now,
-  });
+  };
+  const match = await approvals.findMatchingApproval(binding);
 
   if (!match) {
-    const conflict = await approvals.findConflictingApproval({
-      capabilityId,
-      definitionVersion,
-      inputDigest,
-      now,
-    });
+    const conflict = await approvals.findConflictingApproval(binding);
     if (conflict) {
-      await approvals.invalidateOnMaterialChange({
-        capabilityId,
-        definitionVersion,
-        inputDigest,
-        now,
-      });
+      await approvals.invalidateOnMaterialChange(binding);
       const code =
         conflict.definitionVersion !== definitionVersion
           ? 'definition-mismatch'
@@ -99,7 +99,7 @@ export async function evaluateApprovalGate(opts: {
     };
   }
 
-  if (match.state === ApprovalRequestState.Expired) {
+  if (match.state !== ApprovalRequestState.Approved || isPast(match.expiresAt, now)) {
     return {
       blocked: true,
       code: 'expired-approval',

@@ -64,6 +64,11 @@ export async function loadServerExtensions(
       if (typeof bodyLimit === 'number' && Number.isFinite(bodyLimit) && bodyLimit > 0) {
         extensions.bodyLimit = bodyLimit;
       }
+      // Opt-in request ids on answers (`export const requestIds = { expose: true }`).
+      const requestIds = mod.requestIds ?? mod.default?.requestIds;
+      if (requestIds !== null && typeof requestIds === 'object' && requestIds.expose === true) {
+        extensions.requestIds = { expose: true };
+      }
       // Per-unit data-plane resolution for the whole runtime (`export const dataPlaneResolver`):
       // the worker pool resolves each claimed unit's plane and places flows on it; the server
       // places the flows requests start and, under `requestDataPlane: 'resolved'`, resolves

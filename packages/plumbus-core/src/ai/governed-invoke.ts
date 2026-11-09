@@ -10,6 +10,8 @@ export interface GovernedInvokeInput {
   input: unknown;
   pin: GovernedModelPin;
   prompt: string;
+  /** Flow execution the review was requested for, if any; must match the approval's. */
+  executionId?: string;
   estimatedTokens?: number;
   estimatedCostUsd?: number;
 }
@@ -129,15 +131,23 @@ export async function invokeGovernedAi(
   }
 
   const inputDigest = digestApprovalInput(governedReviewSubject(input.input, pin));
+  const now = deps.now?.() ?? new Date();
   const match = await deps.approvals.findMatchingApproval({
+    tenantId: deps.tenantId ?? null,
+    executionId: input.executionId ?? null,
     capabilityId: input.capabilityId,
     definitionVersion: input.definitionVersion,
     inputDigest,
-    now: deps.now?.(),
+    now,
   });
-  if (!match || match.state !== ApprovalRequestState.Approved) {
-    const code: GovernedAiBlockedCode =
-      match?.state === ApprovalRequestState.Expired ? 'expired-review' : 'missing-review';
+  if (
+    !match ||
+    match.state !== ApprovalRequestState.Approved ||
+    new Date(match.expiresAt).getTime() <= now.getTime()
+  ) {
+    // findMatchingApproval only returns approved or expired rows, so any
+    // match that did not pass is an expired review.
+    const code: GovernedAiBlockedCode = match ? 'expired-review' : 'missing-review';
     throw new GovernedAiBlockedError(
       code,
       'Governed AI requires a bound, unexpired human review before the model is called',

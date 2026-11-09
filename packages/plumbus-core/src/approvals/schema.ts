@@ -3,7 +3,8 @@
 // until a host populates them honestly.
 //
 // Listed in FRAMEWORK_TABLE_NAMES. Shipped SQL lives in
-// packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql.
+// packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql
+// (+ 0002 cancellation evidence, 0005 tenant binding).
 // Apply on dedicated harness DBs only; never on application tenant databases.
 
 import { index, text, timestamp } from 'drizzle-orm/pg-core';
@@ -44,6 +45,7 @@ export function createTenantApprovalTables(schemaName?: string) {
       riskClass: text('risk_class').notNull(),
       reviewReason: text('review_reason').notNull(),
       state: text('state').notNull(),
+      tenantId: text('tenant_id'),
       executionId: text('execution_id'),
       createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
       expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -56,6 +58,7 @@ export function createTenantApprovalTables(schemaName?: string) {
     (t) => [
       index('approval_request_capability_idx').on(t.capabilityId),
       index('approval_request_binding_idx').on(t.capabilityId, t.definitionVersion, t.inputDigest),
+      index('approval_request_subject_idx').on(t.tenantId, t.executionId),
     ],
   );
 

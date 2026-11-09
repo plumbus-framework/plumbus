@@ -271,6 +271,7 @@ export type ServerExtensions = Pick<
   | 'credentials'
   | 'authenticationRuntime'
   | 'bodyLimit'
+  | 'requestIds'
   | 'dataPlaneResolver'
   | 'untenantedDataPlane'
   | 'resolveTenantRef'

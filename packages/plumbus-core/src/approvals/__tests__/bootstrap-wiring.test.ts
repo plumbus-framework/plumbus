@@ -5,10 +5,11 @@ import { ConsumerRegistry } from '../../events/consumer-registry.js';
 import { EventRegistry } from '../../events/registry.js';
 import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import { FlowRegistry } from '../../flows/registry.js';
+import { createServer, type ServerConfig } from '../../server/bootstrap.js';
 import type { PlumbusConfig } from '../../types/config.js';
 import type { AuthContext } from '../../types/security.js';
-import { createServer, type ServerConfig } from '../../server/bootstrap.js';
 import { ActionRiskTier } from '../action-risk.js';
+import { createAllowAllAuthorizationProvider } from '../authorization.js';
 import { hostApprovalRuntimeExtras } from '../host-runtime.js';
 import { createMemoryApprovalStore } from '../memory-store.js';
 import { createApprovalService } from '../service.js';
@@ -95,7 +96,10 @@ describe('hostApprovalRuntimeExtras', () => {
   });
 
   it('passes through a host-supplied approval service', () => {
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     expect(hostApprovalRuntimeExtras({ approvals }).approvals).toBe(approvals);
   });
 });
@@ -110,7 +114,10 @@ describe('createServer approval opt-in', () => {
   });
 
   it('wires the host approval service onto request dependencies', async () => {
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     createServer(makeServerConfig({ approvals }));
     const routeConfig = vi.mocked(registerAllRoutes).mock.calls.at(-1)?.[2];
     const deps = routeConfig?.createDependencies(auth);
@@ -118,6 +125,7 @@ describe('createServer approval opt-in', () => {
     expect(
       (
         await approvals.requestApproval({
+          tenantId: 'tenant-1',
           capabilityId: 'billing.refund',
           definitionVersion: '1',
           input: { amount: 1 },

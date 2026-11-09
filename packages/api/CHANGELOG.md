@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0-beta.5 — 2026-11-09 — security release, opt-in request id tied to the server's
+
+### Security (breaking where noted)
+
+- **From main (stable 0.3.1):** the default in-memory idempotency store is bounded (24 h, 10 000 records; it lives in core and is re-exported here with `DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS`, `DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES` and `InMemoryIdempotencyStoreOptions`); `fastify` ^5.12.8.
+- **Breaking: actions over GET are refused.** `registerApiRoutes` throws `ApiManifestError` (`api.register.action-over-get`) for an `action` exposed via `GET`, inline or from the manifest, because cookie CSRF protection does not cover GET. `rejectActionsOverGet: false` keeps the old register-and-warn behaviour.
+- **Replays are re-authorized.** An idempotent replay runs the capability's current access policy and input-aware `authorize` before the stored result is returned, so a caller who would be refused now gets the refusal. The payload fingerprint includes the caller's roles and scopes: the same key under changed authority is `422 idempotency_conflict`.
+- Callers without a user id (tenant-only principals included) on idempotency-required routes get `401`, as anonymous callers already did.
+
+### Opt-in request id
+
+
+- **Opt-in, off by default.** When the route config passed to `registerApiRoutes` has `requestIds: { expose: true }` (core 0.9.0-beta.9+ `createServer({ requestIds })` sets it on the `routeConfig` handed to `onRoutesRegistered`), the envelope's `requestId` is Fastify's `request.id` when it is well formed — core's request id, a caller's well-formed `x-request-id` / `x-correlation-id` or a UUID — and a fresh UUID otherwise; it is also sent as the `x-request-id` header and recorded as the audit `correlationId`, so the id a partner quotes finds the request's log lines and audit rows. Without the option, answers are unchanged (a fresh UUID in the envelope, no header). Core peer unchanged (`>=0.9.0-beta.6 <0.10.0`); with an older core the option is never set.
+
 ## 0.4.0-beta.4 — 2026-10-26
 
 - **zod 4.** Query coercion, path parameters and the forbidden-field policy read schemas through core's `zodTypeName` / `zodObjectShape` (zod 4 has no `_def.typeName`, so the old checks silently matched nothing); OpenAPI schemas come from core's `zodToJsonSchemaObject` (same output as before). `zod-to-json-schema` is no longer a dependency. Core peer `>=0.9.0-beta.6 <0.10.0`.

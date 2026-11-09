@@ -1061,6 +1061,7 @@ ctx.ai.checkProviderCostBudget({
 import {
   checkGovernedBudget,
   createApprovalService,
+  createAllowAllAuthorizationProvider,
   createCostTracker,
   createMemoryApprovalStore,
   createMemoryGovernedArtifactStore,
@@ -1088,7 +1089,12 @@ const pin = {
 
 const runtime = createPlumbusRuntime({
   artifacts,
-  approvals: createApprovalService({ store: createMemoryApprovalStore() }),
+  tenantId: "tenant-1",
+  approvals: createApprovalService({
+    store: createMemoryApprovalStore(),
+    // Who may decide reviews. Use your real gate; allow-all is an explicit opt-out.
+    authorization: createAllowAllAuthorizationProvider(),
+  }),
   host: {
     resolveModel: async (requested) => hostModels.get(`${requested.providerId}/${requested.modelId}`),
     checkBudget: async (input) =>
@@ -1115,6 +1121,7 @@ Approve first with the same subject the hook will hash:
 
 ```typescript
 await runtime.approvals.requestApproval({
+  tenantId: "tenant-1", // must equal the runtime's tenantId (null when untenanted)
   capabilityId: "example.summarize",
   definitionVersion: "1",
   input: governedReviewSubject(input, pin),
@@ -1122,6 +1129,8 @@ await runtime.approvals.requestApproval({
   expiresAt: new Date(Date.now() + 60 * 60 * 1000),
 });
 ```
+
+The review is bound to the runtime's `tenantId` and to `invokeGovernedAi({ executionId })` (unset outside a flow): a review requested for another tenant or execution never matches, and an approved review past its `expiresAt` blocks with `expired-review`.
 
 The published prompt body is sent as the model `system` text. A blocked call throws `GovernedAiBlockedError` and does **not** invoke `model.complete`.
 

@@ -36,7 +36,7 @@ This package ships those pieces, tested against each other. The hosted-login hal
 | **`cognito()`** (root) | `@plumbus/auth` provider integration: hosted-UI `identity_provider` allowlist and default, `lang` hint, client-auth method (`client_secret_basic` / `client_secret_post`), provider logout URL, and registration warnings for non-Cognito issuers. |
 | **`createCognitoPoolUsers()`** (`./server`) | Per pool: `ensureUser` (admin-created, no Cognito message, email verified, `CONFIRMED`), `signIn` (custom auth + attestation → verified ID-token identity, refresh token revoked), `getUser`, `setUserEnabled`, `updateEmail`. |
 | **`createCognitoPoolAdministration()`** (`./server`) | Idempotent `ensureAttestedUserPool` (admin-only sign-up, `admin_only` recovery, triggers, deletion protection, ownership tags, secretless custom-auth client), ownership-checked `deleteUserPool`, `readMfaPolicy`. |
-| **`createCognitoPoolDirectory()`** (`./server`) | A hosted-login pool's users without signing anyone in: `inviteUser` (optionally with no mail yet), `resendInvitation`, `getUser`, `listUsers`, `setUserEnabled`, `deleteUser`, `updateEmail`. |
+| **`createCognitoPoolDirectory()`** (`./server`) | A hosted-login pool's users without signing anyone in: `inviteUser` (optionally with no mail yet), `resendInvitation`, `getUser`, `listUsers`, `setUserEnabled`, `deleteUser`, `updateEmail`, and profile attributes: `getUserAttributes`, `listUserAttributes`, `updateUserAttributes` (opt-in: only names listed in `writableAttributes`, which may be standard profile attributes and `custom:*`; never `email` or other sign-in names). |
 | **`createCognitoIdTokenVerifier()`** (`./server`) | Checks a pool's ID tokens: JWKS signature, issuer, audience, `token_use`. |
 | **`CognitoServerError`** (`./server`) | One error type with a stable `reason` (`user-disabled`, `challenge-refused`, `provider-unavailable`, …). |
 | **`createAttestedSignInTrigger()`** (`./triggers`) | One dependency-free Lambda handler for all three custom-auth triggers. Keys can be a list or an async loader. |
@@ -177,7 +177,7 @@ An attestation for one pool, user or nonce is useless for any other, so one trig
 | `cognito(options?)`, `CognitoIntegrationOptions` | Hosted-login integration for an `@plumbus/auth` OIDC provider entry. |
 | `createCognitoPoolUsers(options)` (`./server`) | Users of one attested pool: `ensureUser`, `signIn`, `getUser`, `setUserEnabled`, `updateEmail`. |
 | `createCognitoPoolAdministration(options)` (`./server`) | `ensureAttestedUserPool`, `deleteUserPool`, `readMfaPolicy`, `issuerFor`. |
-| `createCognitoPoolDirectory(options)` (`./server`) | Users of any pool without sign-in: `inviteUser`, `resendInvitation`, `getUser`, `listUsers`, `setUserEnabled`, `deleteUser`, `updateEmail`. |
+| `createCognitoPoolDirectory(options)` (`./server`) | Users of any pool without sign-in: `inviteUser`, `resendInvitation`, `getUser`, `listUsers`, `setUserEnabled`, `deleteUser`, `updateEmail`, `getUserAttributes`, `listUserAttributes`, `updateUserAttributes` (writes need `writableAttributes`). |
 | `createCognitoIdTokenVerifier({ issuer, clientId })` (`./server`) | ID-token verification against a pool's JWKS. |
 | `cognitoUserPoolIssuer`, `regionOfUserPool`, `assertUserPoolId` (`./server`) | Pool id and issuer helpers. |
 | `parseAttestationKeys` (`./server`, `./triggers`), `validateAttestationKeys` (`./server`) | Keyring from `id:secret[,id:secret…]`; the first key signs, every key verifies. |
@@ -189,6 +189,7 @@ An attestation for one pool, user or nonce is useless for any other, so one trig
 ## Key gotchas
 
 - **`signIn` mints Cognito tokens for any username the keyring holder names.** Call it only after the app has authenticated the person, and resolve the account first — never pass request input straight into `username`.
+- **An existing same-named app client is rewritten to the attested settings** (auth flows, token revocation, user-existence errors, token lifetimes) and the differences are returned as `clientDrift`. The update replaces every client setting, including hand-added callback URLs or OAuth settings; pass `reconcileClient: false` to `ensureAttestedUserPool` to only report the drift.
 - **Provision pools from one place.** `ensureAttestedUserPool` is idempotent but not safe to run concurrently for one name: Cognito pool names are not unique, so two simultaneous calls can create two pools. Never call it from start-up code every replica runs (Kubernetes pods, autoscaled instances). `ensureUser` and `signIn` are safe on every replica.
 - **The server and the Lambda need the same keyring.** Secrets are at least 32 characters. Rotate by adding the new key second on both, deploying, moving it first, deploying, then dropping the old key.
 - **The Lambda needs a resource policy** allowing `cognito-idp.amazonaws.com` to invoke it for the pools' ARNs; without it Cognito cannot run the triggers and every sign-in fails.

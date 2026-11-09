@@ -31,6 +31,11 @@ export interface CapabilityErrorInfo {
   sourceIp?: string;
   /** HTTP User-Agent — HTTP only. */
   userAgent?: string;
+  /**
+   * HTTP only: the request id the refusal or error body carried as `error.requestId` (and the
+   * `x-request-id` header), so a report a person read to support can be found in this hook's sink.
+   */
+  requestId?: string;
   db?: PostgresJsDatabase;
   /** Where the capability ran: an HTTP route, a flow step, a job, or an event handler. */
   source?: 'http' | 'flow' | 'job' | 'event';

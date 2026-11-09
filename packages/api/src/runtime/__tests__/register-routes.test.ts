@@ -1,14 +1,14 @@
-import { writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineCapability, type RouteGeneratorConfig } from '@plumbus/core';
 import {
   createTestAuth,
+  mockAI,
   mockAudit,
   mockEvents,
   mockFlows,
   mockLogger,
-  mockAI,
 } from '@plumbus/core/testing';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -79,7 +79,11 @@ describe('registerApiRoutes', () => {
     }
   });
 
-  async function setupCaps(fixturePath?: string) {
+  async function setupCaps(
+    fixturePath?: string,
+    fastifyOptions?: Parameters<typeof Fastify>[0],
+    requestIds?: { expose: boolean },
+  ) {
     tmpDir = join(tmpdir(), `plumbus-api-test-${Date.now()}`);
     await mkdir(tmpDir, { recursive: true });
     if (fixturePath) {
@@ -136,12 +140,17 @@ describe('registerApiRoutes', () => {
       },
     });
 
-    app = Fastify();
-    registerApiRoutes(app, buildRouteConfig(), [getRefund, approveRefund], {
-      manifest,
-      appRoot: tmpDir,
-      idempotencyStore: createInMemoryIdempotencyStore(),
-    });
+    app = Fastify(fastifyOptions);
+    registerApiRoutes(
+      app,
+      { ...buildRouteConfig(), ...(requestIds ? { requestIds } : {}) },
+      [getRefund, approveRefund],
+      {
+        manifest,
+        appRoot: tmpDir,
+        idempotencyStore: createInMemoryIdempotencyStore(),
+      },
+    );
     await app.ready();
 
     return { getRefund, approveRefund };
@@ -160,6 +169,42 @@ describe('registerApiRoutes', () => {
     expect(body.data.status).toBe('live');
     expect(body.meta.requestId).toBeDefined();
     expect(handlerExecuted).toBe(true);
+  });
+
+  it('adds no x-request-id header by default and keeps a fresh envelope id', async () => {
+    await setupCaps(undefined, { genReqId: () => 'edge-req-0005' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { authorization: 'Bearer test' },
+    });
+    expect(res.headers['x-request-id']).toBeUndefined();
+    const body = res.json();
+    expect(body.meta.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('under requestIds.expose, carries one id in the header, the envelope and the audit row', async () => {
+    await setupCaps(undefined, undefined, { expose: true });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { authorization: 'Bearer test' },
+    });
+    const body = res.json();
+    expect(res.headers['x-request-id']).toBe(body.meta.requestId);
+    expect(body.meta.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('under requestIds.expose, uses a well-formed Fastify request id for logs and envelope', async () => {
+    await setupCaps(undefined, { genReqId: () => 'edge-req-0005' }, { expose: true });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r1',
+      headers: { authorization: 'Bearer nope-unknown' },
+    });
+    expect(res.headers['x-request-id']).toBe('edge-req-0005');
+    const body = res.json();
+    expect(body.meta?.requestId ?? body.error?.requestId).toBe('edge-req-0005');
   });
 
   it('path param merges into input', async () => {
@@ -1478,6 +1523,156 @@ describe('registerApiRoutes idempotency outcomes', () => {
     const reused = await approve(server, 'k', 'second');
     expect(reused.statusCode).toBe(422);
     expect(reused.json().error.code).toBe('idempotency_conflict');
+  });
+
+  it('runs current input-aware authorization before replaying a stored result', async () => {
+    let held = true;
+    let runs = 0;
+    const authorize = vi.fn(async (ctx: { errors: { forbidden: (m: string) => Error } }) => {
+      if (!held) throw ctx.errors.forbidden('refund scope revoked');
+    });
+    const cap = defineCapability({
+      name: 'approveRefund',
+      kind: 'action',
+      domain: 'billing',
+      input: z.object({ refundId: z.string(), note: z.string().optional() }),
+      output: z.object({ refundId: z.string() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'] },
+      exposeAs: ['api'],
+      api: { operationId: 'approveRefund', method: 'POST', path: '/refunds/{refundId}/approve' },
+      authorize: authorize as never,
+      handler: async (_ctx, input) => {
+        runs += 1;
+        return { refundId: input.refundId };
+      },
+    });
+    app = Fastify();
+    registerApiRoutes(app, buildRouteConfig(), [cap], {
+      manifest: {
+        ...manifest,
+        expose: [
+          {
+            capability: 'billing.approveRefund',
+            operationId: 'approveRefund',
+            method: 'POST',
+            path: '/refunds/{refundId}/approve',
+            idempotency: { required: true, header: 'Idempotency-Key' },
+          },
+        ],
+      },
+      idempotencyStore: createInMemoryIdempotencyStore(),
+    });
+    await app.ready();
+    expect((await approve(app, 'authz-key')).statusCode).toBe(200);
+
+    held = false;
+    const revoked = await approve(app, 'authz-key');
+    expect(revoked.statusCode).toBe(403);
+    expect(revoked.json().ok).toBe(false);
+    expect(JSON.stringify(revoked.json())).not.toContain('"refundId"');
+
+    held = true;
+    const restored = await approve(app, 'authz-key');
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().data).toEqual({ refundId: 'r1' });
+    // The handler ran once; the replays only re-ran authorization.
+    expect(runs).toBe(1);
+    expect(authorize).toHaveBeenCalledTimes(3);
+  });
+
+  it('never replays a stored result across a change of roles or scopes', async () => {
+    let roles = ['admin'];
+    let runs = 0;
+    const routeConfig: RouteGeneratorConfig = {
+      ...buildRouteConfig(),
+      authAdapter: {
+        authenticate: async () => createTestAuth({ userId: 'user-a', roles, scopes: [] }),
+      },
+    };
+    app = Fastify();
+    registerApiRoutes(
+      app,
+      routeConfig,
+      [
+        approveCap(() => {
+          runs += 1;
+        }),
+      ],
+      {
+        manifest: {
+          ...manifest,
+          expose: [
+            {
+              capability: 'billing.approveRefund',
+              operationId: 'approveRefund',
+              method: 'POST',
+              path: '/refunds/{refundId}/approve',
+              idempotency: { required: true, header: 'Idempotency-Key' },
+            },
+          ],
+        },
+        idempotencyStore: createInMemoryIdempotencyStore(),
+      },
+    );
+    await app.ready();
+    expect((await approve(app, 'role-key')).statusCode).toBe(200);
+    roles = ['admin', 'auditor'];
+    const changed = await approve(app, 'role-key');
+    expect(changed.statusCode).toBe(422);
+    expect(changed.json().error.code).toBe('idempotency_conflict');
+    expect(runs).toBe(1);
+  });
+
+  it('refuses a public idempotent call with no user id, even when it carries a tenant', async () => {
+    let runs = 0;
+    const cap = defineCapability({
+      name: 'approveRefund',
+      kind: 'action',
+      domain: 'billing',
+      input: z.object({ refundId: z.string(), note: z.string().optional() }),
+      output: z.object({ refundId: z.string() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { public: true },
+      exposeAs: ['api'],
+      api: { operationId: 'approveRefund', method: 'POST', path: '/refunds/{refundId}/approve' },
+      handler: async (_ctx, input) => {
+        runs += 1;
+        return { refundId: input.refundId };
+      },
+    });
+    const routeConfig: RouteGeneratorConfig = {
+      ...buildRouteConfig(),
+      authAdapter: {
+        authenticate: async () => ({
+          userId: undefined,
+          tenantId: 'tenant-a',
+          roles: [],
+          scopes: [],
+          provider: 'host',
+        }),
+      },
+    };
+    app = Fastify();
+    registerApiRoutes(app, routeConfig, [cap], {
+      manifest: {
+        ...manifest,
+        expose: [
+          {
+            capability: 'billing.approveRefund',
+            operationId: 'approveRefund',
+            method: 'POST',
+            path: '/refunds/{refundId}/approve',
+            idempotency: { required: true, header: 'Idempotency-Key' },
+          },
+        ],
+      },
+      idempotencyStore: createInMemoryIdempotencyStore(),
+    });
+    await app.ready();
+    const res = await approve(app, 'tenant-only');
+    expect(res.statusCode).toBe(401);
+    expect(runs).toBe(0);
   });
 
   it('answers 409 with Retry-After while another request holds the key', async () => {

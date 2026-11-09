@@ -769,6 +769,13 @@ export async function startFakeCognito(options: FakeCognitoOptions = {}): Promis
       applyAttributes(user(pool(input.UserPoolId), input.Username), input.UserAttributes);
       return {};
     },
+    AdminDeleteUserAttributes(input) {
+      const entry = user(pool(input.UserPoolId), input.Username);
+      for (const name of list(input.UserAttributeNames)) {
+        if (name !== 'sub') entry.attributes.delete(name);
+      }
+      return {};
+    },
     AdminDeleteUser(input) {
       const state = pool(input.UserPoolId);
       const entry = user(state, input.Username);

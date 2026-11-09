@@ -164,6 +164,8 @@ await getUser(
 );
 ```
 
+A non-2xx answer throws an `Error` carrying `status`, `code`, `metadata` and `requestId` (`PlumbusApiError`). `requestId` is the server's id for the failed request (`error.requestId`, else the envelope's `meta.requestId`, else the `x-request-id` header; `undefined` from a server that sends none — core sends one only under `requestIds: { expose: true }`). Show it on a failure screen so the person can quote it to support; the server's log and audit trail carry the same id (see [Request ids](../security/security-model.md#request-ids)).
+
 Flow trigger generation is intentionally narrow. A flow descriptor with an explicit `startPath` produces a function named `start{PascalFlowName}` that posts to that path and returns `{ executionId: string; status: string }`. For example, `{ name: "refund", startPath: "/api/billing/request-refund" }` targets a route the host actually serves. Definitions discovered by `plumbus ui generate` do not imply HTTP exposure: flows are started through an API-exposed capability using `ctx.flows.start`, and its ordinary typed capability client is the supported entry point. The generator no longer invents `/api/{domain}/{flow}/start` routes. Existing consumers should regenerate their clients; programmatic users of `generateFlowTrigger` must supply a served path (the function returns an empty string otherwise). The package does not yet generate flow-status polling, timelines, approvals, wait/resume controls, or retry controls.
 
 ### Auth module specifier
@@ -253,26 +255,26 @@ The `provider` field is part of the config shape, but the current generator does
 
 | Transport | Generated behavior |
 |---|---|
-| `bearer` (default) | `localStorage` token storage, `Authorization: Bearer` headers |
-| `session` | `credentials: 'include'`, in-memory CSRF from `GET /auth/session`, no `AUTH_SECRET` in `.env.local` |
+| `session` (default since `@plumbus/ui` 0.10.0-beta.3) | `credentials: 'include'`, in-memory CSRF from `GET /auth/session`, no `AUTH_SECRET` in `.env.local` |
+| `bearer` | `localStorage` token storage, `Authorization: Bearer` headers |
 
-Use **`session`** when the backend wires `@plumbus/auth`. Use **`bearer`** for JWT/OIDC adapter apps or service-style clients.
+Use **`session`** when the backend wires `@plumbus/auth`. Use **`bearer`** only for JWT/OIDC adapter apps or service-style clients, and pass `--auth-transport bearer` explicitly: before 0.10.0-beta.3 an omitted transport meant `bearer`.
 
 ### Security posture
 
-The generated auth module stores bearer tokens in `localStorage`. This makes the helpers simple to use in client-side scaffolding, but it also means tokens are readable by JavaScript: any XSS in the app can read the token and replay it from elsewhere until it expires. For browser apps prefer `--auth-transport session`; the default stays `bearer` on the 0.9.x UI line so existing apps keep working, and the generator warns when the transport is not chosen explicitly. Tokens are also not available to Next.js proxy/middleware. `RouteGuard` is therefore a view-level UX helper only.
+With `--auth-transport bearer`, the generated auth module stores bearer tokens in `localStorage`. Tokens there are readable by JavaScript: any XSS in the app can read the token and replay it from elsewhere until it expires, so the generator warns when bearer is chosen. The default `session` transport keeps the credential in an HttpOnly cookie instead. Bearer tokens are also not available to Next.js proxy/middleware. `RouteGuard` is therefore a view-level UX helper only.
 
 Applications must continue to enforce authorization in backend Plumbus capabilities and policies. Production applications that require server-readable sessions should replace or adapt the generated token storage with an HttpOnly cookie or another server-side session mechanism.
 
 ### Cookie sessions with `@plumbus/auth`
 
-When the backend uses **`@plumbus/auth`**, browser clients should **not** use the generated localStorage bearer flow. Instead:
+When the backend uses **`@plumbus/auth`**, browser clients should **not** use the generated localStorage bearer flow; the default `session` transport generates the following:
 
 1. Redirect users to `/auth/login` (or `/auth/login/:provider`).
 2. Load identity from **`GET /auth/session`** with `credentials: 'include'`.
 3. Send **`X-CSRF-Token`** on mutating API calls alongside the session cookie.
 
-Adapt generated `lib/client.ts` fetch wrappers to use `credentials: 'include'` and CSRF headers rather than `Authorization: Bearer` from `getAuthHeaders()`.
+Generated `lib/client.ts` fetch wrappers already use `credentials: 'include'` and CSRF headers with the session transport.
 
 See [docs/auth/sessions-and-csrf.md](../auth/sessions-and-csrf.md) and [docs/auth/migration.md](../auth/migration.md).
 

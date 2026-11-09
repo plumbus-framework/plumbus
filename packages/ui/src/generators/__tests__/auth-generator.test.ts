@@ -88,13 +88,13 @@ describe('generateTokenUtils', () => {
 
 // ── generateAuthFunctions ──
 
-describe('generateAuthFunctions', () => {
+describe('generateAuthFunctions (bearer transport)', () => {
   beforeEach(() => {
     __resetTransportWarningForTests();
   });
 
   it('generates login function', () => {
-    const code = generateAuthFunctions();
+    const code = generateAuthFunctions({ provider: 'jwt', transport: 'bearer' });
     expect(code).toContain('export async function login');
     expect(code).toContain('LoginCredentials');
     expect(code).toContain('Promise<AuthUser>');
@@ -102,21 +102,21 @@ describe('generateAuthFunctions', () => {
   });
 
   it('generates logout function', () => {
-    const code = generateAuthFunctions();
+    const code = generateAuthFunctions({ provider: 'jwt', transport: 'bearer' });
     expect(code).toContain('export async function logout');
     expect(code).toContain('/api/auth/logout');
     expect(code).toContain('clearStoredToken');
   });
 
   it('generates refresh function', () => {
-    const code = generateAuthFunctions();
+    const code = generateAuthFunctions({ provider: 'jwt', transport: 'bearer' });
     expect(code).toContain('export async function refreshSession');
     expect(code).toContain('/api/auth/refresh');
     expect(code).toContain('AuthUser | null');
   });
 
   it('generates getAuthHeaders function', () => {
-    const code = generateAuthFunctions();
+    const code = generateAuthFunctions({ provider: 'jwt', transport: 'bearer' });
     expect(code).toContain('export function getAuthHeaders');
     expect(code).toContain('Authorization');
     expect(code).toContain('Bearer');
@@ -125,6 +125,7 @@ describe('generateAuthFunctions', () => {
   it('uses custom endpoints from config', () => {
     const config: AuthHelperConfig = {
       provider: 'jwt',
+      transport: 'bearer',
       loginEndpoint: '/auth/signin',
       logoutEndpoint: '/auth/signout',
       refreshEndpoint: '/auth/renew',
@@ -284,13 +285,23 @@ describe('generateAuthModule', () => {
     expect(code).not.toContain('localStorage');
   });
 
-  it('warns once when transport is omitted', () => {
+  it('defaults to the session transport without a warning', () => {
     __resetTransportWarningForTests();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    generateAuthModule({ provider: 'jwt' });
-    generateAuthModule({ provider: 'jwt' });
+    const code = generateAuthFunctions({ provider: 'jwt' });
+    expect(code).not.toContain('localStorage');
+    expect(code).not.toContain('clearStoredToken');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('warns once when the bearer transport is chosen', () => {
+    __resetTransportWarningForTests();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    generateAuthModule({ provider: 'jwt', transport: 'bearer' });
+    generateAuthModule({ provider: 'jwt', transport: 'bearer' });
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain('transport omitted');
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('localStorage');
     warnSpy.mockRestore();
   });
 });

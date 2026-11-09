@@ -92,7 +92,7 @@ Any audio can impersonate a speaker — treat this as a spoofing surface (consen
 
 ## HTTP routes
 
-`registerVoiceCloneRoutes(app, routeConfig, opts)` is separate from `registerVoiceRoutes` (keeps Fastify optional on the core package). Register `@fastify/multipart` on the app before create / synthesize-reference uploads. Uploads are counted while streaming and stop at `min(opts.maxSampleBytes, capabilities.maxSampleBytes)` (`400 voice.clone.sample_too_large`); the limit is also passed to `request.file()` / `request.parts()`. Vendor error text is logged, not returned. For cookie auth, set `csrfSecret` + `externalBaseUrl` (see [security.md](./security.md#hardening-options-voice-062)).
+`registerVoiceCloneRoutes(app, routeConfig, opts)` is separate from `registerVoiceRoutes` (keeps Fastify optional on the core package). Register `@fastify/multipart` on the app before create / synthesize-reference uploads. Uploads are counted while streaming and stop at `min(opts.maxSampleBytes, capabilities.maxSampleBytes)` (`400 voice.clone.sample_too_large`); the limit is also passed to `request.file()` / `request.parts()`. Vendor error text is logged, not returned. For cookie auth, `csrfSecret` + `externalBaseUrl` are required — registration fails without them unless `requireBrowserSecurity: false` (see [security.md](./security.md#hardening-options-voice-062)).
 
 Required ownership hooks:
 

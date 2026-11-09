@@ -26,7 +26,7 @@ import { cognito } from "@plumbus/auth-cognito";
 // Server-attested sign-in (Node, AWS SDK) — see attested-sign-in.md
 import {
   createCognitoPoolAdministration,
-  createCognitoPoolDirectory, // a hosted-login pool's users: invite, resend, list, enable/disable, delete
+  createCognitoPoolDirectory, // a hosted-login pool's users: invite, resend, list, enable/disable, delete, read profile attributes; update them only with writableAttributes
   createCognitoPoolUsers,
   createCognitoIdTokenVerifier,
   cognitoUserPoolIssuer,

@@ -16,9 +16,19 @@ Plumbus capabilities can be exposed to partners on versioned HTTP routes. **Cont
 - **`plumbus api validate` / `generate` / `diff` / `test-fixtures validate`** — CLI entry points; dynamic import of `@plumbus/api`.
 - **`registerApiRoutes()`** — mount partner routes at app bootstrap (requires `@plumbus/api` install).
 
-`plumbus api validate` exits `1` only on hard findings by default; pass `--fail-on-governance` to also fail on advisory API governance signals. Details: `node_modules/@plumbus/api/instructions/manifest-and-cli.md`.
+`plumbus api validate` exits `1` on hard findings and on error-severity security findings by default (`--no-fail-on-security` reports security findings without failing); pass `--fail-on-governance` to also fail on advisory API governance signals. Details: `node_modules/@plumbus/api/instructions/manifest-and-cli.md`.
 
 Install the runtime when serving partners: `pnpm add @plumbus/api@plumbus-next` (optional peer of `@plumbus/core`, which declares `@plumbus/api` `>=0.4.0-beta.0 <0.5.0` in the core 0.9 beta family; npm `latest` is `0.3.x` in the core 0.8 stabilization family).
+
+## Request ids
+
+Opt-in (core 0.9.0-beta.9+): `export const requestIds = { expose: true };` from `app/server.ts`
+(or `createServer({ requestIds: { expose: true } })`). Off by default — answers are unchanged.
+With it on, every answer carries `x-request-id`, and every refusal or error body
+`error.requestId`. The same id is the Fastify log `reqId`, the capability
+audit `correlationId` and `onCapabilityError` `info.requestId`. A caller's well-formed
+`x-request-id` / `x-correlation-id` is kept; anything else is replaced by a UUID. Read it in your own
+routes with `requestIdOf(request)`; never mint a second id for the same request.
 
 ## Declared idempotency on the `/api` surface
 
@@ -31,7 +41,11 @@ different input was `409` too), a retry while another request holds the key is `
 `Retry-After` (`metadata.reason: 'idempotency-in-progress'`, database store), a missing header is `validation`
 (`metadata.reason: 'idempotency-key-required'`), and a failed execution releases the key so a
 retry executes again. Authorization is evaluated before the header is looked at, so a refused
-caller is answered by the executor as always. Reads (`GET`) are never keyed. The payload
+caller is answered by the executor as always. A caller with no user id (anonymous on a
+`public` capability) is refused with `401 unauthorized` (`metadata.reason:
+'idempotency-principal-required'`) and nothing runs: such callers share one principal, so a
+claim could let one replay another's result (before core 0.9.0-beta.9 they ran unkeyed, with no
+at-most-once guarantee). Reads (`GET`) are never keyed. The payload
 fingerprint (`hashPayload`) refuses a body nested deeper than `MAX_PAYLOAD_DEPTH` (64 levels)
 with `validation` (`metadata.reason: 'payload-too-deep'`) — a pathological body can never take
 the hasher down with a `RangeError`.

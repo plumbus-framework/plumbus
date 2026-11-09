@@ -71,8 +71,8 @@ export function blockingSecurityFindings(
 /**
  * Pure exit-code policy for `plumbus api validate` (testable without process.exit).
  *
- * Security findings fail the command only with `failOnSecurity` (`--fail-on-security`) in 0.8.x,
- * and then only those that are not `severity: 'warning'`.
+ * Since 0.9, security findings that are not `severity: 'warning'` fail the command by default.
+ * `failOnSecurity: false` (`--no-fail-on-security`) reports them without failing.
  */
 export function apiValidateShouldFail(
   hardFindings: readonly unknown[],
@@ -82,13 +82,34 @@ export function apiValidateShouldFail(
 ): boolean {
   if (hardFindings.length > 0) return true;
   if (opts.failOnGovernance && governanceSignals.length > 0) return true;
-  if (opts.failOnSecurity && blockingSecurityFindings(securityFindings).length > 0) return true;
+  if (opts.failOnSecurity !== false && blockingSecurityFindings(securityFindings).length > 0)
+    return true;
   return false;
 }
 
-/** Line printed when security findings exist but do not affect the exit code. */
+/** Line printed when security findings exist but do not affect the exit code (`--no-fail-on-security`). */
 export const API_VALIDATE_SECURITY_ADVISORY_NOTICE =
-  'Security findings do not fail `plumbus api validate` in 0.8 — pass --fail-on-security to exit 1 on them.';
+  'Security findings did not fail `plumbus api validate` because --no-fail-on-security was passed — drop it to exit 1 on them.';
+
+/**
+ * JSON body printed by `plumbus api validate --json`. `ok` is recomputed from the CLI's own
+ * exit-code decision so it always agrees with the exit status (governance and
+ * `--no-fail-on-security` included).
+ */
+export function buildApiValidateJsonReport(
+  result: Record<string, unknown>,
+  securityFindings: readonly ApiFinding[],
+  governance: readonly GovernanceSignal[],
+  opts: { failed: boolean; failOnSecurity: boolean },
+): Record<string, unknown> {
+  return {
+    ...result,
+    security: securityFindings,
+    governance,
+    securityFailsCommand: opts.failOnSecurity,
+    ok: !opts.failed,
+  };
+}
 
 /** Local view of @plumbus/api runtime (optional peer — dynamic import only). */
 interface ApiRuntimeModule {
@@ -220,7 +241,11 @@ export function registerApiCommand(program: Command): void {
     )
     .option(
       '--fail-on-security',
-      'Exit with failure when API security findings of error severity are present (default: reported only)',
+      'Kept for compatibility; security findings of error severity fail the command by default since 0.9',
+    )
+    .option(
+      '--no-fail-on-security',
+      'Report API security findings without failing the command (opt out of the 0.9 default)',
     )
     .action(
       async (opts: {
@@ -250,18 +275,24 @@ export function registerApiCommand(program: Command): void {
         ];
         const govSignals = gov.effective;
         const securityFindings = result.security ?? [];
+        // Commander leaves this undefined unless --fail-on-security / --no-fail-on-security is given.
+        const failOnSecurity = opts.failOnSecurity !== false;
         const securityNoticeNeeded =
-          !opts.failOnSecurity && blockingSecurityFindings(securityFindings).length > 0;
+          !failOnSecurity && blockingSecurityFindings(securityFindings).length > 0;
+        const failed = apiValidateShouldFail(
+          allFindings,
+          govSignals,
+          { failOnGovernance: opts.failOnGovernance, failOnSecurity },
+          securityFindings,
+        );
 
         if (opts.json) {
           console.log(
             JSON.stringify(
-              {
-                ...result,
-                security: securityFindings,
-                governance: govSignals,
-                securityFailsCommand: opts.failOnSecurity === true,
-              },
+              buildApiValidateJsonReport(result, securityFindings, govSignals, {
+                failed,
+                failOnSecurity,
+              }),
               null,
               2,
             ),
@@ -283,14 +314,7 @@ export function registerApiCommand(program: Command): void {
           }
         }
 
-        if (
-          apiValidateShouldFail(
-            allFindings,
-            govSignals,
-            { failOnGovernance: opts.failOnGovernance, failOnSecurity: opts.failOnSecurity },
-            securityFindings,
-          )
-        ) {
+        if (failed) {
           process.exit(1);
         }
         success('API contract validation passed');

@@ -202,8 +202,14 @@ describe('generateAuthProvider', () => {
     expect(file.content).toContain('export function useAuthContext');
   });
 
-  it('imports bearer helpers by default', () => {
+  it('uses loadSession by default (session transport)', () => {
     const file = generateAuthProvider(makeConfig());
+    expect(file.content).toContain('loadSession');
+    expect(file.content).not.toContain('getStoredToken');
+  });
+
+  it('imports bearer helpers for the bearer transport', () => {
+    const file = generateAuthProvider(makeConfig({ authTransport: 'bearer' }));
     expect(file.content).toContain('@/lib/auth');
     expect(file.content).toContain('getStoredToken');
     expect(file.content).toContain('isTokenExpired');
@@ -232,7 +238,7 @@ describe('generatePlaceholderFiles', () => {
 
 describe('generateNextjsTemplate', () => {
   it('generates all core files', () => {
-    const files = generateNextjsTemplate(makeConfig());
+    const files = generateNextjsTemplate(makeConfig({ authTransport: 'bearer' }));
     const paths = files.map((f) => f.path);
     expect(paths).toContain('package.json');
     expect(paths).toContain('tsconfig.json');
@@ -347,7 +353,7 @@ describe('generateLoginPage', () => {
   });
 
   it('is a client component with email/password form for bearer transport', () => {
-    const file = generateLoginPage(makeConfig());
+    const file = generateLoginPage(makeConfig({ authTransport: 'bearer' }));
     expect(file.content).toContain('"use client"');
     expect(file.content).toContain('<form');
     expect(file.content).toContain('email');
@@ -367,7 +373,7 @@ describe('generateLoginPage', () => {
   });
 
   it('links to signup page for bearer transport', () => {
-    const file = generateLoginPage(makeConfig());
+    const file = generateLoginPage(makeConfig({ authTransport: 'bearer' }));
     expect(file.content).toContain('/signup');
   });
 });

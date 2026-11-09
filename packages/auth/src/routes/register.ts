@@ -6,7 +6,12 @@ import type { DiscoveredProvider } from '../providers/discovery.js';
 import { splitLoginQuery, type createLoginFlow } from '../flow/login-flow.js';
 import type { SessionManager } from '../sessions/manager.js';
 import { readSessionCookie, buildClearSessionCookieHeader } from '../sessions/cookie.js';
-import { errorRedirectUrl, mapCallbackError, SECURITY_HEADERS } from './responses.js';
+import {
+  callbackReturnTo,
+  errorRedirectUrl,
+  mapCallbackError,
+  SECURITY_HEADERS,
+} from './responses.js';
 import { randomToken } from '../crypto/random.js';
 
 export interface AuthRouteDeps {
@@ -150,7 +155,18 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       } else {
         deps.emitAudit?.('auth.login.failed', { providerId, requestId });
       }
-      return reply.redirect(errorRedirectUrl(config.errorPath, code, requestId), 303);
+      const recovered = config.errorReturnToParam ? callbackReturnTo(error) : undefined;
+      return reply.redirect(
+        errorRedirectUrl(
+          config.errorPath,
+          code,
+          requestId,
+          recovered && config.errorReturnToParam
+            ? { param: config.errorReturnToParam, path: recovered }
+            : undefined,
+        ),
+        303,
+      );
     }
   });
 

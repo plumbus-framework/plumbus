@@ -30,13 +30,14 @@ describe('Shipped durable SQL migrations', () => {
       db: tenant.db,
       migrationsFolder: FRAMEWORK_DURABLE_TENANT_MIGRATIONS,
     });
-    expect(tenantResult.applied).toBe(5);
+    expect(tenantResult.applied).toBe(6);
     expect(tenantResult.tags).toEqual([
       '0000_durable_tenant',
       '0001_human_task',
       '0002_approval_cancellation',
       '0003_request_idempotency',
       '0004_claim_and_retention_indexes',
+      '0005_approval_tenant_binding',
     ]);
 
     const spineResult = await applyMigrations({

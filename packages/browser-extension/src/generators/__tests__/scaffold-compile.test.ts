@@ -124,6 +124,7 @@ describe('generated scaffold compiles', { timeout: 30_000 }, () => {
     const clientCode = generateClientModule([cap], [], {
       baseUrl: 'https://api.example.com',
       authModuleImport: './auth.js',
+      authTransport: 'bearer',
     });
 
     const shellFiles = generateBrowserExtensionScaffold({
@@ -196,6 +197,7 @@ describe('generated scaffold compiles', { timeout: 30_000 }, () => {
         content: generateClientModule([cap], [], {
           baseUrl: 'https://api.example.com',
           authModuleImport: './auth.js',
+          authTransport: 'bearer',
         }),
       },
       { path: 'src/client/auth.ts', content: AUTH_STUB },

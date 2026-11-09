@@ -46,7 +46,7 @@ Authoring stays TypeScript. `plumbus compile-flows` (and `compileFlowDefinition`
 
 `CompiledFlowRegistry` retains every published `(flowDefinitionId, definitionVersion)` immutably. `plumbus compile-flows` writes signed JSON under `.plumbus/compiled-flows`. `loadCompiledFlowRegistryFromDirectory` (and `tryLoadCompiledFlowRegistryFromDirectory`) reloads those files into a new registry, recomputing `definitionDigest` and refusing a mismatch. `createServer` and `createWorkerPool` use that load: pass `compiledRegistry`, or `compiledFlowsDirectory`, or leave both off to load `{cwd}/.plumbus/compiled-flows` when that tree has JSON. When a registry is set, the engine **consumes compiled JSON** (not live TypeScript steps): `start` requires a published version and writes `definition_version` + `definition_digest` on `flow_executions`. Later `runNext` / `resume` restore that pin from the row (complete-on-original), including across process restarts. Omit the registry (and have no compiled-flows tree) and the engine keeps today's live `FlowRegistry` objects.
 
-`approval-outcome` steps route on an approval decision (`approved` / `rejected` / `changes-requested`) via `createApprovalService`. In-flight strategies: `complete-on-original` (default), `stop-and-recover` (cancel + record), `migrate` throws `definition-strategy-not-supported` — never a silent no-op.
+`approval-outcome` steps route on an approval decision (`approved` / `rejected` / `changes-requested`) via `createApprovalService`. The step reads only the approval requested for its own tenant and execution, and an approval that expired before the step runs routes as `expired` (no route — the step fails). In-flight strategies: `complete-on-original` (default), `stop-and-recover` (cancel + record), `migrate` throws `definition-strategy-not-supported` — never a silent no-op.
 
 ```bash
 plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
@@ -396,21 +396,21 @@ See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the
 
 ## Resume, cancel and status access
 
-`ctx.flows.resume()`, `ctx.flows.cancel()` and `ctx.flows.status()` check the
-caller against the stored execution (core 0.8.5+):
+`ctx.flows.resume()`, `ctx.flows.cancel()`, `ctx.flows.terminate()` and
+`ctx.flows.status()` check the caller against the stored execution:
 
 - A caller with a tenant cannot reach another tenant's execution. The call
   fails with the same `Flow execution "<id>" not found` error as an unknown id,
-  so foreign ids are not confirmed.
-- By default, another actor in the same tenant (for example an approver
-  resuming someone else's flow) is still allowed; the first such call logs a
-  one-time warning.
-- **Opt-in owner check:** set `enforceExecutionOwnership: true` on
-  `createFlowEngine()`, or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=true` in the API
-  and worker environment (default off). Then only the actor that started the
-  execution, in the same tenant, may resume, cancel or read its status; others
-  get the not-found error. Leave it off if your app resumes flows on behalf of
-  a different user (for example an approver resuming a requester's flow).
+  so foreign ids are not confirmed. An execution whose owner cannot be read is
+  refused the same way.
+- **Owner check (default since core 0.9.0-beta.9):** only the actor that
+  started the execution, in the same tenant, may resume, cancel, terminate or
+  read its status; others get the not-found error.
+- If your app acts on flows for a different user (for example an approver
+  resuming a requester's flow), set `enforceExecutionOwnership: false` on
+  `createFlowEngine()`, or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false` in the API
+  and worker environment. Then any actor of the tenant may act; the first such
+  call logs a one-time warning.
 - Callers with the `system` role are exempt from the owner check; with no
   tenant (worker, scheduler and other internal paths) they are not checked at
   all.

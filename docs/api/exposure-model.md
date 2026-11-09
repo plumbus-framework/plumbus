@@ -58,7 +58,7 @@ Partners call `GET /api/v1/refunds/{refundId}` (when `basePath` is `/api/v1`). T
 | Kind | API exposure | Notes |
 |---|---|---|
 | `query` | Allowed | Typically mapped to `GET` with query parameters for non-path input fields. |
-| `action` | Allowed | Use `POST`, `PATCH`, `PUT`, or `DELETE`. An action over `GET` is not covered by cookie CSRF checks: `registerApiRoutes()` logs a warning for it, and `rejectActionsOverGet: true` refuses it (see [structure-policy](./structure-policy.md#rule-mutation-over-get)). |
+| `action` | Allowed | Use `POST`, `PATCH`, `PUT`, or `DELETE`. An action over `GET` is not covered by cookie CSRF checks: `registerApiRoutes()` refuses it by default (`rejectActionsOverGet: false` only warns) (see [structure-policy](./structure-policy.md#rule-mutation-over-get)). |
 | `eventHandler` | **Rejected** | `eventHandler cannot be exposed via API` |
 | `job` | **Rejected** | `job cannot be exposed via API` — jobs use async convention routes with `202` semantics; they are not part of the partner contract layer. |
 
@@ -189,7 +189,11 @@ Cross-principal reuse of the same key returns `409 idempotency_conflict` (`Idemp
 
 ### Anonymous guard
 
-When `idempotency.required` is true, the principal must have `userId` or `tenantId`. Anonymous principals (`userId` and `tenantId` both undefined) receive **`401 unauthenticated`** before the idempotency store is consulted — even on otherwise-public endpoints.
+When `idempotency.required` is true, the caller must have a `userId`. A caller without one — anonymous, or a tenant-only principal — receives **`401 unauthenticated`** before the idempotency store is consulted, even on otherwise-public endpoints. Such callers share one principal key, so a claim could not keep one caller from replaying another's result. The core `/api` convention routes apply the same rule (`401 unauthorized`, `metadata.reason: 'idempotency-principal-required'`).
+
+### Current authorization on partner replays
+
+Before a stored result is returned, `registerApiRoutes()` runs the capability's current access policy and its input-aware `authorize` for this request (also after waiting on an in-flight duplicate); the handler does not run again. A caller who would be refused now gets that refusal (`403 forbidden`, …), not the stored result. The payload fingerprint includes the caller's normalized roles and scopes, so the same key presented under different authority is `422 idempotency_conflict`, never a replay.
 
 ### Success and failure paths
 
@@ -255,6 +259,8 @@ Partner responses wrap capability output in a consistent envelope:
 ```
 
 Internal errors map to a generic `internal_error` message. Validation errors include structured `error.details` when Zod issues are available.
+
+By default `requestId` is a fresh UUID per answer. When the route config carries `requestIds: { expose: true }` (`@plumbus/core` 0.9.0-beta.9+ `createServer({ requestIds: { expose: true } })` puts it on the `routeConfig` given to `onRoutesRegistered`; `@plumbus/api` 0.4.0-beta.5+), `requestId` is also sent as the `x-request-id` header and recorded as the audit `correlationId`, and it is Fastify's request id — a partner's well-formed `x-request-id` / `x-correlation-id`, else a UUID — so it also matches the server log's `reqId` (see [Request ids](../security/security-model.md#request-ids)).
 
 ---
 

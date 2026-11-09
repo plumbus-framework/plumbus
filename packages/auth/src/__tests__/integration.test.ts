@@ -183,4 +183,131 @@ describe('auth integration', () => {
     });
     expect(logoutRes.statusCode).toBe(403);
   });
+
+  describe('errorReturnToParam', () => {
+    async function runtimeApp(options: {
+      errorReturnToParam?: string;
+      admit?: boolean;
+    }): Promise<ReturnType<typeof Fastify>> {
+      const server = Fastify();
+      const runtime = createAuthRuntime({
+        applicationId: 'app1',
+        externalBaseUrl,
+        applicationBaseUrl: 'http://127.0.0.1:5173',
+        defaultReturnPath: '/',
+        errorPath: '/login/error',
+        ...(options.errorReturnToParam ? { errorReturnToParam: options.errorReturnToParam } : {}),
+        environment: 'development',
+        session: { ttl: '1h' },
+        providers: {
+          test: {
+            type: 'oidc',
+            issuer: fake.issuer,
+            clientId: 'test-client',
+            clientSecret: 'test-secret',
+            scopes: ['openid'],
+          },
+        },
+        sessionStore: createMemorySessionStore(),
+        transactionStore: createMemoryLoginTransactionStore(),
+        storageProtection: { activeKey: { id: 'k1', value: TEST_KEY } },
+        resolveIdentity: async () =>
+          options.admit === false ? { status: 'denied' } : { status: 'admitted', userId: 'user-1' },
+        resolveAuthorization: async () => ({ status: 'authorized', roles: [], scopes: [] }),
+        deployment: { assumeSameSite: true },
+      });
+      await runtime.initialize();
+      runtime.registerRoutes(server);
+      await server.ready();
+      return server;
+    }
+
+    async function startLogin(server: ReturnType<typeof Fastify>) {
+      const loginRes = await server.inject({
+        method: 'GET',
+        url: `/auth/login/test?returnTo=${encodeURIComponent('/backups?college=alpha')}`,
+      });
+      expect(loginRes.statusCode).toBe(302);
+      const state = new URL(loginRes.headers.location ?? '').searchParams.get('state') ?? '';
+      return {
+        binding: String(loginRes.headers['set-cookie'] ?? ''),
+        state,
+        location: loginRes.headers.location ?? '',
+      };
+    }
+
+    it('carries the returnTo onto the error page when the person cancels at the provider', async () => {
+      const server = await runtimeApp({ errorReturnToParam: 'next' });
+      try {
+        const { binding, state } = await startLogin(server);
+        const res = await server.inject({
+          method: 'GET',
+          url: `/auth/callback/test?error=access_denied&state=${state}`,
+          headers: { cookie: binding },
+        });
+        expect(res.statusCode).toBe(303);
+        const target = new URL(res.headers.location ?? '', 'http://local');
+        expect(target.pathname).toBe('/login/error');
+        expect(target.searchParams.get('code')).toBe('login_cancelled');
+        expect(target.searchParams.get('requestId')).toBeTruthy();
+        expect(target.searchParams.get('next')).toBe('/backups?college=alpha');
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('carries the returnTo when the application refuses the identity after the code exchange', async () => {
+      const server = await runtimeApp({ errorReturnToParam: 'next', admit: false });
+      try {
+        const { binding, location } = await startLogin(server);
+        const providerRes = await fetch(location, { redirect: 'manual' });
+        const callbackLocation = new URL(providerRes.headers.get('location') ?? '');
+        const res = await server.inject({
+          method: 'GET',
+          url: `${callbackLocation.pathname}${callbackLocation.search}`,
+          headers: { cookie: binding },
+        });
+        expect(res.statusCode).toBe(303);
+        const target = new URL(res.headers.location ?? '', 'http://local');
+        expect(target.searchParams.get('code')).toBe('login_failed');
+        expect(target.searchParams.get('next')).toBe('/backups?college=alpha');
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('leaves the error URL as code and requestId only when the option is off', async () => {
+      const server = await runtimeApp({});
+      try {
+        const { binding, state } = await startLogin(server);
+        const res = await server.inject({
+          method: 'GET',
+          url: `/auth/callback/test?error=access_denied&state=${state}`,
+          headers: { cookie: binding },
+        });
+        const target = new URL(res.headers.location ?? '', 'http://local');
+        expect(target.searchParams.get('code')).toBe('login_cancelled');
+        expect([...target.searchParams.keys()].sort()).toEqual(['code', 'requestId']);
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('never carries a destination when the state does not match a login of this browser', async () => {
+      const server = await runtimeApp({ errorReturnToParam: 'next' });
+      try {
+        const { binding } = await startLogin(server);
+        const res = await server.inject({
+          method: 'GET',
+          url: '/auth/callback/test?error=access_denied&state=forged',
+          headers: { cookie: binding },
+        });
+        const target = new URL(res.headers.location ?? '', 'http://local');
+        expect(target.searchParams.get('code')).toBe('login_cancelled');
+        expect(target.searchParams.has('next')).toBe(false);
+      } finally {
+        await server.close();
+      }
+    });
+  });
 });

@@ -1,5 +1,34 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.9 — 2026-11-09 — security release, opt-in request ids on answers
+
+### Security (breaking where noted)
+
+See [upgrading to core 0.9](../../docs/upgrading-core-0.9.md#v090-beta9-2026-11-09-security-release-opt-in-request-ids-cognito-attribute-writes) for the full list and opt-outs.
+
+- **From main (stable 0.8.5):** an event resumes only executions waiting in its own tenant (a tenantless event only tenantless ones); `ctx.flows.resume` / `cancel` / `status` answer "not found" for another tenant's execution; `GET /api/jobs/:jobId` keeps every role inside its own tenant (only `admin`/`system` without a `tenantId` sees across tenants); OIDC rejects `nbf` / `iat` more than `clockSkewSeconds` (default 60) in the future; the in-memory idempotency store keeps records 24 h and at most 10 000 (`createInMemoryIdempotencyStore({ defaultTtlMs, maxEntries })`, new exports `DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS` / `_MAX_ENTRIES` / `InMemoryIdempotencyStoreOptions`); `fastify` ^5.12.8. Postgres TLS keeps this line's behaviour (the configured `ssl` is always applied), so main's `DATABASE_SSL_ENFORCE` does not exist here.
+- **Breaking: flow ownership is enforced by default.** `ctx.flows.resume` / `cancel` / `terminate` / `status` act only on executions the caller started (same actor, same tenant); others get the "not found" error of an unknown id. System callers without a tenant are exempt. `enforceExecutionOwnership: false` (or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false`) lets any actor of the tenant act, with a one-time warning. The owner is read from the execution's own plane under spine dispatch, and an execution whose owner cannot be read is refused. `terminate` was not checked before.
+- **Breaking: approvals fail closed.** `createApprovalService` without an `authorization` provider refuses every `decide` / `cancel`; reject and changes-requested go through the provider like approve. Pass `createAllowAllAuthorizationProvider()` (now exported) to keep allow-all.
+- **Breaking: approvals are bound to their tenant and flow execution.** `requestApproval` requires `tenantId`; `findByExecutionId` takes `{ tenantId, executionId }`; an approval requested for another tenant or execution never satisfies a gate, an approval-outcome step or a governed AI call. **Migration:** `durable-tenant/0005_approval_tenant_binding` adds `approval_request.tenant_id` and an index; rows written before it have `tenant_id = NULL` and only match untenanted lookups.
+- **Approvals expire at use.** An approval past `expiresAt` counts as `expired` when it is consumed; an approval-outcome step no longer takes the `approved` branch for it.
+- **One decision wins.** A decision applies only while the request is `pending` (compare-and-set in SQL and memory); the losing concurrent decision throws the new `ApprovalDecisionConflictError`. Custom `ApprovalStore` implementations must add `decideRequest` and `transitionRequest`.
+- **Breaking: OIDC requires `exp`.** `createOidcAdapter` rejects tokens without a numeric `exp`; `requireExp: false` accepts them with a one-time warning.
+- **Breaking: idempotency needs a user.** On the core `/api` routes, a capability with `api.idempotency.required` answers callers without a user id (anonymous on a public capability, or tenant-only principals) with `401` (`reason: 'idempotency-principal-required'`); before, they ran with no key.
+- **Breaking: `plumbus api validate` fails on error-severity security findings** by default; `--no-fail-on-security` opts out (`--fail-on-security` is accepted and does nothing). `--json` `ok` now always matches the exit code.
+- `plumbus ui generate` / `ui nextjs` help text names `session` as the default auth transport (see `@plumbus/ui` 0.10.0-beta.3).
+
+### Opt-in request ids
+
+
+- **Opt-in: `requestIds: { expose: true }`** on `createServer` (or `export const requestIds = { expose: true }` from `app/server.ts`, read by `plumbus dev` / `start`). **Off by default: answers, log lines and Fastify request ids are byte-for-byte what they were.** With it on:
+  - Every HTTP answer carries `x-request-id`, and every refusal or error body carries the same id as `error.requestId`: capability routes (`registerCapabilityRoute`, `registerStreamingRoute`) for 401/403/404/409/422/5xx, dependency-resolution and idempotency refusals and SSE `type: 'error'` events; every other route (job status, the authentication runtime, an app's own routes, the Fastify error handler) through an `onSend` hook that adds `error.requestId` to a JSON `{ error: {...} }` body that lacks one.
+  - The same id is in the log and the audit trail: Fastify's `genReqId` (so `reqId` on every request log line), the error handler's log/`onProcessError` metadata, capability audit rows as `correlationId` (including `denied`), and `onCapabilityError`'s new `requestId` field (HTTP only).
+  - A caller may propose the id: a well-formed `x-correlation-id` or `x-request-id` (8–128 characters of `A–Z a–z 0–9 . _ : -`, starting with a letter or digit) is used; anything else is ignored and a UUID is issued.
+- **Security fix, regardless of the flag (no answer changes):** a caller's `x-correlation-id` / `x-request-id` is written to the context and audit `correlationId` only when it is well formed. Before, any non-empty value — spaces, line breaks, 10 KB — was copied in unchecked; a malformed one is now dropped and the context issues its own. Authentication refusals still echo the caller's header as `error.requestId` exactly as before.
+- `RouteGeneratorConfig.requestIds` carries the option to routes registered from `onRoutesRegistered` (and to `@plumbus/api` 0.4.0-beta.5+ `registerApiRoutes`).
+- New exports: `requestIdOf(request)`, `requestIdsFor(request, options)`, `resolveRequestId(headers)`, `isWellFormedRequestId(value)`, `withRequestId(body, id)`, `REQUEST_ID_HEADER`; types `RequestIdOptions`, `RouteRequestIds`. See [Request ids](../../docs/security/security-model.md#request-ids).
+- No migration. With the option on, error bodies only gain a field; clients that compare whole error bodies must allow `requestId`.
+
 ## 0.9.0-beta.8 — 2026-11-03 — sampled execution telemetry
 
 - **Optional `onTelemetrySpan` hook** on `app/server.ts` / `ServerConfig`, loaded by dev, start and workers. Sampled request, capability and worker-step spans report validated W3C trace context, canonical code names, timing, structured outcomes and allowlisted framework error codes. Hook failures are contained and callback promises never delay execution. The host owns sampling, buffering, export and shutdown flushing.

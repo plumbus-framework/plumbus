@@ -229,6 +229,7 @@ export async function startDevServer(
     credentials: extensions.credentials,
     authenticationRuntime: extensions.authenticationRuntime,
     ...(extensions.bodyLimit != null && { bodyLimit: extensions.bodyLimit }),
+    ...(extensions.requestIds && { requestIds: extensions.requestIds }),
     ...(extensions.dataPlaneResolver && { dataPlaneResolver: extensions.dataPlaneResolver }),
     ...(extensions.untenantedDataPlane && { untenantedDataPlane: extensions.untenantedDataPlane }),
     ...(extensions.resolveTenantRef && { resolveTenantRef: extensions.resolveTenantRef }),

@@ -83,9 +83,9 @@ These are meant for internal/admin tooling such as voice setup screens and shoul
 - keep provider secrets in server-side config only
 - provide `sessionTokenSecret` separately from vendor credentials
 - set `websocketOriginAllowlist` explicitly in production
-- set `externalBaseUrl` so `/session` returns a `wsUrl` built from your public URL, not request headers
-- if voice routes accept auth cookies (`authCookieNames`), also set `csrfSecret` + `externalBaseUrl` for Origin/CSRF checks
-- optional: `rejectQuerySessionToken: true`, `singleUseSessionTokens: true` (per-process) — see [security.md](./security.md#hardening-options-voice-062)
+- set `externalBaseUrl` so `/session` returns an absolute `wsUrl` built from your public URL; without it, production/staging returns the same-origin path `/api/voice/<name>/stream` (never request headers) unless `wsUrlFromRequestHeaders: true`
+- if voice routes accept auth cookies (`authCookieNames`), `csrfSecret` + `externalBaseUrl` are required (registration error otherwise; `requireBrowserSecurity: false` opts out)
+- `rejectQuerySessionToken` and `singleUseSessionTokens` (per-process) are on by default; pass `false` to opt out — see [security.md](./security.md#hardening-options-voice-062)
 - if you run behind a proxy, configure `trustProxy` on the core server so IP-based policies remain meaningful
 
 ## Reusing core OpenAI credentials

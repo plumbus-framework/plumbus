@@ -6,6 +6,78 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.9 (2026-11-09): security release, opt-in request ids, Cognito attribute writes
+
+Prepared for repository release `v0.9.0-beta.9` under npm dist-tag `plumbus-next`.
+Packages: `@plumbus/core` **0.9.0-beta.9**, `@plumbus/api` **0.4.0-beta.5**,
+`@plumbus/ui` **0.10.0-beta.3**, `@plumbus/auth-cognito` **0.4.0-beta.1**,
+`@plumbus/chat` **0.4.0-beta.3**, `@plumbus/mcp` **0.8.0-beta.2**, `@plumbus/voice`
+**0.7.0-beta.3**, `@plumbus/voice-livekit` **0.4.0-beta.3**. Chat, MCP, voice and voice-livekit
+now peer on core `>=0.9.0-beta.9 <0.10.0`, and voice-livekit on voice `>=0.7.0-beta.3 <0.8.0`:
+install the family together.
+
+### Security release
+
+This release carries the stable [0.8.5 security release](upgrading-0.8.5-security.md) (merged
+from `main`) and the 0.9 follow-ups. Everything main made **opt-in** for 0.8.5 is **on by
+default** here, and the beta line fixes further issues of its own. **Migrate first:**
+`durable-tenant/0005_approval_tenant_binding` adds `approval_request.tenant_id` (generate and
+apply migrations as usual).
+
+From main, on by default (no opt-out needed): tenant-scoped event resume; `ctx.flows` calls on
+another tenant's execution answer "not found"; job status stays in the caller's tenant; OIDC
+rejects future `nbf` / `iat`; MCP per-request and per-session transports with session-bound
+tasks and `maxToolInputElements`; chat sessions bound to their chat; no raw internal errors to
+chat or voice clients; streamed voice upload limits; a bounded in-memory idempotency store;
+`next` ^16.4.5, `fastify` ^5.12.8, MCP SDK ^1.32.2. Postgres TLS needs nothing: this line has
+always applied the configured `ssl`, so `DATABASE_SSL_ENFORCE` does not exist here.
+
+**Breaking defaults, with their opt-outs:**
+
+| Package | New default | Opt-out |
+|---|---|---|
+| core | `ctx.flows.resume` / `cancel` / `terminate` / `status` act only on the caller's own executions | `enforceExecutionOwnership: false` or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false` |
+| core | `createOidcAdapter` rejects tokens without a numeric `exp` | `requireExp: false` |
+| core | `plumbus api validate` exits 1 on error-severity security findings | `--no-fail-on-security` |
+| core | Idempotency-required `/api` routes answer callers without a user id with `401` | none (send a user identity) |
+| core | `createApprovalService` without `authorization` refuses every decision | `authorization: createAllowAllAuthorizationProvider()` |
+| api | `registerApiRoutes` refuses an `action` on `GET` | `rejectActionsOverGet: false` |
+| chat | cookie auth without `csrfSecret` + `externalBaseUrl` is a startup error | `requireBrowserSecurity: false` |
+| voice | cookie auth without `csrfSecret` + `externalBaseUrl` is a startup error | `requireBrowserSecurity: false` |
+| voice | session tokens only via `Sec-WebSocket-Protocol`, each once | `rejectQuerySessionToken: false`, `singleUseSessionTokens: false` |
+| voice | without `externalBaseUrl`, production `wsUrl` is a same-origin path, never built from `Host` | `wsUrlFromRequestHeaders: true` |
+| auth-cognito | `ensureAttestedUserPool` rewrites a weaker same-named app client | `reconcileClient: false` |
+| mcp | stateful sessions close after 30 minutes idle | `sessionIdleTimeoutMs: 0` |
+| ui | generated auth uses the `session` transport | `--auth-transport bearer` |
+
+**Fixed on the beta line:**
+
+- **Approvals:** bound to the tenant and flow execution they were requested for
+  (`requestApproval` needs `tenantId`, `findByExecutionId` takes `{ tenantId, executionId }`), so
+  one tenant's or execution's approval never satisfies another's gate; reject and
+  changes-requested go through the authorization provider like approve; an approval past
+  `expiresAt` counts as expired when it is used; of two racing decisions exactly one applies and
+  the other throws `ApprovalDecisionConflictError`. Custom `ApprovalStore` implementations must
+  add `decideRequest` and `transitionRequest`.
+- **`@plumbus/api` idempotent replays** run the capability's current access policy and
+  `authorize` before returning a stored result; the same key under changed roles or scopes is
+  `422 idempotency_conflict`.
+- **`@plumbus/voice-livekit`'s browser session** sends the voice CSRF header on `/token`.
+
+### Opt-in features
+
+- **Request ids** (`createServer({ requestIds: { expose: true } })` or
+  `export const requestIds = { expose: true }` from `app/server.ts`): `x-request-id` on every
+  answer, `error.requestId` in every refusal and error body, the same id as Fastify `reqId`,
+  audit `correlationId` and `onCapabilityError` `requestId`. `@plumbus/api` follows the option on
+  the route config; generated clients (`@plumbus/ui`) read it into `PlumbusApiError.requestId`.
+  Regardless of the option, a malformed caller `x-correlation-id` / `x-request-id` is no longer
+  written to the audit `correlationId`. See [Request ids](security/security-model.md#request-ids).
+- **Cognito profile attributes** (`@plumbus/auth-cognito/server`): `createCognitoPoolDirectory`
+  gains `getUserAttributes`, `listUserAttributes` and `updateUserAttributes`. Writes are refused
+  unless the directory is created with `writableAttributes` (standard profile attributes and
+  `custom:*` only). See [Cognito](auth/cognito.md#administering-a-hosted-login-pools-users).
+
 ## v0.9.0-beta.8 (2026-11-03): sampled execution telemetry
 
 Prepared for repository release `v0.9.0-beta.8` under npm dist-tag `plumbus-next`.
@@ -215,6 +287,7 @@ These are the breaking changes of the beta line relative to the stable families.
 
 | Area | Who it is for | What changed |
 | --- | --- | --- |
+| Request ids (opt-in) | Hosts that want a support reference on failures | Since core 0.9.0-beta.9, `createServer({ requestIds: { expose: true } })` / `export const requestIds = { expose: true }` gives every answer an `x-request-id` header and every refusal/error body an `error.requestId`; the same id is the Fastify log `reqId`, the capability audit `correlationId` and `onCapabilityError` `info.requestId`. A caller's well-formed `x-request-id` / `x-correlation-id` is kept, a malformed one replaced with a UUID. Off by default: nothing changes on the wire. Regardless of the option, a malformed caller correlation id is no longer written to the audit `correlationId`. `@plumbus/ui` 0.10.0-beta.3 puts the id on `PlumbusApiError.requestId`; `@plumbus/api` 0.4.0-beta.5 uses it for its envelopes when the route config carries the option. With it on, clients that compared whole error bodies must allow the new field. See [Request ids](security/security-model.md#request-ids). |
 | Host data-plane resolver | Hosts that route tenant data themselves and want flow state on the tenant plane | `app/server.ts` may export `dataPlaneResolver`, `listTenantRefs`, `untenantedDataPlane`, `requestDataPlane`, `workerDataPlane` and `resolveTenantRef`; `plumbus dev` / `start` / `worker` pass them to `createServer` and the worker pool. Request-side flow engines then carry `spineDispatch`, so a flow a request starts is written to the tenant plane with an opaque hint on the control plane. `FlowSpineDispatchConfig.untenanted: 'control-plane'` lets control-plane flows (no tenant) stay classic spine rows claimed beside the tenant hints; `requestDataPlane: 'control-plane'` keeps request repositories on the boot connection, and `workerDataPlane: 'control-plane'` does the same for claimed units (`WorkerPoolConfig.unitDataPlane`). Under `'resolved'`, a `tenantScoped: false` capability now reads the control plane even for a tenant-bound request. `retryDeadLetteredFlow` takes an optional `placement` (`{ spineDb, coreSchema? }`) that reopens a tenant-placed execution and publishes a fresh spine hint (`republished` on the result); `engine.cancel` and the runner's failure finaliser close the durable state of a tenant-placed execution, and a claim drops the hint of a terminal row instead of reviving it. Follow-up hints between drained steps are published under the running worker's lease; acknowledged hints close their outbox rows; the outbox pump publishes only never-published rows (it used to re-ready every unacknowledged row on each poll, clearing live leases); a hint whose plane fails to resolve is dead-lettered after `maxClaimAttempts` claims; the worker's engine now carries `untenanted` on its spine dispatch, so control-plane rows are claimed beside the hints. Since core 0.9.0-beta.0 an ordinary `delay` step of a tenant-placed flow publishes its next hint with the persisted wake time and releases the previous lease, so the step is claimed when due rather than after the lease expires. Under resolved worker planes (a resolver with `workerDataPlane`/`unitDataPlane` left at `resolved`), a flow step on a tenant-plane unit cannot enqueue jobs yet: `ctx.jobs.enqueue()` throws `Job queue not configured on this execution context` and the step fails. Flow steps on the control plane (no resolver, `workerDataPlane: 'control-plane'`, untenanted control-plane work) keep the 0.8 flow job wiring. See [Tenant Data Planes](sdk-reference/tenant-data-planes.md). |
 | AI provider admission and trace propagation | Hosts that meter or trace outbound model calls | `app/server.ts` may export `aiProviderConcurrency` (immediate per-scope ceiling, default scope provider + tenant + `costContext.serviceArea`; saturation throws `ai-provider-concurrency-exhausted` with `retryAfterSeconds: 1`, never queues), `resolveAIProviderHeaders` (trusted W3C `traceparent` / `tracestate` for every provider attempt, reaching the adapter as `ProviderRequest.transportHeaders`; credential and content-type headers are refused) and `onAIProviderSpan` (best-effort client-span export). `createAIService` takes the same as `providerConcurrency` / `resolveProviderHeaders` / `onProviderSpan`; `withContext` accepts `correlationId` and flow workers bind the persisted flow correlation id. See [AI integration](ai/ai-integration.md#provider-admission-and-trace-propagation). |
 | `ctx.flows.terminate` | Operator recovery capabilities | `FlowService` exposes the engine's `terminate(executionId)`: abort and close as `cancelled` without compensations, beside `cancel`, which runs every declared compensation. See [Flows](core-concepts/flows.md#cancellation). |

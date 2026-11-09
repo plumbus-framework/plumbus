@@ -111,9 +111,9 @@ export interface RegisterChatRoutesOpts {
   /**
    * Refuse to register when cookie auth is on (`authCookieNames` non-empty) but
    * browser write protection is not (`csrfSecret` or `externalBaseUrl` missing).
-   * Default `false`: such a setup only logs a warning at registration, because a
-   * deployment may protect cookies another way (e.g. a proxy). Set `true` to make
-   * the missing settings a startup error.
+   * Default `true` (since 0.9): the missing settings are a startup error. Set
+   * `false` only when the deployment protects cookie-authenticated writes another
+   * way (e.g. a proxy); registration then logs a warning instead.
    */
   requireBrowserSecurity?: boolean;
 }
@@ -123,7 +123,7 @@ class ChatUnauthorizedError extends Error {}
 /**
  * Cookie credentials are sent by the browser on cross-site requests, so cookie
  * auth without Origin + CSRF enforcement leaves /turn and /confirm open to
- * cross-site writes. Warn (default) or throw (`requireBrowserSecurity`) at
+ * cross-site writes. Throw (default) or warn (`requireBrowserSecurity: false`) at
  * registration when that is the configuration.
  */
 function checkBrowserSecurityConfig(opts: RegisterChatRoutesOpts | undefined): void {
@@ -138,11 +138,13 @@ function checkBrowserSecurityConfig(opts: RegisterChatRoutesOpts | undefined): v
     `${missing.length === 1 ? 'is' : 'are'} not set, so cookie-authenticated /turn and /confirm ` +
     'requests are NOT checked for Origin or CSRF. Set both csrfSecret and externalBaseUrl ' +
     'to enable browser write protection.';
-  if (opts?.requireBrowserSecurity) {
-    throw new Error(`${message} (requireBrowserSecurity: true)`);
+  if (opts?.requireBrowserSecurity !== false) {
+    throw new Error(
+      `${message} Pass requireBrowserSecurity: false only if cookie-authenticated writes are protected another way.`,
+    );
   }
   console.warn(
-    `[registerChatRoutes] ${message} Pass requireBrowserSecurity: true to make this a startup error.`,
+    `[registerChatRoutes] ${message} (requireBrowserSecurity: false — remove it to make this a startup error.)`,
   );
 }
 

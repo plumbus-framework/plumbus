@@ -111,7 +111,7 @@ function unwrapEnvelope<T>(body: unknown): T {
 }`;
 
 function generateClientFetchHelpers(config?: ClientGeneratorConfig): string {
-  const transport = config?.authTransport ?? 'bearer';
+  const transport = config?.authTransport ?? 'session';
   const authImport = authImportPath(config);
   if (transport === 'session') {
     return `import { csrfHeaders } from "${authImport}";
@@ -392,6 +392,7 @@ export function generateTypedClient(
       status: response.status,
       code: err.code,
       metadata: err.metadata,
+      requestId: plumbusRequestIdOf(body, response),
     });
   }
   return unwrapEnvelope<${pascal}Output>(await response.json());
@@ -518,6 +519,7 @@ export function generateFlowTrigger(
     throw Object.assign(new Error(err.message ?? \`Flow start failed: \${response.status}\`), {
       status: response.status,
       code: err.code,
+      requestId: plumbusRequestIdOf(body, response),
     });
   }
   return unwrapEnvelope<{ executionId: string; status: string }>(await response.json());
@@ -533,10 +535,27 @@ export function generateErrorTypes(): string {
   code?: string;
   message: string;
   metadata?: Record<string, unknown>;
+  /**
+   * The id of the request that failed, when the server named one (\`error.requestId\`, the
+   * envelope's \`meta.requestId\` or the \`x-request-id\` header). Show it to the person so they
+   * can quote it to support; the server's log and audit trail carry the same id.
+   */
+  requestId?: string;
 }
 
 export function isPlumbusApiError(error: unknown): error is PlumbusApiError {
   return typeof error === "object" && error !== null && "status" in error && "message" in error;
+}
+
+export function plumbusRequestIdOf(body: unknown, response: Response): string | undefined {
+  const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  for (const holder of [record.error, record.meta]) {
+    if (typeof holder === "object" && holder !== null) {
+      const id = (holder as { requestId?: unknown }).requestId;
+      if (typeof id === "string" && id.length > 0) return id;
+    }
+  }
+  return response.headers?.get?.("x-request-id") ?? undefined;
 }`;
 }
 

@@ -1435,9 +1435,15 @@ describe('FlowEngine — approval-outcome', () => {
     const compiledRegistry = new CompiledFlowRegistry();
     compiledRegistry.publish(compileFlowDefinition(flow));
     const { createApprovalService } = await import('../../approvals/service.js');
+    const { createAllowAllAuthorizationProvider } = await import(
+      '../../approvals/authorization.js'
+    );
     const { createMemoryApprovalStore } = await import('../../approvals/memory-store.js');
     const { ActionRiskTier } = await import('../../approvals/action-risk.js');
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
 
     const db = mockDb();
     const stepDeps = {
@@ -1447,6 +1453,7 @@ describe('FlowEngine — approval-outcome', () => {
     const engine = createFlowEngine({ db, registry, stepDeps, compiledRegistry, approvals });
     const exec = await engine.start('refund', { amount: 10 }, makeAuth());
     await approvals.requestApproval({
+      tenantId: 'tenant-1',
       capabilityId: 'billing.refund',
       definitionVersion: '1',
       input: { amount: 10 },
@@ -1454,7 +1461,10 @@ describe('FlowEngine — approval-outcome', () => {
       expiresAt: new Date(Date.now() + 60_000),
       executionId: exec.id,
     });
-    const pending = await approvals.findByExecutionId(exec.id);
+    const pending = await approvals.findByExecutionId({
+      tenantId: 'tenant-1',
+      executionId: exec.id,
+    });
     assert(pending);
     await approvals.decide({
       requestId: pending.approvalRequestId,

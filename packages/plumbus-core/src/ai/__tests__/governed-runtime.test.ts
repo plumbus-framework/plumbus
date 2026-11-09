@@ -2,17 +2,18 @@ import assert from 'node:assert/strict';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { z } from 'zod';
 import { ActionRiskTier } from '../../approvals/action-risk.js';
+import { createAllowAllAuthorizationProvider } from '../../approvals/authorization.js';
 import { createMemoryApprovalStore } from '../../approvals/memory-store.js';
 import { createApprovalService } from '../../approvals/service.js';
 import { createMemoryCredentialCatalog } from '../../credentials/catalog.js';
 import { defineCapability } from '../../define/defineCapability.js';
-import { CapabilityRegistry } from '../../execution/capability-registry.js';
-import type { AuthContext } from '../../types/security.js';
 import type { ConsumerRegistry } from '../../events/consumer-registry.js';
 import type { createOutboxDispatcher } from '../../events/dispatcher.js';
 import type { createEventEmitter } from '../../events/emitter.js';
+import { CapabilityRegistry } from '../../execution/capability-registry.js';
 import type { createFlowScheduler } from '../../flows/scheduler.js';
 import { mockAudit } from '../../testing/context.js';
+import type { AuthContext } from '../../types/security.js';
 import { createMemoryGovernedArtifactStore } from '../governed-artifacts.js';
 import type { GovernedAiHost } from '../governed-host.js';
 import { governedReviewSubject } from '../governed-invoke.js';
@@ -67,12 +68,16 @@ describe('createPlumbusRuntime', () => {
         return { allowed: true };
       },
     };
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const runtime = createPlumbusRuntime({ host, approvals, artifacts });
     const input = { documentId: 'doc-1' };
 
     assert(runtime.approvals);
     const request = await runtime.approvals.requestApproval({
+      tenantId: null,
       capabilityId: 'example.summarize',
       definitionVersion: '1',
       input: governedReviewSubject(input, pin),

@@ -22,6 +22,7 @@ On this branch copy the **0.9 beta literal**. The next column is the literal tha
 | --- | --- | --- | --- | --- |
 | Every add-on that peers on core, unless listed below | `@plumbus/core` | `">=0.9.0-beta.0 <0.10.0"` | `"0.9.x"` | `"0.8.x"` |
 | `@plumbus/mcp` (0.8.0-beta.1+) | `@plumbus/core` | `">=0.9.0-beta.5 <0.10.0"` (needs `safeParseBounded`) | `"0.9.x"` | `"0.8.x"` |
+| `@plumbus/chat` (0.4.0-beta.3+), `@plumbus/mcp` (0.8.0-beta.2+), `@plumbus/voice` (0.7.0-beta.3+), `@plumbus/voice-livekit` (0.4.0-beta.3+) | `@plumbus/core` | `">=0.9.0-beta.9 <0.10.0"` (security release: they rely on its tenant, session and error-handling fixes) | `"0.9.x"` | `">=0.8.5 <0.9.0"` |
 | `@plumbus/ui` (0.10.0-beta.2+), `@plumbus/api` (0.4.0-beta.4+), and the zod 4 releases of `ai-decision`, `ai-decision-openai`, `ai-decision-typesafe`, `auth`, `chat`, `payments`, `knowledge-base`, `browser-extension`, `voice-soniox` (0.4.0-beta.1) and `voice` (0.7.0-beta.1) | `@plumbus/core` | `">=0.9.0-beta.6 <0.10.0"` (zod 4) | `"0.9.x"` | `"0.8.x"` |
 | `@plumbus/voice` (0.7.0-beta.2+), `@plumbus/chat` (0.4.0-beta.2+), `@plumbus/payments` (0.4.0-beta.2+), `@plumbus/voice-livekit` (0.4.0-beta.2+) | `@plumbus/core` | `">=0.9.0-beta.7 <0.10.0"` (they import `@plumbus/core/sdk`, added in core 0.9.0-beta.7) | `"0.9.x"` | `">=0.8.3 <0.9.0"` |
 | `@plumbus/voice-soniox` (0.4.0-beta.2+) | `@plumbus/core` | `">=0.9.0-beta.7 <0.10.0"` (provider cooldown exports) | `"0.9.x"` | `"0.8.x"` |
@@ -34,6 +35,7 @@ On this branch copy the **0.9 beta literal**. The next column is the literal tha
 | `@plumbus/payments-stripe` | `@plumbus/payments` | `">=0.4.0-beta.0 <0.5.0"` | `"0.4.x"` | `"0.3.x"` |
 | Every `@plumbus/voice-*` provider, unless listed below | `@plumbus/voice` | `">=0.7.0-beta.0 <0.8.0"` | `"0.7.x"` | `"0.6.x"` |
 | `@plumbus/voice-livekit` (0.4.0-beta.2+) | `@plumbus/voice` | `">=0.7.0-beta.2 <0.8.0"` (imports `@plumbus/voice/session`, added in voice 0.7.0-beta.2) | `"0.7.x"` | `">=0.6.1 <0.7.0"` |
+| `@plumbus/voice-livekit` (0.4.0-beta.3+) | `@plumbus/voice` | `">=0.7.0-beta.3 <0.8.0"` (imports the voice CSRF names from `@plumbus/voice/client`) | `"0.7.x"` | `">=0.6.2 <0.7.0"` |
 
 Core's optional `redis` peer stays `"^4.7.0"`. `cron-parser` is a regular core dependency (the framework owns cron parsing), not a peer; apps do not install it.
 

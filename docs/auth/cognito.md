@@ -227,7 +227,7 @@ export const handler = createAttestedSignInTrigger({
 
 It finds the pool by exact name, reconciles the triggers and sign-up/recovery settings if they drifted, and finds the client by name. Repeated calls are idempotent; concurrent calls for the same pool are not (see [Provision pools from one place](#provision-pools-from-one-place)). `ensureUser` creates admin-created users with no Cognito message, the email marked verified, and a random permanent password nobody knows, so the status is `CONFIRMED` (custom auth does not complete for `FORCE_CHANGE_PASSWORD` users).
 
-**An existing app client is checked, not trusted (auth-cognito 0.3.1+).** When a client with that name already exists, its security settings are compared with the table above: auth flows, token revocation, user-existence errors, token lifetimes, and whether it has a secret. Any difference is logged as a warning (to `logger.warn` passed to `createCognitoPoolAdministration`, else `console.warn`) and returned as `clientDrift: string[]`. Pass `reconcileClient: true` to `ensureAttestedUserPool` to rewrite the client to these settings. That is off by default because Cognito's update replaces every client setting, including callback URLs or OAuth settings added by hand. A client secret cannot be removed by an update; recreate the client under a new name instead.
+**An existing app client is checked, not trusted (auth-cognito 0.3.1+).** When a client with that name already exists, its security settings are compared with the table above: auth flows, token revocation, user-existence errors, token lifetimes, and whether it has a secret. Any difference is logged as a warning (to `logger.warn` passed to `createCognitoPoolAdministration`, else `console.warn`) and returned as `clientDrift: string[]`. Since auth-cognito 0.4, `ensureAttestedUserPool` also rewrites the client to these settings by default (`clientDrift` still lists what differed). Cognito's update replaces every client setting, including callback URLs or OAuth settings added by hand: if your client carries such settings, pass `reconcileClient: false` to only report the drift. A client secret cannot be removed by an update; recreate the client under a new name instead.
 
 ### Provision pools from one place
 
@@ -273,9 +273,26 @@ await operators.resendInvitation(invited.username); // only while they have not 
 const everyone = await operators.listUsers(); // username, subject, email, name, enabled, status
 await operators.deleteUser(invited.username);
 await operators.setUserEnabled(invited.username, false);
+
+// Profile attributes, standard and custom. Reads are always available:
+const attributes = await operators.getUserAttributes(invited.username); // { sub, email, name, "custom:…": … } or null
+const byUsername = await operators.listUserAttributes(); // Map<username, attributes>, every page
+// Writes are opt-in: list the attributes this app may change when creating the directory.
+const editable = createCognitoPoolDirectory({
+  region: "eu-west-1",
+  userPoolId,
+  writableAttributes: ["name", "phone_number", "custom:contact_hours"],
+});
+await editable.updateUserAttributes(invited.username, {
+  name: "Omer S.",
+  phone_number: "+972521234567", // E.164
+  "custom:contact_hours": null, // null or "" removes the attribute
+}); // { found: false } for an unknown user
 ```
 
-`inviteUser` answers an existing user with `created: false` instead of failing, so a retried invitation converges. Use the returned `username` for later calls; on a pool that signs in by email Cognito generates it. `inviteUser({ …, sendInvitation: false })` creates the user without any mail (`SUPPRESS`) — nobody knows the temporary password until `resendInvitation` mails the first one — for an invitation someone still has to approve. IAM: `AdminCreateUser`, `AdminGetUser`, `ListUsers`, `AdminEnableUser`, `AdminDisableUser`, `AdminDeleteUser`, `AdminUpdateUserAttributes` on that pool.
+`inviteUser` answers an existing user with `created: false` instead of failing, so a retried invitation converges. Use the returned `username` for later calls; on a pool that signs in by email Cognito generates it. `inviteUser({ …, sendInvitation: false })` creates the user without any mail (`SUPPRESS`) — nobody knows the temporary password until `resendInvitation` mails the first one — for an invitation someone still has to approve. IAM: `AdminCreateUser`, `AdminGetUser`, `ListUsers`, `AdminEnableUser`, `AdminDisableUser`, `AdminDeleteUser`, `AdminUpdateUserAttributes` on that pool, and `AdminDeleteUserAttributes` for removing attributes.
+
+`updateUserAttributes` is off unless the directory was created with `writableAttributes`: without it every call throws a `TypeError` before any request, and with it only the listed names are accepted (another name throws, even a safe one). The list is checked when the directory is created — it may name only the standard profile attributes (`name`, `given_name`, `family_name`, `middle_name`, `nickname`, `phone_number`, `address`, `birthdate`, `gender`, `locale`, `picture`, `profile`, `website`, `zoneinfo`) and `custom:*` attributes the pool defines; listing a sign-in name — `email` (use `updateEmail`), `preferred_username`, `sub`, `email_verified`, `phone_number_verified` — or an unknown name fails `createCognitoPoolDirectory` with a `TypeError`. At write time a `phone_number` that is not E.164 and values over 2048 characters are refused before any request. `getUserAttributes` / `listUserAttributes` stay available without the option: they use the same `AdminGetUser` / `ListUsers` actions as `getUser` / `listUsers`. Sets go in one `AdminUpdateUserAttributes` request, then removals in one `AdminDeleteUserAttributes` request; a failure between the two can leave the sets applied. Cognito marks a changed `phone_number` unverified.
 
 ### Reading a hosted-login pool's MFA policy
 

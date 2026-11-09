@@ -58,7 +58,11 @@ export interface StepExecutorDeps {
   /** Evaluate a condition expression against the flow state */
   evaluateCondition: (expression: string, state: unknown) => boolean;
   /** Approval lookup for approval-outcome steps. */
-  findApprovalForExecution?: (executionId: string) => Promise<ApprovalRequestRecord | undefined>;
+  findApprovalForExecution?: (binding: {
+    tenantId: string | null;
+    executionId: string;
+    now?: Date;
+  }) => Promise<ApprovalRequestRecord | undefined>;
 }
 
 /**
@@ -297,8 +301,25 @@ async function executeApprovalOutcomeStep(
   if (!executionId) {
     return { status: StepStatus.Failed, error: 'approval-outcome requires a flow execution id' };
   }
-  const request = await deps.findApprovalForExecution(executionId);
-  const outcome = request?.state;
+  const now = ctx.time?.now() ?? new Date();
+  const request = await deps.findApprovalForExecution({
+    tenantId: ctx.auth?.tenantId ?? null,
+    executionId,
+    now,
+  });
+  // The lookup is tenant-bound; never trust a lookup that hands back another
+  // tenant's or execution's request. An approval is only routed as approved
+  // while it is unexpired at the moment the flow consumes it.
+  const bound =
+    request &&
+    (request.tenantId ?? null) === (ctx.auth?.tenantId ?? null) &&
+    request.executionId === executionId
+      ? request
+      : undefined;
+  const outcome =
+    bound?.state === 'approved' && new Date(bound.expiresAt).getTime() <= now.getTime()
+      ? 'expired'
+      : bound?.state;
   const nextStep =
     outcome === 'approved' || outcome === 'rejected' || outcome === 'changes-requested'
       ? step.outcomes[outcome]

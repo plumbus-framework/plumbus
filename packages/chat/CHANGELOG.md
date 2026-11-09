@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0-beta.3 — 2026-11-09 — security release
+
+- **Requires `@plumbus/core` 0.9.0-beta.9 or later** (peer `">=0.9.0-beta.9 <0.10.0"`, was `">=0.9.0-beta.7 <0.10.0"`).
+- **Breaking: cookie auth needs browser checks.** `registerChatRoutes` with `authCookieNames` but without both `csrfSecret` and `externalBaseUrl` is a startup error, because cookie-authenticated `/turn` and `/confirm` would not be checked for Origin or CSRF. `requireBrowserSecurity: false` downgrades it to a warning.
+- **From main (stable 0.3.2):** a session id only works with the chat that created it (another chat's id fails as `Session not found` instead of loading its history); the pre-turn pending-action check resolves the session by id, caller and chat first, so another user's or chat's action id and expiry are not returned (`ChatConversationStore.inspectSession` takes an optional `{ owner, chatName }`, which custom stores should honor); `turn.failed` no longer carries raw internal, provider or database error text.
+
 ## 0.4.0-beta.2 — 2026-11-02
 
 - **Requires `@plumbus/core` 0.9.0-beta.7 or later** (peer `">=0.9.0-beta.7 <0.10.0"`, was `">=0.9.0-beta.6 <0.10.0"`): this release imports `@plumbus/core/sdk`, which earlier betas do not have. On the beta line `@plumbus/core/sdk` does not export `createExecutionContext`; it stays on `@plumbus/core/runtime`, as before.

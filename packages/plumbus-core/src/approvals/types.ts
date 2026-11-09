@@ -56,6 +56,16 @@ export interface ApprovalRequestRecord {
   riskClass: ActionRiskTier;
   reviewReason: ReviewMandateReason;
   state: ApprovalRequestState;
+  /**
+   * Tenant the approval was requested for (`null` for an untenanted app).
+   * An approval only ever satisfies a gate running for the same tenant.
+   */
+  tenantId: string | null;
+  /**
+   * Flow execution the approval was requested for. When set, only that
+   * execution's gate can consume it; when unset, only a gate running outside
+   * any flow execution can.
+   */
   executionId?: string;
   createdAt: string;
   expiresAt: string;
@@ -89,6 +99,7 @@ export interface HumanTaskRecord {
 }
 
 export interface ApprovalStore {
+  /** Insert a new request (or overwrite one — creation only; state changes use the CAS methods). */
   putRequest(row: ApprovalRequestRecord): Promise<void>;
   getRequest(id: string): Promise<ApprovalRequestRecord | undefined>;
   listRequests(): Promise<ApprovalRequestRecord[]>;
@@ -98,6 +109,21 @@ export interface ApprovalStore {
   getTask(id: string): Promise<HumanTaskRecord | undefined>;
   listTasksForApprovalRequest(requestId: string): Promise<HumanTaskRecord[]>;
   cancelRequest(row: ApprovalRequestRecord): Promise<boolean>;
+  /**
+   * Record a decision only while the request is still `pending`: the request
+   * row is updated with `WHERE state = 'pending'` and the decision row is
+   * written in the same transaction. Returns false (writing nothing) when
+   * another writer settled the request first.
+   */
+  decideRequest(row: ApprovalRequestRecord, decision: ApprovalDecisionRecord): Promise<boolean>;
+  /**
+   * Compare-and-set a system state change (expiry, invalidation): applies only
+   * while the stored state is one of `fromStates`. Returns whether it applied.
+   */
+  transitionRequest(
+    row: ApprovalRequestRecord,
+    fromStates: readonly ApprovalRequestState[],
+  ): Promise<boolean>;
 }
 
 export interface AuthorizationRevalidateInput {
@@ -111,6 +137,11 @@ export interface AuthorizationProvider {
 }
 
 export interface RequestApprovalInput {
+  /**
+   * Tenant the approval is for — `ctx.auth.tenantId ?? null`. Required so a
+   * shared service never creates an approval another tenant can consume.
+   */
+  tenantId: string | null;
   capabilityId: string;
   definitionVersion: string;
   input: unknown;
@@ -139,29 +170,36 @@ export interface CreateHumanTaskInput {
   executionId?: string;
 }
 
+/**
+ * Who an approval lookup is for. `tenantId` and `executionId` must equal the
+ * values the approval was requested with (`undefined`/`null` only match an
+ * approval requested without one).
+ */
+export interface ApprovalBinding {
+  tenantId: string | null;
+  executionId?: string | null;
+  capabilityId: string;
+  definitionVersion: string;
+  inputDigest: string;
+  now?: Date;
+}
+
 export interface ApprovalService {
   requestApproval(input: RequestApprovalInput): Promise<ApprovalRequestRecord>;
   decide(input: DecideApprovalInput): Promise<ApprovalRequestRecord>;
   cancel(input: CancelApprovalInput): Promise<ApprovalRequestRecord>;
-  findByExecutionId(executionId: string): Promise<ApprovalRequestRecord | undefined>;
-  findMatchingApproval(binding: {
-    capabilityId: string;
-    definitionVersion: string;
-    inputDigest: string;
+  /**
+   * Latest approval requested for this flow execution in this tenant. An
+   * approved request whose `expiresAt` has passed comes back `expired`.
+   */
+  findByExecutionId(binding: {
+    tenantId: string | null;
+    executionId: string;
     now?: Date;
   }): Promise<ApprovalRequestRecord | undefined>;
-  findConflictingApproval(binding: {
-    capabilityId: string;
-    definitionVersion: string;
-    inputDigest: string;
-    now?: Date;
-  }): Promise<ApprovalRequestRecord | undefined>;
-  invalidateOnMaterialChange(binding: {
-    capabilityId: string;
-    definitionVersion: string;
-    inputDigest: string;
-    now?: Date;
-  }): Promise<ApprovalRequestRecord[]>;
+  findMatchingApproval(binding: ApprovalBinding): Promise<ApprovalRequestRecord | undefined>;
+  findConflictingApproval(binding: ApprovalBinding): Promise<ApprovalRequestRecord | undefined>;
+  invalidateOnMaterialChange(binding: ApprovalBinding): Promise<ApprovalRequestRecord[]>;
   createHumanTask(input: CreateHumanTaskInput): Promise<HumanTaskRecord>;
   completeHumanTask(input: { taskId: string; auth: AuthContext }): Promise<HumanTaskRecord>;
 }
@@ -183,3 +221,23 @@ export type ApprovalGateResult =
       code: ApprovalGateCode;
       metadata: Record<string, unknown>;
     };
+
+/**
+ * Thrown by `decide` when another decision (or a cancellation, expiry or
+ * invalidation) settled the request between the read and the write. The
+ * stored state is the winner's; nothing from the losing call was written.
+ */
+export class ApprovalDecisionConflictError extends Error {
+  readonly code = 'approval-decision-conflict' as const;
+  constructor(
+    readonly approvalRequestId: string,
+    readonly currentState: ApprovalRequestState | undefined,
+  ) {
+    super(
+      `Approval request "${approvalRequestId}" was already settled` +
+        (currentState ? ` (${currentState})` : '') +
+        '; this decision was not applied',
+    );
+    this.name = 'ApprovalDecisionConflictError';
+  }
+}

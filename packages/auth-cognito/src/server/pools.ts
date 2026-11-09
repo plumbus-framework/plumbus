@@ -41,10 +41,10 @@ export interface AttestedUserPoolSpec {
   /**
    * When a same-named app client already exists with weaker security settings than the ones
    * this package creates (other auth flows, no token revocation, user-existence errors, longer
-   * token lifetimes), rewrite it to those settings. Default `false`: the drift is only reported
-   * (warning + `clientDrift`), because rewriting replaces every client setting, including any
-   * callback URLs or OAuth settings added by hand. A client secret cannot be removed by an
-   * update; that drift is always only reported.
+   * token lifetimes), rewrite it to those settings. Default `true` (since 0.4). Rewriting
+   * replaces every client setting, including any callback URLs or OAuth settings added by
+   * hand; pass `false` to only report the drift (warning + `clientDrift`) instead. A client
+   * secret cannot be removed by an update; that drift is always only reported.
    */
   reconcileClient?: boolean;
 }
@@ -57,7 +57,7 @@ export interface EnsuredAttestedUserPool {
   created: boolean;
   /**
    * Present only when an existing app client's security settings differ from the attested ones:
-   * one entry per setting. With `reconcileClient: true` the fixable ones were rewritten.
+   * one entry per setting. Unless `reconcileClient: false`, the fixable ones were rewritten.
    */
   clientDrift?: string[];
 }
@@ -289,7 +289,7 @@ export function createCognitoPoolAdministration(
       );
     } else {
       warn(
-        `Cognito app client ${clientName} (${clientId}) in ${userPoolId} has weaker security settings than @plumbus/auth-cognito creates: ${drift.join('; ')}. Pass reconcileClient: true to ensureAttestedUserPool to rewrite it (this replaces every client setting), or fix it in Cognito.`,
+        `Cognito app client ${clientName} (${clientId}) in ${userPoolId} has weaker security settings than @plumbus/auth-cognito creates: ${drift.join('; ')}. ${reconcile ? 'A client secret cannot be removed by an update; recreate the client under a new name.' : 'It was not rewritten because reconcileClient: false was passed to ensureAttestedUserPool; remove that to rewrite it (this replaces every client setting), or fix it in Cognito.'}`,
       );
     }
     return drift;
@@ -364,7 +364,7 @@ export function createCognitoPoolAdministration(
     const { clientId, drift } = await ensureClient(
       userPoolId,
       spec.clientName ?? spec.name,
-      spec.reconcileClient === true,
+      spec.reconcileClient !== false,
     );
     return {
       userPoolId,

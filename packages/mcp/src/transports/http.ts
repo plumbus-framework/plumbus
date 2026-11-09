@@ -33,12 +33,31 @@ export interface RegisterMcpOnFastifyOptions {
    */
   maxRequestBodySize?: number;
   /**
-   * Stateful mode only: close a session after this many ms with no request in
-   * flight. Default off — sessions live until the client sends DELETE or the app
-   * closes. Set it on servers reachable by many clients so abandoned sessions are
-   * released; clients get `404 Session not found` and re-initialize.
+   * Stateful mode only: close a session after this many ms with no request or
+   * stream open; the client then gets `404 Session not found` and re-initializes.
+   * Default 30 minutes (`1_800_000`, since 0.8) so abandoned sessions are released.
+   * `0` or `Infinity` disables it — sessions then live until the client sends
+   * DELETE or the app closes.
    */
   sessionIdleTimeoutMs?: number;
+}
+
+/** Default idle timeout for stateful MCP sessions: 30 minutes. */
+const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Resolve `sessionIdleTimeoutMs` to the timer delay, or `undefined` for no idle expiry.
+ * Unset → 30 minutes; `0` / `Infinity` → disabled; negative or NaN → RangeError.
+ * @internal exported for tests
+ */
+export function resolveSessionIdleTimeoutMs(value: number | undefined): number | undefined {
+  const requested = value ?? DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+  if (Number.isNaN(requested) || requested < 0) {
+    throw new RangeError(
+      `sessionIdleTimeoutMs must be a positive number of ms, or 0 / Infinity to disable it, got ${String(requested)}`,
+    );
+  }
+  return requested === 0 || requested === Number.POSITIVE_INFINITY ? undefined : requested;
 }
 
 interface McpHttpSession {
@@ -104,15 +123,8 @@ export async function registerMcpOnFastify(
   });
   await compatServer.connect(compatTransport);
 
-  const sessionIdleTimeoutMs = mcpOptions.sessionIdleTimeoutMs;
-  if (
-    sessionIdleTimeoutMs !== undefined &&
-    !(Number.isFinite(sessionIdleTimeoutMs) && sessionIdleTimeoutMs > 0)
-  ) {
-    throw new RangeError(
-      `sessionIdleTimeoutMs must be a positive number of ms, got ${String(sessionIdleTimeoutMs)}`,
-    );
-  }
+  // `undefined` means no idle expiry (`0` / `Infinity`).
+  const sessionIdleTimeoutMs = resolveSessionIdleTimeoutMs(mcpOptions.sessionIdleTimeoutMs);
 
   const sessions = new Map<string, McpHttpSession>();
 

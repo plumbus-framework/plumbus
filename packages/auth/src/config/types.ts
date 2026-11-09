@@ -42,6 +42,12 @@ export interface AuthRuntimeConfig {
   basePath?: string;
   defaultReturnPath: string;
   errorPath: string;
+  /**
+   * Opt-in: the query parameter that carries the login's `returnTo` path onto `errorPath` when a
+   * callback fails (for example `'next'`), so the error page can offer «try again» back to the
+   * screen the person asked for. Off when absent: the error URL carries `code` and `requestId` only.
+   */
+  errorReturnToParam?: string;
   environment: 'development' | 'production';
 
   session: {
@@ -106,6 +112,7 @@ export interface NormalizedAuthRuntimeConfig {
   basePath: string;
   defaultReturnPath: string;
   errorPath: string;
+  errorReturnToParam?: string;
   environment: 'development' | 'production';
 
   session: {

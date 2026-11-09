@@ -4,10 +4,10 @@ import { executeCapability } from '../../execution/capability-executor.js';
 import { createExecutionContext } from '../../execution/context-factory.js';
 import { executeStep } from '../../flows/step-executor.js';
 import { mockAudit } from '../../testing/context.js';
-import { FlowStepType } from '../../types/enums.js';
 import type { CapabilityContract } from '../../types/capability.js';
-import type { AuthContext } from '../../types/security.js';
+import { FlowStepType } from '../../types/enums.js';
 import type { WaitStep } from '../../types/flow.js';
+import type { AuthContext } from '../../types/security.js';
 import { ActionRiskTier } from '../action-risk.js';
 import { createAllowAllAuthorizationProvider } from '../authorization.js';
 import { digestApprovalInput } from '../digest.js';
@@ -45,7 +45,10 @@ function makeConsequential(handler = vi.fn(async () => ({ ok: true }))) {
 describe('approval gate in executeCapability', () => {
   it('does not run a consequential handler without a matching unexpired approval', async () => {
     const { capability, handler } = makeConsequential();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const ctx = createExecutionContext({
       auth: makeAuth(),
       audit: mockAudit(),
@@ -67,10 +70,12 @@ describe('approval gate in executeCapability', () => {
     const { capability, handler } = makeConsequential();
     let now = new Date('2026-08-20T10:00:00.000Z');
     const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
       store: createMemoryApprovalStore(),
       now: () => now,
     });
     const request = await approvals.requestApproval({
+      tenantId: 'tenant-1',
       capabilityId: 'billing.issueRefund',
       definitionVersion: '1.2.0',
       input: { amount: 25 },
@@ -103,8 +108,12 @@ describe('approval gate in executeCapability', () => {
 
   it('invalidates the binding when the input digest changes', async () => {
     const { capability, handler } = makeConsequential();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const request = await approvals.requestApproval({
+      tenantId: 'tenant-1',
       capabilityId: 'billing.issueRefund',
       definitionVersion: '1.2.0',
       input: { amount: 25 },
@@ -133,6 +142,7 @@ describe('approval gate in executeCapability', () => {
     expect(handler).not.toHaveBeenCalled();
     expect(
       await approvals.findMatchingApproval({
+        tenantId: 'tenant-1',
         capabilityId: 'billing.issueRefund',
         definitionVersion: '1.2.0',
         inputDigest: digestApprovalInput({ amount: 25 }),
@@ -142,8 +152,12 @@ describe('approval gate in executeCapability', () => {
 
   it('revalidates authorization after the approval wait before the handler runs', async () => {
     const { capability, handler } = makeConsequential();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const request = await approvals.requestApproval({
+      tenantId: 'tenant-1',
       capabilityId: 'billing.issueRefund',
       definitionVersion: '1.2.0',
       input: { amount: 25 },
@@ -197,7 +211,10 @@ describe('approval gate in executeCapability', () => {
   it('refuses a prohibited capability outright, even with the approval service bound', async () => {
     const { capability, handler } = makeConsequential();
     const prohibited = { ...capability, riskTier: ActionRiskTier.Prohibited } as CapabilityContract;
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const ctx = createExecutionContext({
       auth: makeAuth(),
       audit: mockAudit(),
@@ -218,8 +235,12 @@ describe('approval gate in executeCapability', () => {
   it('refuses a prohibited capability even when a matching approval exists', async () => {
     const { capability, handler } = makeConsequential();
     const prohibited = { ...capability, riskTier: ActionRiskTier.Prohibited } as CapabilityContract;
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const request = await approvals.requestApproval({
+      tenantId: 'tenant-1',
       capabilityId: 'billing.issueRefund',
       definitionVersion: '1.2.0',
       input: { amount: 25 },
@@ -251,8 +272,12 @@ describe('approval gate in executeCapability', () => {
 
   it('runs the handler when a matching unexpired approval is bound', async () => {
     const { capability, handler } = makeConsequential();
-    const approvals = createApprovalService({ store: createMemoryApprovalStore() });
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
     const request = await approvals.requestApproval({
+      tenantId: 'tenant-1',
       capabilityId: 'billing.issueRefund',
       definitionVersion: '1.2.0',
       input: { amount: 25 },
@@ -276,6 +301,85 @@ describe('approval gate in executeCapability', () => {
     const result = await executeCapability(capability, ctx, { amount: 25 });
 
     expect(result.success).toBe(true);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('does not let a tenant-A approval satisfy a tenant-B gate on a shared service', async () => {
+    const { capability, handler } = makeConsequential();
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
+    const request = await approvals.requestApproval({
+      tenantId: 'tenant-a',
+      capabilityId: 'billing.issueRefund',
+      definitionVersion: '1.2.0',
+      input: { amount: 25 },
+      riskClass: ActionRiskTier.Consequential,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await approvals.decide({
+      requestId: request.approvalRequestId,
+      outcome: 'approved',
+      auth: makeAuth({ userId: 'approver-1', roles: ['reviewer'], tenantId: 'tenant-a' }),
+    });
+
+    const ctx = createExecutionContext({
+      auth: makeAuth({ tenantId: 'tenant-b' }),
+      audit: mockAudit(),
+      data: {},
+      approvals,
+    });
+    const result = await executeCapability(capability, ctx, { amount: 25 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.metadata?.approvalGate).toBe('missing-approval');
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not let one flow execution consume an approval bound to another', async () => {
+    const { capability, handler } = makeConsequential();
+    const approvals = createApprovalService({
+      authorization: createAllowAllAuthorizationProvider(),
+      store: createMemoryApprovalStore(),
+    });
+    const request = await approvals.requestApproval({
+      tenantId: 'tenant-1',
+      executionId: 'exec-1',
+      capabilityId: 'billing.issueRefund',
+      definitionVersion: '1.2.0',
+      input: { amount: 25 },
+      riskClass: ActionRiskTier.Consequential,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await approvals.decide({
+      requestId: request.approvalRequestId,
+      outcome: 'approved',
+      auth: makeAuth({ userId: 'approver-1', roles: ['reviewer'] }),
+    });
+
+    const base = createExecutionContext({
+      auth: makeAuth(),
+      audit: mockAudit(),
+      data: {},
+      approvals,
+    });
+    const other = await executeCapability(
+      capability,
+      { ...base, flowId: 'exec-2' },
+      {
+        amount: 25,
+      },
+    );
+    expect(other.success).toBe(false);
+    const outside = await executeCapability(capability, base, { amount: 25 });
+    expect(outside.success).toBe(false);
+    expect(handler).not.toHaveBeenCalled();
+
+    const own = await executeCapability(capability, { ...base, flowId: 'exec-1' }, { amount: 25 });
+    expect(own.success).toBe(true);
     expect(handler).toHaveBeenCalledOnce();
   });
 });

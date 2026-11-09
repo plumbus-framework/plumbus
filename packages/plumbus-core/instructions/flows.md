@@ -145,7 +145,7 @@ starting a new flow under the caller's identity.
 
 ## Compiled definitions
 
-`plumbus compile-flows` emits signed JSON from `defineFlow` modules. Pass `compiledRegistry` to `createFlowEngine` so production runs consume compiled JSON (not live TypeScript steps) and pin version+digest on `flow_executions`. `approval-outcome` steps use Stage 4 `ApprovalService`. `applyDefinitionStrategy(..., 'migrate')` is not supported. Do not write a second workflow engine.
+`plumbus compile-flows` emits signed JSON from `defineFlow` modules. Pass `compiledRegistry` to `createFlowEngine` so production runs consume compiled JSON (not live TypeScript steps) and pin version+digest on `flow_executions`. `approval-outcome` steps use Stage 4 `ApprovalService`; they read only the approval requested with this flow's tenant and `executionId`, and an approval past `expiresAt` routes as `expired` (step fails), never `approved`. `requestApproval` needs `tenantId` (or `null`) and the flow `executionId`; `createApprovalService` needs an `authorization` provider or every `decide`/`cancel` is refused, and a racing second decision throws `ApprovalDecisionConflictError`. `applyDefinitionStrategy(..., 'migrate')` is not supported. Do not write a second workflow engine.
 
 ## Flow Lifecycle
 

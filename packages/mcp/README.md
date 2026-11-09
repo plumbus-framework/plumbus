@@ -6,7 +6,7 @@ Release **0.8.0-beta.1** belongs to the core 0.9 beta family (npm dist-tag `plum
 
 [![npm](https://img.shields.io/npm/v/@plumbus/mcp.svg)](https://www.npmjs.com/package/@plumbus/mcp)
 [![license](https://img.shields.io/npm/l/@plumbus/mcp.svg)](./LICENSE)
-[![peer: @plumbus/core >=0.9.0-beta.5 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.5%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
+[![peer: @plumbus/core >=0.9.0-beta.9 <0.10.0](https://img.shields.io/badge/peer-%40plumbus%2Fcore%20%3E%3D0.9.0--beta.9%20%3C0.10.0-blue)](https://www.npmjs.com/package/@plumbus/core)
 [![MCP spec: tools + tasks](https://img.shields.io/badge/MCP-tools%20%2B%20tasks-7c5cff)](https://modelcontextprotocol.io)
 
 ## What is this?
@@ -44,7 +44,7 @@ Plumbus already has all of that for HTTP. This package routes it through MCP. **
 
 ## Status
 
-MCP 0.8.0-beta.1 (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.7.x` in the core 0.8 stabilization family) is an optional peer of core and requires the core peer `>=0.9.0-beta.5 <0.10.0`. Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
+MCP 0.8.0-beta.2 (core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.7.x` in the core 0.8 stabilization family) is an optional peer of core and requires the core peer `>=0.9.0-beta.9 <0.10.0`. Implements the MCP transport layer, auth model, tasks, and the per-tool-call observability hook. OAuth, resources, prompts, sampling, elicitation, completions, roots, and logging are out of scope — see [MCP spec coverage](#mcp-spec-coverage).
 
 ## Install
 
@@ -167,7 +167,7 @@ This package doesn't re-implement validation, access policy, or audit — they a
 | `McpServerConfig`, `McpToolCallInfo` | Server config + observability payload shapes. |
 | `startStdioServer({ server })` | Run an MCP server on stdio. |
 | `startHttpServer({ config, port, host })` | Standalone Fastify + Streamable HTTP MCP server. |
-| `registerMcpOnFastify(app, config, mcpOptions?)` | Mount on existing Fastify (`path`, `discoveryPath`, `stateless`, `requireDiscoveryAuth`, `maxRequestBodySize`, `sessionIdleTimeoutMs`). Stateless mode serves each request with a fresh server + transport; stateful mode keeps one per session, bound to the user + tenant that initialized it (0.7.1+). |
+| `registerMcpOnFastify(app, config, mcpOptions?)` | Mount on existing Fastify (`path`, `discoveryPath`, `stateless`, `requireDiscoveryAuth`, `maxRequestBodySize`, `sessionIdleTimeoutMs` — default 30 min idle expiry for stateful sessions, `0` disables). Stateless mode serves each request with a fresh server + transport; stateful mode keeps one per session, bound to the user + tenant that initialized it (0.7.1+). |
 | `createMcpAuthAdapter({ agents, envToken? })` | `AuthAdapter` mapping bearer tokens → `AuthContext` with `provider: 'mcp'`. |
 | `resolveMcpAgentToken(header, agents, envToken)` | Direct token-resolution helper. |
 | `parseBearerToken(header)` | Extract the bearer value from an `Authorization` header. |

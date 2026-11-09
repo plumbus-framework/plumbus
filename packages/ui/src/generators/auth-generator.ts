@@ -33,22 +33,23 @@ export function __resetTransportWarningForTests(): void {
 }
 
 function resolveTransport(config?: AuthHelperConfig): AuthTransport {
-  if (config?.transport) {
-    return config.transport;
+  if (config?.transport === 'bearer') {
+    if (!transportWarningEmitted) {
+      transportWarningEmitted = true;
+      console.warn(
+        '[@plumbus/ui] Bearer auth transport keeps the token in localStorage, where any XSS in the app can read and replay it. Prefer transport: "session" (HttpOnly cookie via @plumbus/auth), the default.',
+      );
+    }
+    return 'bearer';
   }
-  if (!transportWarningEmitted) {
-    transportWarningEmitted = true;
-    console.warn(
-      '[@plumbus/ui] Auth transport omitted; defaulting to bearer (deprecated). Bearer keeps the token in localStorage, where any XSS in the app can read and replay it. Pass transport: "session" (HttpOnly cookie via @plumbus/auth) or transport: "bearer" explicitly.',
-    );
-  }
-  return 'bearer';
+  // Session (HttpOnly cookie + CSRF via @plumbus/auth) is the default since @plumbus/ui 0.10.0-beta.3.
+  return 'session';
 }
 
 // ── Auth Types Generator ──
 
 /** Generate TypeScript types for auth state */
-export function generateAuthTypes(transport: AuthTransport = 'bearer'): string {
+export function generateAuthTypes(transport: AuthTransport = 'session'): string {
   const providerInfo =
     transport === 'session'
       ? `

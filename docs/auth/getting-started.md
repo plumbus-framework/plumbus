@@ -100,7 +100,7 @@ With `authenticationRuntime` supplied, **`auth.secret` is not required** in Plum
 createAuthRuntime(config, { bearer: createOidcAdapter({ /* … */ }) });
 ```
 
-Regenerate the frontend with **`plumbus ui generate --auth-transport session`** (or `ui nextjs --auth-transport session`) so generated helpers use credentialed fetch and in-memory CSRF instead of localStorage bearer tokens.
+Regenerate the frontend with **`plumbus ui generate`** (or `ui nextjs`); since `@plumbus/ui` 0.10.0-beta.3 the session transport is the default, so generated helpers use credentialed fetch and in-memory CSRF instead of localStorage bearer tokens. Older UI versions need `--auth-transport session`.
 
 ---
 

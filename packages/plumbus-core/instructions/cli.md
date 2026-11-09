@@ -97,6 +97,7 @@ plumbus verify --json
 # Partner API contract validation (requires @plumbus/api)
 plumbus api validate
 plumbus api validate --fail-on-governance   # also fail on advisory apiRules
+plumbus api validate --no-fail-on-security  # report security findings without failing (default: they fail)
 
 # Compliance profile assessment
 plumbus certify policy soc2

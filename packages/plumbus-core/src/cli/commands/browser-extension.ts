@@ -23,7 +23,7 @@ interface UiGeneratorModule {
   generateClientModule: (
     capabilities: import('../../types/capability.js').CapabilityContract[],
     flows: FlowTriggerInput[],
-    config?: { baseUrl?: string; authModuleImport?: string },
+    config?: { baseUrl?: string; authModuleImport?: string; authTransport?: 'session' | 'bearer' },
   ) => string;
   capabilityClientFnName: (cap: { name: string }) => string;
   flowTriggerFnName: (flow: FlowTriggerInput) => string;
@@ -288,6 +288,9 @@ export function registerBrowserExtensionCommand(program: Command): void {
         ui.generateClientModule(capabilities, flows, {
           baseUrl: apiBaseUrl,
           authModuleImport: './auth.js',
+          // Extensions authenticate with a bearer token from browser.storage.local (auth-store.ts);
+          // @plumbus/ui 0.10.0-beta.3+ defaults to the cookie session transport.
+          authTransport: 'bearer',
         });
 
       const shellFiles = browserExtension.generateBrowserExtensionScaffold({
