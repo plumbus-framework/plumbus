@@ -392,6 +392,20 @@ describe('ctx.flows resume/cancel/status authorization', () => {
       expect(authorizeFlowAccess).not.toHaveBeenCalled();
     });
 
+    it('refuses a tenant caller on a tenantless execution without asking the app', async () => {
+      const rows = [waitingRow('exec-x', null, 'operator-1')];
+      const authorizeFlowAccess = vi.fn().mockResolvedValue(true);
+      const { engine } = setup(rows, { authorizeFlowAccess });
+      await expect(createFlowService(engine, otherUserA).status('exec-x')).rejects.toThrow(
+        'Flow execution "exec-x" not found',
+      );
+      await expect(createFlowService(engine, otherUserA).cancel('exec-x')).rejects.toThrow(
+        'not found',
+      );
+      expect(authorizeFlowAccess).not.toHaveBeenCalled();
+      expect(rows[0]?.status).toBe(FlowStatus.Waiting);
+    });
+
     it('asks about a caller without a tenant (a platform operator), with the execution tenant on owner', async () => {
       const rows = [waitingRow('exec-a', 'tenant-a')];
       const authorizeFlowAccess = vi.fn().mockResolvedValue(true);

@@ -430,7 +430,8 @@ See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the
   };
   ```
 
-  The hook is never asked about a caller of another tenant (always refused),
+  The hook is never asked about a caller of another tenant, or a caller of a
+  tenant acting on a tenantless execution (both always refused),
   the starting actor or an untenanted `system` caller (always allowed). A caller
   without a tenant is asked about with the execution's tenant on `owner`, so the
   app can decide whether that operator may reach it. Anything but `true` /

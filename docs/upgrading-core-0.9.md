@@ -26,7 +26,8 @@ export const authorizeFlowAccess: AuthorizeFlowAccess = async ({ auth, operation
 
 It is asked only where the ownership rule would refuse a caller of the execution's own tenant
 or a caller without a tenant (a platform operator, with the execution's tenant on `owner`); a
-caller of another tenant, the starting actor and untenanted `system` callers are decided
+caller of another tenant (or a tenant's caller on a tenantless execution), the starting actor
+and untenanted `system` callers are decided
 exactly as in beta.9. `true` or `{ allowed: true }` allows; anything else or a
 throw is the usual "not found". Without the export nothing changes. No migration. See
 [Flows → Resume, cancel and status access](core-concepts/flows.md#resume-cancel-and-status-access).

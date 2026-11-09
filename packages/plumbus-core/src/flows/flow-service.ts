@@ -82,6 +82,8 @@ export function createFlowService(
     if (engine.enforceExecutionOwnership) {
       // A caller of another tenant was refused above and never reaches the app. A caller
       // without a tenant (a platform operator) does, with the execution's tenant on `owner`.
+      // A tenant's caller on a tenantless execution is outside its tenant: refused, not asked.
+      if (callerTenant !== null && owner.tenantId !== callerTenant) throw notFound(executionId);
       const hook = engine.authorizeFlowAccess;
       if (typeof hook !== 'function') throw notFound(executionId);
       let verdict: Awaited<ReturnType<typeof hook>>;
