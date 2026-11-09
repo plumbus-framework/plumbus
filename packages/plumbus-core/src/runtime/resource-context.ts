@@ -104,6 +104,7 @@ export async function buildResourceContext(options: {
       ? createFlowEngine({
           db,
           registry: flows,
+          authorizeFlowAccess: extensions.authorizeFlowAccess,
           stepDeps: {
             async executeCapability() {
               return {

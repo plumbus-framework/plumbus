@@ -420,8 +420,12 @@ export { createExplanationTracker } from './explanation/index.js';
 // ── Field Constructors ──
 export { field } from './fields/index.js';
 export type {
+  AuthorizeFlowAccess,
+  FlowAccessOperation,
+  FlowAccessRequest,
   FlowDefinitionUnavailableInfo,
   FlowEngineConfig,
+  FlowExecutionOwner,
   FrameworkRetentionOptions,
   FrameworkRetentionResult,
   PruneFrameworkTablesOptions,

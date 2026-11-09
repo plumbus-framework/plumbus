@@ -406,11 +406,43 @@ See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the
 - **Owner check (default since core 0.9.0-beta.9):** only the actor that
   started the execution, in the same tenant, may resume, cancel, terminate or
   read its status; others get the not-found error.
-- If your app acts on flows for a different user (for example an approver
-  resuming a requester's flow), set `enforceExecutionOwnership: false` on
+- **The app's own check (core 0.9.0-beta.10+):** if your app legitimately acts
+  on flows another user started (an approver resuming a requester's flow, a
+  teacher reading the status of a run a student's submission started, an
+  operator cancelling a stuck run), export `authorizeFlowAccess` from
+  `app/server.ts`. Where the owner check would refuse a caller **of the
+  execution's own tenant, or a caller without a tenant** (a platform operator),
+  Plumbus asks the hook instead, and the owner check stays on for everything
+  else:
+
+  ```ts
+  // app/server.ts
+  import type { AuthorizeFlowAccess } from '@plumbus/core';
+
+  export const authorizeFlowAccess: AuthorizeFlowAccess = async ({
+    auth, operation, executionId, flowName, owner,
+  }) => {
+    // Your authorization: may `auth` do `operation` on this execution, which
+    // `owner.actor` started? Return true / { allowed: true } to allow.
+    return flowName === 'evaluate-submission' && operation === 'status'
+      ? await mayReadEvaluation(auth, executionId)
+      : false;
+  };
+  ```
+
+  The hook is never asked about a caller of another tenant (always refused),
+  the starting actor or an untenanted `system` caller (always allowed). A caller
+  without a tenant is asked about with the execution's tenant on `owner`, so the
+  app can decide whether that operator may reach it. Anything but `true` /
+  `{ allowed: true }`, and a throw, refuses with the not-found error; a throw is
+  logged. The same export reaches the API server and the worker pool
+  (`ServerConfig.authorizeFlowAccess`, `WorkerPoolConfig.authorizeFlowAccess`,
+  or `authorizeFlowAccess` on `createFlowEngine()` when you build engines
+  yourself).
+- To drop the owner check altogether, set `enforceExecutionOwnership: false` on
   `createFlowEngine()`, or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false` in the API
-  and worker environment. Then any actor of the tenant may act; the first such
-  call logs a one-time warning.
+  and worker environment. Then any actor of the tenant may act and the hook is
+  not consulted; the first such call logs a one-time warning.
 - Callers with the `system` role are exempt from the owner check; with no
   tenant (worker, scheduler and other internal paths) they are not checked at
   all.

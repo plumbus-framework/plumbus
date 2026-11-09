@@ -663,6 +663,8 @@ interface WorkerPoolConfig {
   metrics?: PlumbusMetrics;
   onMcpJobComplete?: (jobId, result, payload?, error?) => Promise<void>;
   onFlowError?: (info) => void | Promise<void>;
+  /** The app's check for ctx.flows calls on another actor's execution (core 0.9.0-beta.10+). */
+  authorizeFlowAccess?: AuthorizeFlowAccess;
   onFlowDefinitionUnavailable?: (info: FlowDefinitionUnavailableInfo) => void | Promise<void>;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   onEventDeadLetter?: (info: EventDeadLetterInfo) => void | Promise<void>;

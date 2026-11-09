@@ -71,8 +71,12 @@ export type { StepExecutorDeps, StepResult } from './step-executor.js';
 // ── Flow Engine ──
 export { computeRetryDelay, createFlowEngine, generateWorkerId } from './engine.js';
 export type {
+  AuthorizeFlowAccess,
+  FlowAccessOperation,
+  FlowAccessRequest,
   FlowDefinitionUnavailableInfo,
   FlowEngineConfig,
+  FlowExecutionOwner,
   FlowSpineDispatchConfig,
   PendingFlowExecution,
 } from './engine.js';

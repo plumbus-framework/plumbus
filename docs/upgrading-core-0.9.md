@@ -6,6 +6,31 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.10 (2026-11-09): the app decides on another actor's flow execution
+
+Prepared for repository release `v0.9.0-beta.10` under npm dist-tag `plumbus-next`. Only
+`@plumbus/core` changes, from **0.9.0-beta.9** to **0.9.0-beta.10**; every other package and all
+peer ranges stay unchanged.
+
+beta.9 made `ctx.flows.resume` / `cancel` / `terminate` / `status` refuse every caller but the
+actor who started the execution, with one opt-out that turns the rule off for the whole process.
+Apps whose own authorization already decides who may see or stop a run — a teacher reading the
+status of the run a student's submission started, an operator cancelling a stuck run — can now
+answer that case themselves and keep the rule on:
+
+```ts
+// app/server.ts
+export const authorizeFlowAccess: AuthorizeFlowAccess = async ({ auth, operation, executionId, flowName, owner }) =>
+  myAuthorization.mayActOnRun(auth, { operation, executionId, flowName, startedBy: owner.actor });
+```
+
+It is asked only where the ownership rule would refuse a caller of the execution's own tenant
+or a caller without a tenant (a platform operator, with the execution's tenant on `owner`); a
+caller of another tenant, the starting actor and untenanted `system` callers are decided
+exactly as in beta.9. `true` or `{ allowed: true }` allows; anything else or a
+throw is the usual "not found". Without the export nothing changes. No migration. See
+[Flows → Resume, cancel and status access](core-concepts/flows.md#resume-cancel-and-status-access).
+
 ## v0.9.0-beta.9 (2026-11-09): security release, opt-in request ids, Cognito attribute writes
 
 Prepared for repository release `v0.9.0-beta.9` under npm dist-tag `plumbus-next`.

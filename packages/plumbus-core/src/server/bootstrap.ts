@@ -252,6 +252,11 @@ export interface ServerConfig {
   /** Best-effort provider client span exporter. */
   /** Vendor-neutral, sampled identifiers/timings only; never awaited on execution. */
   onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
+  /**
+   * The app's say on `ctx.flows` calls about an execution another actor of the same tenant
+   * started (`export const authorizeFlowAccess` in `app/server.ts`). See `AuthorizeFlowAccess`.
+   */
+  authorizeFlowAccess?: import('../flows/engine.js').AuthorizeFlowAccess;
   onAIProviderSpan?: import('../ai/ai-service.js').AIServiceConfig['onProviderSpan'];
   /** Enable provider-side constrained decoding for registered prompt output schemas. */
   enableStrictStructuredOutputs?: boolean;
@@ -608,6 +613,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const requestFlowEngine = createFlowEngine({
     db,
     registry: flows,
+    authorizeFlowAccess: serverConfig.authorizeFlowAccess,
     stepDeps: httpFlowStepDeps,
     compiledRegistry,
     spineDispatch: requestSpineDispatch,
@@ -631,6 +637,7 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
     const engine = createFlowEngine({
       db: dataPlaneDb,
       registry: flows,
+      authorizeFlowAccess: serverConfig.authorizeFlowAccess,
       stepDeps: httpFlowStepDeps,
       compiledRegistry,
       spineDispatch: requestSpineDispatch,

@@ -296,6 +296,8 @@ export interface WorkerPoolConfig {
   eventRegistry?: EventRegistry;
   /** Called when a flow fails permanently (after retries exhausted). */
   onFlowError?: FlowEngineConfig['onFlowError'];
+  /** The app's flow access check for `ctx.flows` in this pool (see `AuthorizeFlowAccess`). */
+  authorizeFlowAccess?: FlowEngineConfig['authorizeFlowAccess'];
   /**
    * Called when this worker released a claimed flow execution because it lacks the execution's
    * definition (a flow not registered, a pinned compiled version missing, a digest mismatch, or
@@ -641,6 +643,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const flowEngineConfig: FlowEngineConfig = {
     db,
     registry: flows,
+    authorizeFlowAccess: poolConfig.authorizeFlowAccess,
     stepDeps: withCapabilityErrorHook(stepDeps, poolConfig.onCapabilityError, dataPlaneForAuth),
     audit,
     queue,

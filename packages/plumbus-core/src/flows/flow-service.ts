@@ -34,6 +34,10 @@ let warnedUncheckedEngine = false;
  *   in the same tenant is allowed and a one-time warning is logged.
  * - Callers with the `system` role and no tenant (worker/internal paths) are
  *   not checked.
+ * - Where the ownership rule would refuse the caller (of the execution's own
+ *   tenant, or without a tenant), the engine's `authorizeFlowAccess` hook (when the app supplies one) decides
+ *   instead: the app's own authorization says whether this caller may act on an
+ *   execution somebody else started. A refusal or a throw is "not found".
  */
 export function createFlowService(
   engine: ReturnType<typeof createFlowEngine>,
@@ -75,7 +79,28 @@ export function createFlowService(
     const ownsExecution =
       owner.tenantId === callerTenant && auth.userId != null && owner.actor === auth.userId;
     if (ownsExecution) return;
-    if (engine.enforceExecutionOwnership) throw notFound(executionId);
+    if (engine.enforceExecutionOwnership) {
+      // A caller of another tenant was refused above and never reaches the app. A caller
+      // without a tenant (a platform operator) does, with the execution's tenant on `owner`.
+      const hook = engine.authorizeFlowAccess;
+      if (typeof hook !== 'function') throw notFound(executionId);
+      let verdict: Awaited<ReturnType<typeof hook>>;
+      try {
+        verdict = await hook({ auth, operation, executionId, flowName: owner.flowName, owner });
+      } catch (error) {
+        // Fail closed, and say why in the log (never to the caller: the id stays unconfirmed).
+        createStructuredLogger({ component: 'flows' }).warn(
+          'authorizeFlowAccess threw; the flow call is refused',
+          { executionId, operation, error: error instanceof Error ? error.message : String(error) },
+        );
+        throw notFound(executionId);
+      }
+      const allowed =
+        verdict === true ||
+        (typeof verdict === 'object' && verdict !== null && verdict.allowed === true);
+      if (allowed) return;
+      throw notFound(executionId);
+    }
     engine.warnOnce?.(
       'flow.service.foreign-actor',
       `ctx.flows.${operation}() acted on a flow execution started by a different actor or outside the caller's tenant. enforceExecutionOwnership is off (PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false); turn it back on to allow only the starting actor.`,

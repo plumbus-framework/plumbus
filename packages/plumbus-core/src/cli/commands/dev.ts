@@ -228,6 +228,7 @@ export async function startDevServer(
     enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
     credentials: extensions.credentials,
     authenticationRuntime: extensions.authenticationRuntime,
+    ...(extensions.authorizeFlowAccess && { authorizeFlowAccess: extensions.authorizeFlowAccess }),
     ...(extensions.bodyLimit != null && { bodyLimit: extensions.bodyLimit }),
     ...(extensions.requestIds && { requestIds: extensions.requestIds }),
     ...(extensions.dataPlaneResolver && { dataPlaneResolver: extensions.dataPlaneResolver }),

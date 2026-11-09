@@ -266,6 +266,7 @@ export type ServerExtensions = Pick<
   | 'resolveAIProviderHeaders'
   | 'onAIProviderSpan'
   | 'onTelemetrySpan'
+  | 'authorizeFlowAccess'
   | 'decisions'
   | 'enableStrictStructuredOutputs'
   | 'credentials'

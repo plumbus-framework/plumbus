@@ -143,6 +143,19 @@ describe('loadServerExtensions', () => {
     expect((await loadServerExtensions(notAFunction)).onFlowDefinitionUnavailable).toBeUndefined();
   });
 
+  it('loads an authorizeFlowAccess hook exported by name or on the default export', async () => {
+    const named = await writeServerModule(
+      'export async function authorizeFlowAccess() { return true; }\n',
+    );
+    expect(typeof (await loadServerExtensions(named)).authorizeFlowAccess).toBe('function');
+    const fromDefault = await writeServerModule(
+      'export default { authorizeFlowAccess: () => false };\n',
+    );
+    expect(typeof (await loadServerExtensions(fromDefault)).authorizeFlowAccess).toBe('function');
+    const notAFunction = await writeServerModule('export const authorizeFlowAccess = true;\n');
+    expect((await loadServerExtensions(notAFunction)).authorizeFlowAccess).toBeUndefined();
+  });
+
   it('loads an authenticationRuntime exported by name', async () => {
     const root = await writeServerModule(
       'export const authenticationRuntime = { authenticator: { kind: "named" } };\n',

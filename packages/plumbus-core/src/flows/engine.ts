@@ -233,7 +233,45 @@ export interface FlowEngineConfig {
    * actor of the same tenant act on the execution. Cross-tenant access is always rejected.
    */
   enforceExecutionOwnership?: boolean;
+  /**
+   * The app's say on a caller acting on an execution somebody else started in the same tenant
+   * (core 0.9.0-beta.10). Consulted only where `enforceExecutionOwnership` would refuse: the
+   * caller is not the actor who started the execution, is not an untenanted `system` caller,
+   * and is either in the execution's tenant or has no tenant (a platform operator). A caller of
+   * another tenant is rejected before it is asked. Without it, the ownership rule refuses as
+   * before. See {@link AuthorizeFlowAccess}.
+   */
+  authorizeFlowAccess?: AuthorizeFlowAccess;
 }
+
+/** What a caller is doing to a flow execution through `ctx.flows`. */
+export type FlowAccessOperation = 'resume' | 'cancel' | 'status' | 'terminate';
+
+/** One question to the app: may this caller act on an execution another actor started? */
+export interface FlowAccessRequest {
+  /** The caller, as bound to `ctx.flows`: in the execution's tenant, or without a tenant. */
+  auth: AuthContext;
+  operation: FlowAccessOperation;
+  executionId: string;
+  flowName: string;
+  /** Who started the execution, and in which tenant. */
+  owner: FlowExecutionOwner;
+}
+
+/**
+ * Lets an app allow a caller to act on a flow execution another actor of the same tenant
+ * started, using the app's own authorization (a lecturer reading the status of the evaluation
+ * a student's submission started, an operator cancelling a stuck run). Return `true` or
+ * `{ allowed: true }` to allow; anything else, or a throw, refuses with the same "not found"
+ * error as an unknown id. Export it from `app/server.ts` as `authorizeFlowAccess`, or pass it
+ * as `ServerConfig.authorizeFlowAccess` / `WorkerPoolConfig.authorizeFlowAccess`.
+ */
+export type AuthorizeFlowAccess = (
+  request: FlowAccessRequest,
+) =>
+  | Promise<boolean | { allowed: boolean; reason?: string }>
+  | boolean
+  | { allowed: boolean; reason?: string };
 
 export interface FlowDefinitionUnavailableInfo {
   executionId: string;
@@ -295,6 +333,8 @@ export interface FlowEventResumeScope {
 export interface FlowExecutionOwner {
   actor: string;
   tenantId: string | null;
+  /** The execution's flow (core 0.9.0-beta.10+). */
+  flowName: string;
 }
 
 interface FlowExecutionRow {
@@ -2308,12 +2348,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
   async function getExecutionOwner(executionId: string): Promise<FlowExecutionOwner | undefined> {
     // The same plane resume/cancel/status act on, so a tenant-plane execution is checked too.
     const rows = await (await locateStore(executionId))
-      .select({ actor: flowExecutionsTable.actor, tenantId: flowExecutionsTable.tenantId })
+      .select({
+        actor: flowExecutionsTable.actor,
+        tenantId: flowExecutionsTable.tenantId,
+        flowName: flowExecutionsTable.flowName,
+      })
       .from(flowExecutionsTable)
       .where(eq(flowExecutionsTable.id, executionId))
       .limit(1);
     const row = rows[0] as FlowExecutionOwner | undefined;
-    return row ? { actor: row.actor, tenantId: row.tenantId ?? null } : undefined;
+    return row
+      ? { actor: row.actor, tenantId: row.tenantId ?? null, flowName: row.flowName }
+      : undefined;
   }
 
   // ── Internal helpers ──
@@ -2842,6 +2888,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     get enforceExecutionOwnership() {
       return enforceExecutionOwnership;
     },
+    authorizeFlowAccess: config.authorizeFlowAccess,
     get workerId() {
       return workerId;
     },

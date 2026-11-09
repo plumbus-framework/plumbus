@@ -292,8 +292,10 @@ handler: async (ctx, input) => {
 
 `status`, `resume`, `cancel` and `terminate` reject executions from another tenant
 with a not-found error, and by default (core 0.9.0-beta.9+) also executions another
-actor started; `enforceExecutionOwnership: false` (or
-`PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false`) allows any actor of the tenant.
+actor started. An `authorizeFlowAccess` export in `app/server.ts` (core
+0.9.0-beta.10+) lets the app allow another actor of the same tenant case by case;
+`enforceExecutionOwnership: false` (or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=false`)
+allows any actor of the tenant.
 See [Flows → Resume, cancel and status access](../core-concepts/flows.md#resume-cancel-and-status-access).
 
 ---

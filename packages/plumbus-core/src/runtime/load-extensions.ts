@@ -46,6 +46,12 @@ export async function loadServerExtensions(
         mod.enableStrictStructuredOutputs ?? mod.default?.enableStrictStructuredOutputs;
       extensions.onEventDeadLetter = mod.onEventDeadLetter ?? mod.default?.onEventDeadLetter;
       extensions.onFlowError = mod.onFlowError ?? mod.default?.onFlowError;
+      // The app's flow access check (`export const authorizeFlowAccess`), for the server and
+      // the worker pool alike.
+      const authorizeFlowAccess = mod.authorizeFlowAccess ?? mod.default?.authorizeFlowAccess;
+      if (typeof authorizeFlowAccess === 'function') {
+        extensions.authorizeFlowAccess = authorizeFlowAccess;
+      }
       const onFlowDefinitionUnavailable =
         mod.onFlowDefinitionUnavailable ?? mod.default?.onFlowDefinitionUnavailable;
       if (typeof onFlowDefinitionUnavailable === 'function') {

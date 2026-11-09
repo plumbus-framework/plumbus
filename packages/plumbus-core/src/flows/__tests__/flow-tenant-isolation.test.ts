@@ -106,7 +106,10 @@ function waitingRow(id: string, tenantId: string | null, actor = 'user-a') {
 
 function setup(
   rows: Record<string, unknown>[],
-  options: { enforceExecutionOwnership?: boolean } = {},
+  options: {
+    enforceExecutionOwnership?: boolean;
+    authorizeFlowAccess?: import('../engine.js').AuthorizeFlowAccess;
+  } = {},
 ) {
   const registry = new FlowRegistry();
   registry.register(
@@ -318,5 +321,102 @@ describe('ctx.flows resume/cancel/status authorization', () => {
     const { engine } = setup([waitingRow('exec-a', 'tenant-a')]);
     const flows = createFlowService(engine, { ...tenantB, roles: ['system'] });
     await expect(flows.status('exec-a')).rejects.toThrow('not found');
+  });
+
+  describe('authorizeFlowAccess: the app decides for another actor of the same tenant', () => {
+    it('asks the app with the caller, operation, flow and owner, and acts when it allows', async () => {
+      const rows = [waitingRow('exec-a', 'tenant-a')];
+      const authorizeFlowAccess = vi.fn().mockResolvedValue(true);
+      const { engine } = setup(rows, { authorizeFlowAccess });
+      const other = createFlowService(engine, otherUserA);
+
+      expect((await other.status('exec-a')).status).toBe('waiting');
+      expect(authorizeFlowAccess).toHaveBeenCalledWith({
+        auth: otherUserA,
+        operation: 'status',
+        executionId: 'exec-a',
+        flowName: 'approval',
+        owner: { actor: 'user-a', tenantId: 'tenant-a', flowName: 'approval' },
+      });
+      await other.resume('exec-a', { ok: true });
+      expect(authorizeFlowAccess).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: 'resume' }),
+      );
+      expect(rows[0]?.status).toBe(FlowStatus.Created);
+    });
+
+    it('accepts { allowed: true } and refuses { allowed: false } as not found', async () => {
+      const rows = [waitingRow('exec-a', 'tenant-a')];
+      const verdicts = [{ allowed: true }, { allowed: false, reason: 'not on this course' }];
+      const { engine } = setup(rows, {
+        authorizeFlowAccess: async () => verdicts.shift() ?? false,
+      });
+      const other = createFlowService(engine, otherUserA);
+      expect((await other.status('exec-a')).status).toBe('waiting');
+      await expect(other.cancel('exec-a')).rejects.toThrow('Flow execution "exec-a" not found');
+      expect(rows[0]?.status).toBe(FlowStatus.Waiting);
+    });
+
+    it('fails closed when the app refuses, answers anything but true, or throws', async () => {
+      const rows = [waitingRow('exec-a', 'tenant-a')];
+      for (const authorizeFlowAccess of [
+        async () => false,
+        async () => ({ allowed: 'yes' }) as never,
+        async () => {
+          throw new Error('directory down');
+        },
+      ]) {
+        const { engine } = setup(rows, { authorizeFlowAccess });
+        const other = createFlowService(engine, otherUserA);
+        await expect(other.status('exec-a')).rejects.toThrow('not found');
+        await expect(other.terminate('exec-a')).rejects.toThrow('not found');
+      }
+      expect(rows[0]?.status).toBe(FlowStatus.Waiting);
+    });
+
+    it('is never asked about the starting actor, another tenant, or an untenanted system caller', async () => {
+      const rows = [waitingRow('exec-a', 'tenant-a')];
+      const authorizeFlowAccess = vi.fn().mockResolvedValue(true);
+      const { engine } = setup(rows, { authorizeFlowAccess });
+
+      await createFlowService(engine, tenantA).status('exec-a');
+      await expect(createFlowService(engine, tenantB).status('exec-a')).rejects.toThrow(
+        'not found',
+      );
+      await createFlowService(engine, {
+        userId: 'runner',
+        roles: ['system'],
+        scopes: [],
+        provider: 'worker',
+      }).status('exec-a');
+      expect(authorizeFlowAccess).not.toHaveBeenCalled();
+    });
+
+    it('asks about a caller without a tenant (a platform operator), with the execution tenant on owner', async () => {
+      const rows = [waitingRow('exec-a', 'tenant-a')];
+      const authorizeFlowAccess = vi.fn().mockResolvedValue(true);
+      const { engine } = setup(rows, { authorizeFlowAccess });
+      const operator = { userId: 'operator-1', roles: ['admin'], scopes: [], provider: 'ops' };
+      await createFlowService(engine, operator).cancel('exec-a');
+      expect(authorizeFlowAccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          auth: operator,
+          operation: 'cancel',
+          owner: expect.objectContaining({ tenantId: 'tenant-a' }),
+        }),
+      );
+      authorizeFlowAccess.mockResolvedValue(false);
+      await expect(createFlowService(engine, operator).status('exec-a')).rejects.toThrow(
+        'not found',
+      );
+    });
+
+    it('with enforceExecutionOwnership: false the hook is not consulted (any actor of the tenant acts)', async () => {
+      const rows = [waitingRow('exec-a', 'tenant-a')];
+      const authorizeFlowAccess = vi.fn().mockResolvedValue(false);
+      const { engine } = setup(rows, { enforceExecutionOwnership: false, authorizeFlowAccess });
+      expect((await createFlowService(engine, otherUserA).status('exec-a')).status).toBe('waiting');
+      expect(authorizeFlowAccess).not.toHaveBeenCalled();
+    });
   });
 });
