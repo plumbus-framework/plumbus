@@ -38,9 +38,12 @@ export {
 } from './runtime/envelope.js';
 export {
   createInMemoryIdempotencyStore,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS,
   IdempotencyAbortedError,
   parseIdempotencyTtl,
   type IdempotencyStore,
+  type InMemoryIdempotencyStoreOptions,
 } from './runtime/idempotency.js';
 export {
   registerApiRoutes,

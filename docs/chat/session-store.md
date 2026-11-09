@@ -123,7 +123,10 @@ catch.
 - **`getOrCreateSession` enforces ownership.** If a session exists under the requested
   id but belongs to a different `userId`, raise `ctx.errors.notFound` instead of
   returning it. Otherwise a guessed session id reads another user's conversation.
-  Concurrent first turns racing the same id must converge on one row.
+  Do the same when the session was created for a different `chatName`: a session is
+  bound to its chat (chat 0.3.2+), and `runChatTurn` also refuses a returned row whose
+  `chatName` is set and differs. Concurrent first turns racing the same id must
+  converge on one row.
 - **`listTurns` returns ascending ordinal order,** and `limit` truncates from the
   start of that ordering. Note this yields the *oldest* N turns, matching the
   DB-backed `history.includeLastTurns` behavior.

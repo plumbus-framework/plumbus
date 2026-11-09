@@ -48,6 +48,7 @@ export const configOverridesSchema = z
         user: text,
         password: text,
         ssl: z.boolean(),
+        sslEnforce: z.boolean(),
         poolSize: positive.int(),
       })
       .partial()

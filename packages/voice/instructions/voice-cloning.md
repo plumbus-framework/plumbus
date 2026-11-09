@@ -8,7 +8,7 @@ Use this when an app needs **persisted client voice clones** (upload sample → 
 2. Use `createVoiceCloneProvider({ providerId, providers, registry })` from app capabilities or jobs.
 3. Persist `userId → voice.id` in `afterCloneCreate` (HTTP) or app DB after programmatic `create` / `waitUntilReady`.
 4. Synthesize long-form with `createTTSProvider({ voiceSlice: { voiceId: cloneId, … } })` + `synthesizeStream` — not `runVoiceTurn` / LiveKit.
-5. Mount `registerVoiceCloneRoutes` with required `access`, `resolveCloneOwner`, `afterCloneCreate`, `listOwnedClones`. Register `@fastify/multipart` first.
+5. Mount `registerVoiceCloneRoutes` with required `access`, `resolveCloneOwner`, `afterCloneCreate`, `listOwnedClones`. Register `@fastify/multipart` first. Upload size is enforced while streaming. With cookie auth, also pass `csrfSecret` + `externalBaseUrl`.
 6. For Deepdub short preview only: `synthesizeWithVoiceReference` or `referenceAccess` + `POST .../synthesize-reference`.
 
 ## Do not

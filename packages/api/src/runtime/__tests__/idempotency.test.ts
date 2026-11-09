@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryIdempotencyStore,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS,
   hashPayload,
   IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
@@ -140,5 +142,90 @@ describe('parseIdempotencyTtl', () => {
   it('returns undefined for invalid strings', () => {
     expect(parseIdempotencyTtl('')).toBeUndefined();
     expect(parseIdempotencyTtl('24hours')).toBeUndefined();
+  });
+});
+
+describe('createInMemoryIdempotencyStore — bounds', () => {
+  const principal: IdempotencyPrincipal = { userId: 'u1', tenantId: 't1' };
+
+  it('applies a 24h default TTL when the route gives none', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createInMemoryIdempotencyStore();
+      await store.claim('k', 'hash', principal);
+      await store.complete('k', { ok: true });
+      vi.advanceTimersByTime(DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS - 1);
+      expect((await store.claim('k', 'hash', principal)).status).toBe('replay');
+      vi.advanceTimersByTime(2);
+      expect((await store.claim('k', 'hash', principal)).status).toBe('new');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defaultTtlMs is overridable and the route ttlMs wins over it', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createInMemoryIdempotencyStore({ defaultTtlMs: 1_000 });
+      await store.claim('a', 'hash', principal);
+      await store.complete('a', { ok: true });
+      await store.claim('b', 'hash', principal);
+      await store.complete('b', { ok: true }, { ttlMs: 5_000 });
+      vi.advanceTimersByTime(1_001);
+      expect((await store.claim('a', 'hash', principal)).status).toBe('new');
+      expect((await store.claim('b', 'hash', principal)).status).toBe('replay');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defaultTtlMs: Infinity keeps records without expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createInMemoryIdempotencyStore({ defaultTtlMs: Number.POSITIVE_INFINITY });
+      await store.claim('k', 'hash', principal);
+      await store.complete('k', { ok: true });
+      vi.advanceTimersByTime(365 * DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS);
+      expect((await store.claim('k', 'hash', principal)).status).toBe('replay');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('evicts the oldest completed records beyond maxEntries', async () => {
+    const store = createInMemoryIdempotencyStore({ maxEntries: 2 });
+    for (const key of ['k1', 'k2', 'k3']) {
+      await store.claim(key, 'hash', principal);
+      await store.complete(key, { key });
+    }
+    expect((await store.claim('k1', 'hash', principal)).status).toBe('new');
+    // Claiming k1 again pushed the store over the bound and evicted k2 (oldest completed).
+    expect((await store.claim('k2', 'hash', principal)).status).toBe('new');
+  });
+
+  it('keeps the newest completed records when evicting', async () => {
+    const store = createInMemoryIdempotencyStore({ maxEntries: 2 });
+    for (const key of ['k1', 'k2', 'k3']) {
+      await store.claim(key, 'hash', principal);
+      await store.complete(key, { key });
+    }
+    expect((await store.claim('k3', 'hash', principal)).status).toBe('replay');
+    expect((await store.claim('k2', 'hash', principal)).status).toBe('replay');
+  });
+
+  it('never evicts in-flight claims', async () => {
+    const store = createInMemoryIdempotencyStore({ maxEntries: 1 });
+    await store.claim('a', 'hash', principal);
+    await store.claim('b', 'hash', principal);
+    const waiting = await store.claim('a', 'hash', principal);
+    expect(waiting.status).toBe('in-flight');
+    await store.complete('a', { done: true });
+    if (waiting.status === 'in-flight') {
+      await expect(waiting.wait).resolves.toMatchObject({ result: { done: true } });
+    }
+  });
+
+  it('uses a 10 000-entry default bound', () => {
+    expect(DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES).toBe(10_000);
   });
 });

@@ -654,6 +654,28 @@ export async function startFakeCognito(options: FakeCognitoOptions = {}): Promis
       state.clients.set(entry.id, entry);
       return { UserPoolClient: describeClient(state, entry) };
     },
+    UpdateUserPoolClient(input) {
+      const state = pool(input.UserPoolId);
+      const entry = client(state, input.ClientId);
+      const units = (input.TokenValidityUnits ?? {}) as Record<string, string>;
+      const idValidity = Number(input.IdTokenValidity ?? 60);
+      entry.name = str(input.ClientName) || entry.name;
+      entry.explicitAuthFlows = list(input.ExplicitAuthFlows);
+      entry.callbackUrls = list(input.CallbackURLs);
+      entry.logoutUrls = list(input.LogoutURLs);
+      entry.allowedOAuthFlows = list(input.AllowedOAuthFlows);
+      entry.allowedOAuthScopes = list(input.AllowedOAuthScopes);
+      entry.allowedOAuthFlowsUserPoolClient = input.AllowedOAuthFlowsUserPoolClient === true;
+      entry.supportedIdentityProviders = list(input.SupportedIdentityProviders);
+      entry.preventUserExistenceErrors = str(input.PreventUserExistenceErrors) || 'LEGACY';
+      entry.idTokenValidityMinutes =
+        units.IdToken === 'hours' || !units.IdToken ? idValidity * 60 : idValidity;
+      // UpdateUserPoolClient replaces the client's settings (Cognito resets omitted ones).
+      entry.raw = { ...input, ClientName: entry.name };
+      delete entry.raw.UserPoolId;
+      delete entry.raw.ClientId;
+      return { UserPoolClient: describeClient(state, entry) };
+    },
     DescribeUserPoolClient(input) {
       const state = pool(input.UserPoolId);
       return { UserPoolClient: describeClient(state, client(state, input.ClientId)) };

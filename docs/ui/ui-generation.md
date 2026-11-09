@@ -260,7 +260,7 @@ Use **`session`** when the backend wires `@plumbus/auth`. Use **`bearer`** for J
 
 ### Security posture
 
-The generated auth module stores bearer tokens in `localStorage`. This makes the helpers simple to use in client-side scaffolding, but it also means tokens are readable by JavaScript and are not available to Next.js proxy/middleware. `RouteGuard` is therefore a view-level UX helper only.
+The generated auth module stores bearer tokens in `localStorage`. This makes the helpers simple to use in client-side scaffolding, but it also means tokens are readable by JavaScript: any XSS in the app can read the token and replay it from elsewhere until it expires. For browser apps prefer `--auth-transport session`; the default stays `bearer` on the 0.9.x UI line so existing apps keep working, and the generator warns when the transport is not chosen explicitly. Tokens are also not available to Next.js proxy/middleware. `RouteGuard` is therefore a view-level UX helper only.
 
 Applications must continue to enforce authorization in backend Plumbus capabilities and policies. Production applications that require server-readable sessions should replace or adapt the generated token storage with an HttpOnly cookie or another server-side session mechanism.
 

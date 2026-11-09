@@ -1,4 +1,3 @@
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type {
   AuthAdapter,
   AuthContext,
@@ -6,6 +5,7 @@ import type {
   ContextDependencies,
   EventQueue,
 } from '@plumbus/core';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
 /** Mirrors RouteGeneratorConfig (packages/plumbus-core/src/api/route-generator.ts). */
 export interface McpServerConfig {
@@ -30,6 +30,13 @@ export interface McpServerConfig {
    * and cooperative handlers (`ctx.ai.*`, fetch, etc.) cancel. Omit for no timeout.
    */
   requestTimeoutMs?: number;
+  /**
+   * Largest combined number of array elements and object members one `tools/call`
+   * `arguments` payload may contain; larger payloads are refused with `InvalidParams`
+   * before validation or execution. Default `100_000` (`DEFAULT_MAX_TOOL_INPUT_ELEMENTS`);
+   * `Infinity` disables the check. Must be at least 1.
+   */
+  maxToolInputElements?: number;
   /**
    * Optional per-tool-call observability hook. Fires after every executeCapability,
    * regardless of success/failure. Fire-and-forget — hook errors are logged to

@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/mcp",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Plumbus MCP runtime \u2014 expose capabilities to AI agents over Model Context Protocol",
   "type": "module",
   "main": "./dist/index.js",
@@ -52,14 +52,14 @@
     "@plumbus/core": "0.8.x"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "fastify": "^5.8.2"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "fastify": "^5.12.8"
   },
   "devDependencies": {
     "@plumbus/core": "workspace:*",
     "@biomejs/biome": "^2.4.6",
     "@types/node": "^25.4.0",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "typescript": "^5.7.0",
     "vitest": "5.0.5",
     "zod": "^3.24.2"

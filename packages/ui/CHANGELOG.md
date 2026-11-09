@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1 — 2026-11-09
+
+- **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
+- `next` ^16.4.5 (was ^16.2.1: RCE, middleware bypass, SSRF, cache poisoning and cross-tenant cache disclosure advisories; brings `sharp` 0.35.5) and `next-intl` ^4.9.2 (open redirect, prototype pollution).
+- The bearer auth transport's warning and generated token module now say plainly that a token in `localStorage` can be read and replayed by any XSS, and point to `--auth-transport session`. The default is unchanged.
+
 ## 0.9.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Migrate the Browser Mode config to the matching Playwright provider.

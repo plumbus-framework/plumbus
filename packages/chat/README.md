@@ -92,7 +92,7 @@ That's a fully-governed chat: roles enforced, retrieval cached and cited, off-sc
 |---|---|
 | `defineChat({...})` | The declarative entrypoint. Validated with Zod, deep-frozen. |
 | `runChatTurn(ctx, args, opts?)` | Streaming event runtime — yields `ChatEvent`s. Composable in custom transports. Programmatic callers can provide server-owned `promptInput`, `trustedHistory`, cancellation `signal`, and an explicit capability resolver; `opts` also injects storage (`sessionStore`, `conversationStore`). |
-| `registerChatRoutes(app, routeConfig, chats, opts?)` | Mount one SSE/JSON route per chat. Opts: `authCookieNames`, `audienceTenantOverride`, `beforeTurn`, `afterTurn`, `chatRegistry`, `store`, `sessionStore`, `authenticator`, `externalBaseUrl`, `csrfSecret`. |
+| `registerChatRoutes(app, routeConfig, chats, opts?)` | Mount one SSE/JSON route per chat. Opts: `authCookieNames`, `audienceTenantOverride`, `beforeTurn`, `afterTurn`, `chatRegistry`, `store`, `sessionStore`, `authenticator`, `externalBaseUrl`, `csrfSecret`, `requireBrowserSecurity`. |
 | `ChatSessionStore` + `dbChatSessionStore` | Injectable session/turn persistence for deployments with no local database. See [`docs/chat/session-store.md`](../../docs/chat/session-store.md). |
 | `knowledgeContext`, `capabilityContext`, `staticContext`, `staticContextFromTranslations` | Built-in context sources. |
 | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | Entities — register in the app entity list. |

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-11-09
+
+- **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
+- `fastify` ^5.12.8.
+- **Actions over GET:** `registerApiRoutes` logs a warning naming every `action` capability exposed over `GET`, including inline-only exposure without a manifest, because cookie CSRF protection does not cover GET. New opt-in `rejectActionsOverGet: true` makes registration throw `ApiManifestError` (`api.register.action-over-get`) instead.
+- **Idempotency:** the default in-memory store is now bounded. Completed records expire after 24 h when the route sets no `idempotency.ttl`, and it keeps at most 10 000 entries, evicting the oldest completed ones (in-flight claims are never evicted). Configure with `createInMemoryIdempotencyStore({ defaultTtlMs, maxEntries })`; `Number.POSITIVE_INFINITY` restores the old unbounded behaviour. In production, idempotent routes on the default store log a one-time warning that duplicates are possible across restarts and instances. New exports: `DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS`, `DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES`, `InMemoryIdempotencyStoreOptions`.
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

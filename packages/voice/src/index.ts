@@ -37,6 +37,7 @@ export {
   createProviderRegistry,
   validateVoiceProviders,
 } from './providers/registry.js';
+export { VOICE_CSRF_COOKIE_NAME, VOICE_CSRF_HEADER_NAME } from './security/csrf-names.js';
 export { stripVoiceAssistantMarkers } from './runtime/assistant-text.js';
 export { createVoiceExecutionContext } from './runtime/create-voice-execution-context.js';
 export { registerVoiceCloneRoutes } from './runtime/http-clone.js';

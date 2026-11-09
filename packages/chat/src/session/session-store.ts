@@ -75,8 +75,11 @@ export interface ChatBudgetAggregate {
  * - **`getOrCreateSession` enforces ownership.** If a session exists under the
  *   requested id but belongs to a different `userId`, it MUST raise
  *   `ctx.errors.notFound` rather than returning the row — otherwise a guessed
- *   session id reads another user's conversation. Concurrent first turns racing
- *   the same id must converge on one row rather than creating two.
+ *   session id reads another user's conversation. The same applies when the
+ *   session was created for a different `chatName`: a session is bound to its
+ *   chat, and `runChatTurn` also refuses a returned row whose `chatName` differs.
+ *   Concurrent first turns racing the same id must converge on one row rather
+ *   than creating two.
  * - **`listTurns` returns ascending ordinal order.** A `limit` truncates from the
  *   start of that ordering, matching the DB-backed history window.
  * - **`loadMergedUserBehavioralState` merges oldest → newest.** Later sessions

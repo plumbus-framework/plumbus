@@ -11,6 +11,7 @@ import type {
   ChatTurnWrite,
   SessionMutationLease,
 } from './chat-conversation-store.js';
+import { clientSafeErrorMessage } from './client-error.js';
 import { terminalizeConfirmingRow } from './pending-actions.js';
 import { resumeToolLoop } from './run-turn.js';
 
@@ -88,10 +89,6 @@ function nowIso(ctx: ExecutionContext): string {
 
 function toolKind(name: string): 'capability' | 'flow' {
   return name.startsWith('flow__') ? 'flow' : 'capability';
-}
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function safeObservation(payload: unknown): string {
@@ -500,7 +497,11 @@ export async function resumeAfterConfirm(
         execution: { status: 'succeeded' },
         resume: { status: 'failed' },
       });
-      emit({ type: 'turn.failed', code: 'chat.resume_failed', message: errMessage(resumeErr) });
+      emit({
+        type: 'turn.failed',
+        code: 'chat.resume_failed',
+        message: clientSafeErrorMessage(ctx, resumeErr, 'confirm_resume'),
+      });
     }
   } catch (startErr) {
     // Failure before/during markExecutionStarted (before invoke): terminalize confirming.
@@ -523,7 +524,11 @@ export async function resumeAfterConfirm(
       pendingStatus: 'indeterminate',
       executionStatus: 'indeterminate',
     });
-    emit({ type: 'turn.failed', code: 'chat.resume_failed', message: errMessage(startErr) });
+    emit({
+      type: 'turn.failed',
+      code: 'chat.resume_failed',
+      message: clientSafeErrorMessage(ctx, startErr, 'confirm_start'),
+    });
   } finally {
     clearInterval(leaseRenewTimer);
     await store

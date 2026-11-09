@@ -19,7 +19,8 @@ import type {
  * 2. **A reference implementation** — the smallest correct adapter, showing the
  *    invariants documented on {@link ChatSessionStore}: `appendTurn` assigns the
  *    ordinal and advances `lastTurnAt`, blanks content when `persistContent` is
- *    false, and `getOrCreateSession` refuses a session owned by another user.
+ *    false, and `getOrCreateSession` refuses a session owned by another user or
+ *    created for another chat.
  *
  * It is deliberately not concurrency-safe and holds everything in memory, so it
  * is not a production backend.
@@ -72,8 +73,9 @@ export function createInMemoryChatSessionStore(seed?: {
     ): Promise<ChatSessionRow> {
       const existing = sessions.get(args.sessionId);
       if (existing) {
-        // Ownership: a guessed session id must not read another user's conversation.
-        if (existing.userId !== args.userId) {
+        // Ownership: a guessed session id must not read another user's conversation,
+        // and a session belongs to the chat it was created for.
+        if (existing.userId !== args.userId || existing.chatName !== args.chatName) {
           throw ctx.errors.notFound('Session not found', { sessionId: args.sessionId });
         }
         return existing;

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.2 — 2026-11-09
+
+- **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
+- **Clone uploads:** `POST .../clones` and `.../synthesize-reference` now count bytes while streaming and stop as soon as the sample limit is exceeded, with the same `400 voice.clone.sample_too_large`. They no longer buffer the whole upload first, and pass `limits.fileSize` to `@fastify/multipart`. `synthesize-reference` rejects unknown or non-reference providers before reading the upload.
+- **Cookie auth:** new opt-in `csrfSecret` + `externalBaseUrl` on `registerVoiceRoutes` / `registerVoiceCloneRoutes` enforce an exact Origin and a principal-bound CSRF token (`plumbus_voice_csrf` cookie, `x-plumbus-voice-csrf` header) on cookie-authenticated writes, the way `@plumbus/chat` does. Cookie auth without them logs a one-time warning. New exports: `VOICE_CSRF_COOKIE_NAME`, `VOICE_CSRF_HEADER_NAME` (also from `@plumbus/voice/client`).
+- **WebSocket URL:** with `externalBaseUrl` set, `/session` builds `wsUrl` from it instead of `Host` / `X-Forwarded-Proto`. Without it, a one-time warning is logged.
+- **Handshake tokens:** new opt-ins `rejectQuerySessionToken` and `singleUseSessionTokens` (per process, bounded store). Tokens now carry a `jti`. An empty `websocketOriginAllowlist` logs a one-time warning.
+- **Errors:** clone vendor and persist failures and voice-turn runtime errors no longer send raw error text or Plumbus metadata to clients. The error code is kept, and details are logged server-side.
+
 ## 0.6.1 — 2026-11-02
 
 - **Requires `@plumbus/core` 0.8.3 or later** (peer `">=0.8.3 <0.9.0"`, was `0.8.x`): the runtime imports `@plumbus/core/sdk`, which core 0.8.2 does not have. Upgrade core together with voice.

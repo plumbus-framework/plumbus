@@ -1,2 +1,9 @@
 packages:
   - "packages/*"
+
+auditConfig:
+  ignoreGhsas:
+    # zod 3 memory exhaustion on oversized constrained collections. Fixed only in zod 4.6.6+,
+    # which is a major upgrade of a type core re-exports (`@plumbus/core/zod`), so it cannot
+    # ship on the 0.8.x line. Fixed in Plumbus 0.9 (zod 4). Remove this when main moves to zod 4.
+    - GHSA-mrhx-c7xc-m3w5

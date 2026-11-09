@@ -1,3 +1,8 @@
+import {
+  CognitoIdentityProviderClient,
+  CreateUserPoolClientCommand,
+  DescribeUserPoolClientCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { signAttestation } from '../attestation/index.js';
 import {
@@ -159,6 +164,59 @@ describe('server against the fake Cognito', () => {
     await expect(
       admin.ensureAttestedUserPool({ name: 'x', tags: {}, triggerArn: TRIGGER }),
     ).rejects.toThrow(/ownership tag/);
+  });
+
+  it('reports a weaker same-named app client, and rewrites it only with reconcileClient', async () => {
+    const warnings: string[] = [];
+    const watched = createCognitoPoolAdministration({
+      ...fake.clientConfig,
+      maxAttempts: 1,
+      logger: { warn: (message) => warnings.push(message) },
+    });
+    const spec = { name: 'client-drift', tags: TAGS, triggerArn: TRIGGER, clientName: 'weak' };
+    const base = await watched.ensureAttestedUserPool({ ...spec, clientName: 'strong' });
+    const sdk = new CognitoIdentityProviderClient({ ...fake.clientConfig, maxAttempts: 1 });
+    const weak = await sdk.send(
+      new CreateUserPoolClientCommand({
+        UserPoolId: base.userPoolId,
+        ClientName: 'weak',
+        GenerateSecret: false,
+        ExplicitAuthFlows: ['ALLOW_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
+        EnableTokenRevocation: false,
+        RefreshTokenValidity: 3650,
+        TokenValidityUnits: { RefreshToken: 'days' },
+      }),
+    );
+    const clientId = weak.UserPoolClient?.ClientId;
+    expect(clientId).toBeTruthy();
+    expect(base.clientDrift).toBeUndefined();
+
+    const reported = await watched.ensureAttestedUserPool(spec);
+    expect(reported.clientId).toBe(clientId);
+    expect(reported.clientDrift).toEqual(
+      expect.arrayContaining([
+        'auth flows are ALLOW_REFRESH_TOKEN_AUTH, ALLOW_USER_PASSWORD_AUTH',
+        'token revocation is off',
+        'user-existence errors are not prevented',
+        'refresh tokens live longer than 60 minutes',
+      ]),
+    );
+    expect(warnings.at(-1)).toMatch(/reconcileClient: true/);
+    expect(fake.calls.some((call) => call.action === 'UpdateUserPoolClient')).toBe(false);
+
+    const fixed = await watched.ensureAttestedUserPool({ ...spec, reconcileClient: true });
+    expect(fixed.clientId).toBe(clientId);
+    expect(warnings.at(-1)).toMatch(/was reconciled/);
+    const after = await sdk.send(
+      new DescribeUserPoolClientCommand({ UserPoolId: base.userPoolId, ClientId: clientId }),
+    );
+    expect(after.UserPoolClient?.ExplicitAuthFlows).toEqual([
+      'ALLOW_CUSTOM_AUTH',
+      'ALLOW_REFRESH_TOKEN_AUTH',
+    ]);
+    expect(after.UserPoolClient?.EnableTokenRevocation).toBe(true);
+    const clean = await watched.ensureAttestedUserPool(spec);
+    expect(clean.clientDrift).toBeUndefined();
   });
 
   it('ensures a confirmed user with a verified email and no Cognito message', async () => {

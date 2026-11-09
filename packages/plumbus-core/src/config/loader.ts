@@ -99,6 +99,7 @@ function loadDatabaseConfig(
     user: env.DATABASE_USER ?? env.DB_USER ?? env.PGUSER ?? defaults.user,
     password: env.DATABASE_PASSWORD ?? env.DB_PASSWORD ?? env.PGPASSWORD ?? defaults.password,
     ssl: env.DATABASE_SSL === 'true' || environment === 'production',
+    sslEnforce: env.DATABASE_SSL_ENFORCE === 'true',
     poolSize: parseInt(env.DATABASE_POOL_SIZE ?? (environment === 'production' ? '20' : '5'), 10),
   };
 }

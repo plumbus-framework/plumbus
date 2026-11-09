@@ -65,6 +65,7 @@ export async function loadAppConfig(
       user: ['DATABASE_USER', 'DB_USER', 'PGUSER'],
       password: ['DATABASE_PASSWORD', 'DB_PASSWORD', 'PGPASSWORD'],
       ssl: ['DATABASE_SSL'],
+      sslEnforce: ['DATABASE_SSL_ENFORCE'],
       poolSize: ['DATABASE_POOL_SIZE'],
     },
     queue: {

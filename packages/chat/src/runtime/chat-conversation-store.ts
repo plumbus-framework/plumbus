@@ -1,8 +1,8 @@
 import type { AuthContext, ConditionalUpdateResult, ExecutionContext } from '@plumbus/core';
 import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
 import type { ChatSourceRef } from '../types/context.js';
-import type { ToolExecutionRecord } from '../types/tool.js';
 import type { ChatSessionRow, ChatTurnRow } from '../types/session.js';
+import type { ToolExecutionRecord } from '../types/tool.js';
 import {
   confirmingReapPredicate,
   fenceExpiredSessionLease,
@@ -121,10 +121,19 @@ export interface ChatConversationStore {
     resumeTurn?: ChatTurnWrite;
   }): Promise<{ committedRevision: number }>;
 
-  /** C5 pre-turn probe; an expired pending is atomically terminalized and reported as 'none'. */
+  /**
+   * C5 pre-turn probe; an expired pending is atomically terminalized and reported as 'none'.
+   *
+   * When `scope` is given (registerChatRoutes always passes it), the session is
+   * resolved by id AND owner AND chat first: a session that does not exist, belongs
+   * to another user, or was created for another chat reports `{ pending: 'none' }`
+   * without reading or touching its pending rows — the caller learns nothing about
+   * a conversation that is not theirs. Custom stores should honor it the same way.
+   */
   inspectSession(
     sessionId: string,
     now: string,
+    scope?: { owner: AuthContext; chatName: string },
   ): Promise<{
     pending: 'none' | 'pending' | 'confirming';
     actionId?: string;
@@ -463,8 +472,14 @@ export function createChatConversationStore(ctx: ExecutionContext): ChatConversa
       });
     },
 
-    async inspectSession(sessionId, now) {
+    async inspectSession(sessionId, now, scope) {
       const r = repos(ctx.data);
+      if (scope) {
+        const owned = await r.sessions.findById(sessionId);
+        if (!owned || owned.userId !== scope.owner.userId || owned.chatName !== scope.chatName) {
+          return { pending: 'none' };
+        }
+      }
       const rows = await r.pending.findMany({ sessionId });
       const nowMs = new Date(now).getTime();
       const loadSessionLease = () =>

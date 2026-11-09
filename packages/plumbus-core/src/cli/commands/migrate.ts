@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import type { Command } from 'commander';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { loadAppConfig } from '../../config/index.js';
+import { postgresConnectionOptions } from '../../data/connection.js';
 import {
   extractCreateTableNames,
   FRAMEWORK_TABLE_NAMES,
@@ -52,13 +53,9 @@ async function connectDb(
     const config = await loadAppConfig({});
     const { drizzle } = await import('drizzle-orm/postgres-js');
     const postgres = (await import('postgres')).default;
-    const sql = postgres({
-      host: config.database.host,
-      port: config.database.port,
-      database: dbOverride ?? config.database.database,
-      username: config.database.user,
-      password: config.database.password,
-    });
+    const sql = postgres(
+      postgresConnectionOptions(config.database, dbOverride ?? config.database.database),
+    );
     return { db: drizzle(sql), close: () => sql.end() };
   } catch {
     return null;
@@ -73,13 +70,7 @@ async function ensureDatabase(dbName: string): Promise<boolean> {
   try {
     const config = await loadAppConfig({});
     const postgres = (await import('postgres')).default;
-    const sql = postgres({
-      host: config.database.host,
-      port: config.database.port,
-      database: 'postgres',
-      username: config.database.user,
-      password: config.database.password,
-    });
+    const sql = postgres(postgresConnectionOptions(config.database, 'postgres'));
     try {
       const rows = await sql`
         SELECT 1 FROM pg_database WHERE datname = ${dbName}
@@ -868,13 +859,7 @@ export function registerDbCommand(program: Command): void {
 
       try {
         const postgres = (await import('postgres')).default;
-        const sql = postgres({
-          host: config.database.host,
-          port: config.database.port,
-          database: 'postgres',
-          username: config.database.user,
-          password: config.database.password,
-        });
+        const sql = postgres(postgresConnectionOptions(config.database, 'postgres'));
 
         try {
           if (!/^[a-zA-Z0-9_]+$/.test(dbName)) {

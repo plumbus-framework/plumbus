@@ -156,3 +156,7 @@ Task rows live in the `mcp_task` table. `ttlMs` is reserved for future cleanup; 
 - [Agent authentication](./agent-authentication.md) — task ownership scoping
 
 Task-mode calls validate capability input and access before creating task rows or enqueueing jobs. Workers now create dependencies for each completion and pass the original dependency-object form to `createMcpJobCompletionSync`, binding repositories to the job's tenant while remaining compatible with earlier MCP releases; changing `ctx.auth` alone cannot rebind a repository. Tenantless completions use a worker-only bypass with an exact task-tenant check. Task reads/lists/cancellation require an authenticated owner and an exact tenant match, including the tenantless namespace.
+
+## Ownership
+
+`tasks/get`, `tasks/result`, `tasks/cancel` and `tasks/list` require the authenticated owner (user id) and an exact tenant match. Since `@plumbus/mcp` 0.7.1, a task created in a stateful HTTP session (`registerMcpOnFastify(..., { stateless: false })`) is also bound to that session: another session — even one of the same user and tenant — sees it as `task.not_found` and does not list it. The binding is held in server memory (no `McpTask` schema change); when the session closes it is released and the task falls back to the user + tenant check, so a reconnecting client can still collect its result. Tasks created over stdio, in-memory, or stateless HTTP have no session and keep the user + tenant check.

@@ -1,13 +1,13 @@
-import { describe, expect, it } from 'vitest';
 import { createTestContext } from '@plumbus/core/testing';
-import { checkLivePending } from '../pending-actions.js';
-import { CONFIRMING_LEASE_GRACE_MS, fenceExpiredSessionLease } from '../confirming-reaper.js';
+import { describe, expect, it } from 'vitest';
 import { chatPendingActionRepo, chatSessionRepo } from '../../internal/chat-repos.js';
-import { createSession } from '../../session/service.js';
 import type {
   ChatPendingActionV2,
   ChatToolResumePayloadV1,
 } from '../../session/pending-action-v2.js';
+import { createSession } from '../../session/service.js';
+import { CONFIRMING_LEASE_GRACE_MS, fenceExpiredSessionLease } from '../confirming-reaper.js';
+import { checkLivePending } from '../pending-actions.js';
 
 function minimalResume(): ChatToolResumePayloadV1 {
   return {
@@ -258,5 +258,26 @@ describe('checkLivePending', () => {
       undefined;
 
     await expect(checkLivePending(ctx, session.id)).rejects.toThrow(/conditional-write/i);
+  });
+
+  it("with a scope, reports not blocked for a session that is another user's or another chat's", async () => {
+    const ctx = createTestContext();
+    const session = await createSession(ctx, {
+      chatName: 'help',
+      userId: 'owner',
+      audience: 'user',
+      locale: 'en',
+    });
+    await chatPendingActionRepo(ctx).create(pending(session.id));
+
+    expect(
+      await checkLivePending(ctx, session.id, { userId: 'owner', chatName: 'help' }),
+    ).toMatchObject({ blocked: true, code: 'chat.pending_action_exists' });
+    expect(
+      await checkLivePending(ctx, session.id, { userId: 'stranger', chatName: 'help' }),
+    ).toEqual({ blocked: false });
+    expect(
+      await checkLivePending(ctx, session.id, { userId: 'owner', chatName: 'billing' }),
+    ).toEqual({ blocked: false });
   });
 });

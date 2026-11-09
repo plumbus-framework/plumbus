@@ -81,7 +81,7 @@ When encryption is enabled, repositories reject `findMany`/`aggregate` filters a
 Plumbus uses pluggable auth adapters. The adapter normalizes tokens into `AuthContext`:
 
 - **JWT (default)** — `createJwtAdapter()` verifies HMAC-SHA256 tokens (`secret`, optional `issuer`/`audience`, `claimMapping`)
-- **OIDC** — `createOidcAdapter()` verifies RS256/ES256 via JWKS (`issuer`, `audience`, optional `jwksUri`/`jwksCacheTtl`)
+- **OIDC** — `createOidcAdapter()` verifies RS256/ES256 via JWKS (`issuer`, `audience`, optional `jwksUri`/`jwksCacheTtl`/`clockSkewSeconds`/`requireExp`; checks `exp`, `nbf`, future `iat`)
 - **SAML 2.0** — `createSamlAdapter()` validates SAML assertions (`idpCertificate`, `issuer`, `audience`)
 - **SCIM 2.0 provisioning** — `createScimService()` for IdP-driven user lifecycle (`createUser`, `patchUser`, etc.)
 - **JWT signing** — `signJwt()` for first-party token issuance

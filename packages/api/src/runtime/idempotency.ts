@@ -153,22 +153,63 @@ function pruneExpiredEntries(store: Map<string, InFlightEntry | IdempotencyRecor
   }
 }
 
+/** Evict the oldest completed records until the store holds at most `maxEntries`. */
+function evictOldestRecords(
+  store: Map<string, InFlightEntry | IdempotencyRecord>,
+  maxEntries: number,
+): void {
+  if (store.size <= maxEntries) {
+    return;
+  }
+  for (const [key, entry] of store) {
+    if (store.size <= maxEntries) {
+      return;
+    }
+    // In-flight claims are never evicted: waiters depend on them resolving.
+    if ('result' in entry) {
+      store.delete(key);
+    }
+  }
+}
+
+/** Default lifetime of a completed in-memory idempotency record (24 hours). */
+export const DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS = 86_400_000;
+
+/** Default maximum number of entries held by the in-memory idempotency store. */
+export const DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES = 10_000;
+
+export interface InMemoryIdempotencyStoreOptions {
+  /**
+   * TTL applied to completed records when the route gives none (manifest `idempotency.ttl`
+   * wins when set). Default 24h. Pass `Number.POSITIVE_INFINITY` to keep records forever.
+   */
+  defaultTtlMs?: number;
+  /**
+   * Maximum entries kept; the oldest completed records are evicted first. In-flight claims
+   * are never evicted. Default 10 000. Pass `Number.POSITIVE_INFINITY` for no bound.
+   */
+  maxEntries?: number;
+}
+
 /**
- * Dev-oriented in-memory idempotency store. Entries without TTL are never evicted;
- * when `ttlMs` is supplied on complete, expired records are ignored on subsequent claims.
+ * Process-local idempotency store for development, tests and single-instance deployments.
+ * Completed records expire after the route TTL (or `defaultTtlMs`, 24h by default) and the
+ * store is bounded by `maxEntries` (10 000 by default, oldest completed records evicted first).
+ * Records do not survive a restart and are not shared between instances.
  */
-export function createInMemoryIdempotencyStore(): IdempotencyStore {
+export function createInMemoryIdempotencyStore(
+  storeOptions?: InMemoryIdempotencyStoreOptions,
+): IdempotencyStore {
   const store = new Map<string, InFlightEntry | IdempotencyRecord>();
+  const defaultTtlMs = storeOptions?.defaultTtlMs ?? DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS;
+  const maxEntries = storeOptions?.maxEntries ?? DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES;
 
   return {
-    async claim(key, payloadHash, principal, options) {
-      if (options?.ttlMs !== undefined) {
-        pruneExpiredEntries(store);
-      }
-
+    async claim(key, payloadHash, principal) {
       const existing = store.get(key);
       if (existing === undefined) {
         store.set(key, createInFlightEntry(payloadHash, principal));
+        evictOldestRecords(store, maxEntries);
         return { status: 'new' };
       }
 
@@ -195,17 +236,19 @@ export function createInMemoryIdempotencyStore(): IdempotencyStore {
       if (existing === undefined || 'result' in existing) {
         return;
       }
+      const ttlMs = options?.ttlMs ?? defaultTtlMs;
       const record: IdempotencyRecord = {
         payloadHash: existing.payloadHash,
         result,
         principal: existing.principal,
-        expiresAt: options?.ttlMs !== undefined ? Date.now() + options.ttlMs : undefined,
+        expiresAt: Number.isFinite(ttlMs) ? Date.now() + ttlMs : undefined,
       };
+      // Re-insert so Map order tracks completion time (oldest completed evicted first).
+      store.delete(key);
       store.set(key, record);
       existing.resolve(record);
-      if (options?.ttlMs !== undefined) {
-        pruneExpiredEntries(store);
-      }
+      pruneExpiredEntries(store);
+      evictOldestRecords(store, maxEntries);
     },
 
     async abort(key) {

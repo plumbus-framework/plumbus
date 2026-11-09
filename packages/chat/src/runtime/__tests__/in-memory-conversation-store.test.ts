@@ -112,4 +112,26 @@ describe('createInMemoryChatConversationStore', () => {
     expect(store.__turns.length).toBe(2);
     expect(store.__pending.get(p.id)?.status).toBe('confirmed');
   });
+
+  it('inspectSession with a scope reports none for another user or another chat', async () => {
+    const store = createInMemoryChatConversationStore({
+      sessions: [{ id: 's1', userId: 'u1', chatName: 'help', revision: 0 }],
+    });
+    const p = pending('s1');
+    store.__pending.set(p.id, p);
+    const now = new Date().toISOString();
+    const u1 = { userId: 'u1', roles: [], scopes: [], provider: 'test' };
+    const u2 = { userId: 'u2', roles: [], scopes: [], provider: 'test' };
+
+    expect(await store.inspectSession('s1', now, { owner: u1, chatName: 'help' })).toMatchObject({
+      pending: 'pending',
+      actionId: p.id,
+    });
+    expect(await store.inspectSession('s1', now, { owner: u2, chatName: 'help' })).toEqual({
+      pending: 'none',
+    });
+    expect(await store.inspectSession('s1', now, { owner: u1, chatName: 'other' })).toEqual({
+      pending: 'none',
+    });
+  });
 });

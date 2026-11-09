@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-11-09
+
+- **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
+- **Existing app clients are checked:** `ensureAttestedUserPool` used to adopt a same-named app client as-is. It now compares the client's auth flows, token revocation, user-existence errors, token lifetimes and secret with the attested settings, logs any difference as a warning, and returns it as `clientDrift`. New opt-in `reconcileClient: true` rewrites the client to the attested settings. It is off by default because Cognito's update replaces every client setting. New `logger` option on `createCognitoPoolAdministration`, and new exports `attestedClientDrift` and `CognitoPoolAdministrationOptions`. The fake Cognito (`./testing`) implements `UpdateUserPoolClient`.
+
 ## 0.3.0 — Stabilization compatibility family
 
 - Upgrade the framework test toolchain to **Vitest 5.0.4** and require Node 22.12+ on the 22.x line, Node 24.x, or Node 26+.

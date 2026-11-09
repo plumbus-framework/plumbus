@@ -1,4 +1,5 @@
 import { createPublicKey, verify } from 'node:crypto';
+import type { LoggerService } from '../types/context.js';
 import type { AuthContext } from '../types/security.js';
 import type { AuthAdapter, JwtClaimMapping } from './adapter.js';
 
@@ -19,6 +20,19 @@ export interface OidcAdapterConfig {
   claimMapping?: Partial<JwtClaimMapping>;
   /** Custom fetch function (for testing / environments without global fetch) */
   fetchFn?: typeof fetch;
+  /**
+   * Clock-skew tolerance in seconds for `nbf` and `iat` checks (default: 60).
+   * A token whose `nbf` or `iat` lies more than this far in the future is rejected.
+   */
+  clockSkewSeconds?: number;
+  /**
+   * Reject tokens without a numeric `exp` claim (default: false).
+   * When false, such tokens are still accepted and a one-time warning is logged.
+   * Turn this on unless your IdP issues non-expiring tokens on purpose.
+   */
+  requireExp?: boolean;
+  /** Logger for one-time security warnings (default: `console.warn`). */
+  logger?: Pick<LoggerService, 'warn'>;
 }
 
 export interface JsonWebKey {
@@ -46,6 +60,14 @@ const defaultClaimMapping: JwtClaimMapping = {
 };
 
 const SUPPORTED_ALGORITHMS = new Set(['RS256', 'ES256']);
+const DEFAULT_CLOCK_SKEW_SECONDS = 60;
+
+interface TemporalPolicy {
+  clockSkewMs: number;
+  requireExp: boolean;
+  /** Called when a token without a numeric `exp` is accepted. Warns once per adapter. */
+  onMissingExpAccepted: () => void;
+}
 
 /**
  * OIDC auth adapter. Validates JWT tokens from OIDC providers
@@ -60,6 +82,21 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
   let lastRefreshAt = -Infinity;
   let refreshPromise: Promise<JsonWebKey[]> | undefined;
   let discoveredJwksUri: string | null = config.jwksUri ?? null;
+
+  let warnedMissingExp = false;
+  const temporal: TemporalPolicy = {
+    clockSkewMs: Math.max(0, config.clockSkewSeconds ?? DEFAULT_CLOCK_SKEW_SECONDS) * 1000,
+    requireExp: config.requireExp === true,
+    onMissingExpAccepted: () => {
+      if (warnedMissingExp) return;
+      warnedMissingExp = true;
+      const message =
+        'OIDC token accepted without a numeric "exp" claim — it never expires. ' +
+        'Set requireExp: true in createOidcAdapter() to reject such tokens.';
+      if (config.logger) config.logger.warn(message, { issuer: config.issuer });
+      else console.warn(`[plumbus] ${message}`);
+    },
+  };
 
   async function discoverJwksUri(): Promise<string> {
     if (discoveredJwksUri) return discoveredJwksUri;
@@ -161,6 +198,7 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
           header.alg,
           config,
           mapping,
+          temporal,
         );
       }
 
@@ -173,6 +211,7 @@ export function createOidcAdapter(config: OidcAdapterConfig): AuthAdapter {
         header.alg,
         config,
         mapping,
+        temporal,
       );
     },
   };
@@ -187,6 +226,7 @@ function verifyAndMap(
   alg: string,
   config: OidcAdapterConfig,
   mapping: JwtClaimMapping,
+  temporal: TemporalPolicy,
 ): AuthContext | null {
   if (
     (jwk.alg && jwk.alg !== alg) ||
@@ -223,9 +263,22 @@ function verifyAndMap(
   const audiences = Array.isArray(aud) ? aud : [aud];
   if (!audiences.includes(config.audience)) return null;
 
-  // Check expiration
+  // Temporal claims
+  const now = Date.now();
   const exp = payload.exp;
-  if (typeof exp === 'number' && exp * 1000 < Date.now()) return null;
+  if (typeof exp === 'number' && Number.isFinite(exp)) {
+    if (exp * 1000 < now) return null;
+  } else if (temporal.requireExp) {
+    return null;
+  }
+
+  // Not yet valid (nbf) or issued in the future (iat), beyond the clock-skew tolerance.
+  const nbf = payload.nbf;
+  if (typeof nbf === 'number' && nbf * 1000 > now + temporal.clockSkewMs) return null;
+  const iat = payload.iat;
+  if (typeof iat === 'number' && iat * 1000 > now + temporal.clockSkewMs) return null;
+
+  if (typeof exp !== 'number' || !Number.isFinite(exp)) temporal.onMissingExpAccepted();
 
   // Map claims to AuthContext
   const rawRoles = payload[mapping.roles];
