@@ -51,6 +51,8 @@ interface ClientGeneratorConfig {
   baseUrl?: string;
   includeJsDoc?: boolean;
   authTransport?: 'session' | 'bearer';
+  /** @plumbus/ui 0.9.1+; older versions ignore it. */
+  dedupeQueries?: boolean;
 }
 
 interface AuthHelperConfig {
@@ -82,6 +84,9 @@ interface UiGenerateOptions {
   includeJsDoc?: boolean;
   splitLocaleBundles?: boolean;
   serverLocaleCookie?: boolean;
+  serverMessages?: boolean;
+  splitClient?: boolean;
+  dedupeQueries?: boolean;
   skipLocaleParity?: boolean;
   json?: boolean;
 }
@@ -100,11 +105,26 @@ export interface UiGeneratorModule {
     config?: ClientGeneratorConfig,
   ): string;
   generateHooksModule(capabilities: CapabilityContract[], config?: ClientGeneratorConfig): string;
+  /** @plumbus/ui 0.9.1+ */
+  generateSplitClientFiles?(
+    capabilities: CapabilityContract[],
+    flows: FlowTriggerInput[],
+    config?: ClientGeneratorConfig,
+  ): GeneratedFile[];
+  /** @plumbus/ui 0.9.1+ */
+  generateSplitHooksFiles?(
+    capabilities: CapabilityContract[],
+    config?: ClientGeneratorConfig,
+  ): GeneratedFile[];
   generateAuthModule(config?: AuthHelperConfig): string;
   generateFormHintsModule(capabilities: CapabilityContract[]): string;
   generateTranslationModule?(
     definitions: TranslationDefinition[],
-    options?: { splitLocaleBundles?: boolean; serverLocaleCookie?: boolean },
+    options?: {
+      splitLocaleBundles?: boolean;
+      serverLocaleCookie?: boolean;
+      serverMessages?: boolean;
+    },
   ): GeneratedTranslationFile[];
   generateNextjsTemplate(
     config: NextjsTemplateConfig,
@@ -248,6 +268,7 @@ export function generateUiModuleFiles(
     baseUrl: options.baseUrl,
     includeJsDoc: options.includeJsDoc,
     authTransport,
+    ...(options.dedupeQueries ? { dedupeQueries: true } : {}),
   } satisfies ClientGeneratorConfig;
   const authConfig = {
     provider: options.authProvider ?? 'jwt',
@@ -256,15 +277,33 @@ export function generateUiModuleFiles(
     multiTenant: options.multiTenant,
   } satisfies AuthHelperConfig;
 
-  const files: GeneratedFile[] = [
-    {
-      path: `${prefix}lib/client.ts`,
-      content: generators.generateClientModule(capabilities, toFlowTriggers(flows), clientConfig),
-    },
-    {
-      path: `${prefix}hooks/hooks.ts`,
-      content: generators.generateHooksModule(capabilities, clientConfig),
-    },
+  const files: GeneratedFile[] = [];
+  if ((options.splitClient || options.dedupeQueries) && !generators.generateSplitClientFiles) {
+    throw new Error('--split-client and --dedupe-queries need @plumbus/ui 0.9.1 or later');
+  }
+  if (options.splitClient) {
+    if (!generators.generateSplitClientFiles || !generators.generateSplitHooksFiles) {
+      throw new Error('--split-client needs @plumbus/ui 0.9.1 or later');
+    }
+    for (const file of [
+      ...generators.generateSplitClientFiles(capabilities, toFlowTriggers(flows), clientConfig),
+      ...generators.generateSplitHooksFiles(capabilities, clientConfig),
+    ]) {
+      files.push({ path: `${prefix}${file.path}`, content: file.content });
+    }
+  } else {
+    files.push(
+      {
+        path: `${prefix}lib/client.ts`,
+        content: generators.generateClientModule(capabilities, toFlowTriggers(flows), clientConfig),
+      },
+      {
+        path: `${prefix}hooks/hooks.ts`,
+        content: generators.generateHooksModule(capabilities, clientConfig),
+      },
+    );
+  }
+  files.push(
     {
       path: `${prefix}lib/auth.ts`,
       content: generators.generateAuthModule(authConfig),
@@ -273,13 +312,14 @@ export function generateUiModuleFiles(
       path: `${prefix}lib/form-hints.ts`,
       content: generators.generateFormHintsModule(capabilities),
     },
-  ];
+  );
 
   // Generate i18n modules if translations are available
   if (translations.length > 0 && generators.generateTranslationModule) {
     const i18nFiles = generators.generateTranslationModule(translations, {
       splitLocaleBundles: options.splitLocaleBundles,
       serverLocaleCookie: options.serverLocaleCookie,
+      ...(options.serverMessages ? { serverMessages: true } : {}),
     });
     for (const file of i18nFiles) {
       files.push({ path: `${prefix}${file.path}`, content: file.content });
@@ -436,6 +476,18 @@ export function registerUiCommand(program: Command): void {
     .option(
       '--server-locale-cookie',
       'Resolve locale from the plumbus-ui-locale cookie in the request config (dynamic rendering; not compatible with output: export)',
+    )
+    .option(
+      '--server-messages',
+      'Keep message catalogs out of the browser bundle: the root layout passes initialMessages, other locales load on switch (implies --split-locale-bundles)',
+    )
+    .option(
+      '--split-client',
+      'Emit one module per endpoint and hook behind lib/client.ts and hooks/hooks.ts, so a page bundles only what it calls',
+    )
+    .option(
+      '--dedupe-queries',
+      'Share concurrent identical GET calls in the generated client (each caller gets its own copy)',
     )
     .option(
       '--skip-locale-parity',

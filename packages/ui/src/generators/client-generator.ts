@@ -22,6 +22,17 @@ export interface ClientGeneratorConfig {
    * resolution). Targets using node16/nodenext resolution must pass "./auth.js".
    */
   authModuleImport?: string;
+  /**
+   * Share concurrent identical GET calls: while one is in flight, the same call (same
+   * URL and headers, no AbortSignal) awaits it and gets its own copy of the result.
+   * Default off.
+   */
+  dedupeQueries?: boolean;
+  /**
+   * Suffix for relative imports between split modules (`generateSplitClientFiles`,
+   * `generateSplitHooksFiles`): "" (default, bundler resolution) or ".js" (node16/nodenext).
+   */
+  importExtension?: '' | '.js';
 }
 
 // ── Helpers ──
@@ -69,13 +80,36 @@ function authImportPath(config?: ClientGeneratorConfig): string {
   return config?.authModuleImport ?? './auth';
 }
 
-function generateClientFetchHelpers(config?: ClientGeneratorConfig): string {
+const sharedQueryHelper = (
+  exp: string,
+) => `const inFlightQueries = new Map<string, Promise<unknown>>();
+
+// Concurrent identical GET calls share one request; each caller gets its own copy.
+${exp}function sharedQuery<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const running = inFlightQueries.get(key) as Promise<T> | undefined;
+  if (running) return running.then((value) => structuredClone(value));
+  const request = run().finally(() => inFlightQueries.delete(key));
+  inFlightQueries.set(key, request);
+  return request;
+}
+
+// A change (any POST) may make a running GET's answer stale: later GETs go to the server.
+${exp}function forgetSharedQueries(): void {
+  inFlightQueries.clear();
+}`;
+
+function generateClientFetchHelpers(
+  config?: ClientGeneratorConfig,
+  authImport = authImportPath(config),
+  exportHelpers = false,
+): string {
   const transport = config?.authTransport ?? 'bearer';
-  const authImport = authImportPath(config);
+  const exp = exportHelpers ? 'export ' : '';
+  const shared = config?.dedupeQueries ? `\n\n${sharedQueryHelper(exp)}` : '';
   if (transport === 'session') {
     return `import { csrfHeaders } from "${authImport}";
 
-function clientFetchInit(
+${exp}function clientFetchInit(
   method: string,
   headers?: Record<string, string>,
 ): { credentials: RequestCredentials; headers: Record<string, string> } {
@@ -87,12 +121,12 @@ function clientFetchInit(
       ...headers,
     },
   };
-}`;
+}${shared}`;
   }
 
   return `import { getAuthHeaders } from "${authImport}";
 
-function clientFetchInit(
+${exp}function clientFetchInit(
   method: string,
   headers?: Record<string, string>,
 ): { headers: Record<string, string> } {
@@ -103,7 +137,7 @@ function clientFetchInit(
       ...headers,
     },
   };
-}`;
+}${shared}`;
 }
 
 // ── Zod Schema → TypeScript Type String ──
@@ -279,12 +313,7 @@ export function generateTypedClient(
 
   const fetchUrl = method === 'GET' ? 'url' : `"${base}${urlPath}"`;
   const fetchBody = method === 'GET' ? '' : `\n    body: JSON.stringify(input),`;
-
-  return `${jsdoc}export async function ${fnName}(
-  input: ${pascal}Input,
-  options?: { headers?: Record<string, string>; signal?: AbortSignal },
-): Promise<${pascal}Output> {${queryParams}
-  const response = await fetch(${fetchUrl}, {
+  const request = `const response = await fetch(${fetchUrl}, {
     method: "${method}",
     ...clientFetchInit("${method}", options?.headers),${fetchBody}
     signal: options?.signal,
@@ -298,7 +327,28 @@ export function generateTypedClient(
       metadata: err.metadata,
     });
   }
-  return response.json() as Promise<${pascal}Output>;
+  return response.json() as Promise<${pascal}Output>;`;
+
+  if (method === 'GET' && config?.dedupeQueries) {
+    return `${jsdoc}export async function ${fnName}(
+  input: ${pascal}Input,
+  options?: { headers?: Record<string, string>; signal?: AbortSignal },
+): Promise<${pascal}Output> {${queryParams}
+  const run = async (): Promise<${pascal}Output> => {
+    ${request.replace(/\n/g, '\n  ')}
+  };
+  // A call with its own AbortSignal is never shared: aborting it must not abort others.
+  if (options?.signal) return run();
+  return sharedQuery(options?.headers ? \`\${url} \${JSON.stringify(options.headers)}\` : url, run);
+}`;
+  }
+
+  const forget = method !== 'GET' && config?.dedupeQueries ? '\n  forgetSharedQueries();' : '';
+  return `${jsdoc}export async function ${fnName}(
+  input: ${pascal}Input,
+  options?: { headers?: Record<string, string>; signal?: AbortSignal },
+): Promise<${pascal}Output> {${queryParams}${forget}
+  ${request}
 }`;
 }
 
@@ -408,7 +458,7 @@ export function generateFlowTrigger(
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}FlowInput,
   options?: { headers?: Record<string, string> },
-): Promise<{ executionId: string; status: string }> {
+): Promise<{ executionId: string; status: string }> {${config?.dedupeQueries ? '\n  forgetSharedQueries();' : ''}
   const response = await fetch("${base}${urlPath}", {
     method: "POST",
     ...clientFetchInit("POST", options?.headers),
@@ -511,4 +561,148 @@ export function generateHooksModule(
   }
 
   return lines.join('\n');
+}
+
+// ── Split Client / Hooks Modules ──
+// The single-file client puts every endpoint in one module, so every page that imports
+// one function loads all of them: bundlers keep a module whole. The split layout gives
+// each endpoint (and each hook) its own module behind the same `lib/client.ts` and
+// `hooks/hooks.ts` entry points, and marks the per-endpoint folders side-effect free
+// (a `package.json` with `"sideEffects": false`) so a page bundles only what it calls.
+// Imports from the entry points are unchanged.
+
+export interface GeneratedModuleFile {
+  /** Path relative to the generation root, e.g. `lib/client/getInvoice.ts`. */
+  path: string;
+  content: string;
+}
+
+const GENERATED_HEADER = '// Auto-generated by @plumbus/ui — do not edit';
+const SIDE_EFFECT_FREE = `${JSON.stringify({ sideEffects: false }, null, 2)}\n`;
+
+/** `./auth` as seen from `lib/client.ts`, rewritten for a module one folder deeper. */
+function nestedImport(specifier: string): string {
+  if (specifier.startsWith('./')) return `../${specifier.slice(2)}`;
+  if (specifier.startsWith('../')) return `../${specifier}`;
+  return specifier;
+}
+
+function capabilityTypeNames(cap: CapabilityContract): string[] {
+  const pascal = toPascalCase(cap.name);
+  return [`${pascal}Input`, `${pascal}Output`];
+}
+
+/** Generate the split client: entry barrel, shared runtime, types, one module per endpoint. */
+export function generateSplitClientFiles(
+  capabilities: CapabilityContract[],
+  flows: FlowTriggerInput[],
+  config?: ClientGeneratorConfig,
+): GeneratedModuleFile[] {
+  const ext = config?.importExtension ?? '';
+  const helpers = generateClientFetchHelpers(config, nestedImport(authImportPath(config)), true);
+  const typeBlocks = [
+    ...capabilities.map((cap) => generateCapabilityTypes(cap)),
+    ...flows.map(
+      (flow) => `export type ${toPascalCase(flow.name)}FlowInput = Record<string, unknown>;`,
+    ),
+  ];
+  const typeNames = [
+    ...capabilities.flatMap(capabilityTypeNames),
+    ...flows.map((flow) => `${toPascalCase(flow.name)}FlowInput`),
+  ];
+
+  const files: GeneratedModuleFile[] = [
+    {
+      path: 'lib/client/_runtime.ts',
+      content: [GENERATED_HEADER, '', generateErrorTypes(), '', helpers, ''].join('\n'),
+    },
+    {
+      path: 'lib/client/_types.ts',
+      content: [GENERATED_HEADER, '', typeBlocks.join('\n\n'), ''].join('\n'),
+    },
+    { path: 'lib/client/package.json', content: SIDE_EFFECT_FREE },
+  ];
+
+  const barrel = [
+    GENERATED_HEADER,
+    `export type { PlumbusApiError } from "./client/_runtime${ext}";`,
+    `export { isPlumbusApiError } from "./client/_runtime${ext}";`,
+  ];
+  if (typeNames.length > 0) {
+    barrel.push(
+      `export type {\n${typeNames.map((n) => `  ${n},`).join('\n')}\n} from "./client/_types${ext}";`,
+    );
+  }
+
+  for (const cap of capabilities) {
+    const fnName = capabilityClientFnName(cap);
+    const shared = config?.dedupeQueries
+      ? cap.kind === 'query'
+        ? ', sharedQuery'
+        : ', forgetSharedQueries'
+      : '';
+    files.push({
+      path: `lib/client/${fnName}.ts`,
+      content: [
+        GENERATED_HEADER,
+        `import type { ${capabilityTypeNames(cap).join(', ')} } from "./_types${ext}";`,
+        `import { clientFetchInit${shared} } from "./_runtime${ext}";`,
+        '',
+        generateTypedClient(cap, config),
+        '',
+      ].join('\n'),
+    });
+    barrel.push(`export { ${fnName} } from "./client/${fnName}${ext}";`);
+  }
+  for (const flow of flows) {
+    const fnName = flowTriggerFnName(flow);
+    files.push({
+      path: `lib/client/${fnName}.ts`,
+      content: [
+        GENERATED_HEADER,
+        `import type { ${toPascalCase(flow.name)}FlowInput } from "./_types${ext}";`,
+        `import { clientFetchInit${config?.dedupeQueries ? ', forgetSharedQueries' : ''} } from "./_runtime${ext}";`,
+        '',
+        generateFlowTrigger(flow, config),
+        '',
+      ].join('\n'),
+    });
+    barrel.push(`export { ${fnName} } from "./client/${fnName}${ext}";`);
+  }
+  files.unshift({ path: 'lib/client.ts', content: `${barrel.join('\n')}\n` });
+  return files;
+}
+
+/** Generate split hooks: `hooks/hooks.ts` barrel plus one module per hook. */
+export function generateSplitHooksFiles(
+  capabilities: CapabilityContract[],
+  config?: ClientGeneratorConfig,
+): GeneratedModuleFile[] {
+  const ext = config?.importExtension ?? '';
+  const toastPkg = config?.toastImport ?? 'sonner';
+  const files: GeneratedModuleFile[] = [
+    { path: 'hooks/generated/package.json', content: SIDE_EFFECT_FREE },
+  ];
+  const barrel = [GENERATED_HEADER];
+  for (const cap of capabilities) {
+    const hookName = `use${toPascalCase(cap.name)}`;
+    const fnName = capabilityClientFnName(cap);
+    const reactImports = cap.kind === 'query' ? 'useState, useEffect' : 'useState';
+    files.push({
+      path: `hooks/generated/${hookName}.ts`,
+      content: [
+        GENERATED_HEADER,
+        `import { ${reactImports} } from "react";`,
+        `import { toast } from "${toastPkg}";`,
+        `import type { ${capabilityTypeNames(cap).join(', ')} } from "../../lib/client/_types${ext}";`,
+        `import { ${fnName} } from "../../lib/client/${fnName}${ext}";`,
+        '',
+        generateReactHook(cap, config),
+        '',
+      ].join('\n'),
+    });
+    barrel.push(`export { ${hookName} } from "./generated/${hookName}${ext}";`);
+  }
+  files.unshift({ path: 'hooks/hooks.ts', content: `${barrel.join('\n')}\n` });
+  return files;
 }

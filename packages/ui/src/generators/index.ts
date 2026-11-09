@@ -10,9 +10,15 @@ export {
   generateMutationHook,
   generateQueryHook,
   generateReactHook,
+  generateSplitClientFiles,
+  generateSplitHooksFiles,
   generateTypedClient,
 } from './client-generator.js';
-export type { ClientGeneratorConfig, FlowTriggerInput } from './client-generator.js';
+export type {
+  ClientGeneratorConfig,
+  FlowTriggerInput,
+  GeneratedModuleFile,
+} from './client-generator.js';
 
 export {
   generateAuthFunctions,

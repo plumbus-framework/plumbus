@@ -5,6 +5,11 @@
 - **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
 - `next` ^16.4.5 (was ^16.2.1: RCE, middleware bypass, SSRF, cache poisoning and cross-tenant cache disclosure advisories; brings `sharp` 0.35.5) and `next-intl` ^4.9.2 (open redirect, prototype pollution).
 - The bearer auth transport's warning and generated token module now say plainly that a token in `localStorage` can be read and replayed by any XSS, and point to `--auth-transport session`. The default is unchanged.
+- New opt-in generator modes; existing output is unchanged unless they are turned on:
+  - `generateSplitClientFiles` / `generateSplitHooksFiles`: one module per endpoint and per hook behind the same `lib/client.ts` and `hooks/hooks.ts` entry points, with the per-endpoint folders marked side-effect free. The single-file client puts every endpoint in one module, so every page loaded all of them; with the split, a page bundles only what it calls (in one Next.js app, 52 KB of client and 25 KB of hooks per page became 13–16 KB and 4–6 KB). Exported names are unchanged. `importExtension: ".js"` serves node16/nodenext targets.
+  - `dedupeQueries`: concurrent identical GET calls share one request and each caller gets its own copy (`structuredClone`). A call with its own `AbortSignal` is never shared, and every POST (action, job, flow start) clears the shared requests first, so a GET after a change always reaches the server.
+  - `serverMessages` translation option: a provider that takes the active locale's catalog from the server layout (`initialMessages`) and loads another locale only when the reader switches. The locale switches at once; its catalog follows when loaded.
+  - `i18n/config.ts` no longer imports zod: `isLocale` and `localeDir` give the same answers without it, and `localeSchema` / `rtlLocaleSchema` are still exported, from a side-effect-free `i18n/schema/locale.ts`, so a page that only checks a locale doesn't bundle zod.
 
 ## 0.9.0 — Stabilization compatibility family
 

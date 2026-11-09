@@ -87,6 +87,8 @@ Optional: emit per-locale bundles (same runtime API, smaller generated files):
 plumbus ui generate --out-dir frontend --split-locale-bundles
 ```
 
+To keep message catalogs out of the browser bundle (core 0.8.5+, `@plumbus/ui` 0.9.1+), generate with `--server-messages` and pass `initialMessages={messages[locale]}` to `TranslationProvider` from the root layout (a Server Component). Don't import `i18n/messages` from client components; that puts every locale back on every page.
+
 Without the flag, output is unchanged — a single `i18n/messages.ts`.
 
 ```tsx
